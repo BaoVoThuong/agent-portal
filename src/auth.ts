@@ -3,6 +3,7 @@ import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import bcrypt from "bcryptjs";
+import type { UserRole } from "@/lib/config";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -17,11 +18,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const supabase = getSupabaseAdmin();
         const { data: user } = await supabase
           .from("users")
-          .select("*")
+          .select("id,email,name,password_hash,role,is_active")
           .eq("email", credentials.email)
           .single();
 
-        if (!user || !user.password_hash) return null;
+        if (!user || !user.password_hash || user.is_active === false) {
+          return null;
+        }
 
         const isPasswordCorrect = await bcrypt.compare(
           credentials.password as string,
@@ -34,6 +37,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           id: user.id,
           email: user.email,
           name: user.name,
+          role: (user.role ?? "agent") as UserRole,
         };
       },
     }),
@@ -51,11 +55,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const supabase = getSupabaseAdmin();
         const { data: existingUser } = await supabase
           .from("users")
-          .select("id")
+          .select("id,is_active")
           .eq("email", user.email)
           .single();
 
-        if (existingUser) return true;
+        if (existingUser) return existingUser.is_active !== false;
 
         // Cơ chế "Website lớn": Tự động cho phép nếu thuộc domain công ty
         const allowedDomain = "excelplannings.com";
@@ -66,6 +70,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               email: user.email,
               name: user.name,
               password_hash: "google-auth", // Đánh dấu đây là user dùng Google
+              role: "agent",
+              is_active: true,
             },
           ]);
           return true;
@@ -75,6 +81,32 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return false;
       }
       return true;
+    },
+    async jwt({ token, user }) {
+      if (user?.role) {
+        token.role = user.role;
+      }
+
+      if (token.email && !token.role) {
+        const supabase = getSupabaseAdmin();
+        const { data: dbUser } = await supabase
+          .from("users")
+          .select("role,is_active")
+          .eq("email", token.email)
+          .single();
+
+        if (dbUser?.is_active !== false) {
+          token.role = (dbUser?.role ?? "agent") as UserRole;
+        }
+      }
+
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.role = (token.role ?? "agent") as UserRole;
+      }
+      return session;
     },
   },
 });

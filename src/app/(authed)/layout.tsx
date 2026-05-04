@@ -15,7 +15,7 @@ export default async function AuthedLayout({
 
   return (
     <div className="flex min-h-screen bg-[#f7f9fc]">
-      <Sidebar />
+      <Sidebar userRole={session.user.role ?? "agent"} />
       <div className="flex flex-1 min-w-0 flex-col">
         <TopBar
           userName={session.user.name ?? null}

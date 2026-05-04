@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import styles from "./topbar.module.css";
 
@@ -33,15 +34,6 @@ export default function TopBar({ userName, userEmail }: TopBarProps) {
 
   return (
     <header className={styles.topbar}>
-      <button
-        type="button"
-        className={styles.iconButton}
-        aria-label="Notifications"
-      >
-        <BellIcon />
-        <span className={styles.badge}>9+</span>
-      </button>
-
       <div className={styles.userInfo}>
         <div className={styles.userName}>{userName ?? userEmail}</div>
         <div className={styles.userId}>ID: Not provided</div>
@@ -57,13 +49,15 @@ export default function TopBar({ userName, userEmail }: TopBarProps) {
           aria-label="User menu"
         >
           <UserIcon />
+          <span
+            className={`${styles.chevron} ${
+              menuOpen ? styles.chevronOpen : ""
+            }`}
+            aria-hidden
+          >
+            <ChevronDownIcon />
+          </span>
         </button>
-        <span
-          className={`${styles.chevron} ${menuOpen ? styles.chevronOpen : ""}`}
-          aria-hidden
-        >
-          <ChevronDownIcon />
-        </span>
 
         {menuOpen && (
           <div className={styles.dropdown} role="menu">
@@ -77,16 +71,15 @@ export default function TopBar({ userName, userEmail }: TopBarProps) {
               <span className={styles.dropdownLabel}>My Profile</span>
               <span className={styles.comingSoon}>Coming soon</span>
             </button>
-            <button
-              type="button"
+            <Link
+              href="/settings"
               className={styles.dropdownItem}
               role="menuitem"
-              disabled
+              onClick={() => setMenuOpen(false)}
             >
               <GearIcon />
               <span className={styles.dropdownLabel}>Settings</span>
-              <span className={styles.comingSoon}>Coming soon</span>
-            </button>
+            </Link>
             <div className={styles.dropdownDivider} />
             <button
               type="button"
@@ -104,25 +97,6 @@ export default function TopBar({ userName, userEmail }: TopBarProps) {
         )}
       </div>
     </header>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-    </svg>
   );
 }
 

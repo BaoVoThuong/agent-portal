@@ -15,3 +15,14 @@ export type Entry = EntryInput & {
   agent_name: string | null;
   created_at: string;
 };
+
+export type UserRole = "admin" | "agent";
+
+export type AccountUser = {
+  id: string;
+  email: string;
+  name: string | null;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+};

@@ -5,6 +5,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import styles from "./sidebar.module.css";
+import type { UserRole } from "@/lib/config";
+
+type SidebarProps = {
+  userRole?: UserRole;
+};
 
 const menuData = [
   {
@@ -18,11 +23,15 @@ const menuData = [
   { href: "/performance", label: "Agent Performance" },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ userRole = "agent" }: SidebarProps) {
   const pathname = usePathname();
   const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({
     "Customer Registration": true,
   });
+  const menuItems =
+    userRole === "admin"
+      ? [...menuData, { href: "/account-manager", label: "Account Manager" }]
+      : menuData;
 
   const toggleDropdown = (title: string) => {
     setOpenDropdowns((prev) => ({ ...prev, [title]: !prev[title] }));
@@ -42,7 +51,7 @@ export default function Sidebar() {
       </div>
 
       <nav className={styles.nav}>
-        {menuData.map((item, idx) => {
+        {menuItems.map((item, idx) => {
           if (item.children) {
             const isOpen = openDropdowns[item.title];
             return (
