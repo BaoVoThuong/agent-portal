@@ -1,0 +1,166 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 72px;
+  padding: 0 24px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e6ee;
+  gap: 18px;
+}
+
+.iconButton {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #eef1f6;
+  color: #16233a;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.iconButton:hover {
+  background: #dde2eb;
+}
+
+.badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #e23b3b;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border: 2px solid #ffffff;
+}
+
+.userInfo {
+  text-align: right;
+  line-height: 1.2;
+}
+
+.userName {
+  font-size: 15px;
+  font-weight: 700;
+  color: #16233a;
+}
+
+.userId {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #98a2b3;
+}
+
+.menuWrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.avatarButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #d8dee7;
+  color: #5a6378;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.avatarButton:hover {
+  background: #c5ccda;
+}
+
+.chevron {
+  color: #98a2b3;
+  display: inline-flex;
+  transition: transform 0.15s ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 220px;
+  background: #ffffff;
+  border: 1px solid #e2e6ee;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(15, 35, 73, 0.14);
+  padding: 8px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 500;
+  color: #16233a;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+  font-family: inherit;
+}
+
+.dropdownItem:hover:not(:disabled) {
+  background: #f4f6fa;
+}
+
+.dropdownItem:disabled {
+  cursor: not-allowed;
+  color: #98a2b3;
+}
+
+.dropdownLabel {
+  flex: 1;
+}
+
+.comingSoon {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #6b7280;
+  background: #eef1f6;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.dropdownDivider {
+  height: 1px;
+  background: #e2e6ee;
+  margin: 4px 0;
+}
