@@ -20,6 +20,13 @@ const menuData = [
       { href: "#", label: "Life", comingSoon: true },
     ]
   },
+  {
+    title: "Automation Tool",
+    children: [
+      { href: "/automation/health-statement", label: "Health Statement" },
+      { href: "/automation/provider-finder", label: "Provider Finder", comingSoon: true },
+    ]
+  },
   { href: "/performance", label: "Agent Performance" },
 ];
 
@@ -27,6 +34,7 @@ export default function Sidebar({ userRole = "agent" }: SidebarProps) {
   const pathname = usePathname();
   const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({
     "Customer Registration": true,
+    "Automation Tool": pathname.startsWith("/automation"),
   });
   const menuItems =
     userRole === "admin"

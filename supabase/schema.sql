@@ -53,3 +53,69 @@ create table if not exists entries (
 
 create index if not exists entries_agent_email_idx on entries (agent_email);
 create index if not exists entries_created_at_idx on entries (created_at desc);
+
+create table if not exists health_payment_summary (
+  agent text,
+  carrier_name text,
+  customer_id text,
+  customer_name text,
+  effective_date text,
+  paid_to_date text,
+  gross_compensation numeric,
+  transaction_id text,
+  statement text
+);
+
+create index if not exists health_payment_summary_agent_idx
+  on health_payment_summary (agent);
+
+alter table health_payment_summary
+add column if not exists agent text;
+
+alter table health_payment_summary
+add column if not exists carrier_name text;
+
+alter table health_payment_summary
+add column if not exists customer_id text;
+
+alter table health_payment_summary
+add column if not exists customer_name text;
+
+alter table health_payment_summary
+add column if not exists effective_date text;
+
+alter table health_payment_summary
+add column if not exists paid_to_date text;
+
+alter table health_payment_summary
+add column if not exists gross_compensation numeric;
+
+alter table health_payment_summary
+add column if not exists transaction_id text;
+
+alter table health_payment_summary
+add column if not exists statement text;
+
+alter table health_payment_summary
+drop column if exists id cascade,
+drop column if exists run_id cascade,
+drop column if exists statement_number cascade,
+drop column if exists carrier_input cascade,
+drop column if exists month_report cascade,
+drop column if exists uploaded_file_name cascade,
+drop column if exists source_row_number cascade,
+drop column if exists source_row_hash cascade,
+drop column if exists source_sheet_name cascade,
+drop column if exists raw_row cascade,
+drop column if exists synced_at cascade,
+drop column if exists created_at cascade,
+drop column if exists source_sheet_id cascade,
+drop column if exists source_gid cascade;
+
+create or replace function clear_health_payment_summary()
+returns void
+language sql
+security definer
+as $$
+  truncate table health_payment_summary;
+$$;
