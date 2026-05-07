@@ -246,9 +246,11 @@ function parseRenewalAgentSheet(
 }
 
 function monthVariants(monthReport: string) {
-  const month = monthReport.includes("-")
-    ? monthReport.split("-")[1] ?? monthReport.split("-")[0]
-    : monthReport.slice(0, 2);
+  const parts = monthReport.split("-");
+  const month =
+    parts.length === 2 && parts[0]?.length === 4
+      ? parts[1]
+      : parts[0] ?? monthReport.slice(0, 2);
   const normalizedMonth = month.padStart(2, "0");
   const match = MONTH_NAMES.find(([mm]) => mm === normalizedMonth);
   return match ? match.slice(1) : [normalizedMonth];

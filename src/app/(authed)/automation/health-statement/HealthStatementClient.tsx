@@ -34,15 +34,41 @@ type PreviewRow = {
   statement: string | null;
 };
 
+type HealthStatementReport = {
+  totals: {
+    totalPayment: number;
+    used: number;
+    unclaimed: number;
+    duplicate: number;
+    final: number;
+    balanced: boolean;
+  };
+  allPayment: unknown[];
+  paymentForProducer: unknown[];
+  unclaimedPayment: unknown[];
+  duplicatedPayment: unknown[];
+};
+
 type RunResult = {
   inserted: number;
   preview: PreviewRow[];
+  report: HealthStatementReport | null;
 };
 
 const initialForm: FormState = {
   carrier: "",
   monthReport: "",
 };
+
+const monthReportPattern = /^(0[1-9]|1[0-2])-\d{4}$/;
+
+function createMonthReportOptions() {
+  const year = new Date().getFullYear();
+  return Array.from({ length: 12 }, (_, index) => {
+    const month = String(index + 1).padStart(2, "0");
+    return `${month}-${year}`;
+  });
+}
 
 function createPaymentFileInput(): PaymentFileInput {
   return {
@@ -58,7 +84,38 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatMoney(value: number | null | undefined) {
+  return Number(value ?? 0).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  });
+}
+
+function isBalanced(totalPayment: number, final: number) {
+  return Math.round(totalPayment * 100) === Math.round(final * 100);
+}
+
+function getFilename(contentDisposition: string | null) {
+  const match = contentDisposition?.match(/filename="?([^"]+)"?/i);
+  return match?.[1] ?? "health-statement-report.xlsx";
+}
+
+async function downloadResponseFile(response: Response) {
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = getFilename(response.headers.get("content-disposition"));
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function readNumberHeader(response: Response, key: string) {
+  return Number(response.headers.get(key) ?? 0);
+}
+
 export default function HealthStatementClient() {
+  const monthReportOptions = useMemo(() => createMonthReportOptions(), []);
   const [form, setForm] = useState<FormState>(initialForm);
   const [paymentFiles, setPaymentFiles] = useState<PaymentFileInput[]>([
     createPaymentFileInput(),
@@ -66,11 +123,19 @@ export default function HealthStatementClient() {
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const reportTotals = result?.report?.totals ?? {
+    totalPayment: 0,
+    used: 0,
+    unclaimed: 0,
+    duplicate: 0,
+    final: 0,
+    balanced: true,
+  };
 
   const canRun = useMemo(
     () =>
       form.carrier.trim() !== "" &&
-      form.monthReport !== "" &&
+      monthReportPattern.test(form.monthReport) &&
       paymentFiles.length > 0 &&
       paymentFiles.every((item) => item.statementNumber.trim() !== "" && item.file),
     [form, paymentFiles]
@@ -129,17 +194,31 @@ export default function HealthStatementClient() {
         method: "POST",
         body: payload,
       });
-      const data = (await response.json()) as Partial<RunResult> & {
-        error?: string;
-      };
 
       if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
         throw new Error(data.error ?? "Run report failed");
       }
 
+      await downloadResponseFile(response);
+
       setResult({
-        inserted: data.inserted ?? 0,
-        preview: data.preview ?? [],
+        inserted: Number(response.headers.get("x-inserted-rows") ?? 0),
+        preview: [],
+        report: {
+          totals: {
+            totalPayment: readNumberHeader(response, "x-total-payment"),
+            used: readNumberHeader(response, "x-used"),
+            unclaimed: readNumberHeader(response, "x-unclaimed"),
+            duplicate: readNumberHeader(response, "x-duplicate"),
+            final: readNumberHeader(response, "x-final"),
+            balanced: response.headers.get("x-balanced") === "true",
+          },
+          allPayment: [],
+          paymentForProducer: [],
+          unclaimedPayment: [],
+          duplicatedPayment: [],
+        },
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Run report failed");
@@ -186,11 +265,17 @@ export default function HealthStatementClient() {
               Month report
             </span>
             <input
-              type="month"
               value={form.monthReport}
               onChange={(event) => updateField("monthReport", event.target.value)}
+              list="month-report-options"
               className="h-11 w-full rounded-md border border-[#cfd7e3] px-3 text-sm text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
+              placeholder={monthReportOptions[0] ?? "01-2026"}
             />
+            <datalist id="month-report-options">
+              {monthReportOptions.map((monthReport) => (
+                <option key={monthReport} value={monthReport} />
+              ))}
+            </datalist>
           </label>
 
           <div>
@@ -328,37 +413,52 @@ export default function HealthStatementClient() {
             </div>
           </dl>
 
-          <div className="mt-8 overflow-hidden rounded-md border border-[#e6ebf2]">
-            <div className="grid grid-cols-5 bg-[#edf2f7] text-xs font-semibold uppercase tracking-wide text-[#344054]">
-              <div className="px-3 py-2">Agent</div>
-              <div className="px-3 py-2">Customer</div>
-              <div className="px-3 py-2">Carrier</div>
-              <div className="px-3 py-2">Gross</div>
-              <div className="px-3 py-2">Statement</div>
-            </div>
-            {(result?.preview.length ? result.preview : [null]).map((row, index) => (
-              <div
-                key={row?.transaction_id ?? row?.customer_id ?? index}
-                className="grid grid-cols-5 border-t border-[#e6ebf2] text-sm text-[#667085]"
-              >
-                <div className="truncate px-3 py-3">{row?.agent ?? "-"}</div>
-                <div className="truncate px-3 py-3">
-                  {row?.customer_name ?? row?.customer_id ?? "-"}
+          <div className="mt-8 rounded-md border border-[#d8dee7] bg-[#f8fafc] p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-[#16233a]">
+                  Statement Reconcile
                 </div>
-                <div className="truncate px-3 py-3">{row?.carrier_name ?? "-"}</div>
-                <div className="px-3 py-3">
-                  {row?.gross_compensation ?? "-"}
+                <div
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    isBalanced(reportTotals.totalPayment, reportTotals.final)
+                      ? "bg-[#d1fadf] text-[#15803d]"
+                      : "bg-[#fee2e2] text-[#b91c1c]"
+                  }`}
+                >
+                  Status:{" "}
+                  {isBalanced(reportTotals.totalPayment, reportTotals.final)
+                    ? "True"
+                    : "False"}
                 </div>
-                <div className="truncate px-3 py-3">{row?.statement ?? "-"}</div>
               </div>
-            ))}
-          </div>
 
-          {result && (
-            <div className="mt-5 rounded-md border border-[#b7dfca] bg-[#effaf4] px-4 py-3 text-sm font-medium text-[#25613d]">
-              Inserted {result.inserted} cleaned rows into Supabase.
+              <div className="overflow-hidden rounded-md border border-[#e6ebf2] bg-white">
+                <div className="grid grid-cols-5 bg-[#edf2f7] text-xs font-semibold uppercase tracking-wide text-[#344054]">
+                  <div className="px-3 py-2">Initial Payment</div>
+                  <div className="px-3 py-2">Used</div>
+                  <div className="px-3 py-2">Unclaimed</div>
+                  <div className="px-3 py-2">Duplicate</div>
+                  <div className="px-3 py-2">Final</div>
+                </div>
+                <div className="grid grid-cols-5 border-t border-[#e6ebf2] text-sm font-semibold text-[#16233a]">
+                  <div className="px-3 py-3">
+                    {formatMoney(reportTotals.totalPayment)}
+                  </div>
+                  <div className="px-3 py-3">
+                    {formatMoney(reportTotals.used)}
+                  </div>
+                  <div className="px-3 py-3">
+                    {formatMoney(reportTotals.unclaimed)}
+                  </div>
+                  <div className="px-3 py-3">
+                    {formatMoney(reportTotals.duplicate)}
+                  </div>
+                  <div className="px-3 py-3">
+                    {formatMoney(reportTotals.final)}
+                  </div>
+                </div>
+              </div>
             </div>
-          )}
 
           {error && (
             <div className="mt-5 rounded-md border border-[#f2b8b5] bg-[#fff4f2] px-4 py-3 text-sm font-medium text-[#9f2f24]">

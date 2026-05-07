@@ -2,6 +2,14 @@
 
 create extension if not exists "pgcrypto";
 
+do $$
+begin
+  if to_regclass('public.health_mart') is not null
+    and to_regclass('public.health_raw_data') is null then
+    alter table public.health_mart rename to health_raw_data;
+  end if;
+end $$;
+
 create table if not exists users (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
@@ -65,6 +73,212 @@ create table if not exists health_payment_summary (
   transaction_id text,
   statement text
 );
+
+create table if not exists health_raw_data (
+  source_sheet_id text not null,
+  source_gid text not null,
+  source_row_number integer not null,
+  source_row_hash text not null,
+  deal_name text,
+  deal_stage text,
+  state text,
+  carrier text,
+  plan_name text,
+  primary_member_id text,
+  agent text,
+  broker_effective text,
+  paid_to_date text,
+  report_month text,
+  month_report text,
+  carriers_messer_paid text,
+  agent_received text,
+  eps_override text,
+  eps_override_received text,
+  eps_split text,
+  pay_rate_level text,
+  transaction_id text,
+  messer_statement text,
+  num_client text,
+  raw_row jsonb not null,
+  synced_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  unique (source_sheet_id, source_gid, source_row_number)
+);
+
+create index if not exists health_raw_data_carrier_idx
+  on health_raw_data (carrier);
+
+create index if not exists health_raw_data_report_month_idx
+  on health_raw_data (month_report);
+
+alter table health_raw_data
+add column if not exists deal_name text,
+add column if not exists deal_stage text,
+add column if not exists state text,
+add column if not exists carrier text,
+add column if not exists plan_name text,
+add column if not exists primary_member_id text,
+add column if not exists agent text,
+add column if not exists broker_effective text,
+add column if not exists paid_to_date text,
+add column if not exists report_month text,
+add column if not exists month_report text,
+add column if not exists carriers_messer_paid text,
+add column if not exists agent_received text,
+add column if not exists eps_override text,
+add column if not exists eps_override_received text,
+add column if not exists eps_split text,
+add column if not exists pay_rate_level text,
+add column if not exists transaction_id text,
+add column if not exists messer_statement text,
+add column if not exists num_client text;
+
+create table if not exists health_mart (
+  deal_name text,
+  deal_stage text,
+  state text,
+  carrier text,
+  plan_name text,
+  primary_member_id text,
+  agent text,
+  broker_effective_date date,
+  paid_to_date date,
+  report_month date,
+  carriers_messer_paid double precision,
+  agent_received double precision,
+  eps_override double precision,
+  eps_override_received double precision,
+  eps_split double precision,
+  pay_rate_level text,
+  transaction_id text,
+  messer_statement text,
+  num_client integer,
+  report_month_label text
+);
+
+create index if not exists health_mart_carrier_idx
+  on health_mart (carrier);
+
+create index if not exists health_mart_report_month_idx
+  on health_mart (report_month);
+
+create index if not exists health_mart_primary_member_id_idx
+  on health_mart (primary_member_id);
+
+drop function if exists refresh_health_mart();
+drop function if exists parse_health_date(text);
+drop function if exists parse_health_money(text);
+drop function if exists parse_health_int(text);
+
+create or replace function parse_health_date(value text)
+returns date
+language plpgsql
+immutable
+as $$
+declare
+  text_value text := btrim(value);
+begin
+  if nullif(text_value, '') is null then
+    return null;
+  end if;
+
+  begin
+    if text_value ~ '^\d{1,2}/\d{1,2}/\d{4}$' then
+      return to_date(text_value, 'MM/DD/YYYY');
+    elsif text_value ~ '^\d{1,2}/\d{4}$' then
+      return to_date('01/' || text_value, 'DD/MM/YYYY');
+    elsif text_value ~ '^\d{4}-\d{2}-\d{2}$' then
+      return text_value::date;
+    end if;
+  exception when others then
+    return null;
+  end;
+
+  return null;
+end;
+$$;
+
+create or replace function parse_health_money(value text)
+returns double precision
+language sql
+immutable
+as $$
+  select case
+    when nullif(regexp_replace(btrim(coalesce(value, '')), '[\$,]', '', 'g'), '') ~ '^-?\d+(\.\d+)?$'
+      then nullif(regexp_replace(btrim(coalesce(value, '')), '[\$,]', '', 'g'), '')::double precision
+    else null
+  end;
+$$;
+
+create or replace function parse_health_int(value text)
+returns integer
+language sql
+immutable
+as $$
+  select case
+    when btrim(coalesce(value, '')) ~ '^-?\d+$'
+      then btrim(value)::integer
+    else null
+  end;
+$$;
+
+create or replace function refresh_health_mart()
+returns void
+language sql
+security definer
+as $$
+  truncate table health_mart;
+
+  insert into health_mart (
+    deal_name,
+    deal_stage,
+    state,
+    carrier,
+    plan_name,
+    primary_member_id,
+    agent,
+    broker_effective_date,
+    paid_to_date,
+    report_month,
+    carriers_messer_paid,
+    agent_received,
+    eps_override,
+    eps_override_received,
+    eps_split,
+    pay_rate_level,
+    transaction_id,
+    messer_statement,
+    num_client,
+    report_month_label
+  )
+  select
+    btrim(r.deal_name),
+    upper(btrim(r.deal_stage)),
+    upper(btrim(r.state)),
+    upper(btrim(r.carrier)),
+    upper(btrim(r.plan_name)),
+    upper(btrim(r.primary_member_id)),
+    upper(btrim(r.agent)),
+    parse_health_date(r.broker_effective),
+    parse_health_date(r.paid_to_date),
+    date_trunc('month', parse_health_date(r.month_report))::date,
+    parse_health_money(r.carriers_messer_paid),
+    parse_health_money(r.agent_received),
+    parse_health_money(r.eps_override),
+    parse_health_money(r.eps_override_received),
+    parse_health_money(r.eps_split),
+    upper(btrim(r.pay_rate_level)),
+    upper(btrim(r.transaction_id)),
+    btrim(r.messer_statement),
+    parse_health_int(r.num_client::text),
+    to_char(date_trunc('month', parse_health_date(r.month_report))::date, 'YYYY-MM')
+  from health_raw_data r
+  where not (
+    r.deal_name is null
+    and btrim(r.deal_name) <> ''
+    and r.primary_member_id is null
+  );
+$$;
 
 create index if not exists health_payment_summary_agent_idx
   on health_payment_summary (agent);

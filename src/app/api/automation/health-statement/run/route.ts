@@ -2,12 +2,39 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { parseHealthPaymentWorkbook } from "@/lib/automation/health-statement/parser";
+import {
+  buildHealthStatementReport,
+  type HealthMartRow,
+} from "@/lib/automation/health-statement/report";
+import { buildHealthStatementWorkbook } from "@/lib/automation/health-statement/workbook";
 
 export const runtime = "nodejs";
 
 function getRequiredText(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+async function fetchHealthMartRows(carrier: string) {
+  const supabase = getSupabaseAdmin();
+  const rows: HealthMartRow[] = [];
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("health_mart")
+      .select(
+        "agent, deal_number:num_client, deal_name, carrier, state, plan_name, primary_member_id, broker_effective_date, report_month"
+      )
+      .ilike("carrier", carrier)
+      .range(from, from + pageSize - 1);
+
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as HealthMartRow[]));
+    if (!data || data.length < pageSize) break;
+  }
+
+  return rows;
 }
 
 export async function POST(request: Request) {
@@ -85,8 +112,42 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({
-    inserted: rows.length,
-    preview: rows.slice(0, 10),
+  let report;
+  try {
+    const healthMart = await fetchHealthMartRows(carrier);
+    report = buildHealthStatementReport({
+      carrier,
+      monthReport,
+      healthMart,
+      payments: rows,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : "Failed to build health statement report",
+      },
+      { status: 500 }
+    );
+  }
+
+  const workbook = buildHealthStatementWorkbook(report);
+  const filename = `health-statement-${carrier}-${monthReport}.xlsx`;
+
+  return new Response(new Uint8Array(workbook), {
+    headers: {
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "X-Inserted-Rows": String(rows.length),
+      "X-Total-Payment": String(report.totals.totalPayment),
+      "X-Used": String(report.totals.used),
+      "X-Unclaimed": String(report.totals.unclaimed),
+      "X-Duplicate": String(report.totals.duplicate),
+      "X-Final": String(report.totals.final),
+      "X-Balanced": String(report.totals.balanced),
+    },
   });
 }
