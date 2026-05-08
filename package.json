@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sync:data": "node datasync/sync.js --config all",
+    "sync:list": "node datasync/sync.js --list",
+    "sync:health": "node datasync/sync.js --config health-mart",
+    "sync:pc": "node datasync/sync.js --config pc-raw-data",
+    "sync:provider": "node datasync/sync.js --config provider-address"
   },
   "dependencies": {
     "@auth/core": "^0.41.2",

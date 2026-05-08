@@ -24,7 +24,8 @@ const menuData = [
     title: "Automation Tool",
     children: [
       { href: "/automation/health-statement", label: "Health Statement" },
-      { href: "/automation/provider-finder", label: "Provider Finder", comingSoon: true },
+      { href: "/automation/pc-statement", label: "P&C Statement" },
+      { href: "/automation/provider-finder", label: "Provider Finder" },
     ]
   },
   { href: "/performance", label: "Agent Performance" },

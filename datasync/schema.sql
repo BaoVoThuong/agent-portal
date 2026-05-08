@@ -1,4 +1,4 @@
--- Run this once in the Supabase SQL editor to set up the database.
+-- Run this once in the Supabase SQL editor before running the sync script.
 
 create extension if not exists "pgcrypto";
 
@@ -10,59 +10,7 @@ begin
   end if;
 end $$;
 
-create table if not exists users (
-  id uuid primary key default gen_random_uuid(),
-  email text not null unique,
-  name text,
-  password_hash text,
-  role text not null default 'agent',
-  is_active boolean not null default true,
-  created_at timestamptz not null default now()
-);
-
-alter table users
-add column if not exists role text not null default 'agent';
-
-alter table users
-add column if not exists is_active boolean not null default true;
-
-alter table users
-add column if not exists created_at timestamptz not null default now();
-
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'users_role_check'
-  ) then
-    alter table users
-    add constraint users_role_check check (role in ('admin', 'agent'));
-  end if;
-end $$;
-
-create index if not exists users_email_idx on users (email);
-create index if not exists users_active_idx on users (is_active);
-
-create table if not exists entries (
-  id uuid primary key default gen_random_uuid(),
-  agent_email text not null,
-  agent_name text,
-  carrier_name text not null,
-  state text not null,
-  zipcode text not null,
-  effective_date date not null,
-  customer_name text not null,
-  policy_id text not null,
-  number_of_members integer,
-  fub_link text,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists entries_agent_email_idx on entries (agent_email);
-create index if not exists entries_created_at_idx on entries (created_at desc);
-
-create table if not exists health_payment_summary (
+create table if not exists public.health_payment_summary (
   agent text,
   carrier_name text,
   customer_id text,
@@ -74,7 +22,7 @@ create table if not exists health_payment_summary (
   statement text
 );
 
-create table if not exists provider_address (
+create table if not exists public.provider_address (
   source_sheet_id text not null,
   source_gid text not null,
   source_row_number integer not null,
@@ -102,15 +50,15 @@ create table if not exists provider_address (
 );
 
 create index if not exists provider_address_npi_idx
-  on provider_address (npi);
+  on public.provider_address (npi);
 
 create index if not exists provider_address_city_idx
-  on provider_address (city);
+  on public.provider_address (city);
 
 create index if not exists provider_address_zip_code_idx
-  on provider_address (zip_code);
+  on public.provider_address (zip_code);
 
-alter table provider_address
+alter table public.provider_address
 add column if not exists facility text,
 add column if not exists doctors text,
 add column if not exists npi text,
@@ -128,7 +76,7 @@ add column if not exists other_plans text,
 add column if not exists verified_by text,
 add column if not exists date text;
 
-create table if not exists pc_raw_data (
+create table if not exists public.pc_raw_data (
   source_sheet_id text not null,
   source_gid text not null,
   source_row_number integer not null,
@@ -154,12 +102,12 @@ create table if not exists pc_raw_data (
 );
 
 create index if not exists pc_raw_data_policy_number_idx
-  on pc_raw_data (policy_number);
+  on public.pc_raw_data (policy_number);
 
 create index if not exists pc_raw_data_statement_number_idx
-  on pc_raw_data (statement_number);
+  on public.pc_raw_data (statement_number);
 
-alter table pc_raw_data
+alter table public.pc_raw_data
 add column if not exists agent text,
 add column if not exists agency text,
 add column if not exists insured_name text,
@@ -175,7 +123,7 @@ add column if not exists carrier_commission text,
 add column if not exists paid_producer text,
 add column if not exists statement_number text;
 
-create table if not exists pc_mart (
+create table if not exists public.pc_mart (
   agent_id text,
   agent_name text,
   agency_id text,
@@ -204,15 +152,15 @@ create table if not exists pc_mart (
 );
 
 create index if not exists pc_mart_policy_number_idx
-  on pc_mart (policy_number);
+  on public.pc_mart (policy_number);
 
 create index if not exists pc_mart_effective_date_idx
-  on pc_mart (effective_date);
+  on public.pc_mart (effective_date);
 
 create index if not exists pc_mart_statement_number_idx
-  on pc_mart (statement_number);
+  on public.pc_mart (statement_number);
 
-create table if not exists health_raw_data (
+create table if not exists public.health_raw_data (
   source_sheet_id text not null,
   source_gid text not null,
   source_row_number integer not null,
@@ -244,12 +192,12 @@ create table if not exists health_raw_data (
 );
 
 create index if not exists health_raw_data_carrier_idx
-  on health_raw_data (carrier);
+  on public.health_raw_data (carrier);
 
 create index if not exists health_raw_data_report_month_idx
-  on health_raw_data (month_report);
+  on public.health_raw_data (month_report);
 
-alter table health_raw_data
+alter table public.health_raw_data
 add column if not exists deal_name text,
 add column if not exists deal_stage text,
 add column if not exists state text,
@@ -271,7 +219,7 @@ add column if not exists transaction_id text,
 add column if not exists messer_statement text,
 add column if not exists num_client text;
 
-create table if not exists health_mart (
+create table if not exists public.health_mart (
   deal_name text,
   deal_stage text,
   state text,
@@ -295,20 +243,20 @@ create table if not exists health_mart (
 );
 
 create index if not exists health_mart_carrier_idx
-  on health_mart (carrier);
+  on public.health_mart (carrier);
 
 create index if not exists health_mart_report_month_idx
-  on health_mart (report_month);
+  on public.health_mart (report_month);
 
 create index if not exists health_mart_primary_member_id_idx
-  on health_mart (primary_member_id);
+  on public.health_mart (primary_member_id);
 
-drop function if exists refresh_health_mart();
-drop function if exists parse_health_date(text);
-drop function if exists parse_health_money(text);
-drop function if exists parse_health_int(text);
+drop function if exists public.refresh_health_mart();
+drop function if exists public.parse_health_date(text);
+drop function if exists public.parse_health_money(text);
+drop function if exists public.parse_health_int(text);
 
-create or replace function parse_health_date(value text)
+create or replace function public.parse_health_date(value text)
 returns date
 language plpgsql
 immutable
@@ -336,7 +284,7 @@ begin
 end;
 $$;
 
-create or replace function parse_health_money(value text)
+create or replace function public.parse_health_money(value text)
 returns double precision
 language sql
 immutable
@@ -348,7 +296,7 @@ as $$
   end;
 $$;
 
-create or replace function parse_health_int(value text)
+create or replace function public.parse_health_int(value text)
 returns integer
 language sql
 immutable
@@ -360,10 +308,10 @@ as $$
   end;
 $$;
 
-drop function if exists refresh_pc_mart();
-drop function if exists parse_pc_date(text);
+drop function if exists public.refresh_pc_mart();
+drop function if exists public.parse_pc_date(text);
 
-create or replace function parse_pc_date(value text)
+create or replace function public.parse_pc_date(value text)
 returns date
 language plpgsql
 immutable
@@ -391,14 +339,14 @@ begin
 end;
 $$;
 
-create or replace function refresh_pc_mart()
+create or replace function public.refresh_pc_mart()
 returns void
 language sql
 security definer
 as $$
-  truncate table pc_mart;
+  truncate table public.pc_mart;
 
-  insert into pc_mart (
+  insert into public.pc_mart (
     agent_id,
     agent_name,
     agency_id,
@@ -430,7 +378,7 @@ as $$
       upper(btrim(agent)) as agent,
       upper(btrim(split_part(agency, '-', 1))) as agency,
       insured_name,
-      parse_health_int(max(zipcode)::text) as zipcode,
+      public.parse_health_int(max(zipcode)::text) as zipcode,
       case
         when upper(btrim(type)) in ('AUTO', 'ATUO', 'CAR') then 'AUTO'
         when upper(btrim(type)) in ('COMMERCIAL', 'COMMERICAL', 'COMERCIAL', 'COMM') then 'COMMERCIAL'
@@ -475,10 +423,10 @@ as $$
         else upper(btrim(company))
       end as company,
       policy_number,
-      round(sum(parse_health_money(premium))::numeric, 2)::double precision as premium,
-      round(sum(parse_health_money(true_premium))::numeric, 2)::double precision as true_premium,
-      parse_pc_date(effective_date) as effective_date,
-      parse_pc_date(expired_date) as expired_date,
+      round(sum(public.parse_health_money(premium))::numeric, 2)::double precision as premium,
+      round(sum(public.parse_health_money(true_premium))::numeric, 2)::double precision as true_premium,
+      public.parse_pc_date(effective_date) as effective_date,
+      public.parse_pc_date(expired_date) as expired_date,
       case
         when nullif(replace(btrim(coalesce(carrier_commission, '')), '%', ''), '') ~ '^-?\d+(\.\d+)?$'
           then nullif(replace(btrim(coalesce(carrier_commission, '')), '%', ''), '')::double precision / 100
@@ -486,13 +434,13 @@ as $$
       end as carrier_commission,
       to_char(
         case
-          when paid_producer ~ '\d{4}$' then parse_pc_date(paid_producer)
-          else parse_pc_date(concat(paid_producer, '/2025'))
+          when paid_producer ~ '\d{4}$' then public.parse_pc_date(paid_producer)
+          else public.parse_pc_date(concat(paid_producer, '/2025'))
         end,
         'MM/DD/YYYY'
       ) as paid_producer,
       statement_number
-    from pc_raw_data
+    from public.pc_raw_data
     group by
       agent,
       agency,
@@ -608,14 +556,14 @@ as $$
   from final;
 $$;
 
-create or replace function refresh_health_mart()
+create or replace function public.refresh_health_mart()
 returns void
 language sql
 security definer
 as $$
-  truncate table health_mart;
+  truncate table public.health_mart;
 
-  insert into health_mart (
+  insert into public.health_mart (
     deal_name,
     deal_stage,
     state,
@@ -645,20 +593,20 @@ as $$
     upper(btrim(r.plan_name)),
     upper(btrim(r.primary_member_id)),
     upper(btrim(r.agent)),
-    parse_health_date(r.broker_effective),
-    parse_health_date(r.paid_to_date),
-    date_trunc('month', parse_health_date(r.month_report))::date,
-    parse_health_money(r.carriers_messer_paid),
-    parse_health_money(r.agent_received),
-    parse_health_money(r.eps_override),
-    parse_health_money(r.eps_override_received),
-    parse_health_money(r.eps_split),
+    public.parse_health_date(r.broker_effective),
+    public.parse_health_date(r.paid_to_date),
+    date_trunc('month', public.parse_health_date(r.month_report))::date,
+    public.parse_health_money(r.carriers_messer_paid),
+    public.parse_health_money(r.agent_received),
+    public.parse_health_money(r.eps_override),
+    public.parse_health_money(r.eps_override_received),
+    public.parse_health_money(r.eps_split),
     upper(btrim(r.pay_rate_level)),
     upper(btrim(r.transaction_id)),
     btrim(r.messer_statement),
-    parse_health_int(r.num_client::text),
-    to_char(date_trunc('month', parse_health_date(r.month_report))::date, 'YYYY-MM')
-  from health_raw_data r
+    public.parse_health_int(r.num_client::text),
+    to_char(date_trunc('month', public.parse_health_date(r.month_report))::date, 'YYYY-MM')
+  from public.health_raw_data r
   where not (
     r.deal_name is null
     and btrim(r.deal_name) <> ''
@@ -667,36 +615,36 @@ as $$
 $$;
 
 create index if not exists health_payment_summary_agent_idx
-  on health_payment_summary (agent);
+  on public.health_payment_summary (agent);
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 add column if not exists agent text;
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 add column if not exists carrier_name text;
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 add column if not exists customer_id text;
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 add column if not exists customer_name text;
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 add column if not exists effective_date text;
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 add column if not exists paid_to_date text;
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 add column if not exists gross_compensation numeric;
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 add column if not exists transaction_id text;
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 add column if not exists statement text;
 
-alter table health_payment_summary
+alter table public.health_payment_summary
 drop column if exists id cascade,
 drop column if exists run_id cascade,
 drop column if exists statement_number cascade,
@@ -712,10 +660,10 @@ drop column if exists created_at cascade,
 drop column if exists source_sheet_id cascade,
 drop column if exists source_gid cascade;
 
-create or replace function clear_health_payment_summary()
+create or replace function public.clear_health_payment_summary()
 returns void
 language sql
 security definer
 as $$
-  truncate table health_payment_summary;
+  truncate table public.health_payment_summary;
 $$;
