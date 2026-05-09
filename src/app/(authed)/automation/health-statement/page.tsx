@@ -1,6 +1,10 @@
+import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { requirePermission } from "@/lib/rbac/server";
 import HealthStatementClient from "./HealthStatementClient";
 
-export default function HealthStatementPage() {
+export default async function HealthStatementPage() {
+  await requirePermission(PERMISSIONS.AUTOMATION_HEALTH_STATEMENT);
+
   return (
     <div className="px-8 py-8">
       <header className="mb-6">

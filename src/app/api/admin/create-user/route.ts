@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
+import { assignDefaultRoleToUser } from "@/lib/rbac/access";
 import bcrypt from "bcryptjs";
 
 export async function POST(req: Request) {
@@ -21,7 +23,7 @@ export async function POST(req: Request) {
     const supabase = getSupabaseAdmin();
 
     const { data, error } = await supabase
-      .from("users")
+      .from(PORTAL_ACCOUNT_TABLE)
       .insert([
         {
           email: normalizedEmail,
@@ -31,10 +33,14 @@ export async function POST(req: Request) {
           is_active: true,
         },
       ])
-      .select();
+      .select("id,email,name");
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (data?.[0]?.id) {
+      await assignDefaultRoleToUser(data[0].id, "agent");
     }
 
     return NextResponse.json({

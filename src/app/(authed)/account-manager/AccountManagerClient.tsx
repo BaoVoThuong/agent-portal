@@ -2,49 +2,86 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AccountUser, UserRole } from "@/lib/config";
+import type { AccountUser } from "@/lib/config";
+import { can } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
+import type { RoleOption } from "@/lib/rbac/role-management";
+import {
+  getDefaultSystemRoleName,
+  SYSTEM_ROLE_NAMES,
+} from "@/lib/rbac/system-roles";
 
 type AccountManagerClientProps = {
   currentUserEmail: string;
-  initialUsers: AccountUser[];
+  currentUserPermissions: string[];
+  initialUsers: ManagedAccountUser[];
+  availableRoles: RoleOption[];
+};
+
+type ManagedAccountUser = AccountUser & {
+  role_ids: string[];
+  roles: RoleOption[];
 };
 
 type FormState = {
   email: string;
   name: string;
   password: string;
-  role: UserRole;
+  roleIds: string[];
 };
 
 const emptyForm: FormState = {
   email: "",
   name: "",
   password: "",
-  role: "agent",
+  roleIds: [],
 };
 
 export default function AccountManagerClient({
   currentUserEmail,
+  currentUserPermissions,
   initialUsers,
+  availableRoles,
 }: AccountManagerClientProps) {
   const router = useRouter();
   const actionMenuRef = useRef<HTMLTableCellElement | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [actionUserId, setActionUserId] = useState<string | null>(null);
-  const [roleUser, setRoleUser] = useState<AccountUser | null>(null);
-  const [resetUser, setResetUser] = useState<AccountUser | null>(null);
+  const [roleUser, setRoleUser] = useState<ManagedAccountUser | null>(null);
+  const [resetUser, setResetUser] = useState<ManagedAccountUser | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const canManageAccounts = can(
+    currentUserPermissions,
+    PERMISSIONS.ACCOUNT_MANAGER
+  );
+  const canCreate = canManageAccounts;
+  const canEdit = canManageAccounts;
+  const canResetPassword = canManageAccounts;
+  const canAssignRoles = canManageAccounts;
+  const defaultRoleIds = useMemo(() => {
+    const agentRole = availableRoles.find(
+      (role) => role.name === SYSTEM_ROLE_NAMES.AGENT
+    );
+    return agentRole ? [agentRole.id] : [];
+  }, [availableRoles]);
 
   const sortedUsers = useMemo(
     () =>
       [...initialUsers].sort((firstUser, secondUser) => {
-        if (firstUser.role !== secondUser.role) {
-          return firstUser.role === "admin" ? -1 : 1;
+        const firstIsAdmin = firstUser.roles.some(
+          (role) => role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN
+        );
+        const secondIsAdmin = secondUser.roles.some(
+          (role) => role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN
+        );
+
+        if (firstIsAdmin !== secondIsAdmin) {
+          return firstIsAdmin ? -1 : 1;
         }
 
         if (firstUser.is_active !== secondUser.is_active) {
@@ -59,6 +96,11 @@ export default function AccountManagerClient({
     [initialUsers]
   );
   const activeCount = initialUsers.filter((user) => user.is_active).length;
+
+  function openCreateForm() {
+    setForm({ ...emptyForm, roleIds: defaultRoleIds });
+    setShowCreateForm(true);
+  }
 
   useEffect(() => {
     if (!actionUserId) return;
@@ -101,7 +143,7 @@ export default function AccountManagerClient({
           email: form.email.trim(),
           name: form.name.trim() || null,
           password: form.password,
-          role: form.role,
+          roleIds: form.roleIds,
         }),
       });
       const payload = await response.json();
@@ -112,7 +154,7 @@ export default function AccountManagerClient({
       }
 
       setMessage(`Created ${payload.user.email}.`);
-      setForm(emptyForm);
+      setForm({ ...emptyForm, roleIds: defaultRoleIds });
       setShowCreateForm(false);
       router.refresh();
     } catch {
@@ -123,9 +165,10 @@ export default function AccountManagerClient({
   }
 
   async function updateUser(
-    user: AccountUser,
+    user: ManagedAccountUser,
     payload: Partial<Pick<AccountUser, "role" | "is_active">> & {
       password?: string;
+      roleIds?: string[];
     }
   ) {
     setBusyUserId(user.id);
@@ -156,9 +199,9 @@ export default function AccountManagerClient({
     }
   }
 
-  async function handleRoleChange(role: UserRole) {
+  async function handleRoleChange(roleIds: string[]) {
     if (!roleUser) return;
-    const updated = await updateUser(roleUser, { role });
+    const updated = await updateUser(roleUser, { roleIds });
 
     if (updated) {
       setRoleUser(null);
@@ -200,13 +243,15 @@ export default function AccountManagerClient({
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155]"
-              type="button"
-              onClick={() => setShowCreateForm(true)}
-            >
-              Add Account
-            </button>
+            {canCreate && (
+              <button
+                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155]"
+                type="button"
+                onClick={openCreateForm}
+              >
+                Add Account
+              </button>
+            )}
           </div>
         </div>
         {(error || message) && (
@@ -261,7 +306,7 @@ export default function AccountManagerClient({
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <RoleBadge role={user.role} />
+                      <RoleBadges user={user} />
                     </td>
                     <td className="px-4 py-4">
                       <StatusBadge active={user.is_active} />
@@ -290,7 +335,7 @@ export default function AccountManagerClient({
                           <button
                             className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
                             type="button"
-                            disabled={isBusy || isCurrentUser}
+                            disabled={isBusy || isCurrentUser || !canAssignRoles}
                             onClick={() => {
                               setActionUserId(null);
                               setRoleUser(user);
@@ -301,7 +346,7 @@ export default function AccountManagerClient({
                           <button
                             className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
                             type="button"
-                            disabled={isBusy}
+                            disabled={isBusy || !canResetPassword}
                             onClick={() => {
                               setActionUserId(null);
                               setResetUser(user);
@@ -317,7 +362,7 @@ export default function AccountManagerClient({
                                 : "text-emerald-700"
                             }`}
                             type="button"
-                            disabled={isBusy || isCurrentUser}
+                            disabled={isBusy || isCurrentUser || !canEdit}
                             onClick={() => {
                               setActionUserId(null);
                               void updateUser(user, {
@@ -420,14 +465,16 @@ export default function AccountManagerClient({
               </label>
               <div>
                 <span className="text-sm font-medium text-[#344054]">
-                  Role
+                  Roles
                 </span>
-                <RoleCardGroup
-                  value={form.role}
-                  onChange={(role) =>
+                <RoleDropdownList
+                  roles={availableRoles}
+                  value={form.roleIds}
+                  disabled={!canAssignRoles}
+                  onChange={(roleIds) =>
                     setForm((current) => ({
                       ...current,
-                      role,
+                      roleIds,
                     }))
                   }
                 />
@@ -458,16 +505,17 @@ export default function AccountManagerClient({
           <div className="w-full max-w-[460px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl">
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-[#16233a]">
-                Change Role
+                Change Roles
               </h2>
               <p className="mt-1 truncate text-sm text-[#667085]">
                 {roleUser.email}
               </p>
             </div>
-            <RoleCardGroup
-              value={roleUser.role}
+            <RoleDropdownList
+              roles={availableRoles}
+              value={roleUser.role_ids}
               disabled={busyUserId === roleUser.id}
-              onChange={(role) => void handleRoleChange(role)}
+              onChange={(roleIds) => void handleRoleChange(roleIds)}
             />
             <div className="mt-6 flex justify-end">
               <button
@@ -535,17 +583,35 @@ export default function AccountManagerClient({
   );
 }
 
-function RoleBadge({ role }: { role: UserRole }) {
+function RoleBadges({ user }: { user: ManagedAccountUser }) {
+  const roles =
+    user.roles.length > 0
+      ? user.roles
+      : [
+          {
+            id: user.role,
+            name: getDefaultSystemRoleName(user.role),
+            description: null,
+            is_system: true,
+            is_active: true,
+          },
+        ];
+
   return (
-    <span
-      className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold capitalize ${
-        role === "admin"
-          ? "bg-[#eef4ff] text-[#1b5d9e]"
-          : "bg-slate-100 text-slate-700"
-      }`}
-    >
-      {role}
-    </span>
+    <div className="flex flex-wrap gap-1.5">
+      {roles.map((role) => (
+        <span
+          key={role.id}
+          className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${
+            role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN
+              ? "bg-[#eef4ff] text-[#1b5d9e]"
+              : "bg-slate-100 text-slate-700"
+          }`}
+        >
+          {role.name}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -563,67 +629,117 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
-function RoleCardGroup({
+function RoleDropdownList({
+  roles,
   value,
   onChange,
   disabled = false,
 }: {
-  value: UserRole;
-  onChange: (role: UserRole) => void;
+  roles: RoleOption[];
+  value: string[];
+  onChange: (roleIds: string[]) => void;
   disabled?: boolean;
 }) {
-  const roles: Array<{
-    role: UserRole;
-    title: string;
-    description: string;
-  }> = [
-    {
-      role: "admin",
-      title: "Admin",
-      description: "Full access to accounts and admin tools.",
-    },
-    {
-      role: "agent",
-      title: "Agent",
-      description: "Standard portal access for customer entries.",
-    },
-  ];
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const activeRoles = roles.filter((role) => role.is_active);
+  const selectedRoles = activeRoles.filter((role) => value.includes(role.id));
+  const selectedLabel =
+    selectedRoles.length > 0
+      ? selectedRoles.map((role) => role.name).join(", ")
+      : "Select roles";
+
+  function toggleRole(roleId: string) {
+    const selected = value.includes(roleId);
+    if (selected && value.length <= 1) return;
+    onChange(selected ? value.filter((id) => id !== roleId) : [...value, roleId]);
+  }
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handleMouseDown(event: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
 
   return (
-    <div className="mt-2 grid gap-3 sm:grid-cols-2">
-      {roles.map((item) => {
-        const selected = value === item.role;
+    <div ref={dropdownRef} className="relative mt-2">
+      <button
+        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md border border-[#cfd6e3] bg-white px-3 py-2 text-left text-sm text-[#16233a] outline-none transition hover:border-[#a9b8cf] focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
+        type="button"
+        disabled={disabled || activeRoles.length === 0}
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <span className="min-w-0 flex-1 truncate">{selectedLabel}</span>
+        <span
+          className={`shrink-0 text-[#667085] transition ${
+            isOpen ? "rotate-180" : ""
+          }`}
+          aria-hidden
+        >
+          ▾
+        </span>
+      </button>
 
-        return (
-          <button
-            key={item.role}
-            className={`rounded-lg border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
-              selected
-                ? "border-[#1b5d9e] bg-[#eef4ff] shadow-sm"
-                : "border-[#d8dee7] bg-white hover:border-[#a9b8cf]"
-            }`}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange(item.role)}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-semibold text-[#16233a]">
-                {item.title}
-              </span>
-              <span
-                className={`h-4 w-4 rounded-full border ${
-                  selected
-                    ? "border-[#1b5d9e] bg-[#1b5d9e]"
-                    : "border-[#b8c2d3]"
+      {isOpen && (
+        <div className="absolute z-20 mt-2 max-h-72 w-full overflow-auto rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg">
+          {activeRoles.map((role) => {
+            const selected = value.includes(role.id);
+            const disableOnlySelectedRole = selected && value.length <= 1;
+
+            return (
+              <label
+                key={role.id}
+                className={`flex cursor-pointer items-start gap-3 px-3 py-2.5 text-sm transition ${
+                  disableOnlySelectedRole
+                    ? "cursor-not-allowed opacity-70"
+                    : "hover:bg-[#f4f7fb]"
                 }`}
-              />
-            </div>
-            <p className="mt-2 text-xs leading-5 text-[#667085]">
-              {item.description}
-            </p>
-          </button>
-        );
-      })}
+              >
+                <input
+                  className="mt-0.5 h-4 w-4 rounded border-[#b8c2d3] text-[#1b5d9e] focus:ring-[#1b5d9e]"
+                  type="checkbox"
+                  checked={selected}
+                  disabled={disableOnlySelectedRole}
+                  onChange={() => toggleRole(role.id)}
+                />
+                <span className="min-w-0">
+                  <span className="block font-semibold text-[#16233a]">
+                    {role.name}
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-5 text-[#667085]">
+                    {role.description || "No description"}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+
+      {activeRoles.length === 0 && (
+        <p className="mt-2 text-sm text-[#667085]">No active roles available.</p>
+      )}
     </div>
   );
 }

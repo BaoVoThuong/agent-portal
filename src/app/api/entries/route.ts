@@ -3,20 +3,34 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { appendEntriesToSheet } from "@/lib/sheets";
 import type { EntryInput, Entry } from "@/lib/config";
+import { can } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
-  if (!email) {
+  if (
+    !email ||
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN)
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const canViewAll = can(
+    session.user.permissions,
+    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL
+  );
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  let query = supabase
     .from("entries")
     .select("*")
-    .eq("agent_email", email)
     .order("created_at", { ascending: false });
+
+  if (!canViewAll) {
+    query = query.eq("agent_email", email);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -58,7 +72,10 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   const name = session?.user?.name ?? null;
-  if (!email) {
+  if (
+    !email ||
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN)
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

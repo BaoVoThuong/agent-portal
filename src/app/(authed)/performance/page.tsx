@@ -1,4 +1,9 @@
-export default function PerformancePage() {
+import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { requirePermission } from "@/lib/rbac/server";
+
+export default async function PerformancePage() {
+  await requirePermission(PERMISSIONS.PERFORMANCE_OWN);
+
   return (
     <div className="px-8 py-8">
       <header className="mb-6">

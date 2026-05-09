@@ -31,7 +31,7 @@ const specialtyOptions = [
 
 const radiusOptions = ["10", "20", "50", "100"];
 
-type InsuranceType = "obamacare" | "medicare" | "both";
+type InsuranceType = "" | "obamacare" | "medicare" | "both";
 
 type FormState = {
   street: string;
@@ -56,6 +56,9 @@ type ProviderResult = {
   phone: string;
   obamacare: string;
   medicare: string;
+  otherPlans: string;
+  distanceMeters: number | null;
+  distanceKm: number | null;
   distanceMiles: number | null;
   lat: number | null;
   lng: number | null;
@@ -66,11 +69,12 @@ type ProviderResult = {
 type SearchResponse = {
   origin?: {
     address: string;
-    lat: number;
-    lng: number;
+    lat: number | null;
+    lng: number | null;
   };
   results?: ProviderResult[];
   error?: string;
+  logs?: string[];
 };
 
 const initialForm: FormState = {
@@ -80,8 +84,8 @@ const initialForm: FormState = {
   zipcode: "",
   contract: "",
   specialty: "",
-  radius: "20",
-  insuranceType: "obamacare",
+  radius: "",
+  insuranceType: "",
 };
 
 function formatDistance(value: number | null) {
@@ -101,9 +105,10 @@ export default function ProviderFinderClient() {
   const [origin, setOrigin] = useState<SearchResponse["origin"]>(undefined);
   const [mapSelection, setMapSelection] = useState<"all" | number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<string[]>([]);
 
   const canRun = useMemo(
-    () => (hasAddress(form) || form.contract.trim() !== "") && form.radius.trim() !== "",
+    () => hasAddress(form) || form.contract.trim() !== "",
     [form]
   );
 
@@ -127,6 +132,7 @@ export default function ProviderFinderClient() {
     setResults([]);
     setOrigin(undefined);
     setMapSelection(null);
+    setLogs([]);
 
     try {
       const response = await fetch("/api/automation/provider-finder/search", {
@@ -135,6 +141,7 @@ export default function ProviderFinderClient() {
         body: JSON.stringify(form),
       });
       const payload = (await response.json()) as SearchResponse;
+      setLogs(payload.logs ?? []);
 
       if (!response.ok) {
         throw new Error(payload.error ?? "Provider search failed");
@@ -144,7 +151,7 @@ export default function ProviderFinderClient() {
       setOrigin(payload.origin);
       setResults(nextResults);
       if (nextResults.length === 0) {
-        setError("No provider found matching the criteria");
+        setError(payload.error ?? "No provider found matching the criteria");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Provider search failed");
@@ -241,6 +248,7 @@ export default function ProviderFinderClient() {
               onChange={(event) => updateField("radius", event.target.value)}
               className="h-9 w-full rounded-md border border-[#cfd7e3] bg-white px-2.5 text-sm text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
             >
+              <option value="">Any radius</option>
               {radiusOptions.map((radius) => (
                 <option key={radius} value={radius}>
                   {radius} miles
@@ -298,6 +306,7 @@ export default function ProviderFinderClient() {
               }
               className="h-9 w-full rounded-md border border-[#cfd7e3] bg-white px-2.5 text-sm text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
             >
+              <option value="">Any</option>
               <option value="obamacare">Obamacare</option>
               <option value="medicare">Medicare</option>
               <option value="both">Both</option>
@@ -314,7 +323,7 @@ export default function ProviderFinderClient() {
             </h2>
             <div className="flex items-center gap-3">
               <span className="text-sm font-medium text-[#667085]">
-                Radius: {form.radius} miles
+                Radius: {form.radius ? `${form.radius} miles` : "Any"}
               </span>
               <button
                 type="button"
@@ -328,7 +337,7 @@ export default function ProviderFinderClient() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1160px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[1260px] border-collapse text-left text-sm">
               <thead className="bg-[#edf2f7] text-xs font-semibold uppercase tracking-wide text-[#344054]">
                 <tr>
                   <th className="px-4 py-3">Name</th>
@@ -341,6 +350,7 @@ export default function ProviderFinderClient() {
                   <th className="px-4 py-3">Phone</th>
                   <th className="px-4 py-3">Obamacare</th>
                   <th className="px-4 py-3">Medicare</th>
+                  <th className="px-4 py-3">Other Plans</th>
                   <th className="px-4 py-3">Distance</th>
                   <th className="px-4 py-3">Map</th>
                 </tr>
@@ -349,7 +359,7 @@ export default function ProviderFinderClient() {
                 {results.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={12}
+                      colSpan={13}
                       className="px-4 py-10 text-center text-sm text-[#667085]"
                     >
                       Results will appear here after the provider search runs.
@@ -373,6 +383,7 @@ export default function ProviderFinderClient() {
                       <td className="px-4 py-3">{provider.phone}</td>
                       <td className="px-4 py-3">{provider.obamacare}</td>
                       <td className="px-4 py-3">{provider.medicare}</td>
+                      <td className="px-4 py-3">{provider.otherPlans}</td>
                       <td className="px-4 py-3 font-semibold">
                         {formatDistance(provider.distanceMiles)}
                       </td>
@@ -425,6 +436,17 @@ export default function ProviderFinderClient() {
         {error && (
           <div className="rounded-md border border-[#f2b8b5] bg-[#fff4f2] px-4 py-3 text-sm font-medium text-[#9f2f24]">
             {error}
+          </div>
+        )}
+
+        {logs.length > 0 && (
+          <div className="rounded-lg border border-[#d8dee7] bg-white px-4 py-3 text-xs text-[#475467] shadow-sm">
+            <div className="mb-2 font-semibold text-[#16233a]">Debug logs</div>
+            <div className="space-y-1">
+              {logs.map((entry, index) => (
+                <div key={`${entry}-${index}`}>{entry}</div>
+              ))}
+            </div>
           </div>
         )}
       </section>

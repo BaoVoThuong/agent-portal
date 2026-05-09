@@ -7,10 +7,13 @@ import {
   AllCommunityModule,
   ModuleRegistry,
   themeQuartz,
+  type CellValueChangedEvent,
+  type CellStyle,
   type ColDef,
   type GridApi,
   type GridReadyEvent,
-  type GridSizeChangedEvent,
+  type ICellRendererParams,
+  type ValueFormatterParams,
 } from "ag-grid-community";
 import type { Entry, EntryInput } from "../../lib/config";
 
@@ -29,31 +32,6 @@ const EMPTY_DRAFT: Omit<DraftRow, "_key"> = {
   fub_link: "",
 };
 
-const HEADER_CHAR_WIDTH = 8;
-const COLUMN_PADDING = 30;
-
-type WidthSpec = {
-  key: string;
-  header: string;
-  minWidth?: number;
-};
-
-const draftWidthSpecs: WidthSpec[] = [
-  { key: "carrier_name", header: "Carrier" },
-  { key: "state", header: "State" },
-  { key: "zipcode", header: "Zipcode" },
-  { key: "effective_date", header: "Effective Date" },
-  { key: "customer_name", header: "Customer Name" },
-  { key: "policy_id", header: "Policy Number" },
-  { key: "number_of_members", header: "# Member" },
-  { key: "fub_link", header: "FUB Link" },
-];
-
-const historyWidthSpecs: WidthSpec[] = [
-  { key: "created_at", header: "Submitted" },
-  ...draftWidthSpecs,
-];
-
 const gridTheme = themeQuartz.withParams({
   accentColor: "#15345f",
   borderColor: "#d8dee7",
@@ -68,6 +46,15 @@ const gridTheme = themeQuartz.withParams({
   wrapperBorderRadius: 0,
 });
 
+const rowNumberCellStyle: CellStyle = {
+  color: "#667085",
+  fontSize: "10px",
+  textAlign: "center",
+  padding: "0",
+};
+
+const actionCellStyle: CellStyle = { border: "none" };
+
 function makeEmptyRows(count: number): DraftRow[] {
   return Array.from({ length: count }, () => ({
     ...EMPTY_DRAFT,
@@ -80,36 +67,6 @@ function normalizeLink(value: unknown) {
   if (!href) return "";
   if (/^https?:\/\//i.test(href)) return href;
   return `https://${href}`;
-}
-
-function getHeaderBaseWidth(header: string, minWidth = 0) {
-  return Math.max(header.length * HEADER_CHAR_WIDTH + COLUMN_PADDING, minWidth);
-}
-
-function fitColumnsByHeaderLength(
-  api: GridApi,
-  specs: WidthSpec[],
-  containerWidth: number,
-) {
-  if (containerWidth <= 0) return;
-
-  const baseWidths = specs.map((spec) =>
-    getHeaderBaseWidth(spec.header, spec.minWidth),
-  );
-  const availableWidth = Math.max(containerWidth - 2, 0);
-  const totalBaseWidth = baseWidths.reduce((sum, width) => sum + width, 0);
-  const extraPerColumn = Math.max(
-    (availableWidth - totalBaseWidth) / specs.length,
-    0,
-  );
-
-  api.applyColumnState({
-    applyOrder: false,
-    state: specs.map((spec, index) => ({
-      colId: spec.key,
-      width: Math.floor(baseWidths[index] + extraPerColumn),
-    })),
-  });
 }
 
 export default function EntryGrid({
@@ -236,7 +193,7 @@ export default function EntryGrid({
         suppressMovable: true,
         filter: false,
         sortable: false,
-        cellStyle: { color: "#667085", fontSize: "10px", textAlign: "center", padding: "0" } as any,
+        cellStyle: rowNumberCellStyle,
       },
       { field: "carrier_name", headerName: "Carrier", editable: true, flex: 0.72, minWidth: 103 },
       { field: "state", headerName: "State", editable: true, flex: 0.48, minWidth: 85 },
@@ -303,14 +260,14 @@ export default function EntryGrid({
         suppressMovable: true,
         filter: false,
         sortable: false,
-        cellStyle: { color: "#667085", fontSize: "10px", textAlign: "center", padding: "0" } as any,
+        cellStyle: rowNumberCellStyle,
       },
       {
         field: "created_at",
         headerName: "Date Submitted",
         flex: 1.2,
         minWidth: 121,
-        valueFormatter: (params: any) =>
+        valueFormatter: (params: ValueFormatterParams<Entry, string>) =>
           params.value
             ? new Date(params.value).toLocaleDateString("en-US", {
                 month: "2-digit",
@@ -376,7 +333,7 @@ export default function EntryGrid({
         editable: false,
         flex: 1.44,
         minWidth: 112,
-        cellRenderer: (params: any) => {
+        cellRenderer: (params: ICellRendererParams<Entry, string>) => {
           const href = normalizeLink(params.value);
           if (!href) return "";
           return (
@@ -400,14 +357,15 @@ export default function EntryGrid({
         sortable: false,
         filter: false,
         resizable: false,
-        cellStyle: { border: "none" } as any,
-        cellRenderer: (params: any) => {
-          if (!params.data) return null;
+        cellStyle: actionCellStyle,
+        cellRenderer: (params: ICellRendererParams<Entry>) => {
+          const entry = params.data;
+          if (!entry) return null;
           return (
             <div className="flex h-full w-full items-center justify-center gap-3">
               <button
                 type="button"
-                onClick={() => params.context.setEditingEntry(params.data)}
+                onClick={() => params.context.setEditingEntry(entry)}
                 className="text-blue-600 hover:text-blue-800 transition-colors"
                 title="Edit entry"
               >
@@ -417,7 +375,7 @@ export default function EntryGrid({
               </button>
               <button
                 type="button"
-                onClick={() => params.context.handleDelete(params.data.id)}
+                onClick={() => params.context.handleDelete(entry.id)}
                 className="text-red-500 hover:text-red-700 transition-colors"
                 title="Delete entry"
               >
@@ -506,7 +464,7 @@ export default function EntryGrid({
     [handleDelete, setEditingEntry],
   );
 
-  const onHistoryCellValueChanged = useCallback(async (event: any) => {
+  const onHistoryCellValueChanged = useCallback(async (event: CellValueChangedEvent<Entry>) => {
     try {
       const res = await fetch(`/api/entries/${event.data.id}`, {
         method: "PATCH",
@@ -526,10 +484,6 @@ export default function EntryGrid({
 
   const onDraftReady = (event: GridReadyEvent<DraftRow>) => {
     draftApiRef.current = event.api;
-  };
-
-  const addRows = (count: number) => {
-    setDrafts((rows) => [...rows, ...makeEmptyRows(count)]);
   };
 
   const clearDrafts = () => {
@@ -661,7 +615,6 @@ export default function EntryGrid({
               rowData={drafts}
               columnDefs={draftCols}
               defaultColDef={defaultColDef}
-              autoSizeStrategy={{ type: "fitGridWidth" }}
               onGridReady={onDraftReady}
               singleClickEdit
               stopEditingWhenCellsLoseFocus
@@ -730,7 +683,6 @@ export default function EntryGrid({
               rowData={history}
               columnDefs={historyCols}
               defaultColDef={defaultColDef}
-              autoSizeStrategy={{ type: "fitGridWidth" }}
               quickFilterText={quickFilter}
               loading={loading}
               getRowId={(params) => params.data.id}

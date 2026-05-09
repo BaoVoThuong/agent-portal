@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { can } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { parseHealthPaymentWorkbook } from "@/lib/automation/health-statement/parser";
 import {
   buildHealthStatementReport,
@@ -39,7 +41,7 @@ async function fetchHealthMartRows(carrier: string) {
 
 export async function POST(request: Request) {
   const session = await auth();
-  if (!session?.user?.email) {
+  if (!can(session?.user?.permissions, PERMISSIONS.AUTOMATION_HEALTH_STATEMENT)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

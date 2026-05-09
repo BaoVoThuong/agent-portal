@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { updateEntryInSheet, deleteEntryFromSheet } from "@/lib/sheets";
 import type { EntryInput, Entry } from "@/lib/config";
+import { can } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 function sanitizeRow(row: Partial<EntryInput>): EntryInput | null {
   const required = [
@@ -41,9 +43,16 @@ export async function PATCH(
   const { id } = await params;
   const session = await auth();
   const email = session?.user?.email;
-  if (!email) {
+  if (
+    !email ||
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN)
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const canManageAll = can(
+    session.user.permissions,
+    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL
+  );
 
   const body = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
@@ -62,7 +71,7 @@ export async function PATCH(
     .eq("id", id)
     .single();
 
-  if (!existing || existing.agent_email !== email) {
+  if (!existing || (!canManageAll && existing.agent_email !== email)) {
     return NextResponse.json({ error: "Not found or forbidden" }, { status: 403 });
   }
 
@@ -101,9 +110,16 @@ export async function DELETE(
   const { id } = await params;
   const session = await auth();
   const email = session?.user?.email;
-  if (!email) {
+  if (
+    !email ||
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN)
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const canManageAll = can(
+    session.user.permissions,
+    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL
+  );
 
   const supabase = getSupabaseAdmin();
   
@@ -114,7 +130,7 @@ export async function DELETE(
     .eq("id", id)
     .single();
 
-  if (!existing || existing.agent_email !== email) {
+  if (!existing || (!canManageAll && existing.agent_email !== email)) {
     return NextResponse.json({ error: "Not found or forbidden" }, { status: 403 });
   }
 

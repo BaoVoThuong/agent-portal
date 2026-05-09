@@ -9,11 +9,11 @@ type SyncConfig = {
 };
 
 const require = createRequire(import.meta.url);
-const { listConfigs, loadConfig } = require("../../../../../../datasync/lib/configs") as {
+const { listConfigs, loadConfig } = require("../../../../../datasync/lib/configs") as {
   listConfigs: () => string[];
   loadConfig: (name: string) => SyncConfig;
 };
-const { syncConfig } = require("../../../../../../datasync/lib/sync-runner") as {
+const { syncConfig } = require("../../../../../datasync/lib/sync-runner") as {
   syncConfig: (config: SyncConfig) => Promise<void>;
 };
 

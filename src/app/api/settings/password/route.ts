@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
+import { can } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 import bcrypt from "bcryptjs";
 
 export async function PATCH(req: Request) {
@@ -8,7 +11,7 @@ export async function PATCH(req: Request) {
     const session = await auth();
     const email = session?.user?.email;
 
-    if (!email) {
+    if (!email || !can(session?.user?.permissions, PERMISSIONS.SETTINGS)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -24,7 +27,7 @@ export async function PATCH(req: Request) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const supabase = getSupabaseAdmin();
     const { error } = await supabase
-      .from("users")
+      .from(PORTAL_ACCOUNT_TABLE)
       .update({ password_hash: hashedPassword })
       .eq("email", email);
 

@@ -17,7 +17,12 @@ function entryToRow(entry: Entry): (string | number)[] {
   ];
 }
 
-async function sendToSheet(payload: any) {
+type SheetPayload =
+  | { action: "create"; rows: ReturnType<typeof entryToRow>[] }
+  | { action: "update"; id: string; row: ReturnType<typeof entryToRow> }
+  | { action: "delete"; id: string };
+
+async function sendToSheet(payload: SheetPayload) {
   const url = process.env.APPS_SCRIPT_URL;
   const secret = process.env.APPS_SCRIPT_SECRET;
   if (!url || !secret) {

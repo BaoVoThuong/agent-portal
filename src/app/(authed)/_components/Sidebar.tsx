@@ -5,42 +5,140 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import styles from "./sidebar.module.css";
-import type { UserRole } from "@/lib/config";
+import { can, canAny } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 type SidebarProps = {
-  userRole?: UserRole;
+  permissions?: string[];
 };
 
-const menuData = [
+type MenuItem = {
+  href?: string;
+  label?: string;
+  title?: string;
+  permission?: string;
+  anyPermission?: string[];
+  comingSoon?: boolean;
+  children?: MenuItem[];
+};
+
+const menuData: MenuItem[] = [
   {
     title: "Customer Registration",
+    anyPermission: [
+      PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN,
+      PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL,
+      PERMISSIONS.CUSTOMER_REGISTRATION_PC_OWN,
+      PERMISSIONS.CUSTOMER_REGISTRATION_PC_ALL,
+      PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_OWN,
+      PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_ALL,
+    ],
     children: [
-      { href: "/", label: "Health" },
-      { href: "#", label: "P&C", comingSoon: true },
-      { href: "#", label: "Life", comingSoon: true },
-    ]
+      {
+        href: "/",
+        label: "Health",
+        anyPermission: [
+          PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN,
+          PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL,
+        ],
+      },
+      {
+        href: "#",
+        label: "P&C",
+        anyPermission: [
+          PERMISSIONS.CUSTOMER_REGISTRATION_PC_OWN,
+          PERMISSIONS.CUSTOMER_REGISTRATION_PC_ALL,
+        ],
+        comingSoon: true,
+      },
+      {
+        href: "#",
+        label: "Life",
+        anyPermission: [
+          PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_OWN,
+          PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_ALL,
+        ],
+        comingSoon: true,
+      },
+    ],
   },
   {
     title: "Automation Tool",
+    anyPermission: [
+      PERMISSIONS.AUTOMATION_HEALTH_STATEMENT,
+      PERMISSIONS.AUTOMATION_PC_STATEMENT,
+      PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+    ],
     children: [
-      { href: "/automation/health-statement", label: "Health Statement" },
-      { href: "/automation/pc-statement", label: "P&C Statement" },
-      { href: "/automation/provider-finder", label: "Provider Finder" },
-    ]
+      {
+        href: "/automation/health-statement",
+        label: "Health Statement",
+        permission: PERMISSIONS.AUTOMATION_HEALTH_STATEMENT,
+      },
+      {
+        href: "/automation/pc-statement",
+        label: "P&C Statement",
+        permission: PERMISSIONS.AUTOMATION_PC_STATEMENT,
+      },
+      {
+        href: "/automation/provider-finder",
+        label: "Provider Finder",
+        permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+      },
+    ],
   },
-  { href: "/performance", label: "Agent Performance" },
+  {
+    href: "/performance",
+    label: "Agent Performance",
+    anyPermission: [PERMISSIONS.PERFORMANCE_OWN, PERMISSIONS.PERFORMANCE_ALL],
+  },
+  {
+    title: "Management",
+    anyPermission: [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.ROLE_MANAGER],
+    children: [
+      {
+        href: "/account-manager",
+        label: "Account Manager",
+        permission: PERMISSIONS.ACCOUNT_MANAGER,
+      },
+      {
+        href: "/role-manager",
+        label: "Role Manager",
+        permission: PERMISSIONS.ROLE_MANAGER,
+      },
+    ],
+  },
 ];
 
-export default function Sidebar({ userRole = "agent" }: SidebarProps) {
+function hasItemAccess(item: MenuItem, permissions: string[]) {
+  if (item.permission) return can(permissions, item.permission);
+  if (item.anyPermission) return canAny(permissions, item.anyPermission);
+  return true;
+}
+
+export default function Sidebar({
+  permissions = [],
+}: SidebarProps) {
   const pathname = usePathname();
   const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({
     "Customer Registration": true,
     "Automation Tool": pathname.startsWith("/automation"),
+    Management:
+      pathname.startsWith("/account-manager") ||
+      pathname.startsWith("/role-manager"),
   });
-  const menuItems =
-    userRole === "admin"
-      ? [...menuData, { href: "/account-manager", label: "Account Manager" }]
-      : menuData;
+  const menuItems = menuData
+    .map((item) => {
+      if (!item.children) return item;
+      return {
+        ...item,
+        children: item.children.filter((child) => hasItemAccess(child, permissions)),
+      };
+    })
+    .filter((item) => {
+      if (item.children) return item.children.length > 0;
+      return hasItemAccess(item, permissions);
+    });
 
   const toggleDropdown = (title: string) => {
     setOpenDropdowns((prev) => ({ ...prev, [title]: !prev[title] }));
@@ -61,17 +159,20 @@ export default function Sidebar({ userRole = "agent" }: SidebarProps) {
 
       <nav className={styles.nav}>
         {menuItems.map((item, idx) => {
-          if (item.children) {
+          if (item.children && item.title) {
             const isOpen = openDropdowns[item.title];
             return (
-              <div key={idx} className="flex flex-col mb-1">
+              <div key={item.title} className="mb-1 flex flex-col">
                 <button
-                  onClick={() => toggleDropdown(item.title)}
-                  className={`${styles.navItem} flex items-center justify-between font-semibold w-full text-left`}
+                  onClick={() => toggleDropdown(item.title ?? "")}
+                  className={`${styles.navItem} flex w-full items-center justify-between text-left font-semibold`}
+                  type="button"
                 >
                   {item.title}
                   <svg
-                    className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                    className={`h-4 w-4 transition-transform ${
+                      isOpen ? "rotate-180" : ""
+                    }`}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -81,21 +182,21 @@ export default function Sidebar({ userRole = "agent" }: SidebarProps) {
                       strokeLinejoin="round"
                       strokeWidth="2"
                       d="M19 9l-7 7-7-7"
-                    ></path>
+                    />
                   </svg>
                 </button>
                 {isOpen && (
-                  <div className="flex flex-col ml-4 mt-1 space-y-1 border-l border-white/10 pl-2">
+                  <div className="ml-4 mt-1 flex flex-col space-y-1 border-l border-white/10 pl-2">
                     {item.children.map((child) => {
                       const isActive = pathname === child.href;
                       if (child.comingSoon) {
                         return (
                           <span
                             key={child.label}
-                            className={`${styles.navItem} text-white/40 cursor-not-allowed flex items-center justify-between text-sm py-2`}
+                            className={`${styles.navItem} flex cursor-not-allowed items-center justify-between py-2 text-sm text-white/40`}
                           >
                             {child.label}
-                            <span className="text-[10px] bg-white/10 text-white/60 px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">
+                            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white/60">
                               Soon
                             </span>
                           </span>
@@ -105,7 +206,7 @@ export default function Sidebar({ userRole = "agent" }: SidebarProps) {
                         return (
                           <span
                             key={child.label}
-                            className={`${styles.navItem} ${styles.active} text-sm py-2`}
+                            className={`${styles.navItem} ${styles.active} py-2 text-sm`}
                             aria-current="page"
                           >
                             {child.label}
@@ -115,9 +216,9 @@ export default function Sidebar({ userRole = "agent" }: SidebarProps) {
                       return (
                         <Link
                           key={child.label}
-                          href={child.href}
+                          href={child.href ?? "#"}
                           prefetch
-                          className={`${styles.navItem} text-sm py-2`}
+                          className={`${styles.navItem} py-2 text-sm`}
                         >
                           {child.label}
                         </Link>
@@ -127,33 +228,33 @@ export default function Sidebar({ userRole = "agent" }: SidebarProps) {
                 )}
               </div>
             );
-          } else {
-            const active =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
-            if (active) {
-              return (
-                <span
-                  key={item.href}
-                  className={`${styles.navItem} ${styles.active}`}
-                  aria-current="page"
-                >
-                  {item.label}
-                </span>
-              );
-            }
+          }
+
+          const active =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          if (active) {
             return (
-              <Link
-                key={item.href}
-                href={item.href!}
-                prefetch
-                className={styles.navItem}
+              <span
+                key={item.href ?? idx}
+                className={`${styles.navItem} ${styles.active}`}
+                aria-current="page"
               >
                 {item.label}
-              </Link>
+              </span>
             );
           }
+          return (
+            <Link
+              key={item.href ?? idx}
+              href={item.href ?? "#"}
+              prefetch
+              className={styles.navItem}
+            >
+              {item.label}
+            </Link>
+          );
         })}
       </nav>
     </aside>

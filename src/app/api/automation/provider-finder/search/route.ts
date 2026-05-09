@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { can } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export const runtime = "nodejs";
 
-type InsuranceType = "obamacare" | "medicare" | "both";
+type InsuranceType = "" | "obamacare" | "medicare" | "both";
 
 type SearchRequest = {
   street?: string;
@@ -19,6 +21,7 @@ type SearchRequest = {
 };
 
 type ProviderAddressRow = {
+  source_row_number: number;
   facility: string | null;
   doctors: string | null;
   npi: string | null;
@@ -32,6 +35,7 @@ type ProviderAddressRow = {
   zip_code: string | null;
   obamacare: string | null;
   medicare: string | null;
+  other_plans: string | null;
 };
 
 type Coordinates = {
@@ -39,26 +43,68 @@ type Coordinates = {
   lng: number;
 };
 
-type RankedProvider = {
+type Candidate = {
   row: ProviderAddressRow;
   address: string;
   score: number;
-  coordinates: Coordinates;
-  routeDistanceMeters: number | null;
-  distanceMiles: number;
+};
+
+type RouteResult = {
+  distanceMeters: number;
+  endLocation: Coordinates | null;
   polyline: string | null;
 };
 
-type GeocodedProvider = {
-  row: ProviderAddressRow;
+type ProviderResult = {
+  name: string;
+  facility: string;
+  specialty: string;
+  npi: string;
+  street: string;
+  city: string;
+  state: string;
+  zipcode: string;
+  phone: string;
+  obamacare: string;
+  medicare: string;
+  otherPlans: string;
+  distanceMeters: number | null;
+  distanceKm: number | null;
+  distanceMiles: number | null;
+  lat: number | null;
+  lng: number | null;
   address: string;
-  score: number;
-  coordinates: Coordinates;
+  polyline: string | null;
+};
+
+type GoogleGeocodeResponse = {
+  status?: string;
+  error_message?: string;
+  results?: Array<{
+    geometry?: {
+      location?: Coordinates;
+    };
+  }>;
+};
+
+type GoogleDirectionsResponse = {
+  status?: string;
+  error_message?: string;
+  routes?: Array<{
+    overview_polyline?: {
+      points?: string;
+    };
+    legs?: Array<{
+      distance?: {
+        value?: number;
+      };
+      end_location?: Coordinates;
+    }>;
+  }>;
 };
 
 const maxResults = 10;
-const maxCandidatePool = 80;
-const maxRouteCandidates = 30;
+const pageSize = 1000;
 const milesPerMeter = 0.000621371;
 
 function cleanText(value: unknown) {
@@ -70,69 +116,326 @@ function normalize(value: unknown) {
 }
 
 function firstLine(value: string | null) {
-  return cleanText(value).split(/\r?\n/).map((part) => part.trim()).find(Boolean) ?? "";
+  return (
+    cleanText(value)
+      .split(/\r?\n/)
+      .map((part) => part.trim())
+      .find(Boolean) ?? ""
+  );
 }
 
-function buildAddress(parts: {
-  street?: string | null;
-  city?: string | null;
-  state?: string | null;
-  zipcode?: string | null;
-}) {
-  const street = firstLine(parts.street ?? "");
-  const city = firstLine(parts.city ?? "");
-  const state = firstLine(parts.state ?? "");
-  const zipcode = firstLine(parts.zipcode ?? "");
-  const cityStateZip = [city, state, zipcode].filter(Boolean).join(" ");
-  return [street, cityStateZip].filter(Boolean).join(", ");
+function normalizeInsuranceType(value: unknown): InsuranceType {
+  const normalized = normalize(value);
+  if (
+    normalized === "obamacare" ||
+    normalized === "medicare" ||
+    normalized === "both"
+  ) {
+    return normalized;
+  }
+
+  return "";
 }
 
-function buildInputAddress(input: SearchRequest) {
-  const cityStateZip = [
+function getAddressParts(input: SearchRequest) {
+  return [
+    cleanText(input.street),
     cleanText(input.city),
     cleanText(input.state).toUpperCase(),
     cleanText(input.zipcode),
-  ]
-    .filter(Boolean)
-    .join(" ");
+  ].filter(Boolean);
+}
 
-  return [cleanText(input.street), cityStateZip].filter(Boolean).join(", ");
+function buildInputAddress(input: SearchRequest) {
+  return getAddressParts(input).join(", ");
+}
+
+function buildProviderAddress(row: ProviderAddressRow) {
+  const street = firstLine(row.street);
+  const city = firstLine(row.city);
+  const state = firstLine(row.state).toUpperCase();
+  const zipcode = firstLine(row.zip_code);
+  const stateZip = [state, zipcode].filter(Boolean).join(" ");
+  return [street, city, stateZip].filter(Boolean).join(", ");
+}
+
+function parseRadiusMiles(value: unknown) {
+  const text = cleanText(value);
+  if (!text) return { radiusMiles: null, error: null };
+
+  const radiusMiles = Number(text);
+  if (!Number.isFinite(radiusMiles) || radiusMiles <= 0) {
+    return { radiusMiles: null, error: "Radius must be a positive number" };
+  }
+
+  return { radiusMiles, error: null };
+}
+
+function getGoogleMapsApiKey() {
+  const key = process.env.GOOGLE_MAPS_API_KEY?.trim();
+  if (!key) {
+    throw new Error("GOOGLE_MAPS_API_KEY is not configured");
+  }
+
+  return key;
 }
 
 function getContractText(row: ProviderAddressRow, insuranceType: InsuranceType) {
   if (insuranceType === "obamacare") return cleanText(row.obamacare);
   if (insuranceType === "medicare") return cleanText(row.medicare);
-  return [row.obamacare, row.medicare].map(cleanText).filter(Boolean).join(" ");
+  if (insuranceType === "both") {
+    return [row.obamacare, row.medicare].map(cleanText).filter(Boolean).join(" ");
+  }
+
+  return [row.obamacare, row.medicare, row.other_plans]
+    .map(cleanText)
+    .filter(Boolean)
+    .join(" ");
 }
 
-function getDisplayInsurance(
-  row: ProviderAddressRow,
-  insuranceType: InsuranceType
-) {
+function getDisplayInsurance(row: ProviderAddressRow, insuranceType: InsuranceType) {
   return {
-    obamacare:
-      insuranceType === "medicare" ? "" : cleanText(row.obamacare),
-    medicare:
-      insuranceType === "obamacare" ? "" : cleanText(row.medicare),
+    obamacare: insuranceType === "medicare" ? "" : cleanText(row.obamacare),
+    medicare: insuranceType === "obamacare" ? "" : cleanText(row.medicare),
+    otherPlans: insuranceType === "" ? cleanText(row.other_plans) : "",
   };
 }
 
-function haversineMiles(origin: Coordinates, destination: Coordinates) {
-  const earthRadiusMiles = 3958.8;
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-  const dLat = toRadians(destination.lat - origin.lat);
-  const dLng = toRadians(destination.lng - origin.lng);
-  const lat1 = toRadians(origin.lat);
-  const lat2 = toRadians(destination.lat);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * earthRadiusMiles * Math.asin(Math.sqrt(a));
+function scoreProvider(row: ProviderAddressRow, inputAddressLower: string) {
+  if (!inputAddressLower) return 0;
+
+  let score = 0;
+  const zipcode = normalize(row.zip_code);
+  const city = normalize(row.city);
+  const state = normalize(row.state);
+
+  if (zipcode && inputAddressLower.includes(zipcode)) score += 50;
+  if (city && inputAddressLower.includes(city)) score += 20;
+  if (state && inputAddressLower.includes(state)) score += 10;
+
+  return score;
 }
 
-function centerCoordinates(items: Coordinates[]) {
-  if (items.length === 0) return null;
-  const totals = items.reduce(
+async function fetchProviderRows() {
+  const supabase = getSupabaseAdmin();
+  const rows: ProviderAddressRow[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("provider_address")
+      .select(
+        [
+          "source_row_number",
+          "facility",
+          "doctors",
+          "npi",
+          "practices_as",
+          "accepting_new_patients",
+          "business_hours",
+          "phone",
+          "street",
+          "city",
+          "state",
+          "zip_code",
+          "obamacare",
+          "medicare",
+          "other_plans",
+        ].join(", ")
+      )
+      .order("source_row_number", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw new Error(error.message);
+
+    rows.push(...((data ?? []) as unknown as ProviderAddressRow[]));
+    if (!data || data.length < pageSize) break;
+  }
+
+  return rows;
+}
+
+function buildCandidates(
+  rows: ProviderAddressRow[],
+  input: SearchRequest,
+  insuranceType: InsuranceType,
+  hasAddress: boolean,
+  logs: string[]
+) {
+  const specialty = normalize(input.specialty);
+  const contract = normalize(input.contract ?? input.carrier);
+  const inputAddressLower = normalize(buildInputAddress(input));
+
+  const withAddress = rows.filter((row) => buildProviderAddress(row));
+  const specialtyMatched = withAddress.filter((row) => {
+    if (!specialty) return true;
+    return normalize(row.practices_as).includes(specialty);
+  });
+  logs.push(`specialty matched count: ${specialtyMatched.length}`);
+
+  const contractMatched = specialtyMatched.filter((row) => {
+    if (!contract) return true;
+    return normalize(getContractText(row, insuranceType)).includes(contract);
+  });
+  logs.push(`contract matched count: ${contractMatched.length}`);
+
+  const candidates = contractMatched.map((row) => ({
+    row,
+    address: buildProviderAddress(row),
+    score: scoreProvider(row, inputAddressLower),
+  }));
+
+  if (hasAddress) {
+    candidates.sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.row.source_row_number - b.row.source_row_number
+    );
+  }
+
+  return candidates.slice(0, maxResults);
+}
+
+function shouldThrowGoogleStatus(status: string | undefined) {
+  return status === "REQUEST_DENIED" || status === "OVER_QUERY_LIMIT";
+}
+
+function isGoogleConfigError(err: unknown) {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.message.includes("REQUEST_DENIED") ||
+    err.message.includes("OVER_QUERY_LIMIT") ||
+    err.message.includes("GOOGLE_MAPS_API_KEY")
+  );
+}
+
+async function geocodeAddress(address: string, key: string, logs: string[]) {
+  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  url.searchParams.set("address", address);
+  url.searchParams.set("components", "country:US");
+  url.searchParams.set("key", key);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Google Geocoding API request failed: ${response.status}`);
+  }
+
+  const data = (await response.json()) as GoogleGeocodeResponse;
+  if (data.status !== "OK") {
+    logs.push(`geocode ${address}: ${data.status ?? "UNKNOWN"}`);
+    if (shouldThrowGoogleStatus(data.status)) {
+      throw new Error(
+        `Google Geocoding API ${data.status}: ${
+          data.error_message ?? "request failed"
+        }`
+      );
+    }
+    return null;
+  }
+
+  const location = data.results?.[0]?.geometry?.location;
+  if (
+    location &&
+    Number.isFinite(location.lat) &&
+    Number.isFinite(location.lng)
+  ) {
+    return location;
+  }
+
+  logs.push(`geocode ${address}: no usable location`);
+  return null;
+}
+
+async function fetchDirections(
+  origin: string,
+  destination: string,
+  key: string,
+  logs: string[]
+) {
+  const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
+  url.searchParams.set("origin", origin);
+  url.searchParams.set("destination", destination);
+  url.searchParams.set("mode", "driving");
+  url.searchParams.set("key", key);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Google Directions API request failed: ${response.status}`);
+  }
+
+  const data = (await response.json()) as GoogleDirectionsResponse;
+  if (data.status !== "OK") {
+    logs.push(`directions ${destination}: ${data.status ?? "UNKNOWN"}`);
+    if (shouldThrowGoogleStatus(data.status)) {
+      throw new Error(
+        `Google Directions API ${data.status}: ${
+          data.error_message ?? "request failed"
+        }`
+      );
+    }
+    return null;
+  }
+
+  const route = data.routes?.[0];
+  const leg = route?.legs?.[0];
+  const distanceMeters = leg?.distance?.value;
+
+  if (!Number.isFinite(distanceMeters)) {
+    logs.push(`directions ${destination}: no usable distance`);
+    return null;
+  }
+
+  return {
+    distanceMeters: distanceMeters ?? 0,
+    endLocation: leg?.end_location ?? null,
+    polyline: route?.overview_polyline?.points ?? null,
+  };
+}
+
+function toProviderResult(
+  candidate: Candidate,
+  insuranceType: InsuranceType,
+  route: RouteResult | null,
+  coordinates: Coordinates | null
+): ProviderResult {
+  const insurance = getDisplayInsurance(candidate.row, insuranceType);
+  const distanceMeters = route?.distanceMeters ?? null;
+  const distanceMiles =
+    distanceMeters == null
+      ? null
+      : Number((distanceMeters * milesPerMeter).toFixed(2));
+
+  return {
+    name: cleanText(candidate.row.doctors) || cleanText(candidate.row.facility),
+    facility: cleanText(candidate.row.facility),
+    specialty: cleanText(candidate.row.practices_as),
+    npi: cleanText(candidate.row.npi),
+    street: firstLine(candidate.row.street),
+    city: firstLine(candidate.row.city),
+    state: firstLine(candidate.row.state),
+    zipcode: firstLine(candidate.row.zip_code),
+    phone: firstLine(candidate.row.phone),
+    obamacare: insurance.obamacare,
+    medicare: insurance.medicare,
+    otherPlans: insurance.otherPlans,
+    distanceMeters,
+    distanceKm: distanceMeters == null ? null : Number((distanceMeters / 1000).toFixed(2)),
+    distanceMiles,
+    lat: coordinates?.lat ?? route?.endLocation?.lat ?? null,
+    lng: coordinates?.lng ?? route?.endLocation?.lng ?? null,
+    address: candidate.address,
+    polyline: route?.polyline ?? null,
+  };
+}
+
+function centerCoordinates(items: ProviderResult[]) {
+  const coordinates = items.filter(
+    (item): item is ProviderResult & { lat: number; lng: number } =>
+      Number.isFinite(item.lat) && Number.isFinite(item.lng)
+  );
+
+  if (coordinates.length === 0) return null;
+
+  const totals = coordinates.reduce(
     (sum, item) => ({
       lat: sum.lat + item.lat,
       lng: sum.lng + item.lng,
@@ -141,296 +444,162 @@ function centerCoordinates(items: Coordinates[]) {
   );
 
   return {
-    lat: totals.lat / items.length,
-    lng: totals.lng / items.length,
+    lat: totals.lat / coordinates.length,
+    lng: totals.lng / coordinates.length,
   };
-}
-
-function isCoordinates(value: unknown): value is Coordinates {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Coordinates;
-  return Number.isFinite(candidate.lat) && Number.isFinite(candidate.lng);
-}
-
-async function geocodeAddress(
-  address: string,
-  cache: Map<string, Coordinates | null>
-) {
-  const key = normalize(address);
-  if (cache.has(key)) return cache.get(key) ?? null;
-
-  const url = new URL("https://nominatim.openstreetmap.org/search");
-  url.searchParams.set("format", "jsonv2");
-  url.searchParams.set("limit", "1");
-  url.searchParams.set("countrycodes", "us");
-  url.searchParams.set("q", address);
-
-  const response = await fetch(url, {
-    headers: {
-      "Accept-Language": "en",
-      "User-Agent": "agent-portal-provider-finder/1.0",
-    },
-  });
-
-  if (!response.ok) {
-    cache.set(key, null);
-    return null;
-  }
-
-  const data = (await response.json()) as Array<{ lat?: string; lon?: string }>;
-  const first = data[0];
-  const coordinates =
-    first?.lat && first?.lon
-      ? { lat: Number(first.lat), lng: Number(first.lon) }
-      : null;
-
-  cache.set(key, isCoordinates(coordinates) ? coordinates : null);
-  return cache.get(key) ?? null;
-}
-
-async function fetchRoute(origin: Coordinates, destination: Coordinates) {
-  const url = new URL(
-    `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}`
-  );
-  url.searchParams.set("overview", "full");
-  url.searchParams.set("geometries", "polyline");
-  url.searchParams.set("alternatives", "false");
-  url.searchParams.set("steps", "false");
-
-  const response = await fetch(url);
-  if (!response.ok) return null;
-
-  const data = (await response.json()) as {
-    routes?: Array<{ distance?: number; geometry?: string }>;
-  };
-  const route = data.routes?.[0];
-  if (!route || !Number.isFinite(route.distance)) return null;
-
-  return {
-    distanceMeters: route.distance ?? 0,
-    polyline: route.geometry ?? null,
-  };
-}
-
-async function fetchProviderRows() {
-  const supabase = getSupabaseAdmin();
-  const rows: ProviderAddressRow[] = [];
-  const pageSize = 1000;
-
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await supabase
-      .from("provider_address")
-      .select(
-        "facility, doctors, npi, practices_as, accepting_new_patients, business_hours, phone, street, city, state, zip_code, obamacare, medicare"
-      )
-      .range(from, from + pageSize - 1);
-
-    if (error) throw new Error(error.message);
-    rows.push(...((data ?? []) as ProviderAddressRow[]));
-    if (!data || data.length < pageSize) break;
-  }
-
-  return rows;
-}
-
-function scoreProvider(row: ProviderAddressRow, input: SearchRequest) {
-  let score = 0;
-  const inputCity = normalize(input.city);
-  const inputState = normalize(input.state);
-  const inputZipcode = normalize(input.zipcode);
-
-  if (inputZipcode && normalize(row.zip_code).includes(inputZipcode)) score += 50;
-  if (inputCity && normalize(row.city).includes(inputCity)) score += 20;
-  if (inputState && normalize(row.state).includes(inputState)) score += 10;
-  if (normalize(row.accepting_new_patients).includes("yes")) score += 5;
-
-  return score;
-}
-
-function filterProviders(rows: ProviderAddressRow[], input: SearchRequest) {
-  const contract = normalize(input.contract ?? input.carrier);
-  const specialty = normalize(input.specialty);
-  const insuranceType = input.insuranceType ?? "obamacare";
-
-  return rows
-    .filter((row) => {
-      const providerAddress = buildAddress({
-        street: row.street,
-        city: row.city,
-        state: row.state,
-        zipcode: row.zip_code,
-      });
-      if (!providerAddress) return false;
-
-      const contractText = normalize(getContractText(row, insuranceType));
-      const specialtyText = normalize(row.practices_as);
-      const contractMatches = !contract || contractText.includes(contract);
-      const specialtyMatches = !specialty || specialtyText.includes(specialty);
-      return contractMatches && specialtyMatches;
-    })
-    .map((row) => ({
-      row,
-      address: buildAddress({
-        street: row.street,
-        city: row.city,
-        state: row.state,
-        zipcode: row.zip_code,
-      }),
-      score: scoreProvider(row, input),
-    }))
-    .sort((a, b) => b.score - a.score);
 }
 
 export async function POST(request: Request) {
   const session = await auth();
-  if (!session?.user?.email) {
+  if (!can(session?.user?.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const input = (await request.json()) as SearchRequest;
-  const address = buildInputAddress(input);
-  const contract = cleanText(input.contract ?? input.carrier);
-  const radiusMiles = Number(input.radius);
-  const insuranceType = input.insuranceType ?? "obamacare";
-
-  if (!address && !contract) {
-    return NextResponse.json(
-      { error: "Address or contract is required" },
-      { status: 400 }
-    );
-  }
-
-  if (address && !Number.isFinite(radiusMiles)) {
-    return NextResponse.json(
-      { error: "Radius is required" },
-      { status: 400 }
-    );
-  }
+  const logs: string[] = [];
 
   try {
-    const geocodeCache = new Map<string, Coordinates | null>();
-    const customerOrigin = address
-      ? await geocodeAddress(address, geocodeCache)
-      : null;
+    const input = (await request.json()) as SearchRequest;
+    const address = buildInputAddress(input);
+    const hasAddress = getAddressParts(input).length > 0;
+    const contract = cleanText(input.contract ?? input.carrier);
+    const insuranceType = normalizeInsuranceType(input.insuranceType);
+    const { radiusMiles, error: radiusError } = parseRadiusMiles(input.radius);
+
+    logs.push(
+      `input parsed: address=${hasAddress ? "yes" : "no"}, contract=${
+        contract ? "yes" : "no"
+      }, insurance=${insuranceType || "any"}, radius=${
+        radiusMiles ?? "none"
+      }`
+    );
+
+    if (!hasAddress && !contract) {
+      return NextResponse.json(
+        { error: "Address or contract is required", logs },
+        { status: 400 }
+      );
+    }
+
+    if (radiusError) {
+      return NextResponse.json({ error: radiusError, logs }, { status: 400 });
+    }
 
     const rows = await fetchProviderRows();
-    const candidates = filterProviders(rows, { ...input, insuranceType }).slice(
-      0,
-      maxCandidatePool
+    logs.push(`db rows loaded: ${rows.length}`);
+
+    const candidates = buildCandidates(
+      rows,
+      input,
+      insuranceType,
+      hasAddress,
+      logs
     );
+    logs.push(`top 10 selected: ${candidates.length}`);
 
-    const geocodedProviders: GeocodedProvider[] = [];
-    for (const candidate of candidates) {
-      const coordinates = await geocodeAddress(candidate.address, geocodeCache);
-      if (!coordinates) continue;
-      geocodedProviders.push({ ...candidate, coordinates });
-    }
-
-    if (address && !customerOrigin) {
-      return NextResponse.json(
-        { error: "Could not find the customer address location" },
-        { status: 422 }
-      );
-    }
-
-    if (geocodedProviders.length === 0) {
-      return NextResponse.json(
-        { error: "Could not find provider locations for this search" },
-        { status: 422 }
-      );
-    }
-
-    const fallbackOrigin = centerCoordinates(
-      geocodedProviders.map((provider) => provider.coordinates)
-    );
-    const origin = customerOrigin ?? fallbackOrigin;
-
-    if (!origin) {
-      return NextResponse.json(
-        { error: "Could not find provider locations for this search" },
-        { status: 422 }
-      );
-    }
-
-    const providersToRank = customerOrigin
-      ? geocodedProviders
-          .map((provider) => ({
-            ...provider,
-            directDistanceMiles: haversineMiles(origin, provider.coordinates),
-          }))
-          .filter(
-            (provider) =>
-              provider.directDistanceMiles <=
-              Math.max(radiusMiles * 1.5, radiusMiles + 10)
-          )
-          .sort((a, b) => a.directDistanceMiles - b.directDistanceMiles)
-          .slice(0, maxRouteCandidates)
-      : geocodedProviders.map((provider) => ({
-          ...provider,
-          directDistanceMiles: 0,
-        }));
-
-    const ranked: RankedProvider[] = [];
-    for (const provider of providersToRank) {
-      const route = customerOrigin
-        ? await fetchRoute(origin, provider.coordinates)
-        : null;
-      const distanceMiles = route
-        ? route.distanceMeters * milesPerMeter
-        : provider.directDistanceMiles;
-
-      if (customerOrigin && distanceMiles > radiusMiles) continue;
-
-      ranked.push({
-        ...provider,
-        routeDistanceMeters: route?.distanceMeters ?? null,
-        distanceMiles: customerOrigin ? distanceMiles : 0,
-        polyline: route?.polyline ?? null,
+    if (candidates.length === 0) {
+      return NextResponse.json({
+        results: [],
+        error: "No provider found matching the criteria",
+        logs,
       });
     }
 
-    const results = ranked
-      .sort((a, b) =>
-        customerOrigin ? a.distanceMiles - b.distanceMiles : b.score - a.score
-      )
-      .slice(0, maxResults)
-      .map((provider) => {
-        const insurance = getDisplayInsurance(provider.row, insuranceType);
-        return {
-          name: cleanText(provider.row.doctors) || cleanText(provider.row.facility),
-          facility: cleanText(provider.row.facility),
-          specialty: cleanText(provider.row.practices_as),
-          npi: cleanText(provider.row.npi),
-          street: firstLine(provider.row.street),
-          city: firstLine(provider.row.city),
-          state: firstLine(provider.row.state),
-          zipcode: firstLine(provider.row.zip_code),
-          phone: firstLine(provider.row.phone),
-          obamacare: insurance.obamacare,
-          medicare: insurance.medicare,
-          distanceMiles: customerOrigin
-            ? Number(provider.distanceMiles.toFixed(2))
-            : null,
-          lat: provider.coordinates.lat,
-          lng: provider.coordinates.lng,
-          address: provider.address,
-          polyline: provider.polyline,
-        };
-      });
+    const key = getGoogleMapsApiKey();
+    let results: ProviderResult[] = [];
+    let origin: { address: string; lat: number | null; lng: number | null } | undefined;
+
+    if (hasAddress) {
+      let directionsSuccessCount = 0;
+
+      for (const candidate of candidates) {
+        try {
+          const route = await fetchDirections(
+            address,
+            candidate.address,
+            key,
+            logs
+          );
+          if (route) directionsSuccessCount += 1;
+          results.push(toProviderResult(candidate, insuranceType, route, null));
+        } catch (err) {
+          if (isGoogleConfigError(err)) throw err;
+          logs.push(
+            `directions error ${candidate.address}: ${
+              err instanceof Error ? err.message : "unknown"
+            }`
+          );
+          results.push(toProviderResult(candidate, insuranceType, null, null));
+        }
+      }
+
+      logs.push(`directions success count: ${directionsSuccessCount}`);
+
+      results.sort(
+        (a, b) =>
+          (a.distanceMeters ?? Number.POSITIVE_INFINITY) -
+          (b.distanceMeters ?? Number.POSITIVE_INFINITY)
+      );
+
+      if (radiusMiles != null) {
+        results = results.filter(
+          (result) =>
+            typeof result.distanceMiles === "number" &&
+            result.distanceMiles <= radiusMiles
+        );
+        logs.push(`radius kept count: ${results.length}`);
+      }
+
+      const customerCoordinates = await geocodeAddress(address, key, logs);
+      logs.push(
+        `customer geocode status: ${customerCoordinates ? "ok" : "empty"}`
+      );
+      origin = {
+        address,
+        lat: customerCoordinates?.lat ?? null,
+        lng: customerCoordinates?.lng ?? null,
+      };
+    } else {
+      for (const candidate of candidates) {
+        try {
+          const coordinates = await geocodeAddress(candidate.address, key, logs);
+          results.push(
+            toProviderResult(candidate, insuranceType, null, coordinates)
+          );
+        } catch (err) {
+          if (isGoogleConfigError(err)) throw err;
+          logs.push(
+            `provider geocode error ${candidate.address}: ${
+              err instanceof Error ? err.message : "unknown"
+            }`
+          );
+          results.push(toProviderResult(candidate, insuranceType, null, null));
+        }
+      }
+
+      const center = centerCoordinates(results);
+      origin = center
+        ? {
+            address: "Center of matching providers",
+            lat: center.lat,
+            lng: center.lng,
+          }
+        : undefined;
+    }
 
     return NextResponse.json({
-      origin: {
-        address: customerOrigin ? address : "Center of matching providers",
-        lat: origin.lat,
-        lng: origin.lng,
-      },
+      origin,
       results,
+      error:
+        results.length === 0 && radiusMiles != null
+          ? `No provider found within ${radiusMiles} miles`
+          : undefined,
+      logs,
     });
   } catch (err) {
     return NextResponse.json(
       {
-        error:
-          err instanceof Error ? err.message : "Provider search failed",
+        error: err instanceof Error ? err.message : "Provider search failed",
+        logs,
       },
       { status: 500 }
     );

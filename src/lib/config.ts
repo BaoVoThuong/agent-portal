@@ -18,6 +18,8 @@ export type Entry = EntryInput & {
 
 export type UserRole = "admin" | "agent";
 
+export const PORTAL_ACCOUNT_TABLE = "portal_account";
+
 export type AccountUser = {
   id: string;
   email: string;

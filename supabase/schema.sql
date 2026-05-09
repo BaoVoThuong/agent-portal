@@ -10,7 +10,8 @@ begin
   end if;
 end $$;
 
-create table if not exists users (
+
+create table if not exists portal_account (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
   name text,
@@ -20,13 +21,13 @@ create table if not exists users (
   created_at timestamptz not null default now()
 );
 
-alter table users
+alter table portal_account
 add column if not exists role text not null default 'agent';
 
-alter table users
+alter table portal_account
 add column if not exists is_active boolean not null default true;
 
-alter table users
+alter table portal_account
 add column if not exists created_at timestamptz not null default now();
 
 do $$
@@ -34,15 +35,186 @@ begin
   if not exists (
     select 1
     from pg_constraint
-    where conname = 'users_role_check'
+    where conname = 'portal_account_role_check'
   ) then
-    alter table users
-    add constraint users_role_check check (role in ('admin', 'agent'));
+    alter table portal_account
+    add constraint portal_account_role_check check (role in ('admin', 'agent'));
   end if;
 end $$;
 
-create index if not exists users_email_idx on users (email);
-create index if not exists users_active_idx on users (is_active);
+create index if not exists portal_account_email_idx on portal_account (email);
+create index if not exists portal_account_active_idx on portal_account (is_active);
+
+create table if not exists roles (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  description text,
+  is_system boolean not null default false,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists permissions (
+  key text primary key,
+  label text not null,
+  description text,
+  group_key text not null,
+  group_label text not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table permissions
+add column if not exists description text;
+
+create table if not exists role_permissions (
+  role_id uuid not null references roles(id) on delete cascade,
+  permission_key text not null references permissions(key) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (role_id, permission_key)
+);
+
+create table if not exists user_roles (
+  user_id uuid not null references portal_account(id) on delete cascade,
+  role_id uuid not null references roles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, role_id)
+);
+
+create index if not exists roles_active_idx on roles (is_active);
+create index if not exists permissions_group_idx on permissions (group_key, sort_order);
+create index if not exists role_permissions_role_idx on role_permissions (role_id);
+create index if not exists role_permissions_permission_idx on role_permissions (permission_key);
+create index if not exists user_roles_user_idx on user_roles (user_id);
+create index if not exists user_roles_role_idx on user_roles (role_id);
+
+create or replace function replace_role_permissions(
+  target_role_id uuid,
+  permission_keys text[]
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from role_permissions
+  where role_id = target_role_id;
+
+  insert into role_permissions (role_id, permission_key)
+  select target_role_id, permission_key
+  from unnest(coalesce(permission_keys, array[]::text[])) as permission_key
+  on conflict (role_id, permission_key) do nothing;
+end;
+$$;
+
+create or replace function replace_user_roles(
+  target_user_id uuid,
+  role_ids uuid[]
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from user_roles
+  where user_id = target_user_id;
+
+  insert into user_roles (user_id, role_id)
+  select target_user_id, role_id
+  from unnest(coalesce(role_ids, array[]::uuid[])) as role_id
+  on conflict (user_id, role_id) do nothing;
+end;
+$$;
+
+insert into permissions (key, label, description, group_key, group_label, sort_order)
+values
+  ('customer_registration.health.own', 'Health Registration - Own', 'View and manage the user''s own Health registration records.', 'customer_registration', 'Customer Registration', 100),
+  ('customer_registration.health.all', 'Health Registration - All', 'View and manage all Health registration records.', 'customer_registration', 'Customer Registration', 110),
+  ('customer_registration.pc.own', 'P&C Registration - Own', 'View and manage the user''s own P&C registration records.', 'customer_registration', 'Customer Registration', 200),
+  ('customer_registration.pc.all', 'P&C Registration - All', 'View and manage all P&C registration records.', 'customer_registration', 'Customer Registration', 210),
+  ('customer_registration.life.own', 'Life Registration - Own', 'View and manage the user''s own Life registration records.', 'customer_registration', 'Customer Registration', 300),
+  ('customer_registration.life.all', 'Life Registration - All', 'View and manage all Life registration records.', 'customer_registration', 'Customer Registration', 310),
+  ('automation.health_statement', 'Health Statement', 'Access and run the Health Statement tool.', 'automation', 'Automation', 100),
+  ('automation.pc_statement', 'P&C Statement', 'Access and run the P&C Statement tool.', 'automation', 'Automation', 200),
+  ('automation.provider_finder', 'Provider Finder', 'Access and run the Provider Finder tool.', 'automation', 'Automation', 300),
+  ('performance.own', 'Performance - Own', 'View the user''s own performance data.', 'performance', 'Performance', 100),
+  ('performance.all', 'Performance - All', 'View performance data for all users.', 'performance', 'Performance', 110),
+  ('management.account_manager', 'Account Manager', 'Create accounts, assign roles, update status, and reset passwords.', 'management', 'Management', 100),
+  ('management.role_manager', 'Role Manager', 'Create roles and manage role permissions.', 'management', 'Management', 200),
+  ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100),
+  ('system.sync_data', 'Data Sync', 'Run data synchronization jobs.', 'system', 'System', 100),
+  ('system.view_sensitive_data', 'Sensitive Data', 'View sensitive portal data.', 'system', 'System', 110)
+on conflict (key) do update set
+  label = excluded.label,
+  description = excluded.description,
+  group_key = excluded.group_key,
+  group_label = excluded.group_label,
+  sort_order = excluded.sort_order;
+
+delete from permissions
+where key not in (
+  'customer_registration.health.own',
+  'customer_registration.health.all',
+  'customer_registration.pc.own',
+  'customer_registration.pc.all',
+  'customer_registration.life.own',
+  'customer_registration.life.all',
+  'automation.health_statement',
+  'automation.pc_statement',
+  'automation.provider_finder',
+  'performance.own',
+  'performance.all',
+  'management.account_manager',
+  'management.role_manager',
+  'settings.access',
+  'system.sync_data',
+  'system.view_sensitive_data'
+);
+
+insert into roles (name, description, is_system, is_active)
+values
+  ('Super Admin', 'Full access to every portal area.', true, true),
+  ('Agent', 'Default access for regular agents.', true, true)
+on conflict (name) do update set
+  description = excluded.description,
+  is_system = excluded.is_system,
+  is_active = excluded.is_active,
+  updated_at = now();
+
+delete from role_permissions rp
+using roles r
+where rp.role_id = r.id
+  and r.name in ('Super Admin', 'Agent');
+
+insert into role_permissions (role_id, permission_key)
+select r.id, p.key
+from roles r
+cross join permissions p
+where r.name = 'Super Admin'
+on conflict (role_id, permission_key) do nothing;
+
+insert into role_permissions (role_id, permission_key)
+select r.id, p.key
+from roles r
+join permissions p on p.key in (
+  'customer_registration.health.own',
+  'automation.health_statement',
+  'automation.pc_statement',
+  'automation.provider_finder',
+  'performance.own',
+  'settings.access'
+)
+where r.name = 'Agent'
+on conflict (role_id, permission_key) do nothing;
+
+insert into user_roles (user_id, role_id)
+select a.id, r.id
+from portal_account a
+join roles r on r.name = case when a.role = 'admin' then 'Super Admin' else 'Agent' end
+on conflict (user_id, role_id) do nothing;
 
 create table if not exists entries (
   id uuid primary key default gen_random_uuid(),

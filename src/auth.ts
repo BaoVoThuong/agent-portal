@@ -3,7 +3,11 @@ import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import bcrypt from "bcryptjs";
-import type { UserRole } from "@/lib/config";
+import { PORTAL_ACCOUNT_TABLE, type UserRole } from "@/lib/config";
+import {
+  assignDefaultRoleToUser,
+  getUserAccessByEmail,
+} from "@/lib/rbac/access";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -17,7 +21,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const supabase = getSupabaseAdmin();
         const { data: user } = await supabase
-          .from("users")
+          .from(PORTAL_ACCOUNT_TABLE)
           .select("id,email,name,password_hash,role,is_active")
           .eq("email", credentials.email)
           .single();
@@ -33,11 +37,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         if (!isPasswordCorrect) return null;
 
+        const access = await getUserAccessByEmail(user.email);
+
         return {
           id: user.id,
           email: user.email,
           name: user.name,
-          role: (user.role ?? "agent") as UserRole,
+          role: access.legacyRole,
+          roles: access.roles,
+          permissions: access.permissions,
         };
       },
     }),
@@ -54,26 +62,33 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const supabase = getSupabaseAdmin();
         const { data: existingUser } = await supabase
-          .from("users")
+          .from(PORTAL_ACCOUNT_TABLE)
           .select("id,is_active")
           .eq("email", user.email)
           .single();
 
         if (existingUser) return existingUser.is_active !== false;
 
-        // Cơ chế "Website lớn": Tự động cho phép nếu thuộc domain công ty
-        const allowedDomain = "excelplannings.com";
-        if (user.email.endsWith(`@${allowedDomain}`)) {
-          // Tự động tạo user mới trong database
-          await supabase.from("users").insert([
-            {
-              email: user.email,
-              name: user.name,
-              password_hash: "google-auth", // Đánh dấu đây là user dùng Google
-              role: "agent",
-              is_active: true,
-            },
-          ]);
+        const allowedDomain = process.env.AUTH_GOOGLE_ALLOWED_DOMAIN?.trim();
+        if (allowedDomain && user.email.endsWith(`@${allowedDomain}`)) {
+          const { data: createdUser } = await supabase
+            .from(PORTAL_ACCOUNT_TABLE)
+            .insert([
+              {
+                email: user.email,
+                name: user.name,
+                password_hash: "google-auth", // Đánh dấu đây là user dùng Google
+                role: "agent",
+                is_active: true,
+              },
+            ])
+            .select("id")
+            .single();
+
+          if (createdUser?.id) {
+            await assignDefaultRoleToUser(createdUser.id, "agent");
+          }
+
           return true;
         }
 
@@ -87,16 +102,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.role = user.role;
       }
 
-      if (token.email && !token.role) {
-        const supabase = getSupabaseAdmin();
-        const { data: dbUser } = await supabase
-          .from("users")
-          .select("role,is_active")
-          .eq("email", token.email)
-          .single();
+      if (user?.roles) {
+        token.roles = user.roles;
+      }
 
-        if (dbUser?.is_active !== false) {
-          token.role = (dbUser?.role ?? "agent") as UserRole;
+      if (user?.permissions) {
+        token.permissions = user.permissions;
+      }
+
+      if (token.email) {
+        const access = await getUserAccessByEmail(token.email);
+        if (access.isActive) {
+          token.role = access.legacyRole;
+          token.roles = access.roles;
+          token.permissions = access.permissions;
+        } else {
+          token.roles = [];
+          token.permissions = [];
         }
       }
 
@@ -105,6 +127,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         session.user.role = (token.role ?? "agent") as UserRole;
+        session.user.roles = Array.isArray(token.roles) ? token.roles : [];
+        session.user.permissions = Array.isArray(token.permissions)
+          ? token.permissions
+          : [];
       }
       return session;
     },
