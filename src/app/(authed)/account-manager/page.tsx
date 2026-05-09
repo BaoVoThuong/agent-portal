@@ -7,7 +7,10 @@ import {
   type RoleOption,
 } from "@/lib/rbac/role-management";
 import { requirePermission } from "@/lib/rbac/server";
-import { getDefaultSystemRoleName } from "@/lib/rbac/system-roles";
+import {
+  getDefaultSystemRoleName,
+  SYSTEM_ROLE_NAMES,
+} from "@/lib/rbac/system-roles";
 import AccountManagerClient from "./AccountManagerClient";
 
 export const dynamic = "force-dynamic";
@@ -65,7 +68,17 @@ export default async function AccountManagerPage() {
 
   const users = ((data ?? []) as AccountUser[]).map<ManagedAccountUser>(
     (user) => {
-      const directRoleIds = roleIdsByUserId.get(user.id) ?? [];
+      const directRoleIds = [...(roleIdsByUserId.get(user.id) ?? [])]
+        .sort((firstRoleId, secondRoleId) => {
+          const firstRole = rolesById.get(firstRoleId);
+          const secondRole = rolesById.get(secondRoleId);
+
+          if (firstRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) return -1;
+          if (secondRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) return 1;
+
+          return (firstRole?.name ?? "").localeCompare(secondRole?.name ?? "");
+        })
+        .slice(0, 1);
       const fallbackRole = availableRoles.find((role) =>
         role.name === getDefaultSystemRoleName(user.role)
       );

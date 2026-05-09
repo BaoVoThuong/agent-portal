@@ -118,14 +118,26 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  selected_role_id uuid;
 begin
+  select role_id into selected_role_id
+  from unnest(coalesce(role_ids, array[]::uuid[])) with ordinality as selected(role_id, sort_order)
+  order by sort_order
+  limit 1;
+
   delete from user_roles
   where user_id = target_user_id;
 
+  if selected_role_id is null then
+    return;
+  end if;
+
   insert into user_roles (user_id, role_id)
-  select target_user_id, role_id
-  from unnest(coalesce(role_ids, array[]::uuid[])) as role_id
-  on conflict (user_id, role_id) do nothing;
+  values (target_user_id, selected_role_id)
+  on conflict (user_id) do update set
+    role_id = excluded.role_id,
+    created_at = now();
 end;
 $$;
 
@@ -253,7 +265,33 @@ insert into user_roles (user_id, role_id)
 select a.id, r.id
 from portal_account a
 join roles r on r.name = case when a.role = 'admin' then 'Admin' else 'Agent' end
+where not exists (
+  select 1
+  from user_roles ur
+  where ur.user_id = a.id
+)
 on conflict (user_id, role_id) do nothing;
+
+with ranked_user_roles as (
+  select
+    ur.ctid,
+    row_number() over (
+      partition by ur.user_id
+      order by
+        case when r.name = 'Admin' then 0 else 1 end,
+        ur.created_at,
+        r.name
+    ) as role_rank
+  from user_roles ur
+  join roles r on r.id = ur.role_id
+)
+delete from user_roles ur
+using ranked_user_roles ranked
+where ur.ctid = ranked.ctid
+  and ranked.role_rank > 1;
+
+create unique index if not exists user_roles_one_role_per_user_idx
+  on user_roles (user_id);
 
 create table if not exists entries (
   id uuid primary key default gen_random_uuid(),

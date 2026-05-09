@@ -33,7 +33,9 @@ type RolePermissionRow = {
 };
 
 type UserRoleRow = {
+  user_id: string;
   role_id: string;
+  created_at: string | null;
 };
 
 type UserRoleWithUserRow = {
@@ -72,7 +74,7 @@ export async function fetchRolesWithPermissions() {
       supabase.from("role_permissions").select("role_id,permission_key"),
       supabase
         .from("user_roles")
-        .select("role_id, portal_account!inner(is_active)")
+        .select("user_id,role_id,created_at, portal_account!inner(is_active)")
         .eq("portal_account.is_active", true),
     ]);
 
@@ -82,6 +84,8 @@ export async function fetchRolesWithPermissions() {
   }
   if (userRolesResponse.error) throw new Error(userRolesResponse.error.message);
 
+  const roles = (rolesResponse.data ?? []) as unknown as RoleRow[];
+  const roleById = new Map(roles.map((role) => [role.id, role]));
   const permissionByKey = new Map(
     permissions.map((permission) => [permission.key, permission])
   );
@@ -93,12 +97,24 @@ export async function fetchRolesWithPermissions() {
     permissionKeysByRoleId.set(row.role_id, current);
   }
 
-  const userCountByRoleId = new Map<string, number>();
+  const selectedRoleByUserId = new Map<string, UserRoleRow>();
   for (const row of (userRolesResponse.data ?? []) as unknown as UserRoleRow[]) {
-    userCountByRoleId.set(row.role_id, (userCountByRoleId.get(row.role_id) ?? 0) + 1);
+    const current = selectedRoleByUserId.get(row.user_id);
+
+    if (!current || compareUserRolePriority(row, current, roleById) < 0) {
+      selectedRoleByUserId.set(row.user_id, row);
+    }
   }
 
-  return ((rolesResponse.data ?? []) as unknown as RoleRow[])
+  const userCountByRoleId = new Map<string, number>();
+  for (const row of selectedRoleByUserId.values()) {
+    userCountByRoleId.set(
+      row.role_id,
+      (userCountByRoleId.get(row.role_id) ?? 0) + 1
+    );
+  }
+
+  return roles
     .map((role) => ({
       ...role,
       user_count: userCountByRoleId.get(role.id) ?? 0,
@@ -127,6 +143,31 @@ export async function fetchRolesWithPermissions() {
 
       return firstRole.name.localeCompare(secondRole.name);
     });
+}
+
+function compareUserRolePriority(
+  firstRow: UserRoleRow,
+  secondRow: UserRoleRow,
+  roleById: Map<string, RoleRow>
+) {
+  const firstRole = roleById.get(firstRow.role_id);
+  const secondRole = roleById.get(secondRow.role_id);
+  const firstIsAdmin =
+    firstRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
+    firstRole?.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
+  const secondIsAdmin =
+    secondRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
+    secondRole?.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
+
+  if (firstIsAdmin !== secondIsAdmin) return firstIsAdmin ? -1 : 1;
+
+  const firstCreatedAt = firstRow.created_at ?? "";
+  const secondCreatedAt = secondRow.created_at ?? "";
+  if (firstCreatedAt !== secondCreatedAt) {
+    return firstCreatedAt.localeCompare(secondCreatedAt);
+  }
+
+  return (firstRole?.name ?? "").localeCompare(secondRole?.name ?? "");
 }
 
 export async function replaceRolePermissions(
@@ -184,11 +225,11 @@ export async function fetchActiveRolesByIds(roleIds: string[]) {
 
 export async function replaceUserRoles(userId: string, roleIds: string[]) {
   const supabase = getSupabaseAdmin();
-  const uniqueRoleIds = [...new Set(roleIds)];
+  const selectedRoleId = roleIds[0];
 
   const { error } = await supabase.rpc("replace_user_roles", {
     target_user_id: userId,
-    role_ids: uniqueRoleIds,
+    role_ids: selectedRoleId ? [selectedRoleId] : [],
   });
 
   if (error) throw new Error(error.message);

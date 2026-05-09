@@ -32,34 +32,18 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const { id } = await context.params;
-    const { role, roleIds, is_active, password } = await req.json();
+    const { email, name, role, roleIds, is_active, password } = await req.json();
     const selectedRoleIds = Array.isArray(roleIds)
       ? roleIds.filter((item): item is string => typeof item === "string")
       : null;
 
     if (
-      role !== undefined &&
-      !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
-    ) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    if (
-      roleIds !== undefined &&
-      !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
-    ) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    if (
-      (is_active !== undefined || password !== undefined) &&
-      !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
-    ) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    if (
-      password !== undefined &&
+      (email !== undefined ||
+        name !== undefined ||
+        role !== undefined ||
+        roleIds !== undefined ||
+        is_active !== undefined ||
+        password !== undefined) &&
       !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
     ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -96,10 +80,53 @@ export async function PATCH(req: Request, context: RouteContext) {
           row.roles?.name === LEGACY_SUPER_ADMIN_ROLE_NAME
       );
     const updates: {
+      email?: string;
+      name?: string | null;
       role?: UserRole;
       is_active?: boolean;
       password_hash?: string;
     } = {};
+
+    if (email !== undefined) {
+      const normalizedEmail =
+        typeof email === "string" ? email.trim().toLowerCase() : "";
+
+      if (!normalizedEmail) {
+        return NextResponse.json(
+          { error: "Email is required." },
+          { status: 400 }
+        );
+      }
+
+      if (normalizedEmail !== targetUser.email.toLowerCase()) {
+        const { data: existingUser, error: existingUserError } = await supabase
+          .from(PORTAL_ACCOUNT_TABLE)
+          .select("id")
+          .eq("email", normalizedEmail)
+          .maybeSingle();
+
+        if (existingUserError) {
+          return NextResponse.json(
+            { error: existingUserError.message },
+            { status: 500 }
+          );
+        }
+
+        if (existingUser) {
+          return NextResponse.json(
+            { error: "An account with this email already exists." },
+            { status: 409 }
+          );
+        }
+      }
+
+      updates.email = normalizedEmail;
+    }
+
+    if (name !== undefined) {
+      updates.name =
+        typeof name === "string" && name.trim() ? name.trim() : null;
+    }
 
     if (role !== undefined) {
       if (!roles.includes(role)) {
@@ -117,15 +144,15 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     if (roleIds !== undefined) {
-      if (!selectedRoleIds || selectedRoleIds.length === 0) {
+      if (!selectedRoleIds || selectedRoleIds.length !== 1) {
         return NextResponse.json(
-          { error: "Select at least one active role." },
+          { error: "Select exactly one active role." },
           { status: 400 }
         );
       }
 
       const selectedRoles = await fetchActiveRolesByIds(selectedRoleIds);
-      if (selectedRoles.length !== new Set(selectedRoleIds).size) {
+      if (selectedRoles.length !== selectedRoleIds.length) {
         return NextResponse.json(
           { error: "One or more selected roles are invalid or disabled." },
           { status: 400 }

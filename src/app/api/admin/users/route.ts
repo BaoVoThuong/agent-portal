@@ -54,6 +54,13 @@ export async function POST(req: Request) {
       );
     }
 
+    if (selectedRoleIds.length > 1) {
+      return NextResponse.json(
+        { error: "Select exactly one role for this account." },
+        { status: 400 }
+      );
+    }
+
     const supabase = getSupabaseAdmin();
     const { data: existingUser } = await supabase
       .from(PORTAL_ACCOUNT_TABLE)
@@ -79,7 +86,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (selectedRoles.length !== new Set(selectedRoleIds).size) {
+    if (selectedRoles.length !== selectedRoleIds.length) {
       return NextResponse.json(
         { error: "One or more selected roles are invalid or disabled." },
         { status: 400 }

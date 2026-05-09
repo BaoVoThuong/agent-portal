@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AccountUser } from "@/lib/config";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -31,6 +31,11 @@ type FormState = {
   roleIds: string[];
 };
 
+type EditAccountFormState = {
+  email: string;
+  name: string;
+};
+
 const emptyForm: FormState = {
   email: "",
   name: "",
@@ -56,7 +61,13 @@ export default function AccountManagerClient({
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [actionUserId, setActionUserId] = useState<string | null>(null);
+  const [editUser, setEditUser] = useState<ManagedAccountUser | null>(null);
+  const [editForm, setEditForm] = useState<EditAccountFormState>({
+    email: "",
+    name: "",
+  });
   const [roleUser, setRoleUser] = useState<ManagedAccountUser | null>(null);
+  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [resetUser, setResetUser] = useState<ManagedAccountUser | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
@@ -171,6 +182,8 @@ export default function AccountManagerClient({
   async function updateUser(
     user: ManagedAccountUser,
     payload: Partial<Pick<AccountUser, "role" | "is_active">> & {
+      email?: string;
+      name?: string | null;
       password?: string;
       roleIds?: string[];
     }
@@ -203,12 +216,43 @@ export default function AccountManagerClient({
     }
   }
 
-  async function handleRoleChange(roleIds: string[]) {
+  function openRoleModal(user: ManagedAccountUser) {
+    setActionUserId(null);
+    setRoleUser(user);
+    setSelectedRoleIds(user.role_ids);
+  }
+
+  function openEditAccountModal(user: ManagedAccountUser) {
+    setActionUserId(null);
+    setEditUser(user);
+    setEditForm({
+      email: user.email,
+      name: user.name ?? "",
+    });
+  }
+
+  async function handleEditAccount(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editUser) return;
+
+    const updated = await updateUser(editUser, {
+      email: editForm.email.trim(),
+      name: editForm.name.trim() || null,
+    });
+
+    if (updated) {
+      setEditUser(null);
+      setEditForm({ email: "", name: "" });
+    }
+  }
+
+  async function handleRoleSave() {
     if (!roleUser) return;
-    const updated = await updateUser(roleUser, { roleIds });
+    const updated = await updateUser(roleUser, { roleIds: selectedRoleIds });
 
     if (updated) {
       setRoleUser(null);
+      setSelectedRoleIds([]);
     }
   }
 
@@ -334,16 +378,21 @@ export default function AccountManagerClient({
                       >
                         <DotsIcon />
                       </button>
-                      {actionOpen && (
-                        <div className="absolute right-5 top-12 z-20 w-48 rounded-lg border border-[#e2e6ee] bg-white p-1.5 text-left shadow-lg">
-                          <button
-                            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
-                            type="button"
+	                      {actionOpen && (
+	                        <div className="absolute right-5 top-12 z-20 w-48 rounded-lg border border-[#e2e6ee] bg-white p-1.5 text-left shadow-lg">
+	                          <button
+	                            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
+	                            type="button"
+	                            disabled={isBusy || !canEdit}
+	                            onClick={() => openEditAccountModal(user)}
+	                          >
+	                            Edit account
+	                          </button>
+	                          <button
+	                            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
+	                            type="button"
                             disabled={isBusy || isCurrentUser || !canAssignRoles}
-                            onClick={() => {
-                              setActionUserId(null);
-                              setRoleUser(user);
-                            }}
+                            onClick={() => openRoleModal(user)}
                           >
                             Change role
                           </button>
@@ -469,7 +518,7 @@ export default function AccountManagerClient({
               </label>
               <div>
                 <span className="text-sm font-medium text-[#344054]">
-                  Roles
+                  Role
                 </span>
                 <RoleDropdownList
                   roles={availableRoles}
@@ -502,14 +551,91 @@ export default function AccountManagerClient({
             </div>
           </form>
         </div>
-      )}
+	      )}
 
-      {roleUser && (
+	      {editUser && (
+	        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f2349]/35 px-4">
+	          <form
+	            className="w-full max-w-[460px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl"
+	            onSubmit={handleEditAccount}
+	          >
+	            <div className="mb-5">
+	              <h2 className="text-lg font-semibold text-[#16233a]">
+	                Edit Account
+	              </h2>
+	              <p className="mt-1 truncate text-sm text-[#667085]">
+	                {editUser.email}
+	              </p>
+	            </div>
+	            <div className="space-y-4">
+	              <label className="block">
+	                <span className="text-sm font-medium text-[#344054]">
+	                  Email
+	                </span>
+	                <input
+	                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
+	                  type="email"
+	                  value={editForm.email}
+	                  onChange={(event) =>
+	                    setEditForm((current) => ({
+	                      ...current,
+	                      email: event.target.value,
+	                    }))
+	                  }
+	                  required
+	                />
+	              </label>
+	              <label className="block">
+	                <span className="text-sm font-medium text-[#344054]">
+	                  Name
+	                </span>
+	                <input
+	                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
+	                  type="text"
+	                  value={editForm.name}
+	                  onChange={(event) =>
+	                    setEditForm((current) => ({
+	                      ...current,
+	                      name: event.target.value,
+	                    }))
+	                  }
+	                />
+	              </label>
+	            </div>
+	            <div className="mt-6 flex justify-end gap-3">
+	              <button
+	                className="rounded-md border border-[#cfd6e3] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f4f7fb]"
+	                type="button"
+	                onClick={() => {
+	                  setEditUser(null);
+	                  setEditForm({ email: "", name: "" });
+	                }}
+	              >
+	                Cancel
+	              </button>
+	              <button
+	                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155] disabled:cursor-not-allowed disabled:opacity-60"
+	                type="submit"
+	                disabled={
+	                  busyUserId === editUser.id ||
+	                  (editForm.email.trim().toLowerCase() ===
+	                    editUser.email.toLowerCase() &&
+	                    editForm.name.trim() === (editUser.name ?? ""))
+	                }
+	              >
+	                {busyUserId === editUser.id ? "Saving..." : "Save"}
+	              </button>
+	            </div>
+	          </form>
+	        </div>
+	      )}
+
+	      {roleUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f2349]/35 px-4">
           <div className="w-full max-w-[460px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl">
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-[#16233a]">
-                Change Roles
+                Change Role
               </h2>
               <p className="mt-1 truncate text-sm text-[#667085]">
                 {roleUser.email}
@@ -517,17 +643,32 @@ export default function AccountManagerClient({
             </div>
             <RoleDropdownList
               roles={availableRoles}
-              value={roleUser.role_ids}
+              value={selectedRoleIds}
               disabled={busyUserId === roleUser.id}
-              onChange={(roleIds) => void handleRoleChange(roleIds)}
+              onChange={setSelectedRoleIds}
             />
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 flex justify-end gap-3">
               <button
                 className="rounded-md border border-[#cfd6e3] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f4f7fb]"
                 type="button"
-                onClick={() => setRoleUser(null)}
+                onClick={() => {
+                  setRoleUser(null);
+                  setSelectedRoleIds([]);
+                }}
               >
-                Close
+                Cancel
+              </button>
+              <button
+                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155] disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                disabled={
+                  busyUserId === roleUser.id ||
+                  selectedRoleIds.length !== 1 ||
+                  selectedRoleIds[0] === roleUser.role_ids[0]
+                }
+                onClick={() => void handleRoleSave()}
+              >
+                {busyUserId === roleUser.id ? "Saving..." : "Save"}
               </button>
             </div>
           </div>
@@ -645,18 +786,16 @@ function RoleDropdownList({
   disabled?: boolean;
 }) {
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const radioGroupName = useId();
   const [isOpen, setIsOpen] = useState(false);
   const activeRoles = roles.filter((role) => role.is_active);
-  const selectedRoles = activeRoles.filter((role) => value.includes(role.id));
+  const selectedRole = activeRoles.find((role) => value[0] === role.id);
   const selectedLabel =
-    selectedRoles.length > 0
-      ? selectedRoles.map((role) => role.name).join(", ")
-      : "Select roles";
+    selectedRole ? selectedRole.name : "Select one role";
 
-  function toggleRole(roleId: string) {
-    const selected = value.includes(roleId);
-    if (selected && value.length <= 1) return;
-    onChange(selected ? value.filter((id) => id !== roleId) : [...value, roleId]);
+  function selectRole(roleId: string) {
+    onChange([roleId]);
+    setIsOpen(false);
   }
 
   useEffect(() => {
@@ -708,24 +847,19 @@ function RoleDropdownList({
       {isOpen && (
         <div className="absolute z-20 mt-2 max-h-72 w-full overflow-auto rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg">
           {activeRoles.map((role) => {
-            const selected = value.includes(role.id);
-            const disableOnlySelectedRole = selected && value.length <= 1;
+            const selected = value[0] === role.id;
 
             return (
               <label
                 key={role.id}
-                className={`flex cursor-pointer items-start gap-3 px-3 py-2.5 text-sm transition ${
-                  disableOnlySelectedRole
-                    ? "cursor-not-allowed opacity-70"
-                    : "hover:bg-[#f4f7fb]"
-                }`}
+                className="flex cursor-pointer items-start gap-3 px-3 py-2.5 text-sm transition hover:bg-[#f4f7fb]"
               >
                 <input
                   className="mt-0.5 h-4 w-4 rounded border-[#b8c2d3] text-[#1b5d9e] focus:ring-[#1b5d9e]"
-                  type="checkbox"
+                  type="radio"
+                  name={radioGroupName}
                   checked={selected}
-                  disabled={disableOnlySelectedRole}
-                  onChange={() => toggleRole(role.id)}
+                  onChange={() => selectRole(role.id)}
                 />
                 <span className="min-w-0">
                   <span className="block font-semibold text-[#16233a]">

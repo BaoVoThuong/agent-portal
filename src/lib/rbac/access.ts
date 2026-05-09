@@ -147,11 +147,9 @@ export async function assignDefaultRoleToUser(
 
   if (roleError || !role) return;
 
-  await supabase.from("user_roles").upsert(
-    {
-      user_id: userId,
-      role_id: (role as { id: string }).id,
-    },
-    { onConflict: "user_id,role_id" }
-  );
+  await supabase.from("user_roles").delete().eq("user_id", userId);
+  await supabase.from("user_roles").insert({
+    user_id: userId,
+    role_id: (role as { id: string }).id,
+  });
 }
