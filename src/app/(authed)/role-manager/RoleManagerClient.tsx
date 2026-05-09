@@ -3,7 +3,11 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import {
+  getExclusivePermissionCounterpart,
+  normalizeExclusivePermissionKeys,
+  PERMISSIONS,
+} from "@/lib/rbac/permissions";
 import type {
   PermissionRecord,
   RoleRecord,
@@ -63,7 +67,9 @@ function toForm(role: RoleRecord): RoleFormState {
     name: role.name,
     description: role.description ?? "",
     is_active: role.is_active,
-    permissionKeys: role.permissions.map((permission) => permission.key),
+    permissionKeys: normalizeExclusivePermissionKeys(
+      role.permissions.map((permission) => permission.key)
+    ),
     is_system: role.is_system,
   };
 }
@@ -138,10 +144,19 @@ export default function RoleManagerClient({
   function updatePermission(permissionKey: string, checked: boolean) {
     setForm((current) => {
       if (!current) return current;
+      const counterpart = getExclusivePermissionCounterpart(permissionKey);
       const nextKeys = checked
-        ? [...new Set([...current.permissionKeys, permissionKey])]
+        ? [
+            ...new Set([
+              ...current.permissionKeys.filter((key) => key !== counterpart),
+              permissionKey,
+            ]),
+          ]
         : current.permissionKeys.filter((key) => key !== permissionKey);
-      return { ...current, permissionKeys: nextKeys };
+      return {
+        ...current,
+        permissionKeys: normalizeExclusivePermissionKeys(nextKeys),
+      };
     });
   }
 
@@ -152,7 +167,10 @@ export default function RoleManagerClient({
       const nextKeys = checked
         ? [...new Set([...current.permissionKeys, ...keys])]
         : current.permissionKeys.filter((key) => !keys.includes(key));
-      return { ...current, permissionKeys: nextKeys };
+      return {
+        ...current,
+        permissionKeys: normalizeExclusivePermissionKeys(nextKeys),
+      };
     });
   }
 
@@ -165,14 +183,15 @@ export default function RoleManagerClient({
     setMessage(null);
 
     try {
+      const permissionKeys = normalizeExclusivePermissionKeys(form.permissionKeys);
       const requestBody =
         form.id && !canEdit
-          ? { permissionKeys: form.permissionKeys }
+          ? { permissionKeys }
           : {
               name: form.name,
               description: form.description,
               is_active: form.is_active,
-              permissionKeys: form.permissionKeys,
+              permissionKeys,
             };
 
       const response = await fetch(

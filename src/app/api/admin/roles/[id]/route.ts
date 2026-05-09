@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import {
+  normalizeExclusivePermissionKeys,
+  PERMISSIONS,
+} from "@/lib/rbac/permissions";
 import {
   fetchRoleById,
   fetchRolesWithPermissions,
@@ -26,7 +29,9 @@ type RolePatchPayload = {
 
 function parsePermissionKeys(value: unknown) {
   if (!Array.isArray(value)) return null;
-  return value.filter((item): item is string => typeof item === "string");
+  return normalizeExclusivePermissionKeys(
+    value.filter((item): item is string => typeof item === "string")
+  );
 }
 
 function isProtectedRole(role: { name: string }) {

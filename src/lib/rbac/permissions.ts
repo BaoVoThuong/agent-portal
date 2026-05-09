@@ -28,6 +28,35 @@ export type PermissionDefinition = {
   sortOrder: number;
 };
 
+export function getExclusivePermissionCounterpart(permissionKey: string) {
+  if (permissionKey.endsWith(".own")) {
+    return permissionKey.replace(/\.own$/, ".all");
+  }
+
+  if (permissionKey.endsWith(".all")) {
+    return permissionKey.replace(/\.all$/, ".own");
+  }
+
+  return null;
+}
+
+export function normalizeExclusivePermissionKeys(permissionKeys: string[]) {
+  const selected = new Set(permissionKeys);
+
+  for (const permissionKey of permissionKeys) {
+    if (!permissionKey.endsWith(".all")) continue;
+
+    const ownPermissionKey = getExclusivePermissionCounterpart(permissionKey);
+    if (ownPermissionKey) selected.delete(ownPermissionKey);
+  }
+
+  return [
+    ...new Set(
+      permissionKeys.filter((permissionKey) => selected.has(permissionKey))
+    ),
+  ];
+}
+
 export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   {
     key: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN,

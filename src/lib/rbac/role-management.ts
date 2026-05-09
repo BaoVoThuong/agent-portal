@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { normalizeExclusivePermissionKeys } from "@/lib/rbac/permissions";
 import {
   LEGACY_SUPER_ADMIN_ROLE_NAME,
   SYSTEM_ROLE_NAMES,
@@ -118,7 +119,9 @@ export async function fetchRolesWithPermissions() {
     .map((role) => ({
       ...role,
       user_count: userCountByRoleId.get(role.id) ?? 0,
-      permissions: (permissionKeysByRoleId.get(role.id) ?? [])
+      permissions: normalizeExclusivePermissionKeys(
+        permissionKeysByRoleId.get(role.id) ?? []
+      )
         .map((key) => permissionByKey.get(key))
         .filter((permission): permission is PermissionRecord => Boolean(permission))
         .sort(

@@ -245,6 +245,14 @@ select r.id, p.key
 from roles r
 cross join permissions p
 where r.name = 'Admin'
+  and not (
+    p.key like '%.own'
+    and exists (
+      select 1
+      from permissions all_permission
+      where all_permission.key = regexp_replace(p.key, '\.own$', '.all')
+    )
+  )
 on conflict (role_id, permission_key) do nothing;
 
 insert into role_permissions (role_id, permission_key)
