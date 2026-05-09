@@ -1,5 +1,8 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { SYSTEM_ROLE_NAMES } from "@/lib/rbac/system-roles";
+import {
+  LEGACY_SUPER_ADMIN_ROLE_NAME,
+  SYSTEM_ROLE_NAMES,
+} from "@/lib/rbac/system-roles";
 
 export type PermissionRecord = {
   key: string;
@@ -95,19 +98,35 @@ export async function fetchRolesWithPermissions() {
     userCountByRoleId.set(row.role_id, (userCountByRoleId.get(row.role_id) ?? 0) + 1);
   }
 
-  return ((rolesResponse.data ?? []) as unknown as RoleRow[]).map((role) => ({
-    ...role,
-    user_count: userCountByRoleId.get(role.id) ?? 0,
-    permissions: (permissionKeysByRoleId.get(role.id) ?? [])
-      .map((key) => permissionByKey.get(key))
-      .filter((permission): permission is PermissionRecord => Boolean(permission))
-      .sort(
-        (a, b) =>
-          a.group_key.localeCompare(b.group_key) ||
-          a.sort_order - b.sort_order ||
-          a.label.localeCompare(b.label)
-      ),
-  }));
+  return ((rolesResponse.data ?? []) as unknown as RoleRow[])
+    .map((role) => ({
+      ...role,
+      user_count: userCountByRoleId.get(role.id) ?? 0,
+      permissions: (permissionKeysByRoleId.get(role.id) ?? [])
+        .map((key) => permissionByKey.get(key))
+        .filter((permission): permission is PermissionRecord => Boolean(permission))
+        .sort(
+          (a, b) =>
+            a.group_key.localeCompare(b.group_key) ||
+            a.sort_order - b.sort_order ||
+            a.label.localeCompare(b.label)
+        ),
+    }))
+    .sort((firstRole, secondRole) => {
+      const firstIsAdmin =
+        firstRole.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
+        firstRole.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
+      const secondIsAdmin =
+        secondRole.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
+        secondRole.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
+
+      if (firstIsAdmin !== secondIsAdmin) return firstIsAdmin ? -1 : 1;
+      if (firstRole.is_system !== secondRole.is_system) {
+        return firstRole.is_system ? -1 : 1;
+      }
+
+      return firstRole.name.localeCompare(secondRole.name);
+    });
 }
 
 export async function replaceRolePermissions(
@@ -209,6 +228,8 @@ export async function countActiveUsersForRoleName(
 
 export async function hasActiveSuperAdminOtherThan(userId: string) {
   return (
-    (await countActiveUsersForRoleName(SYSTEM_ROLE_NAMES.SUPER_ADMIN, userId)) > 0
+    (await countActiveUsersForRoleName(SYSTEM_ROLE_NAMES.SUPER_ADMIN, userId)) +
+      (await countActiveUsersForRoleName(LEGACY_SUPER_ADMIN_ROLE_NAME, userId)) >
+    0
   );
 }

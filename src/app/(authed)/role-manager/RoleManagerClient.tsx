@@ -8,7 +8,10 @@ import type {
   PermissionRecord,
   RoleRecord,
 } from "@/lib/rbac/role-management";
-import { SYSTEM_ROLE_NAMES } from "@/lib/rbac/system-roles";
+import {
+  LEGACY_SUPER_ADMIN_ROLE_NAME,
+  SYSTEM_ROLE_NAMES,
+} from "@/lib/rbac/system-roles";
 
 type RoleManagerClientProps = {
   initialRoles: RoleRecord[];
@@ -66,7 +69,10 @@ function toForm(role: RoleRecord): RoleFormState {
 }
 
 function isProtectedRole(role: Pick<RoleRecord, "name">) {
-  return role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN;
+  return (
+    role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
+    role.name === LEGACY_SUPER_ADMIN_ROLE_NAME
+  );
 }
 
 export default function RoleManagerClient({
@@ -440,8 +446,7 @@ export default function RoleManagerClient({
                       )
                     }
                     disabled={
-                      (Boolean(form.id) &&
-                        form.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
+                      (Boolean(form.id) && isProtectedRole(form)) ||
                       (Boolean(form.id) && !canEdit)
                     }
                     className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15 disabled:bg-slate-50 disabled:text-slate-500"
@@ -462,8 +467,7 @@ export default function RoleManagerClient({
                       )
                     }
                     disabled={
-                      (Boolean(form.id) &&
-                        form.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
+                      (Boolean(form.id) && isProtectedRole(form)) ||
                       (Boolean(form.id) && !canEdit)
                     }
                     className="mt-1 min-h-24 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
@@ -474,8 +478,7 @@ export default function RoleManagerClient({
                     type="checkbox"
                     checked={form.is_active}
                     disabled={
-                      (Boolean(form.id) &&
-                        form.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
+                      (Boolean(form.id) && isProtectedRole(form)) ||
                       (Boolean(form.id) && !canEdit)
                     }
                     onChange={(event) =>
@@ -530,8 +533,7 @@ export default function RoleManagerClient({
                             type="checkbox"
                             checked={allSelected}
                             disabled={
-                              (Boolean(form.id) &&
-                                form.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
+                              (Boolean(form.id) && isProtectedRole(form)) ||
                               !canAssignPermissions
                             }
                             onChange={(event) =>
@@ -556,9 +558,7 @@ export default function RoleManagerClient({
                                 permission.key
                               )}
                               disabled={
-                                (Boolean(form.id) &&
-                                  form.name ===
-                                    SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
+                                (Boolean(form.id) && isProtectedRole(form)) ||
                                 !canAssignPermissions
                               }
                               onChange={(event) =>

@@ -11,6 +11,7 @@ import {
   replaceUserRoles,
 } from "@/lib/rbac/role-management";
 import {
+  LEGACY_SUPER_ADMIN_ROLE_NAME,
   getLegacyRoleFromRoleNames,
   SYSTEM_ROLE_NAMES,
 } from "@/lib/rbac/system-roles";
@@ -90,7 +91,9 @@ export async function PATCH(req: Request, context: RouteContext) {
     const targetHasSuperAdmin =
       targetUser.role === "admin" ||
       ((targetUserRoles ?? []) as unknown as Array<{ roles: { name: string } | null }>).some(
-        (row) => row.roles?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN
+        (row) =>
+          row.roles?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
+          row.roles?.name === LEGACY_SUPER_ADMIN_ROLE_NAME
       );
     const updates: {
       role?: UserRole;
@@ -171,7 +174,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       !(await hasActiveSuperAdminOtherThan(id))
     ) {
       return NextResponse.json(
-        { error: "At least one active Super Admin account is required." },
+        { error: "At least one active Admin account is required." },
         { status: 400 }
       );
     }

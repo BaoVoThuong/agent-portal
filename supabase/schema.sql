@@ -174,9 +174,48 @@ where key not in (
   'system.view_sensitive_data'
 );
 
+do $$
+declare
+  legacy_admin_role_id uuid;
+  admin_role_id uuid;
+begin
+  select id into legacy_admin_role_id
+  from roles
+  where name = 'Super Admin';
+
+  select id into admin_role_id
+  from roles
+  where name = 'Admin';
+
+  if legacy_admin_role_id is not null and admin_role_id is null then
+    update roles
+    set name = 'Admin',
+        description = 'Full access to every portal area.',
+        is_system = true,
+        is_active = true,
+        updated_at = now()
+    where id = legacy_admin_role_id;
+  elsif legacy_admin_role_id is not null and admin_role_id is not null then
+    insert into role_permissions (role_id, permission_key)
+    select admin_role_id, permission_key
+    from role_permissions
+    where role_id = legacy_admin_role_id
+    on conflict (role_id, permission_key) do nothing;
+
+    insert into user_roles (user_id, role_id)
+    select user_id, admin_role_id
+    from user_roles
+    where role_id = legacy_admin_role_id
+    on conflict (user_id, role_id) do nothing;
+
+    delete from roles
+    where id = legacy_admin_role_id;
+  end if;
+end $$;
+
 insert into roles (name, description, is_system, is_active)
 values
-  ('Super Admin', 'Full access to every portal area.', true, true),
+  ('Admin', 'Full access to every portal area.', true, true),
   ('Agent', 'Default access for regular agents.', false, true)
 on conflict (name) do update set
   description = excluded.description,
@@ -187,13 +226,13 @@ on conflict (name) do update set
 delete from role_permissions rp
 using roles r
 where rp.role_id = r.id
-  and r.name in ('Super Admin', 'Agent');
+  and r.name in ('Admin', 'Agent');
 
 insert into role_permissions (role_id, permission_key)
 select r.id, p.key
 from roles r
 cross join permissions p
-where r.name = 'Super Admin'
+where r.name = 'Admin'
 on conflict (role_id, permission_key) do nothing;
 
 insert into role_permissions (role_id, permission_key)
@@ -213,7 +252,7 @@ on conflict (role_id, permission_key) do nothing;
 insert into user_roles (user_id, role_id)
 select a.id, r.id
 from portal_account a
-join roles r on r.name = case when a.role = 'admin' then 'Super Admin' else 'Agent' end
+join roles r on r.name = case when a.role = 'admin' then 'Admin' else 'Agent' end
 on conflict (user_id, role_id) do nothing;
 
 create table if not exists entries (

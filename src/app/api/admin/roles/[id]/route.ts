@@ -8,7 +8,10 @@ import {
   fetchRolesWithPermissions,
   replaceRolePermissions,
 } from "@/lib/rbac/role-management";
-import { SYSTEM_ROLE_NAMES } from "@/lib/rbac/system-roles";
+import {
+  LEGACY_SUPER_ADMIN_ROLE_NAME,
+  SYSTEM_ROLE_NAMES,
+} from "@/lib/rbac/system-roles";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -27,7 +30,10 @@ function parsePermissionKeys(value: unknown) {
 }
 
 function isProtectedRole(role: { name: string }) {
-  return role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN;
+  return (
+    role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
+    role.name === LEGACY_SUPER_ADMIN_ROLE_NAME
+  );
 }
 
 export async function PATCH(req: Request, context: RouteContext) {
@@ -93,7 +99,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     const role = await fetchRoleById(id);
     if (isProtectedRole(role) && (Object.keys(updates).length > 1 || permissionKeys !== null)) {
       return NextResponse.json(
-        { error: "Super Admin cannot be edited." },
+        { error: "Admin cannot be edited." },
         { status: 400 }
       );
     }
@@ -136,7 +142,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
 
     if (isProtectedRole(role)) {
       return NextResponse.json(
-        { error: "Super Admin cannot be deleted." },
+        { error: "Admin cannot be deleted." },
         { status: 400 }
       );
     }

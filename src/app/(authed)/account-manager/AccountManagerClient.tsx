@@ -7,6 +7,7 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import type { RoleOption } from "@/lib/rbac/role-management";
 import {
+  LEGACY_SUPER_ADMIN_ROLE_NAME,
   getDefaultSystemRoleName,
   SYSTEM_ROLE_NAMES,
 } from "@/lib/rbac/system-roles";
@@ -36,6 +37,13 @@ const emptyForm: FormState = {
   password: "",
   roleIds: [],
 };
+
+function isAdminRole(role: Pick<RoleOption, "name">) {
+  return (
+    role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
+    role.name === LEGACY_SUPER_ADMIN_ROLE_NAME
+  );
+}
 
 export default function AccountManagerClient({
   currentUserEmail,
@@ -73,12 +81,8 @@ export default function AccountManagerClient({
   const sortedUsers = useMemo(
     () =>
       [...initialUsers].sort((firstUser, secondUser) => {
-        const firstIsAdmin = firstUser.roles.some(
-          (role) => role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN
-        );
-        const secondIsAdmin = secondUser.roles.some(
-          (role) => role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN
-        );
+        const firstIsAdmin = firstUser.roles.some(isAdminRole);
+        const secondIsAdmin = secondUser.roles.some(isAdminRole);
 
         if (firstIsAdmin !== secondIsAdmin) {
           return firstIsAdmin ? -1 : 1;
@@ -603,7 +607,7 @@ function RoleBadges({ user }: { user: ManagedAccountUser }) {
         <span
           key={role.id}
           className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${
-            role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN
+            isAdminRole(role)
               ? "bg-[#eef4ff] text-[#1b5d9e]"
               : "bg-slate-100 text-slate-700"
           }`}
