@@ -1,26 +1,23 @@
-const fs = require("node:fs");
-const path = require("node:path");
-
-const CONFIG_DIR = path.resolve(__dirname, "../configs");
+const configs = {
+  "health-mart": () => require("../configs/health-mart"),
+  "pc-raw-data": () => require("../configs/pc-raw-data"),
+  "provider-address": () => require("../configs/provider-address"),
+};
 
 function listConfigs() {
-  return fs
-    .readdirSync(CONFIG_DIR)
-    .filter((file) => file.endsWith(".js"))
-    .map((file) => path.basename(file, ".js"))
-    .sort();
+  return Object.keys(configs).sort();
 }
 
 function loadConfig(name) {
   const configName = name || "health-mart";
-  const configPath = path.join(CONFIG_DIR, `${configName}.js`);
+  const load = configs[configName];
 
-  if (!fs.existsSync(configPath)) {
+  if (!load) {
     const available = listConfigs().join(", ");
     throw new Error(`Unknown config "${configName}". Available configs: ${available}`);
   }
 
-  return require(configPath);
+  return load();
 }
 
 module.exports = {
