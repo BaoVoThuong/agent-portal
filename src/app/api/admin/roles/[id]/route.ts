@@ -4,11 +4,11 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
-  countUsersForRole,
   fetchRoleById,
   fetchRolesWithPermissions,
   replaceRolePermissions,
 } from "@/lib/rbac/role-management";
+import { SYSTEM_ROLE_NAMES } from "@/lib/rbac/system-roles";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -24,6 +24,10 @@ type RolePatchPayload = {
 function parsePermissionKeys(value: unknown) {
   if (!Array.isArray(value)) return null;
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function isProtectedRole(role: { name: string }) {
+  return role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN;
 }
 
 export async function PATCH(req: Request, context: RouteContext) {
@@ -87,12 +91,9 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const role = await fetchRoleById(id);
-    if (
-      role.is_system &&
-      (Object.keys(updates).length > 1 || permissionKeys !== null)
-    ) {
+    if (isProtectedRole(role) && (Object.keys(updates).length > 1 || permissionKeys !== null)) {
       return NextResponse.json(
-        { error: "System roles cannot be edited." },
+        { error: "Super Admin cannot be edited." },
         { status: 400 }
       );
     }
@@ -133,17 +134,9 @@ export async function DELETE(_req: Request, context: RouteContext) {
     const { id } = await context.params;
     const role = await fetchRoleById(id);
 
-    if (role.is_system) {
+    if (isProtectedRole(role)) {
       return NextResponse.json(
-        { error: "System roles cannot be deleted." },
-        { status: 400 }
-      );
-    }
-
-    const userCount = await countUsersForRole(id);
-    if (userCount > 0) {
-      return NextResponse.json(
-        { error: "Remove users from this role before deleting it." },
+        { error: "Super Admin cannot be deleted." },
         { status: 400 }
       );
     }

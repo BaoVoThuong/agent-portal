@@ -177,7 +177,7 @@ where key not in (
 insert into roles (name, description, is_system, is_active)
 values
   ('Super Admin', 'Full access to every portal area.', true, true),
-  ('Agent', 'Default access for regular agents.', true, true)
+  ('Agent', 'Default access for regular agents.', false, true)
 on conflict (name) do update set
   description = excluded.description,
   is_system = excluded.is_system,
