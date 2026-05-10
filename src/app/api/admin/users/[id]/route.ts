@@ -245,9 +245,16 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     return NextResponse.json({ user: data });
-  } catch {
+  } catch (error) {
+    console.error("[account-manager:update] failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      {
+        error:
+          error instanceof Error ? error.message : "Internal Server Error",
+      },
       { status: 500 }
     );
   }

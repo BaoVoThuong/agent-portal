@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { MouseEvent } from "react";
 
 type PerformanceMonth = {
   reportMonth: string;
@@ -10,18 +11,19 @@ type PerformanceMonth = {
 };
 
 const WIDTH = 1120;
-const HEIGHT = 460;
-const LEFT = 78;
-const RIGHT = 92;
-const TOP = 78;
-const BOTTOM = 64;
+const HEIGHT = 360;
+const LEFT = 96;
+const RIGHT = 112;
+const TOP = 52;
+const BOTTOM = 48;
 const PLOT_WIDTH = WIDTH - LEFT - RIGHT;
 const PLOT_HEIGHT = HEIGHT - TOP - BOTTOM;
 const GRID_TICKS = [0, 0.25, 0.5, 0.75, 1];
 const LABEL_GAP = 20;
 
 export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 });
 
   const chart = useMemo(() => {
     const maxMoney = roundAxisMax(
@@ -31,7 +33,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
       Math.max(
         ...months.map((month) => Math.max(month.policyCount, month.clientCount)),
         1
-      )
+      ) + 200
     );
     const groupWidth = PLOT_WIDTH / Math.max(months.length, 1);
     const barWidth = Math.min(56, Math.max(34, groupWidth * 0.58));
@@ -82,59 +84,93 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
     );
   }
 
-  const activePoint = chart.points[activeIndex] ?? chart.points[0];
-  const tooltipLeft = Math.min(
-    Math.max(activePoint.centerX - 148, LEFT),
-    WIDTH - RIGHT - 296
-  );
-  const tooltipTop =
-    activePoint.moneyY > TOP + PLOT_HEIGHT * 0.45
-      ? activePoint.moneyY - 150
-      : activePoint.moneyY + 22;
+  const activePoint =
+    activeIndex === null ? null : chart.points[activeIndex] ?? null;
+
+  function updateTooltipPosition(event: MouseEvent<HTMLDivElement>) {
+    if (activeIndex === null) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const left = event.clientX - rect.left + 14;
+    const top = event.clientY - rect.top + 14;
+
+    setTooltipPosition({
+      left: clamp(left, 8, rect.width - 304),
+      top: clamp(top, 8, rect.height - 132),
+    });
+  }
 
   return (
     <section>
-      <h2 className="mb-3 text-2xl font-semibold text-[#24272d]">
+      <h2 className="mb-2 text-xl font-semibold text-[#24272d]">
         Revenue vs Agent Earnings by Month | Trend Comparison
       </h2>
 
-      <div className="rounded-lg border border-[#d1d5db] bg-white p-5 shadow-[0_2px_8px_rgba(22,35,58,0.18)]">
+      <div className="rounded-lg border border-[#d1d5db] bg-white p-3 shadow-[0_2px_8px_rgba(22,35,58,0.18)]">
         <div className="overflow-x-auto">
-          <div className="relative min-w-[980px]">
-            <div
-              className="pointer-events-none absolute z-10 w-[296px] rounded border border-[#d1d5db] bg-white px-4 py-3 text-xs shadow-[0_6px_18px_rgba(22,35,58,0.24)]"
-              style={{ left: tooltipLeft, top: tooltipTop }}
-            >
-              <div className="mb-3 font-semibold text-[#24272d]">
-                {formatDateLabel(activePoint.reportMonth)}
+          <div
+            className="relative min-w-[980px]"
+            onMouseMove={updateTooltipPosition}
+            onMouseLeave={() => setActiveIndex(null)}
+          >
+            {activePoint ? (
+              <div
+                className="pointer-events-none absolute z-10 w-[296px] rounded border border-[#d1d5db] bg-white px-4 py-3 text-xs shadow-[0_6px_18px_rgba(22,35,58,0.24)]"
+                style={{
+                  left: tooltipPosition.left,
+                  top: tooltipPosition.top,
+                }}
+              >
+                <div className="mb-3 font-semibold text-[#24272d]">
+                  {formatDateLabel(activePoint.reportMonth)}
+                </div>
+                <TooltipRow
+                  color="#d9d9d9"
+                  label="Agent Received"
+                  value={formatCurrency(activePoint.agentReceived)}
+                />
+                <TooltipRow
+                  color="#2f80ed"
+                  label="# Policies"
+                  value={formatInteger(activePoint.policyCount)}
+                />
+                <TooltipRow
+                  color="#ff3b30"
+                  label="# Clients"
+                  value={formatInteger(activePoint.clientCount)}
+                />
               </div>
-              <TooltipRow
-                color="#d9d9d9"
-                label="Agent Received"
-                value={formatCurrency(activePoint.agentReceived)}
-              />
-              <TooltipRow
-                color="#2f80ed"
-                label="# Policies"
-                value={formatInteger(activePoint.policyCount)}
-              />
-              <TooltipRow
-                color="#ff3b30"
-                label="# Clients"
-                value={formatInteger(activePoint.clientCount)}
-              />
-            </div>
+            ) : null}
 
             <svg
               viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
               role="img"
               aria-label="Revenue, policies, and clients trend comparison by month"
             >
-              <g transform={`translate(${LEFT}, 20)`}>
+              <g transform={`translate(${LEFT}, 14)`}>
                 <LegendSwatch color="#d9d9d9" x={0} label="Agent Received" />
                 <LegendLine color="#2f80ed" x={192} label="# Policies" />
                 <LegendLine color="#ff3b30" x={332} label="# Clients" />
               </g>
+
+              <text
+                x={22}
+                y={TOP + PLOT_HEIGHT / 2}
+                textAnchor="middle"
+                transform={`rotate(-90 22 ${TOP + PLOT_HEIGHT / 2})`}
+                className="fill-[#667085] text-[12px] font-semibold"
+              >
+                Agent Received
+              </text>
+              <text
+                x={WIDTH - 22}
+                y={TOP + PLOT_HEIGHT / 2}
+                textAnchor="middle"
+                transform={`rotate(-90 ${WIDTH - 22} ${TOP + PLOT_HEIGHT / 2})`}
+                className="fill-[#667085] text-[12px] font-semibold"
+              >
+                Policies / Clients
+              </text>
 
               {GRID_TICKS.map((tick) => {
                 const y = TOP + PLOT_HEIGHT - tick * PLOT_HEIGHT;
@@ -168,25 +204,6 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
                 );
               })}
 
-              <text
-                x={22}
-                y={TOP + PLOT_HEIGHT / 2}
-                textAnchor="middle"
-                transform={`rotate(-90 22 ${TOP + PLOT_HEIGHT / 2})`}
-                className="fill-[#24272d] text-[14px]"
-              >
-                Agent Received
-              </text>
-              <text
-                x={WIDTH - 22}
-                y={TOP + PLOT_HEIGHT / 2}
-                textAnchor="middle"
-                transform={`rotate(-90 ${WIDTH - 22} ${TOP + PLOT_HEIGHT / 2})`}
-                className="fill-[#24272d] text-[14px]"
-              >
-                # Policies | # Clients
-              </text>
-
               {chart.points.map((point, index) => {
                 const isActive = index === activeIndex;
                 const barX = point.centerX - chart.barWidth / 2;
@@ -199,6 +216,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
                     onMouseEnter={() => setActiveIndex(index)}
                     onFocus={() => setActiveIndex(index)}
                     onClick={() => setActiveIndex(index)}
+                    onBlur={() => setActiveIndex(null)}
                     tabIndex={0}
                   >
                     <rect
@@ -235,7 +253,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
                     </text>
                     <text
                       x={point.centerX}
-                      y={TOP + PLOT_HEIGHT + 28}
+                      y={TOP + PLOT_HEIGHT + 24}
                       textAnchor="middle"
                       className="fill-[#3f444b] text-[13px]"
                     >
@@ -291,7 +309,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
                       x={point.centerX}
                       y={point.policyLabelY}
                       textAnchor="middle"
-                      className="fill-[#2f80ed] text-[14px] font-semibold"
+                      className="fill-[#2f80ed] text-[12px] font-semibold"
                     >
                       {formatInteger(point.policyCount)}
                     </text>
@@ -299,7 +317,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
                       x={point.centerX}
                       y={point.clientLabelY}
                       textAnchor="middle"
-                      className="fill-[#ff3b30] text-[14px] font-semibold"
+                      className="fill-[#ff3b30] text-[12px] font-semibold"
                     >
                       {formatInteger(point.clientCount)}
                     </text>

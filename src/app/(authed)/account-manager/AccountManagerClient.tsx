@@ -198,7 +198,7 @@ export default function AccountManagerClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = await response.json();
+      const result = await readJsonResponse(response);
 
       if (!response.ok) {
         setError(result.error ?? "Unable to update account.");
@@ -206,7 +206,9 @@ export default function AccountManagerClient({
       }
 
       setMessage(`Updated ${user.email}.`);
-      router.refresh();
+      if (!isPasswordOnlyUpdate(payload)) {
+        router.refresh();
+      }
       return true;
     } catch {
       setError("Unable to update account. Please try again.");
@@ -726,6 +728,40 @@ export default function AccountManagerClient({
       )}
     </div>
   );
+}
+
+function isPasswordOnlyUpdate(
+  payload: Partial<Pick<AccountUser, "role" | "is_active">> & {
+    email?: string;
+    name?: string | null;
+    password?: string;
+    roleIds?: string[];
+  }
+) {
+  return (
+    payload.password !== undefined &&
+    payload.email === undefined &&
+    payload.name === undefined &&
+    payload.role === undefined &&
+    payload.roleIds === undefined &&
+    payload.is_active === undefined
+  );
+}
+
+async function readJsonResponse(response: Response) {
+  const text = await response.text();
+
+  if (!text) return {};
+
+  try {
+    return JSON.parse(text) as { error?: string; [key: string]: unknown };
+  } catch {
+    return {
+      error: response.ok
+        ? "Unexpected response from server."
+        : text.slice(0, 200),
+    };
+  }
 }
 
 function RoleBadges({ user }: { user: ManagedAccountUser }) {
