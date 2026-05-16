@@ -1,14 +1,20 @@
 "use client";
 
+import { usePathname, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { MouseEvent } from "react";
 
-type PerformanceMonth = {
-  reportMonth: string;
+type ChartLevel = "month" | "quarter" | "year";
+
+type PerformancePeriod = {
+  periodKey: string;
+  periodLabel: string;
   policyCount: number;
   clientCount: number;
   agentReceived: number;
 };
+
+type PeriodsByLevel = Record<ChartLevel, PerformancePeriod[]>;
 
 const WIDTH = 1120;
 const HEIGHT = 360;
@@ -20,32 +26,57 @@ const PLOT_WIDTH = WIDTH - LEFT - RIGHT;
 const PLOT_HEIGHT = HEIGHT - TOP - BOTTOM;
 const GRID_TICKS = [0, 0.25, 0.5, 0.75, 1];
 const LABEL_GAP = 20;
+const CHART_LEVELS: { value: ChartLevel; label: string }[] = [
+  { value: "month", label: "Month" },
+  { value: "quarter", label: "Quarter" },
+  { value: "year", label: "Year" },
+];
 
-export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
+export function AgentHealthPerformanceChart({
+  initialChartLevel,
+  periodsByLevel,
+}: {
+  initialChartLevel: ChartLevel;
+  periodsByLevel: PeriodsByLevel;
+}) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [chartState, setChartState] = useState({
+    initialChartLevel,
+    chartLevel: initialChartLevel,
+  });
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 });
+  const chartLevel =
+    chartState.initialChartLevel === initialChartLevel
+      ? chartState.chartLevel
+      : initialChartLevel;
+  const periods = periodsByLevel[chartLevel];
 
   const chart = useMemo(() => {
     const maxMoney = roundAxisMax(
-      Math.max(...months.map((month) => Math.max(month.agentReceived, 0)), 1)
+      Math.max(...periods.map((period) => Math.max(period.agentReceived, 0)), 1)
     );
     const maxCount = roundAxisMax(
       Math.max(
-        ...months.map((month) => Math.max(month.policyCount, month.clientCount)),
+        ...periods.map((period) =>
+          Math.max(period.policyCount, period.clientCount)
+        ),
         1
       ) + 200
     );
-    const groupWidth = PLOT_WIDTH / Math.max(months.length, 1);
+    const groupWidth = PLOT_WIDTH / Math.max(periods.length, 1);
     const barWidth = Math.min(56, Math.max(34, groupWidth * 0.58));
-    const points = months.map((month, index) => {
+    const points = periods.map((period, index) => {
       const centerX = LEFT + index * groupWidth + groupWidth / 2;
-      const moneyHeight = (Math.max(month.agentReceived, 0) / maxMoney) * PLOT_HEIGHT;
-      const policyY = countToY(month.policyCount, maxCount);
-      const clientY = countToY(month.clientCount, maxCount);
+      const moneyHeight =
+        (Math.max(period.agentReceived, 0) / maxMoney) * PLOT_HEIGHT;
+      const policyY = countToY(period.policyCount, maxCount);
+      const clientY = countToY(period.clientCount, maxCount);
       const labelYs = resolveLineLabelYs(policyY, clientY);
 
       return {
-        ...month,
+        ...period,
         centerX,
         moneyHeight,
         moneyY: TOP + PLOT_HEIGHT - moneyHeight,
@@ -69,16 +100,41 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
         .map((point, index) => pathPoint(index, point.centerX, point.clientY))
         .join(" "),
     };
-  }, [months]);
+  }, [periods]);
 
-  if (months.length === 0) {
+  function updateChartLevel(nextChartLevel: ChartLevel) {
+    if (nextChartLevel === chartLevel) return;
+
+    setChartState({ initialChartLevel, chartLevel: nextChartLevel });
+    setActiveIndex(null);
+
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (nextChartLevel === "month") {
+      params.delete("chartLevel");
+    } else {
+      params.set("chartLevel", nextChartLevel);
+    }
+
+    const query = params.toString();
+    const nextHref = query ? `${pathname}?${query}` : pathname;
+    const currentQuery = searchParams.toString();
+    const currentHref = currentQuery ? `${pathname}?${currentQuery}` : pathname;
+
+    if (nextHref !== currentHref) {
+      window.history.replaceState(null, "", nextHref);
+    }
+  }
+
+  if (periods.length === 0) {
     return (
       <section className="rounded-lg border border-[#d8dee7] bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-semibold text-[#16233a]">
-          Revenue vs Agent Earnings by Month | Trend Comparison
-        </h2>
+        <ChartHeader
+          chartLevel={chartLevel}
+          onChartLevelChange={updateChartLevel}
+        />
         <div className="mt-6 rounded-lg border border-dashed border-[#d8dee7] px-6 py-12 text-center text-sm text-[#667085]">
-          No report months with more than 100 active policies.
+          No report periods with more than 100 active policies.
         </div>
       </section>
     );
@@ -102,9 +158,10 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
 
   return (
     <section>
-      <h2 className="mb-2 text-xl font-semibold text-[#24272d]">
-        Revenue vs Agent Earnings by Month | Trend Comparison
-      </h2>
+      <ChartHeader
+        chartLevel={chartLevel}
+        onChartLevelChange={updateChartLevel}
+      />
 
       <div className="rounded-lg border border-[#d1d5db] bg-white p-3 shadow-[0_2px_8px_rgba(22,35,58,0.18)]">
         <div className="overflow-x-auto">
@@ -122,7 +179,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
                 }}
               >
                 <div className="mb-3 font-semibold text-[#24272d]">
-                  {formatDateLabel(activePoint.reportMonth)}
+                  {activePoint.periodLabel}
                 </div>
                 <TooltipRow
                   color="#d9d9d9"
@@ -145,7 +202,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
             <svg
               viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
               role="img"
-              aria-label="Revenue, policies, and clients trend comparison by month"
+              aria-label="Revenue, policies, and clients trend comparison by period"
             >
               <g transform={`translate(${LEFT}, 14)`}>
                 <LegendSwatch color="#d9d9d9" x={0} label="Agent Received" />
@@ -211,7 +268,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
 
                 return (
                   <g
-                    key={point.reportMonth}
+                    key={point.periodKey}
                     className="cursor-pointer outline-none"
                     onMouseEnter={() => setActiveIndex(index)}
                     onFocus={() => setActiveIndex(index)}
@@ -257,7 +314,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
                       textAnchor="middle"
                       className="fill-[#3f444b] text-[13px]"
                     >
-                      {formatDateLabel(point.reportMonth)}
+                      {point.periodLabel}
                     </text>
                   </g>
                 );
@@ -284,7 +341,7 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
                 const isActive = index === activeIndex;
                 return (
                   <g
-                    key={`${point.reportMonth}-lines`}
+                    key={`${point.periodKey}-lines`}
                     className="cursor-pointer"
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => setActiveIndex(index)}
@@ -334,6 +391,48 @@ export function PerformanceChart({ months }: { months: PerformanceMonth[] }) {
 
 function countToY(value: number, maxCount: number) {
   return TOP + PLOT_HEIGHT - (value / maxCount) * PLOT_HEIGHT;
+}
+
+function ChartHeader({
+  chartLevel,
+  onChartLevelChange,
+}: {
+  chartLevel: ChartLevel;
+  onChartLevelChange: (chartLevel: ChartLevel) => void;
+}) {
+  return (
+    <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-xl font-semibold text-[#24272d]">
+        Revenue vs Agent Earnings by {getChartLevelLabel(chartLevel)} | Trend
+        Comparison
+      </h2>
+      <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
+        {CHART_LEVELS.map((level) => {
+          const isActive = level.value === chartLevel;
+
+          return (
+            <button
+              key={level.value}
+              type="button"
+              onClick={() => onChartLevelChange(level.value)}
+              className={`h-8 px-3 text-xs font-semibold transition ${
+                isActive
+                  ? "bg-[#184e8a] text-white"
+                  : "text-[#344054] hover:bg-[#f3f6fa]"
+              }`}
+              aria-pressed={isActive}
+            >
+              {level.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function getChartLevelLabel(chartLevel: ChartLevel) {
+  return CHART_LEVELS.find((level) => level.value === chartLevel)?.label ?? "Month";
 }
 
 function resolveLineLabelYs(policyY: number, clientY: number) {
@@ -459,8 +558,4 @@ function formatCompactCount(value: number) {
   })
     .format(value)
     .toUpperCase();
-}
-
-function formatDateLabel(value: string) {
-  return value.slice(0, 7);
 }

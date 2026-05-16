@@ -55,6 +55,28 @@ type RouteResult = {
   polyline: string | null;
 };
 
+type MapsAddressInput = {
+  id: string;
+  address: string;
+};
+
+type MapsRouteBatch = {
+  originCoordinates: Coordinates | null;
+  routesById: Map<string, RouteResult | null>;
+};
+
+type MapsService = {
+  geocodeCandidates: (
+    candidates: MapsAddressInput[],
+    logs: string[]
+  ) => Promise<Map<string, Coordinates | null>>;
+  routeCandidates: (
+    origin: string,
+    candidates: MapsAddressInput[],
+    logs: string[]
+  ) => Promise<MapsRouteBatch>;
+};
+
 type ProviderResult = {
   name: string;
   facility: string;
@@ -103,6 +125,27 @@ type GoogleDirectionsResponse = {
   }>;
 };
 
+type AppsScriptMapsConfig = {
+  url: string;
+  secret: string;
+};
+
+type AppsScriptMapsResponse = {
+  ok?: boolean;
+  error?: string;
+  logs?: string[];
+  origin?: Coordinates | null;
+  results?: Array<{
+    id?: string;
+    status?: string;
+    error?: string | null;
+    location?: Coordinates | null;
+    endLocation?: Coordinates | null;
+    distanceMeters?: number | null;
+    polyline?: string | null;
+  }>;
+};
+
 const maxResults = 10;
 const pageSize = 1000;
 const milesPerMeter = 0.000621371;
@@ -134,7 +177,7 @@ function normalizeInsuranceType(value: unknown): InsuranceType {
     return normalized;
   }
 
-  return "";
+  return "both";
 }
 
 function getAddressParts(input: SearchRequest) {
@@ -178,6 +221,30 @@ function getGoogleMapsApiKey() {
   }
 
   return key;
+}
+
+function getAppsScriptMapsConfig() {
+  const url = process.env.APPS_SCRIPT_MAPS_WEBAPP_URL?.trim();
+  if (!url) return null;
+
+  const secret = process.env.APPS_SCRIPT_MAPS_SECRET?.trim();
+  if (!secret) {
+    throw new Error("APPS_SCRIPT_MAPS_SECRET is not configured");
+  }
+
+  return { url, secret } satisfies AppsScriptMapsConfig;
+}
+
+function getMapsService(logs: string[]): MapsService {
+  const appsScriptConfig = getAppsScriptMapsConfig();
+
+  if (appsScriptConfig) {
+    logs.push("maps provider: apps script");
+    return createAppsScriptMapsService(appsScriptConfig);
+  }
+
+  logs.push("maps provider: google rest");
+  return createGoogleMapsService(getGoogleMapsApiKey());
 }
 
 function getContractText(row: ProviderAddressRow, insuranceType: InsuranceType) {
@@ -308,6 +375,224 @@ function isGoogleConfigError(err: unknown) {
   );
 }
 
+function isMapsProviderConfigError(err: unknown) {
+  if (!(err instanceof Error)) return false;
+  return (
+    isGoogleConfigError(err) ||
+    err.message.includes("APPS_SCRIPT_MAPS") ||
+    err.message.includes("Apps Script maps")
+  );
+}
+
+function isCoordinates(value: Coordinates | null | undefined): value is Coordinates {
+  return Boolean(
+    value &&
+      Number.isFinite(value.lat) &&
+      Number.isFinite(value.lng)
+  );
+}
+
+function toMapCandidates(candidates: Candidate[]) {
+  return candidates.map((candidate, index) => ({
+    id: String(index),
+    address: candidate.address,
+  }));
+}
+
+async function postAppsScriptMaps(
+  config: AppsScriptMapsConfig,
+  action: string,
+  payload: Record<string, unknown>,
+  logs: string[]
+) {
+  const response = await fetch(config.url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      secret: config.secret,
+      action,
+      ...payload,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Apps Script maps request failed: ${response.status}`);
+  }
+
+  const data = (await response.json()) as AppsScriptMapsResponse;
+  if (Array.isArray(data.logs)) {
+    logs.push(...data.logs.map((entry) => `apps script: ${entry}`));
+  }
+
+  if (data.ok === false) {
+    throw new Error(`Apps Script maps ${data.error ?? "request failed"}`);
+  }
+
+  return data;
+}
+
+function createAppsScriptMapsService(
+  config: AppsScriptMapsConfig
+): MapsService {
+  return {
+    async routeCandidates(origin, candidates, logs) {
+      const routesById = new Map<string, RouteResult | null>(
+        candidates.map((candidate) => [candidate.id, null])
+      );
+
+      if (candidates.length === 0) {
+        return { originCoordinates: null, routesById };
+      }
+
+      const data = await postAppsScriptMaps(
+        config,
+        "directions",
+        {
+          origin,
+          destinations: candidates,
+        },
+        logs
+      );
+      let successCount = 0;
+
+      for (const result of data.results ?? []) {
+        if (!result.id || !routesById.has(result.id)) continue;
+
+        if (
+          Number.isFinite(result.distanceMeters) &&
+          isCoordinates(result.endLocation)
+        ) {
+          successCount += 1;
+          routesById.set(result.id, {
+            distanceMeters: result.distanceMeters ?? 0,
+            endLocation: result.endLocation,
+            polyline: result.polyline ?? null,
+          });
+        } else {
+          routesById.set(result.id, null);
+          if (result.error || result.status) {
+            logs.push(
+              `apps script directions ${result.id}: ${
+                result.error ?? result.status
+              }`
+            );
+          }
+        }
+      }
+
+      logs.push(`directions success count: ${successCount}`);
+
+      return {
+        originCoordinates: isCoordinates(data.origin) ? data.origin : null,
+        routesById,
+      };
+    },
+    async geocodeCandidates(candidates, logs) {
+      const coordinatesById = new Map<string, Coordinates | null>(
+        candidates.map((candidate) => [candidate.id, null])
+      );
+
+      if (candidates.length === 0) {
+        return coordinatesById;
+      }
+
+      const data = await postAppsScriptMaps(
+        config,
+        "geocode",
+        {
+          addresses: candidates,
+        },
+        logs
+      );
+      let successCount = 0;
+
+      for (const result of data.results ?? []) {
+        if (!result.id || !coordinatesById.has(result.id)) continue;
+
+        if (isCoordinates(result.location)) {
+          successCount += 1;
+          coordinatesById.set(result.id, result.location);
+        } else if (result.error || result.status) {
+          logs.push(
+            `apps script geocode ${result.id}: ${
+              result.error ?? result.status
+            }`
+          );
+        }
+      }
+
+      logs.push(`provider geocode success count: ${successCount}`);
+      return coordinatesById;
+    },
+  };
+}
+
+function createGoogleMapsService(key: string): MapsService {
+  return {
+    async routeCandidates(origin, candidates, logs) {
+      const routesById = new Map<string, RouteResult | null>(
+        candidates.map((candidate) => [candidate.id, null])
+      );
+      let successCount = 0;
+
+      for (const candidate of candidates) {
+        try {
+          const route = await fetchDirections(origin, candidate.address, key, logs);
+          if (route) {
+            successCount += 1;
+            routesById.set(candidate.id, route);
+          }
+        } catch (err) {
+          if (isGoogleConfigError(err)) throw err;
+          logs.push(
+            `directions error ${candidate.address}: ${
+              err instanceof Error ? err.message : "unknown"
+            }`
+          );
+        }
+      }
+
+      logs.push(`directions success count: ${successCount}`);
+
+      const originCoordinates = await geocodeAddress(origin, key, logs);
+      logs.push(
+        `customer geocode status: ${originCoordinates ? "ok" : "empty"}`
+      );
+
+      return {
+        originCoordinates,
+        routesById,
+      };
+    },
+    async geocodeCandidates(candidates, logs) {
+      const coordinatesById = new Map<string, Coordinates | null>(
+        candidates.map((candidate) => [candidate.id, null])
+      );
+      let successCount = 0;
+
+      for (const candidate of candidates) {
+        try {
+          const coordinates = await geocodeAddress(candidate.address, key, logs);
+          if (coordinates) {
+            successCount += 1;
+            coordinatesById.set(candidate.id, coordinates);
+          }
+        } catch (err) {
+          if (isGoogleConfigError(err)) throw err;
+          logs.push(
+            `provider geocode error ${candidate.address}: ${
+              err instanceof Error ? err.message : "unknown"
+            }`
+          );
+        }
+      }
+
+      logs.push(`provider geocode success count: ${successCount}`);
+      return coordinatesById;
+    },
+  };
+}
+
 async function geocodeAddress(address: string, key: string, logs: string[]) {
   const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
   url.searchParams.set("address", address);
@@ -427,28 +712,6 @@ function toProviderResult(
   };
 }
 
-function centerCoordinates(items: ProviderResult[]) {
-  const coordinates = items.filter(
-    (item): item is ProviderResult & { lat: number; lng: number } =>
-      Number.isFinite(item.lat) && Number.isFinite(item.lng)
-  );
-
-  if (coordinates.length === 0) return null;
-
-  const totals = coordinates.reduce(
-    (sum, item) => ({
-      lat: sum.lat + item.lat,
-      lng: sum.lng + item.lng,
-    }),
-    { lat: 0, lng: 0 }
-  );
-
-  return {
-    lat: totals.lat / coordinates.length,
-    lng: totals.lng / coordinates.length,
-  };
-}
-
 export async function POST(request: Request) {
   const session = await auth();
   if (!can(session?.user?.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
@@ -468,7 +731,7 @@ export async function POST(request: Request) {
     logs.push(
       `input parsed: address=${hasAddress ? "yes" : "no"}, contract=${
         contract ? "yes" : "no"
-      }, insurance=${insuranceType || "any"}, radius=${
+      }, insurance=${insuranceType}, radius=${
         radiusMiles ?? "none"
       }`
     );
@@ -504,35 +767,23 @@ export async function POST(request: Request) {
       });
     }
 
-    const key = getGoogleMapsApiKey();
+    const mapsService = getMapsService(logs);
+    const mapCandidates = toMapCandidates(candidates);
     let results: ProviderResult[] = [];
     let origin: { address: string; lat: number | null; lng: number | null } | undefined;
 
     if (hasAddress) {
-      let directionsSuccessCount = 0;
+      const { originCoordinates, routesById } =
+        await mapsService.routeCandidates(address, mapCandidates, logs);
 
-      for (const candidate of candidates) {
-        try {
-          const route = await fetchDirections(
-            address,
-            candidate.address,
-            key,
-            logs
-          );
-          if (route) directionsSuccessCount += 1;
-          results.push(toProviderResult(candidate, insuranceType, route, null));
-        } catch (err) {
-          if (isGoogleConfigError(err)) throw err;
-          logs.push(
-            `directions error ${candidate.address}: ${
-              err instanceof Error ? err.message : "unknown"
-            }`
-          );
-          results.push(toProviderResult(candidate, insuranceType, null, null));
-        }
-      }
-
-      logs.push(`directions success count: ${directionsSuccessCount}`);
+      results = candidates.map((candidate, index) =>
+        toProviderResult(
+          candidate,
+          insuranceType,
+          routesById.get(String(index)) ?? null,
+          null
+        )
+      );
 
       results.sort(
         (a, b) =>
@@ -549,41 +800,27 @@ export async function POST(request: Request) {
         logs.push(`radius kept count: ${results.length}`);
       }
 
-      const customerCoordinates = await geocodeAddress(address, key, logs);
-      logs.push(
-        `customer geocode status: ${customerCoordinates ? "ok" : "empty"}`
-      );
       origin = {
         address,
-        lat: customerCoordinates?.lat ?? null,
-        lng: customerCoordinates?.lng ?? null,
+        lat: originCoordinates?.lat ?? null,
+        lng: originCoordinates?.lng ?? null,
       };
     } else {
-      for (const candidate of candidates) {
-        try {
-          const coordinates = await geocodeAddress(candidate.address, key, logs);
-          results.push(
-            toProviderResult(candidate, insuranceType, null, coordinates)
-          );
-        } catch (err) {
-          if (isGoogleConfigError(err)) throw err;
-          logs.push(
-            `provider geocode error ${candidate.address}: ${
-              err instanceof Error ? err.message : "unknown"
-            }`
-          );
-          results.push(toProviderResult(candidate, insuranceType, null, null));
-        }
-      }
+      const coordinatesById = await mapsService.geocodeCandidates(
+        mapCandidates,
+        logs
+      );
 
-      const center = centerCoordinates(results);
-      origin = center
-        ? {
-            address: "Center of matching providers",
-            lat: center.lat,
-            lng: center.lng,
-          }
-        : undefined;
+      results = candidates.map((candidate, index) =>
+        toProviderResult(
+          candidate,
+          insuranceType,
+          null,
+          coordinatesById.get(String(index)) ?? null
+        )
+      );
+
+      origin = undefined;
     }
 
     return NextResponse.json({
@@ -596,12 +833,14 @@ export async function POST(request: Request) {
       logs,
     });
   } catch (err) {
+    const status = isMapsProviderConfigError(err) ? 502 : 500;
+
     return NextResponse.json(
       {
         error: err instanceof Error ? err.message : "Provider search failed",
         logs,
       },
-      { status: 500 }
+      { status }
     );
   }
 }

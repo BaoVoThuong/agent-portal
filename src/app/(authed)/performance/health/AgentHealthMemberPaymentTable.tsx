@@ -28,7 +28,7 @@ const MONTH_LABELS = [
   "December",
 ];
 
-export function MemberPaymentTable({
+export function AgentHealthMemberPaymentTable({
   rows,
   visibleMonthCount,
 }: {

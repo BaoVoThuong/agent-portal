@@ -88,9 +88,62 @@ const menuData: MenuItem[] = [
     ],
   },
   {
-    href: "/performance",
-    label: "Agent Performance",
-    anyPermission: [PERMISSIONS.PERFORMANCE_OWN, PERMISSIONS.PERFORMANCE_ALL],
+    title: "Agent Performance",
+    anyPermission: [
+      PERMISSIONS.AGENT_PERFORMANCE_HEALTH_OWN,
+      PERMISSIONS.AGENT_PERFORMANCE_HEALTH_ALL,
+      PERMISSIONS.AGENT_PERFORMANCE_PC_OWN,
+      PERMISSIONS.AGENT_PERFORMANCE_PC_ALL,
+      PERMISSIONS.AGENT_PERFORMANCE_LIFE_OWN,
+      PERMISSIONS.AGENT_PERFORMANCE_LIFE_ALL,
+    ],
+    children: [
+      {
+        href: "/performance/health",
+        label: "Health",
+        anyPermission: [
+          PERMISSIONS.AGENT_PERFORMANCE_HEALTH_OWN,
+          PERMISSIONS.AGENT_PERFORMANCE_HEALTH_ALL,
+        ],
+      },
+      {
+        href: "/performance/pc",
+        label: "P&C",
+        anyPermission: [
+          PERMISSIONS.AGENT_PERFORMANCE_PC_OWN,
+          PERMISSIONS.AGENT_PERFORMANCE_PC_ALL,
+        ],
+      },
+      {
+        href: "/performance/life",
+        label: "Life",
+        anyPermission: [
+          PERMISSIONS.AGENT_PERFORMANCE_LIFE_OWN,
+          PERMISSIONS.AGENT_PERFORMANCE_LIFE_ALL,
+        ],
+      },
+    ],
+  },
+  {
+    title: "Sales Performance",
+    permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+    children: [
+      {
+        href: "/sales-performance/health",
+        label: "Health",
+        permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+      },
+      {
+        href: "/sales-performance/pc",
+        label: "P&C",
+        permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+      },
+      {
+        href: "/sales-performance/life",
+        label: "Life",
+        permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+      },
+    ],
   },
   {
     title: "Management",
@@ -123,6 +176,8 @@ export default function Sidebar({
   const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({
     "Customer Registration": true,
     "Automation Tool": pathname.startsWith("/automation"),
+    "Agent Performance": pathname.startsWith("/performance"),
+    "Sales Performance": pathname.startsWith("/sales-performance"),
     Management:
       pathname.startsWith("/account-manager") ||
       pathname.startsWith("/role-manager"),

@@ -18,7 +18,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Credentials({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
-
         const supabase = getSupabaseAdmin();
         const { data: user } = await supabase
           .from(PORTAL_ACCOUNT_TABLE)

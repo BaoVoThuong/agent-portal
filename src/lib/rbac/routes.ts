@@ -28,8 +28,37 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
   },
   {
-    href: "/performance",
-    anyPermission: [PERMISSIONS.PERFORMANCE_OWN, PERMISSIONS.PERFORMANCE_ALL],
+    href: "/performance/health",
+    anyPermission: [
+      PERMISSIONS.AGENT_PERFORMANCE_HEALTH_OWN,
+      PERMISSIONS.AGENT_PERFORMANCE_HEALTH_ALL,
+    ],
+  },
+  {
+    href: "/performance/pc",
+    anyPermission: [
+      PERMISSIONS.AGENT_PERFORMANCE_PC_OWN,
+      PERMISSIONS.AGENT_PERFORMANCE_PC_ALL,
+    ],
+  },
+  {
+    href: "/performance/life",
+    anyPermission: [
+      PERMISSIONS.AGENT_PERFORMANCE_LIFE_OWN,
+      PERMISSIONS.AGENT_PERFORMANCE_LIFE_ALL,
+    ],
+  },
+  {
+    href: "/sales-performance/health",
+    permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+  },
+  {
+    href: "/sales-performance/pc",
+    permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+  },
+  {
+    href: "/sales-performance/life",
+    permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
   },
   {
     href: "/account-manager",

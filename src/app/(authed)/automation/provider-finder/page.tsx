@@ -12,7 +12,7 @@ export default async function ProviderFinderPage() {
           Provider Finder
         </h1>
         <p className="mt-1 text-sm text-[#667085]">
-          Search nearby providers by address, insurance, specialty, and radius.
+          Search nearby providers by address, insurance, and specialty.
         </p>
       </header>
       <ProviderFinderClient />
