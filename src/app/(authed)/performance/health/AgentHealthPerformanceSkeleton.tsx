@@ -26,6 +26,11 @@ export function AgentHealthPerformanceDashboardSkeleton() {
         <PaymentStatusSkeleton titleWidth="w-72" />
       </section>
 
+      <section className="grid gap-5 xl:grid-cols-2">
+        <PaymentStatusSkeleton titleWidth="w-96" />
+        <PaymentStatusSkeleton titleWidth="w-96" />
+      </section>
+
       <section className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#edf0f4] px-6 py-5">
           <div>

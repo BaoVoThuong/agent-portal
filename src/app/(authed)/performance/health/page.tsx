@@ -9,7 +9,7 @@ import {
   AgentHealthPerformanceFilterProvider,
 } from "./AgentHealthPerformanceFilterState";
 import { AgentHealthMemberPaymentTable } from "./AgentHealthMemberPaymentTable";
-import { AgentHealthPerformanceChart } from "./AgentHealthPerformanceChart";
+import { AgentHealthPerformanceTrendSection } from "./AgentHealthPerformanceTrendSection";
 import { AgentHealthReportMonthRangeFilter } from "./AgentHealthReportMonthRangeFilter";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 type HealthMartRow = {
   deal_name: string | null;
   carrier: string | null;
+  state: string | null;
   primary_member_id: string | null;
   report_month: string | null;
   paid_to_date: string | null;
@@ -60,12 +61,21 @@ type PaymentStatusMonth = {
   paidRate: number;
 };
 
+type CarrierPaymentStatusRow = {
+  carrier: string;
+  total: number;
+  paid: number;
+  unpaid: number;
+  paidRate: number;
+};
+
 type MemberPaymentRow = {
   dealName: string;
   carrier: string;
   primaryMemberId: string;
   totalPaid: number;
   months: {
+    hasRecord: boolean;
     paid: number;
     paidToDate: string | null;
   }[];
@@ -76,6 +86,26 @@ type MemberPaymentSummary = {
   visibleMonthCount: number;
 };
 
+type MixBreakdownRow = {
+  label: string;
+  sharePercent: number;
+  policyCount: number;
+  clientCount: number;
+  totalCommission: number;
+};
+
+type LatestMonthMixBreakdown = {
+  reportMonth: string | null;
+  carrierRows: MixBreakdownRow[];
+  stateRows: MixBreakdownRow[];
+};
+
+type CarrierPaymentStatusBreakdown = {
+  reportMonth: string | null;
+  policyRows: CarrierPaymentStatusRow[];
+  clientRows: CarrierPaymentStatusRow[];
+};
+
 type PerformanceData = {
   scoreCards: ScoreCards;
   memberPayments: MemberPaymentRow[];
@@ -83,6 +113,8 @@ type PerformanceData = {
   chartPeriodsByLevel: ChartPeriodsByLevel;
   policyPaymentStatus: PaymentStatusMonth[];
   clientPaymentStatus: PaymentStatusMonth[];
+  carrierPaymentStatus: CarrierPaymentStatusBreakdown;
+  latestMonthMixBreakdown: LatestMonthMixBreakdown;
 };
 
 type PerformancePageProps = {
@@ -116,6 +148,7 @@ const CHART_YEAR_LIMIT = 5;
 const CHART_MIN_POLICY_COUNT = 100;
 const PAYMENT_STATUS_MONTH_LIMIT = 5;
 const PAYMENT_STATUS_MIN_TOTAL = 100;
+const MIX_BREAKDOWN_TOP_LIMIT = 5;
 
 const fetchCachedCarrierOptions = unstable_cache(
   async (agentName: string | null, start: string | null, end: string | null) =>
@@ -163,7 +196,7 @@ export default async function PerformancePage({
         <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-[#16233a]">
-              Agent Health Performance
+              Health Agent Performance
             </h1>
             <p className="mt-1 text-sm text-[#667085]">
               {canViewAll
@@ -194,21 +227,21 @@ export default async function PerformancePage({
             <div className="space-y-4">
               <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <ScoreCard
-                  label="Active Policies In Recent Month"
+                  label="Latest Active Policies"
                   value={formatInteger(performanceData.scoreCards.activePolicy.value)}
                   changePercent={
                     performanceData.scoreCards.activePolicy.changePercent
                   }
                 />
                 <ScoreCard
-                  label="Active Clients In Recent Month"
+                  label="Latest Active Clients"
                   value={formatInteger(performanceData.scoreCards.activeClient.value)}
                   changePercent={
                     performanceData.scoreCards.activeClient.changePercent
                   }
                 />
                 <ScoreCard
-                  label="Total Commission In Recent Month"
+                  label="Latest Month Commission"
                   value={formatCurrency(
                     performanceData.scoreCards.totalCommission.value
                   )}
@@ -217,10 +250,10 @@ export default async function PerformancePage({
                   }
                 />
                 <ScoreCard
-                  label={`Total Commission In ${
+                  label={`${
                     performanceData.scoreCards.totalCommissionInReportYear
                       .reportYear ?? "Report Year"
-                  }`}
+                  } Commission`}
                   value={formatCurrency(
                     performanceData.scoreCards.totalCommissionInReportYear.value
                   )}
@@ -231,13 +264,23 @@ export default async function PerformancePage({
                 />
               </section>
 
-              <AgentHealthPerformanceChart
+              <AgentHealthPerformanceTrendSection
                 initialChartLevel={chartLevel}
                 periodsByLevel={performanceData.chartPeriodsByLevel}
               />
               <PaymentStatusSection
                 policyRows={performanceData.policyPaymentStatus}
                 clientRows={performanceData.clientPaymentStatus}
+              />
+              <CarrierPaymentStatusSection
+                reportMonth={performanceData.carrierPaymentStatus.reportMonth}
+                policyRows={performanceData.carrierPaymentStatus.policyRows}
+                clientRows={performanceData.carrierPaymentStatus.clientRows}
+              />
+              <MixBreakdownSection
+                reportMonth={performanceData.latestMonthMixBreakdown.reportMonth}
+                carrierRows={performanceData.latestMonthMixBreakdown.carrierRows}
+                stateRows={performanceData.latestMonthMixBreakdown.stateRows}
               />
               <AgentHealthMemberPaymentTable
                 rows={performanceData.memberPayments}
@@ -272,6 +315,14 @@ async function fetchPerformanceData(
     },
     policyPaymentStatus: buildPolicyPaymentStatus(rows),
     clientPaymentStatus: buildClientPaymentStatus(rows),
+    carrierPaymentStatus: buildCarrierPaymentStatusBreakdown(
+      rows,
+      monthlySummaries
+    ),
+    latestMonthMixBreakdown: buildLatestMonthMixBreakdown(
+      rows,
+      monthlySummaries
+    ),
   };
 }
 
@@ -386,9 +437,13 @@ function summarizeReportYearCommission(
 function toScoreCardMetric(value: number, previousValue: number): ScoreCardMetric {
   return {
     value,
-    changePercent:
-      previousValue === 0 ? null : ((value - previousValue) / previousValue) * 100,
+    changePercent: calculatePercentChange(value, previousValue),
   };
+}
+
+function calculatePercentChange(value: number, previousValue: number) {
+  if (previousValue === 0) return null;
+  return ((value - previousValue) / previousValue) * 100;
 }
 
 function buildChartPeriods(
@@ -486,7 +541,7 @@ async function fetchHealthMartRows(
     let query = supabase
       .from("health_mart")
       .select(
-        "deal_name,carrier,primary_member_id,report_month,paid_to_date,agent_received,num_client"
+        "deal_name,carrier,state,primary_member_id,report_month,paid_to_date,agent_received,num_client"
       )
       .order("report_month", { ascending: true })
       .range(from, from + HEALTH_MART_PAGE_SIZE - 1);
@@ -600,6 +655,7 @@ function buildMemberPaymentSummary(rows: HealthMartRow[]): MemberPaymentSummary 
         primaryMemberId,
         totalPaid: 0,
         months: Array.from({ length: 12 }, () => ({
+          hasRecord: false,
           paid: 0,
           paidToDate: null,
         })),
@@ -607,6 +663,7 @@ function buildMemberPaymentSummary(rows: HealthMartRow[]): MemberPaymentSummary 
     const paid = row.agent_received ?? 0;
 
     current.totalPaid += paid;
+    current.months[monthIndex].hasRecord = true;
     current.months[monthIndex].paid += paid;
     current.months[monthIndex].paidToDate = maxDateString(
       current.months[monthIndex].paidToDate,
@@ -683,6 +740,246 @@ function toPaymentStatusMonth(reportMonth: string, total: number, paid: number) 
   };
 }
 
+function buildCarrierPaymentStatusBreakdown(
+  rows: HealthMartRow[],
+  monthlySummaries: MonthlyPerformanceSummary[]
+): CarrierPaymentStatusBreakdown {
+  const latestCompleteMonth = monthlySummaries
+    .filter((summary) => summary.policyIds.size > CHART_MIN_POLICY_COUNT)
+    .at(-1);
+
+  if (!latestCompleteMonth) {
+    return {
+      reportMonth: null,
+      policyRows: [],
+      clientRows: [],
+    };
+  }
+
+  return buildCarrierPaymentStatusRows(
+    rows.filter((row) => row.report_month === latestCompleteMonth.reportMonth),
+    latestCompleteMonth.reportMonth
+  );
+}
+
+function buildCarrierPaymentStatusRows(
+  rows: HealthMartRow[],
+  reportMonth: string
+): CarrierPaymentStatusBreakdown {
+  const carriers = new Map<
+    string,
+    {
+      memberStatus: Map<string, { paid: boolean; clients: number }>;
+    }
+  >();
+
+  for (const row of rows) {
+    const carrier = row.carrier?.trim() || "Unknown";
+    const current =
+      carriers.get(carrier) ??
+      ({
+        memberStatus: new Map<string, { paid: boolean; clients: number }>(),
+      });
+    const memberId = row.primary_member_id?.trim();
+
+    if (memberId) {
+      const member = current.memberStatus.get(memberId) ?? {
+        paid: false,
+        clients: 0,
+      };
+
+      member.paid = member.paid || Boolean(row.paid_to_date);
+      member.clients = Math.max(member.clients, row.num_client ?? 0);
+      current.memberStatus.set(memberId, member);
+    }
+
+    carriers.set(carrier, current);
+  }
+
+  const policyRows: CarrierPaymentStatusRow[] = [];
+  const clientRows: CarrierPaymentStatusRow[] = [];
+
+  for (const [carrier, data] of carriers.entries()) {
+    const members = [...data.memberStatus.values()];
+    const policyTotal = members.length;
+    const policyPaid = members.filter((member) => member.paid).length;
+    const clientTotal = members.reduce(
+      (total, member) => total + member.clients,
+      0
+    );
+    const clientPaid = members.reduce(
+      (total, member) => total + (member.paid ? member.clients : 0),
+      0
+    );
+
+    if (policyTotal > 0) {
+      policyRows.push(toCarrierPaymentStatusRow(carrier, policyTotal, policyPaid));
+    }
+
+    if (clientTotal > 0) {
+      clientRows.push(toCarrierPaymentStatusRow(carrier, clientTotal, clientPaid));
+    }
+  }
+
+  return {
+    reportMonth,
+    policyRows: sortCarrierPaymentStatusRows(policyRows),
+    clientRows: sortCarrierPaymentStatusRows(clientRows),
+  };
+}
+
+function toCarrierPaymentStatusRow(
+  carrier: string,
+  total: number,
+  paid: number
+): CarrierPaymentStatusRow {
+  const unpaid = Math.max(total - paid, 0);
+
+  return {
+    carrier,
+    total,
+    paid,
+    unpaid,
+    paidRate: total === 0 ? 0 : (paid / total) * 100,
+  };
+}
+
+function sortCarrierPaymentStatusRows(rows: CarrierPaymentStatusRow[]) {
+  return rows.sort(
+    (a, b) =>
+      b.total - a.total ||
+      b.paidRate - a.paidRate ||
+      a.carrier.localeCompare(b.carrier)
+  );
+}
+
+function buildLatestMonthMixBreakdown(
+  rows: HealthMartRow[],
+  monthlySummaries: MonthlyPerformanceSummary[]
+): LatestMonthMixBreakdown {
+  const latestCompleteMonth = monthlySummaries
+    .filter((summary) => summary.policyIds.size > CHART_MIN_POLICY_COUNT)
+    .at(-1);
+
+  if (!latestCompleteMonth) {
+    return {
+      reportMonth: null,
+      carrierRows: [],
+      stateRows: [],
+    };
+  }
+
+  const monthRows = rows.filter(
+    (row) => row.report_month === latestCompleteMonth.reportMonth
+  );
+
+  return {
+    reportMonth: latestCompleteMonth.reportMonth,
+    carrierRows: buildMixBreakdownRows(
+      monthRows,
+      (row) => row.carrier?.trim() || "Unknown",
+      latestCompleteMonth.policyIds.size
+    ),
+    stateRows: buildMixBreakdownRows(
+      monthRows,
+      (row) => row.state?.trim().toUpperCase() || "Unknown",
+      latestCompleteMonth.policyIds.size
+    ),
+  };
+}
+
+function buildMixBreakdownRows(
+  rows: HealthMartRow[],
+  getLabel: (row: HealthMartRow) => string,
+  totalPolicyCount: number
+): MixBreakdownRow[] {
+  const groups = new Map<
+    string,
+    {
+      policyIds: Set<string>;
+      maxClientByMemberId: Map<string, number>;
+      totalCommission: number;
+    }
+  >();
+
+  for (const row of rows) {
+    const label = getLabel(row);
+    const current =
+      groups.get(label) ??
+      ({
+        policyIds: new Set<string>(),
+        maxClientByMemberId: new Map<string, number>(),
+        totalCommission: 0,
+      });
+    const memberId = row.primary_member_id?.trim();
+
+    if (memberId) {
+      current.policyIds.add(memberId);
+      current.maxClientByMemberId.set(
+        memberId,
+        Math.max(
+          current.maxClientByMemberId.get(memberId) ?? 0,
+          row.num_client ?? 0
+        )
+      );
+    }
+
+    current.totalCommission += row.agent_received ?? 0;
+    groups.set(label, current);
+  }
+
+  return [...groups.entries()]
+    .map(([label, group]) => {
+      const policyCount = group.policyIds.size;
+
+      return {
+        label,
+        sharePercent:
+          totalPolicyCount === 0 ? 0 : (policyCount / totalPolicyCount) * 100,
+        policyCount,
+        clientCount: sumMapValues(group.maxClientByMemberId),
+        totalCommission: group.totalCommission,
+      };
+    })
+    .filter((row) => row.policyCount > 0)
+    .sort(
+      (a, b) =>
+        b.policyCount - a.policyCount ||
+        b.totalCommission - a.totalCommission ||
+        a.label.localeCompare(b.label)
+    )
+    .reduce<MixBreakdownRow[]>((limitedRows, row, index) => {
+      if (index < MIX_BREAKDOWN_TOP_LIMIT) {
+        limitedRows.push(row);
+        return limitedRows;
+      }
+
+      const otherRow =
+        limitedRows[MIX_BREAKDOWN_TOP_LIMIT] ??
+        ({
+          label: "Other",
+          sharePercent: 0,
+          policyCount: 0,
+          clientCount: 0,
+          totalCommission: 0,
+        } satisfies MixBreakdownRow);
+
+      otherRow.policyCount += row.policyCount;
+      otherRow.clientCount += row.clientCount;
+      otherRow.totalCommission += row.totalCommission;
+      otherRow.sharePercent =
+        totalPolicyCount === 0
+          ? 0
+          : (otherRow.policyCount / totalPolicyCount) * 100;
+
+      if (!limitedRows[MIX_BREAKDOWN_TOP_LIMIT]) {
+        limitedRows.push(otherRow);
+      }
+
+      return limitedRows;
+    }, []);
+}
+
 function PaymentStatusSection({
   policyRows,
   clientRows,
@@ -693,15 +990,237 @@ function PaymentStatusSection({
   return (
     <section className="grid gap-5 xl:grid-cols-2">
       <PaymentStatusTable
-        title="Policy Payment Status | Paid Rate"
+        title="Policy Paid Rate | Recent Months"
         totalLabel="Policies"
         rows={policyRows}
       />
       <PaymentStatusTable
-        title="Client Payment Status | Paid Rate"
+        title="Client Paid Rate | Recent Months"
         totalLabel="Clients"
         rows={clientRows}
       />
+    </section>
+  );
+}
+
+function CarrierPaymentStatusSection({
+  reportMonth,
+  policyRows,
+  clientRows,
+}: {
+  reportMonth: string | null;
+  policyRows: CarrierPaymentStatusRow[];
+  clientRows: CarrierPaymentStatusRow[];
+}) {
+  return (
+    <section className="grid gap-5 xl:grid-cols-2">
+      <CarrierPaymentStatusTable
+        title="Carrier Policy Paid Rate | Latest Complete Month"
+        reportMonth={reportMonth}
+        totalLabel="Policies"
+        rows={policyRows}
+      />
+      <CarrierPaymentStatusTable
+        title="Carrier Client Paid Rate | Latest Complete Month"
+        reportMonth={reportMonth}
+        totalLabel="Clients"
+        rows={clientRows}
+      />
+    </section>
+  );
+}
+
+function MixBreakdownSection({
+  reportMonth,
+  carrierRows,
+  stateRows,
+}: {
+  reportMonth: string | null;
+  carrierRows: MixBreakdownRow[];
+  stateRows: MixBreakdownRow[];
+}) {
+  return (
+    <section className="grid gap-5 xl:grid-cols-2">
+      <MixBreakdownTable
+        title="Carrier Share | Latest Complete Month"
+        labelHeader="Carrier"
+        reportMonth={reportMonth}
+        rows={carrierRows}
+      />
+      <MixBreakdownTable
+        title="State Share | Latest Complete Month"
+        labelHeader="State"
+        reportMonth={reportMonth}
+        rows={stateRows}
+      />
+    </section>
+  );
+}
+
+function CarrierPaymentStatusTable({
+  title,
+  reportMonth,
+  totalLabel,
+  rows,
+}: {
+  title: string;
+  reportMonth: string | null;
+  totalLabel: string;
+  rows: CarrierPaymentStatusRow[];
+}) {
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+        <h2 className="text-xl font-semibold text-[#24272d]">{title}</h2>
+        {reportMonth ? (
+          <span className="text-xs font-semibold uppercase tracking-wide text-[#667085]">
+            {formatReportMonth(reportMonth)}
+          </span>
+        ) : null}
+      </div>
+      <article className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
+        <div className="max-h-[460px] overflow-y-auto overflow-x-hidden">
+          <table className="w-full table-fixed text-sm">
+            <thead>
+              <tr className="sticky top-0 z-10 border-b border-[#edf0f4] bg-white text-left text-xs font-semibold uppercase tracking-wide text-[#667085]">
+                <th className="w-[24%] px-5 py-3">Carrier</th>
+                <th className="w-[18%] px-4 py-3 text-right">{totalLabel}</th>
+                <th className="w-[17%] px-4 py-3 text-right text-[#159277]">
+                  Paid
+                </th>
+                <th className="w-[17%] px-4 py-3 text-right text-[#d92d5c]">
+                  Unpaid
+                </th>
+                <th className="w-[24%] px-5 py-3 text-right">Paid Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td className="px-6 py-10 text-center text-[#667085]" colSpan={5}>
+                    No complete month with more than 100 policies.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => (
+                  <tr
+                    key={row.carrier}
+                    className="border-b border-[#f1f3f7] transition-colors hover:bg-[#f8fafc] last:border-b-0"
+                  >
+                    <td className="break-words px-5 py-3 text-sm font-semibold text-[#16233a]">
+                      {row.carrier}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-[#667085]">
+                      {formatInteger(row.total)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-semibold text-[#159277]">
+                      {formatInteger(row.paid)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-semibold text-[#d92d5c]">
+                      {formatInteger(row.unpaid)}
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="ml-auto flex w-full items-center justify-end">
+                        <div className="relative h-6 w-full overflow-hidden rounded border border-[#d7f8ec] bg-[#e9fff6]">
+                          <div
+                            className="h-full rounded bg-[#8ee8c8]"
+                            style={{ width: `${Math.min(row.paidRate, 100)}%` }}
+                          />
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-[#136852]">
+                            {formatPercent(row.paidRate)}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function MixBreakdownTable({
+  title,
+  labelHeader,
+  reportMonth,
+  rows,
+}: {
+  title: string;
+  labelHeader: string;
+  reportMonth: string | null;
+  rows: MixBreakdownRow[];
+}) {
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+        <h2 className="text-xl font-semibold text-[#24272d]">{title}</h2>
+        {reportMonth ? (
+          <span className="text-xs font-semibold uppercase tracking-wide text-[#667085]">
+            {formatReportMonth(reportMonth)}
+          </span>
+        ) : null}
+      </div>
+      <article className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
+        <div className="overflow-hidden">
+          <table className="w-full table-fixed text-[13px]">
+            <thead>
+              <tr className="border-b border-[#edf0f4] text-left text-xs font-semibold uppercase tracking-wide text-[#667085]">
+                <th className="w-[21%] px-4 py-3">{labelHeader}</th>
+                <th className="w-[13%] px-3 py-3 text-right">Policies</th>
+                <th className="w-[12%] px-3 py-3 text-right">Clients</th>
+                <th className="w-[25%] px-4 py-3 text-right">Commission</th>
+                <th className="w-[29%] px-3 py-3 text-right">% of Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td className="px-6 py-10 text-center text-[#667085]" colSpan={5}>
+                    No complete month with more than 100 policies.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => (
+                  <tr
+                    key={row.label}
+                    className="border-b border-[#f1f3f7] transition-colors hover:bg-[#f8fafc] last:border-b-0"
+                  >
+                    <td className="break-words px-4 py-3 font-semibold text-[#16233a]">
+                      {row.label}
+                    </td>
+                    <td className="px-3 py-3 text-right font-semibold text-[#16233a]">
+                      {formatInteger(row.policyCount)}
+                    </td>
+                    <td className="px-3 py-3 text-right text-[#667085]">
+                      {formatInteger(row.clientCount)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-[#16233a]">
+                      {formatCurrency(row.totalCommission)}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="ml-auto flex w-full items-center justify-end">
+                        <div className="relative h-6 w-full overflow-hidden rounded border border-[#d7f8ec] bg-[#e9fff6]">
+                          <div
+                            className="h-full rounded bg-[#8ee8c8]"
+                            style={{ width: `${Math.min(row.sharePercent, 100)}%` }}
+                          />
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-[#136852]">
+                            {formatPercent(row.sharePercent)}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </article>
     </section>
   );
 }

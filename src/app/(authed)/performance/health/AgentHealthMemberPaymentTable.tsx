@@ -8,10 +8,13 @@ type MemberPaymentRow = {
   primaryMemberId: string;
   totalPaid: number;
   months: {
+    hasRecord: boolean;
     paid: number;
     paidToDate: string | null;
   }[];
 };
+
+type PaymentStatusFilter = "all" | "unpaid" | "paid";
 
 const MONTH_LABELS = [
   "January",
@@ -36,39 +39,109 @@ export function AgentHealthMemberPaymentTable({
   visibleMonthCount: number;
 }) {
   const [memberIdFilter, setMemberIdFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<PaymentStatusFilter>("all");
+  const [monthFilter, setMonthFilter] = useState("latest");
   const visibleMonthLabels = MONTH_LABELS.slice(0, visibleMonthCount);
   const tableWidth = 976 + visibleMonthLabels.length * 112;
+  const selectedMonthIndex = getSelectedMonthIndex(
+    monthFilter,
+    visibleMonthCount
+  );
   const filteredRows = useMemo(() => {
     const filter = memberIdFilter.trim().toLowerCase();
 
-    if (!filter) return rows;
+    return rows.filter((row) => {
+      if (filter && !row.primaryMemberId.toLowerCase().includes(filter)) {
+        return false;
+      }
 
-    return rows.filter((row) =>
-      row.primaryMemberId.toLowerCase().includes(filter)
-    );
-  }, [memberIdFilter, rows]);
+      if (statusFilter === "all") return true;
+
+      const visibleMonths = row.months.slice(0, visibleMonthCount);
+      if (selectedMonthIndex === null) {
+        return visibleMonths.some((month) =>
+          matchesPaymentStatus(month, statusFilter)
+        );
+      }
+
+      return matchesPaymentStatus(
+        visibleMonths[selectedMonthIndex],
+        statusFilter
+      );
+    });
+  }, [
+    memberIdFilter,
+    rows,
+    selectedMonthIndex,
+    statusFilter,
+    visibleMonthCount,
+  ]);
 
   return (
     <section className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#edf0f4] px-6 py-5">
         <div>
           <h2 className="text-lg font-semibold text-[#16233a]">
-            Member Payment Detail | Current Report Year
+            Member Payment History | Current Report Year
           </h2>
           <p className="mt-1 text-xs text-[#667085]">
             Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} rows
           </p>
         </div>
-        <label className="flex min-w-[280px] flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
-          Primary Member ID
-          <input
-            value={memberIdFilter}
-            onChange={(event) => setMemberIdFilter(event.target.value)}
-            placeholder="Filter member id..."
-            className="h-10 rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10"
-            type="search"
-          />
-        </label>
+        <div className="flex flex-wrap items-end justify-end gap-3">
+          <label className="flex min-w-[10rem] flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+            Month
+            <select
+              value={monthFilter}
+              onChange={(event) => setMonthFilter(event.target.value)}
+              className="h-10 rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-semibold normal-case tracking-normal text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10"
+            >
+              <option value="latest">Latest month</option>
+              <option value="any">Any month</option>
+              {visibleMonthLabels.map((month, index) => (
+                <option key={month} value={String(index)}>
+                  {month}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+            Payment Status
+            <div className="inline-flex h-10 overflow-hidden rounded-md border border-[#cfd7e3] bg-white">
+              {(["all", "unpaid", "paid"] as PaymentStatusFilter[]).map(
+                (status) => {
+                  const isActive = statusFilter === status;
+
+                  return (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => setStatusFilter(status)}
+                      className={`px-3 text-sm font-semibold normal-case tracking-normal transition ${
+                        isActive
+                          ? "bg-[#184e8a] text-white"
+                          : "text-[#344054] hover:bg-[#f3f6fa]"
+                      }`}
+                      aria-pressed={isActive}
+                    >
+                      {getStatusFilterLabel(status)}
+                    </button>
+                  );
+                }
+              )}
+            </div>
+          </div>
+          <label className="flex min-w-[280px] flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+            Primary Member ID
+            <input
+              value={memberIdFilter}
+              onChange={(event) => setMemberIdFilter(event.target.value)}
+              placeholder="Filter member id..."
+              className="h-10 rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10"
+              type="search"
+            />
+          </label>
+        </div>
       </header>
       <div className="max-h-[720px] overflow-auto">
         <table className="text-sm" style={{ width: tableWidth, minWidth: tableWidth }}>
@@ -106,7 +179,7 @@ export function AgentHealthMemberPaymentTable({
                   className="px-6 py-10 text-center text-[#667085]"
                   colSpan={5 + visibleMonthLabels.length}
                 >
-                  No payment detail matched this member ID.
+                  No policies matched these filters.
                 </td>
               </tr>
             ) : (
@@ -130,21 +203,27 @@ export function AgentHealthMemberPaymentTable({
                   <td className="border-r border-[#edf0f4] px-3 py-2.5 text-right font-semibold text-[#16233a]">
                     {formatCurrency(row.totalPaid)}
                   </td>
-                  {row.months.slice(0, visibleMonthLabels.length).map((month, monthIndex) => (
-                    <td
-                      key={`${row.primaryMemberId}-${MONTH_LABELS[monthIndex]}`}
-                      className="border-r border-[#edf0f4] px-3 py-2.5 text-right last:border-r-0"
-                    >
-                      <div className="font-semibold text-[#16233a]">
-                        {formatCurrency(month.paid)}
-                      </div>
-                      {month.paid > 0 && month.paidToDate ? (
-                        <div className="mt-1 text-xs text-[#667085]">
-                          {formatDate(month.paidToDate)}
-                        </div>
-                      ) : null}
-                    </td>
-                  ))}
+                  {row.months
+                    .slice(0, visibleMonthLabels.length)
+                    .map((month, monthIndex) => {
+                      const isFocusedUnpaid =
+                        statusFilter === "unpaid" &&
+                        matchesSelectedMonth(monthIndex, selectedMonthIndex) &&
+                        matchesPaymentStatus(month, "unpaid");
+
+                      return (
+                        <td
+                          key={`${row.primaryMemberId}-${MONTH_LABELS[monthIndex]}`}
+                          className={`border-r px-3 py-2.5 text-right last:border-r-0 ${
+                            isFocusedUnpaid
+                              ? "border-[#f5c6d0] bg-[#fff1f3]"
+                              : "border-[#edf0f4]"
+                          }`}
+                        >
+                          <MonthPaymentCell month={month} />
+                        </td>
+                      );
+                    })}
                 </tr>
               ))
             )}
@@ -153,6 +232,73 @@ export function AgentHealthMemberPaymentTable({
       </div>
     </section>
   );
+}
+
+function MonthPaymentCell({
+  month,
+}: {
+  month: MemberPaymentRow["months"][number];
+}) {
+  if (!month.hasRecord) {
+    return <span className="text-[#98a2b3]">-</span>;
+  }
+
+  if (!month.paidToDate) {
+    return (
+      <>
+        <div className="font-semibold text-[#c01048]">Unpaid</div>
+        <div className="mt-1 text-xs text-[#98a2b3]">
+          {formatCurrency(month.paid)}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="font-semibold text-[#16233a]">
+        {formatCurrency(month.paid)}
+      </div>
+      <div className="mt-1 text-xs text-[#667085]">
+        {formatDate(month.paidToDate)}
+      </div>
+    </>
+  );
+}
+
+function getSelectedMonthIndex(monthFilter: string, visibleMonthCount: number) {
+  if (monthFilter === "any" || visibleMonthCount === 0) return null;
+  if (monthFilter === "latest") return visibleMonthCount - 1;
+
+  const parsed = Number(monthFilter);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed >= visibleMonthCount) {
+    return visibleMonthCount - 1;
+  }
+
+  return parsed;
+}
+
+function matchesSelectedMonth(
+  monthIndex: number,
+  selectedMonthIndex: number | null
+) {
+  return selectedMonthIndex === null || selectedMonthIndex === monthIndex;
+}
+
+function matchesPaymentStatus(
+  month: MemberPaymentRow["months"][number] | undefined,
+  status: Exclude<PaymentStatusFilter, "all">
+) {
+  if (!month?.hasRecord) return false;
+  const isPaid = Boolean(month.paidToDate);
+
+  return status === "paid" ? isPaid : !isPaid;
+}
+
+function getStatusFilterLabel(status: PaymentStatusFilter) {
+  if (status === "paid") return "Paid";
+  if (status === "unpaid") return "Unpaid";
+  return "All";
 }
 
 function formatInteger(value: number) {

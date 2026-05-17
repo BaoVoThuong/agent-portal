@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ProviderFinderMap } from "./ProviderFinderMap";
 
 const carrierOptions = [
@@ -306,41 +306,20 @@ export default function ProviderFinderClient() {
             />
           </label>
 
-          <label className="min-w-0">
-            <span className="mb-1 block text-xs font-medium text-[#344054]">
-              Carrier
-            </span>
-            <input
-              value={form.contract}
-              onChange={(event) =>
-                updateField("contract", event.target.value.toUpperCase())
-              }
-              list="provider-contract-options"
-              className="h-9 w-full rounded-md border border-[#cfd7e3] px-2.5 text-sm uppercase text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
-            />
-            <datalist id="provider-contract-options">
-              {carrierOptions.map((carrier) => (
-                <option key={carrier} value={carrier} />
-              ))}
-            </datalist>
-          </label>
+          <SuggestionInput
+            label="Carrier"
+            value={form.contract}
+            options={carrierOptions}
+            uppercase
+            onChange={(value) => updateField("contract", value)}
+          />
 
-          <label className="min-w-0">
-            <span className="mb-1 block text-xs font-medium text-[#344054]">
-              Specialty
-            </span>
-            <input
-              value={form.specialty}
-              onChange={(event) => updateField("specialty", event.target.value)}
-              list="provider-specialty-options"
-              className="h-9 w-full rounded-md border border-[#cfd7e3] px-2.5 text-sm text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
-            />
-            <datalist id="provider-specialty-options">
-              {specialtyOptions.map((specialty) => (
-                <option key={specialty} value={specialty} />
-              ))}
-            </datalist>
-          </label>
+          <SuggestionInput
+            label="Specialty"
+            value={form.specialty}
+            options={specialtyOptions}
+            onChange={(value) => updateField("specialty", value)}
+          />
 
           <div ref={insuranceMenuRef} className="relative min-w-0">
             <span className="mb-1 block text-xs font-medium text-[#344054]">
@@ -589,6 +568,183 @@ export default function ProviderFinderClient() {
         )}
 
       </section>
+    </div>
+  );
+}
+
+function SuggestionInput({
+  label,
+  value,
+  options,
+  uppercase = false,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  uppercase?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const listboxId = useId();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const normalizedValue = value.trim().toLowerCase();
+  const filteredOptions = useMemo(() => {
+    if (!normalizedValue) return options;
+
+    return options.filter((option) =>
+      option.toLowerCase().includes(normalizedValue)
+    );
+  }, [normalizedValue, options]);
+  const selectedValue = options.find(
+    (option) => option.toLowerCase() === value.trim().toLowerCase()
+  );
+  const safeActiveIndex =
+    filteredOptions.length === 0
+      ? 0
+      : Math.min(activeIndex, filteredOptions.length - 1);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        rootRef.current &&
+        !rootRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  function updateValue(nextValue: string) {
+    setActiveIndex(0);
+    onChange(uppercase ? nextValue.toUpperCase() : nextValue);
+  }
+
+  function selectOption(option: string) {
+    updateValue(option);
+    setIsOpen(false);
+  }
+
+  return (
+    <div ref={rootRef} className="relative min-w-0">
+      <span className="mb-1 block text-xs font-medium text-[#344054]">
+        {label}
+      </span>
+      <div className="relative">
+        <input
+          value={value}
+          onChange={(event) => {
+            updateValue(event.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setIsOpen(true);
+              setActiveIndex((current) =>
+                Math.min(current + 1, Math.max(filteredOptions.length - 1, 0))
+              );
+            }
+
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActiveIndex((current) => Math.max(current - 1, 0));
+            }
+
+            if (
+              event.key === "Enter" &&
+              isOpen &&
+              filteredOptions[safeActiveIndex]
+            ) {
+              event.preventDefault();
+              selectOption(filteredOptions[safeActiveIndex]);
+            }
+          }}
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          className={`h-9 w-full rounded-md border border-[#cfd7e3] bg-white px-2.5 pr-8 text-sm text-[#16233a] outline-none transition hover:border-[#b8c4d4] focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15 ${
+            uppercase ? "uppercase" : ""
+          }`}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={`Show ${label} suggestions`}
+          onClick={() => setIsOpen((current) => !current)}
+          className="absolute right-0 top-0 flex h-9 w-8 items-center justify-center"
+        >
+          <span
+            aria-hidden="true"
+            className={`h-2 w-2 border-b-2 border-r-2 border-[#667085] transition ${
+              isOpen ? "rotate-[225deg]" : "rotate-45"
+            }`}
+          />
+        </button>
+      </div>
+
+      {isOpen && (
+        <div
+          id={listboxId}
+          role="listbox"
+          className="absolute left-0 top-[calc(100%+6px)] z-50 max-h-64 w-full min-w-[190px] overflow-y-auto rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg"
+        >
+          {filteredOptions.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-[#667085]">
+              No suggestions
+            </div>
+          ) : (
+            filteredOptions.map((option, index) => {
+              const isActive = index === safeActiveIndex;
+              const isSelected = selectedValue === option;
+
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => selectOption(option)}
+                  className={`flex min-h-9 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition ${
+                    isSelected
+                      ? "bg-[#edf6ff] font-semibold text-[#245a94]"
+                      : isActive
+                        ? "bg-[#f3f6fa] text-[#16233a]"
+                        : "text-[#16233a]"
+                  }`}
+                >
+                  <span className="break-words">{option}</span>
+                  {isSelected && (
+                    <span
+                      aria-hidden="true"
+                      className="h-2.5 w-1.5 shrink-0 rotate-45 border-b-2 border-r-2 border-[#245a94]"
+                    />
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 }

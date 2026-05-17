@@ -1,12 +1,11 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { MouseEvent } from "react";
 
-type ChartLevel = "month" | "quarter" | "year";
+export type ChartLevel = "month" | "quarter" | "year";
 
-type PerformancePeriod = {
+export type PerformancePeriod = {
   periodKey: string;
   periodLabel: string;
   policyCount: number;
@@ -14,7 +13,7 @@ type PerformancePeriod = {
   agentReceived: number;
 };
 
-type PeriodsByLevel = Record<ChartLevel, PerformancePeriod[]>;
+export type PeriodsByLevel = Record<ChartLevel, PerformancePeriod[]>;
 
 const WIDTH = 1120;
 const HEIGHT = 360;
@@ -26,31 +25,23 @@ const PLOT_WIDTH = WIDTH - LEFT - RIGHT;
 const PLOT_HEIGHT = HEIGHT - TOP - BOTTOM;
 const GRID_TICKS = [0, 0.25, 0.5, 0.75, 1];
 const LABEL_GAP = 20;
-const CHART_LEVELS: { value: ChartLevel; label: string }[] = [
+export const CHART_LEVELS: { value: ChartLevel; label: string }[] = [
   { value: "month", label: "Month" },
   { value: "quarter", label: "Quarter" },
   { value: "year", label: "Year" },
 ];
 
 export function AgentHealthPerformanceChart({
-  initialChartLevel,
+  chartLevel,
+  onChartLevelChange,
   periodsByLevel,
 }: {
-  initialChartLevel: ChartLevel;
+  chartLevel: ChartLevel;
+  onChartLevelChange: (chartLevel: ChartLevel) => void;
   periodsByLevel: PeriodsByLevel;
 }) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [chartState, setChartState] = useState({
-    initialChartLevel,
-    chartLevel: initialChartLevel,
-  });
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 });
-  const chartLevel =
-    chartState.initialChartLevel === initialChartLevel
-      ? chartState.chartLevel
-      : initialChartLevel;
   const periods = periodsByLevel[chartLevel];
 
   const chart = useMemo(() => {
@@ -102,36 +93,12 @@ export function AgentHealthPerformanceChart({
     };
   }, [periods]);
 
-  function updateChartLevel(nextChartLevel: ChartLevel) {
-    if (nextChartLevel === chartLevel) return;
-
-    setChartState({ initialChartLevel, chartLevel: nextChartLevel });
-    setActiveIndex(null);
-
-    const params = new URLSearchParams(searchParams.toString());
-
-    if (nextChartLevel === "month") {
-      params.delete("chartLevel");
-    } else {
-      params.set("chartLevel", nextChartLevel);
-    }
-
-    const query = params.toString();
-    const nextHref = query ? `${pathname}?${query}` : pathname;
-    const currentQuery = searchParams.toString();
-    const currentHref = currentQuery ? `${pathname}?${currentQuery}` : pathname;
-
-    if (nextHref !== currentHref) {
-      window.history.replaceState(null, "", nextHref);
-    }
-  }
-
   if (periods.length === 0) {
     return (
       <section className="rounded-lg border border-[#d8dee7] bg-white p-6 shadow-sm">
         <ChartHeader
           chartLevel={chartLevel}
-          onChartLevelChange={updateChartLevel}
+          onChartLevelChange={onChartLevelChange}
         />
         <div className="mt-6 rounded-lg border border-dashed border-[#d8dee7] px-6 py-12 text-center text-sm text-[#667085]">
           No report periods with more than 100 active policies.
@@ -160,7 +127,7 @@ export function AgentHealthPerformanceChart({
     <section>
       <ChartHeader
         chartLevel={chartLevel}
-        onChartLevelChange={updateChartLevel}
+        onChartLevelChange={onChartLevelChange}
       />
 
       <div className="rounded-lg border border-[#d1d5db] bg-white p-3 shadow-[0_2px_8px_rgba(22,35,58,0.18)]">
@@ -183,7 +150,7 @@ export function AgentHealthPerformanceChart({
                 </div>
                 <TooltipRow
                   color="#d9d9d9"
-                  label="Agent Received"
+                  label="Agent Earnings"
                   value={formatCurrency(activePoint.agentReceived)}
                 />
                 <TooltipRow
@@ -202,10 +169,10 @@ export function AgentHealthPerformanceChart({
             <svg
               viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
               role="img"
-              aria-label="Revenue, policies, and clients trend comparison by period"
+              aria-label="Agent earnings, policies, and clients trend by period"
             >
               <g transform={`translate(${LEFT}, 14)`}>
-                <LegendSwatch color="#d9d9d9" x={0} label="Agent Received" />
+                <LegendSwatch color="#d9d9d9" x={0} label="Agent Earnings" />
                 <LegendLine color="#2f80ed" x={192} label="# Policies" />
                 <LegendLine color="#ff3b30" x={332} label="# Clients" />
               </g>
@@ -217,7 +184,7 @@ export function AgentHealthPerformanceChart({
                 transform={`rotate(-90 22 ${TOP + PLOT_HEIGHT / 2})`}
                 className="fill-[#667085] text-[12px] font-semibold"
               >
-                Agent Received
+                Agent Earnings
               </text>
               <text
                 x={WIDTH - 22}
@@ -403,8 +370,7 @@ function ChartHeader({
   return (
     <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
       <h2 className="text-xl font-semibold text-[#24272d]">
-        Revenue vs Agent Earnings by {getChartLevelLabel(chartLevel)} | Trend
-        Comparison
+        Earnings &amp; Book Size | {getChartLevelLabel(chartLevel)} Trend
       </h2>
       <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
         {CHART_LEVELS.map((level) => {
@@ -431,7 +397,7 @@ function ChartHeader({
   );
 }
 
-function getChartLevelLabel(chartLevel: ChartLevel) {
+export function getChartLevelLabel(chartLevel: ChartLevel) {
   return CHART_LEVELS.find((level) => level.value === chartLevel)?.label ?? "Month";
 }
 
