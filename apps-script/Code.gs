@@ -1,91 +1,51 @@
-// Apps Script Web App — receives rows from the Next.js app and appends them
-// to the bound Google Sheet. Deploy as: Execute as Me, Access Anyone.
+// Apps Script Web App — receives entry rows from the Next.js app and writes
+// them to the bound Google Sheet (first sheet). Deploy as: Execute as Me,
+// Access Anyone.
 //
-// Before deploying, add a Script Property:
-// SHARED_SECRET = the same value as APPS_SCRIPT_SECRET in the Next.js app.
+// NOTE: SECRET_KEY is currently hardcoded and must match APPS_SCRIPT_SECRET in
+// the Next.js .env. TODO: move this into a Script Property (SHARED_SECRET).
 
-const SHARED_SECRET_PROPERTY = "SHARED_SECRET";
-const SHEET_NAME = "Entries";
+var SECRET_KEY = "k7Hx9mQ2pR4vN8sT3wY5zL6jB1aD0fE"; // Khớp với file .env.local của bạn
 
 function doPost(e) {
-  try {
-    if (!e || !e.postData || !e.postData.contents) {
-      return jsonOut({ ok: false, error: "no body" });
-    }
-    const body = JSON.parse(e.postData.contents);
+  var data = JSON.parse(e.postData.contents);
 
-    const sharedSecret = PropertiesService.getScriptProperties().getProperty(
-      SHARED_SECRET_PROPERTY
-    );
-    if (!sharedSecret) {
-      return jsonOut({ ok: false, error: "secret not configured" });
-    }
-    if (body.secret !== sharedSecret) {
-      return jsonOut({ ok: false, error: "unauthorized" });
-    }
-
-    const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
-    if (!sheet) {
-      return jsonOut({ ok: false, error: "sheet '" + SHEET_NAME + "' not found" });
-    }
-
-    const action = body.action || "create";
-
-    if (action === "create") {
-      const rows = body.rows;
-      if (!Array.isArray(rows) || rows.length === 0) {
-        return jsonOut({ ok: false, error: "no rows" });
-      }
-      const startRow = sheet.getLastRow() + 1;
-      sheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
-      return jsonOut({ ok: true, count: rows.length });
-    }
-
-    if (action === "delete") {
-      const id = body.id;
-      if (!id) return jsonOut({ ok: false, error: "no id" });
-      
-      const rowIndex = findRowIndexById(sheet, id);
-      if (rowIndex > -1) {
-        sheet.deleteRow(rowIndex);
-        return jsonOut({ ok: true, deleted: true });
-      } else {
-        return jsonOut({ ok: false, error: "id not found" });
-      }
-    }
-
-    if (action === "update") {
-      const id = body.id;
-      const row = body.row;
-      if (!id || !row) return jsonOut({ ok: false, error: "no id or row" });
-
-      const rowIndex = findRowIndexById(sheet, id);
-      if (rowIndex > -1) {
-        sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
-        return jsonOut({ ok: true, updated: true });
-      } else {
-        return jsonOut({ ok: false, error: "id not found" });
-      }
-    }
-
-    return jsonOut({ ok: false, error: "invalid action" });
-
-  } catch (err) {
-    return jsonOut({ ok: false, error: String(err && err.message ? err.message : err) });
+  if (data.secret !== SECRET_KEY) {
+    return ContentService.createTextOutput(JSON.stringify({ok: false, error: "Invalid secret"})).setMimeType(ContentService.MimeType.JSON);
   }
-}
 
-function findRowIndexById(sheet, id) {
-  const textFinder = sheet.createTextFinder(id).matchEntireCell(true);
-  const match = textFinder.findNext();
-  if (match) {
-    return match.getRow();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var action = data.action;
+
+  if (action === "create") {
+    data.rows.forEach(function(row) {
+      sheet.appendRow(row);
+    });
+    return ContentService.createTextOutput(JSON.stringify({ok: true})).setMimeType(ContentService.MimeType.JSON);
   }
-  return -1;
-}
 
-function jsonOut(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+  if (action === "update" || action === "delete") {
+    var idToFind = data.id;
+    var rows = sheet.getDataRange().getValues();
+    var foundIndex = -1;
+
+    // Tìm ID ở cột cuối cùng (cột L)
+    for (var i = 1; i < rows.length; i++) {
+      if (rows[i][rows[i].length - 1] === idToFind) {
+        foundIndex = i + 1; // +1 vì index hàng trong Sheet bắt đầu từ 1
+        break;
+      }
+    }
+
+    if (foundIndex !== -1) {
+      if (action === "update") {
+        sheet.getRange(foundIndex, 1, 1, data.row.length).setValues([data.row]);
+      } else {
+        sheet.deleteRow(foundIndex);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ok: true})).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({ok: false, error: "ID not found"})).setMimeType(ContentService.MimeType.JSON);
+  }
 }
