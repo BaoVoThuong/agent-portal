@@ -17,16 +17,19 @@ const { syncConfig } = require("../../../../../datasync/lib/sync-runner") as {
   syncConfig: (config: SyncConfig) => Promise<void>;
 };
 
-function isAuthorized(request: Request) {
+type AuthResult = "ok" | "misconfigured" | "unauthorized";
+
+function checkAuthorization(request: Request): AuthResult {
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return process.env.NODE_ENV !== "production";
+  if (!cronSecret) return "misconfigured";
 
   const url = new URL(request.url);
   const authHeader = request.headers.get("authorization");
-  return (
+  const ok =
     authHeader === `Bearer ${cronSecret}` ||
-    url.searchParams.get("secret") === cronSecret
-  );
+    url.searchParams.get("secret") === cronSecret;
+
+  return ok ? "ok" : "unauthorized";
 }
 
 function getConfigNames(request: Request) {
@@ -41,7 +44,14 @@ function getConfigNames(request: Request) {
 }
 
 export async function GET(request: Request) {
-  if (!isAuthorized(request)) {
+  const authResult = checkAuthorization(request);
+  if (authResult === "misconfigured") {
+    return NextResponse.json(
+      { error: "CRON_SECRET is not configured" },
+      { status: 500 }
+    );
+  }
+  if (authResult === "unauthorized") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

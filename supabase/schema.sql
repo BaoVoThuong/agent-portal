@@ -45,6 +45,17 @@ end $$;
 create index if not exists portal_account_email_idx on portal_account (email);
 create index if not exists portal_account_active_idx on portal_account (is_active);
 
+create table if not exists login_attempts (
+  id uuid primary key default gen_random_uuid(),
+  email text not null,
+  ip text,
+  success boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists login_attempts_email_idx
+  on login_attempts (email, created_at);
+
 create table if not exists roles (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
@@ -990,3 +1001,36 @@ security definer
 as $$
   truncate table health_payment_summary;
 $$;
+
+-- Defense-in-depth: enable RLS on every table. The app talks to Supabase only
+-- through the service-role key, which bypasses RLS, so behavior is unchanged.
+-- With RLS on and no public policies, anon/authenticated keys are denied by
+-- default — so a leaked anon key (or accidental client-side query) reads nothing.
+do $$
+declare
+  table_name text;
+  protected_tables text[] := array[
+    'portal_account',
+    'login_attempts',
+    'roles',
+    'permissions',
+    'role_permissions',
+    'user_roles',
+    'entries',
+    'health_payment_summary',
+    'provider_address',
+    'pc_raw_data',
+    'pc_mart',
+    'health_raw_data',
+    'health_mart'
+  ];
+begin
+  foreach table_name in array protected_tables loop
+    if to_regclass('public.' || table_name) is not null then
+      execute format(
+        'alter table public.%I enable row level security',
+        table_name
+      );
+    end if;
+  end loop;
+end $$;

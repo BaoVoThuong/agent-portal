@@ -1,7 +1,10 @@
 // Apps Script Web App — receives rows from the Next.js app and appends them
 // to the bound Google Sheet. Deploy as: Execute as Me, Access Anyone.
+//
+// Before deploying, add a Script Property:
+// SHARED_SECRET = the same value as APPS_SCRIPT_SECRET in the Next.js app.
 
-const SHARED_SECRET = "REPLACE_WITH_LONG_RANDOM_STRING";
+const SHARED_SECRET_PROPERTY = "SHARED_SECRET";
 const SHEET_NAME = "Entries";
 
 function doPost(e) {
@@ -11,7 +14,13 @@ function doPost(e) {
     }
     const body = JSON.parse(e.postData.contents);
 
-    if (body.secret !== SHARED_SECRET) {
+    const sharedSecret = PropertiesService.getScriptProperties().getProperty(
+      SHARED_SECRET_PROPERTY
+    );
+    if (!sharedSecret) {
+      return jsonOut({ ok: false, error: "secret not configured" });
+    }
+    if (body.secret !== sharedSecret) {
       return jsonOut({ ok: false, error: "unauthorized" });
     }
 

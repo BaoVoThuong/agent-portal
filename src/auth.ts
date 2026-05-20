@@ -8,6 +8,18 @@ import {
   assignDefaultRoleToUser,
   getUserAccessByEmail,
 } from "@/lib/rbac/access";
+import {
+  getClientIp,
+  isLoginRateLimited,
+  recordLoginAttempt,
+} from "@/lib/auth/rate-limit";
+
+// Fixed valid hash so bcrypt.compare runs at full cost even when the user does
+// not exist — prevents timing-based account enumeration.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(
+  "invalid-password-placeholder",
+  10
+);
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -16,25 +28,40 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       clientSecret: process.env.AUTH_GOOGLE_SECRET,
     }),
     Credentials({
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         if (!credentials?.email || !credentials?.password) return null;
+        const email = String(credentials.email).trim().toLowerCase();
+        const ip = getClientIp(request as Request | undefined);
+
+        if (await isLoginRateLimited(email)) {
+          return null;
+        }
+
         const supabase = getSupabaseAdmin();
         const { data: user } = await supabase
           .from(PORTAL_ACCOUNT_TABLE)
           .select("id,email,name,password_hash,role,is_active")
-          .eq("email", credentials.email)
+          .eq("email", email)
           .single();
 
-        if (!user || !user.password_hash || user.is_active === false) {
-          return null;
-        }
-
+        // Always run a comparison (against a dummy hash when the account is
+        // missing or has no password) to keep response timing constant.
+        const passwordHash = user?.password_hash ?? DUMMY_PASSWORD_HASH;
         const isPasswordCorrect = await bcrypt.compare(
           credentials.password as string,
-          user.password_hash
+          passwordHash
         );
 
-        if (!isPasswordCorrect) return null;
+        const isValid = Boolean(
+          user &&
+            user.password_hash &&
+            user.is_active !== false &&
+            isPasswordCorrect
+        );
+
+        await recordLoginAttempt(email, ip, isValid);
+
+        if (!isValid || !user) return null;
 
         const access = await getUserAccessByEmail(user.email);
 
