@@ -178,17 +178,19 @@ export default async function HealthSalesPerformancePage({
   const dateRangeLabel = buildDateRangeLabel(allRows);
 
   return (
-    <div className="bg-[#f1f1f1] px-4 py-5 text-[#2c2f34]">
-      <div className="mx-auto max-w-[1480px]">
-        <header className="mb-5 flex flex-wrap items-center justify-between gap-4 bg-[#e8edf4] px-3 py-3 shadow-sm">
-          <h1 className="text-[2.45rem] font-bold leading-none tracking-normal text-[#20242b]">
-            Health Performance Dashboard
-          </h1>
-          <div className="flex h-12 min-w-[280px] items-center justify-between rounded-sm border-2 border-[#9d9d9d] bg-[#eef2f6] px-6 text-sm font-semibold text-[#30343a] shadow-[0_2px_4px_rgba(0,0,0,0.22)]">
+    <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
+      <div className="mx-auto max-w-[1536px]">
+        <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              Health Sales Performance
+            </h1>
+            <p className="mt-2 text-sm text-slate-500">
+              Overview of sales volume, agent commissions, and EPS performance.
+            </p>
+          </div>
+          <div className="flex h-10 items-center justify-between rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 shadow-sm transition-shadow hover:shadow-md">
             <span>{dateRangeLabel}</span>
-            <span aria-hidden="true" className="text-xs text-[#333]">
-              v
-            </span>
           </div>
         </header>
 
@@ -198,13 +200,13 @@ export default async function HealthSalesPerformancePage({
         />
 
         {filteredRows.length === 0 ? (
-          <div className="rounded-sm border border-[#b8b8b8] bg-white px-8 py-16 text-center text-sm font-semibold text-[#667085] shadow-[0_2px_4px_rgba(0,0,0,0.18)]">
+          <div className="rounded-xl border border-slate-200 bg-white px-8 py-16 text-center text-sm font-medium text-slate-500 shadow-sm">
             No Health sales performance records match these filters.
           </div>
         ) : (
           <div className="space-y-8">
-            <h2 className="text-[2.55rem] font-bold leading-tight text-[#1164c7]">
-              Section 1: Business Overview
+            <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+              Business Overview
             </h2>
 
             <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
@@ -734,17 +736,17 @@ function KpiCard({
   const isRed = accent === "red";
 
   return (
-    <article className="flex min-h-[122px] flex-col items-center justify-center rounded-sm border border-[#cdcdcd] bg-white px-5 py-5 text-center shadow-[3px_3px_4px_rgba(0,0,0,0.28)]">
+    <article className="flex flex-col justify-center min-h-[128px] rounded-xl border border-slate-200/60 bg-white p-6 shadow-sm transition-shadow duration-300 hover:shadow-md">
       <div
-        className={`text-[1.35rem] font-semibold leading-tight ${
-          isRed ? "text-[#ff5b56]" : "text-[#5d6068]"
+        className={`text-sm font-medium uppercase tracking-wide ${
+          isRed ? "text-rose-500" : "text-slate-500"
         }`}
       >
         {label}
       </div>
       <div
-        className={`mt-1 text-[2.55rem] font-semibold leading-tight ${
-          isRed ? "text-[#ff3f38]" : "text-[#060606]"
+        className={`mt-2 text-3xl font-bold ${
+          isRed ? "text-rose-600" : "text-slate-900"
         }`}
       >
         {value}
@@ -1600,11 +1602,11 @@ function ReportPanel({
   titleClassName?: string;
 }) {
   return (
-    <section>
-      <h3 className={`mb-2 text-[1.45rem] font-bold leading-tight text-[#2b2e33] ${titleClassName}`}>
+    <section className="flex flex-col">
+      <h3 className={`mb-4 text-lg font-bold leading-tight text-slate-800 ${titleClassName}`}>
         {title}
       </h3>
-      <div className="overflow-hidden rounded-sm border border-[#b8b8b8] bg-white shadow-[2px_2px_4px_rgba(0,0,0,0.26)]">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         {children}
       </div>
     </section>
@@ -1624,7 +1626,7 @@ function HeaderCell({
 }) {
   return (
     <th
-      className={`border-b border-[#d7dce3] px-3 py-2 align-middle font-bold ${
+      className={`bg-slate-50/80 backdrop-blur-sm border-b border-slate-200 px-4 py-3 align-middle text-xs font-semibold uppercase tracking-wider text-slate-500 ${
         align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
       }`}
       colSpan={colSpan}
@@ -1646,9 +1648,9 @@ function BodyCell({
 }) {
   return (
     <td
-      className={`border-b border-[#eef0f3] px-3 py-2 align-middle text-[#333840] ${
+      className={`border-b border-slate-100 px-4 py-3 align-middle text-sm text-slate-700 transition-colors group-hover:bg-slate-50/50 ${
         align === "right" ? "text-right" : "text-left"
-      } ${strong ? "font-bold" : ""}`}
+      } ${strong ? "font-semibold text-slate-900" : ""}`}
     >
       {children}
     </td>
@@ -1668,7 +1670,7 @@ function HeatBodyCell({
 }) {
   return (
     <td
-      className="border-b border-[#eef0f3] px-3 py-2 text-right align-middle text-[#333840]"
+      className="border-b border-slate-100 px-4 py-3 align-middle text-sm text-slate-700 text-right transition-colors group-hover:bg-slate-50/50"
       style={{ backgroundColor: heatColor(value, maxValue, mode) }}
     >
       {children}
@@ -1690,20 +1692,24 @@ function BarBodyCell({
   const width = maxValue === 0 ? 0 : Math.min(Math.abs(value / maxValue) * 100, 100);
 
   return (
-    <td className="border-b border-[#eef0f3] px-3 py-2 text-right align-middle text-[#333840]">
-      <div className="relative h-5">
-        <div
-          className={`absolute right-0 top-1/2 h-3 -translate-y-1/2 ${barColorClassName(color)}`}
-          style={{ width: `${width}%` }}
-        />
-        <span className="relative z-10 font-semibold">{children}</span>
+    <td className="border-b border-slate-100 px-4 py-3 align-middle text-right transition-colors group-hover:bg-slate-50/50">
+      <div className="ml-auto flex w-full items-center justify-end">
+        <div className="relative h-6 w-full overflow-hidden rounded border bg-slate-50 border-slate-200">
+          <div
+            className={`h-full rounded opacity-70 ${barColorClassName(color)}`}
+            style={{ width: `${width}%` }}
+          />
+          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-slate-800">
+            {children}
+          </span>
+        </div>
       </div>
     </td>
   );
 }
 
 function EmptyPanel({ children }: { children: ReactNode }) {
-  return <div className="px-6 py-12 text-center text-sm font-semibold text-[#667085]">{children}</div>;
+  return <div className="px-6 py-12 text-center text-sm font-medium text-slate-500">{children}</div>;
 }
 
 function buildFilterOptions(rows: HealthSalesRow[]): FilterOptions {

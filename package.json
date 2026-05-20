@@ -21,12 +21,16 @@
     "ag-grid-community": "^35.2.1",
     "ag-grid-react": "^35.2.1",
     "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
     "googleapis": "^171.4.0",
     "leaflet": "^1.9.4",
+    "lucide-react": "^1.16.0",
     "next": "16.2.4",
     "next-auth": "^5.0.0-beta.31",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "recharts": "^3.8.1",
+    "tailwind-merge": "^3.6.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

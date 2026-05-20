@@ -192,40 +192,41 @@ export default async function PerformancePage({
 
   return (
     <AgentHealthPerformanceFilterProvider>
-      <div className="px-8 py-8">
-        <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold text-[#16233a]">
-              Health Agent Performance
-            </h1>
-            <p className="mt-1 text-sm text-[#667085]">
-              {canViewAll
-                ? "Showing performance for all agents."
-                : `Showing performance for ${agentName || "your account"}.`}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <AgentHealthCarrierMultiSelectFilter
-              key={selectedCarriers.join("\u001f")}
-              options={carrierOptions}
-              selectedCarriers={selectedCarriers}
-            />
-            <AgentHealthReportMonthRangeFilter
-              key={`${reportMonthRange.start ?? ""}:${reportMonthRange.end ?? ""}`}
-              startDate={reportMonthRange.start}
-              endDate={reportMonthRange.end}
-            />
-          </div>
-        </header>
+      <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
+        <div className="mx-auto max-w-[1536px]">
+          <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+                Health Agent Performance
+              </h1>
+              <p className="mt-2 text-sm text-slate-500">
+                {canViewAll
+                  ? "Showing performance for all agents."
+                  : `Showing performance for ${agentName || "your account"}.`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <AgentHealthCarrierMultiSelectFilter
+                key={selectedCarriers.join("\u001f")}
+                options={carrierOptions}
+                selectedCarriers={selectedCarriers}
+              />
+              <AgentHealthReportMonthRangeFilter
+                key={`${reportMonthRange.start ?? ""}:${reportMonthRange.end ?? ""}`}
+                startDate={reportMonthRange.start}
+                endDate={reportMonthRange.end}
+              />
+            </div>
+          </header>
 
-        {!performanceData ? (
-          <div className="rounded-lg border border-dashed border-[#d8dee7] bg-white px-8 py-16 text-center text-sm text-[#667085]">
-            Your account name is required to load performance data.
-          </div>
-        ) : (
-          <AgentHealthPerformanceContent>
-            <div className="space-y-4">
-              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {!performanceData ? (
+            <div className="rounded-xl border border-slate-200 bg-white px-8 py-16 text-center text-sm font-medium text-slate-500 shadow-sm">
+              Your account name is required to load performance data.
+            </div>
+          ) : (
+            <AgentHealthPerformanceContent>
+              <div className="space-y-6">
+                <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
                 <ScoreCard
                   label="Latest Active Policies"
                   value={formatInteger(performanceData.scoreCards.activePolicy.value)}
@@ -289,6 +290,7 @@ export default async function PerformancePage({
             </div>
           </AgentHealthPerformanceContent>
         )}
+        </div>
       </div>
     </AgentHealthPerformanceFilterProvider>
   );
@@ -1069,26 +1071,26 @@ function CarrierPaymentStatusTable({
   rows: CarrierPaymentStatusRow[];
 }) {
   return (
-    <section>
-      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-        <h2 className="text-xl font-semibold text-[#24272d]">{title}</h2>
+    <section className="flex flex-col">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+        <h2 className="text-lg font-bold leading-tight text-slate-800">{title}</h2>
         {reportMonth ? (
-          <span className="text-xs font-semibold uppercase tracking-wide text-[#667085]">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             {formatReportMonth(reportMonth)}
           </span>
         ) : null}
       </div>
-      <article className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
+      <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         <div className="max-h-[460px] overflow-y-auto overflow-x-hidden">
           <table className="w-full table-fixed text-sm">
             <thead>
-              <tr className="sticky top-0 z-10 border-b border-[#edf0f4] bg-white text-left text-xs font-semibold uppercase tracking-wide text-[#667085]">
+              <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/90 backdrop-blur-sm text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <th className="w-[24%] px-5 py-3">Carrier</th>
                 <th className="w-[18%] px-4 py-3 text-right">{totalLabel}</th>
-                <th className="w-[17%] px-4 py-3 text-right text-[#159277]">
+                <th className="w-[17%] px-4 py-3 text-right text-emerald-600">
                   Paid
                 </th>
-                <th className="w-[17%] px-4 py-3 text-right text-[#d92d5c]">
+                <th className="w-[17%] px-4 py-3 text-right text-rose-600">
                   Unpaid
                 </th>
                 <th className="w-[24%] px-5 py-3 text-right">Paid Rate</th>
@@ -1097,7 +1099,7 @@ function CarrierPaymentStatusTable({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-6 py-10 text-center text-[#667085]" colSpan={5}>
+                  <td className="px-6 py-12 text-center text-sm font-medium text-slate-500" colSpan={5}>
                     No complete month with more than 100 policies.
                   </td>
                 </tr>
@@ -1105,28 +1107,28 @@ function CarrierPaymentStatusTable({
                 rows.map((row) => (
                   <tr
                     key={row.carrier}
-                    className="border-b border-[#f1f3f7] transition-colors hover:bg-[#f8fafc] last:border-b-0"
+                    className="group border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-b-0"
                   >
-                    <td className="break-words px-5 py-3 text-sm font-semibold text-[#16233a]">
+                    <td className="break-words px-5 py-3 text-sm font-semibold text-slate-900">
                       {row.carrier}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm text-[#667085]">
+                    <td className="px-4 py-3 text-right text-sm text-slate-600">
                       {formatInteger(row.total)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold text-[#159277]">
+                    <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-600">
                       {formatInteger(row.paid)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold text-[#d92d5c]">
+                    <td className="px-4 py-3 text-right text-sm font-semibold text-rose-500">
                       {formatInteger(row.unpaid)}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3 align-middle">
                       <div className="ml-auto flex w-full items-center justify-end">
-                        <div className="relative h-6 w-full overflow-hidden rounded border border-[#d7f8ec] bg-[#e9fff6]">
+                        <div className="relative h-6 w-full overflow-hidden rounded border border-emerald-100 bg-emerald-50">
                           <div
-                            className="h-full rounded bg-[#8ee8c8]"
+                            className="h-full rounded bg-emerald-400 opacity-70"
                             style={{ width: `${Math.min(row.paidRate, 100)}%` }}
                           />
-                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-[#136852]">
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-emerald-700">
                             {formatPercent(row.paidRate)}
                           </span>
                         </div>
@@ -1155,20 +1157,20 @@ function MixBreakdownTable({
   rows: MixBreakdownRow[];
 }) {
   return (
-    <section>
-      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-        <h2 className="text-xl font-semibold text-[#24272d]">{title}</h2>
+    <section className="flex flex-col">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+        <h2 className="text-lg font-bold leading-tight text-slate-800">{title}</h2>
         {reportMonth ? (
-          <span className="text-xs font-semibold uppercase tracking-wide text-[#667085]">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             {formatReportMonth(reportMonth)}
           </span>
         ) : null}
       </div>
-      <article className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
+      <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         <div className="overflow-hidden">
           <table className="w-full table-fixed text-[13px]">
             <thead>
-              <tr className="border-b border-[#edf0f4] text-left text-xs font-semibold uppercase tracking-wide text-[#667085]">
+              <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <th className="w-[21%] px-4 py-3">{labelHeader}</th>
                 <th className="w-[13%] px-3 py-3 text-right">Policies</th>
                 <th className="w-[12%] px-3 py-3 text-right">Clients</th>
@@ -1179,7 +1181,7 @@ function MixBreakdownTable({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-6 py-10 text-center text-[#667085]" colSpan={5}>
+                  <td className="px-6 py-12 text-center text-sm font-medium text-slate-500" colSpan={5}>
                     No complete month with more than 100 policies.
                   </td>
                 </tr>
@@ -1187,28 +1189,28 @@ function MixBreakdownTable({
                 rows.map((row) => (
                   <tr
                     key={row.label}
-                    className="border-b border-[#f1f3f7] transition-colors hover:bg-[#f8fafc] last:border-b-0"
+                    className="group border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-b-0"
                   >
-                    <td className="break-words px-4 py-3 font-semibold text-[#16233a]">
+                    <td className="break-words px-4 py-3 font-semibold text-slate-900">
                       {row.label}
                     </td>
-                    <td className="px-3 py-3 text-right font-semibold text-[#16233a]">
+                    <td className="px-3 py-3 text-right font-semibold text-slate-700">
                       {formatInteger(row.policyCount)}
                     </td>
-                    <td className="px-3 py-3 text-right text-[#667085]">
+                    <td className="px-3 py-3 text-right text-slate-500">
                       {formatInteger(row.clientCount)}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-[#16233a]">
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900">
                       {formatCurrency(row.totalCommission)}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 align-middle">
                       <div className="ml-auto flex w-full items-center justify-end">
-                        <div className="relative h-6 w-full overflow-hidden rounded border border-[#d7f8ec] bg-[#e9fff6]">
+                        <div className="relative h-6 w-full overflow-hidden rounded border border-blue-100 bg-blue-50">
                           <div
-                            className="h-full rounded bg-[#8ee8c8]"
+                            className="h-full rounded bg-blue-400 opacity-70"
                             style={{ width: `${Math.min(row.sharePercent, 100)}%` }}
                           />
-                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-[#136852]">
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-blue-700">
                             {formatPercent(row.sharePercent)}
                           </span>
                         </div>
@@ -1235,19 +1237,19 @@ function PaymentStatusTable({
   rows: PaymentStatusMonth[];
 }) {
   return (
-    <section>
-      <h2 className="mb-2 text-xl font-semibold text-[#24272d]">{title}</h2>
-      <article className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
+    <section className="flex flex-col">
+      <h2 className="mb-4 text-lg font-bold leading-tight text-slate-800">{title}</h2>
+      <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         <div className="overflow-x-auto">
           <table className="min-w-full table-fixed text-sm">
             <thead>
-              <tr className="border-b border-[#edf0f4] text-left text-xs font-semibold uppercase tracking-wide text-[#667085]">
+              <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <th className="w-[20%] px-5 py-3">Month</th>
                 <th className="w-[18%] px-4 py-3 text-right">{totalLabel}</th>
-                <th className="w-[17%] px-4 py-3 text-right text-[#159277]">
+                <th className="w-[17%] px-4 py-3 text-right text-emerald-600">
                   Paid
                 </th>
-                <th className="w-[17%] px-4 py-3 text-right text-[#d92d5c]">
+                <th className="w-[17%] px-4 py-3 text-right text-rose-600">
                   Unpaid
                 </th>
                 <th className="w-[28%] px-5 py-3 text-right">Paid Rate</th>
@@ -1256,7 +1258,7 @@ function PaymentStatusTable({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="px-6 py-10 text-center text-[#667085]" colSpan={5}>
+                  <td className="px-6 py-12 text-center text-sm font-medium text-slate-500" colSpan={5}>
                     No months with more than 100 records.
                   </td>
                 </tr>
@@ -1264,28 +1266,28 @@ function PaymentStatusTable({
                 rows.map((row) => (
                   <tr
                     key={row.reportMonth}
-                    className="border-b border-[#f1f3f7] transition-colors hover:bg-[#f8fafc] last:border-b-0"
+                    className="group border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-b-0"
                   >
-                    <td className="whitespace-nowrap px-5 py-3 text-sm font-semibold text-[#16233a]">
+                    <td className="whitespace-nowrap px-5 py-3 text-sm font-semibold text-slate-900">
                       {formatReportMonth(row.reportMonth)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm text-[#667085]">
+                    <td className="px-4 py-3 text-right text-sm text-slate-600">
                       {formatInteger(row.total)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold text-[#159277]">
+                    <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-600">
                       {formatInteger(row.paid)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold text-[#d92d5c]">
+                    <td className="px-4 py-3 text-right text-sm font-semibold text-rose-500">
                       {formatInteger(row.unpaid)}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3 align-middle">
                       <div className="ml-auto flex w-32 items-center justify-end">
-                        <div className="relative h-6 w-full overflow-hidden rounded border border-[#d7f8ec] bg-[#e9fff6]">
+                        <div className="relative h-6 w-full overflow-hidden rounded border border-emerald-100 bg-emerald-50">
                           <div
-                            className="h-full rounded bg-[#8ee8c8]"
+                            className="h-full rounded bg-emerald-400 opacity-70"
                             style={{ width: `${Math.min(row.paidRate, 100)}%` }}
                           />
-                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-[#136852]">
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-emerald-700">
                             {formatPercent(row.paidRate)}
                           </span>
                         </div>
@@ -1313,24 +1315,38 @@ function ScoreCard({
   changePercent?: number | null;
   footerText?: string;
 }) {
-  const trendClassName =
-    changePercent === undefined || changePercent === null || changePercent === 0
-      ? "text-[#667085]"
-      : changePercent > 0
-        ? "text-[#027a48]"
-        : "text-[#c01048]";
+  const hasTrend = changePercent !== undefined && changePercent !== null;
+  const isUp = hasTrend && changePercent > 0;
+  const isDown = hasTrend && changePercent < 0;
+  
+  let trendColorClass = "text-slate-500 bg-slate-50";
+  if (isUp) {
+    trendColorClass = "text-emerald-600 bg-emerald-50";
+  } else if (isDown) {
+    trendColorClass = "text-rose-600 bg-rose-50";
+  }
+  
   const footer = footerText ?? formatTrendText(changePercent ?? null);
 
   return (
-    <article className="grid min-h-20 grid-rows-[1.35rem_2.35rem_1rem] items-center rounded-lg border border-[#d8dee7] bg-white px-3 py-2.5 text-center shadow-[0_1px_3px_rgba(22,35,58,0.06)]">
-      <div className="self-start text-[11px] font-semibold uppercase leading-4 tracking-[0.03em] text-[#667085]">
+    <article className="flex flex-col justify-between min-h-[128px] rounded-xl border border-slate-200/60 bg-white p-5 shadow-sm transition-shadow duration-300 hover:shadow-md">
+      <div className="text-sm font-medium text-slate-500 uppercase tracking-wide">
         {label}
       </div>
-      <div className="truncate text-[1.85rem] font-semibold leading-none text-[#16233a]">
+      <div className="mt-2 text-3xl font-bold text-slate-900 truncate">
         {value}
       </div>
-      <div className={`truncate text-xs font-semibold ${trendClassName}`}>
-        {footer}
+      <div className="mt-auto pt-4 flex items-center">
+        {hasTrend ? (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${trendColorClass}`}>
+            {isUp && <span className="mr-1">↑</span>}
+            {isDown && <span className="mr-1">↓</span>}
+            {Math.abs(changePercent)}%
+          </span>
+        ) : null}
+        <span className={`text-xs font-medium truncate ${hasTrend ? "ml-2 text-slate-500" : "text-slate-400"}`}>
+          {footer}
+        </span>
       </div>
     </article>
   );

@@ -172,30 +172,32 @@ export default async function PcSalesPerformancePage({
   const dateRangeLabel = buildDateRangeLabel(allRows);
 
   return (
-    <div className="bg-[#f1f1f1] px-4 py-5 text-[#2c2f34]">
-      <div className="mx-auto max-w-[1480px]">
-        <header className="mb-8 flex flex-wrap items-center justify-between gap-4 bg-[#e8edf4] px-3 py-3 shadow-sm">
-          <h1 className="text-[2.45rem] font-bold leading-none tracking-normal text-[#20242b]">
-            P&amp;C Performance Dashboard
-          </h1>
-          <div className="flex h-12 min-w-[280px] items-center justify-between rounded-sm border-2 border-[#9d9d9d] bg-[#eef2f6] px-6 text-sm font-semibold text-[#30343a] shadow-[0_2px_4px_rgba(0,0,0,0.22)]">
+    <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
+      <div className="mx-auto max-w-[1536px]">
+        <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              P&C Sales Performance
+            </h1>
+            <p className="mt-2 text-sm text-slate-500">
+              Overview of P&C sales volume, agent commissions, and EPS performance.
+            </p>
+          </div>
+          <div className="flex h-10 items-center justify-between rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 shadow-sm transition-shadow hover:shadow-md">
             <span>{dateRangeLabel}</span>
-            <span aria-hidden="true" className="text-xs text-[#333]">
-              v
-            </span>
           </div>
         </header>
 
         <PcSalesPerformanceFilters filters={filters} options={filterOptions} />
 
         {filteredRows.length === 0 ? (
-          <div className="rounded-sm border border-[#b8b8b8] bg-white px-8 py-16 text-center text-sm font-semibold text-[#667085] shadow-[0_2px_4px_rgba(0,0,0,0.18)]">
+          <div className="rounded-xl border border-slate-200 bg-white px-8 py-16 text-center text-sm font-medium text-slate-500 shadow-sm">
             No P&amp;C sales performance records match these filters.
           </div>
         ) : (
-          <div className="space-y-9">
-            <h2 className="text-[2.55rem] font-bold leading-tight text-[#1164c7]">
-              Section 1: Business Overview
+          <div className="space-y-8">
+            <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+              Business Overview
             </h2>
 
             <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
@@ -714,20 +716,20 @@ function KpiCard({
 }) {
   return (
     <article
-      className={`flex flex-col items-center justify-center rounded-sm border border-[#cdcdcd] bg-white px-5 text-center shadow-[3px_3px_4px_rgba(0,0,0,0.28)] ${
-        compact ? "min-h-[104px] py-4" : "min-h-[122px] py-5"
+      className={`flex flex-col justify-center rounded-xl border border-slate-200/60 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md ${
+        compact ? "min-h-[112px] p-5" : "min-h-[128px] p-6"
       }`}
     >
       <div
-        className={`font-semibold leading-tight ${
-          compact ? "text-[1.25rem]" : "text-[1.35rem]"
-        } ${muted ? "text-[#858991]" : "text-[#5d6068]"}`}
+        className={`text-sm font-medium uppercase tracking-wide ${
+          muted ? "text-slate-400" : "text-slate-500"
+        }`}
       >
         {label}
       </div>
       <div
-        className={`mt-1 font-semibold leading-tight text-[#111] ${
-          compact ? "text-[2.35rem]" : "text-[2.55rem]"
+        className={`mt-2 font-bold ${
+          compact ? "text-2xl text-slate-800" : "text-3xl text-slate-900"
         }`}
       >
         {value}
@@ -1677,11 +1679,11 @@ function ReportPanel({
   title: string;
 }) {
   return (
-    <section>
-      <h3 className="mb-2 text-[1.45rem] font-bold leading-tight text-[#2b2e33]">
+    <section className="flex flex-col">
+      <h3 className="mb-4 text-lg font-bold leading-tight text-slate-800">
         {title}
       </h3>
-      <div className="overflow-hidden rounded-sm border border-[#b8b8b8] bg-white shadow-[2px_2px_4px_rgba(0,0,0,0.26)]">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         {children}
       </div>
     </section>
@@ -1701,7 +1703,7 @@ function HeaderCell({
 }) {
   return (
     <th
-      className={`border-b border-[#d7dce3] px-3 py-2 align-middle font-bold ${
+      className={`bg-slate-50/80 backdrop-blur-sm border-b border-slate-200 px-4 py-3 align-middle text-xs font-semibold uppercase tracking-wider text-slate-500 ${
         align === "right" ? "text-right" : "text-left"
       }`}
       colSpan={colSpan}
@@ -1723,9 +1725,9 @@ function BodyCell({
 }) {
   return (
     <td
-      className={`border-b border-[#eef0f3] px-3 py-2 align-middle text-[#333840] ${
+      className={`border-b border-slate-100 px-4 py-3 align-middle text-sm text-slate-700 transition-colors group-hover:bg-slate-50/50 ${
         align === "right" ? "text-right" : "text-left"
-      } ${strong ? "font-bold" : ""}`}
+      } ${strong ? "font-semibold text-slate-900" : ""}`}
     >
       {children}
     </td>
@@ -1742,16 +1744,16 @@ function BarDeltaCell({
   const width = value === null ? 0 : Math.min(Math.abs(value), 100);
 
   return (
-    <td className="border-b border-[#eef0f3] px-3 py-2 text-right align-middle text-[#333840]">
+    <td className="border-b border-slate-100 px-4 py-3 text-right align-middle text-sm text-slate-700 transition-colors group-hover:bg-slate-50/50">
       <div className="grid grid-cols-[1fr_6rem] items-center gap-2">
         <div className="relative h-4">
           <div
-            className={`absolute top-1/2 h-3 -translate-y-1/2 ${value !== null && value < 0 ? "right-1/2" : "left-1/2"} ${deltaColorClassName(color)}`}
+            className={`absolute top-1/2 h-3 -translate-y-1/2 opacity-70 ${value !== null && value < 0 ? "right-1/2" : "left-1/2"} ${deltaColorClassName(color)}`}
             style={{ width: `${width / 2}%` }}
           />
-          <span className="absolute left-1/2 top-0 h-full w-px bg-[#c7cbd1]" />
+          <span className="absolute left-1/2 top-0 h-full w-px bg-slate-300" />
         </div>
-        <span>{formatNullablePercent(value)}</span>
+        <span className={value !== null && value < 0 ? "text-rose-600" : value !== null && value > 0 ? "text-emerald-600" : ""}>{formatNullablePercent(value)}</span>
       </div>
     </td>
   );
@@ -1771,13 +1773,17 @@ function BarBodyCell({
   const width = maxValue === 0 ? 0 : Math.min(Math.abs(value / maxValue) * 100, 100);
 
   return (
-    <td className="border-b border-[#eef0f3] px-3 py-2 text-right align-middle text-[#333840]">
-      <div className="relative h-5">
-        <div
-          className={`absolute right-0 top-1/2 h-3 -translate-y-1/2 ${barColorClassName(color)}`}
-          style={{ width: `${width}%` }}
-        />
-        <span className="relative z-10 font-semibold">{children}</span>
+    <td className="border-b border-slate-100 px-4 py-3 align-middle text-right transition-colors group-hover:bg-slate-50/50">
+      <div className="ml-auto flex w-full items-center justify-end">
+        <div className="relative h-6 w-full overflow-hidden rounded border bg-slate-50 border-slate-200">
+          <div
+            className={`h-full rounded opacity-70 ${barColorClassName(color)}`}
+            style={{ width: `${width}%` }}
+          />
+          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-slate-800">
+            {children}
+          </span>
+        </div>
       </div>
     </td>
   );
