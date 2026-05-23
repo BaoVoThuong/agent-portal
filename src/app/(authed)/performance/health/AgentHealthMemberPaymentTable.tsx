@@ -1,6 +1,8 @@
 "use client";
 
+import { FileDown } from "lucide-react";
 import { useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 
 type MemberPaymentRow = {
   dealName: string;
@@ -77,18 +79,61 @@ export function AgentHealthMemberPaymentTable({
     visibleMonthCount,
   ]);
 
+  function exportFilteredRows() {
+    const headers = buildExportHeaders(visibleMonthLabels);
+    const exportRows = filteredRows.map((row, index) => [
+      index + 1,
+      row.dealName,
+      row.carrier,
+      row.primaryMemberId,
+      row.totalPaid,
+      ...row.months
+        .slice(0, visibleMonthLabels.length)
+        .flatMap((month) => [
+          getMonthExportStatus(month),
+          month.hasRecord ? month.paid : "",
+          month.paidToDate ?? "",
+        ]),
+    ]);
+    const sheet = XLSX.utils.aoa_to_sheet([headers, ...exportRows]);
+    sheet["!cols"] = headers.map((header) => ({
+      wch: getExportColumnWidth(header),
+    }));
+
+    applyExportCurrencyFormat(sheet, exportRows.length, visibleMonthLabels.length);
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "Member_Payments");
+    XLSX.writeFile(
+      workbook,
+      `member-payment-history-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      { compression: true }
+    );
+  }
+
   return (
     <section className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#edf0f4] px-6 py-5">
-        <div>
-          <h2 className="text-lg font-semibold text-[#16233a]">
-            Member Payment History | Current Report Year
-          </h2>
-          <p className="mt-1 text-xs text-[#667085]">
-            Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} rows
-          </p>
+      <header className="border-b border-[#edf0f4] px-6 py-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-[#16233a]">
+              Member Payment History | Current Report Year
+            </h2>
+            <p className="mt-1 text-xs text-[#667085]">
+              Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} rows
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={exportFilteredRows}
+            disabled={filteredRows.length === 0}
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-semibold text-[#184e8a] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <FileDown aria-hidden="true" size={16} strokeWidth={2.2} />
+            Export XLSX
+          </button>
         </div>
-        <div className="flex flex-wrap items-end justify-end gap-3">
+        <div className="mt-5 flex flex-wrap items-end gap-3">
           <label className="flex min-w-[10rem] flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
             Month
             <select
@@ -276,6 +321,60 @@ function getSelectedMonthIndex(monthFilter: string, visibleMonthCount: number) {
   }
 
   return parsed;
+}
+
+function buildExportHeaders(monthLabels: string[]) {
+  return [
+    "#",
+    "Deal Name",
+    "Carrier",
+    "Primary Member ID",
+    "Total Paid",
+    ...monthLabels.flatMap((month) => [
+      `${month} Status`,
+      `${month} Paid`,
+      `${month} Paid To Date`,
+    ]),
+  ];
+}
+
+function getMonthExportStatus(month: MemberPaymentRow["months"][number]) {
+  if (!month.hasRecord) return "No Record";
+  return month.paidToDate ? "Paid" : "Unpaid";
+}
+
+function getExportColumnWidth(header: string) {
+  if (header === "#") return 8;
+  if (header === "Deal Name") return 36;
+  if (header === "Primary Member ID") return 24;
+  if (header.endsWith("Paid To Date")) return 16;
+  if (header.endsWith("Status")) return 16;
+  return 14;
+}
+
+function applyExportCurrencyFormat(
+  sheet: XLSX.WorkSheet,
+  rowCount: number,
+  monthCount: number
+) {
+  const currencyColumnIndexes = [
+    4,
+    ...Array.from({ length: monthCount }, (_, index) => 6 + index * 3),
+  ];
+
+  for (let rowIndex = 1; rowIndex <= rowCount; rowIndex += 1) {
+    for (const columnIndex of currencyColumnIndexes) {
+      const cellAddress = XLSX.utils.encode_cell({
+        r: rowIndex,
+        c: columnIndex,
+      });
+      const cell = sheet[cellAddress];
+
+      if (cell && cell.t === "n") {
+        cell.z = "$#,##0.00";
+      }
+    }
+  }
 }
 
 function matchesSelectedMonth(

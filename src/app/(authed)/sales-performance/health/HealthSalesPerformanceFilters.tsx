@@ -1,22 +1,70 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 type FilterOptions = {
   agents: string[];
   carriers: string[];
-  reportMonths: string[];
-  messerStatements: string[];
+};
+
+type ReportMonthRange = {
+  start: string | null;
+  end: string | null;
 };
 
 type FilterValues = {
-  agent: string;
-  carrier: string;
-  reportMonth: string;
-  messerStatement: string;
+  agent: string[];
+  carrier: string[];
+  reportMonthRange: ReportMonthRange;
+  messerStatement: string[];
   primaryMemberId: string;
 };
+
+type MultiFilterName = "agent" | "carrier";
+
+export function HealthSalesHeaderFilters({ filters }: { filters: FilterValues }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
+
+  function replaceWithParams(params: URLSearchParams) {
+    const query = params.toString();
+
+    startTransition(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    });
+  }
+
+  return (
+    <div className="flex flex-nowrap items-center justify-end gap-3 overflow-visible">
+      <ReportMonthRangeDropdown
+        disabled={isPending}
+        endDate={filters.reportMonthRange.end}
+        startDate={filters.reportMonthRange.start}
+        onApply={(range) => {
+          const params = new URLSearchParams(searchParams.toString());
+          params.delete("reportMonth");
+
+          if (range.start) {
+            params.set("start", range.start);
+          } else {
+            params.delete("start");
+          }
+
+          if (range.end) {
+            params.set("end", range.end);
+          } else {
+            params.delete("end");
+          }
+
+          replaceWithParams(params);
+        }}
+      />
+    </div>
+  );
+}
 
 export function HealthSalesPerformanceFilters({
   filters,
@@ -31,6 +79,25 @@ export function HealthSalesPerformanceFilters({
   const [isPending, startTransition] = useTransition();
   const [memberId, setMemberId] = useState(filters.primaryMemberId);
 
+  function replaceWithParams(params: URLSearchParams) {
+    const query = params.toString();
+
+    startTransition(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    });
+  }
+
+  function updateMultiParam(name: MultiFilterName, values: string[]) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete(name);
+
+    for (const value of values) {
+      params.append(name, value);
+    }
+
+    replaceWithParams(params);
+  }
+
   function updateParam(name: keyof FilterValues, value: string) {
     const params = new URLSearchParams(searchParams.toString());
 
@@ -40,10 +107,7 @@ export function HealthSalesPerformanceFilters({
       params.delete(name);
     }
 
-    const query = params.toString();
-    startTransition(() => {
-      router.replace(query ? `${pathname}?${query}` : pathname);
-    });
+    replaceWithParams(params);
   }
 
   function applyMemberIdFilter() {
@@ -51,40 +115,24 @@ export function HealthSalesPerformanceFilters({
   }
 
   return (
-    <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1.45fr_1.45fr]">
-      <FilterSelect
+    <div className="mb-8 flex flex-nowrap items-center justify-end gap-3 overflow-visible pb-1">
+      <MultiSelectDropdown
+        allLabel="All agents"
         disabled={isPending}
         label="Agent Name"
-        name="agent"
         options={options.agents}
-        value={filters.agent}
-        onChange={(value) => updateParam("agent", value)}
+        selectedValues={filters.agent}
+        onApply={(values) => updateMultiParam("agent", values)}
       />
-      <FilterSelect
+      <MultiSelectDropdown
+        allLabel="All carriers"
         disabled={isPending}
         label="Carrier"
-        name="carrier"
         options={options.carriers}
-        value={filters.carrier}
-        onChange={(value) => updateParam("carrier", value)}
+        selectedValues={filters.carrier}
+        onApply={(values) => updateMultiParam("carrier", values)}
       />
-      <FilterSelect
-        disabled={isPending}
-        label="Report Month"
-        name="reportMonth"
-        options={options.reportMonths}
-        value={filters.reportMonth}
-        onChange={(value) => updateParam("reportMonth", value)}
-      />
-      <FilterSelect
-        disabled={isPending}
-        label="Messer Statement"
-        name="messerStatement"
-        options={options.messerStatements}
-        value={filters.messerStatement}
-        onChange={(value) => updateParam("messerStatement", value)}
-      />
-      <label className="block">
+      <label className="block w-[15rem] shrink-0">
         <span className="sr-only">Primary member id</span>
         <input
           aria-label="Primary member id"
@@ -97,8 +145,8 @@ export function HealthSalesPerformanceFilters({
               applyMemberIdFilter();
             }
           }}
-          placeholder="Primary_member_id"
-          className="h-12 w-full rounded-sm border-2 border-[#a0a0a0] bg-white px-7 text-sm font-semibold text-[#454545] shadow-[0_2px_4px_rgba(0,0,0,0.22)] outline-none transition focus:border-[#4b6f9f] focus:ring-2 focus:ring-[#4b6f9f]/20 disabled:opacity-60"
+          placeholder="Primary member id"
+          className="h-10 w-full rounded-lg border border-[#cfd7e3] bg-white px-3 text-sm font-semibold text-[#16233a] shadow-[0_1px_3px_rgba(22,35,58,0.08)] outline-none transition placeholder:text-[#98a2b3] focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/15 disabled:opacity-60"
           disabled={isPending}
           type="search"
         />
@@ -107,39 +155,465 @@ export function HealthSalesPerformanceFilters({
   );
 }
 
-function FilterSelect({
+function MultiSelectDropdown({
+  allLabel,
   disabled,
   label,
-  name,
   options,
-  value,
-  onChange,
+  selectedValues,
+  onApply,
 }: {
+  allLabel: string;
   disabled: boolean;
   label: string;
-  name: string;
   options: string[];
-  value: string;
-  onChange: (value: string) => void;
+  selectedValues: string[];
+  onApply: (values: string[]) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftSelected, setDraftSelected] = useState(selectedValues);
+  const selectedSet = useMemo(() => new Set(draftSelected), [draftSelected]);
+  const buttonLabel = useMemo(() => {
+    if (selectedValues.length === 0) return allLabel;
+    if (selectedValues.length === 1) return selectedValues[0];
+
+    return `${selectedValues.length} selected`;
+  }, [allLabel, selectedValues]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeOnOutsidePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        containerRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+    };
+  }, [isOpen]);
+
+  function toggleOption(option: string) {
+    setDraftSelected((current) =>
+      current.includes(option)
+        ? current.filter((value) => value !== option)
+        : [...current, option]
+    );
+  }
+
+  function openDropdown() {
+    setDraftSelected(selectedValues);
+    setIsOpen((current) => !current);
+  }
+
+  function clearSelection() {
+    setDraftSelected([]);
+    setIsOpen(false);
+    onApply([]);
+  }
+
+  function closeWithoutApplying() {
+    setDraftSelected(selectedValues);
+    setIsOpen(false);
+  }
+
+  function applySelection() {
+    setIsOpen(false);
+    onApply(draftSelected);
+  }
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={openDropdown}
+        disabled={disabled}
+        className="flex h-10 w-[11.5rem] items-center justify-between gap-2 rounded-lg border border-[#cfd7e3] bg-white px-3 text-left text-sm font-semibold text-[#16233a] shadow-[0_1px_3px_rgba(22,35,58,0.08)] transition hover:border-[#184e8a] focus:outline-none focus:ring-2 focus:ring-[#184e8a]/15 disabled:cursor-not-allowed disabled:opacity-60"
+        aria-expanded={isOpen}
+      >
+        <span className="truncate">{buttonLabel}</span>
+        <span className="text-[#667085]" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div className="absolute right-0 z-30 mt-2 w-[min(19rem,calc(100vw-1rem))] rounded-lg border border-[#d8dee7] bg-white p-3 shadow-[0_12px_28px_rgba(22,35,58,0.14)]">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+            {label}
+          </div>
+          <div className="max-h-64 overflow-auto pr-1">
+            {options.length === 0 ? (
+              <div className="rounded-md border border-dashed border-[#d8dee7] px-3 py-8 text-center text-xs text-[#667085]">
+                No options available.
+              </div>
+            ) : (
+              options.map((option) => (
+                <label
+                  key={option}
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[#16233a] transition hover:bg-[#f3f6fa]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedSet.has(option)}
+                    onChange={() => toggleOption(option)}
+                    className="h-4 w-4 rounded border-[#cfd7e3] accent-[#184e8a]"
+                  />
+                  <span className="truncate">{option}</span>
+                </label>
+              ))
+            )}
+          </div>
+
+          <div className="mt-3 flex items-center justify-end gap-2 border-t border-[#edf0f4] pt-3">
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="mr-auto h-7 rounded px-2 text-xs font-semibold text-[#667085] transition hover:bg-[#f3f6fa] hover:text-[#16233a]"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={closeWithoutApplying}
+              className="h-7 rounded px-2 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={applySelection}
+              className="h-7 rounded px-2 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ReportMonthRangeDropdown({
+  disabled,
+  endDate,
+  startDate,
+  onApply,
+}: {
+  disabled: boolean;
+  endDate: string | null;
+  startDate: string | null;
+  onApply: (range: ReportMonthRange) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftStartMonth, setDraftStartMonth] = useState(() =>
+    dateToMonthValue(startDate)
+  );
+  const [draftEndMonth, setDraftEndMonth] = useState(() =>
+    dateToMonthValue(endDate)
+  );
+  const [startYear, setStartYear] = useState(() =>
+    monthValueToYear(dateToMonthValue(startDate) || dateToMonthValue(endDate))
+  );
+  const [endYear, setEndYear] = useState(() =>
+    monthValueToYear(dateToMonthValue(endDate) || dateToMonthValue(startDate))
+  );
+  const label = useMemo(() => {
+    if (!startDate && !endDate) return "All report months";
+    if (startDate && endDate) {
+      return `${formatMonthLabel(startDate)} - ${formatMonthLabel(endDate)}`;
+    }
+
+    if (startDate) return `From ${formatMonthLabel(startDate)}`;
+    return `Through ${formatMonthLabel(endDate ?? "")}`;
+  }, [endDate, startDate]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeOnOutsidePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        containerRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+    };
+  }, [isOpen]);
+
+  function closeWithoutApplying() {
+    const nextStartMonth = dateToMonthValue(startDate);
+    const nextEndMonth = dateToMonthValue(endDate);
+
+    setDraftStartMonth(nextStartMonth);
+    setDraftEndMonth(nextEndMonth);
+    setStartYear(monthValueToYear(nextStartMonth || nextEndMonth));
+    setEndYear(monthValueToYear(nextEndMonth || nextStartMonth));
+    setIsOpen(false);
+  }
+
+  function clearRange() {
+    setDraftStartMonth("");
+    setDraftEndMonth("");
+    setIsOpen(false);
+    onApply({ start: null, end: null });
+  }
+
+  function applyRange() {
+    let nextStartMonth = draftStartMonth;
+    let nextEndMonth = draftEndMonth;
+
+    if (
+      nextStartMonth &&
+      nextEndMonth &&
+      nextStartMonth.localeCompare(nextEndMonth) > 0
+    ) {
+      [nextStartMonth, nextEndMonth] = [nextEndMonth, nextStartMonth];
+    }
+
+    setIsOpen(false);
+    onApply({
+      start: nextStartMonth ? monthValueToDate(nextStartMonth) : null,
+      end: nextEndMonth ? monthValueToDate(nextEndMonth) : null,
+    });
+  }
+
+  function selectStartMonth(value: string) {
+    setDraftStartMonth(value);
+    if (draftEndMonth && value.localeCompare(draftEndMonth) > 0) {
+      setDraftEndMonth(value);
+      setEndYear(monthValueToYear(value));
+    }
+  }
+
+  function selectEndMonth(value: string) {
+    setDraftEndMonth(value);
+    if (draftStartMonth && draftStartMonth.localeCompare(value) > 0) {
+      setDraftStartMonth(value);
+      setStartYear(monthValueToYear(value));
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        disabled={disabled}
+        className="flex h-10 w-[14rem] items-center justify-between gap-2 rounded-lg border border-[#cfd7e3] bg-white px-3 text-left text-sm font-semibold text-[#16233a] shadow-[0_1px_3px_rgba(22,35,58,0.08)] transition hover:border-[#184e8a] focus:outline-none focus:ring-2 focus:ring-[#184e8a]/15 disabled:cursor-not-allowed disabled:opacity-60"
+        aria-expanded={isOpen}
+      >
+        <span className="truncate">{label}</span>
+        <span className="text-[#667085]" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div className="absolute right-0 z-30 mt-2 w-[min(26rem,calc(100vw-1rem))] rounded-lg border border-[#d8dee7] bg-white px-3 py-2.5 shadow-[0_12px_28px_rgba(22,35,58,0.14)]">
+          <div className="grid grid-cols-2 gap-4">
+            <MonthPanel
+              title="Start Month"
+              year={startYear}
+              selectedMonth={draftStartMonth}
+              rangeStart={draftStartMonth}
+              rangeEnd={draftEndMonth}
+              onSelect={selectStartMonth}
+              onPreviousYear={() => setStartYear((current) => current - 1)}
+              onNextYear={() => setStartYear((current) => current + 1)}
+            />
+            <MonthPanel
+              title="End Month"
+              year={endYear}
+              selectedMonth={draftEndMonth}
+              rangeStart={draftStartMonth}
+              rangeEnd={draftEndMonth}
+              onSelect={selectEndMonth}
+              onPreviousYear={() => setEndYear((current) => current - 1)}
+              onNextYear={() => setEndYear((current) => current + 1)}
+            />
+          </div>
+
+          <div className="mt-2 flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={clearRange}
+              className="mr-auto h-6 rounded px-1.5 text-[11px] font-semibold text-[#667085] transition hover:bg-[#f3f6fa] hover:text-[#16233a]"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={closeWithoutApplying}
+              className="h-6 rounded px-1.5 text-[11px] font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={applyRange}
+              className="h-6 rounded px-1.5 text-[11px] font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MonthPanel({
+  title,
+  year,
+  selectedMonth,
+  rangeStart,
+  rangeEnd,
+  onSelect,
+  onPreviousYear,
+  onNextYear,
+}: {
+  title: string;
+  year: number;
+  selectedMonth: string;
+  rangeStart: string;
+  rangeEnd: string;
+  onSelect: (value: string) => void;
+  onPreviousYear: () => void;
+  onNextYear: () => void;
 }) {
   return (
-    <label className="block">
-      <span className="sr-only">{label}</span>
-      <select
-        aria-label={label}
-        className="h-12 w-full rounded-sm border border-[#c8c8c8] bg-white px-7 text-sm font-semibold text-[#454545] shadow-[0_2px_4px_rgba(0,0,0,0.18)] outline-none transition focus:border-[#4b6f9f] focus:ring-2 focus:ring-[#4b6f9f]/20 disabled:opacity-60"
-        disabled={disabled}
-        name={name}
-        onChange={(event) => onChange(event.target.value)}
-        value={value}
-      >
-        <option value="">{label}</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
+    <section>
+      <div className="mb-1.5 text-center text-[10px] font-semibold text-[#24272d]">
+        {title}
+      </div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={onPreviousYear}
+          className="flex h-5 w-5 items-center justify-center rounded-full text-sm leading-none text-[#24272d] transition hover:bg-[#f3f6fa]"
+          aria-label={`Previous year for ${title}`}
+        >
+          ‹
+        </button>
+        <div className="text-[11px] font-semibold uppercase text-[#24272d]">
+          {year}
+        </div>
+        <button
+          type="button"
+          onClick={onNextYear}
+          className="flex h-5 w-5 items-center justify-center rounded-full text-sm leading-none text-[#24272d] transition hover:bg-[#f3f6fa]"
+          aria-label={`Next year for ${title}`}
+        >
+          ›
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-1 text-center text-[11px] text-[#24272d]">
+        {MONTH_LABELS.map((monthLabel, index) => {
+          const value = `${year}-${String(index + 1).padStart(2, "0")}`;
+
+          return (
+            <button
+              type="button"
+              key={value}
+              onClick={() => onSelect(value)}
+              className={getMonthClassName(
+                value,
+                selectedMonth,
+                rangeStart,
+                rangeEnd
+              )}
+            >
+              {monthLabel}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
+}
+
+const MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function getMonthClassName(
+  month: string,
+  selectedMonth: string,
+  rangeStart: string,
+  rangeEnd: string
+) {
+  const isSelected = month === selectedMonth;
+  const isInRange =
+    rangeStart &&
+    rangeEnd &&
+    month.localeCompare(rangeStart) > 0 &&
+    month.localeCompare(rangeEnd) < 0;
+
+  return [
+    "flex h-7 items-center justify-center rounded transition",
+    isSelected
+      ? "bg-[#155fd1] font-semibold text-white"
+      : isInRange
+        ? "bg-[#edf4ff] text-[#155fd1]"
+        : "hover:bg-[#f3f6fa]",
+  ].join(" ");
+}
+
+function formatMonthLabel(value: string) {
+  if (!value) return "";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${value}T00:00:00Z`));
+}
+
+function currentYear() {
+  const today = new Date();
+
+  return today.getFullYear();
+}
+
+function dateToMonthValue(value: string | null) {
+  return value?.slice(0, 7) ?? "";
+}
+
+function monthValueToDate(value: string) {
+  return `${value}-01`;
+}
+
+function monthValueToYear(value: string) {
+  return value ? Number(value.slice(0, 4)) : currentYear();
 }

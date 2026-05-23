@@ -21,6 +21,12 @@ type SalesPerformanceChangeRow = PerformancePeriod & {
   earningsChangePercent: number | null;
 };
 
+const VISIBLE_ROW_COUNT = 6;
+const HEADER_HEIGHT_PX = 44;
+const ROW_HEIGHT_PX = 56;
+const TABLE_SCROLL_MAX_HEIGHT =
+  HEADER_HEIGHT_PX + VISIBLE_ROW_COUNT * ROW_HEIGHT_PX;
+
 export function AgentHealthSalesPerformanceMoMTable({
   chartLevel,
   periodsByLevel,
@@ -89,7 +95,10 @@ export function AgentHealthSalesPerformanceMoMTable({
             No report periods with more than 100 active policies.
           </div>
         ) : (
-          <div className="max-h-[620px] overflow-y-auto overflow-x-hidden">
+          <div
+            className="overflow-y-auto overflow-x-hidden"
+            style={{ maxHeight: TABLE_SCROLL_MAX_HEIGHT }}
+          >
             <table className="w-full table-fixed text-xs text-[#3f444b]">
               <thead>
                 <tr className="border-b border-[#d7dce3] bg-white text-left text-sm font-medium text-[#3f444b]">
@@ -123,7 +132,7 @@ export function AgentHealthSalesPerformanceMoMTable({
                   return (
                     <tr
                       key={row.periodKey}
-                      className={`border-b border-[#edf0f4] ${rowBg}`}
+                      className={`h-14 border-b border-[#edf0f4] ${rowBg}`}
                     >
                       <td
                         className={`sticky left-0 z-10 border-r border-[#e3e8ef] px-3 py-3 text-sm ${rowBg}`}

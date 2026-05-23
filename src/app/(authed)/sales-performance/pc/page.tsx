@@ -716,23 +716,25 @@ function KpiCard({
 }) {
   return (
     <article
-      className={`flex flex-col justify-center rounded-xl border border-slate-200/60 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md ${
-        compact ? "min-h-[112px] p-5" : "min-h-[128px] p-6"
+      className={`flex flex-col rounded-xl border border-slate-200/70 bg-white text-center shadow-[0_6px_18px_rgba(15,23,42,0.06)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.1)] ${
+        compact ? "min-h-[112px] px-4 py-4" : "min-h-[124px] px-5 py-4"
       }`}
     >
       <div
-        className={`text-sm font-medium uppercase tracking-wide ${
+        className={`flex min-h-8 items-center justify-center text-[12px] font-semibold uppercase leading-snug tracking-[0.08em] ${
           muted ? "text-slate-400" : "text-slate-500"
         }`}
       >
         {label}
       </div>
-      <div
-        className={`mt-2 font-bold ${
-          compact ? "text-2xl text-slate-800" : "text-3xl text-slate-900"
-        }`}
-      >
-        {value}
+      <div className="flex flex-1 items-center justify-center py-2">
+        <div
+          className={`w-full break-words text-center font-bold leading-none tracking-normal tabular-nums ${
+            compact ? "text-[1.75rem] text-slate-900" : "text-[2rem] text-slate-950"
+          }`}
+        >
+          {value}
+        </div>
       </div>
     </article>
   );

@@ -149,6 +149,12 @@ const CHART_MIN_POLICY_COUNT = 100;
 const PAYMENT_STATUS_MONTH_LIMIT = 5;
 const PAYMENT_STATUS_MIN_TOTAL = 100;
 const MIX_BREAKDOWN_TOP_LIMIT = 5;
+const CARRIER_PAYMENT_VISIBLE_ROW_COUNT = 6;
+const CARRIER_PAYMENT_HEADER_HEIGHT_PX = 44;
+const CARRIER_PAYMENT_ROW_HEIGHT_PX = 64;
+const CARRIER_PAYMENT_TABLE_MAX_HEIGHT =
+  CARRIER_PAYMENT_HEADER_HEIGHT_PX +
+  CARRIER_PAYMENT_VISIBLE_ROW_COUNT * CARRIER_PAYMENT_ROW_HEIGHT_PX;
 
 const fetchCachedCarrierOptions = unstable_cache(
   async (agentName: string | null, start: string | null, end: string | null) =>
@@ -1081,7 +1087,10 @@ function CarrierPaymentStatusTable({
         ) : null}
       </div>
       <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
-        <div className="max-h-[460px] overflow-y-auto overflow-x-hidden">
+        <div
+          className="overflow-y-auto overflow-x-hidden"
+          style={{ maxHeight: CARRIER_PAYMENT_TABLE_MAX_HEIGHT }}
+        >
           <table className="w-full table-fixed text-sm">
             <thead>
               <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/90 backdrop-blur-sm text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -1107,7 +1116,7 @@ function CarrierPaymentStatusTable({
                 rows.map((row) => (
                   <tr
                     key={row.carrier}
-                    className="group border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-b-0"
+                    className="group h-16 border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-b-0"
                   >
                     <td className="break-words px-5 py-3 text-sm font-semibold text-slate-900">
                       {row.carrier}
@@ -1325,26 +1334,28 @@ function ScoreCard({
   } else if (isDown) {
     trendColorClass = "text-rose-600 bg-rose-50";
   }
-  
-  const footer = footerText ?? formatTrendText(changePercent ?? null);
+
+  const footer = footerText ?? formatTrendContextText(changePercent ?? null);
 
   return (
-    <article className="flex flex-col justify-between min-h-[128px] rounded-xl border border-slate-200/60 bg-white p-5 shadow-sm transition-shadow duration-300 hover:shadow-md">
-      <div className="text-sm font-medium text-slate-500 uppercase tracking-wide">
+    <article className="flex min-h-[124px] flex-col rounded-xl border border-slate-200/70 bg-white px-5 py-4 text-center shadow-[0_6px_18px_rgba(15,23,42,0.06)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.1)]">
+      <div className="flex min-h-8 items-center justify-center text-[12px] font-semibold uppercase leading-snug tracking-[0.08em] text-slate-500">
         {label}
       </div>
-      <div className="mt-2 text-3xl font-bold text-slate-900 truncate">
-        {value}
+      <div className="flex flex-1 items-center justify-center py-2">
+        <div className="w-full break-words text-center text-[2rem] font-bold leading-none tracking-normal text-slate-950 tabular-nums">
+          {value}
+        </div>
       </div>
-      <div className="mt-auto pt-4 flex items-center">
+      <div className="flex min-h-7 items-center justify-center gap-2">
         {hasTrend ? (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${trendColorClass}`}>
+          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${trendColorClass}`}>
             {isUp && <span className="mr-1">↑</span>}
             {isDown && <span className="mr-1">↓</span>}
-            {Math.abs(changePercent)}%
+            {formatTrendBadgePercent(Math.abs(changePercent))}
           </span>
         ) : null}
-        <span className={`text-xs font-medium truncate ${hasTrend ? "ml-2 text-slate-500" : "text-slate-400"}`}>
+        <span className={`min-w-0 truncate text-xs font-medium ${hasTrend ? "text-slate-600" : "text-slate-500"}`}>
           {footer}
         </span>
       </div>
@@ -1451,16 +1462,16 @@ function formatPercent(value: number) {
   }).format(value)}%`;
 }
 
-function formatTrendText(value: number | null) {
-  if (value === null) return "No previous month";
-
-  const formatted = new Intl.NumberFormat("en-US", {
+function formatTrendBadgePercent(value: number) {
+  return `${new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 1,
-    minimumFractionDigits: 1,
-  }).format(Math.abs(value));
+    minimumFractionDigits: 0,
+  }).format(value)}%`;
+}
 
-  if (value > 0) return `Up ${formatted}% vs previous month`;
-  if (value < 0) return `Down ${formatted}% vs previous month`;
+function formatTrendContextText(value: number | null) {
+  if (value === null) return "No previous month";
+  if (value !== 0) return "vs previous month";
 
   return "No change vs previous month";
 }
