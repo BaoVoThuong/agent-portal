@@ -5,11 +5,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAgentHealthPerformanceFiltering } from "./AgentHealthPerformanceFilterState";
 
 type AgentHealthCarrierMultiSelectFilterProps = {
+  onSelectedCarriersChange?: (carriers: string[]) => void;
   options: string[];
   selectedCarriers: string[];
 };
 
 export function AgentHealthCarrierMultiSelectFilter({
+  onSelectedCarriersChange,
   options,
   selectedCarriers,
 }: AgentHealthCarrierMultiSelectFilterProps) {
@@ -58,12 +60,24 @@ export function AgentHealthCarrierMultiSelectFilter({
     );
   }
 
+  function toggleDropdown() {
+    setDraftSelected(selectedCarriers);
+    setIsOpen((current) => !current);
+  }
+
   function closeWithoutApplying() {
     setDraftSelected(selectedCarriers);
     setIsOpen(false);
   }
 
   function clearCarriers() {
+    if (onSelectedCarriersChange) {
+      setDraftSelected([]);
+      setIsOpen(false);
+      onSelectedCarriersChange([]);
+      return;
+    }
+
     const params = new URLSearchParams(searchParams.toString());
     params.delete("carrier");
     setDraftSelected([]);
@@ -73,6 +87,12 @@ export function AgentHealthCarrierMultiSelectFilter({
   }
 
   function applyCarriers() {
+    if (onSelectedCarriersChange) {
+      setIsOpen(false);
+      onSelectedCarriersChange(draftSelected);
+      return;
+    }
+
     const params = new URLSearchParams(searchParams.toString());
     params.delete("carrier");
 
@@ -101,7 +121,7 @@ export function AgentHealthCarrierMultiSelectFilter({
     <div ref={containerRef} className="relative">
       <button
         type="button"
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={toggleDropdown}
         className="dashboard-filter-button min-w-[12.5rem]"
         aria-expanded={isOpen}
       >

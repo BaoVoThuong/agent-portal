@@ -24,6 +24,8 @@ type FilterValues = {
   reportMonthRange: ReportMonthRange;
 };
 
+type ClientFilterValues = Pick<FilterValues, "agency" | "agent" | "policyNumber">;
+
 type StringFilterName = "policyNumber" | "agent" | "agency";
 
 export function PcSalesHeaderFilters({
@@ -84,9 +86,11 @@ export function PcSalesHeaderFilters({
 
 export function PcSalesPerformanceFilters({
   filters,
+  onClientFiltersChange,
   options,
 }: {
   filters: FilterValues;
+  onClientFiltersChange?: (filters: ClientFilterValues) => void;
   options: FilterOptions;
 }) {
   const pathname = usePathname();
@@ -104,6 +108,16 @@ export function PcSalesPerformanceFilters({
   }
 
   function updateParam(name: StringFilterName, value: string) {
+    if (onClientFiltersChange) {
+      onClientFiltersChange({
+        agency: name === "agency" ? value : filters.agency,
+        agent: name === "agent" ? value : filters.agent,
+        policyNumber:
+          name === "policyNumber" ? value : filters.policyNumber,
+      });
+      return;
+    }
+
     const params = new URLSearchParams(searchParams.toString());
 
     if (value) {
