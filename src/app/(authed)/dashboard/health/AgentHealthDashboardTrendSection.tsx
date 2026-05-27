@@ -2,11 +2,11 @@
 
 import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { AgentHealthPerformanceChart } from "./AgentHealthPerformanceChart";
-import { AgentHealthSalesPerformanceMoMTable } from "./AgentHealthSalesPerformanceMoMTable";
-import type { ChartLevel, PeriodsByLevel } from "./AgentHealthPerformanceChart";
+import { AgentHealthDashboardChart } from "./AgentHealthDashboardChart";
+import { AgentHealthSalesDashboardMoMTable } from "./AgentHealthSalesDashboardMoMTable";
+import type { ChartLevel, PeriodsByLevel } from "./AgentHealthDashboardChart";
 
-export function AgentHealthPerformanceTrendSection({
+export function AgentHealthDashboardTrendSection({
   initialChartLevel,
   periodsByLevel,
 }: {
@@ -49,13 +49,13 @@ export function AgentHealthPerformanceTrendSection({
 
   return (
     <>
-      <AgentHealthPerformanceChart
+      <AgentHealthDashboardChart
         key={chartLevel}
         chartLevel={chartLevel}
         onChartLevelChange={updateChartLevel}
         periodsByLevel={periodsByLevel}
       />
-      <AgentHealthSalesPerformanceMoMTable
+      <AgentHealthSalesDashboardMoMTable
         chartLevel={chartLevel}
         periodsByLevel={periodsByLevel}
       />

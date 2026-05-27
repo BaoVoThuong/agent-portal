@@ -5,7 +5,7 @@ import type { MouseEvent } from "react";
 
 export type ChartLevel = "month" | "quarter" | "year";
 
-export type PerformancePeriod = {
+export type DashboardPeriod = {
   periodKey: string;
   periodLabel: string;
   policyCount: number;
@@ -13,7 +13,7 @@ export type PerformancePeriod = {
   agentReceived: number;
 };
 
-export type PeriodsByLevel = Record<ChartLevel, PerformancePeriod[]>;
+export type PeriodsByLevel = Record<ChartLevel, DashboardPeriod[]>;
 
 const WIDTH = 1120;
 const HEIGHT = 360;
@@ -31,7 +31,7 @@ export const CHART_LEVELS: { value: ChartLevel; label: string }[] = [
   { value: "year", label: "Year" },
 ];
 
-export function AgentHealthPerformanceChart({
+export function AgentHealthDashboardChart({
   chartLevel,
   onChartLevelChange,
   periodsByLevel,

@@ -163,15 +163,15 @@ values
   ('automation.health_statement', 'Health Statement', 'Access and run the Health Statement tool.', 'automation', 'Automation', 100),
   ('automation.pc_statement', 'P&C Statement', 'Access and run the P&C Statement tool.', 'automation', 'Automation', 200),
   ('automation.provider_finder', 'Provider Finder', 'Access and run the Provider Finder tool.', 'automation', 'Automation', 300),
-  ('performance.own', 'Performance - Own', 'View the user''s own performance data.', 'performance', 'Performance', 100),
-  ('performance.all', 'Performance - All', 'View performance data for all users.', 'performance', 'Performance', 110),
-  ('agent_performance.health.own', 'Agent Health Performance - Own', 'View the user''s own Health agent performance data.', 'agent_performance', 'Agent Performance', 100),
-  ('agent_performance.health.all', 'Agent Health Performance - All', 'View Health agent performance data for all users.', 'agent_performance', 'Agent Performance', 110),
-  ('agent_performance.pc.own', 'Agent P&C Performance - Own', 'View the user''s own P&C agent performance data.', 'agent_performance', 'Agent Performance', 200),
-  ('agent_performance.pc.all', 'Agent P&C Performance - All', 'View P&C agent performance data for all users.', 'agent_performance', 'Agent Performance', 210),
-  ('agent_performance.life.own', 'Agent Life Performance - Own', 'View the user''s own Life agent performance data.', 'agent_performance', 'Agent Performance', 300),
-  ('agent_performance.life.all', 'Agent Life Performance - All', 'View Life agent performance data for all users.', 'agent_performance', 'Agent Performance', 310),
-  ('sales_performance.access', 'Sales Performance', 'View all Sales Performance pages.', 'sales_performance', 'Sales Performance', 100),
+  ('dashboard.own', 'Dashboard - Own', 'View the user''s own dashboard data.', 'dashboard', 'Dashboard', 100),
+  ('dashboard.all', 'Dashboard - All', 'View dashboard data for all users.', 'dashboard', 'Dashboard', 110),
+  ('agent_dashboard.health.own', 'Agent Health Dashboard - Own', 'View the user''s own Health agent dashboard data.', 'agent_dashboard', 'Agent Dashboard', 100),
+  ('agent_dashboard.health.all', 'Agent Health Dashboard - All', 'View Health agent dashboard data for all users.', 'agent_dashboard', 'Agent Dashboard', 110),
+  ('agent_dashboard.pc.own', 'Agent P&C Dashboard - Own', 'View the user''s own P&C agent dashboard data.', 'agent_dashboard', 'Agent Dashboard', 200),
+  ('agent_dashboard.pc.all', 'Agent P&C Dashboard - All', 'View P&C agent dashboard data for all users.', 'agent_dashboard', 'Agent Dashboard', 210),
+  ('agent_dashboard.life.own', 'Agent Life Dashboard - Own', 'View the user''s own Life agent dashboard data.', 'agent_dashboard', 'Agent Dashboard', 300),
+  ('agent_dashboard.life.all', 'Agent Life Dashboard - All', 'View Life agent dashboard data for all users.', 'agent_dashboard', 'Agent Dashboard', 310),
+  ('sales_dashboard.access', 'Sales Dashboard', 'View all Sales Dashboard pages.', 'sales_dashboard', 'Sales Dashboard', 100),
   ('management.account_manager', 'Account Manager', 'Create accounts, assign roles, update status, and reset passwords.', 'management', 'Management', 100),
   ('management.role_manager', 'Role Manager', 'Create roles and manage role permissions.', 'management', 'Management', 200),
   ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100),
@@ -184,6 +184,24 @@ on conflict (key) do update set
   group_label = excluded.group_label,
   sort_order = excluded.sort_order;
 
+with permission_key_migrations (old_key, new_key) as (
+  values
+    ('performance.own', 'dashboard.own'),
+    ('performance.all', 'dashboard.all'),
+    ('agent_performance.health.own', 'agent_dashboard.health.own'),
+    ('agent_performance.health.all', 'agent_dashboard.health.all'),
+    ('agent_performance.pc.own', 'agent_dashboard.pc.own'),
+    ('agent_performance.pc.all', 'agent_dashboard.pc.all'),
+    ('agent_performance.life.own', 'agent_dashboard.life.own'),
+    ('agent_performance.life.all', 'agent_dashboard.life.all'),
+    ('sales_performance.access', 'sales_dashboard.access')
+)
+insert into role_permissions (role_id, permission_key)
+select rp.role_id, migrations.new_key
+from role_permissions rp
+join permission_key_migrations migrations on migrations.old_key = rp.permission_key
+on conflict (role_id, permission_key) do nothing;
+
 delete from permissions
 where key not in (
   'customer_registration.health.own',
@@ -195,15 +213,15 @@ where key not in (
   'automation.health_statement',
   'automation.pc_statement',
   'automation.provider_finder',
-  'performance.own',
-  'performance.all',
-  'agent_performance.health.own',
-  'agent_performance.health.all',
-  'agent_performance.pc.own',
-  'agent_performance.pc.all',
-  'agent_performance.life.own',
-  'agent_performance.life.all',
-  'sales_performance.access',
+  'dashboard.own',
+  'dashboard.all',
+  'agent_dashboard.health.own',
+  'agent_dashboard.health.all',
+  'agent_dashboard.pc.own',
+  'agent_dashboard.pc.all',
+  'agent_dashboard.life.own',
+  'agent_dashboard.life.all',
+  'sales_dashboard.access',
   'management.account_manager',
   'management.role_manager',
   'settings.access',
@@ -288,7 +306,7 @@ join permissions p on p.key in (
   'automation.health_statement',
   'automation.pc_statement',
   'automation.provider_finder',
-  'agent_performance.health.own',
+  'agent_dashboard.health.own',
   'settings.access'
 )
 where r.name = 'Agent'
@@ -371,6 +389,47 @@ create table if not exists dashboard_filter_defaults (
 create index if not exists dashboard_filter_defaults_dashboard_idx
   on dashboard_filter_defaults (dashboard_key);
 
+with dashboard_key_migrations (old_key, new_key) as (
+  values
+    ('agent_performance_health', 'agent_dashboard_health'),
+    ('sales_performance_health', 'sales_dashboard_health'),
+    ('sales_performance_pc', 'sales_dashboard_pc')
+)
+insert into dashboard_filter_defaults (
+  dashboard_key,
+  filter_key,
+  default_type,
+  start_month,
+  end_month,
+  rolling_months,
+  updated_by,
+  created_at,
+  updated_at
+)
+select
+  migrations.new_key,
+  defaults.filter_key,
+  defaults.default_type,
+  defaults.start_month,
+  defaults.end_month,
+  defaults.rolling_months,
+  defaults.updated_by,
+  defaults.created_at,
+  defaults.updated_at
+from dashboard_filter_defaults defaults
+join dashboard_key_migrations migrations on migrations.old_key = defaults.dashboard_key
+on conflict (dashboard_key, filter_key) do nothing;
+
+with dashboard_key_migrations (old_key, new_key) as (
+  values
+    ('agent_performance_health', 'agent_dashboard_health'),
+    ('sales_performance_health', 'sales_dashboard_health'),
+    ('sales_performance_pc', 'sales_dashboard_pc')
+)
+delete from dashboard_filter_defaults defaults
+using dashboard_key_migrations migrations
+where defaults.dashboard_key = migrations.old_key;
+
 insert into dashboard_filter_defaults (
   dashboard_key,
   filter_key,
@@ -379,19 +438,19 @@ insert into dashboard_filter_defaults (
 )
 values
   (
-    'agent_performance_health',
+    'agent_dashboard_health',
     'report_month_range',
     'latest_n_months',
     12
   ),
   (
-    'sales_performance_health',
+    'sales_dashboard_health',
     'report_month_range',
     'latest_n_months',
     12
   ),
   (
-    'sales_performance_pc',
+    'sales_dashboard_pc',
     'report_month_range',
     'latest_n_months',
     12

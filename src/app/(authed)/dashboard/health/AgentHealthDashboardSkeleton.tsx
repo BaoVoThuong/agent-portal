@@ -1,4 +1,4 @@
-export function AgentHealthPerformanceDashboardSkeleton() {
+export function AgentHealthDashboardSkeleton() {
   return (
     <div className="space-y-4">
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

@@ -96,9 +96,9 @@ function normalizePayload(payload: Payload) {
 
 function parseDashboardKey(value: unknown): DashboardFilterKey {
   if (
-    value === DASHBOARD_FILTER_KEYS.AGENT_PERFORMANCE_HEALTH ||
-    value === DASHBOARD_FILTER_KEYS.SALES_PERFORMANCE_HEALTH ||
-    value === DASHBOARD_FILTER_KEYS.SALES_PERFORMANCE_PC
+    value === DASHBOARD_FILTER_KEYS.AGENT_DASHBOARD_HEALTH ||
+    value === DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_HEALTH ||
+    value === DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_PC
   ) {
     return value;
   }
@@ -136,15 +136,15 @@ function canEditDashboardDefault(
   if (can(permissions, PERMISSIONS.ROLE_MANAGER)) return true;
 
   if (
-    dashboardKey === DASHBOARD_FILTER_KEYS.SALES_PERFORMANCE_HEALTH ||
-    dashboardKey === DASHBOARD_FILTER_KEYS.SALES_PERFORMANCE_PC
+    dashboardKey === DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_HEALTH ||
+    dashboardKey === DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_PC
   ) {
-    return can(permissions, PERMISSIONS.SALES_PERFORMANCE_ACCESS);
+    return can(permissions, PERMISSIONS.SALES_DASHBOARD_ACCESS);
   }
 
   return (
-    can(permissions, PERMISSIONS.AGENT_PERFORMANCE_HEALTH_OWN) ||
-    can(permissions, PERMISSIONS.AGENT_PERFORMANCE_HEALTH_ALL)
+    can(permissions, PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN) ||
+    can(permissions, PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL)
   );
 }
 

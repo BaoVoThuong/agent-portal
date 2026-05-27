@@ -8,15 +8,15 @@ import {
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
 import {
-  AgentHealthPerformanceDashboard,
+  AgentHealthDashboard,
   type HealthMartRow,
   type ReportMonthRange,
-} from "./AgentHealthPerformanceDashboard";
-import { AgentHealthPerformanceFilterProvider } from "./AgentHealthPerformanceFilterState";
+} from "./AgentHealthDashboard";
+import { AgentHealthDashboardFilterProvider } from "./AgentHealthDashboardFilterState";
 
 export const dynamic = "force-dynamic";
 
-type PerformancePageProps = {
+type DashboardPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
@@ -24,15 +24,15 @@ type ChartLevel = "month" | "quarter" | "year";
 
 const HEALTH_MART_PAGE_SIZE = 1000;
 
-export default async function PerformancePage({
+export default async function DashboardPage({
   searchParams,
-}: PerformancePageProps) {
+}: DashboardPageProps) {
   const session = await requirePermission(
-    PERMISSIONS.AGENT_PERFORMANCE_HEALTH_OWN
+    PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN
   );
   const params = searchParams ? await searchParams : {};
   const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.AGENT_PERFORMANCE_HEALTH
+    DASHBOARD_FILTER_KEYS.AGENT_DASHBOARD_HEALTH
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);
@@ -43,19 +43,19 @@ export default async function PerformancePage({
   const chartLevel = parseChartLevel(params.chartLevel);
   const canViewAll = can(
     session.user.permissions,
-    PERMISSIONS.AGENT_PERFORMANCE_HEALTH_ALL
+    PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL
   );
   const agentName = normalizeAgentName(session.user.name ?? "");
   const selectedCarriers = parseCarrierParams(params.carrier);
-  const canLoadPerformance = canViewAll || Boolean(agentName);
+  const canLoadDashboard = canViewAll || Boolean(agentName);
   const scopedAgentName = canViewAll ? null : agentName;
-  const rows = canLoadPerformance
+  const rows = canLoadDashboard
     ? await fetchHealthMartRows(scopedAgentName, reportMonthRange)
     : null;
 
   return (
-    <AgentHealthPerformanceFilterProvider>
-      <AgentHealthPerformanceDashboard
+    <AgentHealthDashboardFilterProvider>
+      <AgentHealthDashboard
         agentName={agentName}
         canViewAll={canViewAll}
         defaultConfig={monthDefaultConfig}
@@ -64,7 +64,7 @@ export default async function PerformancePage({
         rows={rows}
         selectedCarriers={selectedCarriers}
       />
-    </AgentHealthPerformanceFilterProvider>
+    </AgentHealthDashboardFilterProvider>
   );
 }
 

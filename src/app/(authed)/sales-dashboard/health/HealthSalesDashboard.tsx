@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { HealthSalesPoliciesInformationTable } from "./HealthSalesPoliciesInformationTable";
-import { HealthSalesPerformanceFilters } from "./HealthSalesPerformanceFilters";
+import { HealthSalesDashboardFilters } from "./HealthSalesDashboardFilters";
 import {
   type TrendComparisonChartLevel,
   type TrendComparisonPeriod,
@@ -109,7 +109,7 @@ type CarrierPaidRateBreakdown = {
   rows: CombinedCarrierPaymentStatusRow[];
 };
 
-type CarrierPerformanceRow = Summary & {
+type CarrierDashboardRow = Summary & {
   carrier: string;
   paidPolicyPercent: number;
   revenueSharePercent: number;
@@ -118,7 +118,7 @@ type CarrierPerformanceRow = Summary & {
   epsSplitPercent: number;
 };
 
-type StatePerformanceRow = Summary & {
+type StateDashboardRow = Summary & {
   state: string;
   policySharePercent: number;
   clientSharePercent: number;
@@ -150,8 +150,8 @@ type DashboardData = {
   commissionRowsByLevel: Record<TrendComparisonChartLevel, SalesPeriodSummary[]>;
   salesMomRowsByLevel: Record<TrendComparisonChartLevel, SalesMomRow[]>;
   carrierPaidRateBreakdown: CarrierPaidRateBreakdown;
-  carrierRows: CarrierPerformanceRow[];
-  stateRows: StatePerformanceRow[];
+  carrierRows: CarrierDashboardRow[];
+  stateRows: StateDashboardRow[];
   policyInfoRows: PolicyInfoRow[];
   policyInfoMonthCount: number;
 };
@@ -175,7 +175,7 @@ const SALES_MOM_ROW_HEIGHT_PX = 56;
 const SALES_MOM_SCROLL_MAX_HEIGHT =
   SALES_MOM_HEADER_HEIGHT_PX + SALES_MOM_VISIBLE_ROW_COUNT * SALES_MOM_ROW_HEIGHT_PX;
 
-export function HealthSalesPerformanceDashboard({
+export function HealthSalesDashboard({
   filterOptions,
   filters,
   initialTrendLevel,
@@ -212,7 +212,7 @@ export function HealthSalesPerformanceDashboard({
 
   return (
     <>
-      <HealthSalesPerformanceFilters
+      <HealthSalesDashboardFilters
         filters={activeFilters}
         onClientFiltersChange={updateClientFilters}
         options={filterOptions}
@@ -220,7 +220,7 @@ export function HealthSalesPerformanceDashboard({
 
       {filteredRows.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-8 py-16 text-center text-sm font-medium text-slate-500 shadow-sm">
-          No Health sales performance records match these filters.
+          No Health sales records match these filters.
         </div>
       ) : (
         <div className="space-y-8">
@@ -347,8 +347,8 @@ export function HealthSalesPerformanceDashboard({
               title="Carrier Paid Rate | Latest Complete Month"
             />
           </section>
-          <CarrierPerformanceTable rows={data.carrierRows} />
-          <StatePerformanceTable rows={data.stateRows} />
+          <CarrierDashboardTable rows={data.carrierRows} />
+          <StateDashboardTable rows={data.stateRows} />
           <HealthSalesPoliciesInformationTable
             rows={data.policyInfoRows}
             visibleMonthCount={data.policyInfoMonthCount}
@@ -714,7 +714,7 @@ function buildCarrierPaidRateBreakdown(
 function buildCarrierRows(
   rows: HealthSalesRow[],
   overview: Summary
-): CarrierPerformanceRow[] {
+): CarrierDashboardRow[] {
   return [...groupRows(rows, (row) => cleanGroupLabel(row.carrier)).entries()]
     .map(([carrier, groupRows]) => {
       const summary = summarizeRows(groupRows);
@@ -743,7 +743,7 @@ function buildCarrierRows(
     );
 }
 
-function buildStateRows(rows: HealthSalesRow[], overview: Summary): StatePerformanceRow[] {
+function buildStateRows(rows: HealthSalesRow[], overview: Summary): StateDashboardRow[] {
   const groups = [...groupRows(rows, (row) => cleanGroupLabel(row.state)).entries()]
     .map(([state, groupRows]) => ({
       groupRows,
@@ -764,21 +764,21 @@ function buildStateRows(rows: HealthSalesRow[], overview: Summary): StatePerform
   ].flatMap((group) => group.groupRows);
 
   const stateRows = topGroups.map(({ state, summary }) =>
-    toStatePerformanceRow(state, summary, overview)
+    toStateDashboardRow(state, summary, overview)
   );
 
   if (otherRows.length > 0) {
-    stateRows.push(toStatePerformanceRow("Other", summarizeRows(otherRows), overview));
+    stateRows.push(toStateDashboardRow("Other", summarizeRows(otherRows), overview));
   }
 
   return stateRows;
 }
 
-function toStatePerformanceRow(
+function toStateDashboardRow(
   state: string,
   summary: Summary,
   overview: Summary
-): StatePerformanceRow {
+): StateDashboardRow {
   return {
     state,
     ...summary,
@@ -939,14 +939,14 @@ function SalesMomGrowthTable({
     <section>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
-          Sales Performance by {periodLabel} | Policies &amp; Messer Paid {changeLabel} Growth
+          Sales Dashboard by {periodLabel} | Policies &amp; Messer Paid {changeLabel} Growth
         </h2>
       </div>
 
       <article className="agent-health-panel">
         {rows.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-[#667085]">
-            No sales performance periods.
+            No sales periods.
           </div>
         ) : (
           <div
@@ -1467,7 +1467,7 @@ function CommissionBreakdownTable({
   );
 }
 
-function CarrierPerformanceTable({ rows }: { rows: CarrierPerformanceRow[] }) {
+function CarrierDashboardTable({ rows }: { rows: CarrierDashboardRow[] }) {
   const maxes = {
     epsCommission: maxValue(rows, (row) => row.epsCommission),
     epsOverride: maxValue(rows, (row) => row.epsOverride),
@@ -1477,7 +1477,7 @@ function CarrierPerformanceTable({ rows }: { rows: CarrierPerformanceRow[] }) {
   };
 
   return (
-    <ReportPanel title="Carrier Performance | Policies, Revenue & Commission Breakdown">
+    <ReportPanel title="Carrier Dashboard | Policies, Revenue & Commission Breakdown">
       <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[11px]">
           <thead className="sticky top-0 z-10">
@@ -1542,7 +1542,7 @@ function CarrierPerformanceTable({ rows }: { rows: CarrierPerformanceRow[] }) {
   );
 }
 
-function StatePerformanceTable({ rows }: { rows: StatePerformanceRow[] }) {
+function StateDashboardTable({ rows }: { rows: StateDashboardRow[] }) {
   const maxes = {
     policyCount: maxValue(rows, (row) => row.policyCount),
     clientCount: maxValue(rows, (row) => row.clientCount),
@@ -1551,7 +1551,7 @@ function StatePerformanceTable({ rows }: { rows: StatePerformanceRow[] }) {
   };
 
   return (
-    <ReportPanel title="State Performance | Policies, Revenue & Commission Breakdown">
+    <ReportPanel title="State Dashboard | Policies, Revenue & Commission Breakdown">
       <div className="max-h-[300px] overflow-y-auto">
         <table className="w-full table-fixed text-[12px]">
           <thead>

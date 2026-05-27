@@ -88,60 +88,60 @@ const menuData: MenuItem[] = [
     ],
   },
   {
-    title: "Agent Performance",
+    title: "Agent Dashboard",
     anyPermission: [
-      PERMISSIONS.AGENT_PERFORMANCE_HEALTH_OWN,
-      PERMISSIONS.AGENT_PERFORMANCE_HEALTH_ALL,
-      PERMISSIONS.AGENT_PERFORMANCE_PC_OWN,
-      PERMISSIONS.AGENT_PERFORMANCE_PC_ALL,
-      PERMISSIONS.AGENT_PERFORMANCE_LIFE_OWN,
-      PERMISSIONS.AGENT_PERFORMANCE_LIFE_ALL,
+      PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
+      PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
+      PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
+      PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
+      PERMISSIONS.AGENT_DASHBOARD_LIFE_OWN,
+      PERMISSIONS.AGENT_DASHBOARD_LIFE_ALL,
     ],
     children: [
       {
-        href: "/performance/health",
+        href: "/dashboard/health",
         label: "Health",
         anyPermission: [
-          PERMISSIONS.AGENT_PERFORMANCE_HEALTH_OWN,
-          PERMISSIONS.AGENT_PERFORMANCE_HEALTH_ALL,
+          PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
+          PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
         ],
       },
       {
-        href: "/performance/pc",
+        href: "/dashboard/pc",
         label: "P&C",
         anyPermission: [
-          PERMISSIONS.AGENT_PERFORMANCE_PC_OWN,
-          PERMISSIONS.AGENT_PERFORMANCE_PC_ALL,
+          PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
+          PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
         ],
       },
       {
-        href: "/performance/life",
+        href: "/dashboard/life",
         label: "Life",
         anyPermission: [
-          PERMISSIONS.AGENT_PERFORMANCE_LIFE_OWN,
-          PERMISSIONS.AGENT_PERFORMANCE_LIFE_ALL,
+          PERMISSIONS.AGENT_DASHBOARD_LIFE_OWN,
+          PERMISSIONS.AGENT_DASHBOARD_LIFE_ALL,
         ],
       },
     ],
   },
   {
-    title: "Sales Performance",
-    permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+    title: "Sales Dashboard",
+    permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
     children: [
       {
-        href: "/sales-performance/health",
+        href: "/sales-dashboard/health",
         label: "Health",
-        permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+        permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
       },
       {
-        href: "/sales-performance/pc",
+        href: "/sales-dashboard/pc",
         label: "P&C",
-        permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+        permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
       },
       {
-        href: "/sales-performance/life",
+        href: "/sales-dashboard/life",
         label: "Life",
-        permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+        permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
       },
     ],
   },
@@ -176,8 +176,8 @@ export default function Sidebar({
   const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({
     "Customer Registration": true,
     "Automation Tool": pathname.startsWith("/automation"),
-    "Agent Performance": pathname.startsWith("/performance"),
-    "Sales Performance": pathname.startsWith("/sales-performance"),
+    "Agent Dashboard": pathname.startsWith("/dashboard"),
+    "Sales Dashboard": pathname.startsWith("/sales-dashboard"),
     Management:
       pathname.startsWith("/account-manager") ||
       pathname.startsWith("/role-manager"),

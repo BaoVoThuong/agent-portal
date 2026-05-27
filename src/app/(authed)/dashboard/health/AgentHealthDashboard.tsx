@@ -2,13 +2,13 @@
 
 import { useMemo, useState } from "react";
 import {
-  AgentHealthPerformanceContent,
-} from "./AgentHealthPerformanceFilterState";
+  AgentHealthDashboardContent,
+} from "./AgentHealthDashboardFilterState";
 import { AgentHealthCarrierMultiSelectFilter } from "./AgentHealthCarrierMultiSelectFilter";
 import { AgentHealthMemberPaymentTable } from "./AgentHealthMemberPaymentTable";
-import { AgentHealthPerformanceTrendSection } from "./AgentHealthPerformanceTrendSection";
+import { AgentHealthDashboardTrendSection } from "./AgentHealthDashboardTrendSection";
 import { AgentHealthReportMonthRangeFilter } from "./AgentHealthReportMonthRangeFilter";
-import type { ChartLevel } from "./AgentHealthPerformanceChart";
+import type { ChartLevel } from "./AgentHealthDashboardChart";
 import type { ReportMonthDefaultConfig } from "../../_components/ReportMonthDefaultEditor";
 
 export type HealthMartRow = {
@@ -40,7 +40,7 @@ type ReportYearCommissionMetric = {
   reportYear: number | null;
 };
 
-type PerformanceMonth = {
+type DashboardMonth = {
   periodKey: string;
   periodLabel: string;
   policyCount: number;
@@ -48,7 +48,7 @@ type PerformanceMonth = {
   agentReceived: number;
 };
 
-type ChartPeriodsByLevel = Record<ChartLevel, PerformanceMonth[]>;
+type ChartPeriodsByLevel = Record<ChartLevel, DashboardMonth[]>;
 
 type PaymentStatusMonth = {
   reportMonth: string;
@@ -123,7 +123,7 @@ type CarrierPaymentStatusBreakdown = {
   clientRows: CarrierPaymentStatusRow[];
 };
 
-type PerformanceData = {
+type DashboardData = {
   scoreCards: ScoreCards;
   memberPayments: MemberPaymentRow[];
   memberPaymentMonthCount: number;
@@ -139,7 +139,7 @@ export type ReportMonthRange = {
   end: string | null;
 };
 
-type MonthlyPerformanceSummary = {
+type MonthlyDashboardSummary = {
   reportMonth: string;
   policyIds: Set<string>;
   maxClientByMemberId: Map<string, number>;
@@ -158,7 +158,7 @@ const PAID_RATE_ROW_HEIGHT_PX = 64;
 const PAID_RATE_TABLE_MAX_HEIGHT =
   PAID_RATE_HEADER_HEIGHT_PX + PAID_RATE_VISIBLE_ROW_COUNT * PAID_RATE_ROW_HEIGHT_PX;
 
-export function AgentHealthPerformanceDashboard({
+export function AgentHealthDashboard({
   agentName,
   canViewAll,
   defaultConfig,
@@ -184,8 +184,8 @@ export function AgentHealthPerformanceDashboard({
     () => applyCarrierFilters(rows ?? [], clientCarriers),
     [clientCarriers, rows]
   );
-  const performanceData = useMemo(
-    () => (rows ? buildPerformanceData(filteredRows) : null),
+  const dashboardData = useMemo(
+    () => (rows ? buildDashboardData(filteredRows) : null),
     [filteredRows, rows]
   );
 
@@ -200,12 +200,12 @@ export function AgentHealthPerformanceDashboard({
         <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
           <div>
             <h1 className="text-[28px] font-semibold leading-tight text-[#16233a]">
-              Health Agent Performance
+              Health Agent Dashboard
             </h1>
             <p className="mt-2 text-sm font-normal text-[#667085]">
               {canViewAll
-                ? "Showing performance for all agents."
-                : `Showing performance for ${agentName || "your account"}.`}
+                ? "Showing dashboard for all agents."
+                : `Showing dashboard for ${agentName || "your account"}.`}
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -223,83 +223,83 @@ export function AgentHealthPerformanceDashboard({
           </div>
         </header>
 
-        {!performanceData ? (
+        {!dashboardData ? (
           <div className="agent-health-panel px-8 py-16 text-center text-sm font-medium text-slate-500">
-            Your account name is required to load performance data.
+            Your account name is required to load dashboard data.
           </div>
         ) : (
-          <AgentHealthPerformanceContent>
+          <AgentHealthDashboardContent>
             <div className="space-y-6">
               <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
                 <ScoreCard
                   label="Latest Active Policies"
-                  value={formatInteger(performanceData.scoreCards.activePolicy.value)}
+                  value={formatInteger(dashboardData.scoreCards.activePolicy.value)}
                   changePercent={
-                    performanceData.scoreCards.activePolicy.changePercent
+                    dashboardData.scoreCards.activePolicy.changePercent
                   }
                 />
                 <ScoreCard
                   label="Latest Active Clients"
-                  value={formatInteger(performanceData.scoreCards.activeClient.value)}
+                  value={formatInteger(dashboardData.scoreCards.activeClient.value)}
                   changePercent={
-                    performanceData.scoreCards.activeClient.changePercent
+                    dashboardData.scoreCards.activeClient.changePercent
                   }
                 />
                 <ScoreCard
                   label="Latest Month Commission"
                   value={formatCurrency(
-                    performanceData.scoreCards.totalCommission.value
+                    dashboardData.scoreCards.totalCommission.value
                   )}
                   changePercent={
-                    performanceData.scoreCards.totalCommission.changePercent
+                    dashboardData.scoreCards.totalCommission.changePercent
                   }
                 />
                 <ScoreCard
                   label={`${
-                    performanceData.scoreCards.totalCommissionInReportYear
+                    dashboardData.scoreCards.totalCommissionInReportYear
                       .reportYear ?? "Report Year"
                   } Commission`}
                   value={formatCurrency(
-                    performanceData.scoreCards.totalCommissionInReportYear.value
+                    dashboardData.scoreCards.totalCommissionInReportYear.value
                   )}
                   footerText={`Avg ${formatCurrency(
-                    performanceData.scoreCards.totalCommissionInReportYear
+                    dashboardData.scoreCards.totalCommissionInReportYear
                       .averageMonthlyCommission
                   )} / month`}
                 />
               </section>
 
-              <AgentHealthPerformanceTrendSection
+              <AgentHealthDashboardTrendSection
                 initialChartLevel={initialChartLevel}
-                periodsByLevel={performanceData.chartPeriodsByLevel}
+                periodsByLevel={dashboardData.chartPeriodsByLevel}
               />
               <PaidRateOverviewSection
-                policyRows={performanceData.policyPaymentStatus}
-                clientRows={performanceData.clientPaymentStatus}
-                reportMonth={performanceData.carrierPaymentStatus.reportMonth}
-                carrierPolicyRows={performanceData.carrierPaymentStatus.policyRows}
-                carrierClientRows={performanceData.carrierPaymentStatus.clientRows}
+                policyRows={dashboardData.policyPaymentStatus}
+                clientRows={dashboardData.clientPaymentStatus}
+                reportMonth={dashboardData.carrierPaymentStatus.reportMonth}
+                carrierPolicyRows={dashboardData.carrierPaymentStatus.policyRows}
+                carrierClientRows={dashboardData.carrierPaymentStatus.clientRows}
               />
               <MixBreakdownSection
-                reportMonth={performanceData.latestMonthMixBreakdown.reportMonth}
-                carrierRows={performanceData.latestMonthMixBreakdown.carrierRows}
-                stateRows={performanceData.latestMonthMixBreakdown.stateRows}
+                reportMonth={dashboardData.latestMonthMixBreakdown.reportMonth}
+                carrierRows={dashboardData.latestMonthMixBreakdown.carrierRows}
+                stateRows={dashboardData.latestMonthMixBreakdown.stateRows}
               />
               <AgentHealthMemberPaymentTable
-                rows={performanceData.memberPayments}
-                visibleMonthCount={performanceData.memberPaymentMonthCount}
+                rows={dashboardData.memberPayments}
+                visibleMonthCount={dashboardData.memberPaymentMonthCount}
               />
             </div>
-          </AgentHealthPerformanceContent>
+          </AgentHealthDashboardContent>
         )}
       </div>
     </div>
   );
 }
 
-function buildPerformanceData(rows: HealthMartRow[]): PerformanceData {
+function buildDashboardData(rows: HealthMartRow[]): DashboardData {
   const filteredRows = rows.filter((row) => row.report_month);
-  const monthlySummaries = buildMonthlyPerformanceSummaries(filteredRows);
+  const monthlySummaries = buildMonthlyDashboardSummaries(filteredRows);
   const memberPaymentSummary = buildMemberPaymentSummary(filteredRows);
 
   return {
@@ -359,10 +359,10 @@ function syncCarrierFilterUrl(carriers: string[]) {
   );
 }
 
-function buildMonthlyPerformanceSummaries(
+function buildMonthlyDashboardSummaries(
   rows: HealthMartRow[]
-): MonthlyPerformanceSummary[] {
-  const monthlyData = new Map<string, MonthlyPerformanceSummary>();
+): MonthlyDashboardSummary[] {
+  const monthlyData = new Map<string, MonthlyDashboardSummary>();
 
   for (const row of rows) {
     if (!row.report_month) continue;
@@ -394,7 +394,7 @@ function buildMonthlyPerformanceSummaries(
 }
 
 function buildScoreCards(
-  monthlySummaries: MonthlyPerformanceSummary[]
+  monthlySummaries: MonthlyDashboardSummary[]
 ): ScoreCards {
   const qualifyingSummaries = monthlySummaries.filter(
     (summary) => summary.policyIds.size > CHART_MIN_POLICY_COUNT
@@ -415,7 +415,7 @@ function buildScoreCards(
   };
 }
 
-function toScoreCardSummary(summary: MonthlyPerformanceSummary | undefined) {
+function toScoreCardSummary(summary: MonthlyDashboardSummary | undefined) {
   if (!summary) {
     return {
       policyCount: 0,
@@ -432,7 +432,7 @@ function toScoreCardSummary(summary: MonthlyPerformanceSummary | undefined) {
 }
 
 function summarizeReportYearCommission(
-  monthlySummaries: MonthlyPerformanceSummary[]
+  monthlySummaries: MonthlyDashboardSummary[]
 ): ReportYearCommissionMetric {
   const latestSummary = monthlySummaries.at(-1);
 
@@ -480,7 +480,7 @@ function calculatePercentChange(value: number, previousValue: number) {
 }
 
 function buildChartPeriods(
-  monthlySummaries: MonthlyPerformanceSummary[],
+  monthlySummaries: MonthlyDashboardSummary[],
   chartLevel: ChartLevel
 ) {
   const periodData = new Map<
@@ -685,7 +685,7 @@ function toPaymentStatusMonth(reportMonth: string, total: number, paid: number) 
 
 function buildCarrierPaymentStatusBreakdown(
   rows: HealthMartRow[],
-  monthlySummaries: MonthlyPerformanceSummary[]
+  monthlySummaries: MonthlyDashboardSummary[]
 ): CarrierPaymentStatusBreakdown {
   const latestCompleteMonth = monthlySummaries
     .filter((summary) => summary.policyIds.size > CHART_MIN_POLICY_COUNT)
@@ -798,7 +798,7 @@ function sortCarrierPaymentStatusRows(rows: CarrierPaymentStatusRow[]) {
 
 function buildLatestMonthMixBreakdown(
   rows: HealthMartRow[],
-  monthlySummaries: MonthlyPerformanceSummary[]
+  monthlySummaries: MonthlyDashboardSummary[]
 ): LatestMonthMixBreakdown {
   const latestCompleteMonth = monthlySummaries
     .filter((summary) => summary.policyIds.size > CHART_MIN_POLICY_COUNT)

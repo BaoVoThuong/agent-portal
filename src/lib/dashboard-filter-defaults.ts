@@ -1,9 +1,9 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const DASHBOARD_FILTER_KEYS = {
-  AGENT_PERFORMANCE_HEALTH: "agent_performance_health",
-  SALES_PERFORMANCE_HEALTH: "sales_performance_health",
-  SALES_PERFORMANCE_PC: "sales_performance_pc",
+  AGENT_DASHBOARD_HEALTH: "agent_dashboard_health",
+  SALES_DASHBOARD_HEALTH: "sales_dashboard_health",
+  SALES_DASHBOARD_PC: "sales_dashboard_pc",
 } as const;
 
 export type DashboardFilterKey =

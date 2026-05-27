@@ -3,23 +3,23 @@ import { requirePermission } from "@/lib/rbac/server";
 
 export const dynamic = "force-dynamic";
 
-export default async function PcPerformancePage() {
-  await requirePermission(PERMISSIONS.AGENT_PERFORMANCE_PC_OWN);
+export default async function PcDashboardPage() {
+  await requirePermission(PERMISSIONS.AGENT_DASHBOARD_PC_OWN);
 
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
       <div className="mx-auto max-w-[1536px]">
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-            P&amp;C Performance
+            P&amp;C Dashboard
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            P&amp;C performance dashboard will be available here.
+            P&amp;C dashboard will be available here.
           </p>
         </header>
 
         <div className="rounded-xl border border-slate-200 bg-white px-8 py-16 text-center text-sm font-medium text-slate-500 shadow-sm">
-          No P&amp;C performance view has been configured yet.
+          No P&amp;C dashboard view has been configured yet.
         </div>
       </div>
     </div>

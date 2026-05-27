@@ -5,11 +5,11 @@ import type { ReactNode } from "react";
 import {
   getChartLevelLabel,
   type ChartLevel,
-  type PerformancePeriod,
+  type DashboardPeriod,
   type PeriodsByLevel,
-} from "./AgentHealthPerformanceChart";
+} from "./AgentHealthDashboardChart";
 
-type SalesPerformanceChangeRow = PerformancePeriod & {
+type SalesDashboardChangeRow = DashboardPeriod & {
   previousPolicyCount: number | null;
   previousClientCount: number | null;
   previousAgentReceived: number | null;
@@ -27,7 +27,7 @@ const ROW_HEIGHT_PX = 56;
 const TABLE_SCROLL_MAX_HEIGHT =
   HEADER_HEIGHT_PX + VISIBLE_ROW_COUNT * ROW_HEIGHT_PX;
 
-export function AgentHealthSalesPerformanceMoMTable({
+export function AgentHealthSalesDashboardMoMTable({
   chartLevel,
   periodsByLevel,
 }: {
@@ -37,7 +37,7 @@ export function AgentHealthSalesPerformanceMoMTable({
   const changeLabel = getChangeLabel(chartLevel);
   const rows = useMemo(() => {
     const periods = periodsByLevel[chartLevel];
-    const changeRows = periods.map<SalesPerformanceChangeRow>((period, index) => {
+    const changeRows = periods.map<SalesDashboardChangeRow>((period, index) => {
       const previous = periods[index - 1];
       const previousPolicyCount = previous?.policyCount ?? null;
       const previousClientCount = previous?.clientCount ?? null;

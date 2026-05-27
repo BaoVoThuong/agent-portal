@@ -28,37 +28,37 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
   },
   {
-    href: "/performance/health",
+    href: "/dashboard/health",
     anyPermission: [
-      PERMISSIONS.AGENT_PERFORMANCE_HEALTH_OWN,
-      PERMISSIONS.AGENT_PERFORMANCE_HEALTH_ALL,
+      PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
+      PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
     ],
   },
   {
-    href: "/performance/pc",
+    href: "/dashboard/pc",
     anyPermission: [
-      PERMISSIONS.AGENT_PERFORMANCE_PC_OWN,
-      PERMISSIONS.AGENT_PERFORMANCE_PC_ALL,
+      PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
+      PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
     ],
   },
   {
-    href: "/performance/life",
+    href: "/dashboard/life",
     anyPermission: [
-      PERMISSIONS.AGENT_PERFORMANCE_LIFE_OWN,
-      PERMISSIONS.AGENT_PERFORMANCE_LIFE_ALL,
+      PERMISSIONS.AGENT_DASHBOARD_LIFE_OWN,
+      PERMISSIONS.AGENT_DASHBOARD_LIFE_ALL,
     ],
   },
   {
-    href: "/sales-performance/health",
-    permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+    href: "/sales-dashboard/health",
+    permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
   },
   {
-    href: "/sales-performance/pc",
-    permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+    href: "/sales-dashboard/pc",
+    permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
   },
   {
-    href: "/sales-performance/life",
-    permission: PERMISSIONS.SALES_PERFORMANCE_ACCESS,
+    href: "/sales-dashboard/life",
+    permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
   },
   {
     href: "/account-manager",

@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAgentHealthPerformanceFiltering } from "./AgentHealthPerformanceFilterState";
+import { useAgentHealthDashboardFiltering } from "./AgentHealthDashboardFilterState";
 
 type AgentHealthCarrierMultiSelectFilterProps = {
   onSelectedCarriersChange?: (carriers: string[]) => void;
@@ -19,7 +19,7 @@ export function AgentHealthCarrierMultiSelectFilter({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const beginFiltering = useAgentHealthPerformanceFiltering();
+  const beginFiltering = useAgentHealthDashboardFiltering();
   const [isOpen, setIsOpen] = useState(false);
   const [draftSelected, setDraftSelected] = useState(selectedCarriers);
 

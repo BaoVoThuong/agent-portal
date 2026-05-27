@@ -1,6 +1,6 @@
-import { AgentHealthPerformanceDashboardSkeleton } from "./AgentHealthPerformanceSkeleton";
+import { AgentHealthDashboardSkeleton } from "./AgentHealthDashboardSkeleton";
 
-export default function AgentHealthPerformanceLoading() {
+export default function AgentHealthDashboardLoading() {
   return (
     <div className="px-8 py-8">
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -14,7 +14,7 @@ export default function AgentHealthPerformanceLoading() {
         </div>
       </header>
 
-      <AgentHealthPerformanceDashboardSkeleton />
+      <AgentHealthDashboardSkeleton />
     </div>
   );
 }

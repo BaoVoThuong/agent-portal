@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { PcCommissionMetricTrendChart } from "./PcCommissionMetricTrendChart";
-import { PcSalesPerformanceFilters } from "./PcSalesPerformanceFilters";
+import { PcSalesDashboardFilters } from "./PcSalesDashboardFilters";
 import { PcSalesTrendSections } from "./PcSalesTrendSections";
 
 export type PcSalesRow = {
@@ -190,7 +190,7 @@ const AGENT_TABLE_PALETTES = [
 
 type ClientFilterValues = Pick<FilterValues, "agency" | "agent" | "policyNumber">;
 
-export function PcSalesPerformanceDashboard({
+export function PcSalesDashboard({
   filterOptions,
   filters,
   initialTrendLevel,
@@ -234,7 +234,7 @@ export function PcSalesPerformanceDashboard({
 
   return (
     <>
-      <PcSalesPerformanceFilters
+      <PcSalesDashboardFilters
         filters={activeFilters}
         onClientFiltersChange={updateClientFilters}
         options={filterOptions}
@@ -242,7 +242,7 @@ export function PcSalesPerformanceDashboard({
 
       {filteredRows.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-8 py-16 text-center text-sm font-medium text-slate-500 shadow-sm">
-          No P&amp;C sales performance records match these filters.
+          No P&amp;C sales records match these filters.
         </div>
       ) : (
         <div className="space-y-8">
@@ -335,7 +335,7 @@ export function PcSalesPerformanceDashboard({
               <PcTrendLevelSections data={dataByLevel.year} trendLevel="year" />
             }
           />
-          <CarrierPerformanceTable rows={data.carrierRows} />
+          <CarrierDashboardTable rows={data.carrierRows} />
           <ExpiredPolicyTrendChart rows={data.expiredRows} />
           <PolicyDetailsTable
             rows={data.policyDetailRows.slice(0, POLICY_DETAIL_LIMIT)}
@@ -785,7 +785,7 @@ function PcTrendLevelSections({
         rows={data.agencyMonthRows}
         trendLevel={trendLevel}
       />
-      <AgentMonthlyPerformanceTable
+      <AgentMonthlyDashboardTable
         agentNames={data.agentNames}
         commissionGroups={data.agentCommissionGroups}
         salesGroups={data.agentSalesGroups}
@@ -942,7 +942,7 @@ function MonthlySalesMomGrowthTable({
 
   return (
     <ReportPanel
-      title={`Sales Performance by ${periodLabel} | Policies & Premium ${changeLabel} Growth`}
+      title={`Sales Dashboard by ${periodLabel} | Policies & Premium ${changeLabel} Growth`}
     >
       <div className="max-h-[440px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[12px] tabular-nums">
@@ -1113,7 +1113,7 @@ function AgencyMonthSummaryTable({
   const periodLabel = getTrendLevelLabel(trendLevel);
 
   return (
-    <ReportPanel title={`${getTrendLevelAdjective(trendLevel)} Sales Performance Summary`}>
+    <ReportPanel title={`${getTrendLevelAdjective(trendLevel)} Sales Dashboard Summary`}>
       <div className="max-h-[520px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[11px] tabular-nums">
           <thead className="sticky top-0 z-10">
@@ -1292,7 +1292,7 @@ function AgencySummaryHeatCell({
   );
 }
 
-function AgentMonthlyPerformanceTable({
+function AgentMonthlyDashboardTable({
   agentNames,
   commissionGroups,
   salesGroups,
@@ -1321,7 +1321,7 @@ function AgentMonthlyPerformanceTable({
 
   return (
     <ReportPanel
-      title={`Agent Performance by ${getTrendLevelLabel(trendLevel)} | Policies & Commission`}
+      title={`Agent Dashboard by ${getTrendLevelLabel(trendLevel)} | Policies & Commission`}
     >
       <div className="max-h-[680px] overflow-auto">
         <table
@@ -1330,15 +1330,15 @@ function AgentMonthlyPerformanceTable({
         >
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <AgentPerformanceHeaderCell rowSpan={2} stickyLeft="0px" width="120px">
+              <AgentDashboardHeaderCell rowSpan={2} stickyLeft="0px" width="120px">
                 {getTrendLevelLabel(trendLevel)}
-              </AgentPerformanceHeaderCell>
-              <AgentPerformanceHeaderCell rowSpan={2} stickyDivider stickyLeft="120px" width="170px">Agency</AgentPerformanceHeaderCell>
+              </AgentDashboardHeaderCell>
+              <AgentDashboardHeaderCell rowSpan={2} stickyDivider stickyLeft="120px" width="170px">Agency</AgentDashboardHeaderCell>
               {agentNames.map((agent, agentIndex) => {
                 const palette = agentTablePalette(agentIndex);
 
                 return (
-                <AgentPerformanceHeaderCell
+                <AgentDashboardHeaderCell
                   align="center"
                   className={palette.group}
                   colSpan={2}
@@ -1347,12 +1347,12 @@ function AgentMonthlyPerformanceTable({
                   width={agentGroupWidth}
                 >
                   {agent}
-                </AgentPerformanceHeaderCell>
+                </AgentDashboardHeaderCell>
                 );
               })}
-              <AgentPerformanceHeaderCell align="center" className="bg-[#e7eefb] text-[#2d3c63]" colSpan={2} groupStart width="210px">
+              <AgentDashboardHeaderCell align="center" className="bg-[#e7eefb] text-[#2d3c63]" colSpan={2} groupStart width="210px">
                 Grand Total
-              </AgentPerformanceHeaderCell>
+              </AgentDashboardHeaderCell>
             </tr>
             <tr className="bg-[#f8fafc] text-right font-bold">
               {agentNames.map((agent, agentIndex) => {
@@ -1360,22 +1360,22 @@ function AgentMonthlyPerformanceTable({
 
                 return (
                 <Fragment key={agent}>
-                  <AgentPerformanceHeaderCell align="right" className={palette.policiesHeader} groupStart key={`${agent}-policies`}>
+                  <AgentDashboardHeaderCell align="right" className={palette.policiesHeader} groupStart key={`${agent}-policies`}>
                     Policies
-                  </AgentPerformanceHeaderCell>
-                  <AgentPerformanceHeaderCell align="right" className={palette.commissionHeader} key={`${agent}-commission`}>
+                  </AgentDashboardHeaderCell>
+                  <AgentDashboardHeaderCell align="right" className={palette.commissionHeader} key={`${agent}-commission`}>
                     Commission
-                  </AgentPerformanceHeaderCell>
+                  </AgentDashboardHeaderCell>
                 </Fragment>
                 );
               })}
-              <AgentPerformanceHeaderCell align="right" className="bg-[#f4f7ff] text-[#33446e]" groupStart>Policies</AgentPerformanceHeaderCell>
-              <AgentPerformanceHeaderCell align="right" className="bg-[#f4f7ff] text-[#33446e]">Commission</AgentPerformanceHeaderCell>
+              <AgentDashboardHeaderCell align="right" className="bg-[#f4f7ff] text-[#33446e]" groupStart>Policies</AgentDashboardHeaderCell>
+              <AgentDashboardHeaderCell align="right" className="bg-[#f4f7ff] text-[#33446e]">Commission</AgentDashboardHeaderCell>
             </tr>
           </thead>
           <tbody>
             {commissionGroups.map((commissionGroup, groupIndex) => (
-              <AgentMonthlyPerformanceRows
+              <AgentMonthlyDashboardRows
                 agentNames={agentNames}
                 commissionGroup={commissionGroup}
                 groupIndex={groupIndex}
@@ -1384,34 +1384,34 @@ function AgentMonthlyPerformanceTable({
               />
             ))}
             <tr className="bg-[#eaf3ff] font-bold">
-              <AgentPerformanceCell className="bg-[#e8f2ff]" stickyLeft="0px" strong>
+              <AgentDashboardCell className="bg-[#e8f2ff]" stickyLeft="0px" strong>
                 Grand total
-              </AgentPerformanceCell>
-              <AgentPerformanceCell className="bg-[#e8f2ff]" stickyDivider stickyLeft="120px" strong>
+              </AgentDashboardCell>
+              <AgentDashboardCell className="bg-[#e8f2ff]" stickyDivider stickyLeft="120px" strong>
                 All agencies
-              </AgentPerformanceCell>
+              </AgentDashboardCell>
               {agentNames.map((agent, agentIndex) => {
                 const palette = agentTablePalette(agentIndex);
 
                 return (
                 <Fragment key={agent}>
-                  <AgentPerformanceCell align="right" className={palette.policies} groupStart key={`${agent}-policies`} strong>
+                  <AgentDashboardCell align="right" className={palette.policies} groupStart key={`${agent}-policies`} strong>
                     {formatInteger(policyGrandTotals.valuesByAgent[agent] ?? 0)}
-                  </AgentPerformanceCell>
-                  <AgentPerformanceCell align="right" className={palette.commission} key={`${agent}-commission`} strong>
+                  </AgentDashboardCell>
+                  <AgentDashboardCell align="right" className={palette.commission} key={`${agent}-commission`} strong>
                     {formatCurrencyShort(
                       commissionGrandTotals.valuesByAgent[agent] ?? 0
                     )}
-                  </AgentPerformanceCell>
+                  </AgentDashboardCell>
                 </Fragment>
                 );
               })}
-              <AgentPerformanceCell align="right" className="bg-[#eef3ff]" groupStart strong>
+              <AgentDashboardCell align="right" className="bg-[#eef3ff]" groupStart strong>
                 {formatInteger(policyGrandTotals.grandTotal)}
-              </AgentPerformanceCell>
-              <AgentPerformanceCell align="right" className="bg-[#eef3ff]" strong>
+              </AgentDashboardCell>
+              <AgentDashboardCell align="right" className="bg-[#eef3ff]" strong>
                 {formatCurrencyShort(commissionGrandTotals.grandTotal)}
-              </AgentPerformanceCell>
+              </AgentDashboardCell>
             </tr>
           </tbody>
         </table>
@@ -1420,7 +1420,7 @@ function AgentMonthlyPerformanceTable({
   );
 }
 
-function AgentMonthlyPerformanceRows({
+function AgentMonthlyDashboardRows({
   agentNames,
   commissionGroup,
   groupIndex,
@@ -1487,7 +1487,7 @@ function AgentMonthlyPerformanceRows({
                 {commissionGroup.monthKey}
               </td>
             ) : null}
-            <AgentPerformanceCell
+            <AgentDashboardCell
               className={
                 row.isTotal
                   ? "bg-[#e8f2ff]"
@@ -1500,27 +1500,27 @@ function AgentMonthlyPerformanceRows({
               strong={row.isTotal}
             >
               {row.agency}
-            </AgentPerformanceCell>
+            </AgentDashboardCell>
             {agentNames.map((agent, agentIndex) => {
               const palette = agentTablePalette(agentIndex);
 
               return (
               <Fragment key={agent}>
-                <AgentPerformanceCell align="right" className={palette.policies} groupStart key={`${agent}-policies`} strong={row.isTotal}>
+                <AgentDashboardCell align="right" className={palette.policies} groupStart key={`${agent}-policies`} strong={row.isTotal}>
                   {formatInteger(row.policies.valuesByAgent[agent] ?? 0)}
-                </AgentPerformanceCell>
-                <AgentPerformanceCell align="right" className={palette.commission} key={`${agent}-commission`} strong={row.isTotal}>
+                </AgentDashboardCell>
+                <AgentDashboardCell align="right" className={palette.commission} key={`${agent}-commission`} strong={row.isTotal}>
                   {formatCurrencyShort(row.commission.valuesByAgent[agent] ?? 0)}
-                </AgentPerformanceCell>
+                </AgentDashboardCell>
               </Fragment>
               );
             })}
-            <AgentPerformanceCell align="right" className="bg-[#eef3ff]" groupStart strong={row.isTotal}>
+            <AgentDashboardCell align="right" className="bg-[#eef3ff]" groupStart strong={row.isTotal}>
               {formatInteger(row.policies.grandTotal)}
-            </AgentPerformanceCell>
-            <AgentPerformanceCell align="right" className="bg-[#eef3ff]" strong={row.isTotal}>
+            </AgentDashboardCell>
+            <AgentDashboardCell align="right" className="bg-[#eef3ff]" strong={row.isTotal}>
               {formatCurrencyShort(row.commission.grandTotal)}
-            </AgentPerformanceCell>
+            </AgentDashboardCell>
           </tr>
         );
       })}
@@ -1528,7 +1528,7 @@ function AgentMonthlyPerformanceRows({
   );
 }
 
-function AgentPerformanceHeaderCell({
+function AgentDashboardHeaderCell({
   align = "left",
   children,
   className = "",
@@ -1569,7 +1569,7 @@ function AgentPerformanceHeaderCell({
   );
 }
 
-function AgentPerformanceCell({
+function AgentDashboardCell({
   align = "left",
   children,
   className = "",
@@ -1611,7 +1611,7 @@ function agentTablePalette(index: number) {
   return AGENT_TABLE_PALETTES[index % AGENT_TABLE_PALETTES.length];
 }
 
-function CarrierPerformanceTable({ rows }: { rows: CarrierRow[] }) {
+function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
   const total = rows.reduce(
     (result, row) => ({
       activePolicyCount: 0,
@@ -1634,7 +1634,7 @@ function CarrierPerformanceTable({ rows }: { rows: CarrierRow[] }) {
   );
 
   return (
-    <ReportPanel title="Carrier Performance Overview">
+    <ReportPanel title="Carrier Dashboard Overview">
       <div className="max-h-[620px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[11px] tabular-nums">
           <thead className="sticky top-0 z-10">

@@ -6,7 +6,7 @@ import {
   ReportMonthDefaultEditor,
   type ReportMonthDefaultConfig,
 } from "../../_components/ReportMonthDefaultEditor";
-import { useAgentHealthPerformanceFiltering } from "./AgentHealthPerformanceFilterState";
+import { useAgentHealthDashboardFiltering } from "./AgentHealthDashboardFilterState";
 
 type AgentHealthReportMonthRangeFilterProps = {
   defaultConfig: ReportMonthDefaultConfig;
@@ -23,7 +23,7 @@ export function AgentHealthReportMonthRangeFilter({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const beginFiltering = useAgentHealthPerformanceFiltering();
+  const beginFiltering = useAgentHealthDashboardFiltering();
   const [isOpen, setIsOpen] = useState(false);
   const [draftStartMonth, setDraftStartMonth] = useState(() =>
     dateToMonthValue(startDate)

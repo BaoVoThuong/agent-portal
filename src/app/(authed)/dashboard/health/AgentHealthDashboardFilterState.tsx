@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { AgentHealthPerformanceDashboardSkeleton } from "./AgentHealthPerformanceSkeleton";
+import { AgentHealthDashboardSkeleton } from "./AgentHealthDashboardSkeleton";
 
 type FilterState = {
   beginFiltering: () => void;
@@ -18,7 +18,7 @@ type FilterState = {
 
 const FilterStateContext = createContext<FilterState | null>(null);
 
-export function AgentHealthPerformanceFilterProvider({
+export function AgentHealthDashboardFilterProvider({
   children,
 }: {
   children: ReactNode;
@@ -46,12 +46,12 @@ export function AgentHealthPerformanceFilterProvider({
   );
 }
 
-export function useAgentHealthPerformanceFiltering() {
+export function useAgentHealthDashboardFiltering() {
   return useContext(FilterStateContext)?.beginFiltering ?? (() => {});
 }
 
-export function AgentHealthPerformanceContent({ children }: { children: ReactNode }) {
+export function AgentHealthDashboardContent({ children }: { children: ReactNode }) {
   const isFiltering = useContext(FilterStateContext)?.isFiltering ?? false;
 
-  return isFiltering ? <AgentHealthPerformanceDashboardSkeleton /> : children;
+  return isFiltering ? <AgentHealthDashboardSkeleton /> : children;
 }

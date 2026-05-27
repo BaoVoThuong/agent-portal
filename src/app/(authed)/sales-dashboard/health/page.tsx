@@ -6,13 +6,13 @@ import {
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { HealthSalesHeaderFilters } from "./HealthSalesPerformanceFilters";
-import { HealthSalesPerformanceDashboard } from "./HealthSalesPerformanceDashboard";
+import { HealthSalesHeaderFilters } from "./HealthSalesDashboardFilters";
+import { HealthSalesDashboard } from "./HealthSalesDashboard";
 import { type TrendComparisonChartLevel } from "./HealthSalesTrendComparisonChart";
 
 export const dynamic = "force-dynamic";
 
-type HealthSalesPerformancePageProps = {
+type HealthSalesDashboardPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
@@ -55,14 +55,14 @@ type FilterOptions = {
 
 const HEALTH_SALES_PAGE_SIZE = 1000;
 
-export default async function HealthSalesPerformancePage({
+export default async function HealthSalesDashboardPage({
   searchParams,
-}: HealthSalesPerformancePageProps) {
-  await requirePermission(PERMISSIONS.SALES_PERFORMANCE_ACCESS);
+}: HealthSalesDashboardPageProps) {
+  await requirePermission(PERMISSIONS.SALES_DASHBOARD_ACCESS);
 
   const params = searchParams ? await searchParams : {};
   const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.SALES_PERFORMANCE_HEALTH
+    DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_HEALTH
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);
@@ -81,10 +81,10 @@ export default async function HealthSalesPerformancePage({
         <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              Health Sales Performance
+              Health Sales Dashboard
             </h1>
             <p className="mt-2 text-sm text-slate-500">
-              Overview of sales volume, agent commissions, and EPS performance.
+              Overview of sales volume, agent commissions, and EPS metrics.
             </p>
           </div>
           <HealthSalesHeaderFilters
@@ -93,7 +93,7 @@ export default async function HealthSalesPerformancePage({
           />
         </header>
 
-        <HealthSalesPerformanceDashboard
+        <HealthSalesDashboard
           key={`${filters.reportMonthRange.start ?? "all"}:${
             filters.reportMonthRange.end ?? "all"
           }`}

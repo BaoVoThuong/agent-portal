@@ -7,16 +7,16 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
-  PcSalesPerformanceDashboard,
+  PcSalesDashboard,
   type FilterOptions,
   type FilterValues,
   type PcSalesRow,
-} from "./PcSalesPerformanceDashboard";
-import { PcSalesHeaderFilters } from "./PcSalesPerformanceFilters";
+} from "./PcSalesDashboard";
+import { PcSalesHeaderFilters } from "./PcSalesDashboardFilters";
 
 export const dynamic = "force-dynamic";
 
-type PcSalesPerformancePageProps = {
+type PcSalesDashboardPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
@@ -29,14 +29,14 @@ type TrendLevel = "month" | "quarter" | "year";
 
 const PC_PAGE_SIZE = 1000;
 
-export default async function PcSalesPerformancePage({
+export default async function PcSalesDashboardPage({
   searchParams,
-}: PcSalesPerformancePageProps) {
-  await requirePermission(PERMISSIONS.SALES_PERFORMANCE_ACCESS);
+}: PcSalesDashboardPageProps) {
+  await requirePermission(PERMISSIONS.SALES_DASHBOARD_ACCESS);
 
   const params = searchParams ? await searchParams : {};
   const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.SALES_PERFORMANCE_PC
+    DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_PC
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);
@@ -52,10 +52,10 @@ export default async function PcSalesPerformancePage({
         <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              P&amp;C Sales Performance
+              P&amp;C Sales Dashboard
             </h1>
             <p className="mt-2 text-sm text-slate-500">
-              Overview of P&amp;C sales volume, agent commissions, and EPS performance.
+              Overview of P&amp;C sales volume, agent commissions, and EPS metrics.
             </p>
           </div>
           <PcSalesHeaderFilters
@@ -64,7 +64,7 @@ export default async function PcSalesPerformancePage({
           />
         </header>
 
-        <PcSalesPerformanceDashboard
+        <PcSalesDashboard
           key={`${filters.reportMonthRange.start ?? "all"}:${
             filters.reportMonthRange.end ?? "all"
           }`}
