@@ -344,6 +344,60 @@ create table if not exists entries (
 create index if not exists entries_agent_email_idx on entries (agent_email);
 create index if not exists entries_created_at_idx on entries (created_at desc);
 
+create table if not exists dashboard_filter_defaults (
+  dashboard_key text not null,
+  filter_key text not null default 'report_month_range',
+  default_type text not null default 'latest_n_months',
+  start_month date,
+  end_month date,
+  rolling_months integer,
+  updated_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (dashboard_key, filter_key),
+  constraint dashboard_filter_defaults_default_type_check
+    check (
+      default_type in (
+        'all',
+        'current_year',
+        'fixed_range',
+        'latest_n_months'
+      )
+    ),
+  constraint dashboard_filter_defaults_rolling_months_check
+    check (rolling_months is null or (rolling_months between 1 and 120))
+);
+
+create index if not exists dashboard_filter_defaults_dashboard_idx
+  on dashboard_filter_defaults (dashboard_key);
+
+insert into dashboard_filter_defaults (
+  dashboard_key,
+  filter_key,
+  default_type,
+  rolling_months
+)
+values
+  (
+    'agent_performance_health',
+    'report_month_range',
+    'latest_n_months',
+    12
+  ),
+  (
+    'sales_performance_health',
+    'report_month_range',
+    'latest_n_months',
+    12
+  ),
+  (
+    'sales_performance_pc',
+    'report_month_range',
+    'latest_n_months',
+    12
+  )
+on conflict (dashboard_key, filter_key) do nothing;
+
 create table if not exists health_payment_summary (
   agent text,
   carrier_name text,
@@ -1017,6 +1071,7 @@ declare
     'role_permissions',
     'user_roles',
     'entries',
+    'dashboard_filter_defaults',
     'health_payment_summary',
     'provider_address',
     'pc_raw_data',

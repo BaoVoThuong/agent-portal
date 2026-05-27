@@ -2,6 +2,10 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  ReportMonthDefaultEditor,
+  type ReportMonthDefaultConfig,
+} from "../../_components/ReportMonthDefaultEditor";
 
 type FilterOptions = {
   agents: string[];
@@ -22,8 +26,15 @@ type FilterValues = {
 };
 
 type MultiFilterName = "agent" | "carrier";
+type ClientFilterValues = Pick<FilterValues, "agent" | "carrier" | "primaryMemberId">;
 
-export function HealthSalesHeaderFilters({ filters }: { filters: FilterValues }) {
+export function HealthSalesHeaderFilters({
+  defaultConfig,
+  filters,
+}: {
+  defaultConfig: ReportMonthDefaultConfig;
+  filters: FilterValues;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -40,12 +51,19 @@ export function HealthSalesHeaderFilters({ filters }: { filters: FilterValues })
   return (
     <div className="flex flex-nowrap items-center justify-end gap-3 overflow-visible">
       <ReportMonthRangeDropdown
+        defaultConfig={defaultConfig}
         disabled={isPending}
         endDate={filters.reportMonthRange.end}
         startDate={filters.reportMonthRange.start}
         onApply={(range) => {
           const params = new URLSearchParams(searchParams.toString());
           params.delete("reportMonth");
+
+          if (!range.start && !range.end) {
+            params.set("reportMonthRange", "all");
+          } else {
+            params.delete("reportMonthRange");
+          }
 
           if (range.start) {
             params.set("start", range.start);
@@ -68,9 +86,11 @@ export function HealthSalesHeaderFilters({ filters }: { filters: FilterValues })
 
 export function HealthSalesPerformanceFilters({
   filters,
+  onClientFiltersChange,
   options,
 }: {
   filters: FilterValues;
+  onClientFiltersChange?: (filters: ClientFilterValues) => void;
   options: FilterOptions;
 }) {
   const pathname = usePathname();
@@ -88,6 +108,15 @@ export function HealthSalesPerformanceFilters({
   }
 
   function updateMultiParam(name: MultiFilterName, values: string[]) {
+    if (onClientFiltersChange) {
+      onClientFiltersChange({
+        agent: name === "agent" ? values : filters.agent,
+        carrier: name === "carrier" ? values : filters.carrier,
+        primaryMemberId: filters.primaryMemberId,
+      });
+      return;
+    }
+
     const params = new URLSearchParams(searchParams.toString());
     params.delete(name);
 
@@ -99,6 +128,15 @@ export function HealthSalesPerformanceFilters({
   }
 
   function updateParam(name: keyof FilterValues, value: string) {
+    if (onClientFiltersChange && name === "primaryMemberId") {
+      onClientFiltersChange({
+        agent: filters.agent,
+        carrier: filters.carrier,
+        primaryMemberId: value,
+      });
+      return;
+    }
+
     const params = new URLSearchParams(searchParams.toString());
 
     if (value) {
@@ -146,7 +184,7 @@ export function HealthSalesPerformanceFilters({
             }
           }}
           placeholder="Primary member id"
-          className="h-10 w-full rounded-lg border border-[#cfd7e3] bg-white px-3 text-sm font-semibold text-[#16233a] shadow-[0_1px_3px_rgba(22,35,58,0.08)] outline-none transition placeholder:text-[#98a2b3] focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/15 disabled:opacity-60"
+          className="dashboard-filter-input"
           disabled={isPending}
           type="search"
         />
@@ -237,7 +275,7 @@ function MultiSelectDropdown({
         type="button"
         onClick={openDropdown}
         disabled={disabled}
-        className="flex h-10 w-[11.5rem] items-center justify-between gap-2 rounded-lg border border-[#cfd7e3] bg-white px-3 text-left text-sm font-semibold text-[#16233a] shadow-[0_1px_3px_rgba(22,35,58,0.08)] transition hover:border-[#184e8a] focus:outline-none focus:ring-2 focus:ring-[#184e8a]/15 disabled:cursor-not-allowed disabled:opacity-60"
+        className="dashboard-filter-button w-[12.5rem]"
         aria-expanded={isOpen}
       >
         <span className="truncate">{buttonLabel}</span>
@@ -247,26 +285,26 @@ function MultiSelectDropdown({
       </button>
 
       {isOpen ? (
-        <div className="absolute right-0 z-30 mt-2 w-[min(19rem,calc(100vw-1rem))] rounded-lg border border-[#d8dee7] bg-white p-3 shadow-[0_12px_28px_rgba(22,35,58,0.14)]">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+        <div className="dashboard-filter-menu absolute right-0 z-30 mt-2.5 w-[min(18rem,calc(100vw-1rem))] p-3.5">
+          <div className="dashboard-filter-title mb-2.5">
             {label}
           </div>
           <div className="max-h-64 overflow-auto pr-1">
             {options.length === 0 ? (
-              <div className="rounded-md border border-dashed border-[#d8dee7] px-3 py-8 text-center text-xs text-[#667085]">
+              <div className="rounded-lg border border-dashed border-[#d8dee7] px-3 py-8 text-center text-sm font-semibold text-[#667085]">
                 No options available.
               </div>
             ) : (
               options.map((option) => (
                 <label
                   key={option}
-                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[#16233a] transition hover:bg-[#f3f6fa]"
+                  className="dashboard-filter-option"
                 >
                   <input
                     type="checkbox"
                     checked={selectedSet.has(option)}
                     onChange={() => toggleOption(option)}
-                    className="h-4 w-4 rounded border-[#cfd7e3] accent-[#184e8a]"
+                    className="dashboard-filter-checkbox"
                   />
                   <span className="truncate">{option}</span>
                 </label>
@@ -274,25 +312,25 @@ function MultiSelectDropdown({
             )}
           </div>
 
-          <div className="mt-3 flex items-center justify-end gap-2 border-t border-[#edf0f4] pt-3">
+          <div className="dashboard-filter-footer mt-3">
             <button
               type="button"
               onClick={clearSelection}
-              className="mr-auto h-7 rounded px-2 text-xs font-semibold text-[#667085] transition hover:bg-[#f3f6fa] hover:text-[#16233a]"
+              className="dashboard-filter-action mr-auto text-[#667085]"
             >
               Clear
             </button>
             <button
               type="button"
               onClick={closeWithoutApplying}
-              className="h-7 rounded px-2 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+              className="dashboard-filter-action"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={applySelection}
-              className="h-7 rounded px-2 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+              className="dashboard-filter-action"
             >
               Apply
             </button>
@@ -304,11 +342,13 @@ function MultiSelectDropdown({
 }
 
 function ReportMonthRangeDropdown({
+  defaultConfig,
   disabled,
   endDate,
   startDate,
   onApply,
 }: {
+  defaultConfig: ReportMonthDefaultConfig;
   disabled: boolean;
   endDate: string | null;
   startDate: string | null;
@@ -418,7 +458,7 @@ function ReportMonthRangeDropdown({
         type="button"
         onClick={() => setIsOpen((current) => !current)}
         disabled={disabled}
-        className="flex h-10 w-[14rem] items-center justify-between gap-2 rounded-lg border border-[#cfd7e3] bg-white px-3 text-left text-sm font-semibold text-[#16233a] shadow-[0_1px_3px_rgba(22,35,58,0.08)] transition hover:border-[#184e8a] focus:outline-none focus:ring-2 focus:ring-[#184e8a]/15 disabled:cursor-not-allowed disabled:opacity-60"
+        className="dashboard-filter-button w-[14.5rem]"
         aria-expanded={isOpen}
       >
         <span className="truncate">{label}</span>
@@ -428,7 +468,7 @@ function ReportMonthRangeDropdown({
       </button>
 
       {isOpen ? (
-        <div className="absolute right-0 z-30 mt-2 w-[min(26rem,calc(100vw-1rem))] rounded-lg border border-[#d8dee7] bg-white px-3 py-2.5 shadow-[0_12px_28px_rgba(22,35,58,0.14)]">
+        <div className="dashboard-filter-menu absolute right-0 z-30 mt-2.5 w-[min(27rem,calc(100vw-1rem))] p-3.5">
           <div className="grid grid-cols-2 gap-4">
             <MonthPanel
               title="Start Month"
@@ -452,25 +492,26 @@ function ReportMonthRangeDropdown({
             />
           </div>
 
-          <div className="mt-2 flex items-center justify-end gap-1.5">
+          <div className="dashboard-filter-footer mt-3">
+            <ReportMonthDefaultEditor defaultConfig={defaultConfig} />
             <button
               type="button"
               onClick={clearRange}
-              className="mr-auto h-6 rounded px-1.5 text-[11px] font-semibold text-[#667085] transition hover:bg-[#f3f6fa] hover:text-[#16233a]"
+              className="dashboard-filter-action text-[#667085]"
             >
               Clear
             </button>
             <button
               type="button"
               onClick={closeWithoutApplying}
-              className="h-6 rounded px-1.5 text-[11px] font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+              className="dashboard-filter-action"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={applyRange}
-              className="h-6 rounded px-1.5 text-[11px] font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+              className="dashboard-filter-action"
             >
               Apply
             </button>
@@ -502,32 +543,32 @@ function MonthPanel({
 }) {
   return (
     <section>
-      <div className="mb-1.5 text-center text-[10px] font-semibold text-[#24272d]">
+      <div className="mb-2 text-center text-xs font-bold text-[#24272d]">
         {title}
       </div>
-      <div className="mb-1.5 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <button
           type="button"
           onClick={onPreviousYear}
-          className="flex h-5 w-5 items-center justify-center rounded-full text-sm leading-none text-[#24272d] transition hover:bg-[#f3f6fa]"
+          className="flex h-6 w-6 items-center justify-center rounded-full text-base leading-none text-[#24272d] transition hover:bg-[#f3f6fa]"
           aria-label={`Previous year for ${title}`}
         >
           ‹
         </button>
-        <div className="text-[11px] font-semibold uppercase text-[#24272d]">
+        <div className="text-sm font-bold text-[#24272d]">
           {year}
         </div>
         <button
           type="button"
           onClick={onNextYear}
-          className="flex h-5 w-5 items-center justify-center rounded-full text-sm leading-none text-[#24272d] transition hover:bg-[#f3f6fa]"
+          className="flex h-6 w-6 items-center justify-center rounded-full text-base leading-none text-[#24272d] transition hover:bg-[#f3f6fa]"
           aria-label={`Next year for ${title}`}
         >
           ›
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-1 text-center text-[11px] text-[#24272d]">
+      <div className="grid grid-cols-3 gap-1 text-center text-xs text-[#24272d]">
         {MONTH_LABELS.map((monthLabel, index) => {
           const value = `${year}-${String(index + 1).padStart(2, "0")}`;
 
@@ -581,7 +622,7 @@ function getMonthClassName(
     month.localeCompare(rangeEnd) < 0;
 
   return [
-    "flex h-7 items-center justify-center rounded transition",
+    "flex h-7 items-center justify-center rounded-md transition",
     isSelected
       ? "bg-[#155fd1] font-semibold text-white"
       : isInRange

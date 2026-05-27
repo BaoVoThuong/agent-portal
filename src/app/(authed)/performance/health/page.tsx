@@ -2,6 +2,11 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { can } from "@/lib/rbac/client";
 import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import {
+  DASHBOARD_FILTER_KEYS,
+  fetchDashboardMonthDefault,
+  resolveDashboardMonthDefaultRange,
+} from "@/lib/dashboard-filter-defaults";
 import { unstable_cache } from "next/cache";
 import { AgentHealthCarrierMultiSelectFilter } from "./AgentHealthCarrierMultiSelectFilter";
 import {
@@ -67,6 +72,26 @@ type CarrierPaymentStatusRow = {
   paid: number;
   unpaid: number;
   paidRate: number;
+};
+
+type CombinedPaymentStatusMonth = {
+  reportMonth: string;
+  policyTotal: number;
+  policyPaid: number;
+  policyPaidRate: number;
+  clientTotal: number;
+  clientPaid: number;
+  clientPaidRate: number;
+};
+
+type CombinedCarrierPaymentStatusRow = {
+  carrier: string;
+  policyTotal: number;
+  policyPaid: number;
+  policyPaidRate: number;
+  clientTotal: number;
+  clientPaid: number;
+  clientPaidRate: number;
 };
 
 type MemberPaymentRow = {
@@ -146,15 +171,13 @@ const CHART_MONTH_LIMIT = 12;
 const CHART_QUARTER_LIMIT = 8;
 const CHART_YEAR_LIMIT = 5;
 const CHART_MIN_POLICY_COUNT = 100;
-const PAYMENT_STATUS_MONTH_LIMIT = 5;
 const PAYMENT_STATUS_MIN_TOTAL = 100;
 const MIX_BREAKDOWN_TOP_LIMIT = 5;
-const CARRIER_PAYMENT_VISIBLE_ROW_COUNT = 6;
-const CARRIER_PAYMENT_HEADER_HEIGHT_PX = 44;
-const CARRIER_PAYMENT_ROW_HEIGHT_PX = 64;
-const CARRIER_PAYMENT_TABLE_MAX_HEIGHT =
-  CARRIER_PAYMENT_HEADER_HEIGHT_PX +
-  CARRIER_PAYMENT_VISIBLE_ROW_COUNT * CARRIER_PAYMENT_ROW_HEIGHT_PX;
+const PAID_RATE_VISIBLE_ROW_COUNT = 6;
+const PAID_RATE_HEADER_HEIGHT_PX = 72;
+const PAID_RATE_ROW_HEIGHT_PX = 64;
+const PAID_RATE_TABLE_MAX_HEIGHT =
+  PAID_RATE_HEADER_HEIGHT_PX + PAID_RATE_VISIBLE_ROW_COUNT * PAID_RATE_ROW_HEIGHT_PX;
 
 const fetchCachedCarrierOptions = unstable_cache(
   async (agentName: string | null, start: string | null, end: string | null) =>
@@ -170,7 +193,15 @@ export default async function PerformancePage({
     PERMISSIONS.AGENT_PERFORMANCE_HEALTH_OWN
   );
   const params = searchParams ? await searchParams : {};
-  const reportMonthRange = parseReportMonthRange(params);
+  const monthDefaultConfig = await fetchDashboardMonthDefault(
+    DASHBOARD_FILTER_KEYS.AGENT_PERFORMANCE_HEALTH
+  );
+  const defaultReportMonthRange =
+    resolveDashboardMonthDefaultRange(monthDefaultConfig);
+  const reportMonthRange = parseReportMonthRange(
+    params,
+    defaultReportMonthRange
+  );
   const chartLevel = parseChartLevel(params.chartLevel);
   const canViewAll = can(
     session.user.permissions,
@@ -198,14 +229,14 @@ export default async function PerformancePage({
 
   return (
     <AgentHealthPerformanceFilterProvider>
-      <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
+      <div className="agent-health-dashboard min-h-screen bg-slate-50 px-6 py-8 font-sans text-slate-900 md:px-10">
         <div className="mx-auto max-w-[1536px]">
           <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              <h1 className="text-[28px] font-semibold leading-tight text-[#16233a]">
                 Health Agent Performance
               </h1>
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 text-sm font-normal text-[#667085]">
                 {canViewAll
                   ? "Showing performance for all agents."
                   : `Showing performance for ${agentName || "your account"}.`}
@@ -219,6 +250,7 @@ export default async function PerformancePage({
               />
               <AgentHealthReportMonthRangeFilter
                 key={`${reportMonthRange.start ?? ""}:${reportMonthRange.end ?? ""}`}
+                defaultConfig={monthDefaultConfig}
                 startDate={reportMonthRange.start}
                 endDate={reportMonthRange.end}
               />
@@ -226,7 +258,7 @@ export default async function PerformancePage({
           </header>
 
           {!performanceData ? (
-            <div className="rounded-xl border border-slate-200 bg-white px-8 py-16 text-center text-sm font-medium text-slate-500 shadow-sm">
+            <div className="agent-health-panel px-8 py-16 text-center text-sm font-medium text-slate-500">
               Your account name is required to load performance data.
             </div>
           ) : (
@@ -275,14 +307,12 @@ export default async function PerformancePage({
                 initialChartLevel={chartLevel}
                 periodsByLevel={performanceData.chartPeriodsByLevel}
               />
-              <PaymentStatusSection
+              <PaidRateOverviewSection
                 policyRows={performanceData.policyPaymentStatus}
                 clientRows={performanceData.clientPaymentStatus}
-              />
-              <CarrierPaymentStatusSection
                 reportMonth={performanceData.carrierPaymentStatus.reportMonth}
-                policyRows={performanceData.carrierPaymentStatus.policyRows}
-                clientRows={performanceData.carrierPaymentStatus.clientRows}
+                carrierPolicyRows={performanceData.carrierPaymentStatus.policyRows}
+                carrierClientRows={performanceData.carrierPaymentStatus.clientRows}
               />
               <MixBreakdownSection
                 reportMonth={performanceData.latestMonthMixBreakdown.reportMonth}
@@ -706,8 +736,7 @@ function buildPolicyPaymentStatus(rows: HealthMartRow[]) {
       return toPaymentStatusMonth(reportMonth, total, paid);
     })
     .filter((month) => month.total > PAYMENT_STATUS_MIN_TOTAL)
-    .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth))
-    .slice(0, PAYMENT_STATUS_MONTH_LIMIT);
+    .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth));
 }
 
 function buildClientPaymentStatus(rows: HealthMartRow[]) {
@@ -732,8 +761,7 @@ function buildClientPaymentStatus(rows: HealthMartRow[]) {
       toPaymentStatusMonth(reportMonth, status.paid + status.unpaid, status.paid)
     )
     .filter((month) => month.total > PAYMENT_STATUS_MIN_TOTAL)
-    .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth))
-    .slice(0, PAYMENT_STATUS_MONTH_LIMIT);
+    .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth));
 }
 
 function toPaymentStatusMonth(reportMonth: string, total: number, paid: number) {
@@ -988,51 +1016,36 @@ function buildMixBreakdownRows(
     }, []);
 }
 
-function PaymentStatusSection({
+function PaidRateOverviewSection({
   policyRows,
   clientRows,
+  reportMonth,
+  carrierPolicyRows,
+  carrierClientRows,
 }: {
   policyRows: PaymentStatusMonth[];
   clientRows: PaymentStatusMonth[];
-}) {
-  return (
-    <section className="grid gap-5 xl:grid-cols-2">
-      <PaymentStatusTable
-        title="Policy Paid Rate | Recent Months"
-        totalLabel="Policies"
-        rows={policyRows}
-      />
-      <PaymentStatusTable
-        title="Client Paid Rate | Recent Months"
-        totalLabel="Clients"
-        rows={clientRows}
-      />
-    </section>
-  );
-}
-
-function CarrierPaymentStatusSection({
-  reportMonth,
-  policyRows,
-  clientRows,
-}: {
   reportMonth: string | null;
-  policyRows: CarrierPaymentStatusRow[];
-  clientRows: CarrierPaymentStatusRow[];
+  carrierPolicyRows: CarrierPaymentStatusRow[];
+  carrierClientRows: CarrierPaymentStatusRow[];
 }) {
+  const monthRows = combinePaymentStatusMonths(policyRows, clientRows);
+  const carrierRows = combineCarrierPaymentStatusRows(
+    carrierPolicyRows,
+    carrierClientRows
+  );
+
   return (
     <section className="grid gap-5 xl:grid-cols-2">
-      <CarrierPaymentStatusTable
-        title="Carrier Policy Paid Rate | Latest Complete Month"
-        reportMonth={reportMonth}
-        totalLabel="Policies"
-        rows={policyRows}
+      <CombinedPaymentStatusTable
+        labelHeader="Month"
+        rows={monthRows}
+        title="Paid Rate | Recent Months"
       />
-      <CarrierPaymentStatusTable
-        title="Carrier Client Paid Rate | Latest Complete Month"
+      <CombinedCarrierPaymentStatusTable
         reportMonth={reportMonth}
-        totalLabel="Clients"
-        rows={clientRows}
+        rows={carrierRows}
+        title="Carrier Paid Rate | Latest Complete Month"
       />
     </section>
   );
@@ -1065,44 +1078,147 @@ function MixBreakdownSection({
   );
 }
 
-function CarrierPaymentStatusTable({
+function combinePaymentStatusMonths(
+  policyRows: PaymentStatusMonth[],
+  clientRows: PaymentStatusMonth[]
+): CombinedPaymentStatusMonth[] {
+  const rowMap = new Map<string, CombinedPaymentStatusMonth>();
+
+  for (const row of policyRows) {
+    rowMap.set(row.reportMonth, {
+      reportMonth: row.reportMonth,
+      policyTotal: row.total,
+      policyPaid: row.paid,
+      policyPaidRate: row.paidRate,
+      clientTotal: 0,
+      clientPaid: 0,
+      clientPaidRate: 0,
+    });
+  }
+
+  for (const row of clientRows) {
+    const current =
+      rowMap.get(row.reportMonth) ??
+      ({
+        reportMonth: row.reportMonth,
+        policyTotal: 0,
+        policyPaid: 0,
+        policyPaidRate: 0,
+        clientTotal: 0,
+        clientPaid: 0,
+        clientPaidRate: 0,
+      } satisfies CombinedPaymentStatusMonth);
+
+    current.clientTotal = row.total;
+    current.clientPaid = row.paid;
+    current.clientPaidRate = row.paidRate;
+    rowMap.set(row.reportMonth, current);
+  }
+
+  return [...rowMap.values()]
+    .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth));
+}
+
+function combineCarrierPaymentStatusRows(
+  policyRows: CarrierPaymentStatusRow[],
+  clientRows: CarrierPaymentStatusRow[]
+): CombinedCarrierPaymentStatusRow[] {
+  const rowMap = new Map<string, CombinedCarrierPaymentStatusRow>();
+
+  for (const row of policyRows) {
+    rowMap.set(row.carrier, {
+      carrier: row.carrier,
+      policyTotal: row.total,
+      policyPaid: row.paid,
+      policyPaidRate: row.paidRate,
+      clientTotal: 0,
+      clientPaid: 0,
+      clientPaidRate: 0,
+    });
+  }
+
+  for (const row of clientRows) {
+    const current =
+      rowMap.get(row.carrier) ??
+      ({
+        carrier: row.carrier,
+        policyTotal: 0,
+        policyPaid: 0,
+        policyPaidRate: 0,
+        clientTotal: 0,
+        clientPaid: 0,
+        clientPaidRate: 0,
+      } satisfies CombinedCarrierPaymentStatusRow);
+
+    current.clientTotal = row.total;
+    current.clientPaid = row.paid;
+    current.clientPaidRate = row.paidRate;
+    rowMap.set(row.carrier, current);
+  }
+
+  return [...rowMap.values()].sort(
+    (a, b) =>
+      b.policyTotal - a.policyTotal ||
+      b.clientTotal - a.clientTotal ||
+      b.policyPaidRate - a.policyPaidRate ||
+      a.carrier.localeCompare(b.carrier)
+  );
+}
+
+function CombinedCarrierPaymentStatusTable({
   title,
   reportMonth,
-  totalLabel,
   rows,
 }: {
   title: string;
   reportMonth: string | null;
-  totalLabel: string;
-  rows: CarrierPaymentStatusRow[];
+  rows: CombinedCarrierPaymentStatusRow[];
 }) {
+  const policyAveragePaidRate = calculateWeightedPaidRate(
+    rows,
+    (row) => row.policyPaid,
+    (row) => row.policyTotal
+  );
+  const clientAveragePaidRate = calculateWeightedPaidRate(
+    rows,
+    (row) => row.clientPaid,
+    (row) => row.clientTotal
+  );
+
   return (
     <section className="flex flex-col">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-        <h2 className="text-lg font-bold leading-tight text-slate-800">{title}</h2>
+        <h2 className="text-xl font-semibold leading-tight text-[#16233a]">{title}</h2>
         {reportMonth ? (
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             {formatReportMonth(reportMonth)}
           </span>
         ) : null}
       </div>
-      <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
+      <article className="agent-health-panel">
         <div
           className="overflow-y-auto overflow-x-hidden"
-          style={{ maxHeight: CARRIER_PAYMENT_TABLE_MAX_HEIGHT }}
+          style={{ maxHeight: PAID_RATE_TABLE_MAX_HEIGHT }}
         >
-          <table className="w-full table-fixed text-sm">
-            <thead>
-              <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/90 backdrop-blur-sm text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                <th className="w-[24%] px-5 py-3">Carrier</th>
-                <th className="w-[18%] px-4 py-3 text-right">{totalLabel}</th>
-                <th className="w-[17%] px-4 py-3 text-right text-emerald-600">
-                  Paid
-                </th>
-                <th className="w-[17%] px-4 py-3 text-right text-rose-600">
-                  Unpaid
-                </th>
-                <th className="w-[24%] px-5 py-3 text-right">Paid Rate</th>
+          <table className="w-full table-fixed text-[12px] tabular-nums">
+            <colgroup>
+              <col className="w-[25%]" />
+              <col className="w-[15%]" />
+              <col className="w-[21%]" />
+              <col className="w-[17%]" />
+              <col className="w-[22%]" />
+            </colgroup>
+            <thead className="sticky top-0 z-10 bg-[#f8fafc]">
+              <tr className="border-b border-[#d8dee7] text-left text-[11px] font-semibold uppercase tracking-wider text-[#667085]">
+                <th className="px-4 py-3 align-middle" rowSpan={2}>Carrier</th>
+                <th className="border-l border-[#d8dee7] px-2 py-2 text-center" colSpan={2}>Policies</th>
+                <th className="border-l border-[#d8dee7] px-2 py-2 text-center" colSpan={2}>Clients</th>
+              </tr>
+              <tr className="border-b border-[#d8dee7] text-[10px] font-semibold uppercase tracking-wider text-[#667085]">
+                <th className="border-l border-[#d8dee7] px-2 py-2 text-right text-emerald-600"># Paid</th>
+                <th className="px-2 py-2 text-right">% Paid Rate</th>
+                <th className="border-l border-[#d8dee7] px-2 py-2 text-right text-emerald-600"># Paid</th>
+                <th className="px-4 py-2 text-right">% Paid Rate</th>
               </tr>
             </thead>
             <tbody>
@@ -1116,32 +1232,22 @@ function CarrierPaymentStatusTable({
                 rows.map((row) => (
                   <tr
                     key={row.carrier}
-                    className="group h-16 border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-b-0"
+                    className="group h-16 border-b border-[#edf0f4] transition-colors hover:bg-[#f8fafc] last:border-b-0"
                   >
                     <td className="break-words px-5 py-3 text-sm font-semibold text-slate-900">
                       {row.carrier}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm text-slate-600">
-                      {formatInteger(row.total)}
+                    <td className="border-l border-[#edf0f4] px-2 py-3 text-right text-sm font-semibold text-emerald-600">
+                      <PaidCountValue paid={row.policyPaid} total={row.policyTotal} />
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-600">
-                      {formatInteger(row.paid)}
+                    <td className={getPaidRateCellClass(row.policyPaidRate, policyAveragePaidRate)}>
+                      {formatPercent(row.policyPaidRate)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold text-rose-500">
-                      {formatInteger(row.unpaid)}
+                    <td className="border-l border-[#edf0f4] px-2 py-3 text-right text-sm font-semibold text-emerald-600">
+                      <PaidCountValue paid={row.clientPaid} total={row.clientTotal} />
                     </td>
-                    <td className="px-5 py-3 align-middle">
-                      <div className="ml-auto flex w-full items-center justify-end">
-                        <div className="relative h-6 w-full overflow-hidden rounded border border-emerald-100 bg-emerald-50">
-                          <div
-                            className="h-full rounded bg-emerald-400 opacity-70"
-                            style={{ width: `${Math.min(row.paidRate, 100)}%` }}
-                          />
-                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-emerald-700">
-                            {formatPercent(row.paidRate)}
-                          </span>
-                        </div>
-                      </div>
+                    <td className={getPaidRateCellClass(row.clientPaidRate, clientAveragePaidRate, "px-4")}>
+                      {formatPercent(row.clientPaidRate)}
                     </td>
                   </tr>
                 ))
@@ -1168,23 +1274,30 @@ function MixBreakdownTable({
   return (
     <section className="flex flex-col">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-        <h2 className="text-lg font-bold leading-tight text-slate-800">{title}</h2>
+        <h2 className="text-xl font-semibold leading-tight text-[#16233a]">{title}</h2>
         {reportMonth ? (
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             {formatReportMonth(reportMonth)}
           </span>
         ) : null}
       </div>
-      <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
+      <article className="agent-health-panel">
         <div className="overflow-hidden">
-          <table className="w-full table-fixed text-[13px]">
+          <table className="w-full table-fixed text-[12px] tabular-nums">
+            <colgroup>
+              <col className="w-[24%]" />
+              <col className="w-[12%]" />
+              <col className="w-[12%]" />
+              <col className="w-[25%]" />
+              <col className="w-[27%]" />
+            </colgroup>
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                <th className="w-[21%] px-4 py-3">{labelHeader}</th>
-                <th className="w-[13%] px-3 py-3 text-right">Policies</th>
-                <th className="w-[12%] px-3 py-3 text-right">Clients</th>
-                <th className="w-[25%] px-4 py-3 text-right">Commission</th>
-                <th className="w-[29%] px-3 py-3 text-right">% of Total</th>
+              <tr className="border-b border-[#d8dee7] bg-[#f8fafc] text-left text-[10px] font-semibold uppercase tracking-normal text-[#667085]">
+                <th className="border-r border-[#d8dee7] px-4 py-3.5">{labelHeader}</th>
+                <th className="border-r border-[#d8dee7] px-2 py-3.5 text-center">Policies</th>
+                <th className="border-r border-[#d8dee7] px-2 py-3.5 text-center">Clients</th>
+                <th className="border-r border-[#d8dee7] px-3 py-3.5 text-right">Commission</th>
+                <th className="px-3 py-3.5 text-center">% of Total</th>
               </tr>
             </thead>
             <tbody>
@@ -1198,21 +1311,21 @@ function MixBreakdownTable({
                 rows.map((row) => (
                   <tr
                     key={row.label}
-                    className="group border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-b-0"
+                    className="group border-b border-[#edf0f4] transition-colors hover:bg-[#f8fafc] last:border-b-0"
                   >
-                    <td className="break-words px-4 py-3 font-semibold text-slate-900">
+                    <td className="break-words border-r border-[#edf0f4] px-4 py-3.5 font-semibold text-slate-900">
                       {row.label}
                     </td>
-                    <td className="px-3 py-3 text-right font-semibold text-slate-700">
+                    <td className="border-r border-[#edf0f4] px-2 py-3.5 text-right font-semibold text-slate-700">
                       {formatInteger(row.policyCount)}
                     </td>
-                    <td className="px-3 py-3 text-right text-slate-500">
+                    <td className="border-r border-[#edf0f4] px-2 py-3.5 text-right text-slate-500">
                       {formatInteger(row.clientCount)}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900">
+                    <td className="whitespace-nowrap border-r border-[#edf0f4] px-3 py-3.5 text-right font-semibold text-slate-900">
                       {formatCurrency(row.totalCommission)}
                     </td>
-                    <td className="px-3 py-3 align-middle">
+                    <td className="px-3 py-3.5 align-middle">
                       <div className="ml-auto flex w-full items-center justify-end">
                         <div className="relative h-6 w-full overflow-hidden rounded border border-blue-100 bg-blue-50">
                           <div
@@ -1236,32 +1349,53 @@ function MixBreakdownTable({
   );
 }
 
-function PaymentStatusTable({
+function CombinedPaymentStatusTable({
   title,
-  totalLabel,
+  labelHeader,
   rows,
 }: {
   title: string;
-  totalLabel: string;
-  rows: PaymentStatusMonth[];
+  labelHeader: string;
+  rows: CombinedPaymentStatusMonth[];
 }) {
+  const policyAveragePaidRate = calculateWeightedPaidRate(
+    rows,
+    (row) => row.policyPaid,
+    (row) => row.policyTotal
+  );
+  const clientAveragePaidRate = calculateWeightedPaidRate(
+    rows,
+    (row) => row.clientPaid,
+    (row) => row.clientTotal
+  );
+
   return (
     <section className="flex flex-col">
-      <h2 className="mb-4 text-lg font-bold leading-tight text-slate-800">{title}</h2>
-      <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
-        <div className="overflow-x-auto">
-          <table className="min-w-full table-fixed text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/90 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                <th className="w-[20%] px-5 py-3">Month</th>
-                <th className="w-[18%] px-4 py-3 text-right">{totalLabel}</th>
-                <th className="w-[17%] px-4 py-3 text-right text-emerald-600">
-                  Paid
-                </th>
-                <th className="w-[17%] px-4 py-3 text-right text-rose-600">
-                  Unpaid
-                </th>
-                <th className="w-[28%] px-5 py-3 text-right">Paid Rate</th>
+      <h2 className="mb-4 text-xl font-semibold leading-tight text-[#16233a]">{title}</h2>
+      <article className="agent-health-panel">
+        <div
+          className="overflow-y-auto overflow-x-hidden"
+          style={{ maxHeight: PAID_RATE_TABLE_MAX_HEIGHT }}
+        >
+          <table className="w-full table-fixed text-[12px] tabular-nums">
+            <colgroup>
+              <col className="w-[19%]" />
+              <col className="w-[17%]" />
+              <col className="w-[22%]" />
+              <col className="w-[19%]" />
+              <col className="w-[23%]" />
+            </colgroup>
+            <thead className="sticky top-0 z-10 bg-[#f8fafc]">
+              <tr className="border-b border-[#d8dee7] text-left text-[11px] font-semibold uppercase tracking-wider text-[#667085]">
+                <th className="px-4 py-3 align-middle" rowSpan={2}>{labelHeader}</th>
+                <th className="border-l border-[#d8dee7] px-2 py-2 text-center" colSpan={2}>Policies</th>
+                <th className="border-l border-[#d8dee7] px-2 py-2 text-center" colSpan={2}>Clients</th>
+              </tr>
+              <tr className="border-b border-[#d8dee7] text-[10px] font-semibold uppercase tracking-wider text-[#667085]">
+                <th className="border-l border-[#d8dee7] px-2 py-2 text-right text-emerald-600"># Paid</th>
+                <th className="px-2 py-2 text-right">% Paid Rate</th>
+                <th className="border-l border-[#d8dee7] px-2 py-2 text-right text-emerald-600"># Paid</th>
+                <th className="px-4 py-2 text-right">% Paid Rate</th>
               </tr>
             </thead>
             <tbody>
@@ -1275,32 +1409,22 @@ function PaymentStatusTable({
                 rows.map((row) => (
                   <tr
                     key={row.reportMonth}
-                    className="group border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-b-0"
+                    className="group h-16 border-b border-[#edf0f4] transition-colors hover:bg-[#f8fafc] last:border-b-0"
                   >
                     <td className="whitespace-nowrap px-5 py-3 text-sm font-semibold text-slate-900">
                       {formatReportMonth(row.reportMonth)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm text-slate-600">
-                      {formatInteger(row.total)}
+                    <td className="border-l border-[#edf0f4] px-2 py-3 text-right text-sm font-semibold text-emerald-600">
+                      <PaidCountValue paid={row.policyPaid} total={row.policyTotal} />
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-600">
-                      {formatInteger(row.paid)}
+                    <td className={getPaidRateCellClass(row.policyPaidRate, policyAveragePaidRate)}>
+                      {formatPercent(row.policyPaidRate)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-semibold text-rose-500">
-                      {formatInteger(row.unpaid)}
+                    <td className="border-l border-[#edf0f4] px-2 py-3 text-right text-sm font-semibold text-emerald-600">
+                      <PaidCountValue paid={row.clientPaid} total={row.clientTotal} />
                     </td>
-                    <td className="px-5 py-3 align-middle">
-                      <div className="ml-auto flex w-32 items-center justify-end">
-                        <div className="relative h-6 w-full overflow-hidden rounded border border-emerald-100 bg-emerald-50">
-                          <div
-                            className="h-full rounded bg-emerald-400 opacity-70"
-                            style={{ width: `${Math.min(row.paidRate, 100)}%` }}
-                          />
-                          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-emerald-700">
-                            {formatPercent(row.paidRate)}
-                          </span>
-                        </div>
-                      </div>
+                    <td className={getPaidRateCellClass(row.clientPaidRate, clientAveragePaidRate, "px-4")}>
+                      {formatPercent(row.clientPaidRate)}
                     </td>
                   </tr>
                 ))
@@ -1311,6 +1435,49 @@ function PaymentStatusTable({
       </article>
     </section>
   );
+}
+
+function PaidCountValue({ paid, total }: { paid: number; total: number }) {
+  return (
+    <span className="flex flex-col items-end leading-tight">
+      <span className="font-semibold text-emerald-600">{formatInteger(paid)}</span>
+      <span className="mt-1 text-[11px] font-medium text-slate-500">
+        Total {formatInteger(total)}
+      </span>
+    </span>
+  );
+}
+
+function getPaidRateCellClass(
+  value: number,
+  average: number | null,
+  paddingClass = "px-2"
+) {
+  const baseClass = `border-l border-[#edf0f4] ${paddingClass} py-3 text-right text-sm font-semibold text-[#24272d]`;
+
+  if (average === null || value === average) {
+    return baseClass;
+  }
+
+  return value > average
+    ? `${baseClass} bg-[#c9e8ca]`
+    : `${baseClass} bg-[#f2c5c0]`;
+}
+
+function calculateWeightedPaidRate<T>(
+  rows: T[],
+  getPaid: (row: T) => number,
+  getTotal: (row: T) => number
+) {
+  const totals = rows.reduce(
+    (current, row) => ({
+      paid: current.paid + getPaid(row),
+      total: current.total + getTotal(row),
+    }),
+    { paid: 0, total: 0 }
+  );
+
+  return totals.total === 0 ? null : (totals.paid / totals.total) * 100;
 }
 
 function ScoreCard({
@@ -1338,12 +1505,12 @@ function ScoreCard({
   const footer = footerText ?? formatTrendContextText(changePercent ?? null);
 
   return (
-    <article className="flex min-h-[124px] flex-col rounded-xl border border-slate-200/70 bg-white px-5 py-4 text-center shadow-[0_6px_18px_rgba(15,23,42,0.06)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.1)]">
-      <div className="flex min-h-8 items-center justify-center text-[12px] font-semibold uppercase leading-snug tracking-[0.08em] text-slate-500">
+    <article className="agent-health-panel-soft flex min-h-[124px] flex-col px-5 py-4 text-center">
+      <div className="flex min-h-8 items-center justify-center text-[12px] font-semibold uppercase leading-snug text-slate-500">
         {label}
       </div>
       <div className="flex flex-1 items-center justify-center py-2">
-        <div className="w-full break-words text-center text-[2rem] font-bold leading-none tracking-normal text-slate-950 tabular-nums">
+        <div className="w-full break-words text-center text-[2rem] font-semibold leading-none text-slate-950 tabular-nums">
           {value}
         </div>
       </div>
@@ -1368,16 +1535,32 @@ function normalizeAgentName(value: string) {
 }
 
 function parseReportMonthRange(
-  params: Record<string, string | string[] | undefined>
+  params: Record<string, string | string[] | undefined>,
+  defaultRange: ReportMonthRange
 ): ReportMonthRange {
+  if (parseRawParam(params.reportMonthRange) === "all") {
+    return { start: null, end: null };
+  }
+
   let start = parseReportMonthParam(params.start);
   let end = parseReportMonthParam(params.end);
+
+  if (!start && !end) {
+    start = parseReportMonthParam(defaultRange.start ?? undefined);
+    end = parseReportMonthParam(defaultRange.end ?? undefined);
+  }
 
   if (start && end && start.localeCompare(end) > 0) {
     [start, end] = [end, start];
   }
 
   return { start, end };
+}
+
+function parseRawParam(value: string | string[] | undefined) {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+
+  return rawValue?.trim() ?? "";
 }
 
 function parseReportMonthParam(value: string | string[] | undefined) {

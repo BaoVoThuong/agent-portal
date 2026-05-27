@@ -102,7 +102,7 @@ export function AgentHealthCarrierMultiSelectFilter({
       <button
         type="button"
         onClick={() => setIsOpen((current) => !current)}
-        className="flex h-9 min-w-[11rem] items-center justify-between gap-2 rounded-lg border border-[#cfd7e3] bg-white px-3 text-left text-xs font-semibold text-[#16233a] shadow-[0_1px_3px_rgba(22,35,58,0.08)] transition hover:border-[#184e8a] focus:outline-none focus:ring-2 focus:ring-[#184e8a]/15"
+        className="dashboard-filter-button min-w-[12.5rem]"
         aria-expanded={isOpen}
       >
         <span className="truncate">{label}</span>
@@ -112,26 +112,26 @@ export function AgentHealthCarrierMultiSelectFilter({
       </button>
 
       {isOpen ? (
-        <div className="absolute right-0 z-30 mt-2 w-[min(18rem,calc(100vw-1rem))] rounded-lg border border-[#d8dee7] bg-white p-3 shadow-[0_12px_28px_rgba(22,35,58,0.14)]">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+        <div className="dashboard-filter-menu absolute right-0 z-30 mt-2.5 w-[min(18rem,calc(100vw-1rem))] p-3.5">
+          <div className="dashboard-filter-title mb-2.5">
             Carrier
           </div>
           <div className="max-h-64 overflow-auto pr-1">
             {options.length === 0 ? (
-              <div className="rounded-md border border-dashed border-[#d8dee7] px-3 py-8 text-center text-xs text-[#667085]">
+              <div className="rounded-lg border border-dashed border-[#d8dee7] px-3 py-8 text-center text-sm font-semibold text-[#667085]">
                 No carriers available.
               </div>
             ) : (
               options.map((carrier) => (
                 <label
                   key={carrier}
-                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[#16233a] transition hover:bg-[#f3f6fa]"
+                  className="dashboard-filter-option"
                 >
                   <input
                     type="checkbox"
                     checked={selectedSet.has(carrier)}
                     onChange={() => toggleCarrier(carrier)}
-                    className="h-4 w-4 rounded border-[#cfd7e3] accent-[#184e8a]"
+                    className="dashboard-filter-checkbox"
                   />
                   <span className="truncate">{carrier}</span>
                 </label>
@@ -139,25 +139,25 @@ export function AgentHealthCarrierMultiSelectFilter({
             )}
           </div>
 
-          <div className="mt-3 flex items-center justify-end gap-2 border-t border-[#edf0f4] pt-3">
+          <div className="dashboard-filter-footer mt-3">
             <button
               type="button"
               onClick={clearCarriers}
-              className="mr-auto h-7 rounded px-2 text-xs font-semibold text-[#667085] transition hover:bg-[#f3f6fa] hover:text-[#16233a]"
+              className="dashboard-filter-action mr-auto text-[#667085]"
             >
               Clear
             </button>
             <button
               type="button"
               onClick={closeWithoutApplying}
-              className="h-7 rounded px-2 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+              className="dashboard-filter-action"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={applyCarriers}
-              className="h-7 rounded px-2 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+              className="dashboard-filter-action"
             >
               Apply
             </button>

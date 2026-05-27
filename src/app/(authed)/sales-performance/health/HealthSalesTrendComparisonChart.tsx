@@ -1,7 +1,7 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 
 export type TrendComparisonChartLevel = "month" | "quarter" | "year";
 
@@ -33,33 +33,33 @@ const RIGHT_AXIS_LABEL_X = WIDTH - 36;
 const GRID_TICKS = [0, 0.25, 0.5, 0.75, 1];
 
 export function HealthSalesTrendComparisonChart({
+  chartLevel: controlledChartLevel,
+  onChartLevelChange,
   periodsByLevel,
 }: {
+  chartLevel?: TrendComparisonChartLevel;
+  onChartLevelChange?: (chartLevel: TrendComparisonChartLevel) => void;
   periodsByLevel: TrendComparisonPeriodsByLevel;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [chartLevel, setChartLevel] = useState<TrendComparisonChartLevel>(() =>
-    parseChartLevel(searchParams.get("trendLevel"))
+  const [localChartLevel, setLocalChartLevel] = useState<TrendComparisonChartLevel>(
+    () => parseChartLevel(searchParams.get("trendLevel"))
   );
+  const chartLevel = controlledChartLevel ?? localChartLevel;
   const rows = periodsByLevel[chartLevel];
   const chartLevelLabel = getChartLevelLabel(chartLevel);
 
   function updateChartLevel(nextChartLevel: TrendComparisonChartLevel) {
     if (nextChartLevel === chartLevel) return;
 
-    setChartLevel(nextChartLevel);
-
-    const params = new URLSearchParams(searchParams.toString());
-
-    if (nextChartLevel === "month") {
-      params.delete("trendLevel");
-    } else {
-      params.set("trendLevel", nextChartLevel);
+    if (onChartLevelChange) {
+      onChartLevelChange(nextChartLevel);
+      return;
     }
 
-    const query = params.toString();
-    window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+    setLocalChartLevel(nextChartLevel);
+    updateTrendLevelUrl(pathname, nextChartLevel);
   }
 
   return (
@@ -101,6 +101,22 @@ export function HealthSalesTrendComparisonChart({
       </div>
     </section>
   );
+}
+
+function updateTrendLevelUrl(
+  pathname: string,
+  nextChartLevel: TrendComparisonChartLevel
+) {
+  const params = new URLSearchParams(window.location.search);
+
+  if (nextChartLevel === "month") {
+    params.delete("trendLevel");
+  } else {
+    params.set("trendLevel", nextChartLevel);
+  }
+
+  const query = params.toString();
+  window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
 }
 
 function TrendChartSvg({ rows }: { rows: TrendComparisonPeriod[] }) {

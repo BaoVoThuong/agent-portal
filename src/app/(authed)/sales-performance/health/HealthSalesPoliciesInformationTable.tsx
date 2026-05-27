@@ -4,8 +4,9 @@ import { FileDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 
-type MemberPaymentRow = {
+type PolicyInfoRow = {
   dealName: string;
+  agentName: string;
   carrier: string;
   primaryMemberId: string;
   totalPaid: number;
@@ -33,18 +34,18 @@ const MONTH_LABELS = [
   "December",
 ];
 
-export function AgentHealthMemberPaymentTable({
+export function HealthSalesPoliciesInformationTable({
   rows,
   visibleMonthCount,
 }: {
-  rows: MemberPaymentRow[];
+  rows: PolicyInfoRow[];
   visibleMonthCount: number;
 }) {
   const [memberIdFilter, setMemberIdFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<PaymentStatusFilter>("all");
   const [monthFilter, setMonthFilter] = useState("latest");
   const visibleMonthLabels = MONTH_LABELS.slice(0, visibleMonthCount);
-  const tableWidth = 976 + visibleMonthLabels.length * 112;
+  const tableWidth = 1136 + visibleMonthLabels.length * 112;
   const selectedMonthIndex = getSelectedMonthIndex(
     monthFilter,
     visibleMonthCount
@@ -84,6 +85,7 @@ export function AgentHealthMemberPaymentTable({
     const exportRows = filteredRows.map((row, index) => [
       index + 1,
       row.dealName,
+      row.agentName,
       row.carrier,
       row.primaryMemberId,
       row.totalPaid,
@@ -103,21 +105,21 @@ export function AgentHealthMemberPaymentTable({
     applyExportCurrencyFormat(sheet, exportRows.length, visibleMonthLabels.length);
 
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, sheet, "Member_Payments");
+    XLSX.utils.book_append_sheet(workbook, sheet, "Policies");
     XLSX.writeFile(
       workbook,
-      `member-payment-history-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      `policies-information-${new Date().toISOString().slice(0, 10)}.xlsx`,
       { compression: true }
     );
   }
 
   return (
-    <section className="agent-health-panel">
-      <header className="border-b border-[#d8dee7] px-6 py-5">
+    <section className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
+      <header className="border-b border-[#edf0f4] px-6 py-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
-              Member Payment History | Current Report Year
+            <h2 className="text-lg font-semibold text-[#16233a]">
+              Policies Information
             </h2>
             <p className="mt-1 text-xs text-[#667085]">
               Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} rows
@@ -191,26 +193,29 @@ export function AgentHealthMemberPaymentTable({
       <div className="max-h-[720px] overflow-auto">
         <table className="text-sm" style={{ width: tableWidth, minWidth: tableWidth }}>
           <thead>
-            <tr className="border-b border-[#d8dee7] bg-[#f8fafc] text-left text-xs font-semibold uppercase tracking-wide text-[#667085]">
-              <th className="sticky left-0 top-0 z-20 w-12 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3 text-right">
+            <tr className="border-b border-[#edf0f4] text-left text-xs font-semibold uppercase tracking-wide text-[#667085]">
+              <th className="sticky left-0 top-0 z-20 w-12 border-r border-[#edf0f4] bg-white px-3 py-3 text-right">
                 #
               </th>
-              <th className="sticky left-12 top-0 z-20 w-[30rem] border-r border-[#d8dee7] bg-[#f8fafc] px-4 py-3">
+              <th className="sticky left-12 top-0 z-20 w-[30rem] border-r border-[#edf0f4] bg-white px-4 py-3">
                 Deal Name
               </th>
-              <th className="sticky top-0 z-10 w-28 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3">
+              <th className="sticky top-0 z-10 w-40 border-r border-[#edf0f4] bg-white px-3 py-3">
+                Agent
+              </th>
+              <th className="sticky top-0 z-10 w-28 border-r border-[#edf0f4] bg-white px-3 py-3">
                 Carrier
               </th>
-              <th className="sticky top-0 z-10 w-56 border-r border-[#d8dee7] bg-[#f8fafc] px-4 py-3">
+              <th className="sticky top-0 z-10 w-56 border-r border-[#edf0f4] bg-white px-4 py-3">
                 Primary Member ID
               </th>
-              <th className="sticky top-0 z-10 w-28 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3 text-right">
+              <th className="sticky top-0 z-10 w-28 border-r border-[#edf0f4] bg-white px-3 py-3 text-right">
                 Total Paid
               </th>
               {visibleMonthLabels.map((month) => (
                 <th
                   key={month}
-                  className="sticky top-0 z-10 w-28 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3 text-right last:border-r-0"
+                  className="sticky top-0 z-10 w-28 border-r border-[#edf0f4] bg-white px-3 py-3 text-right last:border-r-0"
                 >
                   {month}
                 </th>
@@ -222,7 +227,7 @@ export function AgentHealthMemberPaymentTable({
               <tr>
                 <td
                   className="px-6 py-10 text-center text-[#667085]"
-                  colSpan={5 + visibleMonthLabels.length}
+                  colSpan={6 + visibleMonthLabels.length}
                 >
                   No policies matched these filters.
                 </td>
@@ -230,7 +235,7 @@ export function AgentHealthMemberPaymentTable({
             ) : (
               filteredRows.map((row, index) => (
                 <tr
-                  key={`${row.dealName}-${row.carrier}-${row.primaryMemberId}`}
+                  key={`${row.dealName}-${row.agentName}-${row.carrier}-${row.primaryMemberId}`}
                   className="border-b border-[#f1f3f7] last:border-b-0"
                 >
                   <td className="sticky left-0 z-10 border-r border-[#edf0f4] bg-white px-3 py-2.5 text-right font-semibold text-[#667085]">
@@ -238,6 +243,9 @@ export function AgentHealthMemberPaymentTable({
                   </td>
                   <td className="sticky left-12 z-10 border-r border-[#edf0f4] bg-white px-4 py-2.5 font-semibold leading-5 text-[#16233a]">
                     {row.dealName}
+                  </td>
+                  <td className="border-r border-[#edf0f4] px-3 py-2.5 text-[#344054]">
+                    {row.agentName}
                   </td>
                   <td className="border-r border-[#edf0f4] px-3 py-2.5 text-[#344054]">
                     {row.carrier}
@@ -282,7 +290,7 @@ export function AgentHealthMemberPaymentTable({
 function MonthPaymentCell({
   month,
 }: {
-  month: MemberPaymentRow["months"][number];
+  month: PolicyInfoRow["months"][number];
 }) {
   if (!month.hasRecord) {
     return <span className="text-[#98a2b3]">-</span>;
@@ -327,6 +335,7 @@ function buildExportHeaders(monthLabels: string[]) {
   return [
     "#",
     "Deal Name",
+    "Agent",
     "Carrier",
     "Primary Member ID",
     "Total Paid",
@@ -338,7 +347,7 @@ function buildExportHeaders(monthLabels: string[]) {
   ];
 }
 
-function getMonthExportStatus(month: MemberPaymentRow["months"][number]) {
+function getMonthExportStatus(month: PolicyInfoRow["months"][number]) {
   if (!month.hasRecord) return "No Record";
   return month.paidToDate ? "Paid" : "Unpaid";
 }
@@ -346,6 +355,7 @@ function getMonthExportStatus(month: MemberPaymentRow["months"][number]) {
 function getExportColumnWidth(header: string) {
   if (header === "#") return 8;
   if (header === "Deal Name") return 36;
+  if (header === "Agent") return 20;
   if (header === "Primary Member ID") return 24;
   if (header.endsWith("Paid To Date")) return 16;
   if (header.endsWith("Status")) return 16;
@@ -358,8 +368,8 @@ function applyExportCurrencyFormat(
   monthCount: number
 ) {
   const currencyColumnIndexes = [
-    4,
-    ...Array.from({ length: monthCount }, (_, index) => 6 + index * 3),
+    5,
+    ...Array.from({ length: monthCount }, (_, index) => 7 + index * 3),
   ];
 
   for (let rowIndex = 1; rowIndex <= rowCount; rowIndex += 1) {
@@ -385,7 +395,7 @@ function matchesSelectedMonth(
 }
 
 function matchesPaymentStatus(
-  month: MemberPaymentRow["months"][number] | undefined,
+  month: PolicyInfoRow["months"][number] | undefined,
   status: Exclude<PaymentStatusFilter, "all">
 ) {
   if (!month?.hasRecord) return false;

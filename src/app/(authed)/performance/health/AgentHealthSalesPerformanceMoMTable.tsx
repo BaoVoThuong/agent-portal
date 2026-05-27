@@ -84,12 +84,12 @@ export function AgentHealthSalesPerformanceMoMTable({
   return (
     <section>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold text-[#24272d]">
+        <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
           Book &amp; Earnings Growth | {changeLabel}
         </h2>
       </div>
 
-      <article className="overflow-hidden rounded-lg border border-[#d1d5db] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.14)]">
+      <article className="agent-health-panel">
         {rows.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-[#667085]">
             No report periods with more than 100 active policies.
@@ -99,10 +99,10 @@ export function AgentHealthSalesPerformanceMoMTable({
             className="overflow-y-auto overflow-x-hidden"
             style={{ maxHeight: TABLE_SCROLL_MAX_HEIGHT }}
           >
-            <table className="w-full table-fixed text-xs text-[#3f444b]">
+            <table className="w-full table-fixed text-[13px] text-[#344054]">
               <thead>
-                <tr className="border-b border-[#d7dce3] bg-white text-left text-sm font-medium text-[#3f444b]">
-                  <HeaderCell className="sticky left-0 top-0 z-30 w-[13%] bg-white">
+                <tr className="border-b border-[#d8dee7] bg-[#f8fafc] text-left text-xs font-semibold uppercase text-[#667085]">
+                  <HeaderCell className="sticky left-0 top-0 z-30 w-[13%] bg-[#f8fafc]">
                     {getChartLevelLabel(chartLevel)}
                   </HeaderCell>
                   <HeaderCell className="top-0 w-[14%] text-right">
@@ -187,7 +187,7 @@ function HeaderCell({
 }) {
   return (
     <th
-      className={`sticky z-20 border-r border-[#e3e8ef] bg-white px-2 py-2.5 font-medium leading-tight last:border-r-0 ${className}`}
+      className={`sticky z-20 border-r border-[#d8dee7] bg-[#f8fafc] px-2 py-2.5 font-semibold leading-tight last:border-r-0 ${className}`}
     >
       <span className="block whitespace-normal break-words">{children}</span>
     </th>
@@ -206,7 +206,7 @@ function ValueChangeCell({
   changeLabel: string;
 }) {
   return (
-    <td className="border-r border-[#e3e8ef] px-2 py-2.5 text-right last:border-r-0">
+    <td className="border-r border-[#edf0f4] px-2 py-2.5 text-right last:border-r-0">
       <div className="font-semibold text-[#24272d]">{value}</div>
       <div className={`mt-0.5 text-[11px] ${getSignedTextClassName(changeValue)}`}>
         {changeLabel} {change}
@@ -224,7 +224,7 @@ function HeatmapCell({
 }) {
   return (
     <td
-      className={`border-r border-[#e3e8ef] px-2 py-3 text-right last:border-r-0 ${getHeatmapClassName(
+      className={`border-r border-[#edf0f4] px-2 py-3 text-right last:border-r-0 ${getHeatmapClassName(
         value
       )}`}
     >

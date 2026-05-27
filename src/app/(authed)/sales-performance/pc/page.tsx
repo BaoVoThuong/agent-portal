@@ -1,8 +1,18 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
+import {
+  DASHBOARD_FILTER_KEYS,
+  fetchDashboardMonthDefault,
+  resolveDashboardMonthDefaultRange,
+} from "@/lib/dashboard-filter-defaults";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { PcSalesPerformanceFilters } from "./PcSalesPerformanceFilters";
+import { PcCommissionMetricTrendChart } from "./PcCommissionMetricTrendChart";
+import {
+  PcSalesHeaderFilters,
+  PcSalesPerformanceFilters,
+} from "./PcSalesPerformanceFilters";
+import { PcSalesTrendSections } from "./PcSalesTrendSections";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +48,15 @@ type FilterValues = {
   policyNumber: string;
   agent: string;
   agency: string;
+  reportMonthRange: ReportMonthRange;
 };
+
+type ReportMonthRange = {
+  start: string | null;
+  end: string | null;
+};
+
+type TrendLevel = "month" | "quarter" | "year";
 
 type FilterOptions = {
   agents: string[];
@@ -57,14 +75,15 @@ type Summary = {
 
 type MonthlySummary = Summary & {
   monthKey: string;
-  policyChangePercent: number | null;
-  premiumChangePercent: number | null;
-  commissionChangePercent: number | null;
-};
-
-type QuarterSummary = Summary & {
   periodKey: string;
-  periodLabel: string;
+  policyChange: number | null;
+  policyChangePercent: number | null;
+  premiumChange: number | null;
+  premiumChangePercent: number | null;
+  commissionChange: number | null;
+  commissionChangePercent: number | null;
+  epsCommissionChange: number | null;
+  epsCommissionChangePercent: number | null;
 };
 
 type AgencyMonthRow = Summary & {
@@ -106,12 +125,6 @@ type CarrierRow = Summary & {
   averageCommissionRate: number;
 };
 
-type RegionRow = Summary & {
-  state: string;
-  city: string;
-  policySharePercent: number;
-};
-
 type ExpiredMonthRow = {
   monthKey: string;
   policyCount: number;
@@ -135,28 +148,61 @@ type DashboardData = {
   overview: Summary;
   monthlyRows: MonthlySummary[];
   trendRows: MonthlySummary[];
-  quarterRows: QuarterSummary[];
   agencyMonthRows: AgencyMonthRow[];
   agentNames: string[];
   agentSalesGroups: AgentPivotGroup[];
   agentCommissionGroups: AgentCommissionGroup[];
   carrierRows: CarrierRow[];
-  regionRows: RegionRow[];
   expiredRows: ExpiredMonthRow[];
   policyDetailRows: PolicyDetailRow[];
 };
 
 const PC_PAGE_SIZE = 1000;
 const TREND_MONTH_LIMIT = 17;
-const TABLE_MONTH_LIMIT = 16;
-const QUARTER_LIMIT = 6;
-const AGENCY_MONTH_LIMIT = 6;
-const AGENT_PIVOT_MONTH_LIMIT = 5;
-const AGENT_COMMISSION_MONTH_LIMIT = 4;
 const CARRIER_ROW_LIMIT = 24;
-const REGION_ROW_LIMIT = 24;
 const EXPIRED_MONTH_LIMIT = 10;
 const POLICY_DETAIL_LIMIT = 100;
+const POLICY_DETAIL_VISIBLE_ROW_COUNT = 10;
+const POLICY_DETAIL_HEADER_HEIGHT_PX = 48;
+const POLICY_DETAIL_ROW_HEIGHT_PX = 48;
+const POLICY_DETAIL_TABLE_MAX_HEIGHT =
+  POLICY_DETAIL_HEADER_HEIGHT_PX +
+  POLICY_DETAIL_VISIBLE_ROW_COUNT * POLICY_DETAIL_ROW_HEIGHT_PX;
+const TREND_LIMIT_BY_LEVEL: Record<TrendLevel, number> = {
+  month: TREND_MONTH_LIMIT,
+  quarter: 8,
+  year: 12,
+};
+const AGENT_TABLE_PALETTES = [
+  {
+    commission: "bg-[#fffaf0]",
+    commissionHeader: "bg-[#fff5df] text-[#7a4a0c]",
+    group: "bg-[#eaf4ff] text-[#234a72]",
+    policies: "bg-[#f8fbff]",
+    policiesHeader: "bg-[#f3f9ff] text-[#245b8f]",
+  },
+  {
+    commission: "bg-[#fff9f2]",
+    commissionHeader: "bg-[#fff1e4] text-[#7c3f1d]",
+    group: "bg-[#eef8f1] text-[#285b37]",
+    policies: "bg-[#fbfefc]",
+    policiesHeader: "bg-[#f5fbf6] text-[#2e6b40]",
+  },
+  {
+    commission: "bg-[#fff8fb]",
+    commissionHeader: "bg-[#fff0f6] text-[#8a2450]",
+    group: "bg-[#f4f0ff] text-[#4b3b7a]",
+    policies: "bg-[#fcfbff]",
+    policiesHeader: "bg-[#f8f5ff] text-[#51408a]",
+  },
+  {
+    commission: "bg-[#fffaf0]",
+    commissionHeader: "bg-[#fff4dc] text-[#7b4a08]",
+    group: "bg-[#eef7fb] text-[#23576d]",
+    policies: "bg-[#fbfdff]",
+    policiesHeader: "bg-[#f3fafc] text-[#286273]",
+  },
+];
 
 export default async function PcSalesPerformancePage({
   searchParams,
@@ -164,12 +210,24 @@ export default async function PcSalesPerformancePage({
   await requirePermission(PERMISSIONS.SALES_PERFORMANCE_ACCESS);
 
   const params = searchParams ? await searchParams : {};
-  const filters = parseFilters(params);
+  const monthDefaultConfig = await fetchDashboardMonthDefault(
+    DASHBOARD_FILTER_KEYS.SALES_PERFORMANCE_PC
+  );
+  const defaultReportMonthRange =
+    resolveDashboardMonthDefaultRange(monthDefaultConfig);
+  const filters = parseFilters(params, defaultReportMonthRange);
+  const trendLevel = parseTrendLevel(params.trendLevel);
   const allRows = await fetchPcSalesRows();
-  const filteredRows = applyFilters(allRows, filters);
-  const filterOptions = buildFilterOptions(allRows);
-  const data = buildDashboardData(filteredRows);
-  const dateRangeLabel = buildDateRangeLabel(allRows);
+  const currentMonthKey = getCurrentMonthKey();
+  const visibleRows = filterRowsThroughMonth(allRows, currentMonthKey);
+  const filteredRows = applyFilters(visibleRows, filters);
+  const filterOptions = buildFilterOptions(visibleRows);
+  const dataByLevel: Record<TrendLevel, DashboardData> = {
+    month: buildDashboardData(filteredRows, "month"),
+    quarter: buildDashboardData(filteredRows, "quarter"),
+    year: buildDashboardData(filteredRows, "year"),
+  };
+  const data = dataByLevel[trendLevel];
 
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
@@ -183,9 +241,10 @@ export default async function PcSalesPerformancePage({
               Overview of P&C sales volume, agent commissions, and EPS performance.
             </p>
           </div>
-          <div className="flex h-10 items-center justify-between rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 shadow-sm transition-shadow hover:shadow-md">
-            <span>{dateRangeLabel}</span>
-          </div>
+          <PcSalesHeaderFilters
+            defaultConfig={monthDefaultConfig}
+            filters={filters}
+          />
         </header>
 
         <PcSalesPerformanceFilters filters={filters} options={filterOptions} />
@@ -255,41 +314,37 @@ export default async function PcSalesPerformancePage({
               />
             </section>
 
-            <MonthlySalesTrendChart rows={data.trendRows} />
-            <MonthlySalesSummaryTable rows={data.monthlyRows.slice(0, TABLE_MONTH_LIMIT)} />
-
-            <section className="grid gap-10 xl:grid-cols-2">
-              <QuarterMetricChart
-                barLabel="Total Commission"
-                percentLabel="Total Commission / Total Premium"
-                rows={data.quarterRows}
-                title="Total Commission & Yield Trend"
-                value={(row) => row.totalCommission}
-                percent={(row) => percentOf(row.totalCommission, row.totalPremium)}
-              />
-              <QuarterMetricChart
-                barLabel="EPS Commission"
-                percentLabel="EPS Commission / Total Premium"
-                rows={data.quarterRows}
-                title="EPS Commission & Margin Trend"
-                value={(row) => row.epsCommission}
-                percent={(row) => percentOf(row.epsCommission, row.totalPremium)}
-              />
-            </section>
-
-            <MonthlyAgentCommissionTrendChart rows={data.trendRows} />
-            <AgencyMonthSummaryTable rows={data.agencyMonthRows} />
-            <AgentSalesVolumeTable
-              agentNames={data.agentNames}
-              groups={data.agentSalesGroups}
-            />
-            <AgentCommissionEarningsTable
-              agentNames={data.agentNames}
-              groups={data.agentCommissionGroups}
+            <PcSalesTrendSections
+              initialLevel={trendLevel}
+              monthSalesTrend={
+                <MonthlySalesTrendChart
+                  rows={dataByLevel.month.trendRows}
+                  trendLevel="month"
+                />
+              }
+              monthSections={
+                <PcTrendLevelSections data={dataByLevel.month} trendLevel="month" />
+              }
+              quarterSalesTrend={
+                <MonthlySalesTrendChart
+                  rows={dataByLevel.quarter.trendRows}
+                  trendLevel="quarter"
+                />
+              }
+              quarterSections={
+                <PcTrendLevelSections data={dataByLevel.quarter} trendLevel="quarter" />
+              }
+              yearSalesTrend={
+                <MonthlySalesTrendChart
+                  rows={dataByLevel.year.trendRows}
+                  trendLevel="year"
+                />
+              }
+              yearSections={
+                <PcTrendLevelSections data={dataByLevel.year} trendLevel="year" />
+              }
             />
             <CarrierPerformanceTable rows={data.carrierRows} />
-            <RegionMapPanel rows={data.regionRows} />
-            <RegionPolicyTable rows={data.regionRows} />
             <ExpiredPolicyTrendChart rows={data.expiredRows} />
             <PolicyDetailsTable
               rows={data.policyDetailRows.slice(0, POLICY_DETAIL_LIMIT)}
@@ -347,23 +402,23 @@ async function fetchPcSalesRows() {
   }
 }
 
-function buildDashboardData(rows: PcSalesRow[]): DashboardData {
+function buildDashboardData(rows: PcSalesRow[], trendLevel: TrendLevel): DashboardData {
   const overview = summarizeRows(rows);
-  const monthlyRows = buildMonthlySummaries(rows);
-  const trendRows = [...monthlyRows].reverse().slice(-TREND_MONTH_LIMIT);
+  const monthlyRows = buildPeriodSummaries(rows, trendLevel);
+  const trendRows = [...monthlyRows]
+    .reverse()
+    .slice(-TREND_LIMIT_BY_LEVEL[trendLevel]);
   const agentNames = buildAgentNames(rows);
 
   return {
     overview,
     monthlyRows,
     trendRows,
-    quarterRows: buildQuarterSummaries(rows),
-    agencyMonthRows: buildAgencyMonthRows(rows),
+    agencyMonthRows: buildAgencyMonthRows(rows, trendLevel),
     agentNames,
-    agentSalesGroups: buildAgentSalesGroups(rows, agentNames),
-    agentCommissionGroups: buildAgentCommissionGroups(rows, agentNames),
+    agentSalesGroups: buildAgentSalesGroups(rows, agentNames, trendLevel),
+    agentCommissionGroups: buildAgentCommissionGroups(rows, agentNames, trendLevel),
     carrierRows: buildCarrierRows(rows, overview).slice(0, CARRIER_ROW_LIMIT),
-    regionRows: buildRegionRows(rows, overview).slice(0, REGION_ROW_LIMIT),
     expiredRows: buildExpiredRows(rows),
     policyDetailRows: buildPolicyDetailRows(rows),
   };
@@ -426,31 +481,53 @@ function summarizeRows(rows: PcSalesRow[]): Summary {
   };
 }
 
-function buildMonthlySummaries(rows: PcSalesRow[]): MonthlySummary[] {
-  const chronological = [...groupRows(rows, (row) => getEffectiveMonth(row)).entries()]
-    .filter(([monthKey]) => Boolean(monthKey))
-    .map(([monthKey, group]) => ({
-      monthKey,
+function buildPeriodSummaries(
+  rows: PcSalesRow[],
+  trendLevel: TrendLevel
+): MonthlySummary[] {
+  const chronological = [
+    ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), trendLevel)).entries(),
+  ]
+    .filter(([periodKey]) => Boolean(periodKey))
+    .map(([periodKey, group]) => ({
+      monthKey: formatTrendPeriodLabel(periodKey, trendLevel),
+      periodKey,
       ...summarizeRows(group),
     }))
-    .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+    .sort((a, b) => a.periodKey.localeCompare(b.periodKey));
 
   const rowsWithChange = chronological.map<MonthlySummary>((row, index) => {
     const previous = chronological[index - 1] ?? null;
+    const policyChange = previous ? row.policyCount - previous.policyCount : null;
+    const premiumChange = previous ? row.totalPremium - previous.totalPremium : null;
+    const commissionChange = previous
+      ? row.totalCommission - previous.totalCommission
+      : null;
+    const epsCommissionChange = previous
+      ? row.epsCommission - previous.epsCommission
+      : null;
 
     return {
       ...row,
+      policyChange,
       policyChangePercent: calculateChangePercent(
-        previous ? row.policyCount - previous.policyCount : null,
+        policyChange,
         previous?.policyCount ?? null
       ),
+      premiumChange,
       premiumChangePercent: calculateChangePercent(
-        previous ? row.totalPremium - previous.totalPremium : null,
+        premiumChange,
         previous?.totalPremium ?? null
       ),
+      commissionChange,
       commissionChangePercent: calculateChangePercent(
-        previous ? row.totalCommission - previous.totalCommission : null,
+        commissionChange,
         previous?.totalCommission ?? null
+      ),
+      epsCommissionChange,
+      epsCommissionChangePercent: calculateChangePercent(
+        epsCommissionChange,
+        previous?.epsCommission ?? null
       ),
     };
   });
@@ -458,31 +535,24 @@ function buildMonthlySummaries(rows: PcSalesRow[]): MonthlySummary[] {
   return rowsWithChange.reverse();
 }
 
-function buildQuarterSummaries(rows: PcSalesRow[]): QuarterSummary[] {
-  return [...groupRows(rows, (row) => getQuarterKey(getEffectiveMonth(row))).entries()]
+function buildAgencyMonthRows(
+  rows: PcSalesRow[],
+  trendLevel: TrendLevel
+): AgencyMonthRow[] {
+  const monthGroups = [
+    ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), trendLevel)).entries(),
+  ]
     .filter(([periodKey]) => Boolean(periodKey))
-    .map(([periodKey, group]) => ({
-      periodKey,
-      periodLabel: formatQuarterLabel(periodKey),
-      ...summarizeRows(group),
-    }))
-    .sort((a, b) => a.periodKey.localeCompare(b.periodKey))
-    .slice(-QUARTER_LIMIT);
-}
-
-function buildAgencyMonthRows(rows: PcSalesRow[]): AgencyMonthRow[] {
-  const monthGroups = [...groupRows(rows, (row) => getEffectiveMonth(row)).entries()]
-    .filter(([monthKey]) => Boolean(monthKey))
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .slice(0, AGENCY_MONTH_LIMIT);
+    .sort((a, b) => b[0].localeCompare(a[0]));
   const result: AgencyMonthRow[] = [];
 
-  for (const [monthKey, monthRows] of monthGroups) {
+  for (const [periodKey, monthRows] of monthGroups) {
+    const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
     const agencyRows = [...groupRows(monthRows, (row) => cleanGroupLabel(row.agency_name)).entries()]
       .map(([agency, group]) => ({
         agency,
         isTotal: false,
-        monthKey,
+        monthKey: periodLabel,
         ...summarizeRows(group),
       }))
       .sort((a, b) => b.policyCount - a.policyCount || a.agency.localeCompare(b.agency));
@@ -491,7 +561,7 @@ function buildAgencyMonthRows(rows: PcSalesRow[]): AgencyMonthRow[] {
     result.push({
       agency: "Total",
       isTotal: true,
-      monthKey,
+      monthKey: periodLabel,
       ...summarizeRows(monthRows),
     });
   }
@@ -515,13 +585,16 @@ function buildAgentNames(rows: PcSalesRow[]) {
 
 function buildAgentSalesGroups(
   rows: PcSalesRow[],
-  agentNames: string[]
+  agentNames: string[],
+  trendLevel: TrendLevel
 ): AgentPivotGroup[] {
-  return [...groupRows(rows, (row) => getEffectiveMonth(row)).entries()]
-    .filter(([monthKey]) => Boolean(monthKey))
+  return [
+    ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), trendLevel)).entries(),
+  ]
+    .filter(([periodKey]) => Boolean(periodKey))
     .sort((a, b) => b[0].localeCompare(a[0]))
-    .slice(0, AGENT_PIVOT_MONTH_LIMIT)
-    .map(([monthKey, monthRows]) => {
+    .map(([periodKey, monthRows]) => {
+      const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
       const agencyRows = [...groupRows(monthRows, (row) => cleanGroupLabel(row.agency_name)).entries()]
         .map(([agency, agencyRows]) =>
           buildAgentPolicyPivotRow(agency, agencyRows, agentNames, false)
@@ -529,9 +602,9 @@ function buildAgentSalesGroups(
         .sort((a, b) => b.grandTotal - a.grandTotal || a.agency.localeCompare(b.agency));
 
       return {
-        monthKey,
+        monthKey: periodLabel,
         rows: agencyRows,
-        total: buildAgentPolicyPivotRow("Monthly Policies Count", monthRows, agentNames, true),
+        total: buildAgentPolicyPivotRow("Total Policies", monthRows, agentNames, true),
       };
     });
 }
@@ -560,13 +633,16 @@ function buildAgentPolicyPivotRow(
 
 function buildAgentCommissionGroups(
   rows: PcSalesRow[],
-  agentNames: string[]
+  agentNames: string[],
+  trendLevel: TrendLevel
 ): AgentCommissionGroup[] {
-  return [...groupRows(rows, (row) => getEffectiveMonth(row)).entries()]
-    .filter(([monthKey]) => Boolean(monthKey))
+  return [
+    ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), trendLevel)).entries(),
+  ]
+    .filter(([periodKey]) => Boolean(periodKey))
     .sort((a, b) => b[0].localeCompare(a[0]))
-    .slice(0, AGENT_COMMISSION_MONTH_LIMIT)
-    .map(([monthKey, monthRows]) => {
+    .map(([periodKey, monthRows]) => {
+      const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
       const rowsByAgencyStatement = [...groupRows(monthRows, (row) =>
         `${cleanGroupLabel(row.agency_name)}\u001f${cleanGroupLabel(row.statement_number)}`
       ).entries()]
@@ -583,7 +659,7 @@ function buildAgentCommissionGroups(
         );
 
       return {
-        monthKey,
+        monthKey: periodLabel,
         rows: rowsByAgencyStatement,
         monthlyTotal: buildAgentCommissionPivotRow(
           "Monthly Commission",
@@ -637,30 +713,6 @@ function buildCarrierRows(rows: PcSalesRow[], overview: Summary): CarrierRow[] {
         b.policyCount - a.policyCount ||
         b.totalPremium - a.totalPremium ||
         a.company.localeCompare(b.company)
-    );
-}
-
-function buildRegionRows(rows: PcSalesRow[], overview: Summary): RegionRow[] {
-  return [...groupRows(rows, (row) =>
-    `${cleanGroupLabel(row.state)}\u001f${cleanGroupLabel(row.city)}`
-  ).entries()]
-    .map(([key, group]) => {
-      const [state, city] = key.split("\u001f");
-      const summary = summarizeRows(group);
-
-      return {
-        state,
-        city,
-        ...summary,
-        policySharePercent: percentOf(summary.policyCount, overview.policyCount),
-      };
-    })
-    .sort(
-      (a, b) =>
-        b.policyCount - a.policyCount ||
-        b.totalPremium - a.totalPremium ||
-        a.state.localeCompare(b.state) ||
-        a.city.localeCompare(b.city)
     );
 }
 
@@ -740,7 +792,44 @@ function KpiCard({
   );
 }
 
-function MonthlySalesTrendChart({ rows }: { rows: MonthlySummary[] }) {
+function PcTrendLevelSections({
+  data,
+  trendLevel,
+}: {
+  data: DashboardData;
+  trendLevel: TrendLevel;
+}) {
+  return (
+    <>
+      <PcCommissionMetricTrendChart
+        rows={data.trendRows}
+        trendLevel={trendLevel}
+      />
+      <MonthlySalesMomGrowthTable
+        rows={data.monthlyRows}
+        trendLevel={trendLevel}
+      />
+      <AgencyMonthSummaryTable
+        rows={data.agencyMonthRows}
+        trendLevel={trendLevel}
+      />
+      <AgentMonthlyPerformanceTable
+        agentNames={data.agentNames}
+        commissionGroups={data.agentCommissionGroups}
+        salesGroups={data.agentSalesGroups}
+        trendLevel={trendLevel}
+      />
+    </>
+  );
+}
+
+function MonthlySalesTrendChart({
+  rows,
+  trendLevel,
+}: {
+  rows: MonthlySummary[];
+  trendLevel: TrendLevel;
+}) {
   const width = 1280;
   const height = 410;
   const left = 76;
@@ -765,11 +854,16 @@ function MonthlySalesTrendChart({ rows }: { rows: MonthlySummary[] }) {
       policyY: top + plotHeight - (row.policyCount / maxPolicies) * plotHeight,
     };
   });
+  const trendLabel = getTrendLevelAdjective(trendLevel);
 
   return (
-    <ReportPanel title="Monthly Sales Volume & Premium Trend">
-      <div className="overflow-x-auto">
-        <svg className="min-w-[1120px]" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Monthly sales volume and premium trend">
+    <div className="overflow-x-auto">
+      <svg
+        className="min-w-[1120px]"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`${trendLabel} sales volume and premium trend`}
+      >
           <g transform="translate(86, 22)">
             <line x1="0" x2="34" y1="8" y2="8" stroke="#347cf4" strokeWidth="3" />
             <circle cx="17" cy="8" r="5" fill="#347cf4" />
@@ -818,7 +912,7 @@ function MonthlySalesTrendChart({ rows }: { rows: MonthlySummary[] }) {
           </text>
 
           {points.map((point) => (
-            <g key={point.monthKey}>
+            <g key={point.periodKey}>
               <rect
                 fill="#fa9d4a"
                 height={Math.max(point.barHeight, 2)}
@@ -845,298 +939,85 @@ function MonthlySalesTrendChart({ rows }: { rows: MonthlySummary[] }) {
           />
 
           {points.map((point) => (
-            <g key={`${point.monthKey}-policy`}>
+            <g key={`${point.periodKey}-policy`}>
               <circle cx={point.centerX} cy={point.policyY} fill="#347cf4" r="5" />
               <text x={point.centerX} y={point.policyY - 12} textAnchor="middle" className="fill-[#347cf4] text-[15px] font-bold">
                 {formatInteger(point.policyCount)}
               </text>
             </g>
           ))}
-        </svg>
-      </div>
-    </ReportPanel>
+      </svg>
+    </div>
   );
 }
 
-function MonthlySalesSummaryTable({ rows }: { rows: MonthlySummary[] }) {
-  return (
-    <ReportPanel title="Monthly Sales Performance Summary">
-      <div className="overflow-auto">
-        <table className="min-w-[1260px] w-full table-fixed text-[12px]">
-          <thead>
-            <tr className="bg-[#edf3fb] text-left font-bold">
-              <HeaderCell width="15%">Month</HeaderCell>
-              <HeaderCell align="right" width="14%">Policies Count</HeaderCell>
-              <HeaderCell align="right" width="16%">Policy MoM %</HeaderCell>
-              <HeaderCell align="right" width="18%">Total Premium</HeaderCell>
-              <HeaderCell align="right" width="16%">Premium MoM %</HeaderCell>
-              <HeaderCell align="right" width="16%">Total Commission</HeaderCell>
-              <HeaderCell align="right" width="15%">Commission MoM %</HeaderCell>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={row.monthKey} className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}>
-                <BodyCell strong>{row.monthKey}</BodyCell>
-                <BodyCell align="right">{formatInteger(row.policyCount)}</BodyCell>
-                <BarDeltaCell value={row.policyChangePercent} />
-                <BodyCell align="right">{formatCurrencyShort(row.totalPremium)}</BodyCell>
-                <BarDeltaCell color="orange" value={row.premiumChangePercent} />
-                <BodyCell align="right">{formatCurrency(row.totalCommission)}</BodyCell>
-                <BarDeltaCell color="pink" value={row.commissionChangePercent} />
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </ReportPanel>
-  );
-}
-
-function QuarterMetricChart({
-  barLabel,
-  percentLabel,
+function MonthlySalesMomGrowthTable({
   rows,
-  title,
-  value,
-  percent,
+  trendLevel,
 }: {
-  barLabel: string;
-  percentLabel: string;
-  rows: QuarterSummary[];
-  title: string;
-  value: (row: QuarterSummary) => number;
-  percent: (row: QuarterSummary) => number;
+  rows: MonthlySummary[];
+  trendLevel: TrendLevel;
 }) {
-  const width = 620;
-  const height = 360;
-  const left = 72;
-  const right = 74;
-  const top = 54;
-  const bottom = 56;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
-  const maxAmount = roundAxisMax(maxValue(rows, value));
-  const maxPercent = Math.max(20, roundAxisMax(maxValue(rows, percent)));
-  const groupWidth = plotWidth / Math.max(rows.length, 1);
-  const barWidth = Math.min(64, groupWidth * 0.55);
-  const points = rows.map((row, index) => {
-    const centerX = left + index * groupWidth + groupWidth / 2;
-    const amount = value(row);
-    const rate = percent(row);
-    const barHeight = (amount / maxAmount) * plotHeight;
-
-    return {
-      amount,
-      barHeight,
-      barY: top + plotHeight - barHeight,
-      centerX,
-      lineY: top + plotHeight - (rate / maxPercent) * plotHeight,
-      rate,
-      row,
-    };
-  });
-
-  return (
-    <ReportPanel title={title}>
-      <div className="overflow-x-auto">
-        <svg className="min-w-[560px]" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
-          <g transform="translate(78, 18)">
-            <rect width="30" height="12" fill="#d6d6d6" />
-            <text x="40" y="12" className="fill-[#4a4f58] text-[13px] font-semibold">
-              {barLabel}
-            </text>
-            <line x1="240" x2="272" y1="7" y2="7" stroke="#d94242" strokeWidth="2" />
-            <circle cx="256" cy="7" r="4" fill="#d94242" />
-            <text x="282" y="12" className="fill-[#4a4f58] text-[13px] font-semibold">
-              {percentLabel}
-            </text>
-          </g>
-
-          {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
-            const y = top + plotHeight - tick * plotHeight;
-
-            return (
-              <g key={tick}>
-                <line x1={left} x2={width - right} y1={y} y2={y} stroke="#d4d4d4" />
-                <text x={left - 12} y={y + 4} textAnchor="end" className="fill-[#4a4f58] text-[12px]">
-                  {formatAxisMoney(maxAmount * tick)}
-                </text>
-                <text x={width - right + 12} y={y + 4} className="fill-[#4a4f58] text-[12px]">
-                  {formatPercent(maxPercent * tick)}
-                </text>
-              </g>
-            );
-          })}
-
-          {points.map((point) => (
-            <g key={point.row.periodKey}>
-              <rect
-                fill="#d6d6d6"
-                height={Math.max(point.barHeight, 2)}
-                width={barWidth}
-                x={point.centerX - barWidth / 2}
-                y={point.barY}
-              />
-              <text x={point.centerX} y={Math.max(point.barY - 8, top + 16)} textAnchor="middle" className="fill-[#333840] text-[12px] font-bold">
-                {formatCurrencyShort(point.amount)}
-              </text>
-              <text x={point.centerX} y={top + plotHeight + 28} textAnchor="middle" className="fill-[#30343a] text-[13px] font-semibold">
-                {point.row.periodLabel}
-              </text>
-            </g>
-          ))}
-
-          <path
-            d={points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.centerX} ${point.lineY}`).join(" ")}
-            fill="none"
-            stroke="#d94242"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-          />
-
-          {points.map((point) => (
-            <g key={`${point.row.periodKey}-rate`}>
-              <circle cx={point.centerX} cy={point.lineY} fill="#d94242" r="4" />
-              <text x={point.centerX} y={point.lineY - 12} textAnchor="middle" className="fill-[#d94242] text-[12px] font-bold">
-                {formatPercent(point.rate)}
-              </text>
-            </g>
-          ))}
-        </svg>
-      </div>
-    </ReportPanel>
+  const maxPolicyChange = maxAbsValue(rows, (row) => row.policyChangePercent);
+  const maxPremiumChange = maxAbsValue(rows, (row) => row.premiumChangePercent);
+  const maxCommissionChange = maxAbsValue(rows, (row) => row.commissionChangePercent);
+  const maxEpsCommissionChange = maxAbsValue(
+    rows,
+    (row) => row.epsCommissionChangePercent
   );
-}
-
-function MonthlyAgentCommissionTrendChart({ rows }: { rows: MonthlySummary[] }) {
-  const width = 1280;
-  const height = 380;
-  const left = 76;
-  const right = 86;
-  const top = 54;
-  const bottom = 62;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
-  const maxCommission = roundAxisMax(maxValue(rows, (row) => row.agentCommission));
-  const maxRate = Math.max(15, roundAxisMax(maxValue(rows, (row) => percentOf(row.agentCommission, row.totalPremium))));
-  const groupWidth = plotWidth / Math.max(rows.length, 1);
-  const barWidth = Math.min(54, Math.max(24, groupWidth * 0.55));
-  const points = rows.map((row, index) => {
-    const centerX = left + index * groupWidth + groupWidth / 2;
-    const rate = percentOf(row.agentCommission, row.totalPremium);
-    const barHeight = (row.agentCommission / maxCommission) * plotHeight;
-
-    return {
-      ...row,
-      barHeight,
-      barY: top + plotHeight - barHeight,
-      centerX,
-      lineY: top + plotHeight - (rate / maxRate) * plotHeight,
-      rate,
-    };
-  });
+  const periodLabel = getTrendLevelLabel(trendLevel);
+  const changeLabel = getTrendChangeLabel(trendLevel);
 
   return (
-    <ReportPanel title="Agent Commission Payout Trend">
-      <div className="overflow-x-auto">
-        <svg className="min-w-[1120px]" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Agent commission payout trend">
-          <g transform="translate(78, 18)">
-            <rect width="30" height="12" fill="#d6d6d6" />
-            <text x="40" y="12" className="fill-[#4a4f58] text-[13px] font-semibold">
-              Agent Commission
-            </text>
-            <line x1="238" x2="270" y1="7" y2="7" stroke="#d94242" strokeWidth="2" />
-            <circle cx="254" cy="7" r="4" fill="#d94242" />
-            <text x="280" y="12" className="fill-[#4a4f58] text-[13px] font-semibold">
-              Total Agent Commission / Total Premium
-            </text>
-          </g>
-
-          {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
-            const y = top + plotHeight - tick * plotHeight;
-
-            return (
-              <g key={tick}>
-                <line x1={left} x2={width - right} y1={y} y2={y} stroke="#d4d4d4" />
-                <text x={left - 12} y={y + 4} textAnchor="end" className="fill-[#4a4f58] text-[12px]">
-                  {formatAxisMoney(maxCommission * tick)}
-                </text>
-                <text x={width - right + 12} y={y + 4} className="fill-[#4a4f58] text-[12px]">
-                  {formatPercent(maxRate * tick)}
-                </text>
-              </g>
-            );
-          })}
-
-          {points.map((point) => (
-            <g key={point.monthKey}>
-              <rect
-                fill="#d6d6d6"
-                height={Math.max(point.barHeight, 2)}
-                width={barWidth}
-                x={point.centerX - barWidth / 2}
-                y={point.barY}
-              />
-              <text x={point.centerX} y={Math.max(point.barY - 10, top + 16)} textAnchor="middle" className="fill-[#252a31] text-[15px] font-bold">
-                {formatCurrencyShort(point.agentCommission)}
-              </text>
-              <text x={point.centerX} y={top + plotHeight + 22} textAnchor="middle" className="fill-[#3e444d] text-[12px] font-semibold">
-                {formatMonthShort(point.monthKey)}
-              </text>
-            </g>
-          ))}
-
-          <path
-            d={points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.centerX} ${point.lineY}`).join(" ")}
-            fill="none"
-            stroke="#d94242"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-          />
-
-          {points.map((point) => (
-            <g key={`${point.monthKey}-rate`}>
-              <circle cx={point.centerX} cy={point.lineY} fill="#d94242" r="4" />
-              <text x={point.centerX} y={point.lineY - 12} textAnchor="middle" className="fill-[#d94242] text-[13px] font-bold">
-                {formatPercent(point.rate)}
-              </text>
-            </g>
-          ))}
-        </svg>
-      </div>
-    </ReportPanel>
-  );
-}
-
-function AgencyMonthSummaryTable({ rows }: { rows: AgencyMonthRow[] }) {
-  return (
-    <ReportPanel title="Monthly Sales Performance Summary">
-      <div className="max-h-[520px] overflow-auto">
-        <table className="min-w-[1120px] w-full table-fixed text-[12px]">
+    <ReportPanel
+      title={`Sales Performance by ${periodLabel} | Policies & Premium ${changeLabel} Growth`}
+    >
+      <div className="max-h-[440px] overflow-y-auto overflow-x-hidden">
+        <table className="w-full table-fixed text-[12px] tabular-nums">
           <thead>
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <HeaderCell width="13%">Report Month</HeaderCell>
-              <HeaderCell width="14%">Agency</HeaderCell>
-              <HeaderCell align="right" width="14%">Total Policies</HeaderCell>
-              <HeaderCell align="right" width="18%">Total Premium</HeaderCell>
-              <HeaderCell align="right" width="18%">Total Commission</HeaderCell>
-              <HeaderCell align="right" width="18%">EPS Commission</HeaderCell>
-              <HeaderCell align="right" width="18%">Total Agent Commission</HeaderCell>
+              <SummaryHeaderCell width="9%">{periodLabel}</SummaryHeaderCell>
+              <SummaryHeaderCell align="right" width="10%">Policies</SummaryHeaderCell>
+              <SummaryHeaderCell align="right" width="11%">% Policies {changeLabel}</SummaryHeaderCell>
+              <SummaryHeaderCell align="right" width="13%">Total Premium</SummaryHeaderCell>
+              <SummaryHeaderCell align="right" width="11%">% Premium {changeLabel}</SummaryHeaderCell>
+              <SummaryHeaderCell align="right" width="14%">Total Comm</SummaryHeaderCell>
+              <SummaryHeaderCell align="right" width="12%">% Comm {changeLabel}</SummaryHeaderCell>
+              <SummaryHeaderCell align="right" width="10%">EPS Comm</SummaryHeaderCell>
+              <SummaryHeaderCell align="right" width="10%">% EPS {changeLabel}</SummaryHeaderCell>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
-              <tr key={`${row.monthKey}-${row.agency}-${index}`} className={`${row.isTotal ? "bg-white font-bold" : index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}`}>
-                <BodyCell>{row.monthKey ? row.monthKey : ""}</BodyCell>
-                <BodyCell strong={row.isTotal}>{row.agency}</BodyCell>
-                <BodyCell align="right">{formatInteger(row.policyCount)}</BodyCell>
-                <BodyCell align="right">{formatCurrencyShort(row.totalPremium)}</BodyCell>
-                <BodyCell align="right">{formatCurrency(row.totalCommission)}</BodyCell>
-                <BodyCell align="right">{formatCurrency(row.epsCommission)}</BodyCell>
-                <BodyCell align="right">{formatCurrency(row.agentCommission)}</BodyCell>
+              <tr key={row.periodKey} className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}>
+                <SummaryBodyCell strong>{row.monthKey}</SummaryBodyCell>
+                <SummaryMetricCell
+                  changeLabel={changeLabel}
+                  delta={row.policyChange}
+                  value={formatInteger(row.policyCount)}
+                />
+                <SummaryDeltaCell maxValue={maxPolicyChange} value={row.policyChangePercent} />
+                <SummaryMetricCell
+                  changeLabel={changeLabel}
+                  delta={row.premiumChange}
+                  deltaType="currency"
+                  value={formatCurrencyShort(row.totalPremium)}
+                />
+                <SummaryDeltaCell maxValue={maxPremiumChange} value={row.premiumChangePercent} />
+                <SummaryMetricCell
+                  changeLabel={changeLabel}
+                  delta={row.commissionChange}
+                  deltaType="currency"
+                  value={formatCurrencyShort(row.totalCommission)}
+                />
+                <SummaryDeltaCell maxValue={maxCommissionChange} value={row.commissionChangePercent} />
+                <SummaryMetricCell
+                  changeLabel={changeLabel}
+                  delta={row.epsCommissionChange}
+                  deltaType="currency"
+                  value={formatCurrencyShort(row.epsCommission)}
+                />
+                <SummaryDeltaCell maxValue={maxEpsCommissionChange} value={row.epsCommissionChangePercent} />
               </tr>
             ))}
           </tbody>
@@ -1146,59 +1027,419 @@ function AgencyMonthSummaryTable({ rows }: { rows: AgencyMonthRow[] }) {
   );
 }
 
-function AgentSalesVolumeTable({
-  agentNames,
-  groups,
+function SummaryHeaderCell({
+  align = "left",
+  children,
+  width,
 }: {
-  agentNames: string[];
-  groups: AgentPivotGroup[];
+  align?: "left" | "right";
+  children: ReactNode;
+  width: string;
 }) {
-  const grandTotals = totalAgentPivotRows(
-    groups.flatMap((group) => [...group.rows]),
-    agentNames,
-    "Grand total"
+  return (
+    <th
+      className={`sticky top-0 z-10 border-r border-b border-slate-200 bg-slate-50 px-3 py-4 align-middle text-xs font-semibold uppercase tracking-wider text-slate-500 last:border-r-0 ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
+      style={{ width }}
+    >
+      {children}
+    </th>
   );
+}
+
+function SummaryBodyCell({
+  align = "left",
+  children,
+  strong = false,
+}: {
+  align?: "left" | "right";
+  children: ReactNode;
+  strong?: boolean;
+}) {
+  return (
+    <td
+      className={`border-r border-b border-slate-100 px-3 py-4 align-middle text-sm text-slate-700 transition-colors group-hover:bg-slate-50/50 last:border-r-0 ${
+        align === "right" ? "text-right" : "text-left"
+      } ${strong ? "font-semibold text-slate-900" : ""}`}
+    >
+      {children}
+    </td>
+  );
+}
+
+function SummaryDeltaCell({
+  maxValue,
+  value,
+}: {
+  maxValue: number;
+  value: number | null;
+}) {
+  return (
+    <td
+      className={`border-r border-b border-slate-100 px-3 py-4 align-middle text-right text-sm font-semibold last:border-r-0 ${deltaTextClassName(
+        value
+      )}`}
+      style={{ backgroundColor: deltaHeatColor(value, maxValue) }}
+    >
+      {formatNullablePercent(value)}
+    </td>
+  );
+}
+
+function SummaryMetricCell({
+  changeLabel,
+  delta,
+  deltaType = "integer",
+  value,
+}: {
+  changeLabel: string;
+  delta: number | null;
+  deltaType?: "integer" | "currency";
+  value: string;
+}) {
+  const formattedDelta =
+    delta === null
+      ? "-"
+      : deltaType === "currency"
+        ? formatCurrencyShort(delta)
+        : formatInteger(delta);
 
   return (
-    <ReportPanel title="Agent Sales Volume by Month">
-      <div className="max-h-[620px] overflow-auto">
-        <table className="min-w-[1120px] w-full table-fixed text-[12px]">
-          <thead>
-            <tr className="bg-[#bfe3fb] text-right font-bold">
-              <HeaderCell width="13%">Total Policies</HeaderCell>
-              <HeaderCell width="16%">Agency</HeaderCell>
-              <HeaderCell align="right" colSpan={agentNames.length + 1}>
-                Agent Name / Policies Count
-              </HeaderCell>
-            </tr>
-            <tr className="bg-white text-left font-bold">
-              <HeaderCell>Report Month</HeaderCell>
-              <HeaderCell>Agency</HeaderCell>
-              {agentNames.map((agent) => (
-                <HeaderCell key={agent} align="right">
-                  {agent}
-                </HeaderCell>
-              ))}
-              <HeaderCell align="right">Grand total</HeaderCell>
+    <td className="border-r border-b border-slate-100 px-3 py-3 align-middle text-right last:border-r-0">
+      <div className="font-semibold text-slate-800">{value}</div>
+      <div className={`mt-1 text-[11px] ${deltaTextClassName(delta)}`}>
+        {changeLabel} {formattedDelta}
+      </div>
+    </td>
+  );
+}
+
+function AgencyMonthSummaryTable({
+  rows,
+  trendLevel,
+}: {
+  rows: AgencyMonthRow[];
+  trendLevel: TrendLevel;
+}) {
+  const monthGroups = groupAgencyMonthRows(rows);
+  const heatRows = rows.filter((row) => row.monthKey);
+  const heatMaxes = {
+    agentCommission: maxValue(heatRows, (row) => row.agentCommission),
+    agentRate: maxValue(heatRows, (row) =>
+      percentOf(row.agentCommission, row.totalPremium)
+    ),
+    epsCommission: maxValue(heatRows, (row) => row.epsCommission),
+    epsRate: maxValue(heatRows, (row) =>
+      percentOf(row.epsCommission, row.totalPremium)
+    ),
+    totalCommission: maxValue(heatRows, (row) => row.totalCommission),
+    totalRate: maxValue(heatRows, (row) =>
+      percentOf(row.totalCommission, row.totalPremium)
+    ),
+  };
+  const periodLabel = getTrendLevelLabel(trendLevel);
+
+  return (
+    <ReportPanel title={`${getTrendLevelAdjective(trendLevel)} Sales Performance Summary`}>
+      <div className="max-h-[520px] overflow-y-auto overflow-x-hidden">
+        <table className="w-full table-fixed text-[11px] tabular-nums">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-[#edf3fb] text-left font-bold">
+              <AgencySummaryHeaderCell width="9%">{periodLabel}</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell width="11%">Agency</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell align="right" width="8%">Policies</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell align="right" width="11%">Premium</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell align="right" width="11%">Total Comm</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell align="right" width="8%">Total Rate</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell align="right" width="11%">Agent Comm</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell align="right" width="8%">Agent Rate</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell align="right" width="11%">EPS Comm</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell align="right" width="12%">EPS Rate</AgencySummaryHeaderCell>
             </tr>
           </thead>
           <tbody>
-            {groups.map((group) => (
-              <AgentPivotRows
+            {monthGroups.map((group, groupIndex) =>
+              group.rows.map((row, rowIndex) => (
+                <tr
+                  key={`${group.monthKey}-${row.agency}-${rowIndex}`}
+                  className={`${row.isTotal ? "bg-white font-bold" : (groupIndex + rowIndex) % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}`}
+                >
+                  {rowIndex === 0 ? (
+                    <td
+                      className="border-r border-b border-slate-200 px-2 py-3 align-top text-xs font-semibold text-slate-900"
+                      rowSpan={group.rows.length}
+                    >
+                      {group.monthKey}
+                    </td>
+                  ) : null}
+                  <AgencySummaryCell strong={row.isTotal}>{row.agency}</AgencySummaryCell>
+                  <AgencySummaryCell align="right">{formatInteger(row.policyCount)}</AgencySummaryCell>
+                  <AgencySummaryCell align="right">{formatCurrencyShort(row.totalPremium)}</AgencySummaryCell>
+                  <AgencySummaryHeatCell
+                    maxValue={heatMaxes.totalCommission}
+                    mode="blue"
+                    strong={row.isTotal}
+                    value={row.totalCommission}
+                  >
+                    {formatCurrencyShort(row.totalCommission)}
+                  </AgencySummaryHeatCell>
+                  <AgencySummaryHeatCell
+                    maxValue={heatMaxes.totalRate}
+                    mode="blue"
+                    strong={row.isTotal}
+                    value={percentOf(row.totalCommission, row.totalPremium)}
+                  >
+                    {formatPercent(percentOf(row.totalCommission, row.totalPremium))}
+                  </AgencySummaryHeatCell>
+                  <AgencySummaryHeatCell
+                    maxValue={heatMaxes.agentCommission}
+                    mode="lavender"
+                    strong={row.isTotal}
+                    value={row.agentCommission}
+                  >
+                    {formatCurrencyShort(row.agentCommission)}
+                  </AgencySummaryHeatCell>
+                  <AgencySummaryHeatCell
+                    maxValue={heatMaxes.agentRate}
+                    mode="lavender"
+                    strong={row.isTotal}
+                    value={percentOf(row.agentCommission, row.totalPremium)}
+                  >
+                    {formatPercent(percentOf(row.agentCommission, row.totalPremium))}
+                  </AgencySummaryHeatCell>
+                  <AgencySummaryHeatCell
+                    maxValue={heatMaxes.epsCommission}
+                    mode="pink"
+                    strong={row.isTotal}
+                    value={row.epsCommission}
+                  >
+                    {formatCurrencyShort(row.epsCommission)}
+                  </AgencySummaryHeatCell>
+                  <AgencySummaryHeatCell
+                    maxValue={heatMaxes.epsRate}
+                    mode="pink"
+                    strong={row.isTotal}
+                    value={percentOf(row.epsCommission, row.totalPremium)}
+                  >
+                    {formatPercent(percentOf(row.epsCommission, row.totalPremium))}
+                  </AgencySummaryHeatCell>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </ReportPanel>
+  );
+}
+
+function groupAgencyMonthRows(rows: AgencyMonthRow[]) {
+  const groups: { monthKey: string; rows: AgencyMonthRow[] }[] = [];
+  const groupByMonth = new Map<string, { monthKey: string; rows: AgencyMonthRow[] }>();
+
+  for (const row of rows) {
+    const monthKey = row.monthKey || "Grand total";
+    let group = groupByMonth.get(monthKey);
+
+    if (!group) {
+      group = { monthKey, rows: [] };
+      groupByMonth.set(monthKey, group);
+      groups.push(group);
+    }
+
+    group.rows.push(row.monthKey ? row : { ...row, agency: "All agencies" });
+  }
+
+  return groups;
+}
+
+function AgencySummaryHeaderCell({
+  align = "left",
+  children,
+  width,
+}: {
+  align?: "left" | "right";
+  children: ReactNode;
+  width: string;
+}) {
+  return (
+    <th
+      className={`border-r border-b border-slate-200 bg-slate-50 px-2 py-3 align-middle text-[11px] font-semibold uppercase tracking-wider text-slate-500 last:border-r-0 ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
+      style={{ width }}
+    >
+      {children}
+    </th>
+  );
+}
+
+function AgencySummaryCell({
+  align = "left",
+  children,
+  strong = false,
+}: {
+  align?: "left" | "right";
+  children: ReactNode;
+  strong?: boolean;
+}) {
+  return (
+    <td
+      className={`border-r border-b border-slate-100 px-2 py-3 align-middle text-xs text-slate-700 transition-colors group-hover:bg-slate-50/50 last:border-r-0 ${
+        align === "right" ? "text-right" : "text-left"
+      } ${strong ? "font-semibold text-slate-900" : ""}`}
+    >
+      {children}
+    </td>
+  );
+}
+
+function AgencySummaryHeatCell({
+  children,
+  maxValue,
+  mode,
+  strong = false,
+  value,
+}: {
+  children: ReactNode;
+  maxValue: number;
+  mode: "blue" | "lavender" | "pink";
+  strong?: boolean;
+  value: number;
+}) {
+  return (
+    <td
+      className={`border-r border-b border-slate-100 px-2 py-3 align-middle text-right text-xs text-slate-700 transition-colors group-hover:bg-slate-50/50 last:border-r-0 ${
+        strong ? "font-semibold text-slate-900" : ""
+      }`}
+      style={{ backgroundColor: agencySummaryHeatColor(value, maxValue, mode) }}
+    >
+      {children}
+    </td>
+  );
+}
+
+function AgentMonthlyPerformanceTable({
+  agentNames,
+  commissionGroups,
+  salesGroups,
+  trendLevel,
+}: {
+  agentNames: string[];
+  commissionGroups: AgentCommissionGroup[];
+  salesGroups: AgentPivotGroup[];
+  trendLevel: TrendLevel;
+}) {
+  const salesGroupsByMonth = new Map(
+    salesGroups.map((group) => [group.monthKey, group])
+  );
+  const policyGrandTotals = totalAgentPivotRows(
+    salesGroups.flatMap((group) => group.rows),
+    agentNames,
+    "Grand total policies"
+  );
+  const commissionGrandTotals = totalCommissionPivotRows(
+    commissionGroups.flatMap((group) => group.rows),
+    agentNames,
+    "Grand total commission"
+  );
+  const agentGroupWidth = "220px";
+  const tableMinWidth = Math.max(1180, 420 + agentNames.length * 220 + 210);
+
+  return (
+    <ReportPanel
+      title={`Agent Performance by ${getTrendLevelLabel(trendLevel)} | Policies & Commission`}
+    >
+      <div className="max-h-[680px] overflow-auto">
+        <table
+          className="w-full table-fixed text-[12px] tabular-nums"
+          style={{ minWidth: tableMinWidth }}
+        >
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-[#edf3fb] text-left font-bold">
+              <AgentPerformanceHeaderCell rowSpan={2} stickyLeft="0px" width="120px">
+                {getTrendLevelLabel(trendLevel)}
+              </AgentPerformanceHeaderCell>
+              <AgentPerformanceHeaderCell rowSpan={2} stickyDivider stickyLeft="120px" width="170px">Agency</AgentPerformanceHeaderCell>
+              {agentNames.map((agent, agentIndex) => {
+                const palette = agentTablePalette(agentIndex);
+
+                return (
+                <AgentPerformanceHeaderCell
+                  align="center"
+                  className={palette.group}
+                  colSpan={2}
+                  groupStart
+                  key={agent}
+                  width={agentGroupWidth}
+                >
+                  {agent}
+                </AgentPerformanceHeaderCell>
+                );
+              })}
+              <AgentPerformanceHeaderCell align="center" className="bg-[#e7eefb] text-[#2d3c63]" colSpan={2} groupStart width="210px">
+                Grand Total
+              </AgentPerformanceHeaderCell>
+            </tr>
+            <tr className="bg-[#f8fafc] text-right font-bold">
+              {agentNames.map((agent, agentIndex) => {
+                const palette = agentTablePalette(agentIndex);
+
+                return (
+                <Fragment key={agent}>
+                  <AgentPerformanceHeaderCell align="right" className={palette.policiesHeader} groupStart key={`${agent}-policies`}>
+                    Policies
+                  </AgentPerformanceHeaderCell>
+                  <AgentPerformanceHeaderCell align="right" className={palette.commissionHeader} key={`${agent}-commission`}>
+                    Commission
+                  </AgentPerformanceHeaderCell>
+                </Fragment>
+                );
+              })}
+              <AgentPerformanceHeaderCell align="right" className="bg-[#f4f7ff] text-[#33446e]" groupStart>Policies</AgentPerformanceHeaderCell>
+              <AgentPerformanceHeaderCell align="right" className="bg-[#f4f7ff] text-[#33446e]">Commission</AgentPerformanceHeaderCell>
+            </tr>
+          </thead>
+          <tbody>
+            {commissionGroups.map((commissionGroup, groupIndex) => (
+              <AgentMonthlyPerformanceRows
                 agentNames={agentNames}
-                group={group}
-                key={group.monthKey}
+                commissionGroup={commissionGroup}
+                groupIndex={groupIndex}
+                key={commissionGroup.monthKey}
+                salesGroup={salesGroupsByMonth.get(commissionGroup.monthKey)}
               />
             ))}
-            <tr className="bg-white font-bold">
-              <BodyCell>Grand total</BodyCell>
-              <BodyCell />
-              {agentNames.map((agent) => (
-                <BodyCell align="right" key={agent}>
-                  {formatInteger(grandTotals.valuesByAgent[agent] ?? 0)}
-                </BodyCell>
-              ))}
-              <BodyCell align="right">{formatInteger(grandTotals.grandTotal)}</BodyCell>
+            <tr className="bg-[#eaf3ff] font-bold">
+              <AgentPerformanceCell className="bg-[#e8f2ff]" stickyLeft="0px" strong>
+                Grand total
+              </AgentPerformanceCell>
+              <AgentPerformanceCell className="bg-[#e8f2ff]" stickyDivider stickyLeft="120px" strong>
+                All agencies
+              </AgentPerformanceCell>
+              {agentNames.map((agent, agentIndex) => {
+                const palette = agentTablePalette(agentIndex);
+
+                return (
+                <Fragment key={agent}>
+                  <AgentPerformanceCell align="right" className={palette.policies} groupStart key={`${agent}-policies`} strong>
+                    {formatInteger(policyGrandTotals.valuesByAgent[agent] ?? 0)}
+                  </AgentPerformanceCell>
+                  <AgentPerformanceCell align="right" className={palette.commission} key={`${agent}-commission`} strong>
+                    {formatCurrencyShort(
+                      commissionGrandTotals.valuesByAgent[agent] ?? 0
+                    )}
+                  </AgentPerformanceCell>
+                </Fragment>
+                );
+              })}
+              <AgentPerformanceCell align="right" className="bg-[#eef3ff]" groupStart strong>
+                {formatInteger(policyGrandTotals.grandTotal)}
+              </AgentPerformanceCell>
+              <AgentPerformanceCell align="right" className="bg-[#eef3ff]" strong>
+                {formatCurrencyShort(commissionGrandTotals.grandTotal)}
+              </AgentPerformanceCell>
             </tr>
           </tbody>
         </table>
@@ -1207,129 +1448,195 @@ function AgentSalesVolumeTable({
   );
 }
 
-function AgentPivotRows({
+function AgentMonthlyPerformanceRows({
   agentNames,
-  group,
+  commissionGroup,
+  groupIndex,
+  salesGroup,
 }: {
   agentNames: string[];
-  group: AgentPivotGroup;
+  commissionGroup: AgentCommissionGroup;
+  groupIndex: number;
+  salesGroup: AgentPivotGroup | undefined;
 }) {
-  const rows = [...group.rows, group.total];
+  const policyTotalRow = salesGroup?.total ?? {
+    agency: "Total Policies",
+    grandTotal: 0,
+    isTotal: true,
+    valuesByAgent: emptyAgentValues(agentNames),
+  };
+  const commissionRowsByAgency = totalCommissionRowsByAgency(
+    commissionGroup.rows,
+    agentNames
+  );
+  const agencies = uniqueSorted([
+    ...(salesGroup?.rows.map((row) => row.agency) ?? []),
+    ...commissionRowsByAgency.keys(),
+  ]);
+  const rows = [
+    ...agencies.map((agency) => ({
+      agency,
+      commission:
+        commissionRowsByAgency.get(agency) ?? emptyAgentCommissionRow(agency, agentNames),
+      isTotal: false,
+      policies:
+        salesGroup?.rows.find((row) => row.agency === agency) ??
+        emptyAgentPolicyRow(agency, agentNames),
+    })),
+    {
+      agency: "Total",
+      commission: commissionGroup.monthlyTotal,
+      isTotal: true,
+      policies: policyTotalRow,
+    },
+  ];
 
   return (
     <>
-      {rows.map((row, index) => (
-        <tr
-          className={`${row.isTotal ? "bg-white font-bold" : index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}`}
-          key={`${group.monthKey}-${row.agency}-${index}`}
-        >
-          <BodyCell>{index === 0 ? group.monthKey : ""}</BodyCell>
-          <BodyCell strong={row.isTotal}>{row.agency}</BodyCell>
-          {agentNames.map((agent) => (
-            <BodyCell align="right" key={agent}>
-              {formatInteger(row.valuesByAgent[agent] ?? 0)}
-            </BodyCell>
-          ))}
-          <BodyCell align="right">{formatInteger(row.grandTotal)}</BodyCell>
-        </tr>
-      ))}
+      {rows.map((row, index) => {
+        return (
+          <tr
+            className={`${index === 0 ? "border-t-2 border-t-slate-300" : ""} ${
+              row.isTotal
+                ? "bg-[#e8f2ff] font-bold"
+                : (groupIndex + index) % 2 === 0
+                  ? "bg-white"
+                  : "bg-[#f7f8fa]"
+            }`}
+            key={`${commissionGroup.monthKey}-${row.agency}-${index}`}
+          >
+            {index === 0 ? (
+              <td
+                className={`sticky left-0 z-20 border-r border-b border-slate-300 px-4 py-4 align-top text-[13px] font-semibold text-slate-900 ${
+                  groupIndex % 2 === 0 ? "bg-[#f1f5fb]" : "bg-[#eef4f8]"
+                }`}
+                rowSpan={rows.length}
+              >
+                {commissionGroup.monthKey}
+              </td>
+            ) : null}
+            <AgentPerformanceCell
+              className={
+                row.isTotal
+                  ? "bg-[#e8f2ff]"
+                  : (groupIndex + index) % 2 === 0
+                    ? "bg-white"
+                    : "bg-[#f7f8fa]"
+              }
+              stickyDivider
+              stickyLeft="120px"
+              strong={row.isTotal}
+            >
+              {row.agency}
+            </AgentPerformanceCell>
+            {agentNames.map((agent, agentIndex) => {
+              const palette = agentTablePalette(agentIndex);
+
+              return (
+              <Fragment key={agent}>
+                <AgentPerformanceCell align="right" className={palette.policies} groupStart key={`${agent}-policies`} strong={row.isTotal}>
+                  {formatInteger(row.policies.valuesByAgent[agent] ?? 0)}
+                </AgentPerformanceCell>
+                <AgentPerformanceCell align="right" className={palette.commission} key={`${agent}-commission`} strong={row.isTotal}>
+                  {formatCurrencyShort(row.commission.valuesByAgent[agent] ?? 0)}
+                </AgentPerformanceCell>
+              </Fragment>
+              );
+            })}
+            <AgentPerformanceCell align="right" className="bg-[#eef3ff]" groupStart strong={row.isTotal}>
+              {formatInteger(row.policies.grandTotal)}
+            </AgentPerformanceCell>
+            <AgentPerformanceCell align="right" className="bg-[#eef3ff]" strong={row.isTotal}>
+              {formatCurrencyShort(row.commission.grandTotal)}
+            </AgentPerformanceCell>
+          </tr>
+        );
+      })}
     </>
   );
 }
 
-function AgentCommissionEarningsTable({
-  agentNames,
-  groups,
+function AgentPerformanceHeaderCell({
+  align = "left",
+  children,
+  className = "",
+  colSpan,
+  groupStart = false,
+  rowSpan,
+  stickyDivider = false,
+  stickyLeft,
+  width,
 }: {
-  agentNames: string[];
-  groups: AgentCommissionGroup[];
+  align?: "center" | "left" | "right";
+  children: ReactNode;
+  className?: string;
+  colSpan?: number;
+  groupStart?: boolean;
+  rowSpan?: number;
+  stickyDivider?: boolean;
+  stickyLeft?: string;
+  width?: string;
 }) {
-  const grandTotals = totalCommissionPivotRows(
-    groups.flatMap((group) => group.rows),
-    agentNames,
-    "Grand total"
-  );
-
   return (
-    <ReportPanel title="Agent Commission Earnings by Month">
-      <div className="max-h-[640px] overflow-auto">
-        <table className="min-w-[1220px] w-full table-fixed text-[12px]">
-          <thead>
-            <tr className="bg-[#fdeba9] text-right font-bold">
-              <HeaderCell width="12%">Month Report</HeaderCell>
-              <HeaderCell width="14%">Agency</HeaderCell>
-              <HeaderCell width="20%">Statement Number</HeaderCell>
-              <HeaderCell align="right" colSpan={agentNames.length + 1}>
-                Agent Name / Commission Amount
-              </HeaderCell>
-            </tr>
-            <tr className="bg-white text-left font-bold">
-              <HeaderCell>Month Report</HeaderCell>
-              <HeaderCell>Agency</HeaderCell>
-              <HeaderCell>Statement Number</HeaderCell>
-              {agentNames.map((agent) => (
-                <HeaderCell align="right" key={agent}>
-                  {agent}
-                </HeaderCell>
-              ))}
-              <HeaderCell align="right">Grand total</HeaderCell>
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map((group) => (
-              <AgentCommissionRows
-                agentNames={agentNames}
-                group={group}
-                key={group.monthKey}
-              />
-            ))}
-            <tr className="bg-white font-bold">
-              <BodyCell>Grand total</BodyCell>
-              <BodyCell />
-              <BodyCell />
-              {agentNames.map((agent) => (
-                <BodyCell align="right" key={agent}>
-                  {formatCurrency(grandTotals.valuesByAgent[agent] ?? 0)}
-                </BodyCell>
-              ))}
-              <BodyCell align="right">{formatCurrency(grandTotals.grandTotal)}</BodyCell>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </ReportPanel>
+    <th
+      className={`border-r border-b border-slate-200 px-3 py-3 align-middle text-[11px] font-semibold uppercase leading-tight tracking-[0.04em] text-slate-500 last:border-r-0 ${
+        groupStart ? "border-l-2 border-l-slate-300" : ""
+      } ${
+        stickyLeft ? "sticky z-30" : ""
+      } ${
+        stickyDivider ? "shadow-[8px_0_12px_-12px_rgba(15,23,42,0.55)]" : ""
+      } ${className || "bg-slate-50"} ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
+      }`}
+      colSpan={colSpan}
+      rowSpan={rowSpan}
+      style={{ ...(stickyLeft ? { left: stickyLeft } : {}), ...(width ? { width } : {}) }}
+    >
+      {children}
+    </th>
   );
 }
 
-function AgentCommissionRows({
-  agentNames,
-  group,
+function AgentPerformanceCell({
+  align = "left",
+  children,
+  className = "",
+  colSpan,
+  groupStart = false,
+  stickyDivider = false,
+  stickyLeft,
+  strong = false,
 }: {
-  agentNames: string[];
-  group: AgentCommissionGroup;
+  align?: "left" | "right";
+  children?: ReactNode;
+  className?: string;
+  colSpan?: number;
+  groupStart?: boolean;
+  stickyDivider?: boolean;
+  stickyLeft?: string;
+  strong?: boolean;
 }) {
-  const rows = [...group.rows, group.monthlyTotal];
-
   return (
-    <>
-      {rows.map((row, index) => (
-        <tr
-          className={`${row.isTotal ? "bg-white font-bold" : index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}`}
-          key={`${group.monthKey}-${row.agency}-${row.statement}-${index}`}
-        >
-          <BodyCell>{index === 0 ? group.monthKey : ""}</BodyCell>
-          <BodyCell strong={row.isTotal}>{row.agency}</BodyCell>
-          <BodyCell>{row.statement}</BodyCell>
-          {agentNames.map((agent) => (
-            <BodyCell align="right" key={agent}>
-              {formatCurrency(row.valuesByAgent[agent] ?? 0)}
-            </BodyCell>
-          ))}
-          <BodyCell align="right">{formatCurrency(row.grandTotal)}</BodyCell>
-        </tr>
-      ))}
-    </>
+    <td
+      className={`border-r border-b border-slate-200 px-3 py-3 align-middle text-[13px] text-slate-700 last:border-r-0 ${
+        groupStart ? "border-l-2 border-l-slate-300" : ""
+      } ${
+        stickyLeft ? "sticky z-20" : ""
+      } ${
+        stickyDivider ? "shadow-[8px_0_12px_-12px_rgba(15,23,42,0.55)]" : ""
+      } ${className} ${
+        align === "right" ? "text-right" : "text-left"
+      } ${strong ? "font-semibold text-slate-900" : ""}`}
+      colSpan={colSpan}
+      style={stickyLeft ? { left: stickyLeft } : undefined}
+    >
+      {children}
+    </td>
   );
+}
+
+function agentTablePalette(index: number) {
+  return AGENT_TABLE_PALETTES[index % AGENT_TABLE_PALETTES.length];
 }
 
 function CarrierPerformanceTable({ rows }: { rows: CarrierRow[] }) {
@@ -1345,49 +1652,112 @@ function CarrierPerformanceTable({ rows }: { rows: CarrierRow[] }) {
     }),
     emptySummary()
   );
+  const maxCommission = maxValue(rows, (row) => row.totalCommission);
+  const maxPolicyCount = maxValue(rows, (row) => row.policyCount);
+  const maxPolicyShare = maxValue(rows, (row) => row.policySharePercent);
+  const maxPremium = maxValue(rows, (row) => row.totalPremium);
+  const maxRate = Math.max(
+    percentOf(total.totalCommission, total.totalPremium),
+    maxValue(rows, (row) => row.averageCommissionRate)
+  );
 
   return (
     <ReportPanel title="Carrier Performance Overview">
-      <div className="max-h-[620px] overflow-auto">
-        <table className="min-w-[1220px] w-full table-fixed text-[12px]">
-          <thead>
+      <div className="max-h-[620px] overflow-y-auto overflow-x-hidden">
+        <table className="w-full table-fixed text-[11px] tabular-nums">
+          <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <HeaderCell width="20%">Company</HeaderCell>
-              <HeaderCell align="right" width="14%">Policies Count</HeaderCell>
-              <HeaderCell align="right" width="15%">% Policies Count</HeaderCell>
-              <HeaderCell align="right" width="19%">Total Premium</HeaderCell>
-              <HeaderCell align="right" width="17%">Total Commission</HeaderCell>
-              <HeaderCell align="right" width="15%">Average Commission Rate</HeaderCell>
+              <CarrierHeaderCell width="20%">Company</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="green" width="14%">Policies Count</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="green" width="15%">% Policies Count</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="amber" width="19%">Total Premium</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="blue" width="17%">Total Commission</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="lavender" width="15%">Average Commission Rate</CarrierHeaderCell>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={row.company} className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}>
-                <BodyCell strong>{row.company}</BodyCell>
-                <BarBodyCell color="blue" maxValue={maxValue(rows, (item) => item.policyCount)} value={row.policyCount}>
+                <CarrierBodyCell strong>{row.company}</CarrierBodyCell>
+                <CarrierHeatCell
+                  maxValue={maxPolicyCount}
+                  mode="green"
+                  value={row.policyCount}
+                >
                   {formatInteger(row.policyCount)}
-                </BarBodyCell>
-                <BarBodyCell color="orange" maxValue={100} value={row.policySharePercent}>
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxPolicyShare}
+                  mode="green"
+                  value={row.policySharePercent}
+                >
                   {formatPercent(row.policySharePercent)}
-                </BarBodyCell>
-                <BarBodyCell color="purple" maxValue={maxValue(rows, (item) => item.totalPremium)} value={row.totalPremium}>
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxPremium}
+                  mode="amber"
+                  value={row.totalPremium}
+                >
                   {formatCurrency(row.totalPremium)}
-                </BarBodyCell>
-                <BarBodyCell color="olive" maxValue={maxValue(rows, (item) => item.totalCommission)} value={row.totalCommission}>
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxCommission}
+                  mode="blue"
+                  value={row.totalCommission}
+                >
                   {formatCurrency(row.totalCommission)}
-                </BarBodyCell>
-                <BarBodyCell color="cyan" maxValue={Math.max(20, maxValue(rows, (item) => item.averageCommissionRate))} value={row.averageCommissionRate}>
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxRate}
+                  mode="lavender"
+                  value={row.averageCommissionRate}
+                >
                   {formatPercent(row.averageCommissionRate)}
-                </BarBodyCell>
+                </CarrierHeatCell>
               </tr>
             ))}
-            <tr className="bg-white font-bold">
-              <BodyCell>Grand total</BodyCell>
-              <BodyCell align="right">{formatInteger(total.policyCount)}</BodyCell>
-              <BodyCell align="right">100%</BodyCell>
-              <BodyCell align="right">{formatCurrency(total.totalPremium)}</BodyCell>
-              <BodyCell align="right">{formatCurrency(total.totalCommission)}</BodyCell>
-              <BodyCell align="right">{formatPercent(percentOf(total.totalCommission, total.totalPremium))}</BodyCell>
+            <tr className="bg-[#f8fafc] font-bold">
+              <CarrierBodyCell strong>Grand total</CarrierBodyCell>
+              <CarrierHeatCell
+                maxValue={maxPolicyCount}
+                mode="green"
+                strong
+                value={total.policyCount}
+              >
+                {formatInteger(total.policyCount)}
+              </CarrierHeatCell>
+              <CarrierHeatCell
+                maxValue={100}
+                mode="green"
+                strong
+                value={100}
+              >
+                100%
+              </CarrierHeatCell>
+              <CarrierHeatCell
+                maxValue={maxPremium}
+                mode="amber"
+                strong
+                value={total.totalPremium}
+              >
+                {formatCurrency(total.totalPremium)}
+              </CarrierHeatCell>
+              <CarrierHeatCell
+                maxValue={maxCommission}
+                mode="blue"
+                strong
+                value={total.totalCommission}
+              >
+                {formatCurrency(total.totalCommission)}
+              </CarrierHeatCell>
+              <CarrierHeatCell
+                maxValue={maxRate}
+                mode="lavender"
+                strong
+                value={percentOf(total.totalCommission, total.totalPremium)}
+              >
+                {formatPercent(percentOf(total.totalCommission, total.totalPremium))}
+              </CarrierHeatCell>
             </tr>
           </tbody>
         </table>
@@ -1396,138 +1766,71 @@ function CarrierPerformanceTable({ rows }: { rows: CarrierRow[] }) {
   );
 }
 
-function RegionMapPanel({ rows }: { rows: RegionRow[] }) {
-  const maxPolicies = maxValue(rows, (row) => row.policyCount);
-
+function CarrierHeaderCell({
+  align = "left",
+  children,
+  tone = "base",
+  width,
+}: {
+  align?: "left" | "right";
+  children: ReactNode;
+  tone?: "amber" | "base" | "blue" | "green" | "lavender";
+  width: string;
+}) {
   return (
-    <ReportPanel title="Client Distribution by Region">
-      <div className="h-[520px] bg-[#edf0f2]">
-        <svg className="h-full w-full" viewBox="0 0 1280 520" role="img" aria-label="Client distribution by region">
-          <rect fill="#eef0f1" height="520" width="1280" />
-          {Array.from({ length: 14 }, (_, index) => (
-            <line
-              key={`h-${index}`}
-              stroke="#d2d5d7"
-              strokeWidth="1"
-              x1="0"
-              x2="1280"
-              y1={40 + index * 35}
-              y2={40 + index * 35}
-            />
-          ))}
-          {Array.from({ length: 16 }, (_, index) => (
-            <line
-              key={`v-${index}`}
-              stroke="#d8dbdd"
-              strokeWidth="1"
-              x1={40 + index * 80}
-              x2={40 + index * 80}
-              y1="0"
-              y2="520"
-            />
-          ))}
-          <path
-            d="M34 412 C130 330 176 292 266 326 C368 364 406 304 496 262 C600 212 724 196 818 234 C940 282 1008 244 1194 170"
-            fill="none"
-            stroke="#c0c6cb"
-            strokeWidth="5"
-          />
-          <path
-            d="M100 162 C210 98 328 100 442 132 C546 162 610 122 706 106 C826 86 906 138 1002 126 C1106 112 1160 68 1240 44"
-            fill="none"
-            stroke="#cbd1d5"
-            strokeWidth="4"
-          />
-          {rows.slice(0, 60).map((row, index) => {
-            const point = getRegionPoint(row, index);
-            const radius = 10 + (row.policyCount / maxPolicies) * 28;
-
-            return (
-              <g key={`${row.state}-${row.city}-${index}`}>
-                <circle cx={point.x} cy={point.y} fill="rgba(39, 174, 96, 0.34)" r={radius + 14} />
-                <circle cx={point.x} cy={point.y} fill="rgba(248, 196, 66, 0.48)" r={Math.max(radius - 3, 6)} />
-                <circle cx={point.x} cy={point.y} fill="rgba(255, 86, 71, 0.55)" r={Math.max(radius * 0.35, 3)} />
-              </g>
-            );
-          })}
-          <text className="fill-[#8a8f95] text-[28px] font-bold" x="658" y="278">
-            Houston
-          </text>
-          <text className="fill-[#8a8f95] text-[26px] font-bold" x="226" y="358">
-            San Antonio
-          </text>
-          <text className="fill-[#8a8f95] text-[20px] font-semibold" x="496" y="250">
-            Austin
-          </text>
-          <rect fill="rgba(255,255,255,0.82)" height="28" width="132" x="22" y="476" />
-          <text className="fill-[#6b7280] text-[13px] font-semibold" x="32" y="495">
-            Region heat view
-          </text>
-        </svg>
-      </div>
-    </ReportPanel>
+    <th
+      className={`border-r border-b border-slate-300 px-3 py-3 align-middle text-[11px] font-semibold uppercase leading-tight tracking-[0.04em] text-slate-600 last:border-r-0 ${carrierHeaderToneClassName(
+        tone
+      )} ${align === "right" ? "text-right" : "text-left"}`}
+      style={{ width }}
+    >
+      {children}
+    </th>
   );
 }
 
-function RegionPolicyTable({ rows }: { rows: RegionRow[] }) {
-  const total = rows.reduce(
-    (result, row) => ({
-      activePolicyCount: 0,
-      agentCommission: result.agentCommission + row.agentCommission,
-      epsCommission: result.epsCommission + row.epsCommission,
-      policyCount: result.policyCount + row.policyCount,
-      renewalPolicyCount: 0,
-      totalCommission: result.totalCommission + row.totalCommission,
-      totalPremium: result.totalPremium + row.totalPremium,
-    }),
-    emptySummary()
-  );
-
+function CarrierBodyCell({
+  align = "left",
+  children,
+  strong = false,
+}: {
+  align?: "left" | "right";
+  children: ReactNode;
+  strong?: boolean;
+}) {
   return (
-    <ReportPanel title="Region Policy & Premium Performance">
-      <div className="max-h-[620px] overflow-auto">
-        <table className="min-w-[1140px] w-full table-fixed text-[12px]">
-          <thead>
-            <tr className="bg-[#edf3fb] text-left font-bold">
-              <HeaderCell width="12%">State</HeaderCell>
-              <HeaderCell width="18%">City</HeaderCell>
-              <HeaderCell align="right" width="16%">Policies Count</HeaderCell>
-              <HeaderCell align="right" width="16%">% Policies Count</HeaderCell>
-              <HeaderCell align="right" width="19%">Total Premium</HeaderCell>
-              <HeaderCell align="right" width="19%">Total Commission</HeaderCell>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${row.state}-${row.city}`} className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}>
-                <BodyCell strong>{row.state}</BodyCell>
-                <BodyCell>{row.city}</BodyCell>
-                <BarBodyCell color="blue" maxValue={maxValue(rows, (item) => item.policyCount)} value={row.policyCount}>
-                  {formatInteger(row.policyCount)}
-                </BarBodyCell>
-                <BarBodyCell color="orange" maxValue={100} value={row.policySharePercent}>
-                  {formatPercent(row.policySharePercent)}
-                </BarBodyCell>
-                <BarBodyCell color="purple" maxValue={maxValue(rows, (item) => item.totalPremium)} value={row.totalPremium}>
-                  {formatCurrency(row.totalPremium)}
-                </BarBodyCell>
-                <BarBodyCell color="olive" maxValue={maxValue(rows, (item) => item.totalCommission)} value={row.totalCommission}>
-                  {formatCurrency(row.totalCommission)}
-                </BarBodyCell>
-              </tr>
-            ))}
-            <tr className="bg-white font-bold">
-              <BodyCell>Grand total</BodyCell>
-              <BodyCell />
-              <BodyCell align="right">{formatInteger(total.policyCount)}</BodyCell>
-              <BodyCell align="right">100%</BodyCell>
-              <BodyCell align="right">{formatCurrency(total.totalPremium)}</BodyCell>
-              <BodyCell align="right">{formatCurrency(total.totalCommission)}</BodyCell>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </ReportPanel>
+    <td
+      className={`border-r border-b border-slate-200 bg-[#f8fafc] px-3 py-3 align-middle text-[13px] text-slate-700 last:border-r-0 ${
+        align === "right" ? "text-right" : "text-left"
+      } ${strong ? "font-semibold text-slate-900" : ""}`}
+    >
+      {children}
+    </td>
+  );
+}
+
+function CarrierHeatCell({
+  children,
+  maxValue,
+  mode,
+  strong = false,
+  value,
+}: {
+  children: ReactNode;
+  maxValue: number;
+  mode: "amber" | "blue" | "green" | "lavender";
+  strong?: boolean;
+  value: number;
+}) {
+  return (
+    <td
+      className={`border-r border-b border-slate-200 px-3 py-3 align-middle text-right text-[13px] text-slate-700 last:border-r-0 ${
+        strong ? "font-semibold text-slate-900" : ""
+      }`}
+      style={{ backgroundColor: carrierHeatColor(value, maxValue, mode) }}
+    >
+      {children}
+    </td>
   );
 }
 
@@ -1632,9 +1935,12 @@ function PolicyDetailsTable({
 }) {
   return (
     <ReportPanel title="Insurance Policy Details">
-      <div className="overflow-auto">
+      <div
+        className="overflow-auto"
+        style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}
+      >
         <table className="min-w-[1200px] w-full table-fixed text-[12px]">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
               <HeaderCell width="9%">Agent</HeaderCell>
               <HeaderCell width="9%">Agency</HeaderCell>
@@ -1674,17 +1980,22 @@ function PolicyDetailsTable({
 }
 
 function ReportPanel({
+  action,
   children,
   title,
 }: {
+  action?: ReactNode;
   children: ReactNode;
   title: string;
 }) {
   return (
     <section className="flex flex-col">
-      <h3 className="mb-4 text-lg font-bold leading-tight text-slate-800">
-        {title}
-      </h3>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-lg font-bold leading-tight text-slate-800">
+          {title}
+        </h3>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         {children}
       </div>
@@ -1736,61 +2047,6 @@ function BodyCell({
   );
 }
 
-function BarDeltaCell({
-  color = "blue",
-  value,
-}: {
-  color?: "blue" | "orange" | "pink";
-  value: number | null;
-}) {
-  const width = value === null ? 0 : Math.min(Math.abs(value), 100);
-
-  return (
-    <td className="border-b border-slate-100 px-4 py-3 text-right align-middle text-sm text-slate-700 transition-colors group-hover:bg-slate-50/50">
-      <div className="grid grid-cols-[1fr_6rem] items-center gap-2">
-        <div className="relative h-4">
-          <div
-            className={`absolute top-1/2 h-3 -translate-y-1/2 opacity-70 ${value !== null && value < 0 ? "right-1/2" : "left-1/2"} ${deltaColorClassName(color)}`}
-            style={{ width: `${width / 2}%` }}
-          />
-          <span className="absolute left-1/2 top-0 h-full w-px bg-slate-300" />
-        </div>
-        <span className={value !== null && value < 0 ? "text-rose-600" : value !== null && value > 0 ? "text-emerald-600" : ""}>{formatNullablePercent(value)}</span>
-      </div>
-    </td>
-  );
-}
-
-function BarBodyCell({
-  children,
-  color,
-  maxValue,
-  value,
-}: {
-  children: ReactNode;
-  color: "blue" | "orange" | "purple" | "olive" | "cyan";
-  maxValue: number;
-  value: number;
-}) {
-  const width = maxValue === 0 ? 0 : Math.min(Math.abs(value / maxValue) * 100, 100);
-
-  return (
-    <td className="border-b border-slate-100 px-4 py-3 align-middle text-right transition-colors group-hover:bg-slate-50/50">
-      <div className="ml-auto flex w-full items-center justify-end">
-        <div className="relative h-6 w-full overflow-hidden rounded border bg-slate-50 border-slate-200">
-          <div
-            className={`h-full rounded opacity-70 ${barColorClassName(color)}`}
-            style={{ width: `${width}%` }}
-          />
-          <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-slate-800">
-            {children}
-          </span>
-        </div>
-      </div>
-    </td>
-  );
-}
-
 function buildFilterOptions(rows: PcSalesRow[]): FilterOptions {
   return {
     agencies: uniqueSorted(
@@ -1804,6 +2060,8 @@ function buildFilterOptions(rows: PcSalesRow[]): FilterOptions {
 
 function applyFilters(rows: PcSalesRow[], filters: FilterValues) {
   const policyNumber = filters.policyNumber.trim().toUpperCase();
+  const startMonth = dateToMonthKey(filters.reportMonthRange.start);
+  const endMonth = dateToMonthKey(filters.reportMonthRange.end);
 
   return rows.filter((row) => {
     if (
@@ -1821,16 +2079,60 @@ function applyFilters(rows: PcSalesRow[], filters: FilterValues) {
       return false;
     }
 
+    if (startMonth || endMonth) {
+      const rowMonth = getEffectiveMonth(row);
+
+      if (!rowMonth) return false;
+      if (startMonth && rowMonth.localeCompare(startMonth) < 0) return false;
+      if (endMonth && rowMonth.localeCompare(endMonth) > 0) return false;
+    }
+
     return true;
   });
 }
 
-function parseFilters(params: Record<string, string | string[] | undefined>): FilterValues {
+function filterRowsThroughMonth(rows: PcSalesRow[], maxMonthKey: string) {
+  return rows.filter((row) => {
+    const monthKey = getEffectiveMonth(row);
+
+    return !isFutureMonthKey(monthKey, maxMonthKey);
+  });
+}
+
+function parseFilters(
+  params: Record<string, string | string[] | undefined>,
+  defaultReportMonthRange: ReportMonthRange
+): FilterValues {
   return {
     agency: parseStringParam(params.agency),
     agent: parseStringParam(params.agent),
     policyNumber: parseStringParam(params.policyNumber),
+    reportMonthRange: parseReportMonthRange(params, defaultReportMonthRange),
   };
+}
+
+function parseTrendLevel(value: string | string[] | undefined): TrendLevel {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+
+  return rawValue === "quarter" || rawValue === "year" ? rawValue : "month";
+}
+
+function getTrendLevelLabel(trendLevel: TrendLevel) {
+  if (trendLevel === "quarter") return "Quarter";
+  if (trendLevel === "year") return "Year";
+  return "Month";
+}
+
+function getTrendLevelAdjective(trendLevel: TrendLevel) {
+  if (trendLevel === "quarter") return "Quarterly";
+  if (trendLevel === "year") return "Yearly";
+  return "Monthly";
+}
+
+function getTrendChangeLabel(trendLevel: TrendLevel) {
+  if (trendLevel === "quarter") return "QoQ";
+  if (trendLevel === "year") return "YoY";
+  return "MoM";
 }
 
 function parseStringParam(value: string | string[] | undefined) {
@@ -1839,13 +2141,64 @@ function parseStringParam(value: string | string[] | undefined) {
   return rawValue?.trim() ?? "";
 }
 
-function buildDateRangeLabel(rows: PcSalesRow[]) {
-  const monthKeys = rows.map((row) => getEffectiveMonth(row)).filter(Boolean).sort();
-  const firstMonth = monthKeys[0];
+function parseStringListParam(value: string | string[] | undefined) {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
 
-  if (!firstMonth) return "No effective dates";
+  return values.map((item) => item.trim()).filter(Boolean);
+}
 
-  return `${formatFullDate(`${firstMonth}-01`)} - ${formatFullDate(new Date())}`;
+function parseMonthListParam(value: string | string[] | undefined) {
+  return parseStringListParam(value).filter((item) => /^\d{4}-\d{2}$/.test(item));
+}
+
+function parseReportMonthRange(
+  params: Record<string, string | string[] | undefined>,
+  defaultRange: ReportMonthRange
+): ReportMonthRange {
+  if (parseStringParam(params.reportMonthRange) === "all") {
+    return { start: null, end: null };
+  }
+
+  const start = parseMonthDateParam(params.start);
+  const end = parseMonthDateParam(params.end);
+
+  if (start || end) {
+    return normalizeReportMonthRange({ start, end });
+  }
+
+  const legacyReportMonths = parseMonthListParam(params.reportMonth).sort();
+
+  if (legacyReportMonths.length > 0) {
+    return normalizeReportMonthRange({
+      start: monthValueToDate(legacyReportMonths[0]),
+      end: monthValueToDate(legacyReportMonths[legacyReportMonths.length - 1]),
+    });
+  }
+
+  return normalizeReportMonthRange(defaultRange);
+}
+
+function normalizeReportMonthRange(range: ReportMonthRange): ReportMonthRange {
+  const startMonth = dateToMonthKey(range.start);
+  const endMonth = dateToMonthKey(range.end);
+
+  if (startMonth && endMonth && startMonth.localeCompare(endMonth) > 0) {
+    return {
+      start: monthValueToDate(endMonth),
+      end: monthValueToDate(startMonth),
+    };
+  }
+
+  return range;
+}
+
+function parseMonthDateParam(value: string | string[] | undefined) {
+  const rawValue = parseStringParam(value);
+
+  if (/^\d{4}-\d{2}$/.test(rawValue)) return monthValueToDate(rawValue);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawValue)) return rawValue;
+
+  return null;
 }
 
 function groupRows(
@@ -1853,6 +2206,20 @@ function groupRows(
   getKey: (row: PcSalesRow) => string
 ) {
   const grouped = new Map<string, PcSalesRow[]>();
+
+  for (const row of rows) {
+    const key = getKey(row);
+    const group = grouped.get(key) ?? [];
+
+    group.push(row);
+    grouped.set(key, group);
+  }
+
+  return grouped;
+}
+
+function groupGenericRows<T>(rows: T[], getKey: (row: T) => string) {
+  const grouped = new Map<string, T[]>();
 
   for (const row of rows) {
     const key = getKey(row);
@@ -1885,6 +2252,52 @@ function totalAgentPivotRows(
     isTotal: true,
     valuesByAgent,
   };
+}
+
+function emptyAgentValues(agentNames: string[]) {
+  return Object.fromEntries(agentNames.map((agent) => [agent, 0]));
+}
+
+function emptyAgentPolicyRow(agency: string, agentNames: string[]): AgentPivotRow {
+  const valuesByAgent = emptyAgentValues(agentNames);
+
+  return {
+    agency,
+    grandTotal: 0,
+    isTotal: false,
+    valuesByAgent,
+  };
+}
+
+function emptyAgentCommissionRow(
+  agency: string,
+  agentNames: string[]
+): AgentCommissionPivotRow {
+  const valuesByAgent = emptyAgentValues(agentNames);
+
+  return {
+    agency,
+    grandTotal: 0,
+    isTotal: false,
+    statement: "",
+    valuesByAgent,
+  };
+}
+
+function totalCommissionRowsByAgency(
+  rows: AgentCommissionPivotRow[],
+  agentNames: string[]
+) {
+  const rowsByAgency = new Map<string, AgentCommissionPivotRow>();
+
+  for (const [agency, agencyRows] of groupGenericRows(rows, (row) => row.agency)) {
+    rowsByAgency.set(
+      agency,
+      totalCommissionPivotRows(agencyRows, agentNames, agency)
+    );
+  }
+
+  return rowsByAgency;
 }
 
 function totalCommissionPivotRows(
@@ -1930,13 +2343,29 @@ function getEffectiveMonth(row: PcSalesRow) {
   return row.effective_month_year ?? getMonthKey(row.effective_date);
 }
 
+function getCurrentMonthKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function isFutureMonthKey(monthKey: string, maxMonthKey: string) {
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return false;
+
+  return monthKey > maxMonthKey;
+}
+
 function getMonthKey(value: string | null) {
   return value?.slice(0, 7) ?? "";
 }
 
-function getQuarterKey(monthKey: string) {
-  if (!monthKey) return "";
+function getTrendPeriodKey(monthKey: string, trendLevel: TrendLevel) {
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return "";
+  if (trendLevel === "year") return monthKey.slice(0, 4);
+  if (trendLevel === "quarter") return getQuarterKey(monthKey);
 
+  return monthKey;
+}
+
+function getQuarterKey(monthKey: string) {
   const year = monthKey.slice(0, 4);
   const month = Number(monthKey.slice(5, 7));
   const quarter = Math.floor((month - 1) / 3) + 1;
@@ -1944,10 +2373,24 @@ function getQuarterKey(monthKey: string) {
   return `${year}-Q${quarter}`;
 }
 
+function formatTrendPeriodLabel(periodKey: string, trendLevel: TrendLevel) {
+  if (trendLevel === "quarter") return formatQuarterLabel(periodKey);
+
+  return periodKey;
+}
+
 function formatQuarterLabel(periodKey: string) {
   const [year, quarter] = periodKey.split("-Q");
 
   return `Q${quarter}, ${year}`;
+}
+
+function dateToMonthKey(value: string | null) {
+  return value?.slice(0, 7) ?? "";
+}
+
+function monthValueToDate(value: string) {
+  return `${value}-01`;
 }
 
 function cleanGroupLabel(value: string | null) {
@@ -1986,60 +2429,21 @@ function maxValue<T>(rows: T[], getValue: (row: T) => number) {
   return Math.max(...rows.map((row) => Math.max(getValue(row), 0)), 1);
 }
 
+function maxAbsValue<T>(rows: T[], getValue: (row: T) => number | null) {
+  if (rows.length === 0) return 1;
+
+  return Math.max(
+    ...rows.map((row) => Math.abs(getValue(row) ?? 0)),
+    1
+  );
+}
+
 function roundAxisMax(value: number) {
   if (value <= 10) return 10;
 
   const magnitude = 10 ** Math.floor(Math.log10(value));
 
   return Math.ceil(value / magnitude) * magnitude;
-}
-
-function deltaColorClassName(color: "blue" | "orange" | "pink") {
-  if (color === "orange") return "bg-[#ff9e4a]";
-  if (color === "pink") return "bg-[#eb4f8f]";
-
-  return "bg-[#2f80ed]";
-}
-
-function barColorClassName(color: "blue" | "orange" | "purple" | "olive" | "cyan") {
-  if (color === "blue") return "bg-[#2f80ed]";
-  if (color === "orange") return "bg-[#ff9e4a]";
-  if (color === "purple") return "bg-[#b27be7]";
-  if (color === "olive") return "bg-[#b1c454]";
-
-  return "bg-[#28b8c7]";
-}
-
-function getRegionPoint(row: RegionRow, index: number) {
-  const city = row.city.toUpperCase();
-  const known: Record<string, { x: number; y: number }> = {
-    AUSTIN: { x: 478, y: 242 },
-    BEAUMONT: { x: 1110, y: 278 },
-    CONROE: { x: 806, y: 216 },
-    CYPRESS: { x: 712, y: 268 },
-    FULSHEAR: { x: 682, y: 310 },
-    GEORGETOWN: { x: 486, y: 198 },
-    HOUSTON: { x: 766, y: 296 },
-    KATY: { x: 690, y: 304 },
-    MISSOURI: { x: 742, y: 332 },
-    PFLUGERVILLE: { x: 504, y: 226 },
-    RICHMOND: { x: 708, y: 326 },
-    "SAN ANTONIO": { x: 280, y: 360 },
-    SPRING: { x: 762, y: 236 },
-    "SUGAR LAND": { x: 744, y: 320 },
-    TOMBALL: { x: 724, y: 232 },
-  };
-
-  const exact = known[city];
-  if (exact) return exact;
-
-  const contains = Object.entries(known).find(([name]) => city.includes(name));
-  if (contains) return contains[1];
-
-  return {
-    x: 180 + ((index * 137) % 930),
-    y: 120 + ((index * 83) % 280),
-  };
 }
 
 function formatInteger(value: number) {
@@ -2073,22 +2477,23 @@ function formatCurrencyCompact(value: number) {
 
 function formatCurrencyShort(value: number) {
   const absValue = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
 
   if (absValue >= 1000000) {
-    return `$${new Intl.NumberFormat("en-US", {
+    return `${sign}$${new Intl.NumberFormat("en-US", {
       maximumFractionDigits: 2,
       minimumFractionDigits: 0,
-    }).format(value / 1000000)}M`;
+    }).format(absValue / 1000000)}M`;
   }
 
   if (absValue >= 1000) {
-    return `$${new Intl.NumberFormat("en-US", {
+    return `${sign}$${new Intl.NumberFormat("en-US", {
       maximumFractionDigits: 1,
       minimumFractionDigits: 0,
-    }).format(value / 1000)}K`;
+    }).format(absValue / 1000)}K`;
   }
 
-  return formatCurrency(value);
+  return `${sign}${formatCurrency(absValue)}`;
 }
 
 function formatAxisMoney(value: number) {
@@ -2109,13 +2514,65 @@ function formatNullablePercent(value: number | null) {
   return value === null ? "-" : formatPercent(value);
 }
 
-function formatMonthShort(monthKey: string) {
-  if (!monthKey) return "";
+function deltaTextClassName(value: number | null) {
+  if (value === null || value === 0) return "text-slate-500";
+  return value > 0 ? "text-emerald-700" : "text-rose-600";
+}
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    year: "numeric",
-  }).format(toDate(`${monthKey}-01`));
+function deltaHeatColor(value: number | null, maxValue: number) {
+  if (value === null || value === 0) return "transparent";
+
+  const intensity = Math.min(Math.abs(value) / Math.max(maxValue, 1), 1);
+
+  return value > 0
+    ? rgba(157, 214, 165, 0.34 + intensity * 0.3)
+    : rgba(237, 154, 148, 0.34 + intensity * 0.3);
+}
+
+function agencySummaryHeatColor(
+  value: number,
+  maxValue: number,
+  mode: "blue" | "lavender" | "pink"
+) {
+  if (!Number.isFinite(value) || value === 0) return "transparent";
+
+  const intensity = Math.min(Math.abs(value) / Math.max(Math.abs(maxValue), 1), 1);
+
+  if (mode === "blue") return rgba(73, 150, 232, 0.12 + intensity * 0.5);
+  if (mode === "lavender") return rgba(137, 146, 204, 0.16 + intensity * 0.44);
+
+  return rgba(214, 109, 211, 0.12 + intensity * 0.5);
+}
+
+function carrierHeaderToneClassName(
+  tone: "amber" | "base" | "blue" | "green" | "lavender"
+) {
+  if (tone === "green") return "bg-[#eef8f1] text-[#285b37]";
+  if (tone === "amber") return "bg-[#fff4dc] text-[#7b4a08]";
+  if (tone === "blue") return "bg-[#edf6ff] text-[#234a72]";
+  if (tone === "lavender") return "bg-[#f4f0ff] text-[#4b3b7a]";
+
+  return "bg-slate-50 text-slate-600";
+}
+
+function carrierHeatColor(
+  value: number,
+  maxValue: number,
+  mode: "amber" | "blue" | "green" | "lavender"
+) {
+  if (!Number.isFinite(value) || value === 0) return "transparent";
+
+  const intensity = Math.min(Math.abs(value) / Math.max(Math.abs(maxValue), 1), 1);
+
+  if (mode === "green") return rgba(71, 181, 82, 0.1 + intensity * 0.42);
+  if (mode === "amber") return rgba(245, 158, 11, 0.1 + intensity * 0.38);
+  if (mode === "blue") return rgba(73, 150, 232, 0.12 + intensity * 0.5);
+
+  return rgba(137, 146, 204, 0.16 + intensity * 0.44);
+}
+
+function rgba(red: number, green: number, blue: number, alpha: number) {
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function formatShortDate(value: string) {
@@ -2124,14 +2581,6 @@ function formatShortDate(value: string) {
     month: "short",
     year: "numeric",
   }).format(toDate(value));
-}
-
-function formatFullDate(value: string | Date) {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(value instanceof Date ? value : toDate(value));
 }
 
 function toDate(value: string) {

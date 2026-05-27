@@ -95,7 +95,7 @@ export function AgentHealthPerformanceChart({
 
   if (periods.length === 0) {
     return (
-      <section className="rounded-lg border border-[#d8dee7] bg-white p-6 shadow-sm">
+      <section className="agent-health-panel p-6">
         <ChartHeader
           chartLevel={chartLevel}
           onChartLevelChange={onChartLevelChange}
@@ -130,7 +130,7 @@ export function AgentHealthPerformanceChart({
         onChartLevelChange={onChartLevelChange}
       />
 
-      <div className="rounded-lg border border-[#d1d5db] bg-white p-3 shadow-[0_2px_8px_rgba(22,35,58,0.18)]">
+      <div className="agent-health-panel p-3">
         <div className="overflow-x-auto">
           <div
             className="relative min-w-[980px]"
@@ -139,7 +139,7 @@ export function AgentHealthPerformanceChart({
           >
             {activePoint ? (
               <div
-                className="pointer-events-none absolute z-10 w-[296px] rounded border border-[#d1d5db] bg-white px-4 py-3 text-xs shadow-[0_6px_18px_rgba(22,35,58,0.24)]"
+                className="pointer-events-none absolute z-10 w-[296px] rounded-lg border border-[#d8dee7] bg-white px-4 py-3 text-xs shadow-[0_6px_18px_rgba(22,35,58,0.16)]"
                 style={{
                   left: tooltipPosition.left,
                   top: tooltipPosition.top,
@@ -182,7 +182,7 @@ export function AgentHealthPerformanceChart({
                 y={TOP + PLOT_HEIGHT / 2}
                 textAnchor="middle"
                 transform={`rotate(-90 22 ${TOP + PLOT_HEIGHT / 2})`}
-                className="fill-[#667085] text-[12px] font-semibold"
+                className="fill-[#667085] text-[12px] font-medium"
               >
                 Agent Earnings
               </text>
@@ -191,7 +191,7 @@ export function AgentHealthPerformanceChart({
                 y={TOP + PLOT_HEIGHT / 2}
                 textAnchor="middle"
                 transform={`rotate(-90 ${WIDTH - 22} ${TOP + PLOT_HEIGHT / 2})`}
-                className="fill-[#667085] text-[12px] font-semibold"
+                className="fill-[#667085] text-[12px] font-medium"
               >
                 Policies / Clients
               </text>
@@ -212,7 +212,7 @@ export function AgentHealthPerformanceChart({
                       x={LEFT - 16}
                       y={y + 5}
                       textAnchor="end"
-                      className="fill-[#3f444b] text-[13px]"
+                      className="fill-[#344054] text-[12px]"
                     >
                       {formatAxisNumber(chart.maxMoney * tick)}
                     </text>
@@ -220,7 +220,7 @@ export function AgentHealthPerformanceChart({
                       x={WIDTH - RIGHT + 12}
                       y={y + 5}
                       textAnchor="start"
-                      className="fill-[#3f444b] text-[13px]"
+                      className="fill-[#344054] text-[12px]"
                     >
                       {formatCompactCount(chart.maxCount * tick)}
                     </text>
@@ -271,7 +271,7 @@ export function AgentHealthPerformanceChart({
                       x={point.centerX}
                       y={barLabelY}
                       textAnchor="middle"
-                      className="fill-[#111827] text-[15px] font-semibold"
+                      className="fill-[#16233a] text-[13px] font-semibold"
                     >
                       {formatCurrencyK(point.agentReceived)}
                     </text>
@@ -279,7 +279,7 @@ export function AgentHealthPerformanceChart({
                       x={point.centerX}
                       y={TOP + PLOT_HEIGHT + 24}
                       textAnchor="middle"
-                      className="fill-[#3f444b] text-[13px]"
+                      className="fill-[#344054] text-[12px]"
                     >
                       {point.periodLabel}
                     </text>
@@ -369,7 +369,7 @@ function ChartHeader({
 }) {
   return (
     <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-      <h2 className="text-xl font-semibold text-[#24272d]">
+      <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
         Earnings &amp; Book Size | {getChartLevelLabel(chartLevel)} Trend
       </h2>
       <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
@@ -465,7 +465,7 @@ function LegendSwatch({
   return (
     <g transform={`translate(${x}, 0)`}>
       <rect x={0} y={0} width={32} height={15} rx={2} fill={color} />
-      <text x={42} y={13} className="fill-[#24272d] text-[15px] font-semibold">
+      <text x={42} y={13} className="fill-[#16233a] text-[13px] font-semibold">
         {label}
       </text>
     </g>
@@ -485,7 +485,7 @@ function LegendLine({
     <g transform={`translate(${x}, 0)`}>
       <line x1={0} x2={30} y1={8} y2={8} stroke={color} strokeWidth={2} />
       <circle cx={15} cy={8} r={5} fill={color} />
-      <text x={42} y={13} className="fill-[#24272d] text-[15px] font-semibold">
+      <text x={42} y={13} className="fill-[#16233a] text-[13px] font-semibold">
         {label}
       </text>
     </g>
