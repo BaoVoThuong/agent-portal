@@ -1319,16 +1319,16 @@ function MixBreakdownTable({
           <table className="w-full table-fixed text-[12px] tabular-nums">
             <colgroup>
               <col className="w-[24%]" />
-              <col className="w-[12%]" />
-              <col className="w-[12%]" />
-              <col className="w-[25%]" />
+              <col className="w-[14%]" />
+              <col className="w-[14%]" />
+              <col className="w-[21%]" />
               <col className="w-[27%]" />
             </colgroup>
             <thead>
               <tr className="border-b border-[#d8dee7] bg-[#f8fafc] text-left text-[10px] font-semibold uppercase tracking-normal text-[#667085]">
                 <th className="border-r border-[#d8dee7] px-4 py-3.5">{labelHeader}</th>
-                <th className="border-r border-[#d8dee7] px-2 py-3.5 text-center">Policies</th>
-                <th className="border-r border-[#d8dee7] px-2 py-3.5 text-center">Clients</th>
+                <th className="border-r border-[#d8dee7] px-2 py-3.5 text-right">Policies</th>
+                <th className="border-r border-[#d8dee7] px-2 py-3.5 text-right">Clients</th>
                 <th className="border-r border-[#d8dee7] px-3 py-3.5 text-right">Commission</th>
                 <th className="px-3 py-3.5 text-center">% of Total</th>
               </tr>
@@ -1349,10 +1349,10 @@ function MixBreakdownTable({
                     <td className="break-words border-r border-[#edf0f4] px-4 py-3.5 font-semibold text-slate-900">
                       {row.label}
                     </td>
-                    <td className="border-r border-[#edf0f4] px-2 py-3.5 text-right font-semibold text-slate-700">
+                    <td className="border-r border-[#edf0f4] px-2 py-3.5 text-right text-sm font-semibold text-slate-700">
                       {formatInteger(row.policyCount)}
                     </td>
-                    <td className="border-r border-[#edf0f4] px-2 py-3.5 text-right text-slate-500">
+                    <td className="border-r border-[#edf0f4] px-2 py-3.5 text-right text-sm font-semibold text-slate-700">
                       {formatInteger(row.clientCount)}
                     </td>
                     <td className="whitespace-nowrap border-r border-[#edf0f4] px-3 py-3.5 text-right font-semibold text-slate-900">
