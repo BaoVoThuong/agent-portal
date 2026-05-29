@@ -109,6 +109,13 @@ type CarrierPaidRateBreakdown = {
   rows: CombinedCarrierPaymentStatusRow[];
 };
 
+type AgentDashboardRow = Summary & {
+  agent: string;
+  avgAgentCommissionPerMonth: number;
+  paidPolicyPercent: number;
+  revenueSharePercent: number;
+};
+
 type CarrierDashboardRow = Summary & {
   carrier: string;
   paidPolicyPercent: number;
@@ -150,6 +157,7 @@ type DashboardData = {
   commissionRowsByLevel: Record<TrendComparisonChartLevel, SalesPeriodSummary[]>;
   salesMomRowsByLevel: Record<TrendComparisonChartLevel, SalesMomRow[]>;
   carrierPaidRateBreakdown: CarrierPaidRateBreakdown;
+  agentRows: AgentDashboardRow[];
   carrierRows: CarrierDashboardRow[];
   stateRows: StateDashboardRow[];
   policyInfoRows: PolicyInfoRow[];
@@ -159,8 +167,6 @@ type DashboardData = {
 const TREND_MONTH_LIMIT = 12;
 const TREND_QUARTER_LIMIT = 8;
 const TREND_YEAR_LIMIT = 5;
-const TREND_MIN_POLICY_COUNT = 100;
-const PAYMENT_STATUS_MIN_TOTAL = 100;
 const TABLE_MONTH_LIMIT = 14;
 const CARRIER_ROW_LIMIT = 28;
 const STATE_TOP_LIMIT = 5;
@@ -347,6 +353,7 @@ export function HealthSalesDashboard({
               title="Carrier Paid Rate | Latest Complete Month"
             />
           </section>
+          <AgentDashboardTable rows={data.agentRows} />
           <CarrierDashboardTable rows={data.carrierRows} />
           <StateDashboardTable rows={data.stateRows} />
           <HealthSalesPoliciesInformationTable
@@ -423,30 +430,72 @@ function applyClientFilters(rows: HealthSalesRow[], filters: FilterValues) {
 }
 
 function buildDashboardData(rows: HealthSalesRow[]): DashboardData {
-  const overview = summarizeRows(rows);
-  const monthlyRows = buildMonthlySummaries(rows);
-  const commissionRowsByLevel = buildCommissionRowsByLevel(rows, monthlyRows);
-  const policyInfoSummary = buildPolicyInfoSummary(rows);
+  const eligibleRows = buildEligiblePolicyRows(rows);
+  const overview = summarizeRows(eligibleRows);
+  const monthlyRows = buildMonthlySummaries(eligibleRows);
+  const commissionRowsByLevel = buildCommissionRowsByLevel(
+    eligibleRows,
+    monthlyRows
+  );
+  const policyInfoSummary = buildPolicyInfoSummary(eligibleRows);
 
   return {
     overview,
     monthlyRows,
-    trendPeriodsByLevel: buildTrendPeriodsByLevel(rows, monthlyRows),
+    trendPeriodsByLevel: buildTrendPeriodsByLevel(eligibleRows, monthlyRows),
     commissionRowsByLevel,
     salesMomRowsByLevel: {
       month: buildSalesMomRows(commissionRowsByLevel.month),
       quarter: buildSalesMomRows(commissionRowsByLevel.quarter),
       year: buildSalesMomRows(commissionRowsByLevel.year),
     },
-    carrierPaidRateBreakdown: buildCarrierPaidRateBreakdown(rows, monthlyRows),
-    carrierRows: buildCarrierRows(rows, overview).slice(0, CARRIER_ROW_LIMIT),
-    stateRows: buildStateRows(rows, overview),
+    carrierPaidRateBreakdown: buildCarrierPaidRateBreakdown(
+      eligibleRows,
+      monthlyRows
+    ),
+    agentRows: buildAgentRows(eligibleRows, overview),
+    carrierRows: buildCarrierRows(eligibleRows, overview).slice(0, CARRIER_ROW_LIMIT),
+    stateRows: buildStateRows(eligibleRows, overview),
     policyInfoRows: policyInfoSummary.rows,
     policyInfoMonthCount: policyInfoSummary.visibleMonthCount,
   };
 }
 
+function buildEligiblePolicyRows(rows: HealthSalesRow[]) {
+  const selectedRows = new Map<string, HealthSalesRow>();
+
+  for (const row of rows) {
+    const reportMonth = getMonthKey(row.report_month);
+    const effectiveMonth = getMonthKey(row.broker_effective_date);
+    const primaryMemberId = cleanText(row.primary_member_id).toUpperCase();
+
+    if (!reportMonth || !effectiveMonth || !primaryMemberId) continue;
+    if (effectiveMonth.localeCompare(reportMonth) > 0) continue;
+
+    const key = `${reportMonth}\u001f${primaryMemberId}`;
+    const current = selectedRows.get(key);
+
+    if (!current || compareEffectiveDate(row, current) > 0) {
+      selectedRows.set(key, row);
+    }
+  }
+
+  return [...selectedRows.values()];
+}
+
+function compareEffectiveDate(a: HealthSalesRow, b: HealthSalesRow) {
+  const aEffectiveDate = cleanText(a.broker_effective_date);
+  const bEffectiveDate = cleanText(b.broker_effective_date);
+
+  if (aEffectiveDate !== bEffectiveDate) {
+    return aEffectiveDate.localeCompare(bEffectiveDate);
+  }
+
+  return moneyValue(a.carriers_messer_paid) - moneyValue(b.carriers_messer_paid);
+}
+
 function summarizeRows(rows: HealthSalesRow[]): Summary {
+  const summaryRows = buildEligiblePolicyRows(rows);
   const policies = new Map<string, { paid: boolean; clients: number }>();
   const activeAgents = new Set<string>();
   let totalMesserPaid = 0;
@@ -454,12 +503,17 @@ function summarizeRows(rows: HealthSalesRow[]): Summary {
   let epsOverride = 0;
   let epsSplit = 0;
 
-  rows.forEach((row, index) => {
+  summaryRows.forEach((row) => {
     totalMesserPaid += moneyValue(row.carriers_messer_paid);
     agentReceived += moneyValue(row.agent_received);
     epsOverride += getEpsOverride(row);
     epsSplit += moneyValue(row.eps_split);
 
+    const agentName = cleanGroupLabel(row.agent);
+    if (agentName !== "null") activeAgents.add(agentName);
+  });
+
+  summaryRows.forEach((row, index) => {
     const agentName = cleanGroupLabel(row.agent);
     if (agentName !== "null") activeAgents.add(agentName);
 
@@ -514,7 +568,7 @@ function buildTrendPeriodsByLevel(
 ): TrendComparisonPeriodsByLevel {
   return {
     month: monthlyRows
-      .filter((row) => row.policyCount > TREND_MIN_POLICY_COUNT)
+      .filter(hasTrendPeriodActivity)
       .slice(0, TREND_MONTH_LIMIT)
       .map((row) => ({
         periodKey: row.monthKey,
@@ -558,7 +612,7 @@ function buildTrendPeriodSummaries(
         totalMesserPaid: summary.totalMesserPaid,
       };
     })
-    .filter((period) => period.policyCount > TREND_MIN_POLICY_COUNT)
+    .filter(hasTrendPeriodActivity)
     .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
     .slice(0, limit)
     .reverse();
@@ -647,13 +701,28 @@ function buildSalesMomRows(periodRows: SalesPeriodSummary[]): SalesMomRow[] {
   return rows.reverse();
 }
 
+function hasTrendPeriodActivity(period: {
+  policyCount: number;
+  clientCount: number;
+  totalMesserPaid: number;
+}) {
+  return (
+    period.policyCount > 0 ||
+    period.clientCount > 0 ||
+    period.totalMesserPaid !== 0
+  );
+}
+
+function hasPaidRateActivity(period: {
+  policyCount: number;
+  clientCount: number;
+}) {
+  return period.policyCount > 0 || period.clientCount > 0;
+}
+
 function combinePaymentStatusMonths(rows: MonthlySummary[]): CombinedPaymentStatusMonth[] {
   return rows
-    .filter(
-      (row) =>
-        row.policyCount > PAYMENT_STATUS_MIN_TOTAL ||
-        row.clientCount > PAYMENT_STATUS_MIN_TOTAL
-    )
+    .filter(hasPaidRateActivity)
     .map((row) => ({
       reportMonth: row.monthKey,
       policyTotal: row.policyCount,
@@ -670,7 +739,7 @@ function buildCarrierPaidRateBreakdown(
   monthlyRows: MonthlySummary[]
 ): CarrierPaidRateBreakdown {
   const latestCompleteMonth = monthlyRows.find(
-    (row) => row.policyCount > TREND_MIN_POLICY_COUNT
+    hasPaidRateActivity
   );
 
   if (!latestCompleteMonth) {
@@ -740,6 +809,37 @@ function buildCarrierRows(
         b.policyCount - a.policyCount ||
         b.totalMesserPaid - a.totalMesserPaid ||
         a.carrier.localeCompare(b.carrier)
+    );
+}
+
+function buildAgentRows(
+  rows: HealthSalesRow[],
+  overview: Summary
+): AgentDashboardRow[] {
+  return [...groupRows(rows, (row) => cleanGroupLabel(row.agent)).entries()]
+    .map(([agent, groupRows]) => {
+      const summary = summarizeRows(groupRows);
+      const monthCount = new Set(
+        groupRows.map((row) => getMonthKey(row.report_month)).filter(Boolean)
+      ).size;
+
+      return {
+        agent,
+        ...summary,
+        avgAgentCommissionPerMonth:
+          monthCount > 0 ? summary.agentReceived / monthCount : 0,
+        paidPolicyPercent: percentOf(summary.paidPolicyCount, summary.policyCount),
+        revenueSharePercent: percentOf(
+          summary.totalMesserPaid,
+          overview.totalMesserPaid
+        ),
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.policyCount - a.policyCount ||
+        b.totalMesserPaid - a.totalMesserPaid ||
+        a.agent.localeCompare(b.agent)
     );
 }
 
@@ -1231,7 +1331,7 @@ function CombinedPaymentStatusTable({
               {rows.length === 0 ? (
                 <tr>
                   <td className="px-6 py-12 text-center text-sm font-medium text-slate-500" colSpan={5}>
-                    No months with more than 100 records.
+                    No months matched these filters.
                   </td>
                 </tr>
               ) : (
@@ -1326,7 +1426,7 @@ function CombinedCarrierPaymentStatusTable({
               {rows.length === 0 ? (
                 <tr>
                   <td className="px-6 py-12 text-center text-sm font-medium text-slate-500" colSpan={5}>
-                    No complete month with more than 100 policies.
+                    No complete month matched these filters.
                   </td>
                 </tr>
               ) : (
@@ -1467,6 +1567,83 @@ function CommissionBreakdownTable({
   );
 }
 
+function AgentDashboardTable({ rows }: { rows: AgentDashboardRow[] }) {
+  const maxes = {
+    agentReceived: maxValue(rows, (row) => row.agentReceived),
+    avgAgentCommissionPerMonth: maxValue(
+      rows,
+      (row) => row.avgAgentCommissionPerMonth
+    ),
+    clientCount: maxValue(rows, (row) => row.clientCount),
+    epsCommission: maxValue(rows, (row) => row.epsCommission),
+    epsOverride: maxValue(rows, (row) => row.epsOverride),
+    epsSplit: maxValue(rows, (row) => row.epsSplit),
+    policyCount: maxValue(rows, (row) => row.policyCount),
+    totalMesserPaid: maxValue(rows, (row) => row.totalMesserPaid),
+  };
+
+  return (
+    <ReportPanel title="Agent Dashboard | Policies, Revenue & Commission Breakdown">
+      <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
+        <table className="w-full table-fixed text-[11px]">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-[#edf3fb] text-left font-bold">
+              <CompactHeaderCell bordered width="14%">Agent</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">Share</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">Policies</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">Clients</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">Messer Paid</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">Agent Comm</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">Avg Per Month</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">EPS Comm</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">EPS Override</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">EPS Split</CompactHeaderCell>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={row.agent} className={`group ${index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}`}>
+                <td className="border-b border-r border-slate-200 px-2 py-3 align-middle font-semibold text-slate-900 transition-colors group-hover:bg-slate-50/70">
+                  <span className="block truncate" title={row.agent}>
+                    {row.agent}
+                  </span>
+                </td>
+                <CompactHeatCell bordered mode="green" value={row.revenueSharePercent}>
+                  {formatPercent(row.revenueSharePercent)}
+                </CompactHeatCell>
+                <CompactHeatCell bordered mode="blue" maxValue={maxes.policyCount} value={row.policyCount}>
+                  {formatInteger(row.policyCount)}
+                </CompactHeatCell>
+                <CompactHeatCell bordered mode="pink" maxValue={maxes.clientCount} value={row.clientCount}>
+                  {formatInteger(row.clientCount)}
+                </CompactHeatCell>
+                <CompactHeatCell bordered mode="lavender" maxValue={maxes.totalMesserPaid} value={row.totalMesserPaid}>
+                  {formatCurrencyShort(row.totalMesserPaid)}
+                </CompactHeatCell>
+                <CompactHeatCell bordered mode="blue" maxValue={maxes.agentReceived} value={row.agentReceived}>
+                  {formatCurrencyShort(row.agentReceived)}
+                </CompactHeatCell>
+                <CompactHeatCell bordered mode="blue" maxValue={maxes.avgAgentCommissionPerMonth} value={row.avgAgentCommissionPerMonth}>
+                  {formatCurrencyShort(row.avgAgentCommissionPerMonth)}
+                </CompactHeatCell>
+                <CompactHeatCell bordered mode="lavender" maxValue={maxes.epsCommission} value={row.epsCommission}>
+                  {formatCurrencyShort(row.epsCommission)}
+                </CompactHeatCell>
+                <CompactHeatCell bordered mode="pink" maxValue={maxes.epsOverride} value={row.epsOverride}>
+                  {formatCurrencyShort(row.epsOverride)}
+                </CompactHeatCell>
+                <CompactHeatCell bordered mode="magenta" maxValue={maxes.epsSplit} value={row.epsSplit}>
+                  {formatCurrencyShort(row.epsSplit)}
+                </CompactHeatCell>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </ReportPanel>
+  );
+}
+
 function CarrierDashboardTable({ rows }: { rows: CarrierDashboardRow[] }) {
   const maxes = {
     epsCommission: maxValue(rows, (row) => row.epsCommission),
@@ -1482,55 +1659,55 @@ function CarrierDashboardTable({ rows }: { rows: CarrierDashboardRow[] }) {
         <table className="w-full table-fixed text-[11px]">
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <CompactHeaderCell width="11%">Carrier</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="8%">Share</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="8%">Policies</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="9%">Paid %</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="11%">Messer Paid</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="10%">EPS Over.</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="9%">Over. %</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="9%">EPS Split</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="8%">Split %</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="10%">EPS Comm</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="7%">Comm %</CompactHeaderCell>
+              <CompactHeaderCell bordered width="11%">Carrier</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="8%">Share</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="8%">Policies</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9%">Paid %</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="11%">Messer Paid</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="10%">EPS Over.</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9%">Over. %</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9%">EPS Split</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="8%">Split %</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="10%">EPS Comm</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="7%">Comm %</CompactHeaderCell>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={row.carrier} className={`group ${index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}`}>
-                <td className="border-b border-slate-100 px-2 py-3 align-middle font-semibold text-slate-900 transition-colors group-hover:bg-slate-50/70">
+                <td className="border-b border-r border-slate-200 px-2 py-3 align-middle font-semibold text-slate-900 transition-colors group-hover:bg-slate-50/70">
                   <span className="block truncate" title={row.carrier}>
                     {row.carrier}
                   </span>
                 </td>
-                <CompactHeatCell mode="green" value={row.revenueSharePercent}>
+                <CompactHeatCell bordered mode="green" value={row.revenueSharePercent}>
                   {formatPercent(row.revenueSharePercent)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="blue" maxValue={maxes.policyCount} value={row.policyCount}>
+                <CompactHeatCell bordered mode="blue" maxValue={maxes.policyCount} value={row.policyCount}>
                   {formatInteger(row.policyCount)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="green" value={row.paidPolicyPercent}>
+                <CompactHeatCell bordered mode="green" value={row.paidPolicyPercent}>
                   {formatPercent(row.paidPolicyPercent)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="lavender" maxValue={maxes.totalMesserPaid} value={row.totalMesserPaid}>
+                <CompactHeatCell bordered mode="lavender" maxValue={maxes.totalMesserPaid} value={row.totalMesserPaid}>
                   {formatCurrencyShort(row.totalMesserPaid)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="pink" maxValue={maxes.epsOverride} value={row.epsOverride}>
+                <CompactHeatCell bordered mode="pink" maxValue={maxes.epsOverride} value={row.epsOverride}>
                   {formatCurrencyShort(row.epsOverride)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="pink" value={row.epsOverridePercent}>
+                <CompactHeatCell bordered mode="pink" value={row.epsOverridePercent}>
                   {formatPercent(row.epsOverridePercent)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="magenta" maxValue={maxes.epsSplit} value={row.epsSplit}>
+                <CompactHeatCell bordered mode="magenta" maxValue={maxes.epsSplit} value={row.epsSplit}>
                   {formatCurrencyShort(row.epsSplit)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="magenta" value={row.epsSplitPercent}>
+                <CompactHeatCell bordered mode="magenta" value={row.epsSplitPercent}>
                   {formatPercent(row.epsSplitPercent)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="blue" maxValue={maxes.epsCommission} value={row.epsCommission}>
+                <CompactHeatCell bordered mode="blue" maxValue={maxes.epsCommission} value={row.epsCommission}>
                   {formatCurrencyShort(row.epsCommission)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="blue" value={row.epsCommissionPercent}>
+                <CompactHeatCell bordered mode="blue" value={row.epsCommissionPercent}>
                   {formatPercent(row.epsCommissionPercent)}
                 </CompactHeatCell>
               </tr>
@@ -1556,41 +1733,41 @@ function StateDashboardTable({ rows }: { rows: StateDashboardRow[] }) {
         <table className="w-full table-fixed text-[12px]">
           <thead>
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <CompactHeaderCell width="12%">State</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="10%">Share</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="10%">Policies</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="10%">Policy %</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="11%">Clients</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="10%">Client %</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="17%">Messer Paid</CompactHeaderCell>
-              <CompactHeaderCell align="right" width="20%">EPS Commission</CompactHeaderCell>
+              <CompactHeaderCell bordered width="12%">State</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="10%">Share</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="10%">Policies</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="10%">Policy %</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="11%">Clients</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="10%">Client %</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="17%">Messer Paid</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="20%">EPS Commission</CompactHeaderCell>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={row.state} className={`group ${index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}`}>
-                <td className="border-b border-slate-100 px-3 py-3 align-middle font-semibold text-slate-900 transition-colors group-hover:bg-slate-50/70">
+                <td className="border-b border-r border-slate-200 px-3 py-3 align-middle font-semibold text-slate-900 transition-colors group-hover:bg-slate-50/70">
                   {row.state}
                 </td>
-                <CompactHeatCell mode="green" value={row.revenueSharePercent}>
+                <CompactHeatCell bordered mode="green" value={row.revenueSharePercent}>
                   {formatPercent(row.revenueSharePercent)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="blue" maxValue={maxes.policyCount} value={row.policyCount}>
+                <CompactHeatCell bordered mode="blue" maxValue={maxes.policyCount} value={row.policyCount}>
                   {formatInteger(row.policyCount)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="blue" value={row.policySharePercent}>
+                <CompactHeatCell bordered mode="blue" value={row.policySharePercent}>
                   {formatPercent(row.policySharePercent)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="pink" maxValue={maxes.clientCount} value={row.clientCount}>
+                <CompactHeatCell bordered mode="pink" maxValue={maxes.clientCount} value={row.clientCount}>
                   {formatInteger(row.clientCount)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="pink" value={row.clientSharePercent}>
+                <CompactHeatCell bordered mode="pink" value={row.clientSharePercent}>
                   {formatPercent(row.clientSharePercent)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="lavender" maxValue={maxes.totalMesserPaid} value={row.totalMesserPaid}>
+                <CompactHeatCell bordered mode="lavender" maxValue={maxes.totalMesserPaid} value={row.totalMesserPaid}>
                   {formatCurrencyShort(row.totalMesserPaid)}
                 </CompactHeatCell>
-                <CompactHeatCell mode="blue" maxValue={maxes.epsCommission} value={row.epsCommission}>
+                <CompactHeatCell bordered mode="blue" maxValue={maxes.epsCommission} value={row.epsCommission}>
                   {formatCurrencyShort(row.epsCommission)}
                 </CompactHeatCell>
               </tr>
@@ -1657,11 +1834,27 @@ function getPolicyId(row: HealthSalesRow, index: number) {
 }
 
 function getMonthKey(value: string | null) {
-  return value?.slice(0, 7) ?? "";
+  const textValue = value?.trim();
+  if (!textValue) return "";
+
+  const monthMatch = textValue.match(/^(\d{4})-(\d{2})/);
+  if (monthMatch) return `${monthMatch[1]}-${monthMatch[2]}`;
+
+  const slashDateMatch = textValue.match(/^(\d{1,2})\/\d{1,2}\/(\d{4})$/);
+  if (slashDateMatch) {
+    return `${slashDateMatch[2]}-${slashDateMatch[1].padStart(2, "0")}`;
+  }
+
+  const slashMonthMatch = textValue.match(/^(\d{1,2})\/(\d{4})$/);
+  if (slashMonthMatch) {
+    return `${slashMonthMatch[2]}-${slashMonthMatch[1].padStart(2, "0")}`;
+  }
+
+  return "";
 }
 
 function getYearKey(value: string | null) {
-  return value?.slice(0, 4) ?? "";
+  return getMonthKey(value).slice(0, 4);
 }
 
 function getQuarterKey(value: string | null) {

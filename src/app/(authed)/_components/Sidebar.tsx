@@ -28,10 +28,6 @@ const menuData: MenuItem[] = [
     anyPermission: [
       PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN,
       PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL,
-      PERMISSIONS.CUSTOMER_REGISTRATION_PC_OWN,
-      PERMISSIONS.CUSTOMER_REGISTRATION_PC_ALL,
-      PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_OWN,
-      PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_ALL,
     ],
     children: [
       {
@@ -41,24 +37,6 @@ const menuData: MenuItem[] = [
           PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN,
           PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL,
         ],
-      },
-      {
-        href: "#",
-        label: "P&C",
-        anyPermission: [
-          PERMISSIONS.CUSTOMER_REGISTRATION_PC_OWN,
-          PERMISSIONS.CUSTOMER_REGISTRATION_PC_ALL,
-        ],
-        comingSoon: true,
-      },
-      {
-        href: "#",
-        label: "Life",
-        anyPermission: [
-          PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_OWN,
-          PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_ALL,
-        ],
-        comingSoon: true,
       },
     ],
   },
@@ -88,14 +66,13 @@ const menuData: MenuItem[] = [
     ],
   },
   {
-    title: "Agent Dashboard",
+    title: "Dashboard",
     anyPermission: [
       PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
       PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
       PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
       PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
-      PERMISSIONS.AGENT_DASHBOARD_LIFE_OWN,
-      PERMISSIONS.AGENT_DASHBOARD_LIFE_ALL,
+      PERMISSIONS.SALES_DASHBOARD_ACCESS,
     ],
     children: [
       {
@@ -104,6 +81,7 @@ const menuData: MenuItem[] = [
         anyPermission: [
           PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
           PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
+          PERMISSIONS.SALES_DASHBOARD_ACCESS,
         ],
       },
       {
@@ -112,36 +90,8 @@ const menuData: MenuItem[] = [
         anyPermission: [
           PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
           PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
+          PERMISSIONS.SALES_DASHBOARD_ACCESS,
         ],
-      },
-      {
-        href: "/dashboard/life",
-        label: "Life",
-        anyPermission: [
-          PERMISSIONS.AGENT_DASHBOARD_LIFE_OWN,
-          PERMISSIONS.AGENT_DASHBOARD_LIFE_ALL,
-        ],
-      },
-    ],
-  },
-  {
-    title: "Sales Dashboard",
-    permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
-    children: [
-      {
-        href: "/sales-dashboard/health",
-        label: "Health",
-        permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
-      },
-      {
-        href: "/sales-dashboard/pc",
-        label: "P&C",
-        permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
-      },
-      {
-        href: "/sales-dashboard/life",
-        label: "Life",
-        permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
       },
     ],
   },
@@ -176,8 +126,9 @@ export default function Sidebar({
   const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({
     "Customer Registration": true,
     "Automation Tool": pathname.startsWith("/automation"),
-    "Agent Dashboard": pathname.startsWith("/dashboard"),
-    "Sales Dashboard": pathname.startsWith("/sales-dashboard"),
+    Dashboard:
+      pathname.startsWith("/dashboard") ||
+      pathname.startsWith("/sales-dashboard"),
     Management:
       pathname.startsWith("/account-manager") ||
       pathname.startsWith("/role-manager"),

@@ -92,7 +92,7 @@ export function AgentHealthSalesDashboardMoMTable({
       <article className="agent-health-panel">
         {rows.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-[#667085]">
-            No report periods with more than 100 active policies.
+            No report periods matched these filters.
           </div>
         ) : (
           <div

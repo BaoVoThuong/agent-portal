@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   AgentHealthDashboardContent,
 } from "./AgentHealthDashboardFilterState";
@@ -16,6 +16,7 @@ export type HealthMartRow = {
   carrier: string | null;
   state: string | null;
   primary_member_id: string | null;
+  broker_effective_date: string | null;
   report_month: string | null;
   paid_to_date: string | null;
   agent_received: number | null;
@@ -92,6 +93,7 @@ type MemberPaymentRow = {
   primaryMemberId: string;
   totalPaid: number;
   months: {
+    reportMonth: string;
     hasRecord: boolean;
     paid: number;
     paidToDate: string | null;
@@ -100,7 +102,7 @@ type MemberPaymentRow = {
 
 type MemberPaymentSummary = {
   rows: MemberPaymentRow[];
-  visibleMonthCount: number;
+  reportMonths: string[];
 };
 
 type MixBreakdownRow = {
@@ -126,7 +128,7 @@ type CarrierPaymentStatusBreakdown = {
 type DashboardData = {
   scoreCards: ScoreCards;
   memberPayments: MemberPaymentRow[];
-  memberPaymentMonthCount: number;
+  memberPaymentReportMonths: string[];
   chartPeriodsByLevel: ChartPeriodsByLevel;
   policyPaymentStatus: PaymentStatusMonth[];
   clientPaymentStatus: PaymentStatusMonth[];
@@ -149,8 +151,7 @@ type MonthlyDashboardSummary = {
 const CHART_MONTH_LIMIT = 12;
 const CHART_QUARTER_LIMIT = 8;
 const CHART_YEAR_LIMIT = 5;
-const CHART_MIN_POLICY_COUNT = 100;
-const PAYMENT_STATUS_MIN_TOTAL = 100;
+const MEMBER_PAYMENT_REPORT_YEAR = "2026";
 const MIX_BREAKDOWN_TOP_LIMIT = 5;
 const PAID_RATE_VISIBLE_ROW_COUNT = 6;
 const PAID_RATE_HEADER_HEIGHT_PX = 72;
@@ -166,6 +167,8 @@ export function AgentHealthDashboard({
   reportMonthRange,
   rows,
   selectedCarriers,
+  selectedPrimaryMemberId,
+  viewSwitcher,
 }: {
   agentName: string;
   canViewAll: boolean;
@@ -174,15 +177,27 @@ export function AgentHealthDashboard({
   reportMonthRange: ReportMonthRange;
   rows: HealthMartRow[] | null;
   selectedCarriers: string[];
+  selectedPrimaryMemberId: string;
+  viewSwitcher?: ReactNode;
 }) {
   const [clientCarriers, setClientCarriers] = useState(selectedCarriers);
+  const [clientPrimaryMemberId, setClientPrimaryMemberId] = useState(
+    selectedPrimaryMemberId
+  );
+  const [draftPrimaryMemberId, setDraftPrimaryMemberId] = useState(
+    selectedPrimaryMemberId
+  );
   const carrierOptions = useMemo(
     () => buildCarrierOptions(rows ?? []),
     [rows]
   );
   const filteredRows = useMemo(
-    () => applyCarrierFilters(rows ?? [], clientCarriers),
-    [clientCarriers, rows]
+    () =>
+      applyClientFilters(rows ?? [], {
+        carriers: clientCarriers,
+        primaryMemberId: clientPrimaryMemberId,
+      }),
+    [clientCarriers, clientPrimaryMemberId, rows]
   );
   const dashboardData = useMemo(
     () => (rows ? buildDashboardData(filteredRows) : null),
@@ -191,16 +206,29 @@ export function AgentHealthDashboard({
 
   function updateClientCarriers(nextCarriers: string[]) {
     setClientCarriers(nextCarriers);
-    syncCarrierFilterUrl(nextCarriers);
+    syncClientFilterUrl({
+      carriers: nextCarriers,
+      primaryMemberId: clientPrimaryMemberId,
+    });
+  }
+
+  function applyPrimaryMemberIdFilter() {
+    const nextPrimaryMemberId = draftPrimaryMemberId.trim();
+
+    setClientPrimaryMemberId(nextPrimaryMemberId);
+    syncClientFilterUrl({
+      carriers: clientCarriers,
+      primaryMemberId: nextPrimaryMemberId,
+    });
   }
 
   return (
     <div className="agent-health-dashboard min-h-screen bg-slate-50 px-6 py-8 font-sans text-slate-900 md:px-10">
       <div className="mx-auto max-w-[1536px]">
-        <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
+        <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
           <div>
             <h1 className="text-[28px] font-semibold leading-tight text-[#16233a]">
-              Health Agent Dashboard
+              Health Sales Dashboard
             </h1>
             <p className="mt-2 text-sm font-normal text-[#667085]">
               {canViewAll
@@ -209,11 +237,7 @@ export function AgentHealthDashboard({
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3">
-            <AgentHealthCarrierMultiSelectFilter
-              options={carrierOptions}
-              onSelectedCarriersChange={updateClientCarriers}
-              selectedCarriers={clientCarriers}
-            />
+            {viewSwitcher}
             <AgentHealthReportMonthRangeFilter
               key={`${reportMonthRange.start ?? ""}:${reportMonthRange.end ?? ""}`}
               defaultConfig={defaultConfig}
@@ -222,6 +246,31 @@ export function AgentHealthDashboard({
             />
           </div>
         </header>
+        <div className="mb-8 flex flex-wrap items-center justify-end gap-3">
+          <AgentHealthCarrierMultiSelectFilter
+            options={carrierOptions}
+            onSelectedCarriersChange={updateClientCarriers}
+            selectedCarriers={clientCarriers}
+          />
+          <label className="block w-[15rem] shrink-0">
+            <span className="sr-only">Primary member id</span>
+            <input
+              aria-label="Primary member id"
+              className="dashboard-filter-input"
+              onBlur={applyPrimaryMemberIdFilter}
+              onChange={(event) => setDraftPrimaryMemberId(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  applyPrimaryMemberIdFilter();
+                }
+              }}
+              placeholder="Primary member id"
+              type="search"
+              value={draftPrimaryMemberId}
+            />
+          </label>
+        </div>
 
         {!dashboardData ? (
           <div className="agent-health-panel px-8 py-16 text-center text-sm font-medium text-slate-500">
@@ -287,7 +336,7 @@ export function AgentHealthDashboard({
               />
               <AgentHealthMemberPaymentTable
                 rows={dashboardData.memberPayments}
-                visibleMonthCount={dashboardData.memberPaymentMonthCount}
+                reportMonths={dashboardData.memberPaymentReportMonths}
               />
             </div>
           </AgentHealthDashboardContent>
@@ -299,29 +348,63 @@ export function AgentHealthDashboard({
 
 function buildDashboardData(rows: HealthMartRow[]): DashboardData {
   const filteredRows = rows.filter((row) => row.report_month);
-  const monthlySummaries = buildMonthlyDashboardSummaries(filteredRows);
-  const memberPaymentSummary = buildMemberPaymentSummary(filteredRows);
+  const eligibleRows = buildEligibleHealthRows(filteredRows);
+  const monthlySummaries = buildMonthlyDashboardSummaries(eligibleRows);
+  const memberPaymentSummary = buildMemberPaymentSummary(eligibleRows);
 
   return {
     scoreCards: buildScoreCards(monthlySummaries),
     memberPayments: memberPaymentSummary.rows,
-    memberPaymentMonthCount: memberPaymentSummary.visibleMonthCount,
+    memberPaymentReportMonths: memberPaymentSummary.reportMonths,
     chartPeriodsByLevel: {
       month: buildChartPeriods(monthlySummaries, "month"),
       quarter: buildChartPeriods(monthlySummaries, "quarter"),
       year: buildChartPeriods(monthlySummaries, "year"),
     },
-    policyPaymentStatus: buildPolicyPaymentStatus(filteredRows),
-    clientPaymentStatus: buildClientPaymentStatus(filteredRows),
+    policyPaymentStatus: buildPolicyPaymentStatus(eligibleRows),
+    clientPaymentStatus: buildClientPaymentStatus(eligibleRows),
     carrierPaymentStatus: buildCarrierPaymentStatusBreakdown(
-      filteredRows,
+      eligibleRows,
       monthlySummaries
     ),
     latestMonthMixBreakdown: buildLatestMonthMixBreakdown(
-      filteredRows,
+      eligibleRows,
       monthlySummaries
     ),
   };
+}
+
+function buildEligibleHealthRows(rows: HealthMartRow[]) {
+  const selectedRows = new Map<string, HealthMartRow>();
+
+  for (const row of rows) {
+    const reportMonth = getHealthMonthKey(row.report_month);
+    const effectiveMonth = getHealthMonthKey(row.broker_effective_date);
+    const primaryMemberId = row.primary_member_id?.trim().toUpperCase();
+
+    if (!reportMonth || !effectiveMonth || !primaryMemberId) continue;
+    if (effectiveMonth.localeCompare(reportMonth) > 0) continue;
+
+    const key = `${reportMonth}\u001f${primaryMemberId}`;
+    const current = selectedRows.get(key);
+
+    if (!current || compareHealthEffectiveRow(row, current) > 0) {
+      selectedRows.set(key, row);
+    }
+  }
+
+  return [...selectedRows.values()];
+}
+
+function compareHealthEffectiveRow(a: HealthMartRow, b: HealthMartRow) {
+  const aEffectiveDate = a.broker_effective_date?.trim() ?? "";
+  const bEffectiveDate = b.broker_effective_date?.trim() ?? "";
+
+  if (aEffectiveDate !== bEffectiveDate) {
+    return aEffectiveDate.localeCompare(bEffectiveDate);
+  }
+
+  return (a.agent_received ?? 0) - (b.agent_received ?? 0);
 }
 
 function buildCarrierOptions(rows: HealthMartRow[]) {
@@ -334,21 +417,52 @@ function buildCarrierOptions(rows: HealthMartRow[]) {
   ].sort((a, b) => a.localeCompare(b));
 }
 
-function applyCarrierFilters(rows: HealthMartRow[], carriers: string[]) {
-  if (carriers.length === 0) return rows;
+function applyClientFilters(
+  rows: HealthMartRow[],
+  filters: {
+    carriers: string[];
+    primaryMemberId: string;
+  }
+) {
+  const primaryMemberId = filters.primaryMemberId.trim().toUpperCase();
+  const carrierSet = new Set(filters.carriers);
 
-  const carrierSet = new Set(carriers);
+  return rows.filter((row) => {
+    if (
+      filters.carriers.length > 0 &&
+      !carrierSet.has(row.carrier?.trim() || "")
+    ) {
+      return false;
+    }
 
-  return rows.filter((row) => carrierSet.has(row.carrier?.trim() || ""));
+    if (
+      primaryMemberId &&
+      !(row.primary_member_id?.trim() ?? "")
+        .toUpperCase()
+        .includes(primaryMemberId)
+    ) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
-function syncCarrierFilterUrl(carriers: string[]) {
+function syncClientFilterUrl(filters: {
+  carriers: string[];
+  primaryMemberId: string;
+}) {
   const params = new URLSearchParams(window.location.search);
 
   params.delete("carrier");
+  params.delete("primaryMemberId");
 
-  for (const carrier of carriers) {
+  for (const carrier of filters.carriers) {
     params.append("carrier", carrier);
+  }
+
+  if (filters.primaryMemberId) {
+    params.set("primaryMemberId", filters.primaryMemberId);
   }
 
   const query = params.toString();
@@ -365,9 +479,11 @@ function buildMonthlyDashboardSummaries(
   const monthlyData = new Map<string, MonthlyDashboardSummary>();
 
   for (const row of rows) {
-    if (!row.report_month) continue;
-    const current = monthlyData.get(row.report_month) ?? {
-      reportMonth: row.report_month,
+    const reportMonth = getHealthMonthKey(row.report_month);
+    if (!reportMonth) continue;
+
+    const current = monthlyData.get(reportMonth) ?? {
+      reportMonth,
       policyIds: new Set<string>(),
       maxClientByMemberId: new Map<string, number>(),
       agentReceived: 0,
@@ -385,7 +501,7 @@ function buildMonthlyDashboardSummaries(
     }
 
     current.agentReceived += row.agent_received ?? 0;
-    monthlyData.set(row.report_month, current);
+    monthlyData.set(reportMonth, current);
   }
 
   return [...monthlyData.values()].sort((a, b) =>
@@ -396,9 +512,7 @@ function buildMonthlyDashboardSummaries(
 function buildScoreCards(
   monthlySummaries: MonthlyDashboardSummary[]
 ): ScoreCards {
-  const qualifyingSummaries = monthlySummaries.filter(
-    (summary) => summary.policyIds.size > CHART_MIN_POLICY_COUNT
-  );
+  const qualifyingSummaries = monthlySummaries.filter(hasPolicies);
   const latest = toScoreCardSummary(qualifyingSummaries.at(-1));
   const previous = toScoreCardSummary(qualifyingSummaries.at(-2));
   const reportYearCommission =
@@ -453,7 +567,7 @@ function summarizeReportYearCommission(
     0
   );
   const qualifyingMonthCommissions = reportYearSummaries
-    .filter((summary) => summary.policyIds.size > CHART_MIN_POLICY_COUNT)
+    .filter(hasPolicies)
     .map((summary) => summary.agentReceived);
 
   return {
@@ -525,7 +639,7 @@ function buildChartPeriods(
       clientCount: sumMapValues(data.maxClientByMemberId),
       agentReceived: data.agentReceived,
     }))
-    .filter((month) => month.policyCount > CHART_MIN_POLICY_COUNT)
+    .filter((month) => month.policyCount > 0)
     .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
     .slice(0, getChartPeriodLimit(chartLevel))
     .reverse();
@@ -564,30 +678,35 @@ function getChartPeriodLimit(chartLevel: ChartLevel) {
 }
 
 function buildMemberPaymentSummary(rows: HealthMartRow[]): MemberPaymentSummary {
-  const latestYear = rows.reduce<number | null>((year, row) => {
-    if (!row.report_month) return year;
-    const rowYear = new Date(`${row.report_month}T00:00:00`).getFullYear();
+  const reportYearRows = rows.filter((row) =>
+    row.report_month?.startsWith(`${MEMBER_PAYMENT_REPORT_YEAR}-`)
+  );
+  const reportMonths = [
+    ...new Set(
+      reportYearRows
+        .map((row) => row.report_month?.slice(0, 7))
+        .filter((reportMonth): reportMonth is string => Boolean(reportMonth))
+    ),
+  ].sort((a, b) => a.localeCompare(b));
 
-    return year === null || rowYear > year ? rowYear : year;
-  }, null);
-
-  if (latestYear === null) {
+  if (reportMonths.length === 0) {
     return {
       rows: [],
-      visibleMonthCount: 0,
+      reportMonths: [],
     };
   }
 
+  const reportMonthIndex = new Map(
+    reportMonths.map((reportMonth, index) => [reportMonth, index])
+  );
   const rowsByMember = new Map<string, MemberPaymentRow>();
-  let visibleMonthCount = 0;
 
-  for (const row of rows) {
+  for (const row of reportYearRows) {
     if (!row.report_month) continue;
-    const reportDate = new Date(`${row.report_month}T00:00:00`);
-    if (reportDate.getFullYear() !== latestYear) continue;
+    const reportMonth = row.report_month.slice(0, 7);
+    const monthIndex = reportMonthIndex.get(reportMonth);
+    if (monthIndex === undefined) continue;
 
-    const monthIndex = reportDate.getMonth();
-    visibleMonthCount = Math.max(visibleMonthCount, monthIndex + 1);
     const dealName = row.deal_name?.trim() || "Unknown";
     const carrier = row.carrier?.trim() || "Unknown";
     const primaryMemberId = row.primary_member_id?.trim() || "Unknown";
@@ -599,7 +718,8 @@ function buildMemberPaymentSummary(rows: HealthMartRow[]): MemberPaymentSummary 
         carrier,
         primaryMemberId,
         totalPaid: 0,
-        months: Array.from({ length: 12 }, () => ({
+        months: reportMonths.map((month) => ({
+          reportMonth: month,
           hasRecord: false,
           paid: 0,
           paidToDate: null,
@@ -619,7 +739,7 @@ function buildMemberPaymentSummary(rows: HealthMartRow[]): MemberPaymentSummary 
 
   return {
     rows: [...rowsByMember.values()].sort((a, b) => b.totalPaid - a.totalPaid),
-    visibleMonthCount,
+    reportMonths,
   };
 }
 
@@ -627,12 +747,14 @@ function buildPolicyPaymentStatus(rows: HealthMartRow[]) {
   const monthlyMemberStatus = new Map<string, Map<string, boolean>>();
 
   for (const row of rows) {
-    if (!row.report_month || !row.primary_member_id) continue;
-    const month = monthlyMemberStatus.get(row.report_month) ?? new Map<string, boolean>();
+    const reportMonth = getHealthMonthKey(row.report_month);
+    if (!reportMonth || !row.primary_member_id) continue;
+
+    const month = monthlyMemberStatus.get(reportMonth) ?? new Map<string, boolean>();
     const wasPaid = month.get(row.primary_member_id) ?? false;
 
     month.set(row.primary_member_id, wasPaid || Boolean(row.paid_to_date));
-    monthlyMemberStatus.set(row.report_month, month);
+    monthlyMemberStatus.set(reportMonth, month);
   }
 
   return [...monthlyMemberStatus.entries()]
@@ -642,7 +764,7 @@ function buildPolicyPaymentStatus(rows: HealthMartRow[]) {
 
       return toPaymentStatusMonth(reportMonth, total, paid);
     })
-    .filter((month) => month.total > PAYMENT_STATUS_MIN_TOTAL)
+    .filter((month) => month.total > 0)
     .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth));
 }
 
@@ -650,8 +772,10 @@ function buildClientPaymentStatus(rows: HealthMartRow[]) {
   const monthlyStatus = new Map<string, { paid: number; unpaid: number }>();
 
   for (const row of rows) {
-    if (!row.report_month) continue;
-    const current = monthlyStatus.get(row.report_month) ?? { paid: 0, unpaid: 0 };
+    const reportMonth = getHealthMonthKey(row.report_month);
+    if (!reportMonth) continue;
+
+    const current = monthlyStatus.get(reportMonth) ?? { paid: 0, unpaid: 0 };
     const clients = row.num_client ?? 0;
 
     if (row.paid_to_date) {
@@ -660,14 +784,14 @@ function buildClientPaymentStatus(rows: HealthMartRow[]) {
       current.unpaid += clients;
     }
 
-    monthlyStatus.set(row.report_month, current);
+    monthlyStatus.set(reportMonth, current);
   }
 
   return [...monthlyStatus.entries()]
     .map(([reportMonth, status]) =>
       toPaymentStatusMonth(reportMonth, status.paid + status.unpaid, status.paid)
     )
-    .filter((month) => month.total > PAYMENT_STATUS_MIN_TOTAL)
+    .filter((month) => month.total > 0)
     .sort((a, b) => b.reportMonth.localeCompare(a.reportMonth));
 }
 
@@ -688,7 +812,7 @@ function buildCarrierPaymentStatusBreakdown(
   monthlySummaries: MonthlyDashboardSummary[]
 ): CarrierPaymentStatusBreakdown {
   const latestCompleteMonth = monthlySummaries
-    .filter((summary) => summary.policyIds.size > CHART_MIN_POLICY_COUNT)
+    .filter(hasPolicies)
     .at(-1);
 
   if (!latestCompleteMonth) {
@@ -700,7 +824,9 @@ function buildCarrierPaymentStatusBreakdown(
   }
 
   return buildCarrierPaymentStatusRows(
-    rows.filter((row) => row.report_month === latestCompleteMonth.reportMonth),
+    rows.filter(
+      (row) => getHealthMonthKey(row.report_month) === latestCompleteMonth.reportMonth
+    ),
     latestCompleteMonth.reportMonth
   );
 }
@@ -801,7 +927,7 @@ function buildLatestMonthMixBreakdown(
   monthlySummaries: MonthlyDashboardSummary[]
 ): LatestMonthMixBreakdown {
   const latestCompleteMonth = monthlySummaries
-    .filter((summary) => summary.policyIds.size > CHART_MIN_POLICY_COUNT)
+    .filter(hasPolicies)
     .at(-1);
 
   if (!latestCompleteMonth) {
@@ -813,7 +939,7 @@ function buildLatestMonthMixBreakdown(
   }
 
   const monthRows = rows.filter(
-    (row) => row.report_month === latestCompleteMonth.reportMonth
+    (row) => getHealthMonthKey(row.report_month) === latestCompleteMonth.reportMonth
   );
 
   return {
@@ -1132,7 +1258,7 @@ function CombinedCarrierPaymentStatusTable({
               {rows.length === 0 ? (
                 <tr>
                   <td className="px-6 py-12 text-center text-sm font-medium text-slate-500" colSpan={5}>
-                    No complete month with more than 100 policies.
+                    No complete month matched these filters.
                   </td>
                 </tr>
               ) : (
@@ -1309,7 +1435,7 @@ function CombinedPaymentStatusTable({
               {rows.length === 0 ? (
                 <tr>
                   <td className="px-6 py-12 text-center text-sm font-medium text-slate-500" colSpan={5}>
-                    No months with more than 100 records.
+                    No months matched these filters.
                   </td>
                 </tr>
               ) : (
@@ -1447,6 +1573,10 @@ function sumMapValues(map: Map<string, number>) {
   return total;
 }
 
+function hasPolicies(summary: MonthlyDashboardSummary) {
+  return summary.policyIds.size > 0;
+}
+
 function formatInteger(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
@@ -1489,4 +1619,24 @@ function maxDateString(current: string | null, next: string | null) {
   if (!current) return next;
 
   return next > current ? next : current;
+}
+
+function getHealthMonthKey(value: string | null | undefined) {
+  const textValue = value?.trim();
+  if (!textValue) return "";
+
+  const monthMatch = textValue.match(/^(\d{4})-(\d{2})/);
+  if (monthMatch) return `${monthMatch[1]}-${monthMatch[2]}`;
+
+  const slashDateMatch = textValue.match(/^(\d{1,2})\/\d{1,2}\/(\d{4})$/);
+  if (slashDateMatch) {
+    return `${slashDateMatch[2]}-${slashDateMatch[1].padStart(2, "0")}`;
+  }
+
+  const slashMonthMatch = textValue.match(/^(\d{1,2})\/(\d{4})$/);
+  if (slashMonthMatch) {
+    return `${slashMonthMatch[2]}-${slashMonthMatch[1].padStart(2, "0")}`;
+  }
+
+  return "";
 }

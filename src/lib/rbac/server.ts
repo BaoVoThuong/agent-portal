@@ -29,3 +29,17 @@ export async function requirePermission(permission: string) {
 
   return session;
 }
+
+export async function requireAnyPermission(permissions: string[]) {
+  const session = await auth();
+
+  if (!session?.user?.email) {
+    redirect("/signin");
+  }
+
+  if (!canAny(session.user.permissions, permissions)) {
+    redirect(getFirstAccessiblePath(session.user.permissions ?? []));
+  }
+
+  return session;
+}

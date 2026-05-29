@@ -93,7 +93,7 @@ export function HealthSalesTrendComparisonChart({
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         {rows.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm font-medium text-slate-500">
-            No trend data with more than 100 policies.
+            No trend data matched these filters.
           </div>
         ) : (
           <TrendChartSvg rows={rows} />

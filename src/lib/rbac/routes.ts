@@ -32,6 +32,7 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     anyPermission: [
       PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
       PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
+      PERMISSIONS.SALES_DASHBOARD_ACCESS,
     ],
   },
   {
@@ -39,26 +40,8 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     anyPermission: [
       PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
       PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
+      PERMISSIONS.SALES_DASHBOARD_ACCESS,
     ],
-  },
-  {
-    href: "/dashboard/life",
-    anyPermission: [
-      PERMISSIONS.AGENT_DASHBOARD_LIFE_OWN,
-      PERMISSIONS.AGENT_DASHBOARD_LIFE_ALL,
-    ],
-  },
-  {
-    href: "/sales-dashboard/health",
-    permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
-  },
-  {
-    href: "/sales-dashboard/pc",
-    permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
-  },
-  {
-    href: "/sales-dashboard/life",
-    permission: PERMISSIONS.SALES_DASHBOARD_ACCESS,
   },
   {
     href: "/account-manager",

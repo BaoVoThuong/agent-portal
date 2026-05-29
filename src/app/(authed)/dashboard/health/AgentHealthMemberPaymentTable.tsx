@@ -1,7 +1,7 @@
 "use client";
 
-import { FileDown } from "lucide-react";
-import { useMemo, useState } from "react";
+import { FileDown, Filter } from "lucide-react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as XLSX from "xlsx";
 
 type MemberPaymentRow = {
@@ -10,77 +10,202 @@ type MemberPaymentRow = {
   primaryMemberId: string;
   totalPaid: number;
   months: {
+    reportMonth: string;
     hasRecord: boolean;
     paid: number;
     paidToDate: string | null;
   }[];
 };
 
-type PaymentStatusFilter = "all" | "unpaid" | "paid";
+type MonthStatusFilterValue = "unpaid" | "paid" | "no-record";
+type FilterPanelKey = "dealName" | "carrier" | "primaryMemberId" | `month-${number}`;
+type SortDirection = "asc" | "desc";
+type SortState = {
+  key: FilterPanelKey;
+  direction: SortDirection;
+};
+type FilterOption = {
+  label: string;
+  value: string;
+};
 
-const MONTH_LABELS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
+const MONTH_STATUS_FILTER_OPTIONS: FilterOption[] = [
+  { label: "Paid", value: "paid" },
+  { label: "Unpaid", value: "unpaid" },
+  { label: "No record", value: "no-record" },
 ];
 
 export function AgentHealthMemberPaymentTable({
   rows,
-  visibleMonthCount,
+  reportMonths,
 }: {
   rows: MemberPaymentRow[];
-  visibleMonthCount: number;
+  reportMonths: string[];
 }) {
-  const [memberIdFilter, setMemberIdFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<PaymentStatusFilter>("all");
-  const [monthFilter, setMonthFilter] = useState("latest");
-  const visibleMonthLabels = MONTH_LABELS.slice(0, visibleMonthCount);
-  const tableWidth = 976 + visibleMonthLabels.length * 112;
-  const selectedMonthIndex = getSelectedMonthIndex(
-    monthFilter,
-    visibleMonthCount
+  const [dealNameFilterValues, setDealNameFilterValues] = useState<string[]>([]);
+  const [carrierFilterValues, setCarrierFilterValues] = useState<string[]>([]);
+  const [memberIdFilterValues, setMemberIdFilterValues] = useState<string[]>([]);
+  const [monthStatusFilters, setMonthStatusFilters] = useState<
+    Record<string, MonthStatusFilterValue[]>
+  >({});
+  const [sortState, setSortState] = useState<SortState | null>(null);
+  const [activeFilterPanel, setActiveFilterPanel] =
+    useState<FilterPanelKey | null>(null);
+  const reportMonthLabels = useMemo(
+    () => reportMonths.map(formatReportMonthLabel),
+    [reportMonths]
   );
+  const tableWidth = useMemo(
+    () => 976 + reportMonthLabels.length * 112,
+    [reportMonthLabels.length]
+  );
+  const dealNameOptions = useMemo(
+    () => getUniqueSortedOptions(rows.map((row) => row.dealName)),
+    [rows]
+  );
+  const carrierOptions = useMemo(
+    () => getUniqueSortedOptions(rows.map((row) => row.carrier)),
+    [rows]
+  );
+  const memberIdOptions = useMemo(
+    () => getUniqueSortedOptions(rows.map((row) => row.primaryMemberId)),
+    [rows]
+  );
+  const hasActiveFilters =
+    dealNameFilterValues.length > 0 ||
+    carrierFilterValues.length > 0 ||
+    memberIdFilterValues.length > 0 ||
+    Object.keys(monthStatusFilters).length > 0 ||
+    Boolean(sortState);
   const filteredRows = useMemo(() => {
-    const filter = memberIdFilter.trim().toLowerCase();
+    const activeMonthFilters = reportMonthLabels
+      .map((month, index) => ({
+        index,
+        values: monthStatusFilters[month] ?? [],
+      }))
+      .filter((filter) => filter.values.length > 0);
 
-    return rows.filter((row) => {
-      if (filter && !row.primaryMemberId.toLowerCase().includes(filter)) {
+    const nextRows = rows.filter((row) => {
+      if (
+        dealNameFilterValues.length > 0 &&
+        !dealNameFilterValues.includes(row.dealName)
+      ) {
         return false;
       }
 
-      if (statusFilter === "all") return true;
-
-      const visibleMonths = row.months.slice(0, visibleMonthCount);
-      if (selectedMonthIndex === null) {
-        return visibleMonths.some((month) =>
-          matchesPaymentStatus(month, statusFilter)
-        );
+      if (
+        carrierFilterValues.length > 0 &&
+        !carrierFilterValues.includes(row.carrier)
+      ) {
+        return false;
       }
 
-      return matchesPaymentStatus(
-        visibleMonths[selectedMonthIndex],
-        statusFilter
+      if (
+        memberIdFilterValues.length > 0 &&
+        !memberIdFilterValues.includes(row.primaryMemberId)
+      ) {
+        return false;
+      }
+
+      return activeMonthFilters.every(({ index, values }) =>
+        matchesMonthStatusValues(row.months[index], values)
       );
     });
+
+    if (sortState) {
+      nextRows.sort((a, b) =>
+        compareSortValues(
+          getSortValue(a, sortState.key),
+          getSortValue(b, sortState.key),
+          sortState.direction
+        )
+      );
+    }
+
+    return nextRows;
   }, [
-    memberIdFilter,
+    carrierFilterValues,
+    dealNameFilterValues,
+    memberIdFilterValues,
+    monthStatusFilters,
+    reportMonthLabels,
     rows,
-    selectedMonthIndex,
-    statusFilter,
-    visibleMonthCount,
+    sortState,
   ]);
 
+  useEffect(() => {
+    if (!activeFilterPanel) return;
+
+    function closeFilterPanelOnOutsideClick(event: PointerEvent) {
+      const target = event.target;
+
+      if (
+        target instanceof Element &&
+        target.closest("[data-member-payment-filter-root]")
+      ) {
+        return;
+      }
+
+      setActiveFilterPanel(null);
+    }
+
+    function closeFilterPanelOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setActiveFilterPanel(null);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeFilterPanelOnOutsideClick);
+    document.addEventListener("keydown", closeFilterPanelOnEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeFilterPanelOnOutsideClick);
+      document.removeEventListener("keydown", closeFilterPanelOnEscape);
+    };
+  }, [activeFilterPanel]);
+
+  function toggleFilterPanel(panel: FilterPanelKey) {
+    setActiveFilterPanel((currentPanel) =>
+      currentPanel === panel ? null : panel
+    );
+  }
+
+  function updateMonthStatusFilter(
+    month: string,
+    values: MonthStatusFilterValue[]
+  ) {
+    setMonthStatusFilters((currentFilters) => {
+      const nextFilters = { ...currentFilters };
+
+      if (
+        values.length === 0 ||
+        values.length === MONTH_STATUS_FILTER_OPTIONS.length
+      ) {
+        delete nextFilters[month];
+      } else {
+        nextFilters[month] = values;
+      }
+
+      return nextFilters;
+    });
+  }
+
+  function updateSort(key: FilterPanelKey, direction: SortDirection) {
+    setSortState({ key, direction });
+    setActiveFilterPanel(null);
+  }
+
+  function clearAllFilters() {
+    setDealNameFilterValues([]);
+    setCarrierFilterValues([]);
+    setMemberIdFilterValues([]);
+    setMonthStatusFilters({});
+    setSortState(null);
+    setActiveFilterPanel(null);
+  }
+
   function exportFilteredRows() {
-    const headers = buildExportHeaders(visibleMonthLabels);
+    const headers = buildExportHeaders(reportMonthLabels);
     const exportRows = filteredRows.map((row, index) => [
       index + 1,
       row.dealName,
@@ -88,7 +213,6 @@ export function AgentHealthMemberPaymentTable({
       row.primaryMemberId,
       row.totalPaid,
       ...row.months
-        .slice(0, visibleMonthLabels.length)
         .flatMap((month) => [
           getMonthExportStatus(month),
           month.hasRecord ? month.paid : "",
@@ -100,13 +224,13 @@ export function AgentHealthMemberPaymentTable({
       wch: getExportColumnWidth(header),
     }));
 
-    applyExportCurrencyFormat(sheet, exportRows.length, visibleMonthLabels.length);
+    applyExportCurrencyFormat(sheet, exportRows.length, reportMonthLabels.length);
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, "Member_Payments");
     XLSX.writeFile(
       workbook,
-      `member-payment-history-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      `member-payment-history-2026-${new Date().toISOString().slice(0, 10)}.xlsx`,
       { compression: true }
     );
   }
@@ -117,75 +241,31 @@ export function AgentHealthMemberPaymentTable({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
-              Member Payment History | Current Report Year
+              Member Payment History | 2026
             </h2>
             <p className="mt-1 text-xs text-[#667085]">
               Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} rows
             </p>
           </div>
-          <button
-            type="button"
-            onClick={exportFilteredRows}
-            disabled={filteredRows.length === 0}
-            className="inline-flex h-10 items-center gap-2 rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-semibold text-[#184e8a] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <FileDown aria-hidden="true" size={16} strokeWidth={2.2} />
-            Export XLSX
-          </button>
-        </div>
-        <div className="mt-5 flex flex-wrap items-end gap-3">
-          <label className="flex min-w-[10rem] flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
-            Month
-            <select
-              value={monthFilter}
-              onChange={(event) => setMonthFilter(event.target.value)}
-              className="dashboard-filter-native-select min-w-[11rem] normal-case tracking-normal"
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              disabled={!hasActiveFilters}
+              className="inline-flex h-10 items-center rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <option value="latest">Latest month</option>
-              <option value="any">Any month</option>
-              {visibleMonthLabels.map((month, index) => (
-                <option key={month} value={String(index)}>
-                  {month}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
-            Payment Status
-            <div className="inline-flex h-10 overflow-hidden rounded-md border border-[#cfd7e3] bg-white">
-              {(["all", "unpaid", "paid"] as PaymentStatusFilter[]).map(
-                (status) => {
-                  const isActive = statusFilter === status;
-
-                  return (
-                    <button
-                      key={status}
-                      type="button"
-                      onClick={() => setStatusFilter(status)}
-                      className={`px-3 text-sm font-semibold normal-case tracking-normal transition ${
-                        isActive
-                          ? "bg-[#184e8a] text-white"
-                          : "text-[#344054] hover:bg-[#f3f6fa]"
-                      }`}
-                      aria-pressed={isActive}
-                    >
-                      {getStatusFilterLabel(status)}
-                    </button>
-                  );
-                }
-              )}
-            </div>
+              Clear Filters
+            </button>
+            <button
+              type="button"
+              onClick={exportFilteredRows}
+              disabled={filteredRows.length === 0}
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-semibold text-[#184e8a] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FileDown aria-hidden="true" size={16} strokeWidth={2.2} />
+              Export XLSX
+            </button>
           </div>
-          <label className="flex min-w-[280px] flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">
-            Primary Member ID
-            <input
-              value={memberIdFilter}
-              onChange={(event) => setMemberIdFilter(event.target.value)}
-              placeholder="Filter member id..."
-              className="h-10 rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-normal normal-case tracking-normal text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10"
-              type="search"
-            />
-          </label>
         </div>
       </header>
       <div className="max-h-[720px] overflow-auto">
@@ -195,87 +275,433 @@ export function AgentHealthMemberPaymentTable({
               <th className="sticky left-0 top-0 z-20 w-12 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3 text-right">
                 #
               </th>
-              <th className="sticky left-12 top-0 z-20 w-[30rem] border-r border-[#d8dee7] bg-[#f8fafc] px-4 py-3">
-                Deal Name
+              <th className="sticky left-12 top-0 z-30 w-[30rem] border-r border-[#d8dee7] bg-[#f8fafc] px-4 py-3">
+                <FilterableHeader
+                  active={
+                    dealNameFilterValues.length > 0 ||
+                    sortState?.key === "dealName"
+                  }
+                  isOpen={activeFilterPanel === "dealName"}
+                  label="Deal Name"
+                  onToggle={() => toggleFilterPanel("dealName")}
+                >
+                  <ExcelFilterPanel
+                    label="Deal Name"
+                    onApply={setDealNameFilterValues}
+                    onCancel={() => setActiveFilterPanel(null)}
+                    onClearFilter={() => setDealNameFilterValues([])}
+                    onSort={(direction) => updateSort("dealName", direction)}
+                    options={dealNameOptions}
+                    selectedValues={dealNameFilterValues}
+                  />
+                </FilterableHeader>
               </th>
-              <th className="sticky top-0 z-10 w-28 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3">
-                Carrier
+              <th className="sticky top-0 z-20 w-28 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3">
+                <FilterableHeader
+                  active={
+                    carrierFilterValues.length > 0 ||
+                    sortState?.key === "carrier"
+                  }
+                  isOpen={activeFilterPanel === "carrier"}
+                  label="Carrier"
+                  onToggle={() => toggleFilterPanel("carrier")}
+                >
+                  <ExcelFilterPanel
+                    label="Carrier"
+                    options={carrierOptions}
+                    selectedValues={carrierFilterValues}
+                    onApply={setCarrierFilterValues}
+                    onCancel={() => setActiveFilterPanel(null)}
+                    onClearFilter={() => setCarrierFilterValues([])}
+                    onSort={(direction) => updateSort("carrier", direction)}
+                  />
+                </FilterableHeader>
               </th>
-              <th className="sticky top-0 z-10 w-56 border-r border-[#d8dee7] bg-[#f8fafc] px-4 py-3">
-                Primary Member ID
+              <th className="sticky top-0 z-20 w-56 border-r border-[#d8dee7] bg-[#f8fafc] px-4 py-3">
+                <FilterableHeader
+                  active={
+                    memberIdFilterValues.length > 0 ||
+                    sortState?.key === "primaryMemberId"
+                  }
+                  isOpen={activeFilterPanel === "primaryMemberId"}
+                  label="Primary Member ID"
+                  onToggle={() => toggleFilterPanel("primaryMemberId")}
+                >
+                  <ExcelFilterPanel
+                    label="Primary Member ID"
+                    onApply={setMemberIdFilterValues}
+                    onCancel={() => setActiveFilterPanel(null)}
+                    onClearFilter={() => setMemberIdFilterValues([])}
+                    onSort={(direction) =>
+                      updateSort("primaryMemberId", direction)
+                    }
+                    options={memberIdOptions}
+                    selectedValues={memberIdFilterValues}
+                  />
+                </FilterableHeader>
               </th>
               <th className="sticky top-0 z-10 w-28 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3 text-right">
                 Total Paid
               </th>
-              {visibleMonthLabels.map((month) => (
+              {reportMonthLabels.map((month, monthIndex) => (
                 <th
                   key={month}
-                  className="sticky top-0 z-10 w-28 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3 text-right last:border-r-0"
+                  className="sticky top-0 z-20 w-28 border-r border-[#d8dee7] bg-[#f8fafc] px-3 py-3 text-right last:border-r-0"
                 >
-                  {month}
+                  <FilterableHeader
+                    active={
+                      Boolean(monthStatusFilters[month]?.length) ||
+                      sortState?.key === getMonthFilterPanelKey(monthIndex)
+                    }
+                    align="right"
+                    isOpen={
+                      activeFilterPanel === getMonthFilterPanelKey(monthIndex)
+                    }
+                    label={month}
+                    onToggle={() =>
+                      toggleFilterPanel(getMonthFilterPanelKey(monthIndex))
+                    }
+                  >
+                    <ExcelFilterPanel
+                      label={month}
+                      onApply={(values) =>
+                        updateMonthStatusFilter(
+                          month,
+                          values as MonthStatusFilterValue[]
+                        )
+                      }
+                      onCancel={() => setActiveFilterPanel(null)}
+                      onClearFilter={() => updateMonthStatusFilter(month, [])}
+                      onSort={(direction) =>
+                        updateSort(getMonthFilterPanelKey(monthIndex), direction)
+                      }
+                      options={MONTH_STATUS_FILTER_OPTIONS}
+                      selectedValues={monthStatusFilters[month] ?? []}
+                      sortAscLabel="Sort smallest to largest"
+                      sortDescLabel="Sort largest to smallest"
+                    />
+                  </FilterableHeader>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
-            {filteredRows.length === 0 ? (
-              <tr>
-                <td
-                  className="px-6 py-10 text-center text-[#667085]"
-                  colSpan={5 + visibleMonthLabels.length}
-                >
-                  No policies matched these filters.
-                </td>
-              </tr>
-            ) : (
-              filteredRows.map((row, index) => (
-                <tr
-                  key={`${row.dealName}-${row.carrier}-${row.primaryMemberId}`}
-                  className="border-b border-[#f1f3f7] last:border-b-0"
-                >
-                  <td className="sticky left-0 z-10 border-r border-[#edf0f4] bg-white px-3 py-2.5 text-right font-semibold text-[#667085]">
-                    {index + 1}
-                  </td>
-                  <td className="sticky left-12 z-10 border-r border-[#edf0f4] bg-white px-4 py-2.5 font-semibold leading-5 text-[#16233a]">
-                    {row.dealName}
-                  </td>
-                  <td className="border-r border-[#edf0f4] px-3 py-2.5 text-[#344054]">
-                    {row.carrier}
-                  </td>
-                  <td className="border-r border-[#edf0f4] px-4 py-2.5 text-[#344054]">
-                    {row.primaryMemberId}
-                  </td>
-                  <td className="border-r border-[#edf0f4] px-3 py-2.5 text-right font-semibold text-[#16233a]">
-                    {formatCurrency(row.totalPaid)}
-                  </td>
-                  {row.months
-                    .slice(0, visibleMonthLabels.length)
-                    .map((month, monthIndex) => {
-                      const isFocusedUnpaid =
-                        statusFilter === "unpaid" &&
-                        matchesSelectedMonth(monthIndex, selectedMonthIndex) &&
-                        matchesPaymentStatus(month, "unpaid");
-
-                      return (
-                        <td
-                          key={`${row.primaryMemberId}-${MONTH_LABELS[monthIndex]}`}
-                          className={`border-r px-3 py-2.5 text-right last:border-r-0 ${
-                            isFocusedUnpaid
-                              ? "border-[#f5c6d0] bg-[#fff1f3]"
-                              : "border-[#edf0f4]"
-                          }`}
-                        >
-                          <MonthPaymentCell month={month} />
-                        </td>
-                      );
-                    })}
-                </tr>
-              ))
-            )}
-          </tbody>
+          <MemberPaymentTableBody
+            monthStatusFilters={monthStatusFilters}
+            reportMonthLabels={reportMonthLabels}
+            rows={filteredRows}
+          />
         </table>
       </div>
     </section>
+  );
+}
+
+const MemberPaymentTableBody = memo(function MemberPaymentTableBody({
+  monthStatusFilters,
+  reportMonthLabels,
+  rows,
+}: {
+  monthStatusFilters: Record<string, MonthStatusFilterValue[]>;
+  reportMonthLabels: string[];
+  rows: MemberPaymentRow[];
+}) {
+  return (
+    <tbody>
+      {rows.length === 0 ? (
+        <tr>
+          <td
+            className="px-6 py-10 text-center text-[#667085]"
+            colSpan={5 + reportMonthLabels.length}
+          >
+            No policies matched these filters.
+          </td>
+        </tr>
+      ) : (
+        rows.map((row, index) => (
+          <tr
+            key={`${row.dealName}-${row.carrier}-${row.primaryMemberId}`}
+            className="border-b border-[#f1f3f7] last:border-b-0"
+          >
+            <td className="sticky left-0 z-10 border-r border-[#edf0f4] bg-white px-3 py-2.5 text-right font-semibold text-[#667085]">
+              {index + 1}
+            </td>
+            <td className="sticky left-12 z-10 border-r border-[#edf0f4] bg-white px-4 py-2.5 font-semibold leading-5 text-[#16233a]">
+              {row.dealName}
+            </td>
+            <td className="border-r border-[#edf0f4] px-3 py-2.5 text-[#344054]">
+              {row.carrier}
+            </td>
+            <td className="border-r border-[#edf0f4] px-4 py-2.5 text-[#344054]">
+              {row.primaryMemberId}
+            </td>
+            <td className="border-r border-[#edf0f4] px-3 py-2.5 text-right font-semibold text-[#16233a]">
+              {formatCurrency(row.totalPaid)}
+            </td>
+            {row.months.map((month, monthIndex) => {
+              const activeMonthStatusFilters =
+                monthStatusFilters[reportMonthLabels[monthIndex]] ?? [];
+              const isFocusedUnpaid =
+                activeMonthStatusFilters.includes("unpaid") &&
+                getMonthCellFilterValue(month) === "unpaid";
+
+              return (
+                <td
+                  key={`${row.primaryMemberId}-${month.reportMonth}`}
+                  className={`border-r px-3 py-2.5 text-right last:border-r-0 ${
+                    isFocusedUnpaid
+                      ? "border-[#f5c6d0] bg-[#fff1f3]"
+                      : "border-[#edf0f4]"
+                  }`}
+                >
+                  <MonthPaymentCell month={month} />
+                </td>
+              );
+            })}
+          </tr>
+        ))
+      )}
+    </tbody>
+  );
+});
+
+function FilterableHeader({
+  active,
+  align = "left",
+  children,
+  isOpen,
+  label,
+  onToggle,
+}: {
+  active: boolean;
+  align?: "left" | "right";
+  children: ReactNode;
+  isOpen: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="relative" data-member-payment-filter-root>
+      <div
+        className={`flex items-center gap-2 ${
+          align === "right" ? "justify-end" : "justify-between"
+        }`}
+      >
+        <span>{label}</span>
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[#667085] transition hover:bg-[#e9eef6] hover:text-[#184e8a] ${
+            active ? "bg-[#dbeafe] text-[#184e8a]" : ""
+          }`}
+          aria-label={`Filter ${label}`}
+          aria-pressed={active}
+        >
+          <Filter aria-hidden="true" size={14} strokeWidth={2.4} />
+        </button>
+      </div>
+      {isOpen ? (
+        <div
+          className={`absolute top-full z-50 mt-2 w-72 rounded-lg border border-[#cfd7e3] bg-white p-3 text-left text-sm normal-case tracking-normal text-[#16233a] shadow-xl ${
+            align === "right" ? "right-0" : "left-0"
+          }`}
+        >
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExcelFilterPanel({
+  label,
+  onApply,
+  onCancel,
+  onClearFilter,
+  onSort,
+  options,
+  selectedValues,
+  sortAscLabel = "Sort A to Z",
+  sortDescLabel = "Sort Z to A",
+}: {
+  label: string;
+  onApply: (values: string[]) => void;
+  onCancel: () => void;
+  onClearFilter: () => void;
+  onSort: (direction: SortDirection) => void;
+  options: FilterOption[];
+  selectedValues: string[];
+  sortAscLabel?: string;
+  sortDescLabel?: string;
+}) {
+  const optionValues = useMemo(
+    () => options.map((option) => option.value),
+    [options]
+  );
+  const [searchValue, setSearchValue] = useState("");
+  const [draftValues, setDraftValues] = useState<string[]>(
+    selectedValues.length > 0 ? selectedValues : optionValues
+  );
+  const draftValueSet = useMemo(() => new Set(draftValues), [draftValues]);
+  const visibleOptions = useMemo(() => {
+    const search = searchValue.trim().toLowerCase();
+
+    if (!search) return options;
+
+    return options.filter((option) =>
+      option.label.toLowerCase().includes(search)
+    );
+  }, [options, searchValue]);
+  const selectedVisibleCount = visibleOptions.reduce(
+    (count, option) => count + (draftValueSet.has(option.value) ? 1 : 0),
+    0
+  );
+  const areAllVisibleSelected =
+    visibleOptions.length > 0 && selectedVisibleCount === visibleOptions.length;
+
+  function toggleDraftValue(value: string) {
+    setDraftValues((currentValues) => {
+      const nextValues = new Set(currentValues);
+
+      if (nextValues.has(value)) {
+        nextValues.delete(value);
+      } else {
+        nextValues.add(value);
+      }
+
+      return [...nextValues];
+    });
+  }
+
+  function selectAllValues() {
+    setDraftValues(optionValues);
+  }
+
+  function clearFilter() {
+    setDraftValues(optionValues);
+    onClearFilter();
+    onCancel();
+  }
+
+  function toggleVisibleValues() {
+    const visibleValues = visibleOptions.map((option) => option.value);
+    const visibleValueSet = new Set(visibleValues);
+
+    setDraftValues((currentValues) => {
+      if (areAllVisibleSelected) {
+        return currentValues.filter((value) => !visibleValueSet.has(value));
+      }
+
+      return [...new Set([...currentValues, ...visibleValues])];
+    });
+  }
+
+  function applyFilter() {
+    onApply(
+      draftValues.length === optionValues.length ? [] : sortSelectedValues(draftValues)
+    );
+    onCancel();
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1 border-b border-[#edf0f4] pb-2">
+        <button
+          type="button"
+          onClick={() => onSort("asc")}
+          className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]"
+        >
+          {sortAscLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => onSort("desc")}
+          className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]"
+        >
+          {sortDescLabel}
+        </button>
+      </div>
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <button
+          type="button"
+          onClick={selectAllValues}
+          className="font-semibold text-[#184e8a] hover:underline"
+        >
+          Select all
+        </button>
+        <button
+          type="button"
+          onClick={clearFilter}
+          className="font-semibold text-[#184e8a] hover:underline"
+        >
+          Clear filter
+        </button>
+        <span className="ml-auto text-[#667085]">
+          Displaying {formatInteger(visibleOptions.length)}
+        </span>
+      </div>
+      <label className="block">
+        <span className="sr-only">Search {label}</span>
+        <input
+          value={searchValue}
+          onChange={(event) => setSearchValue(event.target.value)}
+          placeholder="Search values"
+          className="h-9 w-full rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-normal text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10"
+          type="search"
+        />
+      </label>
+      <div className="max-h-44 overflow-auto border-y border-[#edf0f4] py-1">
+        {visibleOptions.length === 0 ? (
+          <div className="px-2 py-3 text-sm text-[#667085]">
+            No values found.
+          </div>
+        ) : (
+          <>
+            <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]">
+              <input
+                type="checkbox"
+                checked={areAllVisibleSelected}
+                onChange={toggleVisibleValues}
+                className="h-4 w-4 rounded border-[#cfd7e3] text-[#184e8a] focus:ring-[#184e8a]"
+              />
+              <span>(Select visible)</span>
+            </label>
+            {visibleOptions.map((option) => (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]"
+              >
+                <input
+                type="checkbox"
+                  checked={draftValueSet.has(option.value)}
+                  onChange={() => toggleDraftValue(option.value)}
+                  className="h-4 w-4 rounded border-[#cfd7e3] text-[#184e8a] focus:ring-[#184e8a]"
+                />
+                <span className="truncate" title={option.label}>
+                  {option.label}
+                </span>
+              </label>
+            ))}
+          </>
+        )}
+      </div>
+      <div className="flex justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="h-9 rounded-md border border-[#cfd7e3] bg-white px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={applyFilter}
+          disabled={draftValues.length === 0}
+          className="h-9 rounded-md bg-[#15803d] px-4 text-sm font-semibold text-white transition hover:bg-[#166534] disabled:cursor-not-allowed disabled:bg-[#94a3b8]"
+        >
+          OK
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -309,18 +735,6 @@ function MonthPaymentCell({
       </div>
     </>
   );
-}
-
-function getSelectedMonthIndex(monthFilter: string, visibleMonthCount: number) {
-  if (monthFilter === "any" || visibleMonthCount === 0) return null;
-  if (monthFilter === "latest") return visibleMonthCount - 1;
-
-  const parsed = Number(monthFilter);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed >= visibleMonthCount) {
-    return visibleMonthCount - 1;
-  }
-
-  return parsed;
 }
 
 function buildExportHeaders(monthLabels: string[]) {
@@ -377,27 +791,66 @@ function applyExportCurrencyFormat(
   }
 }
 
-function matchesSelectedMonth(
-  monthIndex: number,
-  selectedMonthIndex: number | null
-) {
-  return selectedMonthIndex === null || selectedMonthIndex === monthIndex;
-}
-
-function matchesPaymentStatus(
+function matchesMonthStatusValues(
   month: MemberPaymentRow["months"][number] | undefined,
-  status: Exclude<PaymentStatusFilter, "all">
+  values: MonthStatusFilterValue[]
 ) {
-  if (!month?.hasRecord) return false;
-  const isPaid = Boolean(month.paidToDate);
+  if (values.length === 0) return true;
 
-  return status === "paid" ? isPaid : !isPaid;
+  return values.includes(getMonthCellFilterValue(month));
 }
 
-function getStatusFilterLabel(status: PaymentStatusFilter) {
-  if (status === "paid") return "Paid";
-  if (status === "unpaid") return "Unpaid";
-  return "All";
+function getMonthCellFilterValue(
+  month: MemberPaymentRow["months"][number] | undefined
+): MonthStatusFilterValue {
+  if (!month?.hasRecord) return "no-record";
+  return month.paidToDate ? "paid" : "unpaid";
+}
+
+function getSortValue(row: MemberPaymentRow, key: FilterPanelKey) {
+  if (key === "dealName") return row.dealName;
+  if (key === "carrier") return row.carrier;
+  if (key === "primaryMemberId") return row.primaryMemberId;
+
+  const monthIndex = Number(key.replace("month-", ""));
+  const month = Number.isInteger(monthIndex) ? row.months[monthIndex] : null;
+
+  return month?.hasRecord ? month.paid : -1;
+}
+
+function compareSortValues(
+  leftValue: string | number,
+  rightValue: string | number,
+  direction: SortDirection
+) {
+  const multiplier = direction === "asc" ? 1 : -1;
+
+  if (typeof leftValue === "number" && typeof rightValue === "number") {
+    return (leftValue - rightValue) * multiplier;
+  }
+
+  return String(leftValue).localeCompare(String(rightValue)) * multiplier;
+}
+
+function sortSelectedValues(values: string[]) {
+  return [...values].sort((a, b) => a.localeCompare(b));
+}
+
+function getUniqueSortedOptions(values: string[]): FilterOption[] {
+  return [...new Set(values)].sort((a, b) =>
+    getFilterOptionLabel(a).localeCompare(getFilterOptionLabel(b))
+  ).map((value) => ({
+    label: getFilterOptionLabel(value),
+    value,
+  }));
+}
+
+function getFilterOptionLabel(value: string) {
+  return value || "(Blanks)";
+}
+
+function getMonthFilterPanelKey(index: number): FilterPanelKey {
+  return `month-${index}` as FilterPanelKey;
 }
 
 function formatInteger(value: number) {
@@ -419,4 +872,8 @@ function formatDate(value: string) {
     day: "2-digit",
     timeZone: "UTC",
   }).format(new Date(`${value}T00:00:00Z`));
+}
+
+function formatReportMonthLabel(value: string) {
+  return value.slice(0, 7);
 }

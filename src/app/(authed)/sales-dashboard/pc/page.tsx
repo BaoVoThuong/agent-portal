@@ -3,9 +3,11 @@ import {
   fetchDashboardMonthDefault,
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
+import { canAny } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { DashboardViewSwitch } from "../../dashboard/DashboardViewSwitch";
 import {
   PcSalesDashboard,
   type FilterOptions,
@@ -32,9 +34,12 @@ const PC_PAGE_SIZE = 1000;
 export default async function PcSalesDashboardPage({
   searchParams,
 }: PcSalesDashboardPageProps) {
-  await requirePermission(PERMISSIONS.SALES_DASHBOARD_ACCESS);
-
+  const session = await requirePermission(PERMISSIONS.SALES_DASHBOARD_ACCESS);
   const params = searchParams ? await searchParams : {};
+  const canViewAgent = canAny(session.user.permissions, [
+    PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
+    PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
+  ]);
   const monthDefaultConfig = await fetchDashboardMonthDefault(
     DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_PC
   );
@@ -49,7 +54,7 @@ export default async function PcSalesDashboardPage({
   return (
     <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
       <div className="mx-auto max-w-[1536px]">
-        <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
+        <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">
               P&amp;C Sales Dashboard
@@ -58,10 +63,19 @@ export default async function PcSalesDashboardPage({
               Overview of P&amp;C sales volume, agent commissions, and EPS metrics.
             </p>
           </div>
-          <PcSalesHeaderFilters
-            defaultConfig={monthDefaultConfig}
-            filters={filters}
-          />
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <DashboardViewSwitch
+              activeView="sales"
+              basePath="/dashboard/pc"
+              canViewAgent={canViewAgent}
+              canViewSales
+              searchParams={params}
+            />
+            <PcSalesHeaderFilters
+              defaultConfig={monthDefaultConfig}
+              filters={filters}
+            />
+          </div>
         </header>
 
         <PcSalesDashboard

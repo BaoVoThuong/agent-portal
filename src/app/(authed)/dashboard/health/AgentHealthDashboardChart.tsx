@@ -48,14 +48,13 @@ export function AgentHealthDashboardChart({
     const maxMoney = roundAxisMax(
       Math.max(...periods.map((period) => Math.max(period.agentReceived, 0)), 1)
     );
-    const maxCount = roundAxisMax(
-      Math.max(
-        ...periods.map((period) =>
-          Math.max(period.policyCount, period.clientCount)
-        ),
-        1
-      ) + 200
+    const maxCountBase = Math.max(
+      ...periods.map((period) =>
+        Math.max(period.policyCount, period.clientCount)
+      ),
+      1
     );
+    const maxCount = roundAxisMax(maxCountBase * 1.15);
     const groupWidth = PLOT_WIDTH / Math.max(periods.length, 1);
     const barWidth = Math.min(56, Math.max(34, groupWidth * 0.58));
     const points = periods.map((period, index) => {
@@ -101,7 +100,7 @@ export function AgentHealthDashboardChart({
           onChartLevelChange={onChartLevelChange}
         />
         <div className="mt-6 rounded-lg border border-dashed border-[#d8dee7] px-6 py-12 text-center text-sm text-[#667085]">
-          No report periods with more than 100 active policies.
+          No report periods matched these filters.
         </div>
       </section>
     );

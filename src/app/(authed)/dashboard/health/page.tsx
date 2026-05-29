@@ -1,6 +1,6 @@
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { can } from "@/lib/rbac/client";
-import { requirePermission } from "@/lib/rbac/server";
+import { can, canAny } from "@/lib/rbac/client";
+import { requireAnyPermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   DASHBOARD_FILTER_KEYS,
@@ -13,6 +13,11 @@ import {
   type ReportMonthRange,
 } from "./AgentHealthDashboard";
 import { AgentHealthDashboardFilterProvider } from "./AgentHealthDashboardFilterState";
+import {
+  DashboardViewSwitch,
+  type DashboardView,
+} from "../DashboardViewSwitch";
+import HealthSalesDashboardPage from "../../sales-dashboard/health/page";
 
 export const dynamic = "force-dynamic";
 
@@ -23,14 +28,35 @@ type DashboardPageProps = {
 type ChartLevel = "month" | "quarter" | "year";
 
 const HEALTH_MART_PAGE_SIZE = 1000;
+const HEALTH_AGENT_PERMISSIONS = [
+  PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
+  PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
+];
+const HEALTH_DASHBOARD_PERMISSIONS = [
+  ...HEALTH_AGENT_PERMISSIONS,
+  PERMISSIONS.SALES_DASHBOARD_ACCESS,
+];
 
 export default async function DashboardPage({
   searchParams,
 }: DashboardPageProps) {
-  const session = await requirePermission(
-    PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN
-  );
   const params = searchParams ? await searchParams : {};
+  const session = await requireAnyPermission(HEALTH_DASHBOARD_PERMISSIONS);
+  const canViewAgent = canAny(session.user.permissions, HEALTH_AGENT_PERMISSIONS);
+  const canViewSales = can(
+    session.user.permissions,
+    PERMISSIONS.SALES_DASHBOARD_ACCESS
+  );
+  const activeView = resolveDashboardView(
+    parseDashboardView(params.view),
+    canViewAgent,
+    canViewSales
+  );
+
+  if (activeView === "sales") {
+    return <HealthSalesDashboardPage searchParams={Promise.resolve(params)} />;
+  }
+
   const monthDefaultConfig = await fetchDashboardMonthDefault(
     DASHBOARD_FILTER_KEYS.AGENT_DASHBOARD_HEALTH
   );
@@ -47,6 +73,7 @@ export default async function DashboardPage({
   );
   const agentName = normalizeAgentName(session.user.name ?? "");
   const selectedCarriers = parseCarrierParams(params.carrier);
+  const selectedPrimaryMemberId = parseRawParam(params.primaryMemberId);
   const canLoadDashboard = canViewAll || Boolean(agentName);
   const scopedAgentName = canViewAll ? null : agentName;
   const rows = canLoadDashboard
@@ -63,9 +90,36 @@ export default async function DashboardPage({
         reportMonthRange={reportMonthRange}
         rows={rows}
         selectedCarriers={selectedCarriers}
+        selectedPrimaryMemberId={selectedPrimaryMemberId}
+        viewSwitcher={
+          <DashboardViewSwitch
+            activeView="agent"
+            basePath="/dashboard/health"
+            canViewAgent={canViewAgent}
+            canViewSales={canViewSales}
+            searchParams={params}
+          />
+        }
       />
     </AgentHealthDashboardFilterProvider>
   );
+}
+
+function parseDashboardView(value: string | string[] | undefined) {
+  const rawValue = parseRawParam(value);
+
+  return rawValue === "agent" || rawValue === "sales" ? rawValue : null;
+}
+
+function resolveDashboardView(
+  requestedView: DashboardView | null,
+  canViewAgent: boolean,
+  canViewSales: boolean
+): DashboardView {
+  if (requestedView === "agent" && canViewAgent) return "agent";
+  if (requestedView === "sales" && canViewSales) return "sales";
+  if (canViewSales) return "sales";
+  return "agent";
 }
 
 async function fetchHealthMartRows(
@@ -79,7 +133,7 @@ async function fetchHealthMartRows(
     let query = supabase
       .from("health_mart")
       .select(
-        "deal_name,carrier,state,primary_member_id,report_month,paid_to_date,agent_received,num_client"
+        "deal_name,carrier,state,primary_member_id,broker_effective_date,report_month,paid_to_date,agent_received,num_client"
       )
       .order("report_month", { ascending: true })
       .range(from, from + HEALTH_MART_PAGE_SIZE - 1);
