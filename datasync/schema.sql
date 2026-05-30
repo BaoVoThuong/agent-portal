@@ -308,6 +308,16 @@ as $$
   end;
 $$;
 
+-- ZIP -> city/state reference table. Structure only; the row data is
+-- imported separately (one-time CSV load in the Supabase dashboard).
+-- zip is numeric so the source CSV's "601.0" style values import cleanly;
+-- numeric = integer comparison still matches pc_mart.zipcode in refresh_pc_mart.
+create table if not exists public.zipcode_lookup (
+  zip   numeric primary key,
+  city  text,
+  state text
+);
+
 drop function if exists public.refresh_pc_mart();
 drop function if exists public.parse_pc_date(text);
 
@@ -501,9 +511,10 @@ as $$
         when f.rn = 1 then 'NEW'
         else 'RENEWAL'
       end as status,
-      null::text as city,
-      null::text as state
+      z.city as city,
+      z.state as state
     from rn_excel f
+    left join public.zipcode_lookup z on z.zip = f.zipcode
     where not (f.agent is null and f.agency is null and f.policy_number is null)
   ),
   monetary as (

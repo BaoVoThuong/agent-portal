@@ -5,6 +5,7 @@ import { Filter } from "lucide-react";
 import { PcCommissionMetricTrendChart } from "./PcCommissionMetricTrendChart";
 import { PcSalesDashboardFilters } from "./PcSalesDashboardFilters";
 import { PcSalesTrendSections } from "./PcSalesTrendSections";
+import { PcStateHeatMap } from "./PcStateHeatMap";
 
 export type PcSalesRow = {
   agent_name: string | null;
@@ -111,6 +112,18 @@ type CarrierRow = Summary & {
   averageCommissionRate: number;
 };
 
+type StateCityRow = Summary & {
+  state: string;
+  city: string;
+  isTotal: boolean;
+  policySharePercent: number;
+};
+
+type StateGroup = {
+  state: string;
+  rows: StateCityRow[];
+};
+
 type ExpiredMonthRow = {
   monthKey: string;
   policyCount: number;
@@ -139,6 +152,8 @@ type DashboardData = {
   agentSalesGroups: AgentPivotGroup[];
   agentCommissionGroups: AgentCommissionGroup[];
   carrierRows: CarrierRow[];
+  stateGroups: StateGroup[];
+  statePolicyCounts: Record<string, number>;
   expiredRows: ExpiredMonthRow[];
   policyDetailRows: PolicyDetailRow[];
 };
@@ -353,6 +368,8 @@ export function PcSalesDashboard({
             }
           />
           <CarrierDashboardTable rows={data.carrierRows} />
+          <PcStateHeatMap counts={data.statePolicyCounts} />
+          <StateCityPerformanceTable groups={data.stateGroups} />
           <ExpiredPolicyTrendChart rows={data.expiredRows} />
           <PolicyDetailsTable rows={data.policyDetailRows} />
         </div>
@@ -395,6 +412,7 @@ function buildDashboardData(rows: PcSalesRow[], trendLevel: TrendLevel): Dashboa
     .reverse()
     .slice(-TREND_LIMIT_BY_LEVEL[trendLevel]);
   const agentNames = buildAgentNames(rows);
+  const stateGroups = buildStateGroups(rows, overview);
 
   return {
     overview,
@@ -405,9 +423,67 @@ function buildDashboardData(rows: PcSalesRow[], trendLevel: TrendLevel): Dashboa
     agentSalesGroups: buildAgentSalesGroups(rows, agentNames, trendLevel),
     agentCommissionGroups: buildAgentCommissionGroups(rows, agentNames, trendLevel),
     carrierRows: buildCarrierRows(rows, overview).slice(0, CARRIER_ROW_LIMIT),
+    stateGroups,
+    statePolicyCounts: buildStatePolicyCounts(stateGroups),
     expiredRows: buildExpiredRows(rows),
     policyDetailRows: buildPolicyDetailRows(rows),
   };
+}
+
+function buildStateGroups(rows: PcSalesRow[], overview: Summary): StateGroup[] {
+  const byState = groupRows(rows, (row) => cleanGroupLabel(row.state));
+
+  return [...byState.entries()]
+    .filter(([state]) => state !== "null")
+    .map(([state, stateRows]) => {
+      const cityRows = [
+        ...groupRows(stateRows, (row) => cleanGroupLabel(row.city)).entries(),
+      ]
+        .map(([city, group]) => {
+          const summary = summarizeRows(group);
+          return {
+            ...summary,
+            state,
+            city: city === "null" ? "Unknown" : city,
+            isTotal: false,
+            policySharePercent: percentOf(summary.policyCount, overview.policyCount),
+          };
+        })
+        .sort(
+          (a, b) =>
+            b.policyCount - a.policyCount || a.city.localeCompare(b.city)
+        );
+
+      const stateSummary = summarizeRows(stateRows);
+      const totalRow: StateCityRow = {
+        ...stateSummary,
+        state,
+        city: "All cities",
+        isTotal: true,
+        policySharePercent: percentOf(
+          stateSummary.policyCount,
+          overview.policyCount
+        ),
+      };
+
+      return { state, rows: [...cityRows, totalRow] };
+    })
+    .sort((a, b) => {
+      const aTotal = a.rows[a.rows.length - 1].policyCount;
+      const bTotal = b.rows[b.rows.length - 1].policyCount;
+      return bTotal - aTotal || a.state.localeCompare(b.state);
+    });
+}
+
+function buildStatePolicyCounts(groups: StateGroup[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+
+  for (const group of groups) {
+    const totalRow = group.rows[group.rows.length - 1];
+    counts[group.state] = totalRow.policyCount;
+  }
+
+  return counts;
 }
 
 function summarizeRows(rows: PcSalesRow[]): Summary {
@@ -1654,8 +1730,8 @@ function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
               <CarrierHeaderCell width="20%">Company</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="green" width="15%">Share</CarrierHeaderCell>
               <CarrierHeaderCell align="right" tone="green" width="14%">Policies Count</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="green" width="15%">% Policies Count</CarrierHeaderCell>
               <CarrierHeaderCell align="right" tone="amber" width="19%">Total Premium</CarrierHeaderCell>
               <CarrierHeaderCell align="right" tone="blue" width="17%">Total Commission</CarrierHeaderCell>
               <CarrierHeaderCell align="right" tone="lavender" width="15%">Average Commission Rate</CarrierHeaderCell>
@@ -1666,18 +1742,18 @@ function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
               <tr key={row.company} className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}>
                 <CarrierBodyCell strong>{row.company}</CarrierBodyCell>
                 <CarrierHeatCell
-                  maxValue={maxPolicyCount}
-                  mode="green"
-                  value={row.policyCount}
-                >
-                  {formatInteger(row.policyCount)}
-                </CarrierHeatCell>
-                <CarrierHeatCell
                   maxValue={maxPolicyShare}
                   mode="green"
                   value={row.policySharePercent}
                 >
                   {formatPercent(row.policySharePercent)}
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxPolicyCount}
+                  mode="green"
+                  value={row.policyCount}
+                >
+                  {formatInteger(row.policyCount)}
                 </CarrierHeatCell>
                 <CarrierHeatCell
                   maxValue={maxPremium}
@@ -1705,20 +1781,20 @@ function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
             <tr className="bg-[#f8fafc] font-bold">
               <CarrierBodyCell strong>Grand total</CarrierBodyCell>
               <CarrierHeatCell
-                maxValue={maxPolicyCount}
-                mode="green"
-                strong
-                value={total.policyCount}
-              >
-                {formatInteger(total.policyCount)}
-              </CarrierHeatCell>
-              <CarrierHeatCell
                 maxValue={100}
                 mode="green"
                 strong
                 value={100}
               >
                 100%
+              </CarrierHeatCell>
+              <CarrierHeatCell
+                maxValue={maxPolicyCount}
+                mode="green"
+                strong
+                value={total.policyCount}
+              >
+                {formatInteger(total.policyCount)}
               </CarrierHeatCell>
               <CarrierHeatCell
                 maxValue={maxPremium}
@@ -1745,6 +1821,107 @@ function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
                 {formatPercent(percentOf(total.totalCommission, total.totalPremium))}
               </CarrierHeatCell>
             </tr>
+          </tbody>
+        </table>
+      </div>
+    </ReportPanel>
+  );
+}
+
+function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
+  const cityRows = groups.flatMap((group) =>
+    group.rows.filter((row) => !row.isTotal)
+  );
+  const maxes = {
+    commission: maxValue(cityRows, (row) => row.totalCommission),
+    policyCount: maxValue(cityRows, (row) => row.policyCount),
+    premium: maxValue(cityRows, (row) => row.totalPremium),
+    rate: maxValue(cityRows, (row) =>
+      percentOf(row.totalCommission, row.totalPremium)
+    ),
+    share: maxValue(cityRows, (row) => row.policySharePercent),
+  };
+
+  return (
+    <ReportPanel title="State & City Performance">
+      <div className="max-h-[620px] overflow-y-auto overflow-x-hidden">
+        <table className="w-full table-fixed text-[11px] tabular-nums">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-[#edf3fb] text-left font-bold">
+              <CarrierHeaderCell width="8%">State</CarrierHeaderCell>
+              <CarrierHeaderCell width="24%">City</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="green" width="13%">Policies</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="green" width="12%">Share</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="amber" width="16%">Premium</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="blue" width="16%">Total Commission</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="lavender" width="11%">Rate</CarrierHeaderCell>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group, groupIndex) =>
+              group.rows.map((row, rowIndex) => (
+                <tr
+                  key={`${group.state}-${row.city}-${rowIndex}`}
+                  className={
+                    row.isTotal
+                      ? "bg-white font-bold"
+                      : (groupIndex + rowIndex) % 2 === 0
+                        ? "bg-white"
+                        : "bg-[#f7f8fa]"
+                  }
+                >
+                  {rowIndex === 0 ? (
+                    <td
+                      className="border-r border-b border-slate-200 bg-[#f8fafc] px-3 py-3 align-top text-[13px] font-semibold text-slate-900"
+                      rowSpan={group.rows.length}
+                    >
+                      {group.state}
+                    </td>
+                  ) : null}
+                  <CarrierBodyCell strong={row.isTotal}>{row.city}</CarrierBodyCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.policyCount}
+                    mode="green"
+                    strong={row.isTotal}
+                    value={row.policyCount}
+                  >
+                    {formatInteger(row.policyCount)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.share}
+                    mode="green"
+                    strong={row.isTotal}
+                    value={row.policySharePercent}
+                  >
+                    {formatPercent(row.policySharePercent)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.premium}
+                    mode="amber"
+                    strong={row.isTotal}
+                    value={row.totalPremium}
+                  >
+                    {formatCurrencyShort(row.totalPremium)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.commission}
+                    mode="blue"
+                    strong={row.isTotal}
+                    value={row.totalCommission}
+                  >
+                    {formatCurrencyShort(row.totalCommission)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.rate}
+                    mode="lavender"
+                    strong={row.isTotal}
+                    value={percentOf(row.totalCommission, row.totalPremium)}
+                  >
+                    {formatPercent(percentOf(row.totalCommission, row.totalPremium))}
+                  </CarrierHeatCell>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
