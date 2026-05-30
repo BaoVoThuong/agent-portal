@@ -116,6 +116,17 @@ type AgentDashboardRow = Summary & {
   revenueSharePercent: number;
 };
 
+type AgentPeriodPivotRow = {
+  periodKey: string;
+  periodLabel: string;
+  agentSummaries: Record<string, Summary>;
+};
+
+type AgentPeriodPivotData = {
+  agentNames: string[];
+  rows: AgentPeriodPivotRow[];
+};
+
 type CarrierDashboardRow = Summary & {
   carrier: string;
   paidPolicyPercent: number;
@@ -158,6 +169,7 @@ type DashboardData = {
   salesMomRowsByLevel: Record<TrendComparisonChartLevel, SalesMomRow[]>;
   carrierPaidRateBreakdown: CarrierPaidRateBreakdown;
   agentRows: AgentDashboardRow[];
+  agentPivotByLevel: Record<TrendComparisonChartLevel, AgentPeriodPivotData>;
   carrierRows: CarrierDashboardRow[];
   stateRows: StateDashboardRow[];
   policyInfoRows: PolicyInfoRow[];
@@ -180,6 +192,20 @@ const SALES_MOM_HEADER_HEIGHT_PX = 44;
 const SALES_MOM_ROW_HEIGHT_PX = 56;
 const SALES_MOM_SCROLL_MAX_HEIGHT =
   SALES_MOM_HEADER_HEIGHT_PX + SALES_MOM_VISIBLE_ROW_COUNT * SALES_MOM_ROW_HEIGHT_PX;
+const EMPTY_SUMMARY: Summary = {
+  activeAgentCount: 0,
+  agentReceived: 0,
+  clientCount: 0,
+  epsCommission: 0,
+  epsOverride: 0,
+  epsSplit: 0,
+  paidClientCount: 0,
+  paidPolicyCount: 0,
+  policyCount: 0,
+  totalMesserPaid: 0,
+  unpaidClientCount: 0,
+  unpaidPolicyCount: 0,
+};
 
 export function HealthSalesDashboard({
   filterOptions,
@@ -231,12 +257,12 @@ export function HealthSalesDashboard({
       ) : (
         <div className="space-y-8">
           <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-            Business Overview
+            Portfolio Overview
           </h2>
 
           <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
             <KpiCard
-              label="Total Agent Commission"
+              label="Agent Commission"
               value={formatCurrencyCompact(data.overview.agentReceived)}
               footerText={formatLatestMonthMetric(
                 latestMonth,
@@ -244,7 +270,7 @@ export function HealthSalesDashboard({
               )}
             />
             <KpiCard
-              label="Total EPS Comm"
+              label="EPS Commission"
               value={formatCurrencyCompact(data.overview.epsCommission)}
               footerText={formatLatestMonthMetric(
                 latestMonth,
@@ -252,7 +278,7 @@ export function HealthSalesDashboard({
               )}
             />
             <KpiCard
-              label="Total EPS Split"
+              label="EPS Split"
               value={formatCurrencyCompact(data.overview.epsSplit)}
               footerText={formatLatestMonthMetric(
                 latestMonth,
@@ -260,7 +286,7 @@ export function HealthSalesDashboard({
               )}
             />
             <KpiCard
-              label="Total EPS Override"
+              label="EPS Override"
               value={formatCurrencyCompact(data.overview.epsOverride)}
               footerText={formatLatestMonthMetric(
                 latestMonth,
@@ -268,7 +294,7 @@ export function HealthSalesDashboard({
               )}
             />
             <KpiCard
-              label="Agent Comm / Carrier Paid"
+              label="Agent Comm Rate"
               value={formatPercent(
                 percentOf(data.overview.agentReceived, data.overview.totalMesserPaid)
               )}
@@ -285,7 +311,7 @@ export function HealthSalesDashboard({
               )}
             />
             <KpiCard
-              label="EPS Comm / Carrier Paid"
+              label="EPS Comm Rate"
               value={formatPercent(
                 percentOf(data.overview.epsCommission, data.overview.totalMesserPaid)
               )}
@@ -302,7 +328,7 @@ export function HealthSalesDashboard({
               )}
             />
             <KpiCard
-              label="EPS Split / Carrier Paid"
+              label="EPS Split Rate"
               value={formatPercent(
                 percentOf(data.overview.epsSplit, data.overview.totalMesserPaid)
               )}
@@ -316,7 +342,7 @@ export function HealthSalesDashboard({
               )}
             />
             <KpiCard
-              label="EPS Override / Carrier Paid"
+              label="EPS Override Rate"
               value={formatPercent(
                 percentOf(data.overview.epsOverride, data.overview.totalMesserPaid)
               )}
@@ -335,24 +361,21 @@ export function HealthSalesDashboard({
           </section>
 
           <HealthSalesTrendSections
+            afterMonthSections={
+              <HealthSalesAfterTrendSections data={data} level="month" />
+            }
+            afterQuarterSections={
+              <HealthSalesAfterTrendSections data={data} level="quarter" />
+            }
+            afterYearSections={
+              <HealthSalesAfterTrendSections data={data} level="year" />
+            }
             initialLevel={initialTrendLevel}
             monthSections={<SalesTrendLevelTables data={data} level="month" />}
             periodsByLevel={data.trendPeriodsByLevel}
             quarterSections={<SalesTrendLevelTables data={data} level="quarter" />}
             yearSections={<SalesTrendLevelTables data={data} level="year" />}
           />
-          <section className="grid gap-5 xl:grid-cols-2">
-            <CombinedPaymentStatusTable
-              labelHeader="Month"
-              rows={combinePaymentStatusMonths(data.monthlyRows)}
-              title="Paid Rate | Recent Months"
-            />
-            <CombinedCarrierPaymentStatusTable
-              reportMonth={data.carrierPaidRateBreakdown.reportMonth}
-              rows={data.carrierPaidRateBreakdown.rows}
-              title="Carrier Paid Rate | Latest Complete Month"
-            />
-          </section>
           <AgentDashboardTable rows={data.agentRows} />
           <CarrierDashboardTable rows={data.carrierRows} />
           <StateDashboardTable rows={data.stateRows} />
@@ -454,6 +477,11 @@ function buildDashboardData(rows: HealthSalesRow[]): DashboardData {
       monthlyRows
     ),
     agentRows: buildAgentRows(eligibleRows, overview),
+    agentPivotByLevel: {
+      month: buildAgentPeriodPivot(eligibleRows, "month"),
+      quarter: buildAgentPeriodPivot(eligibleRows, "quarter"),
+      year: buildAgentPeriodPivot(eligibleRows, "year"),
+    },
     carrierRows: buildCarrierRows(eligibleRows, overview).slice(0, CARRIER_ROW_LIMIT),
     stateRows: buildStateRows(eligibleRows, overview),
     policyInfoRows: policyInfoSummary.rows,
@@ -843,6 +871,80 @@ function buildAgentRows(
     );
 }
 
+function buildAgentPeriodPivot(
+  rows: HealthSalesRow[],
+  level: TrendComparisonChartLevel
+): AgentPeriodPivotData {
+  const agentNames = [...groupRows(rows, (row) => cleanGroupLabel(row.agent)).keys()]
+    .filter((agent) => agent !== "null")
+    .map((agent) => {
+      const agentRows = rows.filter((row) => cleanGroupLabel(row.agent) === agent);
+
+      return {
+        agent,
+        summary: summarizeRows(agentRows),
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.summary.policyCount - a.summary.policyCount ||
+        b.summary.agentReceived - a.summary.agentReceived ||
+        a.agent.localeCompare(b.agent)
+    )
+    .map((item) => item.agent);
+
+  const rowsByPeriod = [
+    ...groupRows(rows, (row) => getPeriodKey(row, level)).entries(),
+  ]
+    .filter(([periodKey]) => Boolean(periodKey))
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .slice(0, getPeriodLimit(level))
+    .map(([periodKey, periodRows]) => {
+      const agentSummaries: Record<string, Summary> = {};
+
+      for (const agent of agentNames) {
+        const agentRows = periodRows.filter(
+          (row) => cleanGroupLabel(row.agent) === agent
+        );
+
+        if (agentRows.length > 0) {
+          agentSummaries[agent] = summarizeRows(agentRows);
+        }
+      }
+
+      return {
+        agentSummaries,
+        periodKey,
+        periodLabel: getPeriodLabel(periodKey, level),
+      };
+    });
+
+  return {
+    agentNames,
+    rows: rowsByPeriod,
+  };
+}
+
+function getPeriodKey(row: HealthSalesRow, level: TrendComparisonChartLevel) {
+  if (level === "quarter") return getQuarterKey(row.report_month);
+  if (level === "year") return getYearKey(row.report_month);
+  return getMonthKey(row.report_month);
+}
+
+function getPeriodLabel(
+  periodKey: string,
+  level: TrendComparisonChartLevel
+) {
+  if (level === "quarter") return formatQuarterLabel(periodKey);
+  return periodKey;
+}
+
+function getPeriodLimit(level: TrendComparisonChartLevel) {
+  if (level === "quarter") return TREND_QUARTER_LIMIT;
+  if (level === "year") return TREND_YEAR_LIMIT;
+  return TABLE_MONTH_LIMIT;
+}
+
 function buildStateRows(rows: HealthSalesRow[], overview: Summary): StateDashboardRow[] {
   const groups = [...groupRows(rows, (row) => cleanGroupLabel(row.state)).entries()]
     .map(([state, groupRows]) => ({
@@ -1039,7 +1141,7 @@ function SalesMomGrowthTable({
     <section>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
-          Sales Dashboard by {periodLabel} | Policies &amp; Messer Paid {changeLabel} Growth
+          Portfolio Growth by {periodLabel} | Policies &amp; Revenue {changeLabel}
         </h2>
       </div>
 
@@ -1072,10 +1174,10 @@ function SalesMomGrowthTable({
                     % Clients {changeLabel}
                   </MoMHeaderCell>
                   <MoMHeaderCell className="top-0 w-[13%] text-right">
-                    Messer Paid
+                    Carrier Paid
                   </MoMHeaderCell>
                   <MoMHeaderCell className="top-0 w-[11%] text-right">
-                    % Messer Paid {changeLabel}
+                    % Carrier Paid {changeLabel}
                   </MoMHeaderCell>
                   <MoMHeaderCell className="top-0 w-[12%] text-right">
                     EPS Comm
@@ -1512,13 +1614,13 @@ function CommissionBreakdownTable({
   rows: SalesPeriodSummary[];
 }) {
   return (
-    <ReportPanel title={`Commission Breakdown by ${periodLabel} | Revenue Distribution & Yield`}>
+    <ReportPanel title={`Revenue & Commission by ${periodLabel}`}>
       <div className="max-h-[300px] overflow-y-auto">
         <table className="w-full table-fixed text-[11px]">
           <thead>
             <tr className="bg-[#edf3fb] text-left font-bold">
               <CompactHeaderCell bordered width="8%">{periodLabel}</CompactHeaderCell>
-              <CompactHeaderCell bordered align="right" width="10%">Messer Paid</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="10%">Carrier Paid</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="11%">Agent Comm</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="10%">% Agent</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="11%">EPS Comm</CompactHeaderCell>
@@ -1583,7 +1685,7 @@ function AgentDashboardTable({ rows }: { rows: AgentDashboardRow[] }) {
   };
 
   return (
-    <ReportPanel title="Agent Dashboard | Policies, Revenue & Commission Breakdown">
+    <ReportPanel title="Agent Performance | Policies & Commission">
       <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[11px]">
           <thead className="sticky top-0 z-10">
@@ -1592,7 +1694,7 @@ function AgentDashboardTable({ rows }: { rows: AgentDashboardRow[] }) {
               <CompactHeaderCell bordered align="right" width="9.5556%">Share</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="9.5556%">Policies</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="9.5556%">Clients</CompactHeaderCell>
-              <CompactHeaderCell bordered align="right" width="9.5556%">Messer Paid</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="9.5556%">Carrier Paid</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="9.5556%">Agent Comm</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="9.5556%">Avg Per Month</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="9.5556%">EPS Comm</CompactHeaderCell>
@@ -1644,6 +1746,220 @@ function AgentDashboardTable({ rows }: { rows: AgentDashboardRow[] }) {
   );
 }
 
+function AgentPeriodPivotTable({
+  data,
+  level,
+}: {
+  data: AgentPeriodPivotData;
+  level: TrendComparisonChartLevel;
+}) {
+  const periodLabel = getTrendLevelLabel(level);
+  const metricSummaries = data.rows.flatMap((row) =>
+    data.agentNames.map((agent) => row.agentSummaries[agent] ?? EMPTY_SUMMARY)
+  );
+  const maxes = {
+    agentReceived: maxValue(metricSummaries, (row) => row.agentReceived),
+    epsOverride: maxValue(metricSummaries, (row) => row.epsOverride),
+    epsSplit: maxValue(metricSummaries, (row) => row.epsSplit),
+    policyCount: maxValue(metricSummaries, (row) => row.policyCount),
+  };
+  const tableWidth = Math.max(760, 120 + data.agentNames.length * 360);
+
+  return (
+    <ReportPanel
+      title={`Agent Performance by ${periodLabel} | Commission Breakdown`}
+    >
+      {data.agentNames.length === 0 || data.rows.length === 0 ? (
+        <div className="px-6 py-10 text-center text-sm font-medium text-slate-500">
+          No agent monthly data.
+        </div>
+      ) : (
+        <div className="max-h-[420px] overflow-auto">
+          <table
+            className="table-fixed text-[11px] tabular-nums"
+            style={{ minWidth: tableWidth, width: tableWidth }}
+          >
+            <thead className="sticky top-0 z-20">
+              <tr>
+                <th
+                  className="sticky left-0 z-30 border-b border-r-2 border-slate-300 bg-slate-50 px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500"
+                  rowSpan={2}
+                  style={{ width: 120 }}
+                >
+                  {periodLabel}
+                </th>
+                {data.agentNames.map((agent) => (
+                  <th
+                    className="border-b border-r-2 border-slate-300 bg-[#e9f2fb] px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-700"
+                    colSpan={4}
+                    key={agent}
+                  >
+                    <span className="block truncate" title={agent}>
+                      {agent}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+              <tr>
+                {data.agentNames.flatMap((agent) => [
+                  <AgentPivotHeaderCell key={`${agent}-policies`}>
+                    Policies
+                  </AgentPivotHeaderCell>,
+                  <AgentPivotHeaderCell key={`${agent}-commission`}>
+                    Total Comm
+                  </AgentPivotHeaderCell>,
+                  <AgentPivotHeaderCell key={`${agent}-override`}>
+                    Override
+                  </AgentPivotHeaderCell>,
+                  <AgentPivotHeaderCell
+                    isGroupEnd
+                    key={`${agent}-split`}
+                  >
+                    Split
+                  </AgentPivotHeaderCell>,
+                ])}
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((row, rowIndex) => (
+                <tr
+                  className={rowIndex % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}
+                  key={row.periodKey}
+                >
+                  <td className="sticky left-0 z-10 border-b border-r-2 border-slate-300 bg-white px-3 py-3 text-sm font-semibold text-slate-900">
+                    {row.periodLabel}
+                  </td>
+                  {data.agentNames.flatMap((agent) => {
+                    const summary = row.agentSummaries[agent] ?? EMPTY_SUMMARY;
+
+                    return [
+                      <AgentPivotHeatCell
+                        key={`${row.periodKey}-${agent}-policies`}
+                        maxValue={maxes.policyCount}
+                        mode="green"
+                        value={summary.policyCount}
+                      >
+                        {summary.policyCount > 0
+                          ? formatInteger(summary.policyCount)
+                          : "-"}
+                      </AgentPivotHeatCell>,
+                      <AgentPivotHeatCell
+                        key={`${row.periodKey}-${agent}-commission`}
+                        maxValue={maxes.agentReceived}
+                        mode="blue"
+                        value={summary.agentReceived}
+                      >
+                        {summary.agentReceived > 0
+                          ? formatCurrencyShort(summary.agentReceived)
+                          : "-"}
+                      </AgentPivotHeatCell>,
+                      <AgentPivotHeatCell
+                        key={`${row.periodKey}-${agent}-override`}
+                        maxValue={maxes.epsOverride}
+                        mode="pink"
+                        value={summary.epsOverride}
+                      >
+                        {summary.epsOverride > 0
+                          ? formatCurrencyShort(summary.epsOverride)
+                          : "-"}
+                      </AgentPivotHeatCell>,
+                      <AgentPivotHeatCell
+                        isGroupEnd
+                        key={`${row.periodKey}-${agent}-split`}
+                        maxValue={maxes.epsSplit}
+                        mode="magenta"
+                        value={summary.epsSplit}
+                      >
+                        {summary.epsSplit > 0
+                          ? formatCurrencyShort(summary.epsSplit)
+                          : "-"}
+                      </AgentPivotHeatCell>,
+                    ];
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ReportPanel>
+  );
+}
+
+function AgentPivotHeaderCell({
+  children,
+  isGroupEnd = false,
+}: {
+  children: ReactNode;
+  isGroupEnd?: boolean;
+}) {
+  return (
+    <th
+      className={`border-b bg-slate-50 px-2 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.04em] text-slate-500 ${
+        isGroupEnd
+          ? "border-r-2 border-slate-300"
+          : "border-r border-slate-200"
+      }`}
+      style={{ width: 90 }}
+    >
+      {children}
+    </th>
+  );
+}
+
+function AgentPivotHeatCell({
+  children,
+  maxValue,
+  mode,
+  isGroupEnd = false,
+  value,
+}: {
+  children: ReactNode;
+  isGroupEnd?: boolean;
+  maxValue: number;
+  mode: "blue" | "green" | "magenta" | "pink";
+  value: number;
+}) {
+  return (
+    <td
+      className={`border-b px-2 py-3 text-right text-sm tabular-nums text-slate-700 ${
+        isGroupEnd
+          ? "border-r-2 border-slate-300"
+          : "border-r border-slate-100"
+      }`}
+      style={{ backgroundColor: heatColor(value, maxValue, mode) }}
+    >
+      {children}
+    </td>
+  );
+}
+
+function HealthSalesAfterTrendSections({
+  data,
+  level,
+}: {
+  data: DashboardData;
+  level: TrendComparisonChartLevel;
+}) {
+  return (
+    <>
+      <section className="grid gap-5 xl:grid-cols-2">
+        <CombinedPaymentStatusTable
+          labelHeader="Month"
+          rows={combinePaymentStatusMonths(data.monthlyRows)}
+          title="Paid Rate | Recent Months"
+        />
+        <CombinedCarrierPaymentStatusTable
+          reportMonth={data.carrierPaidRateBreakdown.reportMonth}
+          rows={data.carrierPaidRateBreakdown.rows}
+          title="Carrier Paid Rate | Latest Month"
+        />
+      </section>
+      <AgentPeriodPivotTable data={data.agentPivotByLevel[level]} level={level} />
+    </>
+  );
+}
+
 function CarrierDashboardTable({ rows }: { rows: CarrierDashboardRow[] }) {
   const maxes = {
     epsCommission: maxValue(rows, (row) => row.epsCommission),
@@ -1654,7 +1970,7 @@ function CarrierDashboardTable({ rows }: { rows: CarrierDashboardRow[] }) {
   };
 
   return (
-    <ReportPanel title="Carrier Dashboard | Policies, Revenue & Commission Breakdown">
+    <ReportPanel title="Carrier Performance | Policies & Revenue">
       <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[11px]">
           <thead className="sticky top-0 z-10">
@@ -1663,7 +1979,7 @@ function CarrierDashboardTable({ rows }: { rows: CarrierDashboardRow[] }) {
               <CompactHeaderCell bordered align="right" width="8%">Share</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="8%">Policies</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="9%">Paid %</CompactHeaderCell>
-              <CompactHeaderCell bordered align="right" width="11%">Messer Paid</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="11%">Carrier Paid</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="10%">EPS Over.</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="9%">Over. %</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="9%">EPS Split</CompactHeaderCell>
@@ -1728,7 +2044,7 @@ function StateDashboardTable({ rows }: { rows: StateDashboardRow[] }) {
   };
 
   return (
-    <ReportPanel title="State Dashboard | Policies, Revenue & Commission Breakdown">
+    <ReportPanel title="State Distribution | Policies & Revenue">
       <div className="max-h-[300px] overflow-y-auto">
         <table className="w-full table-fixed text-[12px]">
           <thead>
@@ -1739,7 +2055,7 @@ function StateDashboardTable({ rows }: { rows: StateDashboardRow[] }) {
               <CompactHeaderCell bordered align="right" width="10%">Policy %</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="11%">Clients</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="10%">Client %</CompactHeaderCell>
-              <CompactHeaderCell bordered align="right" width="17%">Messer Paid</CompactHeaderCell>
+              <CompactHeaderCell bordered align="right" width="17%">Carrier Paid</CompactHeaderCell>
               <CompactHeaderCell bordered align="right" width="20%">EPS Commission</CompactHeaderCell>
             </tr>
           </thead>

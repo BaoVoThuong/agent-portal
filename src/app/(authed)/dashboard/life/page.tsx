@@ -5,6 +5,11 @@ import {
   DashboardViewSwitch,
   type DashboardView,
 } from "../DashboardViewSwitch";
+import {
+  DashboardNavigationContent,
+  DashboardNavigationProvider,
+} from "../DashboardNavigationState";
+import { DashboardViewSkeleton } from "../DashboardViewSkeleton";
 import LifeSalesDashboardPage from "../../sales-dashboard/life/page";
 
 export const dynamic = "force-dynamic";
@@ -43,29 +48,33 @@ export default async function LifeDashboardPage({
   }
 
   return (
-    <div className="px-8 py-8">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-[#16233a]">
-            Life Agent Dashboard
-          </h1>
-          <p className="mt-1 text-sm text-[#667085]">
-            Life agent dashboard will be available here.
-          </p>
-        </div>
-        <DashboardViewSwitch
-          activeView="agent"
-          basePath="/dashboard/life"
-          canViewAgent={canViewAgent}
-          canViewSales={canViewSales}
-          searchParams={params}
-        />
-      </header>
+    <DashboardNavigationProvider>
+      <div className="px-8 py-8">
+        <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
+          <div>
+            <h1 className="text-2xl font-semibold text-[#16233a]">
+              Life Agent Dashboard
+            </h1>
+            <p className="mt-1 text-sm text-[#667085]">
+              Life agent dashboard will be available here.
+            </p>
+          </div>
+          <DashboardViewSwitch
+            activeView="agent"
+            basePath="/dashboard/life"
+            canViewAgent={canViewAgent}
+            canViewSales={canViewSales}
+            searchParams={params}
+          />
+        </header>
 
-      <div className="rounded-lg border border-dashed border-[#d8dee7] bg-white px-8 py-16 text-center text-sm text-[#667085]">
-        No Life dashboard view has been configured yet.
+        <DashboardNavigationContent fallback={<DashboardViewSkeleton />}>
+          <div className="rounded-lg border border-dashed border-[#d8dee7] bg-white px-8 py-16 text-center text-sm text-[#667085]">
+            No Life dashboard view has been configured yet.
+          </div>
+        </DashboardNavigationContent>
       </div>
-    </div>
+    </DashboardNavigationProvider>
   );
 }
 

@@ -56,7 +56,7 @@ export function PcSalesTrendSections({
       <section className="flex flex-col">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-bold leading-tight text-slate-800">
-            {getTrendLevelAdjective(trendLevel)} Sales Volume & Premium Trend
+            {getTrendLevelAdjective(trendLevel)} Portfolio & Premium Trend
           </h3>
           <TrendLevelControl
             trendLevel={trendLevel}

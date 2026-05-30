@@ -9,6 +9,11 @@ import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { DashboardViewSwitch } from "../../dashboard/DashboardViewSwitch";
 import {
+  DashboardNavigationContent,
+  DashboardNavigationProvider,
+} from "../../dashboard/DashboardNavigationState";
+import { DashboardViewSkeleton } from "../../dashboard/DashboardViewSkeleton";
+import {
   PcSalesDashboard,
   type FilterOptions,
   type FilterValues,
@@ -52,43 +57,48 @@ export default async function PcSalesDashboardPage({
   const filterOptions = buildFilterOptions(rows);
 
   return (
-    <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
-      <div className="mx-auto max-w-[1536px]">
-        <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              P&amp;C Sales Dashboard
-            </h1>
-            <p className="mt-2 text-sm text-slate-500">
-              Overview of P&amp;C sales volume, agent commissions, and EPS metrics.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <DashboardViewSwitch
-              activeView="sales"
-              basePath="/dashboard/pc"
-              canViewAgent={canViewAgent}
-              canViewSales
-              searchParams={params}
-            />
-            <PcSalesHeaderFilters
-              defaultConfig={monthDefaultConfig}
-              filters={filters}
-            />
-          </div>
-        </header>
+    <DashboardNavigationProvider>
+      <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
+        <div className="mx-auto max-w-[1536px]">
+          <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+                P&amp;C Sales Dashboard
+              </h1>
+              <p className="mt-2 text-sm text-slate-500">
+                Overview of P&amp;C sales volume, agent commissions, and EPS
+                metrics.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <DashboardViewSwitch
+                activeView="sales"
+                basePath="/dashboard/pc"
+                canViewAgent={canViewAgent}
+                canViewSales
+                searchParams={params}
+              />
+              <PcSalesHeaderFilters
+                defaultConfig={monthDefaultConfig}
+                filters={filters}
+              />
+            </div>
+          </header>
 
-        <PcSalesDashboard
-          key={`${filters.reportMonthRange.start ?? "all"}:${
-            filters.reportMonthRange.end ?? "all"
-          }`}
-          filterOptions={filterOptions}
-          filters={filters}
-          initialTrendLevel={trendLevel}
-          rows={rows}
-        />
+          <DashboardNavigationContent fallback={<DashboardViewSkeleton />}>
+            <PcSalesDashboard
+              key={`${filters.reportMonthRange.start ?? "all"}:${
+                filters.reportMonthRange.end ?? "all"
+              }`}
+              filterOptions={filterOptions}
+              filters={filters}
+              initialTrendLevel={trendLevel}
+              rows={rows}
+            />
+          </DashboardNavigationContent>
+        </div>
       </div>
-    </div>
+    </DashboardNavigationProvider>
   );
 }
 

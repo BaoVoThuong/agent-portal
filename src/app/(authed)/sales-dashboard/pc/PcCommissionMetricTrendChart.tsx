@@ -23,19 +23,19 @@ const METRICS: {
   {
     barLabel: "Total Commission",
     key: "totalCommission",
-    percentLabel: "Total Commission / Premium",
+    percentLabel: "Commission Rate",
     title: "Total Commission",
   },
   {
     barLabel: "EPS Commission",
     key: "epsCommission",
-    percentLabel: "EPS Commission / Premium",
+    percentLabel: "EPS Comm Rate",
     title: "EPS Commission",
   },
   {
     barLabel: "Agent Commission",
     key: "agentCommission",
-    percentLabel: "Agent Commission / Premium",
+    percentLabel: "Agent Comm Rate",
     title: "Agent Commission",
   },
 ];

@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useDashboardNavigation } from "./DashboardNavigationState";
 
 export type DashboardView = "agent" | "sales";
 
@@ -17,6 +20,7 @@ export function DashboardViewSwitch({
   canViewSales,
   searchParams,
 }: DashboardViewSwitchProps) {
+  const beginDashboardNavigation = useDashboardNavigation();
   const views: Array<{ value: DashboardView; label: string; visible: boolean }> = [
     { value: "agent", label: "Agent", visible: canViewAgent },
     { value: "sales", label: "Company", visible: canViewSales },
@@ -40,6 +44,22 @@ export function DashboardViewSwitch({
             }`}
             href={buildViewHref(basePath, searchParams, view.value)}
             key={view.value}
+            onClick={(event) => {
+              if (
+                isActive ||
+                event.defaultPrevented ||
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              ) {
+                return;
+              }
+
+              beginDashboardNavigation();
+              window.scrollTo({ left: 0, top: 0, behavior: "auto" });
+            }}
           >
             {view.label}
           </Link>

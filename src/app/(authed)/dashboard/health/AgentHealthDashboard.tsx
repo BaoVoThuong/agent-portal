@@ -4,6 +4,8 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   AgentHealthDashboardContent,
 } from "./AgentHealthDashboardFilterState";
+import { DashboardNavigationContent } from "../DashboardNavigationState";
+import { DashboardViewSkeleton } from "../DashboardViewSkeleton";
 import { AgentHealthCarrierMultiSelectFilter } from "./AgentHealthCarrierMultiSelectFilter";
 import { AgentHealthMemberPaymentTable } from "./AgentHealthMemberPaymentTable";
 import { AgentHealthDashboardTrendSection } from "./AgentHealthDashboardTrendSection";
@@ -272,75 +274,85 @@ export function AgentHealthDashboard({
           </label>
         </div>
 
-        {!dashboardData ? (
-          <div className="agent-health-panel px-8 py-16 text-center text-sm font-medium text-slate-500">
-            Your account name is required to load dashboard data.
-          </div>
-        ) : (
-          <AgentHealthDashboardContent>
-            <div className="space-y-6">
-              <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-                <ScoreCard
-                  label="Latest Active Policies"
-                  value={formatInteger(dashboardData.scoreCards.activePolicy.value)}
-                  changePercent={
-                    dashboardData.scoreCards.activePolicy.changePercent
-                  }
-                />
-                <ScoreCard
-                  label="Latest Active Clients"
-                  value={formatInteger(dashboardData.scoreCards.activeClient.value)}
-                  changePercent={
-                    dashboardData.scoreCards.activeClient.changePercent
-                  }
-                />
-                <ScoreCard
-                  label="Latest Month Commission"
-                  value={formatCurrency(
-                    dashboardData.scoreCards.totalCommission.value
-                  )}
-                  changePercent={
-                    dashboardData.scoreCards.totalCommission.changePercent
-                  }
-                />
-                <ScoreCard
-                  label={`${
-                    dashboardData.scoreCards.totalCommissionInReportYear
-                      .reportYear ?? "Report Year"
-                  } Commission`}
-                  value={formatCurrency(
-                    dashboardData.scoreCards.totalCommissionInReportYear.value
-                  )}
-                  footerText={`Avg ${formatCurrency(
-                    dashboardData.scoreCards.totalCommissionInReportYear
-                      .averageMonthlyCommission
-                  )} / month`}
-                />
-              </section>
-
-              <AgentHealthDashboardTrendSection
-                initialChartLevel={initialChartLevel}
-                periodsByLevel={dashboardData.chartPeriodsByLevel}
-              />
-              <PaidRateOverviewSection
-                policyRows={dashboardData.policyPaymentStatus}
-                clientRows={dashboardData.clientPaymentStatus}
-                reportMonth={dashboardData.carrierPaymentStatus.reportMonth}
-                carrierPolicyRows={dashboardData.carrierPaymentStatus.policyRows}
-                carrierClientRows={dashboardData.carrierPaymentStatus.clientRows}
-              />
-              <MixBreakdownSection
-                reportMonth={dashboardData.latestMonthMixBreakdown.reportMonth}
-                carrierRows={dashboardData.latestMonthMixBreakdown.carrierRows}
-                stateRows={dashboardData.latestMonthMixBreakdown.stateRows}
-              />
-              <AgentHealthMemberPaymentTable
-                rows={dashboardData.memberPayments}
-                reportMonths={dashboardData.memberPaymentReportMonths}
-              />
+        <DashboardNavigationContent fallback={<DashboardViewSkeleton />}>
+          {!dashboardData ? (
+            <div className="agent-health-panel px-8 py-16 text-center text-sm font-medium text-slate-500">
+              Your account name is required to load dashboard data.
             </div>
-          </AgentHealthDashboardContent>
-        )}
+          ) : (
+            <AgentHealthDashboardContent>
+              <div className="space-y-6">
+                <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+                  <ScoreCard
+                    label="Active Policies"
+                    value={formatInteger(
+                      dashboardData.scoreCards.activePolicy.value
+                    )}
+                    changePercent={
+                      dashboardData.scoreCards.activePolicy.changePercent
+                    }
+                  />
+                  <ScoreCard
+                    label="Active Clients"
+                    value={formatInteger(
+                      dashboardData.scoreCards.activeClient.value
+                    )}
+                    changePercent={
+                      dashboardData.scoreCards.activeClient.changePercent
+                    }
+                  />
+                  <ScoreCard
+                    label="Monthly Commission"
+                    value={formatCurrency(
+                      dashboardData.scoreCards.totalCommission.value
+                    )}
+                    changePercent={
+                      dashboardData.scoreCards.totalCommission.changePercent
+                    }
+                  />
+                  <ScoreCard
+                    label={`${
+                      dashboardData.scoreCards.totalCommissionInReportYear
+                        .reportYear ?? "Report Year"
+                    } Commission`}
+                    value={formatCurrency(
+                      dashboardData.scoreCards.totalCommissionInReportYear.value
+                    )}
+                    footerText={`Avg ${formatCurrency(
+                      dashboardData.scoreCards.totalCommissionInReportYear
+                        .averageMonthlyCommission
+                    )} / month`}
+                  />
+                </section>
+
+                <AgentHealthDashboardTrendSection
+                  initialChartLevel={initialChartLevel}
+                  periodsByLevel={dashboardData.chartPeriodsByLevel}
+                />
+                <PaidRateOverviewSection
+                  policyRows={dashboardData.policyPaymentStatus}
+                  clientRows={dashboardData.clientPaymentStatus}
+                  reportMonth={dashboardData.carrierPaymentStatus.reportMonth}
+                  carrierPolicyRows={
+                    dashboardData.carrierPaymentStatus.policyRows
+                  }
+                  carrierClientRows={
+                    dashboardData.carrierPaymentStatus.clientRows
+                  }
+                />
+                <MixBreakdownSection
+                  reportMonth={dashboardData.latestMonthMixBreakdown.reportMonth}
+                  carrierRows={dashboardData.latestMonthMixBreakdown.carrierRows}
+                  stateRows={dashboardData.latestMonthMixBreakdown.stateRows}
+                />
+                <AgentHealthMemberPaymentTable
+                  rows={dashboardData.memberPayments}
+                  reportMonths={dashboardData.memberPaymentReportMonths}
+                />
+              </div>
+            </AgentHealthDashboardContent>
+          )}
+        </DashboardNavigationContent>
       </div>
     </div>
   );
@@ -1078,7 +1090,7 @@ function PaidRateOverviewSection({
       <CombinedCarrierPaymentStatusTable
         reportMonth={reportMonth}
         rows={carrierRows}
-        title="Carrier Paid Rate | Latest Complete Month"
+        title="Carrier Paid Rate | Latest Month"
       />
     </section>
   );
@@ -1096,13 +1108,13 @@ function MixBreakdownSection({
   return (
     <section className="grid gap-5 xl:grid-cols-2">
       <MixBreakdownTable
-        title="Carrier Share | Latest Complete Month"
+        title="Carrier Mix | Latest Month"
         labelHeader="Carrier"
         reportMonth={reportMonth}
         rows={carrierRows}
       />
       <MixBreakdownTable
-        title="State Share | Latest Complete Month"
+        title="State Mix | Latest Month"
         labelHeader="State"
         reportMonth={reportMonth}
         rows={stateRows}

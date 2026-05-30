@@ -8,6 +8,11 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { DashboardViewSwitch } from "../../dashboard/DashboardViewSwitch";
+import {
+  DashboardNavigationContent,
+  DashboardNavigationProvider,
+} from "../../dashboard/DashboardNavigationState";
+import { DashboardViewSkeleton } from "../../dashboard/DashboardViewSkeleton";
 import { HealthSalesHeaderFilters } from "./HealthSalesDashboardFilters";
 import { HealthSalesDashboard } from "./HealthSalesDashboard";
 import { type TrendComparisonChartLevel } from "./HealthSalesTrendComparisonChart";
@@ -81,43 +86,47 @@ export default async function HealthSalesDashboardPage({
   const filterOptions = buildFilterOptions(reportMonthRows);
 
   return (
-    <div className="min-h-screen bg-slate-50 px-6 py-8 text-slate-900 md:px-10">
-      <div className="mx-auto max-w-[1536px]">
-        <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              Health Sales Dashboard
-            </h1>
-            <p className="mt-2 text-sm text-slate-500">
-              Overview of sales volume, agent commissions, and EPS metrics.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <DashboardViewSwitch
-              activeView="sales"
-              basePath="/dashboard/health"
-              canViewAgent={canViewAgent}
-              canViewSales
-              searchParams={params}
-            />
-            <HealthSalesHeaderFilters
-              defaultConfig={monthDefaultConfig}
-              filters={filters}
-            />
-          </div>
-        </header>
+    <DashboardNavigationProvider>
+      <div className="min-h-screen bg-slate-50 px-6 py-8 text-slate-900 md:px-10">
+        <div className="mx-auto max-w-[1536px]">
+          <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+                Health Sales Dashboard
+              </h1>
+              <p className="mt-2 text-sm text-slate-500">
+                Overview of sales volume, agent commissions, and EPS metrics.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <DashboardViewSwitch
+                activeView="sales"
+                basePath="/dashboard/health"
+                canViewAgent={canViewAgent}
+                canViewSales
+                searchParams={params}
+              />
+              <HealthSalesHeaderFilters
+                defaultConfig={monthDefaultConfig}
+                filters={filters}
+              />
+            </div>
+          </header>
 
-        <HealthSalesDashboard
-          key={`${filters.reportMonthRange.start ?? "all"}:${
-            filters.reportMonthRange.end ?? "all"
-          }`}
-          filterOptions={filterOptions}
-          filters={filters}
-          initialTrendLevel={trendLevel}
-          rows={reportMonthRows}
-        />
+          <DashboardNavigationContent fallback={<DashboardViewSkeleton />}>
+            <HealthSalesDashboard
+              key={`${filters.reportMonthRange.start ?? "all"}:${
+                filters.reportMonthRange.end ?? "all"
+              }`}
+              filterOptions={filterOptions}
+              filters={filters}
+              initialTrendLevel={trendLevel}
+              rows={reportMonthRows}
+            />
+          </DashboardNavigationContent>
+        </div>
       </div>
-    </div>
+    </DashboardNavigationProvider>
   );
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { MouseEvent } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
 export type TrendComparisonChartLevel = "month" | "quarter" | "year";
@@ -31,6 +32,9 @@ const TOP = 70;
 const BOTTOM = 58;
 const RIGHT_AXIS_LABEL_X = WIDTH - 36;
 const GRID_TICKS = [0, 0.25, 0.5, 0.75, 1];
+const TOOLTIP_WIDTH = 296;
+const TOOLTIP_HEIGHT = 132;
+const TOOLTIP_GAP = 16;
 
 export function HealthSalesTrendComparisonChart({
   chartLevel: controlledChartLevel,
@@ -66,7 +70,7 @@ export function HealthSalesTrendComparisonChart({
     <section className="flex flex-col">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg font-bold leading-tight text-slate-800">
-          Revenue vs Agent Earnings by {chartLevelLabel} | Trend Comparison
+          Carrier Paid &amp; Agent Commission by {chartLevelLabel} | Trend
         </h3>
         <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
           {CHART_LEVELS.map((level) => {
@@ -120,6 +124,8 @@ function updateTrendLevelUrl(
 }
 
 function TrendChartSvg({ rows }: { rows: TrendComparisonPeriod[] }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 });
   const plotWidth = WIDTH - LEFT - RIGHT;
   const plotHeight = HEIGHT - TOP - BOTTOM;
   const maxMoney = roundAxisMax(maxValue(rows, (row) => row.totalMesserPaid));
@@ -143,29 +149,84 @@ function TrendChartSvg({ rows }: { rows: TrendComparisonPeriod[] }) {
       clientY,
     };
   });
+  const activePoint =
+    activeIndex === null ? null : points[activeIndex] ?? null;
+
+  function updateTooltipPosition(event: MouseEvent<HTMLDivElement>) {
+    if (activeIndex === null) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const cursorX = event.clientX - rect.left;
+    const cursorY = event.clientY - rect.top;
+    const hasRoomOnRight =
+      cursorX + TOOLTIP_GAP + TOOLTIP_WIDTH <= rect.width - 8;
+    const left = hasRoomOnRight
+      ? cursorX + TOOLTIP_GAP
+      : cursorX - TOOLTIP_WIDTH - TOOLTIP_GAP;
+    const top = cursorY + TOOLTIP_GAP;
+
+    setTooltipPosition({
+      left: clamp(left, 8, rect.width - TOOLTIP_WIDTH - 8),
+      top: clamp(top, 8, rect.height - TOOLTIP_HEIGHT - 8),
+    });
+  }
 
   return (
-    <div className="overflow-x-auto">
-      <svg
-        className="min-w-[1120px]"
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        role="img"
-        aria-label="Revenue, policies, and clients by period"
+    <div className="overflow-x-auto overflow-y-visible">
+      <div
+        className="relative min-w-[1120px]"
+        onMouseLeave={() => setActiveIndex(null)}
+        onMouseMove={updateTooltipPosition}
       >
+        {activePoint ? (
+          <div
+            className="pointer-events-none absolute z-10 w-[296px] rounded-lg border border-[#d8dee7] bg-white px-4 py-3 text-xs shadow-[0_6px_18px_rgba(22,35,58,0.16)]"
+            style={{
+              left: tooltipPosition.left,
+              top: tooltipPosition.top,
+            }}
+          >
+            <div className="mb-3 font-semibold text-[#24272d]">
+              {activePoint.periodLabel}
+            </div>
+            <TooltipRow
+              color="#d6d6d6"
+              label="Carrier Paid"
+              value={formatCurrency(activePoint.totalMesserPaid)}
+            />
+            <TooltipRow
+              color="#4186f5"
+              label="Policies"
+              value={formatInteger(activePoint.policyCount)}
+            />
+            <TooltipRow
+              color="#ff453f"
+              label="Clients"
+              value={formatInteger(activePoint.clientCount)}
+            />
+          </div>
+        ) : null}
+
+        <svg
+          className="block w-full"
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          role="img"
+          aria-label="Carrier paid, policies, and clients trend by period"
+        >
         <g transform="translate(78, 22)">
           <rect width="34" height="14" fill="#d6d6d6" />
           <text x="44" y="13" className="fill-[#40444b] text-[15px] font-semibold">
-            Total Messer Paid
+            Carrier Paid
           </text>
           <line x1="210" x2="244" y1="8" y2="8" stroke="#4186f5" strokeWidth="3" />
           <circle cx="227" cy="8" r="5" fill="#4186f5" />
           <text x="254" y="13" className="fill-[#40444b] text-[15px] font-semibold">
-            # Policies
+            Policies
           </text>
-          <line x1="372" x2="406" y1="8" y2="8" stroke="#ff453f" strokeWidth="3" />
-          <circle cx="389" cy="8" r="5" fill="#ff453f" />
-          <text x="416" y="13" className="fill-[#40444b] text-[15px] font-semibold">
-            # Clients
+          <line x1="352" x2="386" y1="8" y2="8" stroke="#ff453f" strokeWidth="3" />
+          <circle cx="369" cy="8" r="5" fill="#ff453f" />
+          <text x="396" y="13" className="fill-[#40444b] text-[15px] font-semibold">
+            Clients
           </text>
         </g>
 
@@ -204,7 +265,7 @@ function TrendChartSvg({ rows }: { rows: TrendComparisonPeriod[] }) {
           transform={`rotate(-90 22 ${TOP + plotHeight / 2})`}
           className="fill-[#4d545f] text-[13px] font-semibold"
         >
-          Total Messer Paid
+          Carrier Paid
         </text>
         <text
           x={RIGHT_AXIS_LABEL_X}
@@ -213,36 +274,65 @@ function TrendChartSvg({ rows }: { rows: TrendComparisonPeriod[] }) {
           transform={`rotate(-90 ${RIGHT_AXIS_LABEL_X} ${TOP + plotHeight / 2})`}
           className="fill-[#4d545f] text-[13px] font-semibold"
         >
-          # Policies | # Clients
+          Policies &amp; Clients
         </text>
 
-        {points.map((point) => (
-          <g key={point.periodKey}>
-            <rect
-              x={point.centerX - barWidth / 2}
-              y={point.moneyY}
-              width={barWidth}
-              height={Math.max(point.moneyHeight, 2)}
-              fill="#d6d6d6"
-            />
-            <text
-              x={point.centerX}
-              y={Math.max(point.moneyY - 14, TOP + 14)}
-              textAnchor="middle"
-              className="fill-[#20242b] text-[15px] font-bold"
+        {points.map((point, index) => {
+          const isActive = activeIndex === index;
+
+          return (
+            <g
+              key={point.periodKey}
+              className="cursor-pointer outline-none"
+              onBlur={() => setActiveIndex(null)}
+              onClick={() => setActiveIndex(index)}
+              onFocus={() => setActiveIndex(index)}
+              onMouseEnter={() => setActiveIndex(index)}
+              tabIndex={0}
             >
-              {formatCurrencyShort(point.totalMesserPaid)}
-            </text>
-            <text
-              x={point.centerX}
-              y={TOP + plotHeight + 30}
-              textAnchor="middle"
-              className="fill-[#3e444d] text-[13px] font-semibold"
-            >
-              {point.periodLabel}
-            </text>
-          </g>
-        ))}
+              <rect
+                x={point.centerX - groupWidth / 2}
+                y={TOP}
+                width={groupWidth}
+                height={plotHeight + 48}
+                fill="transparent"
+              />
+              <line
+                x1={point.centerX}
+                x2={point.centerX}
+                y1={TOP}
+                y2={TOP + plotHeight}
+                stroke={isActive ? "#9a9a9a" : "transparent"}
+                strokeWidth="1.2"
+              />
+              <rect
+                x={point.centerX - barWidth / 2}
+                y={point.moneyY}
+                width={barWidth}
+                height={Math.max(point.moneyHeight, 2)}
+                fill="#d6d6d6"
+                stroke={isActive ? "#b8b8b8" : "transparent"}
+                strokeWidth="1.2"
+              />
+              <text
+                x={point.centerX}
+                y={Math.max(point.moneyY - 14, TOP + 14)}
+                textAnchor="middle"
+                className="fill-[#20242b] text-[15px] font-bold"
+              >
+                {formatCurrencyShort(point.totalMesserPaid)}
+              </text>
+              <text
+                x={point.centerX}
+                y={TOP + plotHeight + 30}
+                textAnchor="middle"
+                className="fill-[#3e444d] text-[13px] font-semibold"
+              >
+                {point.periodLabel}
+              </text>
+            </g>
+          );
+        })}
 
         <path
           d={points
@@ -265,29 +355,53 @@ function TrendChartSvg({ rows }: { rows: TrendComparisonPeriod[] }) {
           strokeWidth="3"
         />
 
-        {points.map((point) => (
-          <g key={`${point.periodKey}-points`}>
-            <circle cx={point.centerX} cy={point.policyY} r="5" fill="#4186f5" />
-            <text
-              x={point.centerX}
-              y={point.policyY + 24}
-              textAnchor="middle"
-              className="fill-[#4186f5] text-[15px] font-bold"
+        {points.map((point, index) => {
+          const isActive = activeIndex === index;
+
+          return (
+            <g
+              key={`${point.periodKey}-points`}
+              className="cursor-pointer"
+              onClick={() => setActiveIndex(index)}
+              onMouseEnter={() => setActiveIndex(index)}
             >
-              {formatInteger(point.policyCount)}
-            </text>
-            <circle cx={point.centerX} cy={point.clientY} r="5" fill="#ff453f" />
-            <text
-              x={point.centerX}
-              y={point.clientY - 14}
-              textAnchor="middle"
-              className="fill-[#ff453f] text-[15px] font-bold"
-            >
-              {formatInteger(point.clientCount)}
-            </text>
-          </g>
-        ))}
-      </svg>
+              <circle
+                cx={point.centerX}
+                cy={point.policyY}
+                r={isActive ? 6 : 5}
+                fill="#4186f5"
+                stroke={isActive ? "#225ea8" : "#4186f5"}
+                strokeWidth="1.5"
+              />
+              <text
+                x={point.centerX}
+                y={point.policyY + 24}
+                textAnchor="middle"
+                className="fill-[#4186f5] text-[15px] font-bold"
+              >
+                {formatInteger(point.policyCount)}
+              </text>
+              <circle
+                cx={point.centerX}
+                cy={point.clientY}
+                r={isActive ? 6 : 5}
+                fill="#ff453f"
+                stroke={isActive ? "#b42318" : "#ff453f"}
+                strokeWidth="1.5"
+              />
+              <text
+                x={point.centerX}
+                y={point.clientY - 14}
+                textAnchor="middle"
+                className="fill-[#ff453f] text-[15px] font-bold"
+              >
+                {formatInteger(point.clientCount)}
+              </text>
+            </g>
+          );
+        })}
+        </svg>
+      </div>
     </div>
   );
 }
@@ -312,6 +426,28 @@ function roundAxisMax(value: number) {
   const magnitude = 10 ** Math.floor(Math.log10(value));
 
   return Math.ceil(value / magnitude) * magnitude;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function TooltipRow({
+  color,
+  label,
+  value,
+}: {
+  color: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="grid grid-cols-[20px_1fr_auto] items-center gap-2 py-1">
+      <span className="h-3 w-4 rounded-sm" style={{ backgroundColor: color }} />
+      <span className="text-[#3f444b]">{label}</span>
+      <span className="font-semibold text-[#24272d]">{value}</span>
+    </div>
+  );
 }
 
 function formatInteger(value: number) {

@@ -17,6 +17,7 @@ import {
   DashboardViewSwitch,
   type DashboardView,
 } from "../DashboardViewSwitch";
+import { DashboardNavigationProvider } from "../DashboardNavigationState";
 import HealthSalesDashboardPage from "../../sales-dashboard/health/page";
 
 export const dynamic = "force-dynamic";
@@ -81,27 +82,29 @@ export default async function DashboardPage({
     : null;
 
   return (
-    <AgentHealthDashboardFilterProvider>
-      <AgentHealthDashboard
-        agentName={agentName}
-        canViewAll={canViewAll}
-        defaultConfig={monthDefaultConfig}
-        initialChartLevel={chartLevel}
-        reportMonthRange={reportMonthRange}
-        rows={rows}
-        selectedCarriers={selectedCarriers}
-        selectedPrimaryMemberId={selectedPrimaryMemberId}
-        viewSwitcher={
-          <DashboardViewSwitch
-            activeView="agent"
-            basePath="/dashboard/health"
-            canViewAgent={canViewAgent}
-            canViewSales={canViewSales}
-            searchParams={params}
-          />
-        }
-      />
-    </AgentHealthDashboardFilterProvider>
+    <DashboardNavigationProvider>
+      <AgentHealthDashboardFilterProvider>
+        <AgentHealthDashboard
+          agentName={agentName}
+          canViewAll={canViewAll}
+          defaultConfig={monthDefaultConfig}
+          initialChartLevel={chartLevel}
+          reportMonthRange={reportMonthRange}
+          rows={rows}
+          selectedCarriers={selectedCarriers}
+          selectedPrimaryMemberId={selectedPrimaryMemberId}
+          viewSwitcher={
+            <DashboardViewSwitch
+              activeView="agent"
+              basePath="/dashboard/health"
+              canViewAgent={canViewAgent}
+              canViewSales={canViewSales}
+              searchParams={params}
+            />
+          }
+        />
+      </AgentHealthDashboardFilterProvider>
+    </DashboardNavigationProvider>
   );
 }
 

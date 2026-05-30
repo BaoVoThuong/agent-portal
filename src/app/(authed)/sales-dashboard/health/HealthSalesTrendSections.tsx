@@ -9,12 +9,18 @@ import {
 } from "./HealthSalesTrendComparisonChart";
 
 export function HealthSalesTrendSections({
+  afterMonthSections,
+  afterQuarterSections,
+  afterYearSections,
   initialLevel,
   monthSections,
   periodsByLevel,
   quarterSections,
   yearSections,
 }: {
+  afterMonthSections?: ReactNode;
+  afterQuarterSections?: ReactNode;
+  afterYearSections?: ReactNode;
   initialLevel: TrendComparisonChartLevel;
   monthSections: ReactNode;
   periodsByLevel: TrendComparisonPeriodsByLevel;
@@ -50,6 +56,9 @@ export function HealthSalesTrendSections({
       {chartLevel === "month" && monthSections}
       {chartLevel === "quarter" && quarterSections}
       {chartLevel === "year" && yearSections}
+      {chartLevel === "month" && afterMonthSections}
+      {chartLevel === "quarter" && afterQuarterSections}
+      {chartLevel === "year" && afterYearSections}
     </>
   );
 }

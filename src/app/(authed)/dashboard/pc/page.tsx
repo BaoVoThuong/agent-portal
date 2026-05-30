@@ -12,6 +12,11 @@ import {
   type DashboardView,
 } from "../DashboardViewSwitch";
 import {
+  DashboardNavigationContent,
+  DashboardNavigationProvider,
+} from "../DashboardNavigationState";
+import { DashboardViewSkeleton } from "../DashboardViewSkeleton";
+import {
   AgentPcDashboard,
   type AgentPcExpiredMonthRow,
   type AgentPcFilterOptions,
@@ -87,47 +92,51 @@ export default async function PcDashboardPage({
   const filterOptions = rows ? buildFilterOptions(rows) : emptyFilterOptions();
 
   return (
-    <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
-      <div className="mx-auto max-w-[1536px]">
-        <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              P&amp;C Sales Dashboard
-            </h1>
-            <p className="mt-2 text-sm text-slate-500">
-              Agent-facing P&amp;C production, policies, and commission.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <DashboardViewSwitch
-              activeView="agent"
-              basePath="/dashboard/pc"
-              canViewAgent={canViewAgent}
-              canViewSales={canViewSales}
-              searchParams={params}
-            />
-            <PcSalesHeaderFilters
-              defaultConfig={monthDefaultConfig}
-              filters={{
-                agency: filters.agency,
-                agent: "",
-                policyNumber: filters.policyNumber,
-                reportMonthRange,
-              }}
-            />
-          </div>
-        </header>
+    <DashboardNavigationProvider>
+      <div className="min-h-screen bg-slate-50 px-6 py-8 md:px-10 text-slate-900">
+        <div className="mx-auto max-w-[1536px]">
+          <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+                P&amp;C Sales Dashboard
+              </h1>
+              <p className="mt-2 text-sm text-slate-500">
+                Agent-facing P&amp;C production, policies, and commission.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <DashboardViewSwitch
+                activeView="agent"
+                basePath="/dashboard/pc"
+                canViewAgent={canViewAgent}
+                canViewSales={canViewSales}
+                searchParams={params}
+              />
+              <PcSalesHeaderFilters
+                defaultConfig={monthDefaultConfig}
+                filters={{
+                  agency: filters.agency,
+                  agent: "",
+                  policyNumber: filters.policyNumber,
+                  reportMonthRange,
+                }}
+              />
+            </div>
+          </header>
 
-        <AgentPcDashboard
-          agentName={agentName}
-          canViewAll={canViewAllAgents}
-          filterOptions={filterOptions}
-          filters={filters}
-          expiredRows={expiredRows}
-          rows={rows}
-        />
+          <DashboardNavigationContent fallback={<DashboardViewSkeleton />}>
+            <AgentPcDashboard
+              agentName={agentName}
+              canViewAll={canViewAllAgents}
+              filterOptions={filterOptions}
+              filters={filters}
+              expiredRows={expiredRows}
+              rows={rows}
+            />
+          </DashboardNavigationContent>
+        </div>
       </div>
-    </div>
+    </DashboardNavigationProvider>
   );
 }
 

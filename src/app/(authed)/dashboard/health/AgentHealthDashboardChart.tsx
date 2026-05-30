@@ -149,17 +149,17 @@ export function AgentHealthDashboardChart({
                 </div>
                 <TooltipRow
                   color="#d9d9d9"
-                  label="Agent Earnings"
+                  label="Agent Commission"
                   value={formatCurrency(activePoint.agentReceived)}
                 />
                 <TooltipRow
                   color="#2f80ed"
-                  label="# Policies"
+                  label="Policies"
                   value={formatInteger(activePoint.policyCount)}
                 />
                 <TooltipRow
                   color="#ff3b30"
-                  label="# Clients"
+                  label="Clients"
                   value={formatInteger(activePoint.clientCount)}
                 />
               </div>
@@ -168,12 +168,12 @@ export function AgentHealthDashboardChart({
             <svg
               viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
               role="img"
-              aria-label="Agent earnings, policies, and clients trend by period"
+              aria-label="Commission, policies, and clients trend by period"
             >
               <g transform={`translate(${LEFT}, 14)`}>
-                <LegendSwatch color="#d9d9d9" x={0} label="Agent Earnings" />
-                <LegendLine color="#2f80ed" x={192} label="# Policies" />
-                <LegendLine color="#ff3b30" x={332} label="# Clients" />
+                <LegendSwatch color="#d9d9d9" x={0} label="Agent Commission" />
+                <LegendLine color="#2f80ed" x={204} label="Policies" />
+                <LegendLine color="#ff3b30" x={316} label="Clients" />
               </g>
 
               <text
@@ -183,7 +183,7 @@ export function AgentHealthDashboardChart({
                 transform={`rotate(-90 22 ${TOP + PLOT_HEIGHT / 2})`}
                 className="fill-[#667085] text-[12px] font-medium"
               >
-                Agent Earnings
+                Agent Commission
               </text>
               <text
                 x={WIDTH - 22}
@@ -192,7 +192,7 @@ export function AgentHealthDashboardChart({
                 transform={`rotate(-90 ${WIDTH - 22} ${TOP + PLOT_HEIGHT / 2})`}
                 className="fill-[#667085] text-[12px] font-medium"
               >
-                Policies / Clients
+                Policies &amp; Clients
               </text>
 
               {GRID_TICKS.map((tick) => {

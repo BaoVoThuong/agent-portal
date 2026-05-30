@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Filter } from "lucide-react";
 
 export type AgentPcRow = {
   agent_name: string | null;
@@ -49,7 +50,7 @@ type PeriodSummary = Summary & {
   periodLabel: string;
 };
 
-type MonthlyGrowthRow = PeriodSummary & {
+type PeriodGrowthRow = PeriodSummary & {
   agentCommissionChange: number | null;
   agentCommissionChangePercent: number | null;
   policyChange: number | null;
@@ -64,15 +65,17 @@ type CarrierSummary = Summary & {
   agentCommissionRate: number;
 };
 
-type AgencyMonthSummaryRow = Summary & {
+type AgencyPeriodSummaryRow = Summary & {
   agency: string;
   isTotal: boolean;
-  monthKey: string;
+  periodKey: string;
+  periodLabel: string;
 };
 
-type AgencyMonthSummaryGroup = {
-  monthKey: string;
-  rows: AgencyMonthSummaryRow[];
+type AgencyPeriodSummaryGroup = {
+  periodKey: string;
+  periodLabel: string;
+  rows: AgencyPeriodSummaryRow[];
 };
 
 type PolicyDetailRow = {
@@ -90,13 +93,29 @@ type PolicyDetailRow = {
 };
 
 type DashboardData = {
-  agencyMonthGroups: AgencyMonthSummaryGroup[];
+  agencyGroupsByLevel: Record<TrendLevel, AgencyPeriodSummaryGroup[]>;
   carrierRows: CarrierSummary[];
-  monthlyGrowthRows: MonthlyGrowthRow[];
   overview: Summary;
+  growthRowsByLevel: Record<TrendLevel, PeriodGrowthRow[]>;
   policyDetailRows: PolicyDetailRow[];
   periodsByLevel: Record<TrendLevel, PeriodSummary[]>;
 };
+
+type SortDirection = "asc" | "desc";
+type PolicySortKey =
+  | "agent"
+  | "insuredName"
+  | "policyNumber"
+  | "carrier"
+  | "agency"
+  | "premium"
+  | "agentCommission"
+  | "effectiveDate"
+  | "expiredDate"
+  | "status";
+type PolicySortState = { key: PolicySortKey; direction: SortDirection };
+type PolicyFilterOption = { label: string; value: string };
+type DateRange = { from: string; to: string };
 
 const TREND_LIMIT_BY_LEVEL: Record<TrendLevel, number> = {
   month: 12,
@@ -133,7 +152,8 @@ export function AgentPcDashboard({
   );
   const data = useMemo(() => buildDashboardData(filteredRows), [filteredRows]);
   const trendRows = data.periodsByLevel[trendLevel];
-  const monthlyTrendRows = data.periodsByLevel.month;
+  const growthRows = data.growthRowsByLevel[trendLevel];
+  const agencyGroups = data.agencyGroupsByLevel[trendLevel];
   const overviewDescription = canViewAll
     ? "Showing agent-facing P&C metrics for all agents."
     : `Showing P&C dashboard for ${agentName || "your account"}.`;
@@ -209,7 +229,7 @@ export function AgentPcDashboard({
             />
             <KpiCard
               compact
-              label="Agent Comm / Premium"
+              label="Agent Comm Rate"
               value={formatPercent(
                 percentOf(
                   data.overview.agentCommission,
@@ -242,7 +262,7 @@ export function AgentPcDashboard({
           <section>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-xl font-bold tracking-tight text-slate-900">
-                {trendLevelAdjective(trendLevel)} Sales Volume &amp; Premium Trend
+                {trendLevelAdjective(trendLevel)} Book &amp; Premium Trend
               </h3>
               <TrendLevelTabs value={trendLevel} onChange={setTrendLevel} />
             </div>
@@ -252,16 +272,19 @@ export function AgentPcDashboard({
           <section>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-xl font-bold tracking-tight text-slate-900">
-                Commission Trend by Month | Agent Commission
+                Commission Trend by {trendLevelLabel(trendLevel)} | Agent Commission
               </h3>
             </div>
-            <AgentPcCommissionTrendChart rows={monthlyTrendRows} />
+            <AgentPcCommissionTrendChart rows={trendRows} />
           </section>
 
-          <MonthlyGrowthTable rows={data.monthlyGrowthRows} />
+          <PeriodGrowthTable rows={growthRows} trendLevel={trendLevel} />
 
-          <section className="grid gap-5 xl:grid-cols-2">
-            <MonthlyAgencySummaryTable groups={data.agencyMonthGroups} />
+          <section className="grid min-w-0 items-start gap-8 xl:grid-cols-[minmax(0,0.94fr)_minmax(0,1.06fr)]">
+            <PeriodAgencySummaryTable
+              groups={agencyGroups}
+              trendLevel={trendLevel}
+            />
             <CarrierDashboardOverview rows={data.carrierRows} />
           </section>
 
@@ -349,23 +372,123 @@ function FilterSelect({
   placeholder: string;
   value: string;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftValue, setDraftValue] = useState(value);
+  const buttonLabel = value || placeholder;
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeOnOutsidePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        containerRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+    };
+  }, [isOpen]);
+
+  function openDropdown() {
+    setDraftValue(value);
+    setIsOpen((current) => !current);
+  }
+
+  function clearSelection() {
+    setDraftValue("");
+    setIsOpen(false);
+    onChange("");
+  }
+
+  function closeWithoutApplying() {
+    setDraftValue(value);
+    setIsOpen(false);
+  }
+
+  function applySelection() {
+    setIsOpen(false);
+    onChange(draftValue);
+  }
+
   return (
-    <label className="block w-[15rem] shrink-0">
-      <span className="sr-only">{label}</span>
-      <select
+    <div ref={containerRef} className="relative w-[15rem] shrink-0">
+      <button
+        aria-expanded={isOpen}
         aria-label={label}
-        className="dashboard-filter-input pr-10"
-        onChange={(event) => onChange(event.target.value)}
-        value={value}
+        className="dashboard-filter-button w-full"
+        data-filter-name={label.toLowerCase()}
+        onClick={openDropdown}
+        type="button"
       >
-        <option value="">{placeholder}</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
+        <span className="truncate">{buttonLabel}</span>
+        <span aria-hidden="true" className="text-[#667085]">
+          ▾
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div className="dashboard-filter-menu absolute right-0 z-30 mt-2.5 w-full min-w-[16rem] p-3.5">
+          <div className="dashboard-filter-title mb-2.5">{label}</div>
+          <div className="max-h-64 overflow-auto pr-1">
+            {options.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-[#d8dee7] px-3 py-8 text-center text-sm font-semibold text-[#667085]">
+                No options available.
+              </div>
+            ) : (
+              options.map((option) => (
+                <button
+                  className="dashboard-filter-option w-full"
+                  key={option}
+                  onClick={() => setDraftValue(option)}
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`dashboard-filter-checkbox ${
+                      draftValue === option ? "checked-like" : ""
+                    }`}
+                  />
+                  <span className="truncate">{option}</span>
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="dashboard-filter-footer mt-3">
+            <button
+              className="dashboard-filter-action mr-auto text-[#667085]"
+              onClick={clearSelection}
+              type="button"
+            >
+              Clear
+            </button>
+            <button
+              className="dashboard-filter-action"
+              onClick={closeWithoutApplying}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="dashboard-filter-action"
+              onClick={applySelection}
+              type="button"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -547,7 +670,7 @@ function AgentPcSalesVolumePremiumTrendChart({
                   x={point.centerX}
                   y={top + plotHeight + 30}
                 >
-                  {point.periodKey}
+                  {point.periodLabel}
                 </text>
               </g>
             ))}
@@ -724,7 +847,7 @@ function AgentPcCommissionTrendChart({ rows }: { rows: PeriodSummary[] }) {
                   x={point.centerX}
                   y={top + plotHeight + 28}
                 >
-                  {point.periodKey}
+                  {point.periodLabel}
                 </text>
               </g>
             ))}
@@ -763,38 +886,48 @@ function AgentPcCommissionTrendChart({ rows }: { rows: PeriodSummary[] }) {
   );
 }
 
-function MonthlyGrowthTable({ rows }: { rows: MonthlyGrowthRow[] }) {
+function PeriodGrowthTable({
+  rows,
+  trendLevel,
+}: {
+  rows: PeriodGrowthRow[];
+  trendLevel: TrendLevel;
+}) {
   const maxPolicyChange = maxAbsValue(rows, (row) => row.policyChangePercent);
   const maxPremiumChange = maxAbsValue(rows, (row) => row.premiumChangePercent);
   const maxAgentCommissionChange = maxAbsValue(
     rows,
     (row) => row.agentCommissionChangePercent
   );
+  const periodLabel = trendLevelLabel(trendLevel);
+  const changeLabel = getChangeLabel(trendLevel);
 
   return (
-    <ReportPanel title="Sales Dashboard by Month | Policies, Premium & Agent Commission MoM Growth">
+    <ReportPanel
+      title={`Book & Commission Trend by ${periodLabel} | ${changeLabel}`}
+    >
       <div className="max-h-[440px] overflow-auto">
         <table className="w-full min-w-[920px] table-fixed text-[12px] tabular-nums">
           <thead>
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <SummaryHeaderCell width="11%">Month</SummaryHeaderCell>
+              <SummaryHeaderCell width="11%">{periodLabel}</SummaryHeaderCell>
               <SummaryHeaderCell align="right" width="12%">
                 Policies
               </SummaryHeaderCell>
               <SummaryHeaderCell align="right" width="13%">
-                % Policies MoM
+                % Policies {changeLabel}
               </SummaryHeaderCell>
               <SummaryHeaderCell align="right" width="17%">
                 Total Premium
               </SummaryHeaderCell>
               <SummaryHeaderCell align="right" width="13%">
-                % Premium MoM
+                % Premium {changeLabel}
               </SummaryHeaderCell>
               <SummaryHeaderCell align="right" width="18%">
                 Agent Commission
               </SummaryHeaderCell>
               <SummaryHeaderCell align="right" width="16%">
-                % Agent Comm MoM
+                % Agent Comm {changeLabel}
               </SummaryHeaderCell>
             </tr>
           </thead>
@@ -804,9 +937,10 @@ function MonthlyGrowthTable({ rows }: { rows: MonthlyGrowthRow[] }) {
                 className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}
                 key={row.periodKey}
               >
-                <SummaryBodyCell strong>{row.periodKey}</SummaryBodyCell>
+                <SummaryBodyCell strong>{row.periodLabel}</SummaryBodyCell>
                 <SummaryMetricCell
                   delta={row.policyChange}
+                  deltaLabel={changeLabel}
                   value={formatInteger(row.policyCount)}
                 />
                 <SummaryDeltaCell
@@ -815,6 +949,7 @@ function MonthlyGrowthTable({ rows }: { rows: MonthlyGrowthRow[] }) {
                 />
                 <SummaryMetricCell
                   delta={row.premiumChange}
+                  deltaLabel={changeLabel}
                   deltaType="currency"
                   value={formatCurrencyShort(row.totalPremium)}
                 />
@@ -824,6 +959,7 @@ function MonthlyGrowthTable({ rows }: { rows: MonthlyGrowthRow[] }) {
                 />
                 <SummaryMetricCell
                   delta={row.agentCommissionChange}
+                  deltaLabel={changeLabel}
                   deltaType="currency"
                   value={formatCurrencyShort(row.agentCommission)}
                 />
@@ -840,40 +976,45 @@ function MonthlyGrowthTable({ rows }: { rows: MonthlyGrowthRow[] }) {
   );
 }
 
-function MonthlyAgencySummaryTable({
+function PeriodAgencySummaryTable({
   groups,
+  trendLevel,
 }: {
-  groups: AgencyMonthSummaryGroup[];
+  groups: AgencyPeriodSummaryGroup[];
+  trendLevel: TrendLevel;
 }) {
   const rows = groups.flatMap((group) => group.rows);
   const maxes = {
     agentCommission: maxValue(rows, (row) => row.agentCommission),
-    agentRate: maxValue(rows, (row) =>
-      percentOf(row.agentCommission, row.totalPremium)
-    ),
     policies: maxValue(rows, (row) => row.policyCount),
     premium: maxValue(rows, (row) => row.totalPremium),
   };
 
   return (
-    <ReportPanel title="Monthly Sales Dashboard Summary">
+    <ReportPanel title={`${trendLevelAdjective(trendLevel)} Sales Summary`}>
       <div className="max-h-[520px] overflow-y-auto overflow-x-hidden">
-        <table className="w-full table-fixed text-[11px] tabular-nums">
+        <table className="w-full table-fixed text-[11.5px] tabular-nums">
+          <colgroup>
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "30%" }} />
+            <col style={{ width: "31%" }} />
+          </colgroup>
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <AgencySummaryHeaderCell width="13%">Month</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell width="17%">Agency</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="14%">
+              <AgencySummaryHeaderCell>
+                {trendLevelLabel(trendLevel)}
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell>Agency</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell align="right">
                 Policies
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="18%">
+              <AgencySummaryHeaderCell align="right">
                 Premium
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="20%">
+              <AgencySummaryHeaderCell align="right">
                 Agent Comm
-              </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="18%">
-                Agent Rate
               </AgencySummaryHeaderCell>
             </tr>
           </thead>
@@ -888,14 +1029,14 @@ function MonthlyAgencySummaryTable({
                         ? "bg-white"
                         : "bg-[#f7f8fa]"
                   }
-                  key={`${group.monthKey}-${row.agency}-${rowIndex}`}
+                  key={`${group.periodKey}-${row.agency}-${rowIndex}`}
                 >
                   {rowIndex === 0 ? (
                     <td
-                      className="border-r border-b border-slate-200 bg-white px-2 py-4 align-top text-[12px] font-semibold text-slate-900"
+                      className="border-r border-b border-slate-200 bg-white px-2.5 py-3.5 align-top text-[13px] font-semibold whitespace-nowrap text-slate-900"
                       rowSpan={group.rows.length}
                     >
-                      {group.monthKey}
+                      {group.periodLabel}
                     </td>
                   ) : null}
                   <AgencySummaryCell strong={row.isTotal}>
@@ -925,16 +1066,6 @@ function MonthlyAgencySummaryTable({
                   >
                     {formatCurrencyShort(row.agentCommission)}
                   </AgencySummaryHeatCell>
-                  <AgencySummaryHeatCell
-                    maxValue={maxes.agentRate}
-                    mode="lavender"
-                    strong={row.isTotal}
-                    value={percentOf(row.agentCommission, row.totalPremium)}
-                  >
-                    {formatPercent(
-                      percentOf(row.agentCommission, row.totalPremium)
-                    )}
-                  </AgencySummaryHeatCell>
                 </tr>
               ))
             )}
@@ -948,18 +1079,15 @@ function MonthlyAgencySummaryTable({
 function AgencySummaryHeaderCell({
   align = "left",
   children,
-  width,
 }: {
   align?: "left" | "right";
   children: ReactNode;
-  width: string;
 }) {
   return (
     <th
-      className={`break-words border-r border-b border-slate-200 bg-slate-50 px-2 py-4 align-middle text-[11px] font-semibold uppercase leading-snug tracking-[0.08em] text-slate-500 last:border-r-0 ${
+      className={`border-r border-b border-slate-200 bg-slate-50 px-2.5 py-3.5 align-middle text-[10px] font-semibold uppercase leading-snug tracking-[0.08em] whitespace-nowrap text-slate-500 last:border-r-0 ${
         align === "right" ? "text-right" : "text-left"
       }`}
-      style={{ width }}
     >
       {children}
     </th>
@@ -977,7 +1105,7 @@ function AgencySummaryCell({
 }) {
   return (
     <td
-      className={`break-words border-r border-b border-slate-100 px-2 py-4 align-middle text-[12px] text-slate-700 last:border-r-0 ${
+      className={`truncate border-r border-b border-slate-100 px-2.5 py-3.5 align-middle text-[13px] text-slate-700 last:border-r-0 ${
         align === "right" ? "text-right" : "text-left"
       } ${strong ? "font-bold text-slate-900" : ""}`}
     >
@@ -1001,7 +1129,7 @@ function AgencySummaryHeatCell({
 }) {
   return (
     <td
-      className={`border-r border-b border-slate-100 px-2 py-4 text-right text-[12px] last:border-r-0 ${
+      className={`border-r border-b border-slate-100 px-2.5 py-3.5 text-right text-[13px] whitespace-nowrap last:border-r-0 ${
         strong ? "font-bold text-slate-900" : "text-slate-700"
       }`}
       style={{ backgroundColor: overviewHeatColor(value, maxValue, mode) }}
@@ -1218,10 +1346,12 @@ function SummaryBodyCell({
 
 function SummaryMetricCell({
   delta,
+  deltaLabel = "MoM",
   deltaType = "integer",
   value,
 }: {
   delta: number | null;
+  deltaLabel?: string;
   deltaType?: "integer" | "currency";
   value: string;
 }) {
@@ -1236,7 +1366,7 @@ function SummaryMetricCell({
     <td className="border-r border-b border-slate-100 px-3 py-3 align-middle text-right last:border-r-0">
       <div className="font-semibold text-slate-800">{value}</div>
       <div className={`mt-1 text-[11px] ${deltaTextClassName(delta)}`}>
-        MoM {formattedDelta}
+        {deltaLabel} {formattedDelta}
       </div>
     </td>
   );
@@ -1265,26 +1395,30 @@ function CarrierDashboardOverview({ rows }: { rows: CarrierSummary[] }) {
   const maxes = buildOverviewMaxes(rows);
 
   return (
-    <ReportPanel title="Carrier Dashboard Overview">
+    <ReportPanel title="Carrier Performance">
       <div className="max-h-[520px] overflow-y-auto overflow-x-hidden">
-        <table className="w-full table-fixed text-[11px] tabular-nums">
+        <table className="w-full table-fixed text-[11.5px] tabular-nums">
+          <colgroup>
+            <col style={{ width: "35%" }} />
+            <col style={{ width: "10%" }} />
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "21%" }} />
+            <col style={{ width: "22%" }} />
+          </colgroup>
           <thead className="sticky top-0 z-10">
             <tr>
-              <OverviewHeaderCell width="25%">Company</OverviewHeaderCell>
-              <OverviewHeaderCell align="right" tone="green" width="14%">
-                Policies Count
+              <OverviewHeaderCell>Company</OverviewHeaderCell>
+              <OverviewHeaderCell align="right" tone="green">
+                Policies
               </OverviewHeaderCell>
-              <OverviewHeaderCell align="right" tone="green" width="17%">
-                % Policies Count
+              <OverviewHeaderCell align="right" tone="green">
+                Share
               </OverviewHeaderCell>
-              <OverviewHeaderCell align="right" tone="amber" width="18%">
-                Total Premium
+              <OverviewHeaderCell align="right" tone="amber">
+                Premium
               </OverviewHeaderCell>
-              <OverviewHeaderCell align="right" tone="blue" width="17%">
-                Agent Commission
-              </OverviewHeaderCell>
-              <OverviewHeaderCell align="right" tone="lavender" width="9%">
-                Rate
+              <OverviewHeaderCell align="right" tone="blue">
+                Agent Comm
               </OverviewHeaderCell>
             </tr>
           </thead>
@@ -1323,13 +1457,6 @@ function CarrierDashboardOverview({ rows }: { rows: CarrierSummary[] }) {
                 >
                   {formatCurrencyShort(row.agentCommission)}
                 </OverviewHeatCell>
-                <OverviewHeatCell
-                  maxValue={maxes.agentCommissionRate}
-                  mode="lavender"
-                  value={row.agentCommissionRate}
-                >
-                  {formatPercent(row.agentCommissionRate)}
-                </OverviewHeatCell>
               </tr>
             ))}
           </tbody>
@@ -1343,19 +1470,16 @@ function OverviewHeaderCell({
   align = "left",
   children,
   tone = "base",
-  width,
 }: {
   align?: "left" | "right";
   children: ReactNode;
   tone?: "amber" | "base" | "blue" | "green" | "lavender";
-  width: string;
 }) {
   return (
     <th
-      className={`break-words border-r border-b border-slate-200 px-2 py-4 align-middle text-[11px] font-semibold uppercase leading-snug tracking-[0.08em] last:border-r-0 ${overviewHeaderToneClassName(
+      className={`border-r border-b border-slate-200 px-2.5 py-3.5 align-middle text-[10px] font-semibold uppercase leading-snug tracking-[0.08em] whitespace-nowrap last:border-r-0 ${overviewHeaderToneClassName(
         tone
       )} ${align === "right" ? "text-right" : "text-left"}`}
-      style={{ width }}
     >
       {children}
     </th>
@@ -1364,8 +1488,13 @@ function OverviewHeaderCell({
 
 function OverviewNameCell({ children }: { children: ReactNode }) {
   return (
-    <td className="break-words border-r border-b border-slate-100 bg-slate-50/40 px-2 py-4 align-middle text-[12px] font-semibold text-slate-900 last:border-r-0">
-      {children}
+    <td className="border-r border-b border-slate-100 bg-slate-50/40 px-2.5 py-3.5 align-middle text-[13px] font-semibold leading-snug text-slate-900 last:border-r-0">
+      <div
+        className="line-clamp-2 break-words"
+        title={typeof children === "string" ? children : undefined}
+      >
+        {children}
+      </div>
     </td>
   );
 }
@@ -1383,7 +1512,7 @@ function OverviewHeatCell({
 }) {
   return (
     <td
-      className="border-r border-b border-slate-100 px-2 py-4 text-right text-[12px] text-slate-700 last:border-r-0"
+      className="border-r border-b border-slate-100 px-2.5 py-3.5 text-right text-[13px] whitespace-nowrap text-slate-700 last:border-r-0"
       style={{ backgroundColor: overviewHeatColor(value, maxValue, mode) }}
     >
       {children}
@@ -1398,55 +1527,353 @@ function PolicyDetailsTable({
   rows: PolicyDetailRow[];
   showAgent: boolean;
 }) {
+  const [agentFilter, setAgentFilter] = useState<string[]>([]);
+  const [insuredFilter, setInsuredFilter] = useState<string[]>([]);
+  const [policyFilter, setPolicyFilter] = useState<string[]>([]);
+  const [carrierFilter, setCarrierFilter] = useState<string[]>([]);
+  const [agencyFilter, setAgencyFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [effectiveDateRange, setEffectiveDateRange] = useState<DateRange | null>(null);
+  const [expiredDateRange, setExpiredDateRange] = useState<DateRange | null>(null);
+  const [sortState, setPolicySortState] = useState<PolicySortState | null>(null);
+  const [activePanel, setActivePanel] = useState<PolicySortKey | null>(null);
+
+  const agentOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.agent)), [rows]);
+  const insuredOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.insuredName)), [rows]);
+  const policyOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.policyNumber)), [rows]);
+  const carrierOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.carrier)), [rows]);
+  const agencyOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.agency)), [rows]);
+  const statusOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.status)), [rows]);
+
+  const hasActiveFilters =
+    agentFilter.length > 0 ||
+    insuredFilter.length > 0 ||
+    policyFilter.length > 0 ||
+    carrierFilter.length > 0 ||
+    agencyFilter.length > 0 ||
+    statusFilter.length > 0 ||
+    effectiveDateRange !== null ||
+    expiredDateRange !== null ||
+    Boolean(sortState);
+
+  const filteredRows = useMemo(() => {
+    const result = rows.filter((row) => {
+      if (agentFilter.length > 0 && !agentFilter.includes(row.agent)) return false;
+      if (insuredFilter.length > 0 && !insuredFilter.includes(row.insuredName)) return false;
+      if (policyFilter.length > 0 && !policyFilter.includes(row.policyNumber)) return false;
+      if (carrierFilter.length > 0 && !carrierFilter.includes(row.carrier)) return false;
+      if (agencyFilter.length > 0 && !agencyFilter.includes(row.agency)) return false;
+      if (statusFilter.length > 0 && !statusFilter.includes(row.status)) return false;
+      if (effectiveDateRange) {
+        const d = row.effectiveDate ?? "";
+        if (effectiveDateRange.from && d < effectiveDateRange.from) return false;
+        if (effectiveDateRange.to && d > effectiveDateRange.to) return false;
+      }
+      if (expiredDateRange) {
+        const d = row.expiredDate ?? "";
+        if (expiredDateRange.from && d < expiredDateRange.from) return false;
+        if (expiredDateRange.to && d > expiredDateRange.to) return false;
+      }
+      return true;
+    });
+
+    if (sortState) {
+      result.sort((a, b) => {
+        const aVal = getPolicySortValue(a, sortState.key);
+        const bVal = getPolicySortValue(b, sortState.key);
+        const mult = sortState.direction === "asc" ? 1 : -1;
+        if (typeof aVal === "number" && typeof bVal === "number") return (aVal - bVal) * mult;
+        return String(aVal).localeCompare(String(bVal)) * mult;
+      });
+    }
+
+    return result;
+  }, [rows, agentFilter, insuredFilter, policyFilter, carrierFilter, agencyFilter, statusFilter, effectiveDateRange, expiredDateRange, sortState]);
+
+  useEffect(() => {
+    if (!activePanel) return;
+
+    function closeOutside(event: PointerEvent) {
+      if (event.target instanceof Element && event.target.closest("[data-pc-policy-filter]")) return;
+      setActivePanel(null);
+    }
+
+    function closeEsc(event: KeyboardEvent) {
+      if (event.key === "Escape") setActivePanel(null);
+    }
+
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEsc);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeEsc);
+    };
+  }, [activePanel]);
+
+  function toggle(key: PolicySortKey) {
+    setActivePanel((cur) => (cur === key ? null : key));
+  }
+
+  function doSort(key: PolicySortKey, dir: SortDirection) {
+    setPolicySortState({ key, direction: dir });
+    setActivePanel(null);
+  }
+
+  function clearAll() {
+    setAgentFilter([]);
+    setInsuredFilter([]);
+    setPolicyFilter([]);
+    setCarrierFilter([]);
+    setAgencyFilter([]);
+    setStatusFilter([]);
+    setEffectiveDateRange(null);
+    setExpiredDateRange(null);
+    setPolicySortState(null);
+    setActivePanel(null);
+  }
+
   return (
     <ReportPanel title="Policy Detail">
-      <div
-        className="overflow-auto"
-        style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}
-      >
-        <table
-          className={`w-full table-fixed text-[12px] tabular-nums ${
-            showAgent ? "min-w-[920px]" : "min-w-[820px]"
-          }`}
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+        <p className="text-xs text-slate-500">
+          Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} policies
+        </p>
+        <button
+          className="h-8 rounded-md border border-[#cfd7e3] bg-white px-3 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!hasActiveFilters}
+          onClick={clearAll}
+          type="button"
         >
+          Clear Filters
+        </button>
+      </div>
+      <div className="overflow-auto" style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}>
+        <table className="text-[12px] tabular-nums">
           <thead className="sticky top-0 z-10">
             <tr>
-              {showAgent ? <HeaderCell width="10%">Agent</HeaderCell> : null}
-              <HeaderCell width={showAgent ? "15%" : "17%"}>Insured</HeaderCell>
-              <HeaderCell width={showAgent ? "12%" : "13%"}>Policy</HeaderCell>
-              <HeaderCell width={showAgent ? "11%" : "12%"}>Carrier</HeaderCell>
-              <HeaderCell width={showAgent ? "9%" : "10%"}>Agency</HeaderCell>
-              <HeaderCell align="right" width={showAgent ? "12%" : "13%"}>
-                Premium
+              <th className="border-r border-b border-slate-200 bg-slate-50 px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap" style={{ width: 44 }}>
+                #
+              </th>
+              {showAgent ? (
+                <HeaderCell width={100}>
+                  <PolicyFilterableHeader
+                    active={agentFilter.length > 0 || sortState?.key === "agent"}
+                    isOpen={activePanel === "agent"}
+                    label="Agent"
+                    onToggle={() => toggle("agent")}
+                  >
+                    <PolicyExcelFilterPanel
+                      label="Agent"
+                      options={agentOptions}
+                      selectedValues={agentFilter}
+                      onApply={setAgentFilter}
+                      onCancel={() => setActivePanel(null)}
+                      onClearFilter={() => setAgentFilter([])}
+                      onSort={(d) => doSort("agent", d)}
+                    />
+                  </PolicyFilterableHeader>
+                </HeaderCell>
+              ) : null}
+              <HeaderCell width={170}>
+                <PolicyFilterableHeader
+                  active={insuredFilter.length > 0 || sortState?.key === "insuredName"}
+                  isOpen={activePanel === "insuredName"}
+                  label="Insured"
+                  onToggle={() => toggle("insuredName")}
+                >
+                  <PolicyExcelFilterPanel
+                    label="Insured"
+                    options={insuredOptions}
+                    selectedValues={insuredFilter}
+                    onApply={setInsuredFilter}
+                    onCancel={() => setActivePanel(null)}
+                    onClearFilter={() => setInsuredFilter([])}
+                    onSort={(d) => doSort("insuredName", d)}
+                  />
+                </PolicyFilterableHeader>
               </HeaderCell>
-              <HeaderCell align="right" width={showAgent ? "13%" : "13%"}>
-                Agent Commission
+              <HeaderCell width={130}>
+                <PolicyFilterableHeader
+                  active={policyFilter.length > 0 || sortState?.key === "policyNumber"}
+                  isOpen={activePanel === "policyNumber"}
+                  label="Policy"
+                  onToggle={() => toggle("policyNumber")}
+                >
+                  <PolicyExcelFilterPanel
+                    label="Policy"
+                    options={policyOptions}
+                    selectedValues={policyFilter}
+                    onApply={setPolicyFilter}
+                    onCancel={() => setActivePanel(null)}
+                    onClearFilter={() => setPolicyFilter([])}
+                    onSort={(d) => doSort("policyNumber", d)}
+                  />
+                </PolicyFilterableHeader>
               </HeaderCell>
-              <HeaderCell width={showAgent ? "9%" : "11%"}>Effective</HeaderCell>
-              <HeaderCell width={showAgent ? "9%" : "11%"}>Status</HeaderCell>
+              <HeaderCell width={120}>
+                <PolicyFilterableHeader
+                  active={carrierFilter.length > 0 || sortState?.key === "carrier"}
+                  isOpen={activePanel === "carrier"}
+                  label="Carrier"
+                  onToggle={() => toggle("carrier")}
+                >
+                  <PolicyExcelFilterPanel
+                    label="Carrier"
+                    options={carrierOptions}
+                    selectedValues={carrierFilter}
+                    onApply={setCarrierFilter}
+                    onCancel={() => setActivePanel(null)}
+                    onClearFilter={() => setCarrierFilter([])}
+                    onSort={(d) => doSort("carrier", d)}
+                  />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={110}>
+                <PolicyFilterableHeader
+                  active={agencyFilter.length > 0 || sortState?.key === "agency"}
+                  isOpen={activePanel === "agency"}
+                  label="Agency"
+                  onToggle={() => toggle("agency")}
+                >
+                  <PolicyExcelFilterPanel
+                    label="Agency"
+                    options={agencyOptions}
+                    selectedValues={agencyFilter}
+                    onApply={setAgencyFilter}
+                    onCancel={() => setActivePanel(null)}
+                    onClearFilter={() => setAgencyFilter([])}
+                    onSort={(d) => doSort("agency", d)}
+                  />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell align="right" width={115}>
+                <PolicyFilterableHeader
+                  active={sortState?.key === "premium"}
+                  align="right"
+                  isOpen={activePanel === "premium"}
+                  label="Premium"
+                  onToggle={() => toggle("premium")}
+                >
+                  <PolicyExcelFilterPanel
+                    label="Premium"
+                    options={[]}
+                    selectedValues={[]}
+                    onApply={() => {}}
+                    onCancel={() => setActivePanel(null)}
+                    onClearFilter={() => {}}
+                    onSort={(d) => doSort("premium", d)}
+                    sortAscLabel="Sort smallest to largest"
+                    sortDescLabel="Sort largest to smallest"
+                  />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell align="right" width={155}>
+                <PolicyFilterableHeader
+                  active={sortState?.key === "agentCommission"}
+                  align="right"
+                  isOpen={activePanel === "agentCommission"}
+                  label="Agent Commission"
+                  onToggle={() => toggle("agentCommission")}
+                >
+                  <PolicyExcelFilterPanel
+                    label="Agent Commission"
+                    options={[]}
+                    selectedValues={[]}
+                    onApply={() => {}}
+                    onCancel={() => setActivePanel(null)}
+                    onClearFilter={() => {}}
+                    onSort={(d) => doSort("agentCommission", d)}
+                    sortAscLabel="Sort smallest to largest"
+                    sortDescLabel="Sort largest to smallest"
+                  />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={110}>
+                <PolicyFilterableHeader
+                  active={effectiveDateRange !== null || sortState?.key === "effectiveDate"}
+                  align="right"
+                  isOpen={activePanel === "effectiveDate"}
+                  label="Effective"
+                  onToggle={() => toggle("effectiveDate")}
+                >
+                  <PolicyDateFilterPanel
+                    onApply={setEffectiveDateRange}
+                    onCancel={() => setActivePanel(null)}
+                    onClear={() => setEffectiveDateRange(null)}
+                    onSort={(d) => doSort("effectiveDate", d)}
+                    presets={effectiveDatePresets()}
+                    value={effectiveDateRange}
+                  />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={110}>
+                <PolicyFilterableHeader
+                  active={expiredDateRange !== null || sortState?.key === "expiredDate"}
+                  align="right"
+                  isOpen={activePanel === "expiredDate"}
+                  label="Expired"
+                  onToggle={() => toggle("expiredDate")}
+                >
+                  <PolicyDateFilterPanel
+                    onApply={setExpiredDateRange}
+                    onCancel={() => setActivePanel(null)}
+                    onClear={() => setExpiredDateRange(null)}
+                    onSort={(d) => doSort("expiredDate", d)}
+                    presets={expiredDatePresets()}
+                    value={expiredDateRange}
+                  />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={100}>
+                <PolicyFilterableHeader
+                  active={statusFilter.length > 0 || sortState?.key === "status"}
+                  align="right"
+                  isOpen={activePanel === "status"}
+                  label="Status"
+                  onToggle={() => toggle("status")}
+                >
+                  <PolicyExcelFilterPanel
+                    label="Status"
+                    options={statusOptions}
+                    selectedValues={statusFilter}
+                    onApply={setStatusFilter}
+                    onCancel={() => setActivePanel(null)}
+                    onClearFilter={() => setStatusFilter([])}
+                    onSort={(d) => doSort("status", d)}
+                  />
+                </PolicyFilterableHeader>
+              </HeaderCell>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
-              <tr
-                className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}
-                key={`${row.policyNumber}-${row.effectiveDate}-${index}`}
-              >
-                {showAgent ? <BodyCell>{row.agent}</BodyCell> : null}
-                <BodyCell strong>{row.insuredName || "-"}</BodyCell>
-                <BodyCell>{row.policyNumber || "-"}</BodyCell>
-                <BodyCell>{row.carrier}</BodyCell>
-                <BodyCell>{row.agency}</BodyCell>
-                <BodyCell align="right">
-                  {formatCurrencyShort(row.premium)}
-                </BodyCell>
-                <BodyCell align="right">
-                  {formatCurrencyShort(row.agentCommission)}
-                </BodyCell>
-                <BodyCell>{formatDate(row.effectiveDate)}</BodyCell>
-                <BodyCell>{row.status}</BodyCell>
+            {filteredRows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={showAgent ? 11 : 10}>
+                  No policies matched these filters.
+                </td>
               </tr>
-            ))}
+            ) : (
+              filteredRows.map((row, index) => (
+                <tr
+                  className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}
+                  key={`${row.policyNumber}-${row.effectiveDate}-${index}`}
+                >
+                  <td className="border-r border-b border-slate-100 px-3 py-3 text-right text-xs font-semibold text-slate-400 whitespace-nowrap">
+                    {index + 1}
+                  </td>
+                  {showAgent ? <BodyCell>{row.agent}</BodyCell> : null}
+                  <BodyCell strong>{row.insuredName || "-"}</BodyCell>
+                  <BodyCell>{row.policyNumber || "-"}</BodyCell>
+                  <BodyCell>{row.carrier}</BodyCell>
+                  <BodyCell>{row.agency}</BodyCell>
+                  <BodyCell align="right">{formatCurrencyShort(row.premium)}</BodyCell>
+                  <BodyCell align="right">{formatCurrencyShort(row.agentCommission)}</BodyCell>
+                  <BodyCell>{formatDate(row.effectiveDate)}</BodyCell>
+                  <BodyCell>{formatDate(row.expiredDate)}</BodyCell>
+                  <BodyCell>{row.status}</BodyCell>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -1462,17 +1889,414 @@ function ReportPanel({
   title: string;
 }) {
   return (
-    <section className="flex flex-col">
+    <section className="flex min-w-0 flex-col">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg font-bold leading-tight text-slate-800">
           {title}
         </h3>
       </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
+      <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         {children}
       </div>
     </section>
   );
+}
+
+function PolicyFilterableHeader({
+  active,
+  align = "left",
+  children,
+  isOpen,
+  label,
+  onToggle,
+}: {
+  active: boolean;
+  align?: "left" | "right";
+  children: ReactNode;
+  isOpen: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="relative" data-pc-policy-filter>
+      <div className="flex items-center gap-1">
+        <span className="whitespace-nowrap">{label}</span>
+        <button
+          aria-label={`Filter ${label}`}
+          aria-pressed={active}
+          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition hover:bg-[#e9eef6] hover:text-[#184e8a] ${active ? "bg-[#dbeafe] text-[#184e8a]" : "text-slate-400"}`}
+          onClick={onToggle}
+          type="button"
+        >
+          <Filter aria-hidden="true" size={12} strokeWidth={2.4} />
+        </button>
+      </div>
+      {isOpen ? (
+        <div
+          className={`absolute top-full z-50 mt-2 w-72 rounded-lg border border-[#cfd7e3] bg-white p-3 text-left text-sm normal-case font-normal tracking-normal text-[#16233a] shadow-xl ${align === "right" ? "right-0" : "left-0"}`}
+        >
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PolicyExcelFilterPanel({
+  label,
+  onApply,
+  onCancel,
+  onClearFilter,
+  onSort,
+  options,
+  selectedValues,
+  sortAscLabel = "Sort A to Z",
+  sortDescLabel = "Sort Z to A",
+}: {
+  label: string;
+  onApply: (values: string[]) => void;
+  onCancel: () => void;
+  onClearFilter: () => void;
+  onSort: (direction: SortDirection) => void;
+  options: PolicyFilterOption[];
+  selectedValues: string[];
+  sortAscLabel?: string;
+  sortDescLabel?: string;
+}) {
+  const optionValues = useMemo(() => options.map((o) => o.value), [options]);
+  const [searchValue, setSearchValue] = useState("");
+  const [draftValues, setDraftValues] = useState<string[]>(
+    selectedValues.length > 0 ? selectedValues : optionValues
+  );
+  const draftValueSet = useMemo(() => new Set(draftValues), [draftValues]);
+  const visibleOptions = useMemo(() => {
+    const search = searchValue.trim().toLowerCase();
+    if (!search) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(search));
+  }, [options, searchValue]);
+  const selectedVisibleCount = visibleOptions.reduce(
+    (n, o) => n + (draftValueSet.has(o.value) ? 1 : 0),
+    0
+  );
+  const areAllVisibleSelected =
+    visibleOptions.length > 0 && selectedVisibleCount === visibleOptions.length;
+
+  function toggleValue(value: string) {
+    setDraftValues((cur) => {
+      const next = new Set(cur);
+      next.has(value) ? next.delete(value) : next.add(value);
+      return [...next];
+    });
+  }
+
+  function toggleVisible() {
+    const visibleVals = visibleOptions.map((o) => o.value);
+    const visibleSet = new Set(visibleVals);
+    setDraftValues((cur) =>
+      areAllVisibleSelected
+        ? cur.filter((v) => !visibleSet.has(v))
+        : [...new Set([...cur, ...visibleVals])]
+    );
+  }
+
+  function clearFilter() {
+    setDraftValues(optionValues);
+    onClearFilter();
+    onCancel();
+  }
+
+  function apply() {
+    onApply(
+      draftValues.length === optionValues.length
+        ? []
+        : [...draftValues].sort((a, b) => a.localeCompare(b))
+    );
+    onCancel();
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1 border-b border-[#edf0f4] pb-2">
+        <button
+          className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]"
+          onClick={() => onSort("asc")}
+          type="button"
+        >
+          {sortAscLabel}
+        </button>
+        <button
+          className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]"
+          onClick={() => onSort("desc")}
+          type="button"
+        >
+          {sortDescLabel}
+        </button>
+      </div>
+      {options.length > 0 ? (
+        <>
+          <div className="flex items-center gap-2 text-xs">
+            <button
+              className="font-semibold text-[#184e8a] hover:underline"
+              onClick={() => setDraftValues(optionValues)}
+              type="button"
+            >
+              Select all
+            </button>
+            <button
+              className="font-semibold text-[#184e8a] hover:underline"
+              onClick={clearFilter}
+              type="button"
+            >
+              Clear filter
+            </button>
+            <span className="ml-auto text-[#667085]">
+              {visibleOptions.length} items
+            </span>
+          </div>
+          <label className="block">
+            <span className="sr-only">Search {label}</span>
+            <input
+              className="h-9 w-full rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-normal text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10"
+              onChange={(e) => setSearchValue(e.target.value)}
+              placeholder="Search values"
+              type="search"
+              value={searchValue}
+            />
+          </label>
+          <div className="max-h-44 overflow-auto border-y border-[#edf0f4] py-1">
+            {visibleOptions.length === 0 ? (
+              <div className="px-2 py-3 text-sm text-[#667085]">No values found.</div>
+            ) : (
+              <>
+                <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]">
+                  <input
+                    checked={areAllVisibleSelected}
+                    className="h-4 w-4 rounded border-[#cfd7e3] text-[#184e8a] focus:ring-[#184e8a]"
+                    onChange={toggleVisible}
+                    type="checkbox"
+                  />
+                  <span>(Select visible)</span>
+                </label>
+                {visibleOptions.map((option) => (
+                  <label
+                    key={option.value}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]"
+                  >
+                    <input
+                      checked={draftValueSet.has(option.value)}
+                      className="h-4 w-4 rounded border-[#cfd7e3] text-[#184e8a] focus:ring-[#184e8a]"
+                      onChange={() => toggleValue(option.value)}
+                      type="checkbox"
+                    />
+                    <span className="truncate" title={option.label}>{option.label}</span>
+                  </label>
+                ))}
+              </>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              className="h-9 rounded-md border border-[#cfd7e3] bg-white px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+              onClick={onCancel}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="h-9 rounded-md bg-[#15803d] px-4 text-sm font-semibold text-white transition hover:bg-[#166534] disabled:cursor-not-allowed disabled:bg-[#94a3b8]"
+              disabled={draftValues.length === 0}
+              onClick={apply}
+              type="button"
+            >
+              OK
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="flex justify-end pt-1">
+          <button
+            className="h-9 rounded-md border border-[#cfd7e3] bg-white px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+            onClick={onCancel}
+            type="button"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getPolicyFilterOptions(values: string[]): PolicyFilterOption[] {
+  return [...new Set(values)]
+    .sort((a, b) => (a || "").localeCompare(b || ""))
+    .map((value) => ({ label: value || "(Blank)", value }));
+}
+
+function PolicyDateFilterPanel({
+  onApply,
+  onCancel,
+  onClear,
+  onSort,
+  presets,
+  value,
+}: {
+  onApply: (range: DateRange | null) => void;
+  onCancel: () => void;
+  onClear: () => void;
+  onSort: (direction: SortDirection) => void;
+  presets: { label: string; from: string; to: string }[];
+  value: DateRange | null;
+}) {
+  const [from, setFrom] = useState(value?.from ?? "");
+  const [to, setTo] = useState(value?.to ?? "");
+
+  function applyPreset(preset: { from: string; to: string }) {
+    setFrom(preset.from);
+    setTo(preset.to);
+  }
+
+  function apply() {
+    onApply(from || to ? { from, to } : null);
+    onCancel();
+  }
+
+  function clear() {
+    setFrom("");
+    setTo("");
+    onClear();
+    onCancel();
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1 border-b border-[#edf0f4] pb-2">
+        <button
+          className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]"
+          onClick={() => onSort("asc")}
+          type="button"
+        >
+          Sort oldest to newest
+        </button>
+        <button
+          className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]"
+          onClick={() => onSort("desc")}
+          type="button"
+        >
+          Sort newest to oldest
+        </button>
+      </div>
+      {presets.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[#667085]">
+            Quick select
+          </p>
+          {presets.map((preset) => (
+            <button
+              key={preset.label}
+              className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]"
+              onClick={() => applyPreset(preset)}
+              type="button"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#667085]">
+          Date range
+        </p>
+        <div className="space-y-1.5">
+          <input
+            className="block h-8 w-full min-w-0 rounded-md border border-[#cfd7e3] bg-white px-2 text-sm text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10"
+            onChange={(e) => setFrom(e.target.value)}
+            placeholder="From"
+            type="date"
+            value={from}
+          />
+          <input
+            className="block h-8 w-full min-w-0 rounded-md border border-[#cfd7e3] bg-white px-2 text-sm text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10"
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="To"
+            type="date"
+            value={to}
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <button
+          className="text-xs font-semibold text-[#184e8a] hover:underline"
+          onClick={clear}
+          type="button"
+        >
+          Clear
+        </button>
+        <div className="flex gap-2">
+          <button
+            className="h-8 rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
+            onClick={onCancel}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="h-8 rounded-md bg-[#15803d] px-3 text-sm font-semibold text-white transition hover:bg-[#166534]"
+            onClick={apply}
+            type="button"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function toISODate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, days: number) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+function effectiveDatePresets() {
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+
+  return [
+    { label: "This month", from: `${y}-${m}-01`, to: toISODate(new Date(y, today.getMonth() + 1, 0)) },
+    { label: "Last 3 months", from: toISODate(addDays(today, -90)), to: toISODate(today) },
+    { label: "This year", from: `${y}-01-01`, to: `${y}-12-31` },
+  ];
+}
+
+function expiredDatePresets() {
+  const today = new Date();
+
+  return [
+    { label: "Already expired", from: "", to: toISODate(addDays(today, -1)) },
+    { label: "Next 30 days", from: toISODate(today), to: toISODate(addDays(today, 30)) },
+    { label: "Next 60 days", from: toISODate(today), to: toISODate(addDays(today, 60)) },
+    { label: "Next 90 days", from: toISODate(today), to: toISODate(addDays(today, 90)) },
+  ];
+}
+
+function getPolicySortValue(row: PolicyDetailRow, key: PolicySortKey): string | number {
+  if (key === "agent") return row.agent;
+  if (key === "insuredName") return row.insuredName;
+  if (key === "policyNumber") return row.policyNumber;
+  if (key === "carrier") return row.carrier;
+  if (key === "agency") return row.agency;
+  if (key === "premium") return row.premium;
+  if (key === "agentCommission") return row.agentCommission;
+  if (key === "effectiveDate") return row.effectiveDate ?? "";
+  if (key === "expiredDate") return row.expiredDate ?? "";
+  return row.status;
 }
 
 function HeaderCell({
@@ -1482,11 +2306,11 @@ function HeaderCell({
 }: {
   align?: "left" | "right";
   children: ReactNode;
-  width: string;
+  width: number;
 }) {
   return (
     <th
-      className={`border-r border-b border-slate-200 bg-slate-50 px-3 py-3 align-middle text-[11px] font-semibold uppercase tracking-wider text-slate-500 last:border-r-0 ${
+      className={`whitespace-nowrap border-r border-b border-slate-200 bg-slate-50 px-3 py-3 align-middle text-[11px] font-semibold uppercase tracking-wider text-slate-500 last:border-r-0 ${
         align === "right" ? "text-right" : "text-left"
       }`}
       style={{ width }}
@@ -1555,17 +2379,26 @@ function KpiCard({
 
 function buildDashboardData(rows: AgentPcRow[]): DashboardData {
   const overview = summarizeRows(rows);
+  const periodsByLevel = {
+    month: buildPeriodSummaries(rows, "month"),
+    quarter: buildPeriodSummaries(rows, "quarter"),
+    year: buildPeriodSummaries(rows, "year"),
+  };
 
   return {
-    agencyMonthGroups: buildAgencyMonthGroups(rows),
-    carrierRows: buildCarrierRows(rows, overview),
-    monthlyGrowthRows: buildMonthlyGrowthRows(rows),
-    overview,
-    periodsByLevel: {
-      month: buildPeriodSummaries(rows, "month"),
-      quarter: buildPeriodSummaries(rows, "quarter"),
-      year: buildPeriodSummaries(rows, "year"),
+    agencyGroupsByLevel: {
+      month: buildAgencyPeriodGroups(rows, "month"),
+      quarter: buildAgencyPeriodGroups(rows, "quarter"),
+      year: buildAgencyPeriodGroups(rows, "year"),
     },
+    carrierRows: buildCarrierRows(rows, overview),
+    growthRowsByLevel: {
+      month: buildPeriodGrowthRows(rows, "month"),
+      quarter: buildPeriodGrowthRows(rows, "quarter"),
+      year: buildPeriodGrowthRows(rows, "year"),
+    },
+    overview,
+    periodsByLevel,
     policyDetailRows: buildPolicyDetailRows(rows),
   };
 }
@@ -1675,20 +2508,25 @@ function buildPeriodSummaries(
     .reverse();
 }
 
-function buildMonthlyGrowthRows(rows: AgentPcRow[]): MonthlyGrowthRow[] {
+function buildPeriodGrowthRows(
+  rows: AgentPcRow[],
+  trendLevel: TrendLevel
+): PeriodGrowthRow[] {
   const chronological = [
-    ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), "month")).entries(),
+    ...groupRows(rows, (row) =>
+      getTrendPeriodKey(getEffectiveMonth(row), trendLevel)
+    ).entries(),
   ]
     .filter(([periodKey]) => Boolean(periodKey))
     .map(([periodKey, group]) => ({
       periodKey,
-      periodLabel: periodKey,
+      periodLabel: formatTrendPeriodLabel(periodKey, trendLevel),
       ...summarizeRows(group),
     }))
     .sort((a, b) => a.periodKey.localeCompare(b.periodKey));
 
   return chronological
-    .map<MonthlyGrowthRow>((row, index) => {
+    .map<PeriodGrowthRow>((row, index) => {
       const previous = chronological[index - 1] ?? null;
       const policyChange = previous ? row.policyCount - previous.policyCount : null;
       const premiumChange = previous
@@ -1746,22 +2584,29 @@ function buildCarrierRows(
     );
 }
 
-function buildAgencyMonthGroups(rows: AgentPcRow[]): AgencyMonthSummaryGroup[] {
-  const monthGroups = [
-    ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), "month")).entries(),
+function buildAgencyPeriodGroups(
+  rows: AgentPcRow[],
+  trendLevel: TrendLevel
+): AgencyPeriodSummaryGroup[] {
+  const periodGroups = [
+    ...groupRows(rows, (row) =>
+      getTrendPeriodKey(getEffectiveMonth(row), trendLevel)
+    ).entries(),
   ]
     .filter(([periodKey]) => Boolean(periodKey))
     .sort((a, b) => b[0].localeCompare(a[0]));
 
-  return monthGroups.map(([monthKey, monthRows]) => {
+  return periodGroups.map(([periodKey, periodRows]) => {
+    const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
     const agencyRows = [
-      ...groupRows(monthRows, (row) => cleanGroupLabel(row.agency_name)).entries(),
+      ...groupRows(periodRows, (row) => cleanGroupLabel(row.agency_name)).entries(),
     ]
       .filter(([agency]) => agency !== "null")
       .map(([agency, agencyRowsForMonth]) => ({
         agency,
         isTotal: false,
-        monthKey,
+        periodKey,
+        periodLabel,
         ...summarizeRows(agencyRowsForMonth),
       }))
       .sort(
@@ -1772,14 +2617,16 @@ function buildAgencyMonthGroups(rows: AgentPcRow[]): AgencyMonthSummaryGroup[] {
       );
 
     return {
-      monthKey,
+      periodKey,
+      periodLabel,
       rows: [
         ...agencyRows,
         {
           agency: "Total",
           isTotal: true,
-          monthKey,
-          ...summarizeRows(monthRows),
+          periodKey,
+          periodLabel,
+          ...summarizeRows(periodRows),
         },
       ],
     };
@@ -1855,6 +2702,12 @@ function trendLevelLabel(trendLevel: TrendLevel) {
   if (trendLevel === "quarter") return "Quarter";
   if (trendLevel === "year") return "Year";
   return "Month";
+}
+
+function getChangeLabel(trendLevel: TrendLevel) {
+  if (trendLevel === "quarter") return "QoQ";
+  if (trendLevel === "year") return "YoY";
+  return "MoM";
 }
 
 function trendLevelAdjective(trendLevel: TrendLevel) {

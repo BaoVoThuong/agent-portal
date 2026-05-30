@@ -85,7 +85,7 @@ export function AgentHealthSalesDashboardMoMTable({
     <section>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
-          Book &amp; Earnings Growth | {changeLabel}
+          Book &amp; Commission Trend | {changeLabel}
         </h2>
       </div>
 
@@ -118,10 +118,10 @@ export function AgentHealthSalesDashboardMoMTable({
                     % Clients {changeLabel}
                   </HeaderCell>
                   <HeaderCell className="top-0 w-[17%] text-right">
-                    Earnings
+                    Commission
                   </HeaderCell>
                   <HeaderCell className="top-0 w-[14%] text-right">
-                    % Earnings {changeLabel}
+                    % Commission {changeLabel}
                   </HeaderCell>
                 </tr>
               </thead>

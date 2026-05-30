@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 export type ReportMonthDefaultType =
@@ -24,6 +24,33 @@ type DraftDefault = {
   rollingMonths: number;
 };
 
+const DEFAULT_TYPE_OPTIONS: Array<{
+  value: ReportMonthDefaultType;
+  label: string;
+  detail: string;
+}> = [
+  {
+    value: "latest_n_months",
+    label: "Latest N months",
+    detail: "Rolling window",
+  },
+  {
+    value: "current_year",
+    label: "Current year",
+    detail: "Jan to now",
+  },
+  {
+    value: "fixed_range",
+    label: "Fixed range",
+    detail: "Pinned months",
+  },
+  {
+    value: "all",
+    label: "All months",
+    detail: "No default filter",
+  },
+];
+
 export function ReportMonthDefaultEditor({
   defaultConfig,
 }: {
@@ -32,6 +59,7 @@ export function ReportMonthDefaultEditor({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [draft, setDraft] = useState<DraftDefault>(() =>
     configToDraft(defaultConfig)
@@ -43,6 +71,27 @@ export function ReportMonthDefaultEditor({
     () => formatDefaultSummary(defaultConfig),
     [defaultConfig]
   );
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeOnOutsidePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        containerRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+    };
+  }, [isOpen]);
 
   async function saveDefault() {
     setMessage(null);
@@ -106,7 +155,7 @@ export function ReportMonthDefaultEditor({
   }
 
   return (
-    <div className="relative mr-auto">
+    <div ref={containerRef} className="relative mr-auto">
       <button
         type="button"
         onClick={() => {
@@ -120,8 +169,8 @@ export function ReportMonthDefaultEditor({
       </button>
 
       {isOpen ? (
-        <div className="dashboard-filter-menu absolute bottom-full left-0 z-40 mb-2.5 w-[min(21rem,calc(100vw-2rem))] p-3.5 text-left">
-          <div className="mb-2.5">
+        <div className="dashboard-filter-menu absolute left-0 top-full z-[70] mt-2.5 w-[min(24rem,calc(100vw-2rem))] p-4 text-left">
+          <div className="mb-3">
             <div className="dashboard-filter-title text-[#16233a]">
               Report month default
             </div>
@@ -130,29 +179,45 @@ export function ReportMonthDefaultEditor({
             </div>
           </div>
 
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold text-[#667085]">
-              Default range
-            </span>
-            <select
-              value={draft.defaultType}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  defaultType: event.target.value as ReportMonthDefaultType,
-                }))
-              }
-              className="h-8 w-full rounded-lg border border-[#cfd7e3] bg-white px-2 text-xs font-semibold text-[#16233a] outline-none focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/15"
-            >
-              <option value="latest_n_months">Latest N months</option>
-              <option value="current_year">Current year</option>
-              <option value="fixed_range">Fixed range</option>
-              <option value="all">All report months</option>
-            </select>
-          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {DEFAULT_TYPE_OPTIONS.map((option) => {
+              const isSelected = draft.defaultType === option.value;
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() =>
+                    setDraft((current) => ({
+                      ...current,
+                      defaultType: option.value,
+                    }))
+                  }
+                  className={[
+                    "rounded-xl border px-3 py-2 text-left transition",
+                    isSelected
+                      ? "border-[#184e8a] bg-[#edf4ff] shadow-[0_0_0_3px_rgba(24,78,138,0.12)]"
+                      : "border-[#d8e0ec] bg-white hover:border-[#b7c6d9] hover:bg-[#f8fafc]",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "block text-xs font-extrabold leading-4",
+                      isSelected ? "text-[#184e8a]" : "text-[#16233a]",
+                    ].join(" ")}
+                  >
+                    {option.label}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] font-semibold text-[#667085]">
+                    {option.detail}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
 
           {draft.defaultType === "latest_n_months" ? (
-            <label className="mt-2 block">
+            <label className="mt-3 block">
               <span className="mb-1 block text-[11px] font-semibold text-[#667085]">
                 Months
               </span>
@@ -167,13 +232,13 @@ export function ReportMonthDefaultEditor({
                     rollingMonths: clampRollingMonths(event.target.value),
                   }))
                 }
-                className="h-8 w-full rounded-lg border border-[#cfd7e3] bg-white px-2 text-xs font-semibold text-[#16233a] outline-none focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/15"
+                className="h-10 w-full rounded-xl border border-[#cfd7e3] bg-white px-3 text-sm font-bold text-[#16233a] outline-none focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/15"
               />
             </label>
           ) : null}
 
           {draft.defaultType === "fixed_range" ? (
-            <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <label className="block">
                 <span className="mb-1 block text-[11px] font-semibold text-[#667085]">
                   Start
@@ -187,7 +252,7 @@ export function ReportMonthDefaultEditor({
                       startMonth: event.target.value,
                     }))
                   }
-                  className="h-8 w-full rounded-lg border border-[#cfd7e3] bg-white px-2 text-xs font-semibold text-[#16233a] outline-none focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/15"
+                  className="h-10 w-full rounded-xl border border-[#cfd7e3] bg-white px-3 text-sm font-bold text-[#16233a] outline-none focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/15"
                 />
               </label>
               <label className="block">
@@ -203,19 +268,19 @@ export function ReportMonthDefaultEditor({
                       endMonth: event.target.value,
                     }))
                   }
-                  className="h-8 w-full rounded-lg border border-[#cfd7e3] bg-white px-2 text-xs font-semibold text-[#16233a] outline-none focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/15"
+                  className="h-10 w-full rounded-xl border border-[#cfd7e3] bg-white px-3 text-sm font-bold text-[#16233a] outline-none focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/15"
                 />
               </label>
             </div>
           ) : null}
 
           {message ? (
-            <div className="mt-2 text-[11px] font-semibold text-[#667085]">
+            <div className="mt-3 rounded-lg bg-[#f8fafc] px-3 py-2 text-[11px] font-semibold text-[#667085]">
               {message}
             </div>
           ) : null}
 
-          <div className="dashboard-filter-footer mt-3">
+          <div className="mt-4 flex items-center justify-end gap-2 border-t border-[#e5eaf1] pt-3">
             <button
               type="button"
               onClick={() => setIsOpen(false)}

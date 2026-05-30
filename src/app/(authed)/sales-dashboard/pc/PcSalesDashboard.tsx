@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useMemo, useState, type ReactNode } from "react";
+import { Filter } from "lucide-react";
 import { PcCommissionMetricTrendChart } from "./PcCommissionMetricTrendChart";
 import { PcSalesDashboardFilters } from "./PcSalesDashboardFilters";
 import { PcSalesTrendSections } from "./PcSalesTrendSections";
@@ -142,6 +143,22 @@ type DashboardData = {
   policyDetailRows: PolicyDetailRow[];
 };
 
+type SortDirection = "asc" | "desc";
+type PolicySortKey =
+  | "agent"
+  | "agency"
+  | "insuredName"
+  | "policyNumber"
+  | "state"
+  | "city"
+  | "company"
+  | "truePremium"
+  | "effectiveDate"
+  | "expiredDate";
+type PolicySortState = { key: PolicySortKey; direction: SortDirection };
+type PolicyFilterOption = { label: string; value: string };
+type DateRange = { from: string; to: string };
+
 const TREND_MONTH_LIMIT = 17;
 const CARRIER_ROW_LIMIT = 24;
 const EXPIRED_MONTH_LIMIT = 10;
@@ -247,24 +264,24 @@ export function PcSalesDashboard({
       ) : (
         <div className="space-y-8">
           <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-            Business Overview
+            Portfolio Overview
           </h2>
 
           <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
             <KpiCard
-              label="Total Written Premium"
+              label="Written Premium"
               value={formatCurrencyCompact(data.overview.totalPremium)}
             />
             <KpiCard
-              label="Total Commission Revenue"
+              label="Commission Revenue"
               value={formatCurrencyCompact(data.overview.totalCommission)}
             />
             <KpiCard
-              label="Agent Commission Payout"
+              label="Agent Commission"
               value={formatCurrencyCompact(data.overview.agentCommission)}
             />
             <KpiCard
-              label="EPS Gross Commission"
+              label="EPS Commission"
               value={formatCurrencyCompact(data.overview.epsCommission)}
             />
           </section>
@@ -273,7 +290,7 @@ export function PcSalesDashboard({
             <KpiCard
               compact
               muted
-              label="Total Policies Sold"
+              label="Policies Sold"
               value={formatInteger(data.overview.policyCount)}
             />
             <KpiCard
@@ -291,14 +308,14 @@ export function PcSalesDashboard({
             />
             <KpiCard
               compact
-              label="Total Commission / Premium"
+              label="Commission Rate"
               value={formatPercent(
                 percentOf(data.overview.totalCommission, data.overview.totalPremium)
               )}
             />
             <KpiCard
               compact
-              label="EPS Commission / Premium"
+              label="EPS Comm Rate"
               value={formatPercent(
                 percentOf(data.overview.epsCommission, data.overview.totalPremium)
               )}
@@ -337,10 +354,7 @@ export function PcSalesDashboard({
           />
           <CarrierDashboardTable rows={data.carrierRows} />
           <ExpiredPolicyTrendChart rows={data.expiredRows} />
-          <PolicyDetailsTable
-            rows={data.policyDetailRows.slice(0, POLICY_DETAIL_LIMIT)}
-            totalCount={data.policyDetailRows.length}
-          />
+          <PolicyDetailsTable rows={data.policyDetailRows} />
         </div>
       )}
     </>
@@ -942,7 +956,7 @@ function MonthlySalesMomGrowthTable({
 
   return (
     <ReportPanel
-      title={`Sales Dashboard by ${periodLabel} | Policies & Premium ${changeLabel} Growth`}
+      title={`Portfolio Growth by ${periodLabel} | Policies & Premium ${changeLabel}`}
     >
       <div className="max-h-[440px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[12px] tabular-nums">
@@ -1113,7 +1127,7 @@ function AgencyMonthSummaryTable({
   const periodLabel = getTrendLevelLabel(trendLevel);
 
   return (
-    <ReportPanel title={`${getTrendLevelAdjective(trendLevel)} Sales Dashboard Summary`}>
+    <ReportPanel title={`${getTrendLevelAdjective(trendLevel)} Sales Summary`}>
       <div className="max-h-[520px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[11px] tabular-nums">
           <thead className="sticky top-0 z-10">
@@ -1634,7 +1648,7 @@ function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
   );
 
   return (
-    <ReportPanel title="Carrier Dashboard Overview">
+    <ReportPanel title="Carrier Performance">
       <div className="max-h-[620px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[11px] tabular-nums">
           <thead className="sticky top-0 z-10">
@@ -1898,54 +1912,206 @@ function ExpiredPolicyTrendChart({ rows }: { rows: ExpiredMonthRow[] }) {
   );
 }
 
-function PolicyDetailsTable({
-  rows,
-  totalCount,
-}: {
-  rows: PolicyDetailRow[];
-  totalCount: number;
-}) {
+function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
+  const [agentFilter, setAgentFilter] = useState<string[]>([]);
+  const [agencyFilter, setAgencyFilter] = useState<string[]>([]);
+  const [insuredFilter, setInsuredFilter] = useState<string[]>([]);
+  const [policyFilter, setPolicyFilter] = useState<string[]>([]);
+  const [stateFilter, setStateFilter] = useState<string[]>([]);
+  const [cityFilter, setCityFilter] = useState<string[]>([]);
+  const [companyFilter, setCompanyFilter] = useState<string[]>([]);
+  const [effectiveDateRange, setEffectiveDateRange] = useState<DateRange | null>(null);
+  const [expiredDateRange, setExpiredDateRange] = useState<DateRange | null>(null);
+  const [sortState, setPolicySortState] = useState<PolicySortState | null>(null);
+  const [activePanel, setActivePanel] = useState<PolicySortKey | null>(null);
+
+  const agentOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.agent)), [rows]);
+  const agencyOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.agency)), [rows]);
+  const insuredOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.insuredName)), [rows]);
+  const policyOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.policyNumber)), [rows]);
+  const stateOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.state)), [rows]);
+  const cityOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.city)), [rows]);
+  const companyOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.company)), [rows]);
+
+  const hasActiveFilters =
+    agentFilter.length > 0 || agencyFilter.length > 0 || insuredFilter.length > 0 ||
+    policyFilter.length > 0 || stateFilter.length > 0 || cityFilter.length > 0 ||
+    companyFilter.length > 0 || effectiveDateRange !== null || expiredDateRange !== null ||
+    Boolean(sortState);
+
+  const filteredRows = useMemo(() => {
+    const result = rows.filter((row) => {
+      if (agentFilter.length > 0 && !agentFilter.includes(row.agent)) return false;
+      if (agencyFilter.length > 0 && !agencyFilter.includes(row.agency)) return false;
+      if (insuredFilter.length > 0 && !insuredFilter.includes(row.insuredName)) return false;
+      if (policyFilter.length > 0 && !policyFilter.includes(row.policyNumber)) return false;
+      if (stateFilter.length > 0 && !stateFilter.includes(row.state)) return false;
+      if (cityFilter.length > 0 && !cityFilter.includes(row.city)) return false;
+      if (companyFilter.length > 0 && !companyFilter.includes(row.company)) return false;
+      if (effectiveDateRange) {
+        const d = row.effectiveDate ?? "";
+        if (effectiveDateRange.from && d < effectiveDateRange.from) return false;
+        if (effectiveDateRange.to && d > effectiveDateRange.to) return false;
+      }
+      if (expiredDateRange) {
+        const d = row.expiredDate ?? "";
+        if (expiredDateRange.from && d < expiredDateRange.from) return false;
+        if (expiredDateRange.to && d > expiredDateRange.to) return false;
+      }
+      return true;
+    });
+
+    if (sortState) {
+      result.sort((a, b) => {
+        const aVal = getSalesPolicySortValue(a, sortState.key);
+        const bVal = getSalesPolicySortValue(b, sortState.key);
+        const mult = sortState.direction === "asc" ? 1 : -1;
+        if (typeof aVal === "number" && typeof bVal === "number") return (aVal - bVal) * mult;
+        return String(aVal).localeCompare(String(bVal)) * mult;
+      });
+    }
+
+    return result;
+  }, [rows, agentFilter, agencyFilter, insuredFilter, policyFilter, stateFilter, cityFilter, companyFilter, effectiveDateRange, expiredDateRange, sortState]);
+
+  useEffect(() => {
+    if (!activePanel) return;
+
+    function closeOutside(event: PointerEvent) {
+      if (event.target instanceof Element && event.target.closest("[data-pc-sales-policy-filter]")) return;
+      setActivePanel(null);
+    }
+
+    function closeEsc(event: KeyboardEvent) {
+      if (event.key === "Escape") setActivePanel(null);
+    }
+
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEsc);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeEsc);
+    };
+  }, [activePanel]);
+
+  function toggle(key: PolicySortKey) {
+    setActivePanel((cur) => (cur === key ? null : key));
+  }
+
+  function doSort(key: PolicySortKey, dir: SortDirection) {
+    setPolicySortState({ key, direction: dir });
+    setActivePanel(null);
+  }
+
+  function clearAll() {
+    setAgentFilter([]); setAgencyFilter([]); setInsuredFilter([]);
+    setPolicyFilter([]); setStateFilter([]); setCityFilter([]);
+    setCompanyFilter([]); setEffectiveDateRange(null); setExpiredDateRange(null);
+    setPolicySortState(null); setActivePanel(null);
+  }
+
   return (
-    <ReportPanel title="Insurance Policy Details">
-      <div
-        className="overflow-auto"
-        style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}
-      >
-        <table className="min-w-[1200px] w-full table-fixed text-[12px]">
+    <ReportPanel title="Policy Detail">
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+        <p className="text-xs text-slate-500">
+          Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} policies
+        </p>
+        <button
+          className="h-8 rounded-md border border-[#cfd7e3] bg-white px-3 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={!hasActiveFilters}
+          onClick={clearAll}
+          type="button"
+        >
+          Clear Filters
+        </button>
+      </div>
+      <div className="overflow-auto" style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}>
+        <table className="text-[12px] tabular-nums">
           <thead className="sticky top-0 z-10">
-            <tr className="bg-[#edf3fb] text-left font-bold">
-              <HeaderCell width="9%">Agent</HeaderCell>
-              <HeaderCell width="9%">Agency</HeaderCell>
-              <HeaderCell width="19%">Insured Name</HeaderCell>
-              <HeaderCell width="15%">Policy Number</HeaderCell>
-              <HeaderCell width="7%">State</HeaderCell>
-              <HeaderCell width="12%">City</HeaderCell>
-              <HeaderCell width="13%">Company</HeaderCell>
-              <HeaderCell align="right" width="10%">True Premium</HeaderCell>
-              <HeaderCell width="9%">Effective Date</HeaderCell>
-              <HeaderCell width="9%">Expired Date</HeaderCell>
+            <tr>
+              <th className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500" style={{ width: 44 }}>
+                #
+              </th>
+              <HeaderCell width={100}>
+                <PolicyFilterableHeader active={agentFilter.length > 0 || sortState?.key === "agent"} isOpen={activePanel === "agent"} label="Agent" onToggle={() => toggle("agent")}>
+                  <PolicyExcelFilterPanel label="Agent" options={agentOptions} selectedValues={agentFilter} onApply={setAgentFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setAgentFilter([])} onSort={(d) => doSort("agent", d)} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={100}>
+                <PolicyFilterableHeader active={agencyFilter.length > 0 || sortState?.key === "agency"} isOpen={activePanel === "agency"} label="Agency" onToggle={() => toggle("agency")}>
+                  <PolicyExcelFilterPanel label="Agency" options={agencyOptions} selectedValues={agencyFilter} onApply={setAgencyFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setAgencyFilter([])} onSort={(d) => doSort("agency", d)} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={160}>
+                <PolicyFilterableHeader active={insuredFilter.length > 0 || sortState?.key === "insuredName"} isOpen={activePanel === "insuredName"} label="Insured Name" onToggle={() => toggle("insuredName")}>
+                  <PolicyExcelFilterPanel label="Insured Name" options={insuredOptions} selectedValues={insuredFilter} onApply={setInsuredFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setInsuredFilter([])} onSort={(d) => doSort("insuredName", d)} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={130}>
+                <PolicyFilterableHeader active={policyFilter.length > 0 || sortState?.key === "policyNumber"} isOpen={activePanel === "policyNumber"} label="Policy Number" onToggle={() => toggle("policyNumber")}>
+                  <PolicyExcelFilterPanel label="Policy Number" options={policyOptions} selectedValues={policyFilter} onApply={setPolicyFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setPolicyFilter([])} onSort={(d) => doSort("policyNumber", d)} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={75}>
+                <PolicyFilterableHeader active={stateFilter.length > 0 || sortState?.key === "state"} isOpen={activePanel === "state"} label="State" onToggle={() => toggle("state")}>
+                  <PolicyExcelFilterPanel label="State" options={stateOptions} selectedValues={stateFilter} onApply={setStateFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setStateFilter([])} onSort={(d) => doSort("state", d)} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={110}>
+                <PolicyFilterableHeader active={cityFilter.length > 0 || sortState?.key === "city"} isOpen={activePanel === "city"} label="City" onToggle={() => toggle("city")}>
+                  <PolicyExcelFilterPanel label="City" options={cityOptions} selectedValues={cityFilter} onApply={setCityFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setCityFilter([])} onSort={(d) => doSort("city", d)} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={120}>
+                <PolicyFilterableHeader active={companyFilter.length > 0 || sortState?.key === "company"} isOpen={activePanel === "company"} label="Company" onToggle={() => toggle("company")}>
+                  <PolicyExcelFilterPanel label="Company" options={companyOptions} selectedValues={companyFilter} onApply={setCompanyFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setCompanyFilter([])} onSort={(d) => doSort("company", d)} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell align="right" width={120}>
+                <PolicyFilterableHeader active={sortState?.key === "truePremium"} align="right" isOpen={activePanel === "truePremium"} label="True Premium" onToggle={() => toggle("truePremium")}>
+                  <PolicyExcelFilterPanel label="True Premium" options={[]} selectedValues={[]} onApply={() => {}} onCancel={() => setActivePanel(null)} onClearFilter={() => {}} onSort={(d) => doSort("truePremium", d)} sortAscLabel="Sort smallest to largest" sortDescLabel="Sort largest to smallest" />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={110}>
+                <PolicyFilterableHeader active={effectiveDateRange !== null || sortState?.key === "effectiveDate"} align="right" isOpen={activePanel === "effectiveDate"} label="Effective" onToggle={() => toggle("effectiveDate")}>
+                  <PolicyDateFilterPanel onApply={setEffectiveDateRange} onCancel={() => setActivePanel(null)} onClear={() => setEffectiveDateRange(null)} onSort={(d) => doSort("effectiveDate", d)} presets={effectiveDatePresets()} value={effectiveDateRange} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={110}>
+                <PolicyFilterableHeader active={expiredDateRange !== null || sortState?.key === "expiredDate"} align="right" isOpen={activePanel === "expiredDate"} label="Expired" onToggle={() => toggle("expiredDate")}>
+                  <PolicyDateFilterPanel onApply={setExpiredDateRange} onCancel={() => setActivePanel(null)} onClear={() => setExpiredDateRange(null)} onSort={(d) => doSort("expiredDate", d)} presets={expiredDatePresets()} value={expiredDateRange} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${row.policyNumber}-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}>
-                <BodyCell strong>{row.agent}</BodyCell>
-                <BodyCell>{row.agency}</BodyCell>
-                <BodyCell>{row.insuredName}</BodyCell>
-                <BodyCell>{row.policyNumber}</BodyCell>
-                <BodyCell>{row.state}</BodyCell>
-                <BodyCell>{row.city}</BodyCell>
-                <BodyCell>{row.company}</BodyCell>
-                <BodyCell align="right">{formatCurrency(row.truePremium)}</BodyCell>
-                <BodyCell>{row.effectiveDate ? formatShortDate(row.effectiveDate) : "null"}</BodyCell>
-                <BodyCell>{row.expiredDate ? formatShortDate(row.expiredDate) : "null"}</BodyCell>
+            {filteredRows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={11}>
+                  No policies matched these filters.
+                </td>
               </tr>
-            ))}
+            ) : (
+              filteredRows.map((row, index) => (
+                <tr key={`${row.policyNumber}-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}>
+                  <td className="border-b border-slate-100 px-3 py-3 text-right text-xs font-semibold text-slate-400 whitespace-nowrap">
+                    {index + 1}
+                  </td>
+                  <BodyCell strong>{row.agent}</BodyCell>
+                  <BodyCell>{row.agency}</BodyCell>
+                  <BodyCell>{row.insuredName}</BodyCell>
+                  <BodyCell>{row.policyNumber}</BodyCell>
+                  <BodyCell>{row.state}</BodyCell>
+                  <BodyCell>{row.city}</BodyCell>
+                  <BodyCell>{row.company}</BodyCell>
+                  <BodyCell align="right">{formatCurrency(row.truePremium)}</BodyCell>
+                  <BodyCell>{row.effectiveDate ? formatShortDate(row.effectiveDate) : "-"}</BodyCell>
+                  <BodyCell>{row.expiredDate ? formatShortDate(row.expiredDate) : "-"}</BodyCell>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
-      </div>
-      <div className="flex justify-end border-t border-[#d9d9d9] px-4 py-2 text-[12px] font-semibold text-[#4d535c]">
-        1 - {formatInteger(rows.length)} / {formatInteger(totalCount)}
       </div>
     </ReportPanel>
   );
@@ -1975,6 +2141,225 @@ function ReportPanel({
   );
 }
 
+function PolicyFilterableHeader({
+  active,
+  align = "left",
+  children,
+  isOpen,
+  label,
+  onToggle,
+}: {
+  active: boolean;
+  align?: "left" | "right";
+  children: ReactNode;
+  isOpen: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="relative" data-pc-sales-policy-filter>
+      <div className="flex items-center gap-1">
+        <span className="whitespace-nowrap">{label}</span>
+        <button
+          aria-label={`Filter ${label}`}
+          aria-pressed={active}
+          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded transition hover:bg-[#e9eef6] hover:text-[#184e8a] ${active ? "bg-[#dbeafe] text-[#184e8a]" : "text-slate-400"}`}
+          onClick={onToggle}
+          type="button"
+        >
+          <Filter aria-hidden="true" size={12} strokeWidth={2.4} />
+        </button>
+      </div>
+      {isOpen ? (
+        <div className={`absolute top-full z-50 mt-2 w-72 rounded-lg border border-[#cfd7e3] bg-white p-3 text-left text-sm normal-case font-normal tracking-normal text-[#16233a] shadow-xl ${align === "right" ? "right-0" : "left-0"}`}>
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PolicyExcelFilterPanel({
+  label, onApply, onCancel, onClearFilter, onSort, options, selectedValues,
+  sortAscLabel = "Sort A to Z", sortDescLabel = "Sort Z to A",
+}: {
+  label: string;
+  onApply: (values: string[]) => void;
+  onCancel: () => void;
+  onClearFilter: () => void;
+  onSort: (direction: SortDirection) => void;
+  options: PolicyFilterOption[];
+  selectedValues: string[];
+  sortAscLabel?: string;
+  sortDescLabel?: string;
+}) {
+  const optionValues = useMemo(() => options.map((o) => o.value), [options]);
+  const [searchValue, setSearchValue] = useState("");
+  const [draftValues, setDraftValues] = useState<string[]>(selectedValues.length > 0 ? selectedValues : optionValues);
+  const draftValueSet = useMemo(() => new Set(draftValues), [draftValues]);
+  const visibleOptions = useMemo(() => {
+    const search = searchValue.trim().toLowerCase();
+    if (!search) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(search));
+  }, [options, searchValue]);
+  const selectedVisibleCount = visibleOptions.reduce((n, o) => n + (draftValueSet.has(o.value) ? 1 : 0), 0);
+  const areAllVisibleSelected = visibleOptions.length > 0 && selectedVisibleCount === visibleOptions.length;
+
+  function toggleValue(value: string) {
+    setDraftValues((cur) => { const next = new Set(cur); next.has(value) ? next.delete(value) : next.add(value); return [...next]; });
+  }
+
+  function toggleVisible() {
+    const visibleVals = visibleOptions.map((o) => o.value);
+    const visibleSet = new Set(visibleVals);
+    setDraftValues((cur) => areAllVisibleSelected ? cur.filter((v) => !visibleSet.has(v)) : [...new Set([...cur, ...visibleVals])]);
+  }
+
+  function clearFilter() { setDraftValues(optionValues); onClearFilter(); onCancel(); }
+
+  function apply() {
+    onApply(draftValues.length === optionValues.length ? [] : [...draftValues].sort((a, b) => a.localeCompare(b)));
+    onCancel();
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1 border-b border-[#edf0f4] pb-2">
+        <button className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]" onClick={() => onSort("asc")} type="button">{sortAscLabel}</button>
+        <button className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]" onClick={() => onSort("desc")} type="button">{sortDescLabel}</button>
+      </div>
+      {options.length > 0 ? (
+        <>
+          <div className="flex items-center gap-2 text-xs">
+            <button className="font-semibold text-[#184e8a] hover:underline" onClick={() => setDraftValues(optionValues)} type="button">Select all</button>
+            <button className="font-semibold text-[#184e8a] hover:underline" onClick={clearFilter} type="button">Clear filter</button>
+            <span className="ml-auto text-[#667085]">{visibleOptions.length} items</span>
+          </div>
+          <label className="block">
+            <span className="sr-only">Search {label}</span>
+            <input className="h-9 w-full rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-normal text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10" onChange={(e) => setSearchValue(e.target.value)} placeholder="Search values" type="search" value={searchValue} />
+          </label>
+          <div className="max-h-44 overflow-auto border-y border-[#edf0f4] py-1">
+            {visibleOptions.length === 0 ? (
+              <div className="px-2 py-3 text-sm text-[#667085]">No values found.</div>
+            ) : (
+              <>
+                <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]">
+                  <input checked={areAllVisibleSelected} className="h-4 w-4 rounded border-[#cfd7e3] text-[#184e8a] focus:ring-[#184e8a]" onChange={toggleVisible} type="checkbox" />
+                  <span>(Select visible)</span>
+                </label>
+                {visibleOptions.map((option) => (
+                  <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]">
+                    <input checked={draftValueSet.has(option.value)} className="h-4 w-4 rounded border-[#cfd7e3] text-[#184e8a] focus:ring-[#184e8a]" onChange={() => toggleValue(option.value)} type="checkbox" />
+                    <span className="truncate" title={option.label}>{option.label}</span>
+                  </label>
+                ))}
+              </>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button className="h-9 rounded-md border border-[#cfd7e3] bg-white px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#f3f6fa]" onClick={onCancel} type="button">Cancel</button>
+            <button className="h-9 rounded-md bg-[#15803d] px-4 text-sm font-semibold text-white transition hover:bg-[#166534] disabled:cursor-not-allowed disabled:bg-[#94a3b8]" disabled={draftValues.length === 0} onClick={apply} type="button">OK</button>
+          </div>
+        </>
+      ) : (
+        <div className="flex justify-end pt-1">
+          <button className="h-9 rounded-md border border-[#cfd7e3] bg-white px-4 text-sm font-semibold text-[#344054] transition hover:bg-[#f3f6fa]" onClick={onCancel} type="button">Cancel</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PolicyDateFilterPanel({
+  onApply, onCancel, onClear, onSort, presets, value,
+}: {
+  onApply: (range: DateRange | null) => void;
+  onCancel: () => void;
+  onClear: () => void;
+  onSort: (direction: SortDirection) => void;
+  presets: { label: string; from: string; to: string }[];
+  value: DateRange | null;
+}) {
+  const [from, setFrom] = useState(value?.from ?? "");
+  const [to, setTo] = useState(value?.to ?? "");
+
+  function apply() { onApply(from || to ? { from, to } : null); onCancel(); }
+  function clear() { setFrom(""); setTo(""); onClear(); onCancel(); }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1 border-b border-[#edf0f4] pb-2">
+        <button className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]" onClick={() => onSort("asc")} type="button">Sort oldest to newest</button>
+        <button className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]" onClick={() => onSort("desc")} type="button">Sort newest to oldest</button>
+      </div>
+      {presets.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[#667085]">Quick select</p>
+          {presets.map((preset) => (
+            <button key={preset.label} className="block w-full rounded px-2 py-1.5 text-left text-sm font-medium text-[#344054] transition hover:bg-[#f3f6fa]" onClick={() => { setFrom(preset.from); setTo(preset.to); }} type="button">{preset.label}</button>
+          ))}
+        </div>
+      )}
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#667085]">Date range</p>
+        <div className="space-y-1.5">
+          <input className="block h-8 w-full min-w-0 rounded-md border border-[#cfd7e3] bg-white px-2 text-sm text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10" onChange={(e) => setFrom(e.target.value)} type="date" value={from} />
+          <input className="block h-8 w-full min-w-0 rounded-md border border-[#cfd7e3] bg-white px-2 text-sm text-[#16233a] outline-none transition focus:border-[#184e8a] focus:ring-2 focus:ring-[#184e8a]/10" onChange={(e) => setTo(e.target.value)} type="date" value={to} />
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <button className="text-xs font-semibold text-[#184e8a] hover:underline" onClick={clear} type="button">Clear</button>
+        <div className="flex gap-2">
+          <button className="h-8 rounded-md border border-[#cfd7e3] bg-white px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f3f6fa]" onClick={onCancel} type="button">Cancel</button>
+          <button className="h-8 rounded-md bg-[#15803d] px-3 text-sm font-semibold text-white transition hover:bg-[#166534]" onClick={apply} type="button">Apply</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getPolicyFilterOptions(values: string[]): PolicyFilterOption[] {
+  return [...new Set(values)].sort((a, b) => (a || "").localeCompare(b || "")).map((value) => ({ label: value || "(Blank)", value }));
+}
+
+function getSalesPolicySortValue(row: PolicyDetailRow, key: PolicySortKey): string | number {
+  if (key === "agent") return row.agent;
+  if (key === "agency") return row.agency;
+  if (key === "insuredName") return row.insuredName;
+  if (key === "policyNumber") return row.policyNumber;
+  if (key === "state") return row.state;
+  if (key === "city") return row.city;
+  if (key === "company") return row.company;
+  if (key === "truePremium") return row.truePremium;
+  if (key === "effectiveDate") return row.effectiveDate ?? "";
+  return row.expiredDate ?? "";
+}
+
+function policyToISODate(date: Date) { return date.toISOString().slice(0, 10); }
+function policyAddDays(date: Date, days: number) { const r = new Date(date); r.setDate(r.getDate() + days); return r; }
+
+function effectiveDatePresets() {
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+  return [
+    { label: "This month", from: `${y}-${m}-01`, to: policyToISODate(new Date(y, today.getMonth() + 1, 0)) },
+    { label: "Last 3 months", from: policyToISODate(policyAddDays(today, -90)), to: policyToISODate(today) },
+    { label: "This year", from: `${y}-01-01`, to: `${y}-12-31` },
+  ];
+}
+
+function expiredDatePresets() {
+  const today = new Date();
+  return [
+    { label: "Already expired", from: "", to: policyToISODate(policyAddDays(today, -1)) },
+    { label: "Next 30 days", from: policyToISODate(today), to: policyToISODate(policyAddDays(today, 30)) },
+    { label: "Next 60 days", from: policyToISODate(today), to: policyToISODate(policyAddDays(today, 60)) },
+    { label: "Next 90 days", from: policyToISODate(today), to: policyToISODate(policyAddDays(today, 90)) },
+  ];
+}
+
 function HeaderCell({
   align = "left",
   children,
@@ -1984,15 +2369,13 @@ function HeaderCell({
   align?: "left" | "right";
   children?: ReactNode;
   colSpan?: number;
-  width?: string;
+  width?: number;
 }) {
   return (
     <th
-      className={`bg-slate-50/80 backdrop-blur-sm border-b border-slate-200 px-4 py-3 align-middle text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-        align === "right" ? "text-right" : "text-left"
-      }`}
+      className={`whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-3 align-middle text-[11px] font-semibold uppercase tracking-wider text-slate-500 ${align === "right" ? "text-right" : "text-left"}`}
       colSpan={colSpan}
-      style={width ? { width } : undefined}
+      style={width !== undefined ? { width } : undefined}
     >
       {children}
     </th>
