@@ -2205,7 +2205,7 @@ function moneyValue(value: number | null) {
 }
 
 function getEpsOverride(row: HealthSalesRow) {
-  return moneyValue(row.eps_override ?? row.eps_override_received);
+  return moneyValue(row.eps_override_received);
 }
 
 function percentOf(value: number, total: number) {
