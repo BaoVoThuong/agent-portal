@@ -45,13 +45,13 @@ export async function PATCH(
   const email = session?.user?.email;
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN)
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH)
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const canManageAll = can(
     session.user.permissions,
-    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL
+    PERMISSIONS.COMPANY_VIEW_ALL
   );
 
   const body = await request.json().catch(() => null);
@@ -112,13 +112,13 @@ export async function DELETE(
   const email = session?.user?.email;
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN)
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH)
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const canManageAll = can(
     session.user.permissions,
-    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL
+    PERMISSIONS.COMPANY_VIEW_ALL
   );
 
   const supabase = getSupabaseAdmin();

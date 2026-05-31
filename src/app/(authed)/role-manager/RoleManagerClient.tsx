@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { can } from "@/lib/rbac/client";
 import {
-  getExclusivePermissionCounterpart,
   normalizeExclusivePermissionKeys,
   PERMISSIONS,
 } from "@/lib/rbac/permissions";
@@ -144,19 +143,10 @@ export default function RoleManagerClient({
   function updatePermission(permissionKey: string, checked: boolean) {
     setForm((current) => {
       if (!current) return current;
-      const counterpart = getExclusivePermissionCounterpart(permissionKey);
       const nextKeys = checked
-        ? [
-            ...new Set([
-              ...current.permissionKeys.filter((key) => key !== counterpart),
-              permissionKey,
-            ]),
-          ]
+        ? [...new Set([...current.permissionKeys, permissionKey])]
         : current.permissionKeys.filter((key) => key !== permissionKey);
-      return {
-        ...current,
-        permissionKeys: normalizeExclusivePermissionKeys(nextKeys),
-      };
+      return { ...current, permissionKeys: nextKeys };
     });
   }
 

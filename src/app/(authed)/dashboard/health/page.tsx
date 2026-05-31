@@ -29,13 +29,9 @@ type DashboardPageProps = {
 type ChartLevel = "month" | "quarter" | "year";
 
 const HEALTH_MART_PAGE_SIZE = 1000;
-const HEALTH_AGENT_PERMISSIONS = [
-  PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
-  PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
-];
 const HEALTH_DASHBOARD_PERMISSIONS = [
-  ...HEALTH_AGENT_PERMISSIONS,
-  PERMISSIONS.SALES_DASHBOARD_ACCESS,
+  PERMISSIONS.AGENT_DASHBOARD_HEALTH,
+  PERMISSIONS.COMPANY_DASHBOARD_HEALTH,
 ];
 
 export default async function DashboardPage({
@@ -43,11 +39,8 @@ export default async function DashboardPage({
 }: DashboardPageProps) {
   const params = searchParams ? await searchParams : {};
   const session = await requireAnyPermission(HEALTH_DASHBOARD_PERMISSIONS);
-  const canViewAgent = canAny(session.user.permissions, HEALTH_AGENT_PERMISSIONS);
-  const canViewSales = can(
-    session.user.permissions,
-    PERMISSIONS.SALES_DASHBOARD_ACCESS
-  );
+  const canViewAgent = can(session.user.permissions, PERMISSIONS.AGENT_DASHBOARD_HEALTH);
+  const canViewSales = can(session.user.permissions, PERMISSIONS.COMPANY_DASHBOARD_HEALTH);
   const activeView = resolveDashboardView(
     parseDashboardView(params.view),
     canViewAgent,
@@ -59,7 +52,7 @@ export default async function DashboardPage({
   }
 
   const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.AGENT_DASHBOARD_HEALTH
+    DASHBOARD_FILTER_KEYS.DASHBOARD_HEALTH
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);
@@ -68,10 +61,7 @@ export default async function DashboardPage({
     defaultReportMonthRange
   );
   const chartLevel = parseChartLevel(params.chartLevel);
-  const canViewAll = can(
-    session.user.permissions,
-    PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL
-  );
+  const canViewAll = can(session.user.permissions, PERMISSIONS.COMPANY_VIEW_ALL);
   const agentName = normalizeAgentName(session.user.name ?? "");
   const selectedCarriers = parseCarrierParams(params.carrier);
   const selectedPrimaryMemberId = parseRawParam(params.primaryMemberId);

@@ -32,13 +32,9 @@ type PcDashboardPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const PC_AGENT_PERMISSIONS = [
-  PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
-  PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
-];
 const PC_DASHBOARD_PERMISSIONS = [
-  ...PC_AGENT_PERMISSIONS,
-  PERMISSIONS.SALES_DASHBOARD_ACCESS,
+  PERMISSIONS.AGENT_DASHBOARD_PC,
+  PERMISSIONS.COMPANY_DASHBOARD_PC,
 ];
 const PC_AGENT_PAGE_SIZE = 1000;
 
@@ -52,15 +48,9 @@ export default async function PcDashboardPage({
 }: PcDashboardPageProps) {
   const params = searchParams ? await searchParams : {};
   const session = await requireAnyPermission(PC_DASHBOARD_PERMISSIONS);
-  const canViewAgent = canAny(session.user.permissions, PC_AGENT_PERMISSIONS);
-  const canViewSales = can(
-    session.user.permissions,
-    PERMISSIONS.SALES_DASHBOARD_ACCESS
-  );
-  const canViewAllAgents = can(
-    session.user.permissions,
-    PERMISSIONS.AGENT_DASHBOARD_PC_ALL
-  );
+  const canViewAgent = can(session.user.permissions, PERMISSIONS.AGENT_DASHBOARD_PC);
+  const canViewSales = can(session.user.permissions, PERMISSIONS.COMPANY_DASHBOARD_PC);
+  const canViewAllAgents = can(session.user.permissions, PERMISSIONS.COMPANY_VIEW_ALL);
   const activeView = resolveDashboardView(
     parseDashboardView(params.view),
     canViewAgent,
@@ -72,7 +62,7 @@ export default async function PcDashboardPage({
   }
 
   const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_PC
+    DASHBOARD_FILTER_KEYS.DASHBOARD_PC
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);

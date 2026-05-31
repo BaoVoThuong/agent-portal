@@ -3,7 +3,7 @@ import {
   fetchDashboardMonthDefault,
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
-import { canAny } from "@/lib/rbac/client";
+import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -65,14 +65,11 @@ const HEALTH_SALES_PAGE_SIZE = 1000;
 export default async function HealthSalesDashboardPage({
   searchParams,
 }: HealthSalesDashboardPageProps) {
-  const session = await requirePermission(PERMISSIONS.SALES_DASHBOARD_ACCESS);
+  const session = await requirePermission(PERMISSIONS.COMPANY_DASHBOARD_HEALTH);
   const params = searchParams ? await searchParams : {};
-  const canViewAgent = canAny(session.user.permissions, [
-    PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
-    PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
-  ]);
+  const canViewAgent = can(session.user.permissions, PERMISSIONS.AGENT_DASHBOARD_HEALTH);
   const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_HEALTH
+    DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_HEALTH
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);

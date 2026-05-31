@@ -1,27 +1,16 @@
 export const PERMISSIONS = {
-  CUSTOMER_REGISTRATION_HEALTH_OWN: "customer_registration.health.own",
-  CUSTOMER_REGISTRATION_HEALTH_ALL: "customer_registration.health.all",
-  CUSTOMER_REGISTRATION_PC_OWN: "customer_registration.pc.own",
-  CUSTOMER_REGISTRATION_PC_ALL: "customer_registration.pc.all",
-  CUSTOMER_REGISTRATION_LIFE_OWN: "customer_registration.life.own",
-  CUSTOMER_REGISTRATION_LIFE_ALL: "customer_registration.life.all",
+  CUSTOMER_REGISTRATION_HEALTH: "customer_registration.health",
   AUTOMATION_HEALTH_STATEMENT: "automation.health_statement",
   AUTOMATION_PC_STATEMENT: "automation.pc_statement",
   AUTOMATION_PROVIDER_FINDER: "automation.provider_finder",
-  DASHBOARD_OWN: "dashboard.own",
-  DASHBOARD_ALL: "dashboard.all",
-  AGENT_DASHBOARD_HEALTH_OWN: "agent_dashboard.health.own",
-  AGENT_DASHBOARD_HEALTH_ALL: "agent_dashboard.health.all",
-  AGENT_DASHBOARD_PC_OWN: "agent_dashboard.pc.own",
-  AGENT_DASHBOARD_PC_ALL: "agent_dashboard.pc.all",
-  AGENT_DASHBOARD_LIFE_OWN: "agent_dashboard.life.own",
-  AGENT_DASHBOARD_LIFE_ALL: "agent_dashboard.life.all",
-  SALES_DASHBOARD_ACCESS: "sales_dashboard.access",
+  AGENT_DASHBOARD_HEALTH: "agent_dashboard.health",
+  AGENT_DASHBOARD_PC: "agent_dashboard.pc",
+  COMPANY_DASHBOARD_HEALTH: "company_dashboard.health",
+  COMPANY_DASHBOARD_PC: "company_dashboard.pc",
+  COMPANY_VIEW_ALL: "company.view_all",
   ACCOUNT_MANAGER: "management.account_manager",
   ROLE_MANAGER: "management.role_manager",
   SETTINGS: "settings.access",
-  SYSTEM_SYNC_DATA: "system.sync_data",
-  SYSTEM_VIEW_SENSITIVE_DATA: "system.view_sensitive_data",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -35,83 +24,18 @@ export type PermissionDefinition = {
   sortOrder: number;
 };
 
-export function getExclusivePermissionCounterpart(permissionKey: string) {
-  if (permissionKey.endsWith(".own")) {
-    return permissionKey.replace(/\.own$/, ".all");
-  }
-
-  if (permissionKey.endsWith(".all")) {
-    return permissionKey.replace(/\.all$/, ".own");
-  }
-
-  return null;
-}
-
 export function normalizeExclusivePermissionKeys(permissionKeys: string[]) {
-  const selected = new Set(permissionKeys);
-
-  for (const permissionKey of permissionKeys) {
-    if (!permissionKey.endsWith(".all")) continue;
-
-    const ownPermissionKey = getExclusivePermissionCounterpart(permissionKey);
-    if (ownPermissionKey) selected.delete(ownPermissionKey);
-  }
-
-  return [
-    ...new Set(
-      permissionKeys.filter((permissionKey) => selected.has(permissionKey))
-    ),
-  ];
+  return [...new Set(permissionKeys)];
 }
 
 export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   {
-    key: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN,
-    label: "Health Registration - Own",
+    key: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
+    label: "Health Registration",
     groupKey: "customer_registration",
     groupLabel: "Customer Registration",
-    description: "View and manage the user's own Health registration records.",
+    description: "View and manage Health registration records.",
     sortOrder: 100,
-  },
-  {
-    key: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL,
-    label: "Health Registration - All",
-    groupKey: "customer_registration",
-    groupLabel: "Customer Registration",
-    description: "View and manage all Health registration records.",
-    sortOrder: 110,
-  },
-  {
-    key: PERMISSIONS.CUSTOMER_REGISTRATION_PC_OWN,
-    label: "P&C Registration - Own",
-    groupKey: "customer_registration",
-    groupLabel: "Customer Registration",
-    description: "View and manage the user's own P&C registration records.",
-    sortOrder: 200,
-  },
-  {
-    key: PERMISSIONS.CUSTOMER_REGISTRATION_PC_ALL,
-    label: "P&C Registration - All",
-    groupKey: "customer_registration",
-    groupLabel: "Customer Registration",
-    description: "View and manage all P&C registration records.",
-    sortOrder: 210,
-  },
-  {
-    key: PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_OWN,
-    label: "Life Registration - Own",
-    groupKey: "customer_registration",
-    groupLabel: "Customer Registration",
-    description: "View and manage the user's own Life registration records.",
-    sortOrder: 300,
-  },
-  {
-    key: PERMISSIONS.CUSTOMER_REGISTRATION_LIFE_ALL,
-    label: "Life Registration - All",
-    groupKey: "customer_registration",
-    groupLabel: "Customer Registration",
-    description: "View and manage all Life registration records.",
-    sortOrder: 310,
   },
   {
     key: PERMISSIONS.AUTOMATION_HEALTH_STATEMENT,
@@ -138,76 +62,44 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     sortOrder: 300,
   },
   {
-    key: PERMISSIONS.DASHBOARD_OWN,
-    label: "Dashboard - Own",
+    key: PERMISSIONS.AGENT_DASHBOARD_HEALTH,
+    label: "Agent - Health",
     groupKey: "dashboard",
     groupLabel: "Dashboard",
-    description: "View the user's own dashboard data.",
+    description: "View Health dashboard. Scope limited to own data unless View All Agents is granted.",
     sortOrder: 100,
   },
   {
-    key: PERMISSIONS.DASHBOARD_ALL,
-    label: "Dashboard - All",
+    key: PERMISSIONS.AGENT_DASHBOARD_PC,
+    label: "Agent - P&C",
     groupKey: "dashboard",
     groupLabel: "Dashboard",
-    description: "View dashboard data for all users.",
-    sortOrder: 110,
-  },
-  {
-    key: PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
-    label: "Agent Health Dashboard - Own",
-    groupKey: "agent_dashboard",
-    groupLabel: "Agent Dashboard",
-    description: "View the user's own Health agent dashboard data.",
-    sortOrder: 100,
-  },
-  {
-    key: PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
-    label: "Agent Health Dashboard - All",
-    groupKey: "agent_dashboard",
-    groupLabel: "Agent Dashboard",
-    description: "View Health agent dashboard data for all users.",
-    sortOrder: 110,
-  },
-  {
-    key: PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
-    label: "Agent P&C Dashboard - Own",
-    groupKey: "agent_dashboard",
-    groupLabel: "Agent Dashboard",
-    description: "View the user's own P&C agent dashboard data.",
+    description: "View P&C dashboard. Scope limited to own data unless View All Agents is granted.",
     sortOrder: 200,
   },
   {
-    key: PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
-    label: "Agent P&C Dashboard - All",
-    groupKey: "agent_dashboard",
-    groupLabel: "Agent Dashboard",
-    description: "View P&C agent dashboard data for all users.",
-    sortOrder: 210,
-  },
-  {
-    key: PERMISSIONS.AGENT_DASHBOARD_LIFE_OWN,
-    label: "Agent Life Dashboard - Own",
-    groupKey: "agent_dashboard",
-    groupLabel: "Agent Dashboard",
-    description: "View the user's own Life agent dashboard data.",
+    key: PERMISSIONS.COMPANY_DASHBOARD_HEALTH,
+    label: "Company - Health",
+    groupKey: "dashboard",
+    groupLabel: "Dashboard",
+    description: "View the company-wide Health Sales Dashboard.",
     sortOrder: 300,
   },
   {
-    key: PERMISSIONS.AGENT_DASHBOARD_LIFE_ALL,
-    label: "Agent Life Dashboard - All",
-    groupKey: "agent_dashboard",
-    groupLabel: "Agent Dashboard",
-    description: "View Life agent dashboard data for all users.",
-    sortOrder: 310,
+    key: PERMISSIONS.COMPANY_DASHBOARD_PC,
+    label: "Company - P&C",
+    groupKey: "dashboard",
+    groupLabel: "Dashboard",
+    description: "View the company-wide P&C Sales Dashboard.",
+    sortOrder: 400,
   },
   {
-    key: PERMISSIONS.SALES_DASHBOARD_ACCESS,
-    label: "Sales Dashboard",
-    groupKey: "sales_dashboard",
-    groupLabel: "Sales Dashboard",
-    description: "View all Sales Dashboard pages.",
-    sortOrder: 100,
+    key: PERMISSIONS.COMPANY_VIEW_ALL,
+    label: "View All Agents",
+    groupKey: "dashboard",
+    groupLabel: "Dashboard",
+    description: "See all agents' data in Agent Dashboard and Customer Registration.",
+    sortOrder: 500,
   },
   {
     key: PERMISSIONS.ACCOUNT_MANAGER,
@@ -232,21 +124,5 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Settings",
     description: "Access account settings and change own password.",
     sortOrder: 100,
-  },
-  {
-    key: PERMISSIONS.SYSTEM_SYNC_DATA,
-    label: "Data Sync",
-    groupKey: "system",
-    groupLabel: "System",
-    description: "Run data synchronization jobs.",
-    sortOrder: 100,
-  },
-  {
-    key: PERMISSIONS.SYSTEM_VIEW_SENSITIVE_DATA,
-    label: "Sensitive Data",
-    groupKey: "system",
-    groupLabel: "System",
-    description: "View sensitive portal data.",
-    sortOrder: 110,
   },
 ];

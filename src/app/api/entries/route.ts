@@ -11,14 +11,14 @@ export async function GET() {
   const email = session?.user?.email;
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN)
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH)
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const canViewAll = can(
     session.user.permissions,
-    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL
+    PERMISSIONS.COMPANY_VIEW_ALL
   );
   const supabase = getSupabaseAdmin();
   let query = supabase
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
   const name = session?.user?.name ?? null;
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN)
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH)
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

@@ -18,25 +18,18 @@ type MenuItem = {
   title?: string;
   permission?: string;
   anyPermission?: string[];
-  comingSoon?: boolean;
   children?: MenuItem[];
 };
 
 const menuData: MenuItem[] = [
   {
     title: "Customer Registration",
-    anyPermission: [
-      PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN,
-      PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL,
-    ],
+    permission: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
     children: [
       {
         href: "/",
         label: "Health",
-        anyPermission: [
-          PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN,
-          PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL,
-        ],
+        permission: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
       },
     ],
   },
@@ -68,29 +61,26 @@ const menuData: MenuItem[] = [
   {
     title: "Dashboard",
     anyPermission: [
-      PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
-      PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
-      PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
-      PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
-      PERMISSIONS.SALES_DASHBOARD_ACCESS,
+      PERMISSIONS.AGENT_DASHBOARD_HEALTH,
+      PERMISSIONS.AGENT_DASHBOARD_PC,
+      PERMISSIONS.COMPANY_DASHBOARD_HEALTH,
+      PERMISSIONS.COMPANY_DASHBOARD_PC,
     ],
     children: [
       {
         href: "/dashboard/health",
         label: "Health",
         anyPermission: [
-          PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
-          PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
-          PERMISSIONS.SALES_DASHBOARD_ACCESS,
+          PERMISSIONS.AGENT_DASHBOARD_HEALTH,
+          PERMISSIONS.COMPANY_DASHBOARD_HEALTH,
         ],
       },
       {
         href: "/dashboard/pc",
         label: "P&C",
         anyPermission: [
-          PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
-          PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
-          PERMISSIONS.SALES_DASHBOARD_ACCESS,
+          PERMISSIONS.AGENT_DASHBOARD_PC,
+          PERMISSIONS.COMPANY_DASHBOARD_PC,
         ],
       },
     ],
@@ -195,19 +185,6 @@ export default function Sidebar({
                   <div className="ml-4 mt-1 flex flex-col space-y-1 border-l border-white/10 pl-2">
                     {item.children.map((child) => {
                       const isActive = pathname === child.href;
-                      if (child.comingSoon) {
-                        return (
-                          <span
-                            key={child.label}
-                            className={`${styles.navItem} flex cursor-not-allowed items-center justify-between py-2 text-sm text-white/40`}
-                          >
-                            {child.label}
-                            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white/60">
-                              Soon
-                            </span>
-                          </span>
-                        );
-                      }
                       if (isActive) {
                         return (
                           <span

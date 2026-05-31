@@ -10,10 +10,7 @@ type PermissionRoute = {
 const ACCESSIBLE_ROUTES: PermissionRoute[] = [
   {
     href: "/",
-    anyPermission: [
-      PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN,
-      PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL,
-    ],
+    permission: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
   },
   {
     href: "/automation/health-statement",
@@ -30,17 +27,15 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
   {
     href: "/dashboard/health",
     anyPermission: [
-      PERMISSIONS.AGENT_DASHBOARD_HEALTH_OWN,
-      PERMISSIONS.AGENT_DASHBOARD_HEALTH_ALL,
-      PERMISSIONS.SALES_DASHBOARD_ACCESS,
+      PERMISSIONS.AGENT_DASHBOARD_HEALTH,
+      PERMISSIONS.COMPANY_DASHBOARD_HEALTH,
     ],
   },
   {
     href: "/dashboard/pc",
     anyPermission: [
-      PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
-      PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
-      PERMISSIONS.SALES_DASHBOARD_ACCESS,
+      PERMISSIONS.AGENT_DASHBOARD_PC,
+      PERMISSIONS.COMPANY_DASHBOARD_PC,
     ],
   },
   {

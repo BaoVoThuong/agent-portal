@@ -3,11 +3,7 @@ export function can(
   permission: string
 ) {
   if (!permissions) return false;
-  if (permissions.includes(permission)) return true;
-  if (permission.endsWith(".own")) {
-    return permissions.includes(permission.replace(/\.own$/, ".all"));
-  }
-  return false;
+  return permissions.includes(permission);
 }
 
 export function canAny(

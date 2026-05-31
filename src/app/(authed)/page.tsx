@@ -9,12 +9,12 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const session = await requirePermission(
-    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_OWN
+    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH
   );
   const email = session!.user!.email!;
   const canViewAll = can(
     session.user.permissions,
-    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH_ALL
+    PERMISSIONS.COMPANY_VIEW_ALL
   );
 
   const supabase = getSupabaseAdmin();

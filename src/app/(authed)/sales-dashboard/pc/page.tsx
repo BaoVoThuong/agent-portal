@@ -3,7 +3,7 @@ import {
   fetchDashboardMonthDefault,
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
-import { canAny } from "@/lib/rbac/client";
+import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -39,14 +39,11 @@ const PC_PAGE_SIZE = 1000;
 export default async function PcSalesDashboardPage({
   searchParams,
 }: PcSalesDashboardPageProps) {
-  const session = await requirePermission(PERMISSIONS.SALES_DASHBOARD_ACCESS);
+  const session = await requirePermission(PERMISSIONS.COMPANY_DASHBOARD_PC);
   const params = searchParams ? await searchParams : {};
-  const canViewAgent = canAny(session.user.permissions, [
-    PERMISSIONS.AGENT_DASHBOARD_PC_OWN,
-    PERMISSIONS.AGENT_DASHBOARD_PC_ALL,
-  ]);
+  const canViewAgent = can(session.user.permissions, PERMISSIONS.AGENT_DASHBOARD_PC);
   const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.SALES_DASHBOARD_PC
+    DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_PC
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);
