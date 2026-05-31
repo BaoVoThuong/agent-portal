@@ -111,6 +111,7 @@ function resolveDashboardView(
 ): DashboardView {
   if (requestedView === "agent" && canViewAgent) return "agent";
   if (requestedView === "sales" && canViewSales) return "sales";
+  if (canViewAgent) return "agent";
   if (canViewSales) return "sales";
   return "agent";
 }
