@@ -229,6 +229,7 @@ create table if not exists public.health_mart (
   agent text,
   broker_effective_date date,
   paid_to_date date,
+  paid_to_date_raw text,
   report_month date,
   carriers_messer_paid double precision,
   agent_received double precision,
@@ -242,6 +243,9 @@ create table if not exists public.health_mart (
   report_month_label text
 );
 
+alter table public.health_mart
+add column if not exists paid_to_date_raw text;
+
 create index if not exists health_mart_carrier_idx
   on public.health_mart (carrier);
 
@@ -253,8 +257,93 @@ create index if not exists health_mart_primary_member_id_idx
 
 drop function if exists public.refresh_health_mart();
 drop function if exists public.parse_health_date(text);
+drop function if exists public.parse_health_date_token(text);
 drop function if exists public.parse_health_money(text);
 drop function if exists public.parse_health_int(text);
+
+create or replace function public.parse_health_date_token(value text)
+returns date
+language plpgsql
+immutable
+as $$
+declare
+  text_value text := btrim(value);
+  first_number integer;
+  second_number integer;
+  third_number integer;
+  parsed_month integer;
+  parsed_year integer;
+begin
+  if nullif(text_value, '') is null then
+    return null;
+  end if;
+
+  begin
+    if text_value ~ '^\d{4}/\d{1,2}/\d{1,2}$' then
+      return make_date(
+        split_part(text_value, '/', 1)::integer,
+        split_part(text_value, '/', 2)::integer,
+        split_part(text_value, '/', 3)::integer
+      );
+    elsif text_value ~ '^\d{1,2}/\d{1,2}/\d{4}$' then
+      first_number := split_part(text_value, '/', 1)::integer;
+      second_number := split_part(text_value, '/', 2)::integer;
+      third_number := split_part(text_value, '/', 3)::integer;
+
+      -- Source data is normally MM/DD/YYYY. Treat values with a first
+      -- component above 12 as the unambiguous DD/MM/YYYY exception.
+      if first_number > 12 and second_number between 1 and 12 then
+        return make_date(third_number, second_number, first_number);
+      end if;
+
+      return make_date(third_number, first_number, second_number);
+    elsif text_value ~ '^\d{1,2}/\d{4}$' then
+      return make_date(
+        split_part(text_value, '/', 2)::integer,
+        split_part(text_value, '/', 1)::integer,
+        1
+      );
+    elsif text_value ~ '^\d{4}-\d{1,2}-\d{1,2}$' then
+      return make_date(
+        split_part(text_value, '-', 1)::integer,
+        split_part(text_value, '-', 2)::integer,
+        split_part(text_value, '-', 3)::integer
+      );
+    elsif text_value ~ '^\d{8}$' then
+      return make_date(
+        substring(text_value from 1 for 4)::integer,
+        substring(text_value from 5 for 2)::integer,
+        substring(text_value from 7 for 2)::integer
+      );
+    elsif text_value ~* '^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)-\d{2}$' then
+      parsed_month := case lower(left(text_value, 3))
+        when 'jan' then 1
+        when 'feb' then 2
+        when 'mar' then 3
+        when 'apr' then 4
+        when 'may' then 5
+        when 'jun' then 6
+        when 'jul' then 7
+        when 'aug' then 8
+        when 'sep' then 9
+        when 'oct' then 10
+        when 'nov' then 11
+        when 'dec' then 12
+      end;
+      parsed_year := 2000 + right(text_value, 2)::integer;
+
+      return (
+        make_date(parsed_year, parsed_month, 1)
+        + interval '1 month - 1 day'
+      )::date;
+    end if;
+  exception when others then
+    return null;
+  end;
+
+  return null;
+end;
+$$;
 
 create or replace function public.parse_health_date(value text)
 returns date
@@ -262,25 +351,23 @@ language plpgsql
 immutable
 as $$
 declare
-  text_value text := btrim(value);
+  normalized_value text := regexp_replace(
+    btrim(coalesce(value, '')),
+    '[[:space:]]*/[[:space:]]*',
+    '/',
+    'g'
+  );
+  parsed_date date;
 begin
-  if nullif(text_value, '') is null then
+  if nullif(normalized_value, '') is null then
     return null;
   end if;
 
-  begin
-    if text_value ~ '^\d{1,2}/\d{1,2}/\d{4}$' then
-      return to_date(text_value, 'MM/DD/YYYY');
-    elsif text_value ~ '^\d{1,2}/\d{4}$' then
-      return to_date('01/' || text_value, 'DD/MM/YYYY');
-    elsif text_value ~ '^\d{4}-\d{2}-\d{2}$' then
-      return text_value::date;
-    end if;
-  exception when others then
-    return null;
-  end;
+  select max(public.parse_health_date_token(part))
+  into parsed_date
+  from regexp_split_to_table(normalized_value, '[[:space:],;|]+') as parts(part);
 
-  return null;
+  return parsed_date;
 end;
 $$;
 
@@ -584,6 +671,7 @@ as $$
     agent,
     broker_effective_date,
     paid_to_date,
+    paid_to_date_raw,
     report_month,
     carriers_messer_paid,
     agent_received,
@@ -606,6 +694,7 @@ as $$
     upper(btrim(r.agent)),
     public.parse_health_date(r.broker_effective),
     public.parse_health_date(r.paid_to_date),
+    btrim(r.paid_to_date),
     date_trunc('month', public.parse_health_date(r.month_report))::date,
     public.parse_health_money(r.carriers_messer_paid),
     public.parse_health_money(r.agent_received),

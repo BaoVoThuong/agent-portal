@@ -19,6 +19,7 @@ type HealthSalesRow = {
   agent: string | null;
   broker_effective_date: string | null;
   paid_to_date: string | null;
+  paid_to_date_raw: string | null;
   report_month: string | null;
   carriers_messer_paid: number | null;
   agent_received: number | null;
@@ -153,6 +154,7 @@ type PolicyInfoRow = {
     hasRecord: boolean;
     paid: number;
     paidToDate: string | null;
+    paidToDateRaw: string | null;
   }[];
 };
 
@@ -370,6 +372,7 @@ export function HealthSalesDashboard({
             afterYearSections={
               <HealthSalesAfterTrendSections data={data} level="year" />
             }
+            commissionRowsByLevel={data.commissionRowsByLevel}
             initialLevel={initialTrendLevel}
             monthSections={<SalesTrendLevelTables data={data} level="month" />}
             periodsByLevel={data.trendPeriodsByLevel}
@@ -1037,6 +1040,7 @@ function buildPolicyInfoSummary(rows: HealthSalesRow[]): PolicyInfoSummary {
           hasRecord: false,
           paid: 0,
           paidToDate: null,
+          paidToDateRaw: null,
         })),
       } satisfies PolicyInfoRow);
     const paid = moneyValue(row.carriers_messer_paid);
@@ -1048,6 +1052,8 @@ function buildPolicyInfoSummary(rows: HealthSalesRow[]): PolicyInfoSummary {
       current.months[monthIndex].paidToDate,
       row.paid_to_date
     );
+    current.months[monthIndex].paidToDateRaw =
+      row.paid_to_date_raw ?? current.months[monthIndex].paidToDateRaw;
     rowsByPolicy.set(key, current);
   }
 

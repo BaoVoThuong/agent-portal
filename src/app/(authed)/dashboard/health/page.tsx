@@ -127,7 +127,7 @@ async function fetchHealthMartRows(
     let query = supabase
       .from("health_mart")
       .select(
-        "deal_name,carrier,state,primary_member_id,broker_effective_date,report_month,paid_to_date,agent_received,num_client"
+        "deal_name,carrier,state,primary_member_id,broker_effective_date,report_month,paid_to_date,paid_to_date_raw,agent_received,num_client"
       )
       .order("report_month", { ascending: true })
       .range(from, from + HEALTH_MART_PAGE_SIZE - 1);

@@ -3,6 +3,7 @@
 import { FileDown, Filter } from "lucide-react";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as XLSX from "xlsx";
+import { getHealthPaidPeriodLabel } from "@/lib/health-paid-period";
 
 type MemberPaymentRow = {
   dealName: string;
@@ -14,6 +15,7 @@ type MemberPaymentRow = {
     hasRecord: boolean;
     paid: number;
     paidToDate: string | null;
+    paidToDateRaw: string | null;
   }[];
 };
 
@@ -56,7 +58,7 @@ export function AgentHealthMemberPaymentTable({
     [reportMonths]
   );
   const tableWidth = useMemo(
-    () => 976 + reportMonthLabels.length * 112,
+    () => 976 + reportMonthLabels.length * 136,
     [reportMonthLabels.length]
   );
   const dealNameOptions = useMemo(
@@ -216,7 +218,7 @@ export function AgentHealthMemberPaymentTable({
         .flatMap((month) => [
           getMonthExportStatus(month),
           month.hasRecord ? month.paid : "",
-          month.paidToDate ?? "",
+          getPaidToDateDisplay(month),
         ]),
     ]);
     const sheet = XLSX.utils.aoa_to_sheet([headers, ...exportRows]);
@@ -730,8 +732,8 @@ function MonthPaymentCell({
       <div className="font-semibold text-[#16233a]">
         {formatCurrency(month.paid)}
       </div>
-      <div className="mt-1 text-xs text-[#667085]">
-        {formatDate(month.paidToDate)}
+      <div className="mt-1 whitespace-nowrap text-xs text-[#667085]">
+        {getPaidToDateDisplay(month)}
       </div>
     </>
   );
@@ -757,11 +759,17 @@ function getMonthExportStatus(month: MemberPaymentRow["months"][number]) {
   return month.paidToDate ? "Paid" : "Unpaid";
 }
 
+function getPaidToDateDisplay(month: MemberPaymentRow["months"][number]) {
+  if (!month.paidToDate) return "";
+
+  return getHealthPaidPeriodLabel(month.paidToDateRaw) ?? formatDate(month.paidToDate);
+}
+
 function getExportColumnWidth(header: string) {
   if (header === "#") return 8;
   if (header === "Deal Name") return 36;
   if (header === "Primary Member ID") return 24;
-  if (header.endsWith("Paid To Date")) return 16;
+  if (header.endsWith("Paid To Date")) return 22;
   if (header.endsWith("Status")) return 16;
   return 14;
 }

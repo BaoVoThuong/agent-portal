@@ -7,11 +7,16 @@ import {
   type TrendComparisonChartLevel,
   type TrendComparisonPeriodsByLevel,
 } from "./HealthSalesTrendComparisonChart";
+import {
+  HealthCommissionMetricTrendChart,
+  type HealthCommissionTrendRow,
+} from "./HealthCommissionMetricTrendChart";
 
 export function HealthSalesTrendSections({
   afterMonthSections,
   afterQuarterSections,
   afterYearSections,
+  commissionRowsByLevel,
   initialLevel,
   monthSections,
   periodsByLevel,
@@ -21,6 +26,10 @@ export function HealthSalesTrendSections({
   afterMonthSections?: ReactNode;
   afterQuarterSections?: ReactNode;
   afterYearSections?: ReactNode;
+  commissionRowsByLevel: Record<
+    TrendComparisonChartLevel,
+    HealthCommissionTrendRow[]
+  >;
   initialLevel: TrendComparisonChartLevel;
   monthSections: ReactNode;
   periodsByLevel: TrendComparisonPeriodsByLevel;
@@ -52,6 +61,10 @@ export function HealthSalesTrendSections({
         chartLevel={chartLevel}
         onChartLevelChange={updateChartLevel}
         periodsByLevel={periodsByLevel}
+      />
+      <HealthCommissionMetricTrendChart
+        rows={commissionRowsByLevel[chartLevel]}
+        trendLevel={chartLevel}
       />
       {chartLevel === "month" && monthSections}
       {chartLevel === "quarter" && quarterSections}

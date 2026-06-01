@@ -176,6 +176,17 @@ type DateRange = { from: string; to: string };
 
 const TREND_MONTH_LIMIT = 17;
 const CARRIER_ROW_LIMIT = 24;
+const CARRIER_VISIBLE_ROW_COUNT = 5;
+const CARRIER_HEADER_HEIGHT_PX = 54;
+const CARRIER_ROW_HEIGHT_PX = 46;
+const CARRIER_TABLE_MAX_HEIGHT =
+  CARRIER_HEADER_HEIGHT_PX + CARRIER_VISIBLE_ROW_COUNT * CARRIER_ROW_HEIGHT_PX;
+const STATE_CITY_VISIBLE_ROW_COUNT = 5;
+const STATE_CITY_HEADER_HEIGHT_PX = 54;
+const STATE_CITY_ROW_HEIGHT_PX = 46;
+const STATE_CITY_TABLE_MAX_HEIGHT =
+  STATE_CITY_HEADER_HEIGHT_PX +
+  STATE_CITY_VISIBLE_ROW_COUNT * STATE_CITY_ROW_HEIGHT_PX;
 const EXPIRED_MONTH_LIMIT = 10;
 const POLICY_DETAIL_LIMIT = 100;
 const POLICY_DETAIL_VISIBLE_ROW_COUNT = 10;
@@ -368,8 +379,8 @@ export function PcSalesDashboard({
             }
           />
           <CarrierDashboardTable rows={data.carrierRows} />
-          <PcStateHeatMap counts={data.statePolicyCounts} />
           <StateCityPerformanceTable groups={data.stateGroups} />
+          <PcStateHeatMap counts={data.statePolicyCounts} />
           <ExpiredPolicyTrendChart rows={data.expiredRows} />
           <PolicyDetailsTable rows={data.policyDetailRows} />
         </div>
@@ -1725,7 +1736,10 @@ function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
 
   return (
     <ReportPanel title="Carrier Performance">
-      <div className="max-h-[620px] overflow-y-auto overflow-x-hidden">
+      <div
+        className="overflow-y-auto overflow-x-hidden"
+        style={{ maxHeight: CARRIER_TABLE_MAX_HEIGHT }}
+      >
         <table className="w-full table-fixed text-[11px] tabular-nums">
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
@@ -1829,9 +1843,15 @@ function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
 }
 
 function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
-  const cityRows = groups.flatMap((group) =>
-    group.rows.filter((row) => !row.isTotal)
-  );
+  const cityRows = groups
+    .flatMap((group) => group.rows.filter((row) => !row.isTotal))
+    .sort(
+      (left, right) =>
+        right.policyCount - left.policyCount ||
+        right.totalPremium - left.totalPremium ||
+        left.state.localeCompare(right.state) ||
+        left.city.localeCompare(right.city)
+    );
   const maxes = {
     commission: maxValue(cityRows, (row) => row.totalCommission),
     policyCount: maxValue(cityRows, (row) => row.policyCount),
@@ -1844,7 +1864,10 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
 
   return (
     <ReportPanel title="State & City Performance">
-      <div className="max-h-[620px] overflow-y-auto overflow-x-hidden">
+      <div
+        className="overflow-y-auto overflow-x-hidden"
+        style={{ maxHeight: STATE_CITY_TABLE_MAX_HEIGHT }}
+      >
         <table className="w-full table-fixed text-[11px] tabular-nums">
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
@@ -1858,31 +1881,16 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
             </tr>
           </thead>
           <tbody>
-            {groups.map((group, groupIndex) =>
-              group.rows.map((row, rowIndex) => (
-                <tr
-                  key={`${group.state}-${row.city}-${rowIndex}`}
-                  className={
-                    row.isTotal
-                      ? "bg-white font-bold"
-                      : (groupIndex + rowIndex) % 2 === 0
-                        ? "bg-white"
-                        : "bg-[#f7f8fa]"
-                  }
-                >
-                  {rowIndex === 0 ? (
-                    <td
-                      className="border-r border-b border-slate-200 bg-[#f8fafc] px-3 py-3 align-top text-[13px] font-semibold text-slate-900"
-                      rowSpan={group.rows.length}
-                    >
-                      {group.state}
-                    </td>
-                  ) : null}
-                  <CarrierBodyCell strong={row.isTotal}>{row.city}</CarrierBodyCell>
+            {cityRows.map((row, index) => (
+              <tr
+                key={`${row.state}-${row.city}-${index}`}
+                className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}
+              >
+                  <CarrierBodyCell strong>{row.state}</CarrierBodyCell>
+                  <CarrierBodyCell>{row.city}</CarrierBodyCell>
                   <CarrierHeatCell
                     maxValue={maxes.policyCount}
                     mode="green"
-                    strong={row.isTotal}
                     value={row.policyCount}
                   >
                     {formatInteger(row.policyCount)}
@@ -1890,7 +1898,6 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
                   <CarrierHeatCell
                     maxValue={maxes.share}
                     mode="green"
-                    strong={row.isTotal}
                     value={row.policySharePercent}
                   >
                     {formatPercent(row.policySharePercent)}
@@ -1898,7 +1905,6 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
                   <CarrierHeatCell
                     maxValue={maxes.premium}
                     mode="amber"
-                    strong={row.isTotal}
                     value={row.totalPremium}
                   >
                     {formatCurrencyShort(row.totalPremium)}
@@ -1906,7 +1912,6 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
                   <CarrierHeatCell
                     maxValue={maxes.commission}
                     mode="blue"
-                    strong={row.isTotal}
                     value={row.totalCommission}
                   >
                     {formatCurrencyShort(row.totalCommission)}
@@ -1914,14 +1919,12 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
                   <CarrierHeatCell
                     maxValue={maxes.rate}
                     mode="lavender"
-                    strong={row.isTotal}
                     value={percentOf(row.totalCommission, row.totalPremium)}
                   >
                     {formatPercent(percentOf(row.totalCommission, row.totalPremium))}
                   </CarrierHeatCell>
-                </tr>
-              ))
-            )}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

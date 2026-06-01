@@ -21,6 +21,7 @@ export type HealthMartRow = {
   broker_effective_date: string | null;
   report_month: string | null;
   paid_to_date: string | null;
+  paid_to_date_raw: string | null;
   agent_received: number | null;
   num_client: number | null;
 };
@@ -99,6 +100,7 @@ type MemberPaymentRow = {
     hasRecord: boolean;
     paid: number;
     paidToDate: string | null;
+    paidToDateRaw: string | null;
   }[];
 };
 
@@ -735,6 +737,7 @@ function buildMemberPaymentSummary(rows: HealthMartRow[]): MemberPaymentSummary 
           hasRecord: false,
           paid: 0,
           paidToDate: null,
+          paidToDateRaw: null,
         })),
       } satisfies MemberPaymentRow);
     const paid = row.agent_received ?? 0;
@@ -746,6 +749,8 @@ function buildMemberPaymentSummary(rows: HealthMartRow[]): MemberPaymentSummary 
       current.months[monthIndex].paidToDate,
       row.paid_to_date
     );
+    current.months[monthIndex].paidToDateRaw =
+      row.paid_to_date_raw ?? current.months[monthIndex].paidToDateRaw;
     rowsByMember.set(key, current);
   }
 

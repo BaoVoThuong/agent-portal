@@ -32,6 +32,7 @@ type HealthSalesRow = {
   agent: string | null;
   broker_effective_date: string | null;
   paid_to_date: string | null;
+  paid_to_date_raw: string | null;
   report_month: string | null;
   carriers_messer_paid: number | null;
   agent_received: number | null;
@@ -144,6 +145,7 @@ async function fetchHealthSalesRows() {
           "agent",
           "broker_effective_date",
           "paid_to_date",
+          "paid_to_date_raw",
           "report_month",
           "carriers_messer_paid",
           "agent_received",
