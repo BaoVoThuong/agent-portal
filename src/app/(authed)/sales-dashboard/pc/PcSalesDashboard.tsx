@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useMemo, useState, type ReactNode } from "react";
-import { Filter } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FileDown, Filter, Minus, Plus } from "lucide-react";
+import * as XLSX from "xlsx";
 import { PcCommissionMetricTrendChart } from "./PcCommissionMetricTrendChart";
 import { PcSalesDashboardFilters } from "./PcSalesDashboardFilters";
 import { PcSalesTrendSections } from "./PcSalesTrendSections";
@@ -112,6 +113,13 @@ type CarrierRow = Summary & {
   averageCommissionRate: number;
 };
 
+type AgentPerformanceRow = Summary & {
+  agent: string;
+  averageAgentCommissionPerMonth: number;
+  averageCommissionRate: number;
+  policySharePercent: number;
+};
+
 type StateCityRow = Summary & {
   state: string;
   city: string;
@@ -149,6 +157,7 @@ type DashboardData = {
   trendRows: MonthlySummary[];
   agencyMonthRows: AgencyMonthRow[];
   agentNames: string[];
+  agentPremiumGroups: AgentPivotGroup[];
   agentSalesGroups: AgentPivotGroup[];
   agentCommissionGroups: AgentCommissionGroup[];
   carrierRows: CarrierRow[];
@@ -176,19 +185,29 @@ type DateRange = { from: string; to: string };
 
 const TREND_MONTH_LIMIT = 17;
 const CARRIER_ROW_LIMIT = 24;
+const SALES_MOM_VISIBLE_ROW_COUNT = 6;
+const SALES_MOM_HEADER_HEIGHT_PX = 44;
+const SALES_MOM_ROW_HEIGHT_PX = 56;
+const SALES_MOM_SCROLL_MAX_HEIGHT =
+  SALES_MOM_HEADER_HEIGHT_PX + SALES_MOM_VISIBLE_ROW_COUNT * SALES_MOM_ROW_HEIGHT_PX;
 const CARRIER_VISIBLE_ROW_COUNT = 5;
 const CARRIER_HEADER_HEIGHT_PX = 54;
 const CARRIER_ROW_HEIGHT_PX = 46;
 const CARRIER_TABLE_MAX_HEIGHT =
   CARRIER_HEADER_HEIGHT_PX + CARRIER_VISIBLE_ROW_COUNT * CARRIER_ROW_HEIGHT_PX;
+const AGENT_PERFORMANCE_VISIBLE_ROW_COUNT = 6;
+const AGENT_PERFORMANCE_HEADER_HEIGHT_PX = 54;
+const AGENT_PERFORMANCE_ROW_HEIGHT_PX = 46;
+const AGENT_PERFORMANCE_TABLE_MAX_HEIGHT =
+  AGENT_PERFORMANCE_HEADER_HEIGHT_PX +
+  AGENT_PERFORMANCE_VISIBLE_ROW_COUNT * AGENT_PERFORMANCE_ROW_HEIGHT_PX;
 const STATE_CITY_VISIBLE_ROW_COUNT = 5;
 const STATE_CITY_HEADER_HEIGHT_PX = 54;
 const STATE_CITY_ROW_HEIGHT_PX = 46;
 const STATE_CITY_TABLE_MAX_HEIGHT =
   STATE_CITY_HEADER_HEIGHT_PX +
   STATE_CITY_VISIBLE_ROW_COUNT * STATE_CITY_ROW_HEIGHT_PX;
-const EXPIRED_MONTH_LIMIT = 10;
-const POLICY_DETAIL_LIMIT = 100;
+const EXPIRED_MONTH_LIMIT = 12;
 const POLICY_DETAIL_VISIBLE_ROW_COUNT = 10;
 const POLICY_DETAIL_HEADER_HEIGHT_PX = 48;
 const POLICY_DETAIL_ROW_HEIGHT_PX = 48;
@@ -200,45 +219,20 @@ const TREND_LIMIT_BY_LEVEL: Record<TrendLevel, number> = {
   quarter: 8,
   year: 12,
 };
-const AGENT_TABLE_PALETTES = [
-  {
-    commission: "bg-[#fffaf0]",
-    commissionHeader: "bg-[#fff5df] text-[#7a4a0c]",
-    group: "bg-[#eaf4ff] text-[#234a72]",
-    policies: "bg-[#f8fbff]",
-    policiesHeader: "bg-[#f3f9ff] text-[#245b8f]",
-  },
-  {
-    commission: "bg-[#fff9f2]",
-    commissionHeader: "bg-[#fff1e4] text-[#7c3f1d]",
-    group: "bg-[#eef8f1] text-[#285b37]",
-    policies: "bg-[#fbfefc]",
-    policiesHeader: "bg-[#f5fbf6] text-[#2e6b40]",
-  },
-  {
-    commission: "bg-[#fff8fb]",
-    commissionHeader: "bg-[#fff0f6] text-[#8a2450]",
-    group: "bg-[#f4f0ff] text-[#4b3b7a]",
-    policies: "bg-[#fcfbff]",
-    policiesHeader: "bg-[#f8f5ff] text-[#51408a]",
-  },
-  {
-    commission: "bg-[#fffaf0]",
-    commissionHeader: "bg-[#fff4dc] text-[#7b4a08]",
-    group: "bg-[#eef7fb] text-[#23576d]",
-    policies: "bg-[#fbfdff]",
-    policiesHeader: "bg-[#f3fafc] text-[#286273]",
-  },
-];
-
 type ClientFilterValues = Pick<FilterValues, "agency" | "agent" | "policyNumber">;
 
 export function PcSalesDashboard({
+  agentPerformanceSourceRows,
+  expiredMonthKeys,
+  expiredRows: expiredSourceRows,
   filterOptions,
   filters,
   initialTrendLevel,
   rows,
 }: {
+  agentPerformanceSourceRows: PcSalesRow[];
+  expiredMonthKeys: string[];
+  expiredRows: PcSalesRow[];
   filterOptions: FilterOptions;
   filters: FilterValues;
   initialTrendLevel: TrendLevel;
@@ -260,6 +254,26 @@ export function PcSalesDashboard({
     () => applyClientFilters(rows, activeFilters),
     [activeFilters, rows]
   );
+  const agentPerformanceMonthCount = useMemo(
+    () => countDataMonths(filteredRows),
+    [filteredRows]
+  );
+  const expiredChartRows = useMemo(
+    () =>
+      buildExpiredRows(
+        applyClientFilters(expiredSourceRows, activeFilters),
+        expiredMonthKeys
+      ),
+    [activeFilters, expiredMonthKeys, expiredSourceRows]
+  );
+  const agentPerformanceRows = useMemo(
+    () =>
+      buildAgentPerformanceRows(
+        applyClientFilters(agentPerformanceSourceRows, activeFilters),
+        agentPerformanceMonthCount
+      ),
+    [activeFilters, agentPerformanceMonthCount, agentPerformanceSourceRows]
+  );
   const dataByLevel = useMemo<Record<TrendLevel, DashboardData>>(
     () => ({
       month: buildDashboardData(filteredRows, "month"),
@@ -269,6 +283,7 @@ export function PcSalesDashboard({
     [filteredRows]
   );
   const data = dataByLevel.month;
+  const latestMonth = data.monthlyRows[0] ?? null;
 
   function updateClientFilters(nextFilters: ClientFilterValues) {
     setClientFilters(nextFilters);
@@ -297,18 +312,34 @@ export function PcSalesDashboard({
             <KpiCard
               label="Written Premium"
               value={formatCurrencyCompact(data.overview.totalPremium)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatCurrencyShort(latestMonth.totalPremium) : "-"
+              )}
             />
             <KpiCard
               label="Commission Revenue"
               value={formatCurrencyCompact(data.overview.totalCommission)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatCurrencyShort(latestMonth.totalCommission) : "-"
+              )}
             />
             <KpiCard
               label="Agent Commission"
               value={formatCurrencyCompact(data.overview.agentCommission)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatCurrencyShort(latestMonth.agentCommission) : "-"
+              )}
             />
             <KpiCard
               label="EPS Commission"
               value={formatCurrencyCompact(data.overview.epsCommission)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatCurrencyShort(latestMonth.epsCommission) : "-"
+              )}
             />
           </section>
 
@@ -318,18 +349,37 @@ export function PcSalesDashboard({
               muted
               label="Policies Sold"
               value={formatInteger(data.overview.policyCount)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatInteger(latestMonth.policyCount) : "-"
+              )}
             />
             <KpiCard
               compact
               muted
               label="Active Policies"
               value={formatInteger(data.overview.activePolicyCount)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatInteger(latestMonth.activePolicyCount) : "-"
+              )}
             />
             <KpiCard
               compact
               label="Renewal Rate"
               value={formatPercent(
                 percentOf(data.overview.renewalPolicyCount, data.overview.policyCount)
+              )}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth
+                  ? formatPercent(
+                      percentOf(
+                        latestMonth.renewalPolicyCount,
+                        latestMonth.policyCount
+                      )
+                    )
+                  : "-"
               )}
             />
             <KpiCard
@@ -338,12 +388,31 @@ export function PcSalesDashboard({
               value={formatPercent(
                 percentOf(data.overview.totalCommission, data.overview.totalPremium)
               )}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth
+                  ? formatPercent(
+                      percentOf(
+                        latestMonth.totalCommission,
+                        latestMonth.totalPremium
+                      )
+                    )
+                  : "-"
+              )}
             />
             <KpiCard
               compact
               label="EPS Comm Rate"
               value={formatPercent(
                 percentOf(data.overview.epsCommission, data.overview.totalPremium)
+              )}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth
+                  ? formatPercent(
+                      percentOf(latestMonth.epsCommission, latestMonth.totalPremium)
+                    )
+                  : "-"
               )}
             />
           </section>
@@ -378,10 +447,16 @@ export function PcSalesDashboard({
               <PcTrendLevelSections data={dataByLevel.year} trendLevel="year" />
             }
           />
-          <CarrierDashboardTable rows={data.carrierRows} />
-          <StateCityPerformanceTable groups={data.stateGroups} />
-          <PcStateHeatMap counts={data.statePolicyCounts} />
-          <ExpiredPolicyTrendChart rows={data.expiredRows} />
+          <AgentPerformanceTable
+            averageMonthCount={agentPerformanceMonthCount}
+            rows={agentPerformanceRows}
+          />
+          <section className="grid gap-8 xl:grid-cols-2">
+            <CarrierDashboardTable rows={data.carrierRows} />
+            <StateCityPerformanceTable groups={data.stateGroups} />
+          </section>
+          <PcStateHeatMap counts={data.statePolicyCounts} groups={data.stateGroups} />
+          <ExpiredPolicyTrendChart rows={expiredChartRows} />
           <PolicyDetailsTable rows={data.policyDetailRows} />
         </div>
       )}
@@ -431,6 +506,7 @@ function buildDashboardData(rows: PcSalesRow[], trendLevel: TrendLevel): Dashboa
     trendRows,
     agencyMonthRows: buildAgencyMonthRows(rows, trendLevel),
     agentNames,
+    agentPremiumGroups: buildAgentPremiumGroups(rows, agentNames, trendLevel),
     agentSalesGroups: buildAgentSalesGroups(rows, agentNames, trendLevel),
     agentCommissionGroups: buildAgentCommissionGroups(rows, agentNames, trendLevel),
     carrierRows: buildCarrierRows(rows, overview).slice(0, CARRIER_ROW_LIMIT),
@@ -651,9 +727,14 @@ function buildAgencyMonthRows(
 }
 
 function buildAgentNames(rows: PcSalesRow[]) {
-  return uniqueSorted(
-    rows.map((row) => cleanGroupLabel(row.agent_name)).filter((agent) => agent !== "null")
-  );
+  return [...groupRows(rows, (row) => cleanGroupLabel(row.agent_name)).entries()]
+    .filter(([agent]) => agent !== "null")
+    .map(([agent, agentRows]) => ({
+      agent,
+      policyCount: summarizeRows(agentRows).policyCount,
+    }))
+    .sort((a, b) => b.policyCount - a.policyCount || a.agent.localeCompare(b.agent))
+    .map((row) => row.agent);
 }
 
 function buildAgentSalesGroups(
@@ -701,6 +782,58 @@ function buildAgentPolicyPivotRow(
     isTotal,
     valuesByAgent,
     grandTotal: Object.values(valuesByAgent).reduce((total, value) => total + value, 0),
+  };
+}
+
+function buildAgentPremiumGroups(
+  rows: PcSalesRow[],
+  agentNames: string[],
+  trendLevel: TrendLevel
+): AgentPivotGroup[] {
+  return [
+    ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), trendLevel)).entries(),
+  ]
+    .filter(([periodKey]) => Boolean(periodKey))
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([periodKey, monthRows]) => {
+      const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
+      const agencyRows = [...groupRows(monthRows, (row) => cleanGroupLabel(row.agency_name)).entries()]
+        .map(([agency, agencyRows]) =>
+          buildAgentPremiumPivotRow(agency, agencyRows, agentNames, false)
+        )
+        .sort((a, b) => b.grandTotal - a.grandTotal || a.agency.localeCompare(b.agency));
+
+      return {
+        monthKey: periodLabel,
+        rows: agencyRows,
+        total: buildAgentPremiumPivotRow("Total Premium", monthRows, agentNames, true),
+      };
+    });
+}
+
+function buildAgentPremiumPivotRow(
+  agency: string,
+  rows: PcSalesRow[],
+  agentNames: string[],
+  isTotal: boolean
+): AgentPivotRow {
+  const valuesByAgent: Record<string, number> = {};
+
+  for (const agent of agentNames) {
+    valuesByAgent[agent] = rows
+      .filter((row) => cleanGroupLabel(row.agent_name) === agent)
+      .reduce(
+        (total, row) =>
+          total + Math.max(moneyValue(row.true_premium ?? row.premium), 0),
+        0
+      );
+  }
+
+  return {
+    agency,
+    grandTotal: Object.values(valuesByAgent).reduce((total, value) => total + value, 0),
+    isTotal,
+    valuesByAgent,
   };
 }
 
@@ -789,8 +922,74 @@ function buildCarrierRows(rows: PcSalesRow[], overview: Summary): CarrierRow[] {
     );
 }
 
-function buildExpiredRows(rows: PcSalesRow[]): ExpiredMonthRow[] {
-  return [...groupRows(rows, (row) => row.expired_month_year ?? getMonthKey(row.expired_date)).entries()]
+function buildAgentPerformanceRows(
+  rows: PcSalesRow[],
+  averageMonthCount: number
+): AgentPerformanceRow[] {
+  const overview = summarizeRows(rows);
+
+  return [...groupRows(rows, (row) => cleanGroupLabel(row.agent_name)).entries()]
+    .filter(([agent]) => agent !== "null")
+    .map(([agent, group]) => {
+      const summary = summarizeRows(group);
+
+      return {
+        agent,
+        ...summary,
+        averageAgentCommissionPerMonth:
+          averageMonthCount > 0 ? summary.agentCommission / averageMonthCount : 0,
+        averageCommissionRate: percentOf(
+          summary.totalCommission,
+          summary.totalPremium
+        ),
+        policySharePercent: percentOf(
+          summary.policyCount,
+          overview.policyCount
+        ),
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.policyCount - a.policyCount ||
+        b.totalPremium - a.totalPremium ||
+        a.agent.localeCompare(b.agent)
+    );
+}
+
+function countDataMonths(rows: PcSalesRow[]) {
+  return new Set(
+    rows
+      .map((row) => getEffectiveMonth(row))
+      .filter(Boolean)
+  ).size;
+}
+
+function buildExpiredRows(
+  rows: PcSalesRow[],
+  monthKeys: string[] = []
+): ExpiredMonthRow[] {
+  const rowsByMonth = groupRows(
+    rows,
+    (row) => getMonthKey(row.expired_date) || row.expired_month_year || ""
+  );
+
+  if (monthKeys.length > 0) {
+    return monthKeys.map((monthKey) => {
+      const group = rowsByMonth.get(monthKey) ?? [];
+
+      return {
+        monthKey,
+        policyCount: summarizeRows(group).policyCount,
+        totalPremium: group.reduce(
+          (total, row) =>
+            total + Math.max(moneyValue(row.true_premium ?? row.premium), 0),
+          0
+        ),
+      };
+    });
+  }
+
+  return [...rowsByMonth.entries()]
     .filter(([monthKey]) => Boolean(monthKey))
     .map(([monthKey, group]) => ({
       monthKey,
@@ -830,11 +1029,13 @@ function buildPolicyDetailRows(rows: PcSalesRow[]): PolicyDetailRow[] {
 
 function KpiCard({
   compact = false,
+  footerText,
   label,
   muted = false,
   value,
 }: {
   compact?: boolean;
+  footerText?: string;
   label: string;
   muted?: boolean;
   value: string;
@@ -861,8 +1062,24 @@ function KpiCard({
           {value}
         </div>
       </div>
+      <div
+        className={`min-h-5 truncate font-medium text-slate-500 ${
+          compact ? "text-xs" : "text-sm"
+        }`}
+      >
+        {footerText}
+      </div>
     </article>
   );
+}
+
+function formatLatestMonthMetric(
+  latestMonth: MonthlySummary | null,
+  value: string
+) {
+  return latestMonth
+    ? `${value} in ${formatMonthYear(latestMonth.monthKey)}`
+    : `Latest month ${value}`;
 }
 
 function PcTrendLevelSections({
@@ -889,6 +1106,7 @@ function PcTrendLevelSections({
       <AgentMonthlyDashboardTable
         agentNames={data.agentNames}
         commissionGroups={data.agentCommissionGroups}
+        premiumGroups={data.agentPremiumGroups}
         salesGroups={data.agentSalesGroups}
         trendLevel={trendLevel}
       />
@@ -1031,136 +1249,129 @@ function MonthlySalesMomGrowthTable({
   rows: MonthlySummary[];
   trendLevel: TrendLevel;
 }) {
-  const maxPolicyChange = maxAbsValue(rows, (row) => row.policyChangePercent);
-  const maxPremiumChange = maxAbsValue(rows, (row) => row.premiumChangePercent);
-  const maxCommissionChange = maxAbsValue(rows, (row) => row.commissionChangePercent);
-  const maxEpsCommissionChange = maxAbsValue(
-    rows,
-    (row) => row.epsCommissionChangePercent
-  );
   const periodLabel = getTrendLevelLabel(trendLevel);
   const changeLabel = getTrendChangeLabel(trendLevel);
 
   return (
-    <ReportPanel
-      title={`Portfolio Growth by ${periodLabel} | Policies & Premium ${changeLabel}`}
-    >
-      <div className="max-h-[440px] overflow-y-auto overflow-x-hidden">
-        <table className="w-full table-fixed text-[12px] tabular-nums">
-          <thead>
-            <tr className="bg-[#edf3fb] text-left font-bold">
-              <SummaryHeaderCell width="9%">{periodLabel}</SummaryHeaderCell>
-              <SummaryHeaderCell align="right" width="10%">Policies</SummaryHeaderCell>
-              <SummaryHeaderCell align="right" width="11%">% Policies {changeLabel}</SummaryHeaderCell>
-              <SummaryHeaderCell align="right" width="13%">Total Premium</SummaryHeaderCell>
-              <SummaryHeaderCell align="right" width="11%">% Premium {changeLabel}</SummaryHeaderCell>
-              <SummaryHeaderCell align="right" width="14%">Total Comm</SummaryHeaderCell>
-              <SummaryHeaderCell align="right" width="12%">% Comm {changeLabel}</SummaryHeaderCell>
-              <SummaryHeaderCell align="right" width="10%">EPS Comm</SummaryHeaderCell>
-              <SummaryHeaderCell align="right" width="10%">% EPS {changeLabel}</SummaryHeaderCell>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={row.periodKey} className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}>
-                <SummaryBodyCell strong>{row.monthKey}</SummaryBodyCell>
-                <SummaryMetricCell
-                  changeLabel={changeLabel}
-                  delta={row.policyChange}
-                  value={formatInteger(row.policyCount)}
-                />
-                <SummaryDeltaCell maxValue={maxPolicyChange} value={row.policyChangePercent} />
-                <SummaryMetricCell
-                  changeLabel={changeLabel}
-                  delta={row.premiumChange}
-                  deltaType="currency"
-                  value={formatCurrencyShort(row.totalPremium)}
-                />
-                <SummaryDeltaCell maxValue={maxPremiumChange} value={row.premiumChangePercent} />
-                <SummaryMetricCell
-                  changeLabel={changeLabel}
-                  delta={row.commissionChange}
-                  deltaType="currency"
-                  value={formatCurrencyShort(row.totalCommission)}
-                />
-                <SummaryDeltaCell maxValue={maxCommissionChange} value={row.commissionChangePercent} />
-                <SummaryMetricCell
-                  changeLabel={changeLabel}
-                  delta={row.epsCommissionChange}
-                  deltaType="currency"
-                  value={formatCurrencyShort(row.epsCommission)}
-                />
-                <SummaryDeltaCell maxValue={maxEpsCommissionChange} value={row.epsCommissionChangePercent} />
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <section>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
+          Portfolio Growth by {periodLabel} | Policies &amp; Premium {changeLabel}
+        </h2>
       </div>
-    </ReportPanel>
+
+      <article className="agent-health-panel">
+        {rows.length === 0 ? (
+          <div className="px-6 py-12 text-center text-sm text-[#667085]">
+            No sales periods.
+          </div>
+        ) : (
+          <div
+            className="overflow-y-auto overflow-x-hidden"
+            style={{ maxHeight: SALES_MOM_SCROLL_MAX_HEIGHT }}
+          >
+            <table className="w-full table-fixed text-[13px] text-[#344054]">
+              <thead>
+                <tr className="border-b border-[#d8dee7] bg-[#f8fafc] text-left text-xs font-semibold uppercase text-[#667085]">
+                  <MoMHeaderCell className="sticky left-0 top-0 z-30 w-[10%] bg-[#f8fafc]">
+                    {periodLabel}
+                  </MoMHeaderCell>
+                  <MoMHeaderCell className="top-0 w-[11%] text-right">
+                    Policies
+                  </MoMHeaderCell>
+                  <MoMHeaderCell className="top-0 w-[11%] text-right">
+                    % Policies {changeLabel}
+                  </MoMHeaderCell>
+                  <MoMHeaderCell className="top-0 w-[11%] text-right">
+                    Total Premium
+                  </MoMHeaderCell>
+                  <MoMHeaderCell className="top-0 w-[11%] text-right">
+                    % Premium {changeLabel}
+                  </MoMHeaderCell>
+                  <MoMHeaderCell className="top-0 w-[13%] text-right">
+                    Total Comm
+                  </MoMHeaderCell>
+                  <MoMHeaderCell className="top-0 w-[11%] text-right">
+                    % Comm {changeLabel}
+                  </MoMHeaderCell>
+                  <MoMHeaderCell className="top-0 w-[12%] text-right">
+                    EPS Comm
+                  </MoMHeaderCell>
+                  <MoMHeaderCell className="top-0 w-[10%] text-right">
+                    % EPS {changeLabel}
+                  </MoMHeaderCell>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => {
+                  const rowBg = index % 2 === 0 ? "bg-white" : "bg-[#f8fafc]";
+
+                  return (
+                    <tr
+                      className={`h-14 border-b border-[#edf0f4] ${rowBg}`}
+                      key={row.periodKey}
+                    >
+                      <td
+                        className={`sticky left-0 z-10 border-r border-[#e3e8ef] px-3 py-3 text-sm ${rowBg}`}
+                      >
+                        {row.monthKey}
+                      </td>
+                      <MoMMetricCell
+                        changeLabel={changeLabel}
+                        delta={row.policyChange}
+                        value={formatInteger(row.policyCount)}
+                      />
+                      <MoMPercentCell value={row.policyChangePercent} />
+                      <MoMMetricCell
+                        changeLabel={changeLabel}
+                        delta={row.premiumChange}
+                        deltaType="currency"
+                        value={formatCurrencyShort(row.totalPremium)}
+                      />
+                      <MoMPercentCell value={row.premiumChangePercent} />
+                      <MoMMetricCell
+                        changeLabel={changeLabel}
+                        delta={row.commissionChange}
+                        deltaType="currency"
+                        value={formatCurrencyShort(row.totalCommission)}
+                      />
+                      <MoMPercentCell value={row.commissionChangePercent} />
+                      <MoMMetricCell
+                        changeLabel={changeLabel}
+                        delta={row.epsCommissionChange}
+                        deltaType="currency"
+                        value={formatCurrencyShort(row.epsCommission)}
+                      />
+                      <MoMPercentCell value={row.epsCommissionChangePercent} />
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </article>
+    </section>
   );
 }
 
-function SummaryHeaderCell({
-  align = "left",
+function MoMHeaderCell({
   children,
-  width,
+  className = "",
 }: {
-  align?: "left" | "right";
   children: ReactNode;
-  width: string;
+  className?: string;
 }) {
   return (
     <th
-      className={`sticky top-0 z-10 border-r border-b border-slate-200 bg-slate-50 px-3 py-4 align-middle text-xs font-semibold uppercase tracking-wider text-slate-500 last:border-r-0 ${
-        align === "right" ? "text-right" : "text-left"
-      }`}
-      style={{ width }}
+      className={`sticky z-20 border-r border-[#d8dee7] bg-[#f8fafc] px-2 py-2.5 font-semibold leading-tight last:border-r-0 ${className}`}
     >
-      {children}
+      <span className="block whitespace-normal break-words">{children}</span>
     </th>
   );
 }
 
-function SummaryBodyCell({
-  align = "left",
-  children,
-  strong = false,
-}: {
-  align?: "left" | "right";
-  children: ReactNode;
-  strong?: boolean;
-}) {
-  return (
-    <td
-      className={`border-r border-b border-slate-100 px-3 py-4 align-middle text-sm text-slate-700 transition-colors group-hover:bg-slate-50/50 last:border-r-0 ${
-        align === "right" ? "text-right" : "text-left"
-      } ${strong ? "font-semibold text-slate-900" : ""}`}
-    >
-      {children}
-    </td>
-  );
-}
-
-function SummaryDeltaCell({
-  maxValue,
-  value,
-}: {
-  maxValue: number;
-  value: number | null;
-}) {
-  return (
-    <td
-      className={`border-r border-b border-slate-100 px-3 py-4 align-middle text-right text-sm font-semibold last:border-r-0 ${deltaTextClassName(
-        value
-      )}`}
-      style={{ backgroundColor: deltaHeatColor(value, maxValue) }}
-    >
-      {formatNullablePercent(value)}
-    </td>
-  );
-}
-
-function SummaryMetricCell({
+function MoMMetricCell({
   changeLabel,
   delta,
   deltaType = "integer",
@@ -1172,18 +1383,30 @@ function SummaryMetricCell({
   value: string;
 }) {
   const formattedDelta =
-    delta === null
+    delta == null
       ? "-"
       : deltaType === "currency"
         ? formatCurrencyShort(delta)
         : formatInteger(delta);
 
   return (
-    <td className="border-r border-b border-slate-100 px-3 py-3 align-middle text-right last:border-r-0">
-      <div className="font-semibold text-slate-800">{value}</div>
-      <div className={`mt-1 text-[11px] ${deltaTextClassName(delta)}`}>
+    <td className="border-r border-[#edf0f4] px-2 py-2.5 text-right last:border-r-0">
+      <div className="font-semibold text-[#24272d]">{value}</div>
+      <div className={`mt-0.5 text-[11px] ${deltaTextClassName(delta)}`}>
         {changeLabel} {formattedDelta}
       </div>
+    </td>
+  );
+}
+
+function MoMPercentCell({ value }: { value: number | null }) {
+  return (
+    <td
+      className={`border-r border-[#edf0f4] px-2 py-3 text-right last:border-r-0 ${salesMomHeatmapClassName(
+        value
+      )}`}
+    >
+      {formatNullablePercent(value)}
     </td>
   );
 }
@@ -1195,6 +1418,7 @@ function AgencyMonthSummaryTable({
   rows: AgencyMonthRow[];
   trendLevel: TrendLevel;
 }) {
+  const [areAgencyRowsExpanded, setAreAgencyRowsExpanded] = useState(false);
   const monthGroups = groupAgencyMonthRows(rows);
   const heatRows = rows.filter((row) => row.monthKey);
   const heatMaxes = {
@@ -1212,94 +1436,155 @@ function AgencyMonthSummaryTable({
     ),
   };
   const periodLabel = getTrendLevelLabel(trendLevel);
+  const hasAgencyRows = monthGroups.some((group) =>
+    group.rows.some((row) => !row.isTotal)
+  );
 
   return (
     <ReportPanel title={`${getTrendLevelAdjective(trendLevel)} Sales Summary`}>
-      <div className="max-h-[520px] overflow-y-auto overflow-x-hidden">
-        <table className="w-full table-fixed text-[11px] tabular-nums">
-          <thead className="sticky top-0 z-10">
+      <div className="max-h-[300px] overflow-y-auto">
+        <table className="w-full table-fixed text-[11px]">
+          <thead>
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <AgencySummaryHeaderCell width="9%">{periodLabel}</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell width="11%">Agency</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="8%">Policies</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="11%">Premium</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="11%">Total Comm</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="8%">Total Rate</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="11%">Agent Comm</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="8%">Agent Rate</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="11%">EPS Comm</AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell align="right" width="12%">EPS Rate</AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered width="8%">
+                {periodLabel}
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered width="11%">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Agency</span>
+                  {hasAgencyRows ? (
+                    <button
+                      aria-expanded={areAgencyRowsExpanded}
+                      aria-label={`${
+                        areAgencyRowsExpanded ? "Collapse" : "Expand"
+                      } agency rows`}
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#cfd7e3] bg-white text-[#184e8a] transition hover:bg-[#edf4ff]"
+                      onClick={() =>
+                        setAreAgencyRowsExpanded((current) => !current)
+                      }
+                      type="button"
+                    >
+                      {areAgencyRowsExpanded ? (
+                        <Minus aria-hidden="true" size={12} strokeWidth={2.4} />
+                      ) : (
+                        <Plus aria-hidden="true" size={12} strokeWidth={2.4} />
+                      )}
+                    </button>
+                  ) : null}
+                </div>
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered align="right" width="8%">
+                Policies
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered align="right" width="10%">
+                Premium
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered align="right" width="11%">
+                Total Comm
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered align="right" width="9%">
+                % Total
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered align="right" width="11%">
+                Agent Comm
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered align="right" width="9%">
+                % Agent
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered align="right" width="11%">
+                EPS Comm
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered align="right" width="12%">
+                % EPS Comm
+              </AgencySummaryHeaderCell>
             </tr>
           </thead>
           <tbody>
-            {monthGroups.map((group, groupIndex) =>
-              group.rows.map((row, rowIndex) => (
-                <tr
-                  key={`${group.monthKey}-${row.agency}-${rowIndex}`}
-                  className={`${row.isTotal ? "bg-white font-bold" : (groupIndex + rowIndex) % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}`}
-                >
-                  {rowIndex === 0 ? (
-                    <td
-                      className="border-r border-b border-slate-200 px-2 py-3 align-top text-xs font-semibold text-slate-900"
-                      rowSpan={group.rows.length}
+            {monthGroups.map((group, groupIndex) => {
+              const visibleRows =
+                hasAgencyRows && !areAgencyRowsExpanded
+                  ? group.rows.filter((row) => row.isTotal)
+                  : group.rows;
+
+              return visibleRows.map((row, rowIndex) => (
+                  <tr
+                    key={`${group.monthKey}-${row.agency}-${rowIndex}`}
+                    className={`${
+                      row.isTotal
+                        ? "bg-white"
+                        : (groupIndex + rowIndex) % 2 === 0
+                          ? "bg-white"
+                          : "bg-[#f7f8fa]"
+                    }`}
+                  >
+                    {rowIndex === 0 ? (
+                      <td
+                        className="border-r border-b border-slate-100 px-2 py-3 align-top text-sm font-semibold text-slate-700 tabular-nums"
+                        rowSpan={visibleRows.length}
+                      >
+                        {group.monthKey}
+                      </td>
+                    ) : null}
+                    <AgencySummaryCell bordered labelStrong={row.isTotal}>
+                      {row.agency}
+                    </AgencySummaryCell>
+                    <AgencySummaryCell bordered align="right">
+                      {formatInteger(row.policyCount)}
+                    </AgencySummaryCell>
+                    <AgencySummaryCell bordered align="right">
+                      {formatCurrencyShort(row.totalPremium)}
+                    </AgencySummaryCell>
+                    <AgencySummaryHeatCell
+                      bordered
+                      maxValue={heatMaxes.totalCommission}
+                      mode="blue"
+                      value={row.totalCommission}
                     >
-                      {group.monthKey}
-                    </td>
-                  ) : null}
-                  <AgencySummaryCell strong={row.isTotal}>{row.agency}</AgencySummaryCell>
-                  <AgencySummaryCell align="right">{formatInteger(row.policyCount)}</AgencySummaryCell>
-                  <AgencySummaryCell align="right">{formatCurrencyShort(row.totalPremium)}</AgencySummaryCell>
-                  <AgencySummaryHeatCell
-                    maxValue={heatMaxes.totalCommission}
-                    mode="blue"
-                    strong={row.isTotal}
-                    value={row.totalCommission}
-                  >
-                    {formatCurrencyShort(row.totalCommission)}
-                  </AgencySummaryHeatCell>
-                  <AgencySummaryHeatCell
-                    maxValue={heatMaxes.totalRate}
-                    mode="blue"
-                    strong={row.isTotal}
-                    value={percentOf(row.totalCommission, row.totalPremium)}
-                  >
-                    {formatPercent(percentOf(row.totalCommission, row.totalPremium))}
-                  </AgencySummaryHeatCell>
-                  <AgencySummaryHeatCell
-                    maxValue={heatMaxes.agentCommission}
-                    mode="lavender"
-                    strong={row.isTotal}
-                    value={row.agentCommission}
-                  >
-                    {formatCurrencyShort(row.agentCommission)}
-                  </AgencySummaryHeatCell>
-                  <AgencySummaryHeatCell
-                    maxValue={heatMaxes.agentRate}
-                    mode="lavender"
-                    strong={row.isTotal}
-                    value={percentOf(row.agentCommission, row.totalPremium)}
-                  >
-                    {formatPercent(percentOf(row.agentCommission, row.totalPremium))}
-                  </AgencySummaryHeatCell>
-                  <AgencySummaryHeatCell
-                    maxValue={heatMaxes.epsCommission}
-                    mode="pink"
-                    strong={row.isTotal}
-                    value={row.epsCommission}
-                  >
-                    {formatCurrencyShort(row.epsCommission)}
-                  </AgencySummaryHeatCell>
-                  <AgencySummaryHeatCell
-                    maxValue={heatMaxes.epsRate}
-                    mode="pink"
-                    strong={row.isTotal}
-                    value={percentOf(row.epsCommission, row.totalPremium)}
-                  >
-                    {formatPercent(percentOf(row.epsCommission, row.totalPremium))}
-                  </AgencySummaryHeatCell>
-                </tr>
-              ))
-            )}
+                      {formatCurrencyShort(row.totalCommission)}
+                    </AgencySummaryHeatCell>
+                    <AgencySummaryHeatCell
+                      bordered
+                      maxValue={heatMaxes.totalRate}
+                      mode="blue"
+                      value={percentOf(row.totalCommission, row.totalPremium)}
+                    >
+                      {formatPercent(percentOf(row.totalCommission, row.totalPremium))}
+                    </AgencySummaryHeatCell>
+                    <AgencySummaryHeatCell
+                      bordered
+                      maxValue={heatMaxes.agentCommission}
+                      mode="lavender"
+                      value={row.agentCommission}
+                    >
+                      {formatCurrencyShort(row.agentCommission)}
+                    </AgencySummaryHeatCell>
+                    <AgencySummaryHeatCell
+                      bordered
+                      maxValue={heatMaxes.agentRate}
+                      mode="lavender"
+                      value={percentOf(row.agentCommission, row.totalPremium)}
+                    >
+                      {formatPercent(percentOf(row.agentCommission, row.totalPremium))}
+                    </AgencySummaryHeatCell>
+                    <AgencySummaryHeatCell
+                      bordered
+                      maxValue={heatMaxes.epsCommission}
+                      mode="pink"
+                      value={row.epsCommission}
+                    >
+                      {formatCurrencyShort(row.epsCommission)}
+                    </AgencySummaryHeatCell>
+                    <AgencySummaryHeatCell
+                      bordered
+                      maxValue={heatMaxes.epsRate}
+                      mode="pink"
+                      value={percentOf(row.epsCommission, row.totalPremium)}
+                    >
+                      {formatPercent(percentOf(row.epsCommission, row.totalPremium))}
+                    </AgencySummaryHeatCell>
+                  </tr>
+                ));
+            })}
           </tbody>
         </table>
       </div>
@@ -1329,16 +1614,20 @@ function groupAgencyMonthRows(rows: AgencyMonthRow[]) {
 
 function AgencySummaryHeaderCell({
   align = "left",
+  bordered = false,
   children,
   width,
 }: {
   align?: "left" | "right";
+  bordered?: boolean;
   children: ReactNode;
   width: string;
 }) {
   return (
     <th
-      className={`border-r border-b border-slate-200 bg-slate-50 px-2 py-3 align-middle text-[11px] font-semibold uppercase tracking-wider text-slate-500 last:border-r-0 ${
+      className={`border-b border-slate-200 bg-slate-50/80 px-2 py-3 align-middle text-[11px] font-semibold uppercase leading-snug tracking-[0.04em] text-slate-500 ${
+        bordered ? "border-r last:border-r-0" : ""
+      } ${
         align === "right" ? "text-right" : "text-left"
       }`}
       style={{ width }}
@@ -1350,18 +1639,22 @@ function AgencySummaryHeaderCell({
 
 function AgencySummaryCell({
   align = "left",
+  bordered = false,
   children,
-  strong = false,
+  labelStrong = false,
 }: {
   align?: "left" | "right";
+  bordered?: boolean;
   children: ReactNode;
-  strong?: boolean;
+  labelStrong?: boolean;
 }) {
   return (
     <td
-      className={`border-r border-b border-slate-100 px-2 py-3 align-middle text-xs text-slate-700 transition-colors group-hover:bg-slate-50/50 last:border-r-0 ${
+      className={`border-b border-slate-100 px-2 py-3 align-middle text-sm text-slate-700 tabular-nums transition-colors group-hover:bg-slate-50/50 ${
+        bordered ? "border-r last:border-r-0" : ""
+      } ${
         align === "right" ? "text-right" : "text-left"
-      } ${strong ? "font-semibold text-slate-900" : ""}`}
+      } ${labelStrong ? "font-semibold text-slate-900" : ""}`}
     >
       {children}
     </td>
@@ -1369,22 +1662,22 @@ function AgencySummaryCell({
 }
 
 function AgencySummaryHeatCell({
+  bordered = false,
   children,
   maxValue,
   mode,
-  strong = false,
   value,
 }: {
+  bordered?: boolean;
   children: ReactNode;
   maxValue: number;
   mode: "blue" | "lavender" | "pink";
-  strong?: boolean;
   value: number;
 }) {
   return (
     <td
-      className={`border-r border-b border-slate-100 px-2 py-3 align-middle text-right text-xs text-slate-700 transition-colors group-hover:bg-slate-50/50 last:border-r-0 ${
-        strong ? "font-semibold text-slate-900" : ""
+      className={`border-b border-slate-100 px-2 py-3 align-middle text-right text-sm tabular-nums text-slate-700 transition-colors group-hover:bg-slate-50/50 ${
+        bordered ? "border-r last:border-r-0" : ""
       }`}
       style={{ backgroundColor: agencySummaryHeatColor(value, maxValue, mode) }}
     >
@@ -1396,82 +1689,179 @@ function AgencySummaryHeatCell({
 function AgentMonthlyDashboardTable({
   agentNames,
   commissionGroups,
+  premiumGroups,
   salesGroups,
   trendLevel,
 }: {
   agentNames: string[];
   commissionGroups: AgentCommissionGroup[];
+  premiumGroups: AgentPivotGroup[];
   salesGroups: AgentPivotGroup[];
   trendLevel: TrendLevel;
 }) {
+  const [areAgencyRowsExpanded, setAreAgencyRowsExpanded] = useState(false);
   const salesGroupsByMonth = new Map(
     salesGroups.map((group) => [group.monthKey, group])
   );
+  const premiumGroupsByMonth = new Map(
+    premiumGroups.map((group) => [group.monthKey, group])
+  );
+  const hasAgencyRows =
+    salesGroups.some((group) => group.rows.length > 0) ||
+    premiumGroups.some((group) => group.rows.length > 0) ||
+    commissionGroups.some((group) => group.rows.length > 0);
   const policyGrandTotals = totalAgentPivotRows(
     salesGroups.flatMap((group) => group.rows),
     agentNames,
     "Grand total policies"
+  );
+  const premiumGrandTotals = totalAgentPivotRows(
+    premiumGroups.flatMap((group) => group.rows),
+    agentNames,
+    "Grand total premium"
   );
   const commissionGrandTotals = totalCommissionPivotRows(
     commissionGroups.flatMap((group) => group.rows),
     agentNames,
     "Grand total commission"
   );
-  const agentGroupWidth = "220px";
-  const tableMinWidth = Math.max(1180, 420 + agentNames.length * 220 + 210);
+  const agentPolicyRows = salesGroups.flatMap((group) => [
+    group.total,
+    ...group.rows,
+  ]);
+  const agentPremiumRows = premiumGroups.flatMap((group) => [
+    group.total,
+    ...group.rows,
+  ]);
+  const agentCommissionRows = commissionGroups.flatMap((group) => [
+    group.monthlyTotal,
+    ...group.rows,
+  ]);
+  const agentMaxes = {
+    commission: maxValue(
+      [
+        ...agentCommissionRows.flatMap((row) =>
+          agentNames.map((agent) => row.valuesByAgent[agent] ?? 0)
+        ),
+        ...agentNames.map((agent) => commissionGrandTotals.valuesByAgent[agent] ?? 0),
+      ],
+      (value) => value
+    ),
+    policies: maxValue(
+      [
+        ...agentPolicyRows.flatMap((row) =>
+          agentNames.map((agent) => row.valuesByAgent[agent] ?? 0)
+        ),
+        ...agentNames.map((agent) => policyGrandTotals.valuesByAgent[agent] ?? 0),
+      ],
+      (value) => value
+    ),
+    premium: maxValue(
+      [
+        ...agentPremiumRows.flatMap((row) =>
+          agentNames.map((agent) => row.valuesByAgent[agent] ?? 0)
+        ),
+        ...agentNames.map((agent) => premiumGrandTotals.valuesByAgent[agent] ?? 0),
+      ],
+      (value) => value
+    ),
+  };
+  const tableWidth = Math.max(760, 240 + agentNames.length * 300);
 
   return (
     <ReportPanel
       title={`Agent Dashboard by ${getTrendLevelLabel(trendLevel)} | Policies & Commission`}
     >
-      <div className="max-h-[680px] overflow-auto">
+      <div className="max-h-[420px] overflow-auto">
         <table
-          className="w-full table-fixed text-[12px] tabular-nums"
-          style={{ minWidth: tableMinWidth }}
+          className="table-fixed text-[11px] tabular-nums"
+          style={{ minWidth: tableWidth, width: tableWidth }}
         >
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-[#edf3fb] text-left font-bold">
-              <AgentDashboardHeaderCell rowSpan={2} stickyLeft="0px" width="120px">
+          <thead className="sticky top-0 z-20">
+            <tr>
+              <AgentDashboardHeaderCell
+                className="border-r-2 border-slate-300 bg-slate-50"
+                size="group"
+                rowSpan={2}
+                stickyLeft="0px"
+                width="120px"
+              >
                 {getTrendLevelLabel(trendLevel)}
               </AgentDashboardHeaderCell>
-              <AgentDashboardHeaderCell rowSpan={2} stickyDivider stickyLeft="120px" width="170px">Agency</AgentDashboardHeaderCell>
-              {agentNames.map((agent, agentIndex) => {
-                const palette = agentTablePalette(agentIndex);
-
-                return (
+              <AgentDashboardHeaderCell
+                className="border-r-2 border-slate-300 bg-slate-50"
+                rowSpan={2}
+                size="group"
+                stickyDivider
+                stickyLeft="120px"
+                width="120px"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span>Agency</span>
+                  {hasAgencyRows ? (
+                    <button
+                      aria-expanded={areAgencyRowsExpanded}
+                      aria-label={`${
+                        areAgencyRowsExpanded ? "Collapse" : "Expand"
+                      } agency rows`}
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#cfd7e3] bg-white text-[#184e8a] transition hover:bg-[#edf4ff]"
+                      onClick={() =>
+                        setAreAgencyRowsExpanded((current) => !current)
+                      }
+                      type="button"
+                    >
+                      {areAgencyRowsExpanded ? (
+                        <Minus aria-hidden="true" size={12} strokeWidth={2.4} />
+                      ) : (
+                        <Plus aria-hidden="true" size={12} strokeWidth={2.4} />
+                      )}
+                    </button>
+                  ) : null}
+                </div>
+              </AgentDashboardHeaderCell>
+              {agentNames.map((agent) => (
                 <AgentDashboardHeaderCell
                   align="center"
-                  className={palette.group}
-                  colSpan={2}
-                  groupStart
+                  className="border-r-2 border-slate-300 bg-[#e9f2fb] text-slate-700"
+                  colSpan={3}
+                  groupEnd
                   key={agent}
-                  width={agentGroupWidth}
+                  size="group"
+                  width="300px"
                 >
-                  {agent}
+                  <span className="block truncate" title={agent}>
+                    {agent}
+                  </span>
                 </AgentDashboardHeaderCell>
-                );
-              })}
-              <AgentDashboardHeaderCell align="center" className="bg-[#e7eefb] text-[#2d3c63]" colSpan={2} groupStart width="210px">
-                Grand Total
-              </AgentDashboardHeaderCell>
+              ))}
             </tr>
-            <tr className="bg-[#f8fafc] text-right font-bold">
-              {agentNames.map((agent, agentIndex) => {
-                const palette = agentTablePalette(agentIndex);
-
-                return (
+            <tr>
+              {agentNames.map((agent) => (
                 <Fragment key={agent}>
-                  <AgentDashboardHeaderCell align="right" className={palette.policiesHeader} groupStart key={`${agent}-policies`}>
+                  <AgentDashboardHeaderCell
+                    align="right"
+                    key={`${agent}-policies`}
+                    width="100px"
+                  >
                     Policies
                   </AgentDashboardHeaderCell>
-                  <AgentDashboardHeaderCell align="right" className={palette.commissionHeader} key={`${agent}-commission`}>
+                  <AgentDashboardHeaderCell
+                    align="right"
+                    key={`${agent}-premium`}
+                    width="100px"
+                  >
+                    Total Premium
+                  </AgentDashboardHeaderCell>
+                  <AgentDashboardHeaderCell
+                    align="right"
+                    groupEnd
+                    key={`${agent}-commission`}
+                    width="100px"
+                  >
                     Commission
                   </AgentDashboardHeaderCell>
                 </Fragment>
-                );
-              })}
-              <AgentDashboardHeaderCell align="right" className="bg-[#f4f7ff] text-[#33446e]" groupStart>Policies</AgentDashboardHeaderCell>
-              <AgentDashboardHeaderCell align="right" className="bg-[#f4f7ff] text-[#33446e]">Commission</AgentDashboardHeaderCell>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -1480,39 +1870,62 @@ function AgentMonthlyDashboardTable({
                 agentNames={agentNames}
                 commissionGroup={commissionGroup}
                 groupIndex={groupIndex}
+                isExpanded={areAgencyRowsExpanded}
                 key={commissionGroup.monthKey}
+                maxes={agentMaxes}
+                premiumGroup={premiumGroupsByMonth.get(commissionGroup.monthKey)}
                 salesGroup={salesGroupsByMonth.get(commissionGroup.monthKey)}
               />
             ))}
-            <tr className="bg-[#eaf3ff] font-bold">
-              <AgentDashboardCell className="bg-[#e8f2ff]" stickyLeft="0px" strong>
+            <tr className="bg-white">
+              <AgentDashboardCell
+                className="border-r-2 border-slate-300 bg-white"
+                labelStrong
+                stickyLeft="0px"
+              >
                 Grand total
               </AgentDashboardCell>
-              <AgentDashboardCell className="bg-[#e8f2ff]" stickyDivider stickyLeft="120px" strong>
+              <AgentDashboardCell
+                className="border-r-2 border-slate-300 bg-white"
+                labelStrong
+                stickyDivider
+                stickyLeft="120px"
+              >
                 All agencies
               </AgentDashboardCell>
-              {agentNames.map((agent, agentIndex) => {
-                const palette = agentTablePalette(agentIndex);
-
-                return (
+              {agentNames.map((agent) => (
                 <Fragment key={agent}>
-                  <AgentDashboardCell align="right" className={palette.policies} groupStart key={`${agent}-policies`} strong>
+                  <AgentDashboardHeatCell
+                    maxValue={agentMaxes.policies}
+                    mode="green"
+                    value={policyGrandTotals.valuesByAgent[agent] ?? 0}
+                    key={`${agent}-policies`}
+                  >
                     {formatInteger(policyGrandTotals.valuesByAgent[agent] ?? 0)}
-                  </AgentDashboardCell>
-                  <AgentDashboardCell align="right" className={palette.commission} key={`${agent}-commission`} strong>
+                  </AgentDashboardHeatCell>
+                  <AgentDashboardHeatCell
+                    maxValue={agentMaxes.premium}
+                    mode="blue"
+                    value={premiumGrandTotals.valuesByAgent[agent] ?? 0}
+                    key={`${agent}-premium`}
+                  >
+                    {formatCurrencyShort(
+                      premiumGrandTotals.valuesByAgent[agent] ?? 0
+                    )}
+                  </AgentDashboardHeatCell>
+                  <AgentDashboardHeatCell
+                    groupEnd
+                    maxValue={agentMaxes.commission}
+                    mode="pink"
+                    value={commissionGrandTotals.valuesByAgent[agent] ?? 0}
+                    key={`${agent}-commission`}
+                  >
                     {formatCurrencyShort(
                       commissionGrandTotals.valuesByAgent[agent] ?? 0
                     )}
-                  </AgentDashboardCell>
+                  </AgentDashboardHeatCell>
                 </Fragment>
-                );
-              })}
-              <AgentDashboardCell align="right" className="bg-[#eef3ff]" groupStart strong>
-                {formatInteger(policyGrandTotals.grandTotal)}
-              </AgentDashboardCell>
-              <AgentDashboardCell align="right" className="bg-[#eef3ff]" strong>
-                {formatCurrencyShort(commissionGrandTotals.grandTotal)}
-              </AgentDashboardCell>
+              ))}
             </tr>
           </tbody>
         </table>
@@ -1525,15 +1938,31 @@ function AgentMonthlyDashboardRows({
   agentNames,
   commissionGroup,
   groupIndex,
+  isExpanded,
+  maxes,
+  premiumGroup,
   salesGroup,
 }: {
   agentNames: string[];
   commissionGroup: AgentCommissionGroup;
   groupIndex: number;
+  isExpanded: boolean;
+  maxes: {
+    commission: number;
+    policies: number;
+    premium: number;
+  };
+  premiumGroup: AgentPivotGroup | undefined;
   salesGroup: AgentPivotGroup | undefined;
 }) {
   const policyTotalRow = salesGroup?.total ?? {
     agency: "Total Policies",
+    grandTotal: 0,
+    isTotal: true,
+    valuesByAgent: emptyAgentValues(agentNames),
+  };
+  const premiumTotalRow = premiumGroup?.total ?? {
+    agency: "Total Premium",
     grandTotal: 0,
     isTotal: true,
     valuesByAgent: emptyAgentValues(agentNames),
@@ -1544,6 +1973,7 @@ function AgentMonthlyDashboardRows({
   );
   const agencies = uniqueSorted([
     ...(salesGroup?.rows.map((row) => row.agency) ?? []),
+    ...(premiumGroup?.rows.map((row) => row.agency) ?? []),
     ...commissionRowsByAgency.keys(),
   ]);
   const rows = [
@@ -1555,73 +1985,80 @@ function AgentMonthlyDashboardRows({
       policies:
         salesGroup?.rows.find((row) => row.agency === agency) ??
         emptyAgentPolicyRow(agency, agentNames),
+      premium:
+        premiumGroup?.rows.find((row) => row.agency === agency) ??
+        emptyAgentPolicyRow(agency, agentNames),
     })),
     {
       agency: "Total",
       commission: commissionGroup.monthlyTotal,
       isTotal: true,
       policies: policyTotalRow,
+      premium: premiumTotalRow,
     },
   ];
+  const visibleRows = isExpanded ? rows : rows.filter((row) => row.isTotal);
 
   return (
     <>
-      {rows.map((row, index) => {
+      {visibleRows.map((row, index) => {
+        const rowBackgroundClass =
+          (groupIndex + index) % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]";
+
         return (
           <tr
-            className={`${index === 0 ? "border-t-2 border-t-slate-300" : ""} ${
-              row.isTotal
-                ? "bg-[#e8f2ff] font-bold"
-                : (groupIndex + index) % 2 === 0
-                  ? "bg-white"
-                  : "bg-[#f7f8fa]"
-            }`}
+            className={rowBackgroundClass}
             key={`${commissionGroup.monthKey}-${row.agency}-${index}`}
           >
             {index === 0 ? (
               <td
-                className={`sticky left-0 z-20 border-r border-b border-slate-300 px-4 py-4 align-top text-[13px] font-semibold text-slate-900 ${
-                  groupIndex % 2 === 0 ? "bg-[#f1f5fb]" : "bg-[#eef4f8]"
-                }`}
-                rowSpan={rows.length}
+                className="sticky left-0 z-10 border-b border-r-2 border-slate-300 border-b-slate-200 bg-white px-3 py-3 align-top text-sm font-semibold text-slate-900"
+                rowSpan={visibleRows.length}
               >
                 {commissionGroup.monthKey}
               </td>
             ) : null}
             <AgentDashboardCell
               className={
-                row.isTotal
-                  ? "bg-[#e8f2ff]"
-                  : (groupIndex + index) % 2 === 0
-                    ? "bg-white"
-                    : "bg-[#f7f8fa]"
+                rowBackgroundClass === "bg-white"
+                  ? "border-r-2 border-slate-300 bg-white"
+                  : "border-r-2 border-slate-300 bg-[#f7f8fa]"
               }
+              labelStrong={row.isTotal}
               stickyDivider
               stickyLeft="120px"
-              strong={row.isTotal}
             >
               {row.agency}
             </AgentDashboardCell>
-            {agentNames.map((agent, agentIndex) => {
-              const palette = agentTablePalette(agentIndex);
-
-              return (
+            {agentNames.map((agent) => (
               <Fragment key={agent}>
-                <AgentDashboardCell align="right" className={palette.policies} groupStart key={`${agent}-policies`} strong={row.isTotal}>
+                <AgentDashboardHeatCell
+                  key={`${agent}-policies`}
+                  maxValue={maxes.policies}
+                  mode="green"
+                  value={row.policies.valuesByAgent[agent] ?? 0}
+                >
                   {formatInteger(row.policies.valuesByAgent[agent] ?? 0)}
-                </AgentDashboardCell>
-                <AgentDashboardCell align="right" className={palette.commission} key={`${agent}-commission`} strong={row.isTotal}>
+                </AgentDashboardHeatCell>
+                <AgentDashboardHeatCell
+                  key={`${agent}-premium`}
+                  maxValue={maxes.premium}
+                  mode="blue"
+                  value={row.premium.valuesByAgent[agent] ?? 0}
+                >
+                  {formatCurrencyShort(row.premium.valuesByAgent[agent] ?? 0)}
+                </AgentDashboardHeatCell>
+                <AgentDashboardHeatCell
+                  groupEnd
+                  key={`${agent}-commission`}
+                  maxValue={maxes.commission}
+                  mode="pink"
+                  value={row.commission.valuesByAgent[agent] ?? 0}
+                >
                   {formatCurrencyShort(row.commission.valuesByAgent[agent] ?? 0)}
-                </AgentDashboardCell>
+                </AgentDashboardHeatCell>
               </Fragment>
-              );
-            })}
-            <AgentDashboardCell align="right" className="bg-[#eef3ff]" groupStart strong={row.isTotal}>
-              {formatInteger(row.policies.grandTotal)}
-            </AgentDashboardCell>
-            <AgentDashboardCell align="right" className="bg-[#eef3ff]" strong={row.isTotal}>
-              {formatCurrencyShort(row.commission.grandTotal)}
-            </AgentDashboardCell>
+            ))}
           </tr>
         );
       })}
@@ -1634,8 +2071,9 @@ function AgentDashboardHeaderCell({
   children,
   className = "",
   colSpan,
-  groupStart = false,
+  groupEnd = false,
   rowSpan,
+  size = "metric",
   stickyDivider = false,
   stickyLeft,
   width,
@@ -1644,20 +2082,23 @@ function AgentDashboardHeaderCell({
   children: ReactNode;
   className?: string;
   colSpan?: number;
-  groupStart?: boolean;
+  groupEnd?: boolean;
   rowSpan?: number;
+  size?: "group" | "metric";
   stickyDivider?: boolean;
   stickyLeft?: string;
   width?: string;
 }) {
   return (
     <th
-      className={`border-r border-b border-slate-200 px-3 py-3 align-middle text-[11px] font-semibold uppercase leading-tight tracking-[0.04em] text-slate-500 last:border-r-0 ${
-        groupStart ? "border-l-2 border-l-slate-300" : ""
+      className={`border-b border-b-slate-200 font-semibold uppercase tracking-[0.04em] text-slate-500 ${
+        size === "group" ? "px-3 py-3 text-[11px]" : "px-2 py-2.5 text-[10px]"
+      } ${
+        groupEnd || stickyDivider
+          ? "border-r-2 border-slate-300"
+          : "border-r border-slate-200"
       } ${
         stickyLeft ? "sticky z-30" : ""
-      } ${
-        stickyDivider ? "shadow-[8px_0_12px_-12px_rgba(15,23,42,0.55)]" : ""
       } ${className || "bg-slate-50"} ${
         align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
       }`}
@@ -1675,31 +2116,27 @@ function AgentDashboardCell({
   children,
   className = "",
   colSpan,
-  groupStart = false,
+  labelStrong = false,
   stickyDivider = false,
   stickyLeft,
-  strong = false,
 }: {
   align?: "left" | "right";
   children?: ReactNode;
   className?: string;
   colSpan?: number;
-  groupStart?: boolean;
+  labelStrong?: boolean;
   stickyDivider?: boolean;
   stickyLeft?: string;
-  strong?: boolean;
 }) {
   return (
     <td
-      className={`border-r border-b border-slate-200 px-3 py-3 align-middle text-[13px] text-slate-700 last:border-r-0 ${
-        groupStart ? "border-l-2 border-l-slate-300" : ""
+      className={`border-b border-b-slate-200 px-3 py-3 align-middle text-sm tabular-nums text-slate-700 ${
+        stickyDivider ? "border-r-2 border-slate-300" : "border-r border-slate-100"
       } ${
         stickyLeft ? "sticky z-20" : ""
-      } ${
-        stickyDivider ? "shadow-[8px_0_12px_-12px_rgba(15,23,42,0.55)]" : ""
       } ${className} ${
         align === "right" ? "text-right" : "text-left"
-      } ${strong ? "font-semibold text-slate-900" : ""}`}
+      } ${labelStrong ? "font-semibold text-slate-900" : ""}`}
       colSpan={colSpan}
       style={stickyLeft ? { left: stickyLeft } : undefined}
     >
@@ -1708,8 +2145,237 @@ function AgentDashboardCell({
   );
 }
 
-function agentTablePalette(index: number) {
-  return AGENT_TABLE_PALETTES[index % AGENT_TABLE_PALETTES.length];
+function AgentDashboardHeatCell({
+  children,
+  groupEnd = false,
+  maxValue,
+  mode,
+  value,
+}: {
+  children: ReactNode;
+  groupEnd?: boolean;
+  maxValue: number;
+  mode: "blue" | "green" | "pink";
+  value: number;
+}) {
+  return (
+    <td
+      className={`border-b border-b-slate-200 px-2 py-3 text-right text-sm tabular-nums text-slate-700 ${
+        groupEnd ? "border-r-2 border-slate-300" : "border-r border-slate-100"
+      }`}
+      style={{ backgroundColor: agentDashboardHeatColor(value, maxValue, mode) }}
+    >
+      {children}
+    </td>
+  );
+}
+
+function AgentPerformanceTable({
+  averageMonthCount,
+  rows,
+}: {
+  averageMonthCount: number;
+  rows: AgentPerformanceRow[];
+}) {
+  const total = rows.reduce(
+    (result, row) => ({
+      activePolicyCount: result.activePolicyCount + row.activePolicyCount,
+      agentCommission: result.agentCommission + row.agentCommission,
+      epsCommission: result.epsCommission + row.epsCommission,
+      policyCount: result.policyCount + row.policyCount,
+      renewalPolicyCount: result.renewalPolicyCount + row.renewalPolicyCount,
+      totalCommission: result.totalCommission + row.totalCommission,
+      totalPremium: result.totalPremium + row.totalPremium,
+    }),
+    emptySummary()
+  );
+  const totalAverageAgentCommissionPerMonth =
+    averageMonthCount > 0
+      ? total.agentCommission / averageMonthCount
+      : 0;
+  const maxes = {
+    agentCommission: maxValue(rows, (row) => row.agentCommission),
+    averageAgentCommissionPerMonth: Math.max(
+      totalAverageAgentCommissionPerMonth,
+      maxValue(rows, (row) => row.averageAgentCommissionPerMonth)
+    ),
+    commission: maxValue(rows, (row) => row.totalCommission),
+    epsCommission: maxValue(rows, (row) => row.epsCommission),
+    policies: maxValue(rows, (row) => row.policyCount),
+    premium: maxValue(rows, (row) => row.totalPremium),
+    rate: Math.max(
+      percentOf(total.totalCommission, total.totalPremium),
+      maxValue(rows, (row) => row.averageCommissionRate)
+    ),
+    share: maxValue(rows, (row) => row.policySharePercent),
+  };
+
+  return (
+    <ReportPanel
+      action={
+        <span className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 shadow-sm">
+          {formatInteger(total.policyCount)} historical policies /{" "}
+          {formatInteger(averageMonthCount)} data months
+        </span>
+      }
+      title="Agent Performance | All History"
+    >
+      {rows.length === 0 ? (
+        <div className="px-6 py-12 text-center text-sm font-medium text-slate-500">
+          No agent performance data.
+        </div>
+      ) : (
+        <div
+          className="overflow-y-auto overflow-x-hidden"
+          style={{ maxHeight: AGENT_PERFORMANCE_TABLE_MAX_HEIGHT }}
+        >
+          <table className="w-full table-fixed text-[11px] tabular-nums">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-[#edf3fb] text-left font-bold">
+                <CarrierHeaderCell width="15%">Agent</CarrierHeaderCell>
+                <CarrierHeaderCell align="right" tone="green" width="8%">Share</CarrierHeaderCell>
+                <CarrierHeaderCell align="right" tone="green" width="8%">Policies</CarrierHeaderCell>
+                <CarrierHeaderCell align="right" tone="amber" width="13%">Premium</CarrierHeaderCell>
+                <CarrierHeaderCell align="right" tone="blue" width="13%">Commission</CarrierHeaderCell>
+                <CarrierHeaderCell align="right" tone="lavender" width="11%">Agent Comm</CarrierHeaderCell>
+                <CarrierHeaderCell align="right" tone="lavender" width="11%">Avg Comm / Mo</CarrierHeaderCell>
+                <CarrierHeaderCell align="right" tone="blue" width="10%">EPS Comm</CarrierHeaderCell>
+                <CarrierHeaderCell align="right" tone="lavender" width="11%">Avg Rate</CarrierHeaderCell>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr
+                  className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}
+                  key={row.agent}
+                >
+                  <CarrierBodyCell strong>{row.agent}</CarrierBodyCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.share}
+                    mode="green"
+                    value={row.policySharePercent}
+                  >
+                    {formatPercent(row.policySharePercent)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.policies}
+                    mode="green"
+                    value={row.policyCount}
+                  >
+                    {formatInteger(row.policyCount)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.premium}
+                    mode="amber"
+                    value={row.totalPremium}
+                  >
+                    {formatCurrencyShort(row.totalPremium)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.commission}
+                    mode="blue"
+                    value={row.totalCommission}
+                  >
+                    {formatCurrencyShort(row.totalCommission)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.agentCommission}
+                    mode="lavender"
+                    value={row.agentCommission}
+                  >
+                    {formatCurrencyShort(row.agentCommission)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.averageAgentCommissionPerMonth}
+                    mode="lavender"
+                    value={row.averageAgentCommissionPerMonth}
+                  >
+                    {formatCurrencyShort(row.averageAgentCommissionPerMonth)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.epsCommission}
+                    mode="blue"
+                    value={row.epsCommission}
+                  >
+                    {formatCurrencyShort(row.epsCommission)}
+                  </CarrierHeatCell>
+                  <CarrierHeatCell
+                    maxValue={maxes.rate}
+                    mode="lavender"
+                    value={row.averageCommissionRate}
+                  >
+                    {formatPercent(row.averageCommissionRate)}
+                  </CarrierHeatCell>
+                </tr>
+              ))}
+              <tr className="bg-[#f8fafc] font-bold">
+                <CarrierBodyCell strong>Grand total</CarrierBodyCell>
+                <CarrierHeatCell maxValue={100} mode="green" strong value={100}>
+                  100%
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxes.policies}
+                  mode="green"
+                  strong
+                  value={total.policyCount}
+                >
+                  {formatInteger(total.policyCount)}
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxes.premium}
+                  mode="amber"
+                  strong
+                  value={total.totalPremium}
+                >
+                  {formatCurrencyShort(total.totalPremium)}
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxes.commission}
+                  mode="blue"
+                  strong
+                  value={total.totalCommission}
+                >
+                  {formatCurrencyShort(total.totalCommission)}
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxes.agentCommission}
+                  mode="lavender"
+                  strong
+                  value={total.agentCommission}
+                >
+                  {formatCurrencyShort(total.agentCommission)}
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxes.averageAgentCommissionPerMonth}
+                  mode="lavender"
+                  strong
+                  value={totalAverageAgentCommissionPerMonth}
+                >
+                  {formatCurrencyShort(totalAverageAgentCommissionPerMonth)}
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxes.epsCommission}
+                  mode="blue"
+                  strong
+                  value={total.epsCommission}
+                >
+                  {formatCurrencyShort(total.epsCommission)}
+                </CarrierHeatCell>
+                <CarrierHeatCell
+                  maxValue={maxes.rate}
+                  mode="lavender"
+                  strong
+                  value={percentOf(total.totalCommission, total.totalPremium)}
+                >
+                  {formatPercent(percentOf(total.totalCommission, total.totalPremium))}
+                </CarrierHeatCell>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ReportPanel>
+  );
 }
 
 function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
@@ -1743,12 +2409,12 @@ function CarrierDashboardTable({ rows }: { rows: CarrierRow[] }) {
         <table className="w-full table-fixed text-[11px] tabular-nums">
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <CarrierHeaderCell width="20%">Company</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="green" width="15%">Share</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="green" width="14%">Policies Count</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="amber" width="19%">Total Premium</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="blue" width="17%">Total Commission</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="lavender" width="15%">Average Commission Rate</CarrierHeaderCell>
+              <CarrierHeaderCell width="21%">Company</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="green" width="12%">Share</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="green" width="13%">Policies</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="amber" width="18%">Premium</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="blue" width="20%">Commission</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="lavender" width="16%">Avg Rate</CarrierHeaderCell>
             </tr>
           </thead>
           <tbody>
@@ -1856,9 +2522,6 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
     commission: maxValue(cityRows, (row) => row.totalCommission),
     policyCount: maxValue(cityRows, (row) => row.policyCount),
     premium: maxValue(cityRows, (row) => row.totalPremium),
-    rate: maxValue(cityRows, (row) =>
-      percentOf(row.totalCommission, row.totalPremium)
-    ),
     share: maxValue(cityRows, (row) => row.policySharePercent),
   };
 
@@ -1871,13 +2534,12 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
         <table className="w-full table-fixed text-[11px] tabular-nums">
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <CarrierHeaderCell width="8%">State</CarrierHeaderCell>
-              <CarrierHeaderCell width="24%">City</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="green" width="13%">Policies</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="green" width="12%">Share</CarrierHeaderCell>
+              <CarrierHeaderCell width="9%">State</CarrierHeaderCell>
+              <CarrierHeaderCell width="27%">City</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="green" width="14%">Policies</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="green" width="13%">Share</CarrierHeaderCell>
               <CarrierHeaderCell align="right" tone="amber" width="16%">Premium</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="blue" width="16%">Total Commission</CarrierHeaderCell>
-              <CarrierHeaderCell align="right" tone="lavender" width="11%">Rate</CarrierHeaderCell>
+              <CarrierHeaderCell align="right" tone="blue" width="21%">Commission</CarrierHeaderCell>
             </tr>
           </thead>
           <tbody>
@@ -1916,13 +2578,6 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
                   >
                     {formatCurrencyShort(row.totalCommission)}
                   </CarrierHeatCell>
-                  <CarrierHeatCell
-                    maxValue={maxes.rate}
-                    mode="lavender"
-                    value={percentOf(row.totalCommission, row.totalPremium)}
-                  >
-                    {formatPercent(percentOf(row.totalCommission, row.totalPremium))}
-                  </CarrierHeatCell>
               </tr>
             ))}
           </tbody>
@@ -1945,7 +2600,7 @@ function CarrierHeaderCell({
 }) {
   return (
     <th
-      className={`border-r border-b border-slate-300 px-3 py-3 align-middle text-[11px] font-semibold uppercase leading-tight tracking-[0.04em] text-slate-600 last:border-r-0 ${carrierHeaderToneClassName(
+      className={`border-r border-b border-slate-300 px-2 py-3 align-middle text-[11px] font-semibold uppercase leading-tight tracking-[0.02em] text-slate-600 last:border-r-0 ${carrierHeaderToneClassName(
         tone
       )} ${align === "right" ? "text-right" : "text-left"}`}
       style={{ width }}
@@ -2190,20 +2845,35 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
     setPolicySortState(null); setActivePanel(null);
   }
 
+  function exportFilteredRows() {
+    exportPolicyDetailsRows(filteredRows);
+  }
+
   return (
     <ReportPanel title="Policy Detail">
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <p className="text-xs text-slate-500">
           Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} policies
         </p>
-        <button
-          className="h-8 rounded-md border border-[#cfd7e3] bg-white px-3 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={!hasActiveFilters}
-          onClick={clearAll}
-          type="button"
-        >
-          Clear Filters
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#cfd7e3] bg-white px-3 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={filteredRows.length === 0}
+            onClick={exportFilteredRows}
+            type="button"
+          >
+            <FileDown aria-hidden="true" size={14} strokeWidth={2.2} />
+            Export XLSX
+          </button>
+          <button
+            className="h-8 rounded-md border border-[#cfd7e3] bg-white px-3 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!hasActiveFilters}
+            onClick={clearAll}
+            type="button"
+          >
+            Clear Filters
+          </button>
+        </div>
       </div>
       <div className="overflow-auto" style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}>
         <table className="text-[12px] tabular-nums">
@@ -2297,6 +2967,76 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
   );
 }
 
+function exportPolicyDetailsRows(rows: PolicyDetailRow[]) {
+  const headers = [
+    "#",
+    "Agent",
+    "Agency",
+    "Insured Name",
+    "Policy Number",
+    "State",
+    "City",
+    "Company",
+    "True Premium",
+    "Effective Date",
+    "Expired Date",
+  ];
+  const exportRows = rows.map((row, index) => [
+    index + 1,
+    row.agent,
+    row.agency,
+    row.insuredName,
+    row.policyNumber,
+    row.state,
+    row.city,
+    row.company,
+    row.truePremium,
+    row.effectiveDate ?? "",
+    row.expiredDate ?? "",
+  ]);
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...exportRows]);
+
+  sheet["!cols"] = headers.map((header) => ({
+    wch: getPolicyDetailExportColumnWidth(header),
+  }));
+  applyPolicyDetailExportFormats(sheet, exportRows.length);
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, "Policy Detail");
+  XLSX.writeFile(
+    workbook,
+    `pc-policy-detail-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    { compression: true }
+  );
+}
+
+function getPolicyDetailExportColumnWidth(header: string) {
+  if (header === "#") return 8;
+  if (header === "Insured Name") return 28;
+  if (header === "Policy Number") return 22;
+  if (header === "True Premium") return 16;
+  if (header.endsWith("Date")) return 16;
+  if (header === "Company") return 22;
+  if (header === "City") return 18;
+  return 14;
+}
+
+function applyPolicyDetailExportFormats(sheet: XLSX.WorkSheet, rowCount: number) {
+  const truePremiumColumnIndex = 8;
+
+  for (let rowIndex = 1; rowIndex <= rowCount; rowIndex += 1) {
+    const cellAddress = XLSX.utils.encode_cell({
+      c: truePremiumColumnIndex,
+      r: rowIndex,
+    });
+    const cell = sheet[cellAddress];
+
+    if (cell && cell.t === "n") {
+      cell.z = "$#,##0.00";
+    }
+  }
+}
+
 function ReportPanel({
   action,
   children,
@@ -2386,7 +3126,17 @@ function PolicyExcelFilterPanel({
   const areAllVisibleSelected = visibleOptions.length > 0 && selectedVisibleCount === visibleOptions.length;
 
   function toggleValue(value: string) {
-    setDraftValues((cur) => { const next = new Set(cur); next.has(value) ? next.delete(value) : next.add(value); return [...next]; });
+    setDraftValues((cur) => {
+      const next = new Set(cur);
+
+      if (next.has(value)) {
+        next.delete(value);
+      } else {
+        next.add(value);
+      }
+
+      return [...next];
+    });
   }
 
   function toggleVisible() {
@@ -2835,15 +3585,6 @@ function maxValue<T>(rows: T[], getValue: (row: T) => number) {
   return Math.max(...rows.map((row) => Math.max(getValue(row), 0)), 1);
 }
 
-function maxAbsValue<T>(rows: T[], getValue: (row: T) => number | null) {
-  if (rows.length === 0) return 1;
-
-  return Math.max(
-    ...rows.map((row) => Math.abs(getValue(row) ?? 0)),
-    1
-  );
-}
-
 function roundAxisMax(value: number) {
   if (value <= 10) return 10;
 
@@ -2920,19 +3661,27 @@ function formatNullablePercent(value: number | null) {
   return value === null ? "-" : formatPercent(value);
 }
 
-function deltaTextClassName(value: number | null) {
-  if (value === null || value === 0) return "text-slate-500";
-  return value > 0 ? "text-emerald-700" : "text-rose-600";
+function formatMonthYear(monthKey: string) {
+  if (!/^\d{4}-\d{2}$/.test(monthKey)) return monthKey;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(new Date(`${monthKey}-01T00:00:00Z`));
 }
 
-function deltaHeatColor(value: number | null, maxValue: number) {
-  if (value === null || value === 0) return "transparent";
+function deltaTextClassName(value: number | null) {
+  if (value == null || value === 0) return "text-[#667085]";
+  if (value > 0) return "text-[#027a48]";
+  if (value < 0) return "text-[#c01048]";
 
-  const intensity = Math.min(Math.abs(value) / Math.max(maxValue, 1), 1);
+  return "text-[#667085]";
+}
 
-  return value > 0
-    ? rgba(157, 214, 165, 0.34 + intensity * 0.3)
-    : rgba(237, 154, 148, 0.34 + intensity * 0.3);
+function salesMomHeatmapClassName(value: number | null) {
+  if (value == null || value === 0) return "bg-transparent";
+  return value > 0 ? "bg-[#c9e8ca]" : "bg-[#f2c5c0]";
 }
 
 function agencySummaryHeatColor(
@@ -2946,6 +3695,21 @@ function agencySummaryHeatColor(
 
   if (mode === "blue") return rgba(73, 150, 232, 0.12 + intensity * 0.5);
   if (mode === "lavender") return rgba(137, 146, 204, 0.16 + intensity * 0.44);
+
+  return rgba(214, 109, 211, 0.12 + intensity * 0.5);
+}
+
+function agentDashboardHeatColor(
+  value: number,
+  maxValue: number,
+  mode: "blue" | "green" | "pink"
+) {
+  if (!Number.isFinite(value) || value === 0) return "transparent";
+
+  const intensity = Math.min(Math.abs(value) / Math.max(Math.abs(maxValue), 1), 1);
+
+  if (mode === "green") return rgba(71, 181, 82, 0.12 + intensity * 0.55);
+  if (mode === "blue") return rgba(73, 150, 232, 0.12 + intensity * 0.5);
 
   return rgba(214, 109, 211, 0.12 + intensity * 0.5);
 }

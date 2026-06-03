@@ -89,6 +89,7 @@ export default async function DashboardPage({
               basePath="/dashboard/health"
               canViewAgent={canViewAgent}
               canViewSales={canViewSales}
+              key="dashboard-view-switch"
               searchParams={params}
             />
           }

@@ -35,6 +35,30 @@ type ReportMonthRange = {
 type TrendLevel = "month" | "quarter" | "year";
 
 const PC_PAGE_SIZE = 1000;
+const EXPIRED_POLICY_MONTH_COUNT = 12;
+const PC_SALES_ROW_SELECT = [
+  "agent_name",
+  "agency_name",
+  "insured_name",
+  "type",
+  "company",
+  "policy_number",
+  "premium",
+  "effective_date",
+  "expired_date",
+  "carrier_commission",
+  "paid_producer",
+  "statement_number",
+  "true_premium",
+  "expired_month_year",
+  "effective_month_year",
+  "status",
+  "city",
+  "state",
+  "total_commission",
+  "agent_commission_amount",
+  "eps_commission_amount",
+].join(",");
 
 export default async function PcSalesDashboardPage({
   searchParams,
@@ -50,7 +74,12 @@ export default async function PcSalesDashboardPage({
   const filters = parseFilters(params, defaultReportMonthRange);
   const trendLevel = parseTrendLevel(params.trendLevel);
   const currentMonthKey = getCurrentMonthKey();
-  const rows = await fetchPcSalesRows(filters.reportMonthRange, currentMonthKey);
+  const expiredPolicyWindow = getExpiredPolicyWindow();
+  const [rows, expiredPolicyRows, agentPerformanceSourceRows] = await Promise.all([
+    fetchPcSalesRows(filters.reportMonthRange, currentMonthKey),
+    fetchPcExpiredPolicyRows(expiredPolicyWindow.startDate, expiredPolicyWindow.endDate),
+    fetchPcSalesRows({ start: null, end: null }, currentMonthKey),
+  ]);
   const filterOptions = buildFilterOptions(rows);
 
   return (
@@ -87,8 +116,11 @@ export default async function PcSalesDashboardPage({
               key={`${filters.reportMonthRange.start ?? "all"}:${
                 filters.reportMonthRange.end ?? "all"
               }`}
+              agentPerformanceSourceRows={agentPerformanceSourceRows}
               filterOptions={filterOptions}
               filters={filters}
+              expiredMonthKeys={expiredPolicyWindow.monthKeys}
+              expiredRows={expiredPolicyRows}
               initialTrendLevel={trendLevel}
               rows={rows}
             />
@@ -115,31 +147,7 @@ async function fetchPcSalesRows(
   for (let from = 0; ; from += PC_PAGE_SIZE) {
     let query = supabase
       .from("pc_mart")
-      .select(
-        [
-          "agent_name",
-          "agency_name",
-          "insured_name",
-          "type",
-          "company",
-          "policy_number",
-          "premium",
-          "effective_date",
-          "expired_date",
-          "carrier_commission",
-          "paid_producer",
-          "statement_number",
-          "true_premium",
-          "expired_month_year",
-          "effective_month_year",
-          "status",
-          "city",
-          "state",
-          "total_commission",
-          "agent_commission_amount",
-          "eps_commission_amount",
-        ].join(",")
-      )
+      .select(PC_SALES_ROW_SELECT)
       .order("effective_date", { ascending: false })
       .range(from, from + PC_PAGE_SIZE - 1);
 
@@ -152,6 +160,30 @@ async function fetchPcSalesRows(
     }
 
     const { data, error } = await query;
+
+    if (error) throw new Error(error.message);
+
+    rows.push(...(((data ?? []) as unknown) as PcSalesRow[]));
+
+    if (!data || data.length < PC_PAGE_SIZE) {
+      return rows;
+    }
+  }
+}
+
+async function fetchPcExpiredPolicyRows(startDate: string, endDate: string) {
+  const supabase = getSupabaseAdmin();
+  const rows: PcSalesRow[] = [];
+
+  for (let from = 0; ; from += PC_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("pc_mart")
+      .select(PC_SALES_ROW_SELECT)
+      .not("expired_date", "is", null)
+      .gte("expired_date", startDate)
+      .lte("expired_date", endDate)
+      .order("expired_date", { ascending: true })
+      .range(from, from + PC_PAGE_SIZE - 1);
 
     if (error) throw new Error(error.message);
 
@@ -260,6 +292,37 @@ function parseMonthDateParam(value: string | string[] | undefined) {
 
 function getCurrentMonthKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getExpiredPolicyWindow(date = new Date()) {
+  const start = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 3, 1)
+  );
+  const end = new Date(
+    Date.UTC(
+      start.getUTCFullYear(),
+      start.getUTCMonth() + EXPIRED_POLICY_MONTH_COUNT,
+      0
+    )
+  );
+  const monthKeys = Array.from(
+    { length: EXPIRED_POLICY_MONTH_COUNT },
+    (_, index) => {
+      const monthDate = new Date(
+        Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + index, 1)
+      );
+
+      return `${monthDate.getUTCFullYear()}-${String(
+        monthDate.getUTCMonth() + 1
+      ).padStart(2, "0")}`;
+    }
+  );
+
+  return {
+    endDate: end.toISOString().slice(0, 10),
+    monthKeys,
+    startDate: start.toISOString().slice(0, 10),
+  };
 }
 
 function dateToMonthKey(value: string | null) {

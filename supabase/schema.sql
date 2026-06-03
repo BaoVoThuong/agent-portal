@@ -556,6 +556,14 @@ add column if not exists carrier_commission text,
 add column if not exists paid_producer text,
 add column if not exists statement_number text;
 
+-- ZIP -> city/state reference table. Row data is imported separately.
+-- zip is numeric so source values like "601.0" match pc_mart.zipcode.
+create table if not exists zipcode_lookup (
+  zip numeric primary key,
+  city text,
+  state text
+);
+
 create table if not exists pc_mart (
   agent_id text,
   agent_name text,
@@ -1021,9 +1029,10 @@ as $$
         when f.rn = 1 then 'NEW'
         else 'RENEWAL'
       end as status,
-      null::text as city,
-      null::text as state
+      z.city as city,
+      z.state as state
     from rn_excel f
+    left join zipcode_lookup z on z.zip = f.zipcode
     where not (f.agent is null and f.agency is null and f.policy_number is null)
   ),
   monetary as (

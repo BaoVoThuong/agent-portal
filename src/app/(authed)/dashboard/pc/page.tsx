@@ -18,7 +18,6 @@ import {
 import { DashboardViewSkeleton } from "../DashboardViewSkeleton";
 import {
   AgentPcDashboard,
-  type AgentPcExpiredMonthRow,
   type AgentPcFilterOptions,
   type AgentPcFilterValues,
   type AgentPcRow,
@@ -37,6 +36,7 @@ const PC_DASHBOARD_PERMISSIONS = [
   PERMISSIONS.COMPANY_DASHBOARD_PC,
 ];
 const PC_AGENT_PAGE_SIZE = 1000;
+const EXPIRED_POLICY_MONTH_COUNT = 12;
 
 type ReportMonthRange = {
   start: string | null;
@@ -72,11 +72,16 @@ export default async function PcDashboardPage({
   );
   const agentName = normalizeAgentName(session.user.name ?? "");
   const scopedAgentName = canViewAllAgents ? null : agentName;
+  const expiredPolicyWindow = getExpiredPolicyWindow();
   const rows = scopedAgentName || canViewAllAgents
     ? await fetchAgentPcRows(scopedAgentName, reportMonthRange)
     : null;
   const expiredRows = scopedAgentName || canViewAllAgents
-    ? await fetchAgentPcExpiredRows(scopedAgentName)
+    ? await fetchAgentPcExpiredRows(
+        scopedAgentName,
+        expiredPolicyWindow.startDate,
+        expiredPolicyWindow.endDate
+      )
     : [];
   const filters = parseFilters(params);
   const filterOptions = rows ? buildFilterOptions(rows) : emptyFilterOptions();
@@ -120,6 +125,7 @@ export default async function PcDashboardPage({
               canViewAll={canViewAllAgents}
               filterOptions={filterOptions}
               filters={filters}
+              expiredMonthKeys={expiredPolicyWindow.monthKeys}
               expiredRows={expiredRows}
               rows={rows}
             />
@@ -158,6 +164,8 @@ async function fetchAgentPcRows(
           "paid_producer",
           "statement_number",
           "agent_commission_amount",
+          "state",
+          "city",
         ].join(",")
       )
       .order("effective_date", { ascending: false })
@@ -187,10 +195,13 @@ async function fetchAgentPcRows(
   }
 }
 
-async function fetchAgentPcExpiredRows(agentName: string | null) {
+async function fetchAgentPcExpiredRows(
+  agentName: string | null,
+  startDate: string,
+  endDate: string
+) {
   const supabase = getSupabaseAdmin();
   const rows: AgentPcRow[] = [];
-  const today = new Date().toISOString().slice(0, 10);
 
   for (let from = 0; ; from += PC_AGENT_PAGE_SIZE) {
     let query = supabase
@@ -214,7 +225,8 @@ async function fetchAgentPcExpiredRows(agentName: string | null) {
         ].join(",")
       )
       .not("expired_date", "is", null)
-      .gte("expired_date", today)
+      .gte("expired_date", startDate)
+      .lte("expired_date", endDate)
       .order("expired_date", { ascending: true })
       .range(from, from + PC_AGENT_PAGE_SIZE - 1);
 
@@ -229,31 +241,9 @@ async function fetchAgentPcExpiredRows(agentName: string | null) {
     rows.push(...(((data ?? []) as unknown) as AgentPcRow[]));
 
     if (!data || data.length < PC_AGENT_PAGE_SIZE) {
-      return buildExpiredMonthRows(rows);
+      return rows;
     }
   }
-}
-
-function buildExpiredMonthRows(rows: AgentPcRow[]): AgentPcExpiredMonthRow[] {
-  return [
-    ...groupRows(rows, (row) => row.expired_date?.slice(0, 7) ?? "").entries(),
-  ]
-    .filter(([monthKey]) => Boolean(monthKey))
-    .map(([monthKey, group]) => ({
-      monthKey,
-      policyCount: new Set(
-        group
-          .map((row, index) => row.policy_number?.trim() || `row-${index}`)
-          .filter(Boolean)
-      ).size,
-      totalPremium: group.reduce(
-        (total, row) =>
-          total + Math.max(Number(row.true_premium ?? row.premium ?? 0), 0),
-        0
-      ),
-    }))
-    .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
-    .slice(0, 10);
 }
 
 function buildFilterOptions(rows: AgentPcRow[]): AgentPcFilterOptions {
@@ -361,18 +351,36 @@ function uniqueSorted(values: string[]) {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
-function groupRows<T>(rows: T[], getKey: (row: T) => string) {
-  const groups = new Map<string, T[]>();
 
-  for (const row of rows) {
-    const key = getKey(row);
-    const group = groups.get(key) ?? [];
+function getExpiredPolicyWindow(date = new Date()) {
+  const start = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 3, 1)
+  );
+  const end = new Date(
+    Date.UTC(
+      start.getUTCFullYear(),
+      start.getUTCMonth() + EXPIRED_POLICY_MONTH_COUNT,
+      0
+    )
+  );
+  const monthKeys = Array.from(
+    { length: EXPIRED_POLICY_MONTH_COUNT },
+    (_, index) => {
+      const monthDate = new Date(
+        Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + index, 1)
+      );
 
-    group.push(row);
-    groups.set(key, group);
-  }
+      return `${monthDate.getUTCFullYear()}-${String(
+        monthDate.getUTCMonth() + 1
+      ).padStart(2, "0")}`;
+    }
+  );
 
-  return groups;
+  return {
+    endDate: end.toISOString().slice(0, 10),
+    monthKeys,
+    startDate: start.toISOString().slice(0, 10),
+  };
 }
 
 function dateToMonthKey(value: string | null) {
