@@ -24,12 +24,20 @@ type MenuItem = {
 const menuData: MenuItem[] = [
   {
     title: "Customer Registration",
-    permission: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
+    anyPermission: [
+      PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
+      PERMISSIONS.CUSTOMER_REGISTRATION_PC,
+    ],
     children: [
       {
         href: "/",
         label: "Health",
         permission: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
+      },
+      {
+        href: "/customer-registration/pc",
+        label: "P&C",
+        permission: PERMISSIONS.CUSTOMER_REGISTRATION_PC,
       },
     ],
   },

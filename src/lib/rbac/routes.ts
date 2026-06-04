@@ -13,6 +13,10 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     permission: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
   },
   {
+    href: "/customer-registration/pc",
+    permission: PERMISSIONS.CUSTOMER_REGISTRATION_PC,
+  },
+  {
     href: "/automation/health-statement",
     permission: PERMISSIONS.AUTOMATION_HEALTH_STATEMENT,
   },

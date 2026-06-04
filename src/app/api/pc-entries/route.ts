@@ -1,18 +1,31 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { appendEntriesToSheet } from "@/lib/sheets";
-import type { EntryInput, Entry } from "@/lib/config";
+import { appendPcEntriesToSheet } from "@/lib/sheets";
+import type { PcEntryInput, PcEntry } from "@/lib/config";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildVisibleEntriesFilter, normalizeAgentName } from "@/lib/agent-name";
+
+const REQUIRED_PC_FIELDS = [
+  "agency",
+  "insured_name",
+  "address",
+  "type",
+  "company",
+  "policy_number",
+  "pay_plan",
+  "premium",
+  "effective_date",
+  "expired_date",
+] as const;
 
 export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH)
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_PC)
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -23,13 +36,11 @@ export async function GET() {
   );
   const supabase = getSupabaseAdmin();
   let query = supabase
-    .from("health_entries")
+    .from("pc_entries")
     .select("*")
     .order("created_at", { ascending: false });
 
   if (!canViewAll) {
-    // Show entries the user submitted (agent_email) OR entries someone else
-    // submitted on this agent's behalf (selected_agent matches their name).
     query = query.or(buildVisibleEntriesFilter(email, session.user.name));
   }
 
@@ -41,37 +52,27 @@ export async function GET() {
   return NextResponse.json({ entries: data ?? [] });
 }
 
-function sanitizeRow(row: Partial<EntryInput>): EntryInput | null {
-  const required = [
-    "carrier_name",
-    "state",
-    "zipcode",
-    "effective_date",
-    "customer_name",
-    "policy_id",
-  ] as const;
-  for (const key of required) {
+function sanitizeRow(row: Partial<PcEntryInput>): PcEntryInput | null {
+  for (const key of REQUIRED_PC_FIELDS) {
     const value = row[key];
     if (typeof value !== "string" || value.trim() === "") return null;
   }
+
   return {
     selected_agent:
       typeof row.selected_agent === "string"
         ? normalizeAgentName(row.selected_agent)
         : "",
-    carrier_name: String(row.carrier_name).trim(),
-    state: String(row.state).trim(),
-    zipcode: String(row.zipcode).trim(),
+    agency: String(row.agency).trim(),
+    insured_name: String(row.insured_name).trim(),
+    address: String(row.address).trim(),
+    type: String(row.type).trim(),
+    company: String(row.company).trim(),
+    policy_number: String(row.policy_number).trim(),
+    pay_plan: String(row.pay_plan).trim(),
+    premium: String(row.premium).trim(),
     effective_date: String(row.effective_date).trim(),
-    customer_name: String(row.customer_name).trim(),
-    policy_id: String(row.policy_id).trim(),
-    number_of_members:
-      row.number_of_members === null ||
-      row.number_of_members === undefined ||
-      row.number_of_members === ("" as unknown as number)
-        ? null
-        : Number(row.number_of_members),
-    fub_link: typeof row.fub_link === "string" ? row.fub_link.trim() : "",
+    expired_date: String(row.expired_date).trim(),
   };
 }
 
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
   const name = session?.user?.name ?? null;
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH)
+    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_PC)
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No rows provided" }, { status: 400 });
   }
 
-  const cleaned: EntryInput[] = [];
+  const cleaned: PcEntryInput[] = [];
   for (const row of rawRows) {
     const r = sanitizeRow(row);
     if (!r) {
@@ -119,7 +120,7 @@ export async function POST(request: Request) {
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
-    .from("health_entries")
+    .from("pc_entries")
     .insert(toInsert)
     .select("*");
 
@@ -127,11 +128,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const inserted = (data ?? []) as Entry[];
+  const inserted = (data ?? []) as PcEntry[];
   try {
-    await appendEntriesToSheet(inserted);
+    await appendPcEntriesToSheet(inserted);
   } catch (err) {
-    console.error("Sheet sync failed", err);
+    console.error("P&C sheet sync failed", err);
     return NextResponse.json({
       entries: inserted,
       warning: "Saved to database but Google Sheet sync failed",

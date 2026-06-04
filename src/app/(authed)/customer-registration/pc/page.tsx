@@ -1,17 +1,15 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { Entry } from "@/lib/config";
+import type { PcEntry } from "@/lib/config";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { buildVisibleEntriesFilter } from "@/lib/agent-name";
-import EntryGrid from "./EntryGrid";
+import PcEntryGrid from "./PcEntryGrid";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  const session = await requirePermission(
-    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH
-  );
+export default async function PcRegistrationPage() {
+  const session = await requirePermission(PERMISSIONS.CUSTOMER_REGISTRATION_PC);
   const email = session!.user!.email!;
   const canViewAll = can(
     session.user.permissions,
@@ -20,50 +18,50 @@ export default async function Home() {
 
   const supabase = getSupabaseAdmin();
   let query = supabase
-    .from("health_entries")
+    .from("pc_entries")
     .select("*")
     .order("created_at", { ascending: false });
 
   if (!canViewAll) {
-    // Show entries the user submitted OR entries entered on their behalf.
     query = query.or(buildVisibleEntriesFilter(email, session.user.name));
   }
 
   const { data } = await query;
-  const initialHistory = (data ?? []) as Entry[];
-  const agentOptions = await fetchHealthAgentNames();
+  const initialHistory = (data ?? []) as PcEntry[];
+  const agentOptions = await fetchPcAgentNames();
 
   return (
     <div className="px-8 py-8">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold text-[#16233a]">
-          Health Enrollment
+          P&amp;C Registration
         </h1>
         <p className="mt-1 text-sm text-[#667085]">
-          Manage client insurance enrollments. Data is securely tracked and synced to centralized records.
+          Manage P&amp;C customer registrations with the same batch workflow and
+          centralized sync used for Health.
         </p>
       </header>
-      <EntryGrid agentOptions={agentOptions} initialHistory={initialHistory} />
+      <PcEntryGrid agentOptions={agentOptions} initialHistory={initialHistory} />
     </div>
   );
 }
 
-async function fetchHealthAgentNames() {
+async function fetchPcAgentNames() {
   const supabase = getSupabaseAdmin();
   const names = new Set<string>();
   const pageSize = 1000;
 
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
-      .from("health_mart")
-      .select("agent")
-      .order("agent", { ascending: true })
+      .from("pc_mart")
+      .select("agent_name")
+      .order("agent_name", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) throw new Error(error.message);
 
-    for (const row of (data ?? []) as { agent: string | null }[]) {
-      const name = row.agent?.trim();
+    for (const row of (data ?? []) as { agent_name: string | null }[]) {
+      const name = row.agent_name?.trim();
       if (name) names.add(name);
     }
 

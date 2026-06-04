@@ -85,13 +85,15 @@ Open <http://localhost:3000>.
 ## How it works
 
 - Agent signs in with Google → NextAuth stores email + name in the session.
-- The home page reads `entries` filtered by `agent_email = session.user.email`
+- The home page reads `health_entries` filtered by `agent_email = session.user.email`
   using the Supabase service role on the server. The agent only sees their own
   rows.
 - Submitting rows: `POST /api/entries` validates required fields, inserts into
   Postgres with `agent_email`/`agent_name` from the session, then POSTs the new
   rows to the Apps Script Web App URL with the shared secret. Apps Script runs
   under the Sheet owner's identity and appends the rows.
+- P&C registration rows use `pc_entries` and sync to the `P&C Registration`
+  sheet tab in the same spreadsheet.
 
 ## Notes
 

@@ -155,6 +155,7 @@ $$;
 insert into permissions (key, label, description, group_key, group_label, sort_order)
 values
   ('customer_registration.health', 'Health Registration', 'View and manage Health registration records.', 'customer_registration', 'Customer Registration', 100),
+  ('customer_registration.pc', 'P&C Registration', 'View and manage P&C registration records.', 'customer_registration', 'Customer Registration', 200),
   ('automation.health_statement', 'Health Statement', 'Access and run the Health Statement tool.', 'automation', 'Automation', 100),
   ('automation.pc_statement', 'P&C Statement', 'Access and run the P&C Statement tool.', 'automation', 'Automation', 200),
   ('automation.provider_finder', 'Provider Finder', 'Access and run the Provider Finder tool.', 'automation', 'Automation', 300),
@@ -189,7 +190,9 @@ with permission_key_migrations (old_key, new_key) as (
     ('sales_dashboard.health', 'company_dashboard.health'),
     ('sales_dashboard.pc', 'company_dashboard.pc'),
     ('customer_registration.health.own', 'customer_registration.health'),
-    ('customer_registration.health.all', 'customer_registration.health')
+    ('customer_registration.health.all', 'customer_registration.health'),
+    ('customer_registration.pc.own', 'customer_registration.pc'),
+    ('customer_registration.pc.all', 'customer_registration.pc')
 )
 insert into role_permissions (role_id, permission_key)
 select rp.role_id, migrations.new_key
@@ -200,6 +203,7 @@ on conflict (role_id, permission_key) do nothing;
 delete from permissions
 where key not in (
   'customer_registration.health',
+  'customer_registration.pc',
   'automation.health_statement',
   'automation.pc_statement',
   'automation.provider_finder',
@@ -279,6 +283,7 @@ select r.id, p.key
 from roles r
 join permissions p on p.key in (
   'customer_registration.health',
+  'customer_registration.pc',
   'automation.health_statement',
   'automation.pc_statement',
   'automation.provider_finder',
@@ -320,7 +325,15 @@ where ur.ctid = ranked.ctid
 create unique index if not exists user_roles_one_role_per_user_idx
   on user_roles (user_id);
 
-create table if not exists entries (
+do $$
+begin
+  if to_regclass('public.entries') is not null
+    and to_regclass('public.health_entries') is null then
+    alter table public.entries rename to health_entries;
+  end if;
+end $$;
+
+create table if not exists health_entries (
   id uuid primary key default gen_random_uuid(),
   agent_email text not null,
   agent_name text,
@@ -338,11 +351,37 @@ create table if not exists entries (
 
 -- selected_agent: agent chosen from health_mart for this entry (the submitter
 -- stays in agent_email / agent_name). Added after the table already existed.
-alter table entries
+alter table health_entries
 add column if not exists selected_agent text;
 
-create index if not exists entries_agent_email_idx on entries (agent_email);
-create index if not exists entries_created_at_idx on entries (created_at desc);
+create index if not exists health_entries_agent_email_idx on health_entries (agent_email);
+create index if not exists health_entries_created_at_idx on health_entries (created_at desc);
+
+create table if not exists pc_entries (
+  id uuid primary key default gen_random_uuid(),
+  agent_email text not null,
+  agent_name text,
+  selected_agent text,
+  agency text not null,
+  insured_name text not null,
+  address text not null,
+  type text not null,
+  company text not null,
+  policy_number text not null,
+  pay_plan text not null,
+  premium text not null,
+  effective_date date not null,
+  expired_date date not null,
+  created_at timestamptz not null default now()
+);
+
+-- selected_agent: agent chosen from pc_mart for this P&C entry (the submitter
+-- stays in agent_email / agent_name).
+alter table pc_entries
+add column if not exists selected_agent text;
+
+create index if not exists pc_entries_agent_email_idx on pc_entries (agent_email);
+create index if not exists pc_entries_created_at_idx on pc_entries (created_at desc);
 
 create table if not exists dashboard_filter_defaults (
   dashboard_key text not null,
@@ -1219,7 +1258,8 @@ declare
     'permissions',
     'role_permissions',
     'user_roles',
-    'entries',
+    'health_entries',
+    'pc_entries',
     'dashboard_filter_defaults',
     'health_payment_summary',
     'provider_address',

@@ -1,5 +1,6 @@
 export const PERMISSIONS = {
   CUSTOMER_REGISTRATION_HEALTH: "customer_registration.health",
+  CUSTOMER_REGISTRATION_PC: "customer_registration.pc",
   AUTOMATION_HEALTH_STATEMENT: "automation.health_statement",
   AUTOMATION_PC_STATEMENT: "automation.pc_statement",
   AUTOMATION_PROVIDER_FINDER: "automation.provider_finder",
@@ -36,6 +37,14 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Customer Registration",
     description: "View and manage Health registration records.",
     sortOrder: 100,
+  },
+  {
+    key: PERMISSIONS.CUSTOMER_REGISTRATION_PC,
+    label: "P&C Registration",
+    groupKey: "customer_registration",
+    groupLabel: "Customer Registration",
+    description: "View and manage P&C registration records.",
+    sortOrder: 200,
   },
   {
     key: PERMISSIONS.AUTOMATION_HEALTH_STATEMENT,

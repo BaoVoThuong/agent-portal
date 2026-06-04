@@ -1,5 +1,6 @@
-// Normalize an agent name for matching across tables (health_mart.agent,
-// entries.selected_agent, session name): trim, collapse spaces, uppercase.
+// Normalize an agent name for matching across registration tables
+// (health_entries.selected_agent, pc_entries.selected_agent, session name):
+// trim, collapse spaces, uppercase.
 export function normalizeAgentName(value: string | null | undefined) {
   return (value ?? "").trim().replace(/\s+/g, " ").toUpperCase();
 }
