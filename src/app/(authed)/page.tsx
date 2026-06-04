@@ -3,6 +3,7 @@ import type { Entry } from "@/lib/config";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
+import { buildVisibleEntriesFilter } from "@/lib/agent-name";
 import EntryGrid from "./EntryGrid";
 
 export const dynamic = "force-dynamic";
@@ -24,11 +25,13 @@ export default async function Home() {
     .order("created_at", { ascending: false });
 
   if (!canViewAll) {
-    query = query.eq("agent_email", email);
+    // Show entries the user submitted OR entries entered on their behalf.
+    query = query.or(buildVisibleEntriesFilter(email, session.user.name));
   }
 
   const { data } = await query;
   const initialHistory = (data ?? []) as Entry[];
+  const agentOptions = await fetchHealthAgentNames();
 
   return (
     <div className="px-8 py-8">
@@ -40,7 +43,32 @@ export default async function Home() {
           Manage client insurance enrollments. Data is securely tracked and synced to centralized records.
         </p>
       </header>
-      <EntryGrid initialHistory={initialHistory} />
+      <EntryGrid agentOptions={agentOptions} initialHistory={initialHistory} />
     </div>
   );
+}
+
+async function fetchHealthAgentNames() {
+  const supabase = getSupabaseAdmin();
+  const names = new Set<string>();
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("health_mart")
+      .select("agent")
+      .order("agent", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw new Error(error.message);
+
+    for (const row of (data ?? []) as { agent: string | null }[]) {
+      const name = row.agent?.trim();
+      if (name) names.add(name);
+    }
+
+    if (!data || data.length < pageSize) break;
+  }
+
+  return [...names].sort((a, b) => a.localeCompare(b));
 }

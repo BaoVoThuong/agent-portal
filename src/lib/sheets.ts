@@ -5,6 +5,7 @@ function entryToRow(entry: Entry): (string | number)[] {
     entry.created_at,
     entry.agent_email,
     entry.agent_name ?? "",
+    entry.selected_agent ?? "",
     entry.carrier_name,
     entry.state,
     entry.zipcode,

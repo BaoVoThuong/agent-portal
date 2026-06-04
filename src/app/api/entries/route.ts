@@ -5,6 +5,7 @@ import { appendEntriesToSheet } from "@/lib/sheets";
 import type { EntryInput, Entry } from "@/lib/config";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { buildVisibleEntriesFilter, normalizeAgentName } from "@/lib/agent-name";
 
 export async function GET() {
   const session = await auth();
@@ -27,7 +28,9 @@ export async function GET() {
     .order("created_at", { ascending: false });
 
   if (!canViewAll) {
-    query = query.eq("agent_email", email);
+    // Show entries the user submitted (agent_email) OR entries someone else
+    // submitted on this agent's behalf (selected_agent matches their name).
+    query = query.or(buildVisibleEntriesFilter(email, session.user.name));
   }
 
   const { data, error } = await query;
@@ -52,6 +55,10 @@ function sanitizeRow(row: Partial<EntryInput>): EntryInput | null {
     if (typeof value !== "string" || value.trim() === "") return null;
   }
   return {
+    selected_agent:
+      typeof row.selected_agent === "string"
+        ? normalizeAgentName(row.selected_agent)
+        : "",
     carrier_name: String(row.carrier_name).trim(),
     state: String(row.state).trim(),
     zipcode: String(row.zipcode).trim(),
@@ -95,6 +102,13 @@ export async function POST(request: Request) {
       );
     }
     cleaned.push(r);
+  }
+
+  if (cleaned.some((r) => r.selected_agent === "")) {
+    return NextResponse.json(
+      { error: "Agent is required" },
+      { status: 400 }
+    );
   }
 
   const toInsert = cleaned.map((r) => ({

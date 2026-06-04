@@ -5,6 +5,7 @@ import { updateEntryInSheet, deleteEntryFromSheet } from "@/lib/sheets";
 import type { EntryInput, Entry } from "@/lib/config";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { normalizeAgentName } from "@/lib/agent-name";
 
 function sanitizeRow(row: Partial<EntryInput>): EntryInput | null {
   const required = [
@@ -20,6 +21,10 @@ function sanitizeRow(row: Partial<EntryInput>): EntryInput | null {
     if (typeof value !== "string" || value.trim() === "") return null;
   }
   return {
+    selected_agent:
+      typeof row.selected_agent === "string"
+        ? normalizeAgentName(row.selected_agent)
+        : "",
     carrier_name: String(row.carrier_name).trim(),
     state: String(row.state).trim(),
     zipcode: String(row.zipcode).trim(),
@@ -34,6 +39,18 @@ function sanitizeRow(row: Partial<EntryInput>): EntryInput | null {
         : Number(row.number_of_members),
     fub_link: typeof row.fub_link === "string" ? row.fub_link.trim() : "",
   };
+}
+
+function canManageEntry(
+  entry: { agent_email: string; selected_agent: string | null },
+  email: string,
+  name: string | null | undefined
+) {
+  if (entry.agent_email === email) return true;
+
+  const agentName = normalizeAgentName(name);
+
+  return agentName !== "" && normalizeAgentName(entry.selected_agent) === agentName;
 }
 
 export async function PATCH(
@@ -63,15 +80,18 @@ export async function PATCH(
   }
 
   const supabase = getSupabaseAdmin();
-  
-  // Verify ownership
+
+  // Verify ownership: submitter (agent_email) or the agent it was entered for.
   const { data: existing } = await supabase
     .from("entries")
-    .select("agent_email")
+    .select("agent_email, selected_agent")
     .eq("id", id)
     .single();
 
-  if (!existing || (!canManageAll && existing.agent_email !== email)) {
+  if (
+    !existing ||
+    (!canManageAll && !canManageEntry(existing, email, session.user.name))
+  ) {
     return NextResponse.json({ error: "Not found or forbidden" }, { status: 403 });
   }
 
@@ -122,15 +142,18 @@ export async function DELETE(
   );
 
   const supabase = getSupabaseAdmin();
-  
-  // Verify ownership
+
+  // Verify ownership: submitter (agent_email) or the agent it was entered for.
   const { data: existing } = await supabase
     .from("entries")
-    .select("agent_email")
+    .select("agent_email, selected_agent")
     .eq("id", id)
     .single();
 
-  if (!existing || (!canManageAll && existing.agent_email !== email)) {
+  if (
+    !existing ||
+    (!canManageAll && !canManageEntry(existing, email, session.user.name))
+  ) {
     return NextResponse.json({ error: "Not found or forbidden" }, { status: 403 });
   }
 

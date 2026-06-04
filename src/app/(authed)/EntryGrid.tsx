@@ -19,7 +19,8 @@ import type { Entry, EntryInput } from "../../lib/config";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
-type DraftRow = EntryInput & { _key: string };
+// selected_agent is chosen once per batch (above the grid), not per row.
+type DraftRow = Omit<EntryInput, "selected_agent"> & { _key: string };
 
 const EMPTY_DRAFT: Omit<DraftRow, "_key"> = {
   carrier_name: "",
@@ -70,11 +71,14 @@ function normalizeLink(value: unknown) {
 }
 
 export default function EntryGrid({
+  agentOptions,
   initialHistory,
 }: {
+  agentOptions: string[];
   initialHistory: Entry[];
 }) {
   const draftApiRef = useRef<GridApi<DraftRow> | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState("");
   const [drafts, setDrafts] = useState<DraftRow[]>(() => makeEmptyRows(10));
   const [history, setHistory] = useState<Entry[]>(initialHistory);
   const historyApiRef = useRef<GridApi<Entry> | null>(null);
@@ -277,6 +281,13 @@ export default function EntryGrid({
                 minute: "2-digit",
               })
             : "",
+      },
+      {
+        field: "selected_agent",
+        headerName: "Agent",
+        editable: false,
+        flex: 1,
+        minWidth: 120,
       },
       {
         field: "carrier_name",
@@ -495,6 +506,11 @@ export default function EntryGrid({
     setSubmitMessage(null);
     draftApiRef.current?.stopEditing();
 
+    if (selectedAgent.trim() === "") {
+      setSubmitMessage({ kind: "err", text: "Please select an agent before submitting." });
+      return;
+    }
+
     const filled = drafts.filter(isRowFilled);
     if (filled.length === 0) {
       setSubmitMessage({ kind: "err", text: "No rows to submit." });
@@ -516,6 +532,7 @@ export default function EntryGrid({
     setSubmitting(true);
     try {
       const payload = filled.map((draft) => ({
+        selected_agent: selectedAgent.trim(),
         carrier_name: draft.carrier_name,
         state: draft.state,
         zipcode: draft.zipcode,
@@ -588,7 +605,7 @@ export default function EntryGrid({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={submitting || filledCount === 0}
+              disabled={submitting || filledCount === 0 || selectedAgent.trim() === ""}
               className="rounded border border-transparent bg-[#15345f] px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#102b52] disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
             >
@@ -609,6 +626,28 @@ export default function EntryGrid({
         )}
 
         <div className="px-5 pb-5 pt-4">
+          <div className="mb-4 flex flex-col gap-1.5 sm:max-w-sm">
+            <label
+              className="text-xs font-semibold uppercase tracking-wide text-[#667085]"
+              htmlFor="batch-agent"
+            >
+              Agent <span className="text-rose-500">*</span>
+            </label>
+            <input
+              id="batch-agent"
+              list="batch-agent-options"
+              value={selectedAgent}
+              onChange={(event) => setSelectedAgent(event.target.value)}
+              placeholder="Type to search agents..."
+              autoComplete="off"
+              className="rounded border border-[#c9d2df] px-3 py-1.5 text-sm text-[#16233a] placeholder-[#667085] focus:border-[#15345f] focus:outline-none focus:ring-1 focus:ring-[#15345f]"
+            />
+            <datalist id="batch-agent-options">
+              {agentOptions.map((agent) => (
+                <option key={agent} value={agent} />
+              ))}
+            </datalist>
+          </div>
           <div className="h-[430px] w-full">
             <AgGridReact<DraftRow>
               theme={gridTheme}

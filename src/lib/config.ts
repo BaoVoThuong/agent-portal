@@ -1,4 +1,5 @@
 export type EntryInput = {
+  selected_agent: string;
   carrier_name: string;
   state: string;
   zipcode: string;

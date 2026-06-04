@@ -324,6 +324,7 @@ create table if not exists entries (
   id uuid primary key default gen_random_uuid(),
   agent_email text not null,
   agent_name text,
+  selected_agent text,
   carrier_name text not null,
   state text not null,
   zipcode text not null,
@@ -334,6 +335,11 @@ create table if not exists entries (
   fub_link text,
   created_at timestamptz not null default now()
 );
+
+-- selected_agent: agent chosen from health_mart for this entry (the submitter
+-- stays in agent_email / agent_name). Added after the table already existed.
+alter table entries
+add column if not exists selected_agent text;
 
 create index if not exists entries_agent_email_idx on entries (agent_email);
 create index if not exists entries_created_at_idx on entries (created_at desc);
