@@ -202,17 +202,17 @@ export default function PcEntryGrid({
         sortable: false,
         cellStyle: rowNumberCellStyle,
       },
-      { field: "agency", headerName: "AGENCY", editable: true, flex: 0.8, minWidth: 110 },
+      { field: "agency", headerName: "Agency", editable: true, flex: 0.8, minWidth: 110 },
       {
         field: "insured_name",
-        headerName: "INSURED NAME",
+        headerName: "Insured Name",
         editable: true,
         flex: 1.35,
         minWidth: 170,
       },
       {
         field: "address",
-        headerName: "ADDRESS",
+        headerName: "Address",
         editable: true,
         flex: 1.5,
         minWidth: 190,
@@ -228,7 +228,7 @@ export default function PcEntryGrid({
       },
       {
         field: "pay_plan",
-        headerName: "PAY PLAN",
+        headerName: "Pay Plan",
         editable: true,
         flex: 0.9,
         minWidth: 130,
@@ -302,21 +302,21 @@ export default function PcEntryGrid({
       },
       {
         field: "agency",
-        headerName: "AGENCY",
+        headerName: "Agency",
         editable: false,
         flex: 0.85,
         minWidth: 120,
       },
       {
         field: "insured_name",
-        headerName: "INSURED NAME",
+        headerName: "Insured Name",
         editable: false,
         flex: 1.35,
         minWidth: 170,
       },
       {
         field: "address",
-        headerName: "ADDRESS",
+        headerName: "Address",
         editable: false,
         flex: 1.5,
         minWidth: 190,
@@ -344,7 +344,7 @@ export default function PcEntryGrid({
       },
       {
         field: "pay_plan",
-        headerName: "PAY PLAN",
+        headerName: "Pay Plan",
         editable: false,
         flex: 0.9,
         minWidth: 130,
@@ -753,7 +753,7 @@ export default function PcEntryGrid({
             <form onSubmit={handleUpdate} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500 uppercase">AGENCY</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">Agency</label>
                   <input
                     className="w-full rounded border border-slate-200 p-2 text-sm focus:border-blue-500 focus:outline-none"
                     value={editingEntry.agency}
@@ -762,7 +762,7 @@ export default function PcEntryGrid({
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500 uppercase">INSURED NAME</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">Insured Name</label>
                   <input
                     className="w-full rounded border border-slate-200 p-2 text-sm focus:border-blue-500 focus:outline-none"
                     value={editingEntry.insured_name}
@@ -773,7 +773,7 @@ export default function PcEntryGrid({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-500 uppercase">ADDRESS</label>
+                <label className="text-xs font-semibold text-slate-500 uppercase">Address</label>
                 <input
                   className="w-full rounded border border-slate-200 p-2 text-sm focus:border-blue-500 focus:outline-none"
                   value={editingEntry.address}
@@ -814,7 +814,7 @@ export default function PcEntryGrid({
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-500 uppercase">PAY PLAN</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">Pay Plan</label>
                   <input
                     className="w-full rounded border border-slate-200 p-2 text-sm focus:border-blue-500 focus:outline-none"
                     value={editingEntry.pay_plan}
