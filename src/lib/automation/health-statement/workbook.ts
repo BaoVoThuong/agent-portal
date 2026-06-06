@@ -1,10 +1,13 @@
 import * as XLSX from "xlsx";
-import type {
-  DuplicatePaymentRow,
-  HealthStatementReport,
-  ProducerPaymentRow,
-} from "./report";
-import type { PaymentSummaryRow } from "./types";
+import type { HealthStatementReport } from "./report";
+import {
+  HEALTH_DUPLICATE_HEADERS,
+  HEALTH_PAYMENT_HEADERS,
+  HEALTH_PRODUCER_HEADERS,
+  healthDuplicateValues,
+  healthPaymentValues,
+  healthProducerValues,
+} from "./table-data";
 
 const SHEET_NAME = "Health_Statement_Result";
 
@@ -30,45 +33,6 @@ function addTable(
   rows: Array<Array<string | number | null>>
 ) {
   XLSX.utils.sheet_add_aoa(sheet, [headers, ...rows], { origin });
-}
-
-function paymentRows(rows: PaymentSummaryRow[]) {
-  return rows.map((row) => [
-    row.agent,
-    row.carrier_name,
-    row.customer_id,
-    row.customer_name,
-    row.effective_date,
-    row.paid_to_date,
-    row.gross_compensation,
-    row.transaction_id,
-    row.statement,
-  ]);
-}
-
-function producerRows(rows: ProducerPaymentRow[]) {
-  return rows.map((row) => [
-    row.agent,
-    row.deal_number,
-    row.deal_name,
-    row.carrier,
-    row.state,
-    row.plan_name,
-    row.primary_member_id,
-    row.broker_effective_date,
-    row.carriers_messer_paid,
-    row.paid_to_date,
-    row.transaction_id,
-    row.statement,
-  ]);
-}
-
-function duplicateRows(rows: DuplicatePaymentRow[]) {
-  return rows.map((row) => [
-    row.transaction_id,
-    row.carriers_messer_paid,
-    row.duplicate_count,
-  ]);
 }
 
 function applySummary(sheet: XLSX.WorkSheet, report: HealthStatementReport) {
@@ -109,62 +73,29 @@ export function buildHealthStatementWorkbook(report: HealthStatementReport) {
   addTable(
     sheet,
     "A10",
-    [
-      "Agent",
-      "Carrier_Name",
-      "Customer_ID",
-      "Customer_Name",
-      "Effective_Date",
-      "Paid_To_Date",
-      "Carriers_Messer_Paid",
-      "Transaction_ID",
-      "Statement",
-    ],
-    paymentRows(report.allPayment)
+    HEALTH_PAYMENT_HEADERS,
+    report.allPayment.map(healthPaymentValues)
   );
 
   addTable(
     sheet,
     "L10",
-    [
-      "Agent",
-      "Num_Client",
-      "Deal_Name",
-      "Carrier",
-      "State",
-      "Plan_Name",
-      "Primary_Member_ID",
-      "Broker_Effective_Date",
-      "Carriers_Messer_Paid",
-      "Paid_To_Date",
-      "Transaction_ID",
-      "Statement",
-    ],
-    producerRows(report.paymentForProducer)
+    HEALTH_PRODUCER_HEADERS,
+    report.paymentForProducer.map(healthProducerValues)
   );
 
   addTable(
     sheet,
     "Z10",
-    [
-      "Agent",
-      "Carrier_Name",
-      "Customer_ID",
-      "Customer_Name",
-      "Effective_Date",
-      "Paid_To_Date",
-      "Carriers_Messer_Paid",
-      "Transaction_ID",
-      "Statement",
-    ],
-    paymentRows(report.unclaimedPayment)
+    HEALTH_PAYMENT_HEADERS,
+    report.unclaimedPayment.map(healthPaymentValues)
   );
 
   addTable(
     sheet,
     "AK10",
-    ["Transaction_ID", "Carriers_Messer_Paid", "Duplicate_Count"],
-    duplicateRows(report.duplicatedPayment)
+    HEALTH_DUPLICATE_HEADERS,
+    report.duplicatedPayment.map(healthDuplicateValues)
   );
 
   applySummary(sheet, report);

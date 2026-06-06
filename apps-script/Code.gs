@@ -6,6 +6,9 @@
 // the Next.js .env. TODO: move this into a Script Property (SHARED_SECRET).
 
 var SECRET_KEY = "k7Hx9mQ2pR4vN8sT3wY5zL6jB1aD0fE"; // Khớp với file .env.local của bạn
+var PC_POLICY_SOURCE_SPREADSHEET_ID = "1ByO8MDhCUiBO_QVhxsDHR55ixw6AxL_gq-ghwgbgJXI";
+var PC_POLICY_SOURCE_SHEET = "Policy Tracker";
+var PC_POLICY_SOURCE_COLUMN_COUNT = 11;
 
 function doPost(e) {
   if (!e || !e.postData || !e.postData.contents) {
@@ -22,6 +25,18 @@ function doPost(e) {
   }
 
   var action = data.action;
+
+  if (action === "pcPolicyTracker") {
+    try {
+      return jsonOutput(readPcPolicyTracker());
+    } catch (err) {
+      return jsonOutput({
+        ok: false,
+        error: err && err.message ? err.message : "Failed to read Policy Tracker"
+      });
+    }
+  }
+
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = getTargetSheet(spreadsheet, data.sheetName, action === "create");
 
@@ -60,13 +75,102 @@ function doPost(e) {
       } else {
         sheet.deleteRow(foundIndex);
       }
-      return ContentService.createTextOutput(JSON.stringify({ok: true})).setMimeType(ContentService.MimeType.JSON);
+      return jsonOutput({ok: true});
     }
 
-    return ContentService.createTextOutput(JSON.stringify({ok: false, error: "ID not found"})).setMimeType(ContentService.MimeType.JSON);
+    return jsonOutput({ok: false, error: "ID not found"});
   }
 
-  return ContentService.createTextOutput(JSON.stringify({ok: false, error: "Unknown action"})).setMimeType(ContentService.MimeType.JSON);
+  return jsonOutput({ok: false, error: "Unknown action"});
+}
+
+function jsonOutput(payload) {
+  return ContentService
+    .createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function readPcPolicyTracker() {
+  var sourceSS = SpreadsheetApp.openById(PC_POLICY_SOURCE_SPREADSHEET_ID);
+  var sourceSheet = sourceSS.getSheetByName(PC_POLICY_SOURCE_SHEET);
+
+  if (!sourceSheet) {
+    throw new Error("Policy Tracker sheet not found");
+  }
+
+  var lastRow = sourceSheet.getLastRow();
+
+  if (lastRow < 2) {
+    return {
+      ok: true,
+      headers: [],
+      rows: [],
+      lastBlackRow: null,
+      basePolicyCount: 0,
+      newPolicyCount: 0
+    };
+  }
+
+  var range = sourceSheet.getRange(
+    1,
+    1,
+    lastRow,
+    PC_POLICY_SOURCE_COLUMN_COUNT
+  );
+  var values = range.getValues();
+  var backgrounds = range.getBackgrounds();
+  var lastBlackRow = null;
+
+  for (var r = 0; r < backgrounds.length; r++) {
+    var bg = backgrounds[r];
+
+    if (
+      bg[0] === "#000000" &&
+      bg[1] === "#000000" &&
+      bg[2] === "#000000" &&
+      bg[3] === "#000000"
+    ) {
+      lastBlackRow = r + 1;
+    }
+  }
+
+  var headers = values[0].map(function(value) {
+    return value === null || value === undefined ? "" : String(value);
+  });
+  var rows = [];
+  var basePolicyCount = 0;
+  var newPolicyCount = 0;
+
+  for (var i = 1; i < values.length; i++) {
+    var sourceRowNumber = i + 1;
+    var isBlackLine = lastBlackRow !== null && sourceRowNumber === lastBlackRow;
+    var isNewPolicy = lastBlackRow !== null && sourceRowNumber > lastBlackRow;
+
+    if (isBlackLine) {
+      continue;
+    }
+
+    rows.push({
+      sourceRowNumber: sourceRowNumber,
+      isNewPolicy: isNewPolicy ? 1 : 0,
+      values: values[i]
+    });
+
+    if (isNewPolicy) {
+      newPolicyCount++;
+    } else {
+      basePolicyCount++;
+    }
+  }
+
+  return {
+    ok: true,
+    headers: headers,
+    rows: rows,
+    lastBlackRow: lastBlackRow,
+    basePolicyCount: basePolicyCount,
+    newPolicyCount: newPolicyCount
+  };
 }
 
 function getTargetSheet(spreadsheet, sheetName, createIfMissing) {
