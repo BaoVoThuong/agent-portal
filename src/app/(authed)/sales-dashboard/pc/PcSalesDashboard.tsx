@@ -1645,7 +1645,7 @@ function AgencySummaryHeaderCell({
 }) {
   return (
     <th
-      className={`border-b border-slate-200 bg-slate-50/80 px-2 py-3 align-middle text-[11px] font-semibold uppercase leading-snug tracking-[0.04em] text-slate-500 ${
+      className={`sticky top-0 z-10 border-b border-slate-200 bg-[#edf3fb] px-2 py-3 align-middle text-[11px] font-semibold uppercase leading-snug tracking-[0.04em] text-slate-500 ${
         bordered ? "border-r last:border-r-0" : ""
       } ${
         align === "right" ? "text-right" : "text-left"
@@ -1797,7 +1797,7 @@ function AgentMonthlyDashboardTable({
           className="table-fixed text-[11px] tabular-nums"
           style={{ minWidth: tableWidth, width: tableWidth }}
         >
-          <thead className="sticky top-0 z-20">
+          <thead>
             <tr>
               <AgentDashboardHeaderCell
                 className="border-r-2 border-slate-300 bg-slate-50"
@@ -1861,6 +1861,7 @@ function AgentMonthlyDashboardTable({
                   <AgentDashboardHeaderCell
                     align="right"
                     key={`${agent}-policies`}
+                    stickyTop="40px"
                     width="100px"
                   >
                     Policies
@@ -1868,6 +1869,7 @@ function AgentMonthlyDashboardTable({
                   <AgentDashboardHeaderCell
                     align="right"
                     key={`${agent}-premium`}
+                    stickyTop="40px"
                     width="100px"
                   >
                     Total Premium
@@ -1876,6 +1878,7 @@ function AgentMonthlyDashboardTable({
                     align="right"
                     groupEnd
                     key={`${agent}-commission`}
+                    stickyTop="40px"
                     width="100px"
                   >
                     Commission
@@ -2097,6 +2100,7 @@ function AgentDashboardHeaderCell({
   size = "metric",
   stickyDivider = false,
   stickyLeft,
+  stickyTop = "0px",
   width,
 }: {
   align?: "center" | "left" | "right";
@@ -2108,24 +2112,30 @@ function AgentDashboardHeaderCell({
   size?: "group" | "metric";
   stickyDivider?: boolean;
   stickyLeft?: string;
+  stickyTop?: string;
   width?: string;
 }) {
+  // Header luôn sticky theo top; cột trái thêm sticky theo left với z cao hơn.
+  const stickyClass = stickyLeft ? "sticky z-40" : "sticky z-30";
+
   return (
     <th
-      className={`border-b border-b-slate-200 font-semibold uppercase tracking-[0.04em] text-slate-500 ${
+      className={`${stickyClass} border-b border-b-slate-200 font-semibold uppercase tracking-[0.04em] text-slate-500 ${
         size === "group" ? "px-3 py-3 text-[11px]" : "px-2 py-2.5 text-[10px]"
       } ${
         groupEnd || stickyDivider
           ? "border-r-2 border-slate-300"
           : "border-r border-slate-200"
-      } ${
-        stickyLeft ? "sticky z-30" : ""
       } ${className || "bg-slate-50"} ${
         align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"
       }`}
       colSpan={colSpan}
       rowSpan={rowSpan}
-      style={{ ...(stickyLeft ? { left: stickyLeft } : {}), ...(width ? { width } : {}) }}
+      style={{
+        top: stickyTop,
+        ...(stickyLeft ? { left: stickyLeft } : {}),
+        ...(width ? { width } : {}),
+      }}
     >
       {children}
     </th>
