@@ -452,19 +452,14 @@ function buildUnclaimedFlow({
   offset: number;
   payments: PcCleanPaymentReportRow[];
 }) {
-  return payments
-    .map((payment, index) =>
-      buildStatementRow({
-        flowOrder: 3,
-        payment,
-        policy: null,
-        rn: offset + index + 1,
-      })
-    )
-    .filter(
-      (row) =>
-        row.carrier_commision_rate !== null && row.carrier_commision_rate < 0.5
-    );
+  return payments.map((payment, index) =>
+    buildStatementRow({
+      flowOrder: 3,
+      payment,
+      policy: null,
+      rn: offset + index + 1,
+    })
+  );
 }
 
 function usedPaymentIds(rows: PcStatementReportRow[]) {
