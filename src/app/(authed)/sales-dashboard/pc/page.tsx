@@ -195,6 +195,21 @@ async function fetchPcExpiredPolicyRows(startDate: string, endDate: string) {
   }
 }
 
+const UNPAID_PRODUCER_LABEL = "Unpaid";
+
+function buildPaidProducerOptions(rows: PcSalesRow[]) {
+  const dates = uniqueSortedDesc(
+    rows
+      .map((row) => cleanGroupLabel(row.paid_producer))
+      .filter((value) => value !== "null")
+  );
+  const hasUnpaid = rows.some(
+    (row) => cleanGroupLabel(row.paid_producer) === "null"
+  );
+
+  return hasUnpaid ? [UNPAID_PRODUCER_LABEL, ...dates] : dates;
+}
+
 function buildFilterOptions(rows: PcSalesRow[]): FilterOptions {
   return {
     agencies: uniqueSorted(
@@ -203,9 +218,7 @@ function buildFilterOptions(rows: PcSalesRow[]): FilterOptions {
     agents: uniqueSorted(
       rows.map((row) => cleanGroupLabel(row.agent_name)).filter((value) => value !== "null")
     ),
-    paidProducers: uniqueSortedDesc(
-      rows.map((row) => cleanGroupLabel(row.paid_producer)).filter((value) => value !== "null")
-    ),
+    paidProducers: buildPaidProducerOptions(rows),
     statementNumbers: uniqueSortedDesc(
       rows.map((row) => cleanGroupLabel(row.statement_number)).filter((value) => value !== "null")
     ),

@@ -78,37 +78,47 @@ type MonthlySummary = Summary & {
   epsCommissionChangePercent: number | null;
 };
 
+type UnpaidMonthRow = Summary & {
+  monthKey: string;
+  isTotal: boolean;
+  // "total" = dòng tổng tháng; "agent" = dòng con theo agent.
+  level: "total" | "agent";
+  agent: string;
+};
+
+type UnpaidAgentRow = {
+  agent: string;
+  isTotal: boolean;
+  policyCount: number;
+  totalPremium: number;
+  estAgentCommission: number;
+};
+
 type AgencyMonthRow = Summary & {
   agency: string;
   isTotal: boolean;
   monthKey: string;
+  // "agency" = dòng tổng của agency; "producer" = dòng con theo Paid Producer Date.
+  level: "agency" | "producer";
+  paidProducerDate: string;
+  // Các statement number thuộc nhóm paid producer date này (hiển thị nhỏ trong ô).
+  statementNumbers: string;
 };
 
-type AgentPivotGroup = {
-  monthKey: string;
-  rows: AgentPivotRow[];
-  total: AgentPivotRow;
-};
-
-type AgentPivotRow = {
+type AgentPaidDateRow = {
   agency: string;
+  paidProducerDate: string;
+  statementNumbers: string;
   isTotal: boolean;
-  valuesByAgent: Record<string, number>;
-  grandTotal: number;
+  policies: Record<string, number>;
+  premium: Record<string, number>;
+  commission: Record<string, number>;
 };
 
-type AgentCommissionGroup = {
+type AgentPaidDateGroup = {
   monthKey: string;
-  rows: AgentCommissionPivotRow[];
-  monthlyTotal: AgentCommissionPivotRow;
-};
-
-type AgentCommissionPivotRow = {
-  agency: string;
-  statement: string;
-  isTotal: boolean;
-  valuesByAgent: Record<string, number>;
-  grandTotal: number;
+  rows: AgentPaidDateRow[];
+  monthlyTotal: AgentPaidDateRow;
 };
 
 type CarrierRow = Summary & {
@@ -161,9 +171,9 @@ type DashboardData = {
   trendRows: MonthlySummary[];
   agencyMonthRows: AgencyMonthRow[];
   agentNames: string[];
-  agentPremiumGroups: AgentPivotGroup[];
-  agentSalesGroups: AgentPivotGroup[];
-  agentCommissionGroups: AgentCommissionGroup[];
+  agentPaidDateGroups: AgentPaidDateGroup[];
+  unpaidMonthRows: UnpaidMonthRow[];
+  unpaidAgentRows: UnpaidAgentRow[];
   carrierRows: CarrierRow[];
   stateGroups: StateGroup[];
   statePolicyCounts: Record<string, number>;
@@ -187,7 +197,21 @@ type PolicySortState = { key: PolicySortKey; direction: SortDirection };
 type PolicyFilterOption = { label: string; value: string };
 type DateRange = { from: string; to: string };
 
+const UNPAID_PRODUCER_LABEL = "Unpaid";
 const TREND_MONTH_LIMIT = 17;
+
+function getRowPaidProducerDate(row: PcSalesRow) {
+  const value = cleanGroupLabel(row.paid_producer);
+  return value === "null" ? UNPAID_PRODUCER_LABEL : value;
+}
+
+function collectStatementNumbers(rows: PcSalesRow[]) {
+  const statements = rows
+    .map((row) => cleanGroupLabel(row.statement_number))
+    .filter((value) => value !== "null");
+
+  return [...new Set(statements)].sort((a, b) => b.localeCompare(a)).join(", ");
+}
 const CARRIER_ROW_LIMIT = 24;
 const SALES_MOM_VISIBLE_ROW_COUNT = 6;
 const SALES_MOM_HEADER_HEIGHT_PX = 44;
@@ -526,9 +550,9 @@ function buildDashboardData(rows: PcSalesRow[], trendLevel: TrendLevel): Dashboa
     trendRows,
     agencyMonthRows: buildAgencyMonthRows(rows, trendLevel),
     agentNames,
-    agentPremiumGroups: buildAgentPremiumGroups(rows, agentNames, trendLevel),
-    agentSalesGroups: buildAgentSalesGroups(rows, agentNames, trendLevel),
-    agentCommissionGroups: buildAgentCommissionGroups(rows, agentNames, trendLevel),
+    agentPaidDateGroups: buildAgentPaidDateGroups(rows, agentNames, trendLevel),
+    unpaidMonthRows: buildUnpaidMonthRows(rows, trendLevel),
+    unpaidAgentRows: buildUnpaidAgentRows(rows),
     carrierRows: buildCarrierRows(rows, overview).slice(0, CARRIER_ROW_LIMIT),
     stateGroups,
     statePolicyCounts: buildStatePolicyCounts(stateGroups),
@@ -717,20 +741,42 @@ function buildAgencyMonthRows(
 
   for (const [periodKey, monthRows] of monthGroups) {
     const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
-    const agencyRows = [...groupRows(monthRows, (row) => cleanGroupLabel(row.agency_name)).entries()]
+    const agencyGroups = [...groupRows(monthRows, (row) => cleanGroupLabel(row.agency_name)).entries()]
       .map(([agency, group]) => ({
         agency,
-        isTotal: false,
-        monthKey: periodLabel,
-        ...summarizeRows(group),
+        group,
+        summary: summarizeRows(group),
       }))
-      .sort((a, b) => b.policyCount - a.policyCount || a.agency.localeCompare(b.agency));
+      .sort(
+        (a, b) =>
+          b.summary.policyCount - a.summary.policyCount ||
+          a.agency.localeCompare(b.agency)
+      );
 
-    result.push(...agencyRows);
+    for (const { agency, group } of agencyGroups) {
+      // Mỗi dòng = 1 (agency, Paid Producer Date). Null = "Unpaid".
+      const producerRows = [...groupRows(group, getRowPaidProducerDate).entries()]
+        .map(([paidProducerDate, producerGroup]) => ({
+          agency,
+          isTotal: false,
+          monthKey: periodLabel,
+          level: "producer" as const,
+          paidProducerDate,
+          statementNumbers: collectStatementNumbers(producerGroup),
+          ...summarizeRows(producerGroup),
+        }))
+        .sort(comparePaidProducerRows);
+
+      result.push(...producerRows);
+    }
+
     result.push({
       agency: "Total",
       isTotal: true,
       monthKey: periodLabel,
+      level: "agency",
+      paidProducerDate: "",
+      statementNumbers: "",
       ...summarizeRows(monthRows),
     });
   }
@@ -740,10 +786,223 @@ function buildAgencyMonthRows(
     agency: "Grand total",
     isTotal: true,
     monthKey: "",
+    level: "agency",
+    paidProducerDate: "",
+    statementNumbers: "",
     ...grandTotal,
   });
 
   return result;
+}
+
+function comparePaidProducerRows(a: AgencyMonthRow, b: AgencyMonthRow) {
+  // "Unpaid" xuống cuối; còn lại sort ngày giảm dần.
+  const aUnpaid = a.paidProducerDate === UNPAID_PRODUCER_LABEL;
+  const bUnpaid = b.paidProducerDate === UNPAID_PRODUCER_LABEL;
+  if (aUnpaid !== bUnpaid) return aUnpaid ? 1 : -1;
+
+  return b.paidProducerDate.localeCompare(a.paidProducerDate);
+}
+
+// Carrier rate trung bình theo company, từ các policy đã có rate.
+function buildAvgCarrierRateByCompany(rows: PcSalesRow[]) {
+  const totals = new Map<string, { sum: number; count: number }>();
+
+  for (const row of rows) {
+    const rate = row.carrier_commission;
+    if (rate === null || !Number.isFinite(rate)) continue;
+
+    const company = cleanGroupLabel(row.company);
+    const current = totals.get(company) ?? { sum: 0, count: 0 };
+    current.sum += rate;
+    current.count += 1;
+    totals.set(company, current);
+  }
+
+  const avgByCompany = new Map<string, number>();
+  for (const [company, { sum, count }] of totals) {
+    if (count > 0) avgByCompany.set(company, sum / count);
+  }
+
+  return avgByCompany;
+}
+
+// Ước tính commission cho 1 policy theo rule pc_mart.
+// Rate: carrier_commission của policy, fallback = avg rate theo company.
+function estimateCommission(
+  row: PcSalesRow,
+  avgRateByCompany: Map<string, number>
+) {
+  const premium = Math.max(moneyValue(row.true_premium ?? row.premium), 0);
+  const rate =
+    row.carrier_commission !== null && Number.isFinite(row.carrier_commission)
+      ? row.carrier_commission
+      : avgRateByCompany.get(cleanGroupLabel(row.company)) ?? 0;
+
+  const agencyFactor =
+    cleanGroupLabel(row.agency_name) === "DP"
+      ? 0.75
+      : cleanGroupLabel(row.agency_name) === "TWFG"
+        ? 0.8
+        : 0;
+  const total = rate * premium * agencyFactor;
+  const agentRate = cleanGroupLabel(row.agent_name) === "FIONA" ? 0.6 : 0.75;
+  const agent = agentRate * total;
+
+  return { total, agent, eps: total - agent };
+}
+
+function summarizeUnpaid(
+  rows: PcSalesRow[],
+  {
+    monthKey,
+    isTotal,
+    level,
+    agent,
+    avgRateByCompany,
+  }: {
+    monthKey: string;
+    isTotal: boolean;
+    level: "total" | "agent";
+    agent: string;
+    avgRateByCompany: Map<string, number>;
+  }
+): UnpaidMonthRow {
+  const base = summarizeRows(rows);
+  let totalCommission = 0;
+  let agentCommission = 0;
+  let epsCommission = 0;
+
+  for (const row of rows) {
+    const est = estimateCommission(row, avgRateByCompany);
+    totalCommission += est.total;
+    agentCommission += est.agent;
+    epsCommission += est.eps;
+  }
+
+  return {
+    ...base,
+    monthKey,
+    isTotal,
+    level,
+    agent,
+    totalCommission: roundMoney(totalCommission),
+    agentCommission: roundMoney(agentCommission),
+    epsCommission: roundMoney(epsCommission),
+  };
+}
+
+// Các policy chưa được paid (paid_producer null), nhóm theo tháng hiệu lực.
+// Commission ước tính: carrier rate (hoặc avg theo company nếu thiếu) × premium × factor.
+function buildUnpaidMonthRows(
+  rows: PcSalesRow[],
+  trendLevel: TrendLevel
+): UnpaidMonthRow[] {
+  const avgRateByCompany = buildAvgCarrierRateByCompany(rows);
+  const unpaidRows = rows.filter(
+    (row) => cleanGroupLabel(row.paid_producer) === "null"
+  );
+
+  const result: UnpaidMonthRow[] = [];
+  const monthGroups = [
+    ...groupRows(unpaidRows, (row) =>
+      getTrendPeriodKey(getEffectiveMonth(row), trendLevel)
+    ).entries(),
+  ]
+    .filter(([periodKey]) => Boolean(periodKey))
+    .sort((a, b) => b[0].localeCompare(a[0]));
+
+  for (const [periodKey, group] of monthGroups) {
+    const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
+
+    // Dòng con theo agent.
+    const agentRows = [...groupRows(group, (row) => cleanGroupLabel(row.agent_name)).entries()]
+      .map(([agent, agentGroup]) =>
+        summarizeUnpaid(agentGroup, {
+          monthKey: periodLabel,
+          isTotal: false,
+          level: "agent",
+          agent: agent === "null" ? "Unknown" : agent,
+          avgRateByCompany,
+        })
+      )
+      .sort((a, b) => b.policyCount - a.policyCount || a.agent.localeCompare(b.agent));
+
+    result.push(...agentRows);
+
+    // Dòng tổng tháng.
+    result.push(
+      summarizeUnpaid(group, {
+        monthKey: periodLabel,
+        isTotal: true,
+        level: "total",
+        agent: "",
+        avgRateByCompany,
+      })
+    );
+  }
+
+  if (unpaidRows.length === 0) return result;
+
+  result.push(
+    summarizeUnpaid(unpaidRows, {
+      monthKey: "Total",
+      isTotal: true,
+      level: "total",
+      agent: "",
+      avgRateByCompany,
+    })
+  );
+
+  return result;
+}
+
+// Tổng est agent commission còn thiếu (policy chưa paid) theo từng agent.
+function buildUnpaidAgentRows(rows: PcSalesRow[]): UnpaidAgentRow[] {
+  const avgRateByCompany = buildAvgCarrierRateByCompany(rows);
+  const unpaidRows = rows.filter(
+    (row) => cleanGroupLabel(row.paid_producer) === "null"
+  );
+
+  const agentRows = [...groupRows(unpaidRows, (row) => cleanGroupLabel(row.agent_name)).entries()]
+    .filter(([agent]) => agent !== "null")
+    .map(([agent, group]) => {
+      const summary = summarizeRows(group);
+      return {
+        agent,
+        isTotal: false,
+        policyCount: summary.policyCount,
+        totalPremium: summary.totalPremium,
+        estAgentCommission: roundMoney(
+          group.reduce(
+            (total, row) => total + estimateCommission(row, avgRateByCompany).agent,
+            0
+          )
+        ),
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.estAgentCommission - a.estAgentCommission ||
+        a.agent.localeCompare(b.agent)
+    );
+
+  if (agentRows.length === 0) return agentRows;
+
+  agentRows.push({
+    agent: "Total",
+    isTotal: true,
+    policyCount: summarizeRows(unpaidRows).policyCount,
+    totalPremium: summarizeRows(unpaidRows).totalPremium,
+    estAgentCommission: roundMoney(
+      unpaidRows.reduce(
+        (total, row) => total + estimateCommission(row, avgRateByCompany).agent,
+        0
+      )
+    ),
+  });
+
+  return agentRows;
 }
 
 function buildAgentNames(rows: PcSalesRow[]) {
@@ -757,59 +1016,52 @@ function buildAgentNames(rows: PcSalesRow[]) {
     .map((row) => row.agent);
 }
 
-function buildAgentSalesGroups(
-  rows: PcSalesRow[],
-  agentNames: string[],
-  trendLevel: TrendLevel
-): AgentPivotGroup[] {
-  return [
-    ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), trendLevel)).entries(),
-  ]
-    .filter(([periodKey]) => Boolean(periodKey))
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([periodKey, monthRows]) => {
-      const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
-      const agencyRows = [...groupRows(monthRows, (row) => cleanGroupLabel(row.agency_name)).entries()]
-        .map(([agency, agencyRows]) =>
-          buildAgentPolicyPivotRow(agency, agencyRows, agentNames, false)
-        )
-        .sort((a, b) => b.grandTotal - a.grandTotal || a.agency.localeCompare(b.agency));
+// --- Agent Dashboard by Month: dòng theo (agency, paid producer date) ---
 
-      return {
-        monthKey: periodLabel,
-        rows: agencyRows,
-        total: buildAgentPolicyPivotRow("Total Policies", monthRows, agentNames, true),
-      };
-    });
+function agentMetrics(rows: PcSalesRow[], agentNames: string[]) {
+  const policies: Record<string, number> = {};
+  const premium: Record<string, number> = {};
+  const commission: Record<string, number> = {};
+
+  for (const agent of agentNames) {
+    const agentRows = rows.filter(
+      (row) => cleanGroupLabel(row.agent_name) === agent
+    );
+    policies[agent] = summarizeRows(agentRows).policyCount;
+    premium[agent] = agentRows.reduce(
+      (total, row) => total + Math.max(moneyValue(row.true_premium ?? row.premium), 0),
+      0
+    );
+    commission[agent] = agentRows.reduce(
+      (total, row) => total + moneyValue(row.agent_commission_amount),
+      0
+    );
+  }
+
+  return { policies, premium, commission };
 }
 
-function buildAgentPolicyPivotRow(
+function buildAgentPaidDateRow(
   agency: string,
+  paidProducerDate: string,
   rows: PcSalesRow[],
   agentNames: string[],
   isTotal: boolean
-): AgentPivotRow {
-  const valuesByAgent: Record<string, number> = {};
-
-  for (const agent of agentNames) {
-    valuesByAgent[agent] = summarizeRows(
-      rows.filter((row) => cleanGroupLabel(row.agent_name) === agent)
-    ).policyCount;
-  }
-
+): AgentPaidDateRow {
   return {
     agency,
+    paidProducerDate,
+    statementNumbers: collectStatementNumbers(rows),
     isTotal,
-    valuesByAgent,
-    grandTotal: Object.values(valuesByAgent).reduce((total, value) => total + value, 0),
+    ...agentMetrics(rows, agentNames),
   };
 }
 
-function buildAgentPremiumGroups(
+function buildAgentPaidDateGroups(
   rows: PcSalesRow[],
   agentNames: string[],
   trendLevel: TrendLevel
-): AgentPivotGroup[] {
+): AgentPaidDateGroup[] {
   return [
     ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), trendLevel)).entries(),
   ]
@@ -817,109 +1069,44 @@ function buildAgentPremiumGroups(
     .sort((a, b) => b[0].localeCompare(a[0]))
     .map(([periodKey, monthRows]) => {
       const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
-      const agencyRows = [...groupRows(monthRows, (row) => cleanGroupLabel(row.agency_name)).entries()]
-        .map(([agency, agencyRows]) =>
-          buildAgentPremiumPivotRow(agency, agencyRows, agentNames, false)
-        )
-        .sort((a, b) => b.grandTotal - a.grandTotal || a.agency.localeCompare(b.agency));
-
-      return {
-        monthKey: periodLabel,
-        rows: agencyRows,
-        total: buildAgentPremiumPivotRow("Total Premium", monthRows, agentNames, true),
-      };
-    });
-}
-
-function buildAgentPremiumPivotRow(
-  agency: string,
-  rows: PcSalesRow[],
-  agentNames: string[],
-  isTotal: boolean
-): AgentPivotRow {
-  const valuesByAgent: Record<string, number> = {};
-
-  for (const agent of agentNames) {
-    valuesByAgent[agent] = rows
-      .filter((row) => cleanGroupLabel(row.agent_name) === agent)
-      .reduce(
-        (total, row) =>
-          total + Math.max(moneyValue(row.true_premium ?? row.premium), 0),
-        0
-      );
-  }
-
-  return {
-    agency,
-    grandTotal: Object.values(valuesByAgent).reduce((total, value) => total + value, 0),
-    isTotal,
-    valuesByAgent,
-  };
-}
-
-function buildAgentCommissionGroups(
-  rows: PcSalesRow[],
-  agentNames: string[],
-  trendLevel: TrendLevel
-): AgentCommissionGroup[] {
-  return [
-    ...groupRows(rows, (row) => getTrendPeriodKey(getEffectiveMonth(row), trendLevel)).entries(),
-  ]
-    .filter(([periodKey]) => Boolean(periodKey))
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([periodKey, monthRows]) => {
-      const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
-      const rowsByAgencyStatement = [...groupRows(monthRows, (row) =>
-        `${cleanGroupLabel(row.agency_name)}${cleanGroupLabel(row.statement_number)}`
-      ).entries()]
-        .map(([key, group]) => {
-          const [agency, statement] = key.split("");
-
-          return buildAgentCommissionPivotRow(agency, statement, group, agentNames, false);
-        })
+      const agencyGroups = [...groupRows(monthRows, (row) => cleanGroupLabel(row.agency_name)).entries()]
+        .map(([agency, group]) => ({
+          agency,
+          group,
+          grandTotal: group.reduce(
+            (total, row) => total + moneyValue(row.agent_commission_amount),
+            0
+          ),
+        }))
         .sort(
-          (a, b) =>
-            b.grandTotal - a.grandTotal ||
-            a.agency.localeCompare(b.agency) ||
-            a.statement.localeCompare(b.statement)
+          (a, b) => b.grandTotal - a.grandTotal || a.agency.localeCompare(b.agency)
         );
 
+      const dateRows: AgentPaidDateRow[] = [];
+      for (const { agency, group } of agencyGroups) {
+        const producerRows = [...groupRows(group, getRowPaidProducerDate).entries()]
+          .map(([paidProducerDate, producerGroup]) =>
+            buildAgentPaidDateRow(agency, paidProducerDate, producerGroup, agentNames, false)
+          )
+          .sort(compareAgentPaidDateRows);
+
+        dateRows.push(...producerRows);
+      }
+
       return {
         monthKey: periodLabel,
-        rows: rowsByAgencyStatement,
-        monthlyTotal: buildAgentCommissionPivotRow(
-          "Monthly Commission",
-          "",
-          monthRows,
-          agentNames,
-          true
-        ),
+        rows: dateRows,
+        monthlyTotal: buildAgentPaidDateRow("Total", "", monthRows, agentNames, true),
       };
     });
 }
 
-function buildAgentCommissionPivotRow(
-  agency: string,
-  statement: string,
-  rows: PcSalesRow[],
-  agentNames: string[],
-  isTotal: boolean
-): AgentCommissionPivotRow {
-  const valuesByAgent: Record<string, number> = {};
+function compareAgentPaidDateRows(a: AgentPaidDateRow, b: AgentPaidDateRow) {
+  const aUnpaid = a.paidProducerDate === UNPAID_PRODUCER_LABEL;
+  const bUnpaid = b.paidProducerDate === UNPAID_PRODUCER_LABEL;
+  if (aUnpaid !== bUnpaid) return aUnpaid ? 1 : -1;
 
-  for (const agent of agentNames) {
-    valuesByAgent[agent] = rows
-      .filter((row) => cleanGroupLabel(row.agent_name) === agent)
-      .reduce((total, row) => total + moneyValue(row.agent_commission_amount), 0);
-  }
-
-  return {
-    agency,
-    grandTotal: Object.values(valuesByAgent).reduce((total, value) => total + value, 0),
-    isTotal,
-    statement,
-    valuesByAgent,
-  };
+  return b.paidProducerDate.localeCompare(a.paidProducerDate);
 }
 
 function buildCarrierRows(rows: PcSalesRow[], overview: Summary): CarrierRow[] {
@@ -1125,11 +1312,13 @@ function PcTrendLevelSections({
       />
       <AgentMonthlyDashboardTable
         agentNames={data.agentNames}
-        commissionGroups={data.agentCommissionGroups}
-        premiumGroups={data.agentPremiumGroups}
-        salesGroups={data.agentSalesGroups}
+        paidDateGroups={data.agentPaidDateGroups}
         trendLevel={trendLevel}
       />
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <UnpaidPoliciesTable rows={data.unpaidMonthRows} trendLevel={trendLevel} />
+        <UnpaidAgentTable rows={data.unpaidAgentRows} />
+      </div>
     </>
   );
 }
@@ -1431,6 +1620,240 @@ function MoMPercentCell({ value }: { value: number | null }) {
   );
 }
 
+function UnpaidPoliciesTable({
+  rows,
+  trendLevel,
+}: {
+  rows: UnpaidMonthRow[];
+  trendLevel: TrendLevel;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const periodLabel = getTrendLevelLabel(trendLevel);
+  const heatRows = rows.filter((row) => row.level === "agent");
+  const heatMaxes = {
+    totalCommission: maxValue(heatRows, (row) => row.totalCommission),
+    agentCommission: maxValue(heatRows, (row) => row.agentCommission),
+    epsCommission: maxValue(heatRows, (row) => row.epsCommission),
+  };
+  const hasAgentRows = rows.some((row) => row.level === "agent");
+
+  // Nhóm theo tháng để gộp ô Month (rowSpan).
+  const monthGroups: { monthKey: string; rows: UnpaidMonthRow[] }[] = [];
+  const byMonth = new Map<string, { monthKey: string; rows: UnpaidMonthRow[] }>();
+  for (const row of rows) {
+    let group = byMonth.get(row.monthKey);
+    if (!group) {
+      group = { monthKey: row.monthKey, rows: [] };
+      byMonth.set(row.monthKey, group);
+      monthGroups.push(group);
+    }
+    group.rows.push(row);
+  }
+
+  const expandButton = (label: string) =>
+    hasAgentRows ? (
+      <button
+        aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${label}`}
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#cfd7e3] bg-white text-[#184e8a] transition hover:bg-[#edf4ff]"
+        onClick={() => setIsExpanded((current) => !current)}
+        type="button"
+      >
+        {isExpanded ? (
+          <Minus aria-hidden="true" size={12} strokeWidth={2.4} />
+        ) : (
+          <Plus aria-hidden="true" size={12} strokeWidth={2.4} />
+        )}
+      </button>
+    ) : null;
+
+  return (
+    <ReportPanel
+      title={`Unpaid Policies by ${periodLabel} | Estimated Commission`}
+    >
+      {rows.length === 0 ? (
+        <div className="px-6 py-12 text-center text-sm text-[#667085]">
+          No unpaid policies.
+        </div>
+      ) : (
+        <div className="max-h-[420px] overflow-y-auto">
+          <table className="w-full table-fixed text-[11px]">
+            <thead>
+              <tr className="bg-[#edf3fb] text-left font-bold">
+                <AgencySummaryHeaderCell bordered width="11%">
+                  {periodLabel}
+                </AgencySummaryHeaderCell>
+                <AgencySummaryHeaderCell bordered width="13%">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Agent</span>
+                    {expandButton("agent rows")}
+                  </div>
+                </AgencySummaryHeaderCell>
+                <AgencySummaryHeaderCell bordered align="right" width="13%">
+                  Unpaid Policies
+                </AgencySummaryHeaderCell>
+                <AgencySummaryHeaderCell bordered align="right" width="15%">
+                  Total Premium
+                </AgencySummaryHeaderCell>
+                <AgencySummaryHeaderCell bordered align="right" width="16%">
+                  Est. Total Comm
+                </AgencySummaryHeaderCell>
+                <AgencySummaryHeaderCell bordered align="right" width="16%">
+                  Est. Agent Comm
+                </AgencySummaryHeaderCell>
+                <AgencySummaryHeaderCell bordered align="right" width="16%">
+                  Est. EPS Comm
+                </AgencySummaryHeaderCell>
+              </tr>
+            </thead>
+            <tbody>
+              {monthGroups.map((group, groupIndex) => {
+                const visibleRows = isExpanded
+                  ? group.rows
+                  : group.rows.filter((row) => row.level === "total");
+
+                return visibleRows.map((row, rowIndex) => {
+                  const isMonthTotal = row.level === "total";
+                  const rowBg = isMonthTotal
+                    ? "bg-white"
+                    : (groupIndex + rowIndex) % 2 === 0
+                      ? "bg-white"
+                      : "bg-[#f7f8fa]";
+
+                  return (
+                    <tr
+                      key={`${group.monthKey}-${row.agent}-${rowIndex}`}
+                      className={`${rowBg} ${
+                        isMonthTotal
+                          ? "[&>td]:border-b-2 [&>td]:border-b-slate-300"
+                          : ""
+                      }`}
+                    >
+                      {rowIndex === 0 ? (
+                        <td
+                          className="whitespace-nowrap border-r border-b border-slate-100 px-2 py-3 align-top text-sm font-semibold text-slate-700 tabular-nums"
+                          rowSpan={visibleRows.length}
+                        >
+                          {group.monthKey}
+                        </td>
+                      ) : null}
+                      <AgencySummaryCell bordered labelStrong={isMonthTotal}>
+                        {isMonthTotal
+                          ? group.monthKey === "Total"
+                            ? ""
+                            : "Total"
+                          : row.agent}
+                      </AgencySummaryCell>
+                      <AgencySummaryCell bordered align="right" labelStrong={isMonthTotal}>
+                        {formatInteger(row.policyCount)}
+                      </AgencySummaryCell>
+                      <AgencySummaryCell bordered align="right" labelStrong={isMonthTotal}>
+                        {formatCurrencyShort(row.totalPremium)}
+                      </AgencySummaryCell>
+                      <AgencySummaryHeatCell
+                        bordered
+                        maxValue={heatMaxes.totalCommission}
+                        mode="blue"
+                        value={row.totalCommission}
+                      >
+                        {formatCurrencyShort(row.totalCommission)}
+                      </AgencySummaryHeatCell>
+                      <AgencySummaryHeatCell
+                        bordered
+                        maxValue={heatMaxes.agentCommission}
+                        mode="lavender"
+                        value={row.agentCommission}
+                      >
+                        {formatCurrencyShort(row.agentCommission)}
+                      </AgencySummaryHeatCell>
+                      <AgencySummaryHeatCell
+                        bordered
+                        maxValue={heatMaxes.epsCommission}
+                        mode="pink"
+                        value={row.epsCommission}
+                      >
+                        {formatCurrencyShort(row.epsCommission)}
+                      </AgencySummaryHeatCell>
+                    </tr>
+                  );
+                });
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ReportPanel>
+  );
+}
+
+function UnpaidAgentTable({ rows }: { rows: UnpaidAgentRow[] }) {
+  const heatRows = rows.filter((row) => !row.isTotal);
+  const maxCommission = maxValue(heatRows, (row) => row.estAgentCommission);
+
+  return (
+    <ReportPanel title="Unpaid by Agent | Est. Owed">
+      {rows.length === 0 ? (
+        <div className="px-6 py-12 text-center text-sm text-[#667085]">
+          No unpaid policies.
+        </div>
+      ) : (
+        <div className="max-h-[420px] overflow-y-auto">
+          <table className="w-full table-fixed text-[11px]">
+            <thead>
+              <tr className="bg-[#edf3fb] text-left font-bold">
+                <AgencySummaryHeaderCell bordered width="25%">
+                  Agent
+                </AgencySummaryHeaderCell>
+                <AgencySummaryHeaderCell bordered align="right" width="22%">
+                  Unpaid Policies
+                </AgencySummaryHeaderCell>
+                <AgencySummaryHeaderCell bordered align="right" width="25%">
+                  Total Premium
+                </AgencySummaryHeaderCell>
+                <AgencySummaryHeaderCell bordered align="right" width="28%">
+                  Est. Agent Comm
+                </AgencySummaryHeaderCell>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr
+                  key={`${row.agent}-${index}`}
+                  className={`${
+                    row.isTotal
+                      ? "bg-white [&>td]:border-b-2 [&>td]:border-b-slate-300"
+                      : index % 2 === 0
+                        ? "bg-white"
+                        : "bg-[#f7f8fa]"
+                  }`}
+                >
+                  <AgencySummaryCell bordered labelStrong={row.isTotal}>
+                    {row.agent}
+                  </AgencySummaryCell>
+                  <AgencySummaryCell bordered align="right" labelStrong={row.isTotal}>
+                    {formatInteger(row.policyCount)}
+                  </AgencySummaryCell>
+                  <AgencySummaryCell bordered align="right" labelStrong={row.isTotal}>
+                    {formatCurrencyShort(row.totalPremium)}
+                  </AgencySummaryCell>
+                  <AgencySummaryHeatCell
+                    bordered
+                    maxValue={maxCommission}
+                    mode="lavender"
+                    value={row.estAgentCommission}
+                  >
+                    {formatCurrencyShort(row.estAgentCommission)}
+                  </AgencySummaryHeatCell>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ReportPanel>
+  );
+}
+
 function AgencyMonthSummaryTable({
   rows,
   trendLevel,
@@ -1462,14 +1885,14 @@ function AgencyMonthSummaryTable({
 
   return (
     <ReportPanel title={`${getTrendLevelAdjective(trendLevel)} Sales Summary`}>
-      <div className="max-h-[300px] overflow-y-auto">
+      <div className="max-h-[368px] overflow-y-auto">
         <table className="w-full table-fixed text-[11px]">
           <thead>
             <tr className="bg-[#edf3fb] text-left font-bold">
-              <AgencySummaryHeaderCell bordered width="8%">
+              <AgencySummaryHeaderCell bordered width="9%">
                 {periodLabel}
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell bordered width="11%">
+              <AgencySummaryHeaderCell bordered width="10%">
                 <div className="flex items-center justify-between gap-2">
                   <span>Agency</span>
                   {hasAgencyRows ? (
@@ -1493,28 +1916,52 @@ function AgencyMonthSummaryTable({
                   ) : null}
                 </div>
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell bordered align="right" width="8%">
+              <AgencySummaryHeaderCell bordered width="11%">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Paid Date</span>
+                  {hasAgencyRows ? (
+                    <button
+                      aria-expanded={areAgencyRowsExpanded}
+                      aria-label={`${
+                        areAgencyRowsExpanded ? "Collapse" : "Expand"
+                      } paid producer rows`}
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#cfd7e3] bg-white text-[#184e8a] transition hover:bg-[#edf4ff]"
+                      onClick={() =>
+                        setAreAgencyRowsExpanded((current) => !current)
+                      }
+                      type="button"
+                    >
+                      {areAgencyRowsExpanded ? (
+                        <Minus aria-hidden="true" size={12} strokeWidth={2.4} />
+                      ) : (
+                        <Plus aria-hidden="true" size={12} strokeWidth={2.4} />
+                      )}
+                    </button>
+                  ) : null}
+                </div>
+              </AgencySummaryHeaderCell>
+              <AgencySummaryHeaderCell bordered align="right" width="7%">
                 Policies
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell bordered align="right" width="10%">
+              <AgencySummaryHeaderCell bordered align="right" width="9%">
                 Premium
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell bordered align="right" width="11%">
+              <AgencySummaryHeaderCell bordered align="right" width="10%">
                 Total Comm
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell bordered align="right" width="9%">
+              <AgencySummaryHeaderCell bordered align="right" width="8%">
                 % Total
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell bordered align="right" width="11%">
+              <AgencySummaryHeaderCell bordered align="right" width="10%">
                 Agent Comm
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell bordered align="right" width="9%">
+              <AgencySummaryHeaderCell bordered align="right" width="8%">
                 % Agent
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell bordered align="right" width="11%">
+              <AgencySummaryHeaderCell bordered align="right" width="10%">
                 EPS Comm
               </AgencySummaryHeaderCell>
-              <AgencySummaryHeaderCell bordered align="right" width="12%">
+              <AgencySummaryHeaderCell bordered align="right" width="8%">
                 % EPS Comm
               </AgencySummaryHeaderCell>
             </tr>
@@ -1531,7 +1978,7 @@ function AgencyMonthSummaryTable({
                     key={`${group.monthKey}-${row.agency}-${rowIndex}`}
                     className={`${
                       row.isTotal
-                        ? "bg-white"
+                        ? "bg-white [&>td]:border-b-2 [&>td]:border-b-slate-300"
                         : (groupIndex + rowIndex) % 2 === 0
                           ? "bg-white"
                           : "bg-[#f7f8fa]"
@@ -1539,7 +1986,7 @@ function AgencyMonthSummaryTable({
                   >
                     {rowIndex === 0 ? (
                       <td
-                        className="border-r border-b border-slate-100 px-2 py-3 align-top text-sm font-semibold text-slate-700 tabular-nums"
+                        className="whitespace-nowrap border-r border-b border-slate-100 px-2 py-3 align-top text-sm font-semibold text-slate-700 tabular-nums"
                         rowSpan={visibleRows.length}
                       >
                         {group.monthKey}
@@ -1547,6 +1994,20 @@ function AgencyMonthSummaryTable({
                     ) : null}
                     <AgencySummaryCell bordered labelStrong={row.isTotal}>
                       {row.agency}
+                    </AgencySummaryCell>
+                    <AgencySummaryCell bordered>
+                      {row.level === "producer" ? (
+                        <div className="leading-tight">
+                          <div>{row.paidProducerDate}</div>
+                          {row.statementNumbers ? (
+                            <div className="text-[10px] text-slate-400">
+                              {row.statementNumbers}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        ""
+                      )}
                     </AgencySummaryCell>
                     <AgencySummaryCell bordered align="right">
                       {formatInteger(row.policyCount)}
@@ -1708,85 +2169,57 @@ function AgencySummaryHeatCell({
 
 function AgentMonthlyDashboardTable({
   agentNames,
-  commissionGroups,
-  premiumGroups,
-  salesGroups,
+  paidDateGroups,
   trendLevel,
 }: {
   agentNames: string[];
-  commissionGroups: AgentCommissionGroup[];
-  premiumGroups: AgentPivotGroup[];
-  salesGroups: AgentPivotGroup[];
+  paidDateGroups: AgentPaidDateGroup[];
   trendLevel: TrendLevel;
 }) {
-  const [areAgencyRowsExpanded, setAreAgencyRowsExpanded] = useState(false);
-  const salesGroupsByMonth = new Map(
-    salesGroups.map((group) => [group.monthKey, group])
-  );
-  const premiumGroupsByMonth = new Map(
-    premiumGroups.map((group) => [group.monthKey, group])
-  );
-  const hasAgencyRows =
-    salesGroups.some((group) => group.rows.length > 0) ||
-    premiumGroups.some((group) => group.rows.length > 0) ||
-    commissionGroups.some((group) => group.rows.length > 0);
-  const policyGrandTotals = totalAgentPivotRows(
-    salesGroups.flatMap((group) => group.rows),
-    agentNames,
-    "Grand total policies"
-  );
-  const premiumGrandTotals = totalAgentPivotRows(
-    premiumGroups.flatMap((group) => group.rows),
-    agentNames,
-    "Grand total premium"
-  );
-  const commissionGrandTotals = totalCommissionPivotRows(
-    commissionGroups.flatMap((group) => group.rows),
-    agentNames,
-    "Grand total commission"
-  );
-  const agentPolicyRows = salesGroups.flatMap((group) => [
-    group.total,
-    ...group.rows,
-  ]);
-  const agentPremiumRows = premiumGroups.flatMap((group) => [
-    group.total,
-    ...group.rows,
-  ]);
-  const agentCommissionRows = commissionGroups.flatMap((group) => [
+  const [isExpanded, setIsExpanded] = useState(false);
+  const hasDetailRows = paidDateGroups.some((group) => group.rows.length > 0);
+
+  const allRows = paidDateGroups.flatMap((group) => [
     group.monthlyTotal,
     ...group.rows,
   ]);
   const agentMaxes = {
-    commission: maxValue(
-      [
-        ...agentCommissionRows.flatMap((row) =>
-          agentNames.map((agent) => row.valuesByAgent[agent] ?? 0)
-        ),
-        ...agentNames.map((agent) => commissionGrandTotals.valuesByAgent[agent] ?? 0),
-      ],
-      (value) => value
-    ),
     policies: maxValue(
-      [
-        ...agentPolicyRows.flatMap((row) =>
-          agentNames.map((agent) => row.valuesByAgent[agent] ?? 0)
-        ),
-        ...agentNames.map((agent) => policyGrandTotals.valuesByAgent[agent] ?? 0),
-      ],
+      allRows.flatMap((row) => agentNames.map((agent) => row.policies[agent] ?? 0)),
       (value) => value
     ),
     premium: maxValue(
-      [
-        ...agentPremiumRows.flatMap((row) =>
-          agentNames.map((agent) => row.valuesByAgent[agent] ?? 0)
-        ),
-        ...agentNames.map((agent) => premiumGrandTotals.valuesByAgent[agent] ?? 0),
-      ],
+      allRows.flatMap((row) => agentNames.map((agent) => row.premium[agent] ?? 0)),
+      (value) => value
+    ),
+    commission: maxValue(
+      allRows.flatMap((row) => agentNames.map((agent) => row.commission[agent] ?? 0)),
       (value) => value
     ),
   };
-  const tableWidth = Math.max(760, 240 + agentNames.length * 300);
+  const grandTotals = {
+    policies: sumAgentValues(allRows.filter((row) => row.isTotal), agentNames, "policies"),
+    premium: sumAgentValues(allRows.filter((row) => row.isTotal), agentNames, "premium"),
+    commission: sumAgentValues(allRows.filter((row) => row.isTotal), agentNames, "commission"),
+  };
+  const tableWidth = Math.max(920, 400 + agentNames.length * 300);
+
+  const expandButton = (label: string) =>
+    hasDetailRows ? (
+      <button
+        aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${label}`}
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#cfd7e3] bg-white text-[#184e8a] transition hover:bg-[#edf4ff]"
+        onClick={() => setIsExpanded((current) => !current)}
+        type="button"
+      >
+        {isExpanded ? (
+          <Minus aria-hidden="true" size={12} strokeWidth={2.4} />
+        ) : (
+          <Plus aria-hidden="true" size={12} strokeWidth={2.4} />
+        )}
+      </button>
+    ) : null;
 
   return (
     <ReportPanel
@@ -1804,7 +2237,7 @@ function AgentMonthlyDashboardTable({
                 size="group"
                 rowSpan={2}
                 stickyLeft="0px"
-                width="120px"
+                width="110px"
               >
                 {getTrendLevelLabel(trendLevel)}
               </AgentDashboardHeaderCell>
@@ -1813,30 +2246,25 @@ function AgentMonthlyDashboardTable({
                 rowSpan={2}
                 size="group"
                 stickyDivider
-                stickyLeft="120px"
+                stickyLeft="110px"
                 width="120px"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span>Agency</span>
-                  {hasAgencyRows ? (
-                    <button
-                      aria-expanded={areAgencyRowsExpanded}
-                      aria-label={`${
-                        areAgencyRowsExpanded ? "Collapse" : "Expand"
-                      } agency rows`}
-                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#cfd7e3] bg-white text-[#184e8a] transition hover:bg-[#edf4ff]"
-                      onClick={() =>
-                        setAreAgencyRowsExpanded((current) => !current)
-                      }
-                      type="button"
-                    >
-                      {areAgencyRowsExpanded ? (
-                        <Minus aria-hidden="true" size={12} strokeWidth={2.4} />
-                      ) : (
-                        <Plus aria-hidden="true" size={12} strokeWidth={2.4} />
-                      )}
-                    </button>
-                  ) : null}
+                  {expandButton("agency rows")}
+                </div>
+              </AgentDashboardHeaderCell>
+              <AgentDashboardHeaderCell
+                className="border-r-2 border-slate-300 bg-slate-50"
+                rowSpan={2}
+                size="group"
+                stickyDivider
+                stickyLeft="230px"
+                width="150px"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span>Paid Date</span>
+                  {expandButton("paid date rows")}
                 </div>
               </AgentDashboardHeaderCell>
               {agentNames.map((agent) => (
@@ -1888,18 +2316,89 @@ function AgentMonthlyDashboardTable({
             </tr>
           </thead>
           <tbody>
-            {commissionGroups.map((commissionGroup, groupIndex) => (
-              <AgentMonthlyDashboardRows
-                agentNames={agentNames}
-                commissionGroup={commissionGroup}
-                groupIndex={groupIndex}
-                isExpanded={areAgencyRowsExpanded}
-                key={commissionGroup.monthKey}
-                maxes={agentMaxes}
-                premiumGroup={premiumGroupsByMonth.get(commissionGroup.monthKey)}
-                salesGroup={salesGroupsByMonth.get(commissionGroup.monthKey)}
-              />
-            ))}
+            {paidDateGroups.map((group, groupIndex) => {
+              const visibleRows = isExpanded
+                ? [...group.rows, group.monthlyTotal]
+                : [group.monthlyTotal];
+
+              return visibleRows.map((row, rowIndex) => {
+                const rowBackgroundClass =
+                  (groupIndex + rowIndex) % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]";
+
+                return (
+                  <tr
+                    className={`${rowBackgroundClass} ${
+                      row.isTotal
+                        ? "[&>td]:border-b-2 [&>td]:border-b-slate-300"
+                        : ""
+                    }`}
+                    key={`${group.monthKey}-${row.agency}-${row.paidProducerDate}-${rowIndex}`}
+                  >
+                    {rowIndex === 0 ? (
+                      <td
+                        className="sticky left-0 z-10 whitespace-nowrap border-b border-r-2 border-slate-300 border-b-slate-200 bg-white px-3 py-3 align-top text-sm font-semibold text-slate-900"
+                        rowSpan={visibleRows.length}
+                      >
+                        {group.monthKey}
+                      </td>
+                    ) : null}
+                    <AgentDashboardCell
+                      className={`border-r-2 border-slate-300 ${rowBackgroundClass}`}
+                      labelStrong={row.isTotal}
+                      stickyDivider
+                      stickyLeft="110px"
+                    >
+                      {row.agency}
+                    </AgentDashboardCell>
+                    <AgentDashboardCell
+                      className={`border-r-2 border-slate-300 ${rowBackgroundClass}`}
+                      stickyDivider
+                      stickyLeft="230px"
+                    >
+                      {row.isTotal ? null : (
+                        <div className="leading-tight">
+                          <div>{row.paidProducerDate}</div>
+                          {row.statementNumbers ? (
+                            <div className="text-[10px] text-slate-400">
+                              {row.statementNumbers}
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </AgentDashboardCell>
+                    {agentNames.map((agent) => (
+                      <Fragment key={agent}>
+                        <AgentDashboardHeatCell
+                          key={`${agent}-policies`}
+                          maxValue={agentMaxes.policies}
+                          mode="green"
+                          value={row.policies[agent] ?? 0}
+                        >
+                          {formatInteger(row.policies[agent] ?? 0)}
+                        </AgentDashboardHeatCell>
+                        <AgentDashboardHeatCell
+                          key={`${agent}-premium`}
+                          maxValue={agentMaxes.premium}
+                          mode="blue"
+                          value={row.premium[agent] ?? 0}
+                        >
+                          {formatCurrencyShort(row.premium[agent] ?? 0)}
+                        </AgentDashboardHeatCell>
+                        <AgentDashboardHeatCell
+                          groupEnd
+                          key={`${agent}-commission`}
+                          maxValue={agentMaxes.commission}
+                          mode="pink"
+                          value={row.commission[agent] ?? 0}
+                        >
+                          {formatCurrencyShort(row.commission[agent] ?? 0)}
+                        </AgentDashboardHeatCell>
+                      </Fragment>
+                    ))}
+                  </tr>
+                );
+              });
+            })}
             <tr className="bg-white">
               <AgentDashboardCell
                 className="border-r-2 border-slate-300 bg-white"
@@ -1912,40 +2411,41 @@ function AgentMonthlyDashboardTable({
                 className="border-r-2 border-slate-300 bg-white"
                 labelStrong
                 stickyDivider
-                stickyLeft="120px"
+                stickyLeft="110px"
               >
                 All agencies
               </AgentDashboardCell>
+              <AgentDashboardCell
+                className="border-r-2 border-slate-300 bg-white"
+                stickyDivider
+                stickyLeft="230px"
+              />
               {agentNames.map((agent) => (
                 <Fragment key={agent}>
                   <AgentDashboardHeatCell
                     maxValue={agentMaxes.policies}
                     mode="green"
-                    value={policyGrandTotals.valuesByAgent[agent] ?? 0}
+                    value={grandTotals.policies[agent] ?? 0}
                     key={`${agent}-policies`}
                   >
-                    {formatInteger(policyGrandTotals.valuesByAgent[agent] ?? 0)}
+                    {formatInteger(grandTotals.policies[agent] ?? 0)}
                   </AgentDashboardHeatCell>
                   <AgentDashboardHeatCell
                     maxValue={agentMaxes.premium}
                     mode="blue"
-                    value={premiumGrandTotals.valuesByAgent[agent] ?? 0}
+                    value={grandTotals.premium[agent] ?? 0}
                     key={`${agent}-premium`}
                   >
-                    {formatCurrencyShort(
-                      premiumGrandTotals.valuesByAgent[agent] ?? 0
-                    )}
+                    {formatCurrencyShort(grandTotals.premium[agent] ?? 0)}
                   </AgentDashboardHeatCell>
                   <AgentDashboardHeatCell
                     groupEnd
                     maxValue={agentMaxes.commission}
                     mode="pink"
-                    value={commissionGrandTotals.valuesByAgent[agent] ?? 0}
+                    value={grandTotals.commission[agent] ?? 0}
                     key={`${agent}-commission`}
                   >
-                    {formatCurrencyShort(
-                      commissionGrandTotals.valuesByAgent[agent] ?? 0
-                    )}
+                    {formatCurrencyShort(grandTotals.commission[agent] ?? 0)}
                   </AgentDashboardHeatCell>
                 </Fragment>
               ))}
@@ -1957,138 +2457,18 @@ function AgentMonthlyDashboardTable({
   );
 }
 
-function AgentMonthlyDashboardRows({
-  agentNames,
-  commissionGroup,
-  groupIndex,
-  isExpanded,
-  maxes,
-  premiumGroup,
-  salesGroup,
-}: {
-  agentNames: string[];
-  commissionGroup: AgentCommissionGroup;
-  groupIndex: number;
-  isExpanded: boolean;
-  maxes: {
-    commission: number;
-    policies: number;
-    premium: number;
-  };
-  premiumGroup: AgentPivotGroup | undefined;
-  salesGroup: AgentPivotGroup | undefined;
-}) {
-  const policyTotalRow = salesGroup?.total ?? {
-    agency: "Total Policies",
-    grandTotal: 0,
-    isTotal: true,
-    valuesByAgent: emptyAgentValues(agentNames),
-  };
-  const premiumTotalRow = premiumGroup?.total ?? {
-    agency: "Total Premium",
-    grandTotal: 0,
-    isTotal: true,
-    valuesByAgent: emptyAgentValues(agentNames),
-  };
-  const commissionRowsByAgency = totalCommissionRowsByAgency(
-    commissionGroup.rows,
-    agentNames
-  );
-  const agencies = uniqueSorted([
-    ...(salesGroup?.rows.map((row) => row.agency) ?? []),
-    ...(premiumGroup?.rows.map((row) => row.agency) ?? []),
-    ...commissionRowsByAgency.keys(),
-  ]);
-  const rows = [
-    ...agencies.map((agency) => ({
-      agency,
-      commission:
-        commissionRowsByAgency.get(agency) ??
-        emptyAgentCommissionRow(agency, agentNames),
-      isTotal: false,
-      policies:
-        salesGroup?.rows.find((row) => row.agency === agency) ??
-        emptyAgentPolicyRow(agency, agentNames),
-      premium:
-        premiumGroup?.rows.find((row) => row.agency === agency) ??
-        emptyAgentPolicyRow(agency, agentNames),
-    })),
-    {
-      agency: "Total",
-      commission: commissionGroup.monthlyTotal,
-      isTotal: true,
-      policies: policyTotalRow,
-      premium: premiumTotalRow,
-    },
-  ];
-  const visibleRows = isExpanded ? rows : rows.filter((row) => row.isTotal);
-
-  return (
-    <>
-      {visibleRows.map((row, index) => {
-        const rowBackgroundClass =
-          (groupIndex + index) % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]";
-
-        return (
-          <tr
-            className={rowBackgroundClass}
-            key={`${commissionGroup.monthKey}-${row.agency}-${index}`}
-          >
-            {index === 0 ? (
-              <td
-                className="sticky left-0 z-10 border-b border-r-2 border-slate-300 border-b-slate-200 bg-white px-3 py-3 align-top text-sm font-semibold text-slate-900"
-                rowSpan={visibleRows.length}
-              >
-                {commissionGroup.monthKey}
-              </td>
-            ) : null}
-            <AgentDashboardCell
-              className={
-                rowBackgroundClass === "bg-white"
-                  ? "border-r-2 border-slate-300 bg-white"
-                  : "border-r-2 border-slate-300 bg-[#f7f8fa]"
-              }
-              labelStrong={row.isTotal}
-              stickyDivider
-              stickyLeft="120px"
-            >
-              {row.agency}
-            </AgentDashboardCell>
-            {agentNames.map((agent) => (
-              <Fragment key={agent}>
-                <AgentDashboardHeatCell
-                  key={`${agent}-policies`}
-                  maxValue={maxes.policies}
-                  mode="green"
-                  value={row.policies.valuesByAgent[agent] ?? 0}
-                >
-                  {formatInteger(row.policies.valuesByAgent[agent] ?? 0)}
-                </AgentDashboardHeatCell>
-                <AgentDashboardHeatCell
-                  key={`${agent}-premium`}
-                  maxValue={maxes.premium}
-                  mode="blue"
-                  value={row.premium.valuesByAgent[agent] ?? 0}
-                >
-                  {formatCurrencyShort(row.premium.valuesByAgent[agent] ?? 0)}
-                </AgentDashboardHeatCell>
-                <AgentDashboardHeatCell
-                  groupEnd
-                  key={`${agent}-commission`}
-                  maxValue={maxes.commission}
-                  mode="pink"
-                  value={row.commission.valuesByAgent[agent] ?? 0}
-                >
-                  {formatCurrencyShort(row.commission.valuesByAgent[agent] ?? 0)}
-                </AgentDashboardHeatCell>
-              </Fragment>
-            ))}
-          </tr>
-        );
-      })}
-    </>
-  );
+function sumAgentValues(
+  rows: AgentPaidDateRow[],
+  agentNames: string[],
+  field: "policies" | "premium" | "commission"
+) {
+  const result: Record<string, number> = {};
+  for (const agent of agentNames) {
+    result[agent] = rows.reduce((total, row) => total + (row[field][agent] ?? 0), 0);
+  }
+  return result;
 }
+
 
 function AgentDashboardHeaderCell({
   align = "left",
@@ -3382,11 +3762,13 @@ function applyClientFilters(rows: PcSalesRow[], filters: FilterValues) {
       return false;
     }
 
-    if (
-      filters.paidProducer.length > 0 &&
-      !filters.paidProducer.includes(cleanGroupLabel(row.paid_producer))
-    ) {
-      return false;
+    if (filters.paidProducer.length > 0) {
+      const producerLabel = cleanGroupLabel(row.paid_producer);
+      const matchValue =
+        producerLabel === "null" ? UNPAID_PRODUCER_LABEL : producerLabel;
+      if (!filters.paidProducer.includes(matchValue)) {
+        return false;
+      }
     }
 
     if (
@@ -3435,110 +3817,6 @@ function groupRows(
   return grouped;
 }
 
-function groupGenericRows<T>(rows: T[], getKey: (row: T) => string) {
-  const grouped = new Map<string, T[]>();
-
-  for (const row of rows) {
-    const key = getKey(row);
-    const group = grouped.get(key) ?? [];
-
-    group.push(row);
-    grouped.set(key, group);
-  }
-
-  return grouped;
-}
-
-function totalAgentPivotRows(
-  rows: AgentPivotRow[],
-  agentNames: string[],
-  agency: string
-): AgentPivotRow {
-  const valuesByAgent: Record<string, number> = {};
-
-  for (const agent of agentNames) {
-    valuesByAgent[agent] = rows.reduce(
-      (total, row) => total + (row.valuesByAgent[agent] ?? 0),
-      0
-    );
-  }
-
-  return {
-    agency,
-    grandTotal: Object.values(valuesByAgent).reduce((total, value) => total + value, 0),
-    isTotal: true,
-    valuesByAgent,
-  };
-}
-
-function emptyAgentValues(agentNames: string[]) {
-  return Object.fromEntries(agentNames.map((agent) => [agent, 0]));
-}
-
-function emptyAgentPolicyRow(agency: string, agentNames: string[]): AgentPivotRow {
-  const valuesByAgent = emptyAgentValues(agentNames);
-
-  return {
-    agency,
-    grandTotal: 0,
-    isTotal: false,
-    valuesByAgent,
-  };
-}
-
-function emptyAgentCommissionRow(
-  agency: string,
-  agentNames: string[]
-): AgentCommissionPivotRow {
-  const valuesByAgent = emptyAgentValues(agentNames);
-
-  return {
-    agency,
-    grandTotal: 0,
-    isTotal: false,
-    statement: "",
-    valuesByAgent,
-  };
-}
-
-function totalCommissionRowsByAgency(
-  rows: AgentCommissionPivotRow[],
-  agentNames: string[]
-) {
-  const rowsByAgency = new Map<string, AgentCommissionPivotRow>();
-
-  for (const [agency, agencyRows] of groupGenericRows(rows, (row) => row.agency)) {
-    rowsByAgency.set(
-      agency,
-      totalCommissionPivotRows(agencyRows, agentNames, agency)
-    );
-  }
-
-  return rowsByAgency;
-}
-
-function totalCommissionPivotRows(
-  rows: AgentCommissionPivotRow[],
-  agentNames: string[],
-  agency: string
-): AgentCommissionPivotRow {
-  const valuesByAgent: Record<string, number> = {};
-
-  for (const agent of agentNames) {
-    valuesByAgent[agent] = rows.reduce(
-      (total, row) => total + (row.valuesByAgent[agent] ?? 0),
-      0
-    );
-  }
-
-  return {
-    agency,
-    grandTotal: Object.values(valuesByAgent).reduce((total, value) => total + value, 0),
-    isTotal: true,
-    statement: "",
-    valuesByAgent,
-  };
-}
 
 function emptySummary(): Summary {
   return {
@@ -3608,9 +3886,10 @@ function moneyValue(value: number | null) {
   return Number.isFinite(value ?? NaN) ? value ?? 0 : 0;
 }
 
-function uniqueSorted(values: string[]) {
-  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
 }
+
 
 function percentOf(value: number, total: number) {
   if (!Number.isFinite(value) || !Number.isFinite(total) || total === 0) return 0;
