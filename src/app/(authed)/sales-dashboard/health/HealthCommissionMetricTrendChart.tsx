@@ -128,9 +128,11 @@ function CommissionTrendSvg({
       maxValue(rows, (row) => percentOf(row[metric.key], row.totalMesserPaid))
     )
   );
-  const groupWidth = plotWidth / Math.max(rows.length, 1);
+  // Đảo ngược thứ tự cột trên trục X.
+  const orderedRows = [...rows].reverse();
+  const groupWidth = plotWidth / Math.max(orderedRows.length, 1);
   const barWidth = Math.min(48, Math.max(20, groupWidth * 0.52));
-  const points = rows.map((row, index) => {
+  const points = orderedRows.map((row, index) => {
     const amount = row[metric.key];
     const rate = percentOf(amount, row.totalMesserPaid);
     const centerX = left + index * groupWidth + groupWidth / 2;
