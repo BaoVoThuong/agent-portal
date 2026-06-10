@@ -36,6 +36,8 @@ export type FilterValues = {
   policyNumber: string;
   agent: string;
   agency: string;
+  paidProducer: string[];
+  statementNumber: string[];
   reportMonthRange: ReportMonthRange;
 };
 
@@ -49,6 +51,8 @@ type TrendLevel = "month" | "quarter" | "year";
 export type FilterOptions = {
   agents: string[];
   agencies: string[];
+  paidProducers: string[];
+  statementNumbers: string[];
 };
 
 type Summary = {
@@ -219,7 +223,10 @@ const TREND_LIMIT_BY_LEVEL: Record<TrendLevel, number> = {
   quarter: 8,
   year: 12,
 };
-type ClientFilterValues = Pick<FilterValues, "agency" | "agent" | "policyNumber">;
+type ClientFilterValues = Pick<
+  FilterValues,
+  "agency" | "agent" | "policyNumber" | "paidProducer" | "statementNumber"
+>;
 
 export function PcSalesDashboard({
   agentPerformanceSourceRows,
@@ -242,7 +249,10 @@ export function PcSalesDashboard({
     agency: filters.agency,
     agent: filters.agent,
     policyNumber: filters.policyNumber,
+    paidProducer: filters.paidProducer,
+    statementNumber: filters.statementNumber,
   }));
+  // paidProducer/statementNumber are string[] (multi-select)
   const activeFilters = useMemo(
     () => ({
       ...filters,
@@ -470,6 +480,8 @@ function syncClientFilterUrl(filters: ClientFilterValues) {
   params.delete("policyNumber");
   params.delete("agent");
   params.delete("agency");
+  params.delete("paidProducer");
+  params.delete("statementNumber");
 
   if (filters.policyNumber) {
     params.set("policyNumber", filters.policyNumber);
@@ -481,6 +493,14 @@ function syncClientFilterUrl(filters: ClientFilterValues) {
 
   if (filters.agency) {
     params.set("agency", filters.agency);
+  }
+
+  for (const producer of filters.paidProducer) {
+    if (producer) params.append("paidProducer", producer);
+  }
+
+  for (const statement of filters.statementNumber) {
+    if (statement) params.append("statementNumber", statement);
   }
 
   const query = params.toString();
@@ -850,10 +870,10 @@ function buildAgentCommissionGroups(
     .map(([periodKey, monthRows]) => {
       const periodLabel = formatTrendPeriodLabel(periodKey, trendLevel);
       const rowsByAgencyStatement = [...groupRows(monthRows, (row) =>
-        `${cleanGroupLabel(row.agency_name)}\u001f${cleanGroupLabel(row.statement_number)}`
+        `${cleanGroupLabel(row.agency_name)}${cleanGroupLabel(row.statement_number)}`
       ).entries()]
         .map(([key, group]) => {
-          const [agency, statement] = key.split("\u001f");
+          const [agency, statement] = key.split("");
 
           return buildAgentCommissionPivotRow(agency, statement, group, agentNames, false);
         })
@@ -1980,7 +2000,8 @@ function AgentMonthlyDashboardRows({
     ...agencies.map((agency) => ({
       agency,
       commission:
-        commissionRowsByAgency.get(agency) ?? emptyAgentCommissionRow(agency, agentNames),
+        commissionRowsByAgency.get(agency) ??
+        emptyAgentCommissionRow(agency, agentNames),
       isTotal: false,
       policies:
         salesGroup?.rows.find((row) => row.agency === agency) ??
@@ -3348,6 +3369,20 @@ function applyClientFilters(rows: PcSalesRow[], filters: FilterValues) {
     }
 
     if (filters.agency && cleanGroupLabel(row.agency_name) !== filters.agency) {
+      return false;
+    }
+
+    if (
+      filters.paidProducer.length > 0 &&
+      !filters.paidProducer.includes(cleanGroupLabel(row.paid_producer))
+    ) {
+      return false;
+    }
+
+    if (
+      filters.statementNumber.length > 0 &&
+      !filters.statementNumber.includes(cleanGroupLabel(row.statement_number))
+    ) {
       return false;
     }
 

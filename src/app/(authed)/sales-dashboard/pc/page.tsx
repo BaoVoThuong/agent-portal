@@ -203,6 +203,12 @@ function buildFilterOptions(rows: PcSalesRow[]): FilterOptions {
     agents: uniqueSorted(
       rows.map((row) => cleanGroupLabel(row.agent_name)).filter((value) => value !== "null")
     ),
+    paidProducers: uniqueSortedDesc(
+      rows.map((row) => cleanGroupLabel(row.paid_producer)).filter((value) => value !== "null")
+    ),
+    statementNumbers: uniqueSortedDesc(
+      rows.map((row) => cleanGroupLabel(row.statement_number)).filter((value) => value !== "null")
+    ),
   };
 }
 
@@ -214,6 +220,8 @@ function parseFilters(
     agency: parseStringParam(params.agency),
     agent: parseStringParam(params.agent),
     policyNumber: parseStringParam(params.policyNumber),
+    paidProducer: parseStringListParam(params.paidProducer),
+    statementNumber: parseStringListParam(params.statementNumber),
     reportMonthRange: parseReportMonthRange(params, defaultReportMonthRange),
   };
 }
@@ -352,4 +360,31 @@ function cleanText(value: string | null) {
 
 function uniqueSorted(values: string[]) {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+}
+
+function uniqueSortedDesc(values: string[]) {
+  return [...new Set(values)].sort((a, b) => {
+    const aTime = parseSortableDate(a);
+    const bTime = parseSortableDate(b);
+
+    if (aTime !== null && bTime !== null) {
+      return bTime - aTime;
+    }
+
+    return b.localeCompare(a);
+  });
+}
+
+function parseSortableDate(value: string) {
+  const mdy = value.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (mdy) {
+    return Date.UTC(Number(mdy[3]), Number(mdy[1]) - 1, Number(mdy[2]));
+  }
+
+  const ymd = value.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$/);
+  if (ymd) {
+    return Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+  }
+
+  return null;
 }

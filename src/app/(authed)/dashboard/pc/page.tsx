@@ -113,6 +113,8 @@ export default async function PcDashboardPage({
                   agency: filters.agency,
                   agent: "",
                   policyNumber: filters.policyNumber,
+                  paidProducer: [],
+                  statementNumber: [],
                   reportMonthRange,
                 }}
               />

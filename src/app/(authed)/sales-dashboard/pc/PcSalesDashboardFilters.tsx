@@ -10,6 +10,8 @@ import {
 type FilterOptions = {
   agents: string[];
   agencies: string[];
+  paidProducers: string[];
+  statementNumbers: string[];
 };
 
 type ReportMonthRange = {
@@ -21,12 +23,19 @@ type FilterValues = {
   policyNumber: string;
   agent: string;
   agency: string;
+  paidProducer: string[];
+  statementNumber: string[];
   reportMonthRange: ReportMonthRange;
 };
 
-type ClientFilterValues = Pick<FilterValues, "agency" | "agent" | "policyNumber">;
+type ClientFilterValues = Pick<
+  FilterValues,
+  "agency" | "agent" | "policyNumber" | "paidProducer" | "statementNumber"
+>;
 
 type StringFilterName = "policyNumber" | "agent" | "agency";
+
+type ListFilterName = "paidProducer" | "statementNumber";
 
 export function PcSalesHeaderFilters({
   defaultConfig,
@@ -112,8 +121,9 @@ export function PcSalesDashboardFilters({
       onClientFiltersChange({
         agency: name === "agency" ? value : filters.agency,
         agent: name === "agent" ? value : filters.agent,
-        policyNumber:
-          name === "policyNumber" ? value : filters.policyNumber,
+        policyNumber: name === "policyNumber" ? value : filters.policyNumber,
+        paidProducer: filters.paidProducer,
+        statementNumber: filters.statementNumber,
       });
       return;
     }
@@ -129,12 +139,34 @@ export function PcSalesDashboardFilters({
     replaceWithParams(params);
   }
 
+  function updateListParam(name: ListFilterName, values: string[]) {
+    if (onClientFiltersChange) {
+      onClientFiltersChange({
+        agency: filters.agency,
+        agent: filters.agent,
+        policyNumber: filters.policyNumber,
+        paidProducer: name === "paidProducer" ? values : filters.paidProducer,
+        statementNumber:
+          name === "statementNumber" ? values : filters.statementNumber,
+      });
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete(name);
+    for (const value of values) {
+      if (value) params.append(name, value);
+    }
+
+    replaceWithParams(params);
+  }
+
   function applyPolicyNumberFilter() {
     updateParam("policyNumber", policyNumber.trim());
   }
 
   return (
-    <div className="mb-8 grid gap-8 lg:grid-cols-3">
+    <div className="mb-8 grid gap-8 lg:grid-cols-3 xl:grid-cols-5">
       <FilterSelect
         disabled={isPending}
         label="Agency"
@@ -150,6 +182,23 @@ export function PcSalesDashboardFilters({
         onChange={(value) => updateParam("agent", value)}
         options={options.agents}
         value={filters.agent}
+      />
+      <MultiFilterSelect
+        disabled={isPending}
+        label="Paid Producer Date"
+        name="paidProducer"
+        onChange={(values) => updateListParam("paidProducer", values)}
+        options={options.paidProducers}
+        values={filters.paidProducer}
+      />
+      <MultiFilterSelect
+        disabled={isPending}
+        label="Statement Number"
+        name="statementNumber"
+        onChange={(values) => updateListParam("statementNumber", values)}
+        options={options.statementNumbers}
+        searchable
+        values={filters.statementNumber}
       />
       <label className="block">
         <span className="sr-only">Policy Number</span>
@@ -498,6 +547,7 @@ function FilterSelect({
   name,
   onChange,
   options,
+  searchable = false,
   value,
 }: {
   disabled: boolean;
@@ -505,12 +555,22 @@ function FilterSelect({
   name: string;
   onChange: (value: string) => void;
   options: string[];
+  searchable?: boolean;
   value: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [draftValue, setDraftValue] = useState(value);
+  const [searchTerm, setSearchTerm] = useState("");
   const buttonLabel = value || label;
+  const visibleOptions = useMemo(() => {
+    if (!searchable) return options;
+
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return options;
+
+    return options.filter((option) => option.toLowerCase().includes(term));
+  }, [options, searchTerm, searchable]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -535,6 +595,7 @@ function FilterSelect({
 
   function openDropdown() {
     setDraftValue(value);
+    setSearchTerm("");
     setIsOpen((current) => !current);
   }
 
@@ -574,13 +635,24 @@ function FilterSelect({
       {isOpen ? (
         <div className="dashboard-filter-menu absolute right-0 z-30 mt-2.5 w-full min-w-[16rem] p-3.5">
           <div className="dashboard-filter-title mb-2.5">{label}</div>
+          {searchable ? (
+            <input
+              aria-label={`Search ${label}`}
+              autoFocus
+              className="dashboard-filter-input mb-2.5"
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder={`Search ${label}`}
+              type="search"
+              value={searchTerm}
+            />
+          ) : null}
           <div className="max-h-64 overflow-auto pr-1">
-            {options.length === 0 ? (
+            {visibleOptions.length === 0 ? (
               <div className="rounded-lg border border-dashed border-[#d8dee7] px-3 py-8 text-center text-sm font-semibold text-[#667085]">
-                No options available.
+                {options.length === 0 ? "No options available." : "No matches."}
               </div>
             ) : (
-              options.map((option) => (
+              visibleOptions.map((option) => (
                 <button
                   key={option}
                   type="button"
@@ -590,6 +662,178 @@ function FilterSelect({
                   <span
                     className={`dashboard-filter-checkbox ${
                       draftValue === option ? "checked-like" : ""
+                    }`}
+                    aria-hidden="true"
+                  />
+                  <span className="truncate">{option}</span>
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="dashboard-filter-footer mt-3">
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="dashboard-filter-action mr-auto text-[#667085]"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={closeWithoutApplying}
+              className="dashboard-filter-action"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={applySelection}
+              className="dashboard-filter-action"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MultiFilterSelect({
+  disabled,
+  label,
+  name,
+  onChange,
+  options,
+  searchable = false,
+  values,
+}: {
+  disabled: boolean;
+  label: string;
+  name: string;
+  onChange: (values: string[]) => void;
+  options: string[];
+  searchable?: boolean;
+  values: string[];
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftValues, setDraftValues] = useState<string[]>(values);
+  const [searchTerm, setSearchTerm] = useState("");
+  const buttonLabel =
+    values.length === 0
+      ? label
+      : values.length === 1
+        ? values[0]
+        : `${label} (${values.length})`;
+  const visibleOptions = useMemo(() => {
+    if (!searchable) return options;
+
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return options;
+
+    return options.filter((option) => option.toLowerCase().includes(term));
+  }, [options, searchTerm, searchable]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeOnOutsidePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        containerRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+
+      setIsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+    };
+  }, [isOpen]);
+
+  function openDropdown() {
+    setDraftValues(values);
+    setSearchTerm("");
+    setIsOpen((current) => !current);
+  }
+
+  function toggleOption(option: string) {
+    setDraftValues((current) =>
+      current.includes(option)
+        ? current.filter((item) => item !== option)
+        : [...current, option]
+    );
+  }
+
+  function clearSelection() {
+    setDraftValues([]);
+    setIsOpen(false);
+    onChange([]);
+  }
+
+  function closeWithoutApplying() {
+    setDraftValues(values);
+    setIsOpen(false);
+  }
+
+  function applySelection() {
+    setIsOpen(false);
+    onChange(draftValues);
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        data-filter-name={name}
+        onClick={openDropdown}
+        className="dashboard-filter-button w-full"
+        aria-expanded={isOpen}
+        aria-label={label}
+      >
+        <span className="truncate">{buttonLabel}</span>
+        <span className="text-[#667085]" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+
+      {isOpen ? (
+        <div className="dashboard-filter-menu absolute right-0 z-30 mt-2.5 w-full min-w-[16rem] p-3.5">
+          <div className="dashboard-filter-title mb-2.5">{label}</div>
+          {searchable ? (
+            <input
+              aria-label={`Search ${label}`}
+              autoFocus
+              className="dashboard-filter-input mb-2.5"
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder={`Search ${label}`}
+              type="search"
+              value={searchTerm}
+            />
+          ) : null}
+          <div className="max-h-64 overflow-auto pr-1">
+            {visibleOptions.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-[#d8dee7] px-3 py-8 text-center text-sm font-semibold text-[#667085]">
+                {options.length === 0 ? "No options available." : "No matches."}
+              </div>
+            ) : (
+              visibleOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => toggleOption(option)}
+                  className="dashboard-filter-option w-full"
+                >
+                  <span
+                    className={`dashboard-filter-checkbox ${
+                      draftValues.includes(option) ? "checked-like" : ""
                     }`}
                     aria-hidden="true"
                   />
