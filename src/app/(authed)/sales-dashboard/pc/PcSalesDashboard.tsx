@@ -3,7 +3,10 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { FileDown, Filter, Minus, Plus } from "lucide-react";
 import * as XLSX from "xlsx";
-import { PcCommissionMetricTrendChart } from "./PcCommissionMetricTrendChart";
+import {
+  PcCommissionMetricTrendChart,
+  type CommissionTrendRow,
+} from "./PcCommissionMetricTrendChart";
 import { PcSalesDashboardFilters } from "./PcSalesDashboardFilters";
 import { PcSalesTrendSections } from "./PcSalesTrendSections";
 import { PcStateHeatMap } from "./PcStateHeatMap";
@@ -169,6 +172,7 @@ type DashboardData = {
   overview: Summary;
   monthlyRows: MonthlySummary[];
   trendRows: MonthlySummary[];
+  unpaidTrendRows: CommissionTrendRow[];
   agencyMonthRows: AgencyMonthRow[];
   agentNames: string[];
   agentPaidDateGroups: AgentPaidDateGroup[];
@@ -548,6 +552,7 @@ function buildDashboardData(rows: PcSalesRow[], trendLevel: TrendLevel): Dashboa
     overview,
     monthlyRows,
     trendRows,
+    unpaidTrendRows: buildUnpaidTrendRows(rows, trendLevel),
     agencyMonthRows: buildAgencyMonthRows(rows, trendLevel),
     agentNames,
     agentPaidDateGroups: buildAgentPaidDateGroups(rows, agentNames, trendLevel),
@@ -726,6 +731,50 @@ function buildPeriodSummaries(
   });
 
   return rowsWithChange.reverse();
+}
+
+// Trend commission ƯỚC TÍNH cho các policy chưa paid (paid_producer null),
+// nhóm theo period. Dùng cho view "Unpaid" của chart commission trend.
+function buildUnpaidTrendRows(
+  rows: PcSalesRow[],
+  trendLevel: TrendLevel
+): CommissionTrendRow[] {
+  const avgRateByCompany = buildAvgCarrierRateByCompany(rows);
+  const unpaidRows = rows.filter(
+    (row) => cleanGroupLabel(row.paid_producer) === "null"
+  );
+
+  return [
+    ...groupRows(unpaidRows, (row) =>
+      getTrendPeriodKey(getEffectiveMonth(row), trendLevel)
+    ).entries(),
+  ]
+    .filter(([periodKey]) => Boolean(periodKey))
+    .map(([periodKey, group]) => {
+      let totalPremium = 0;
+      let totalCommission = 0;
+      let agentCommission = 0;
+      let epsCommission = 0;
+
+      for (const row of group) {
+        const est = estimateCommission(row, avgRateByCompany);
+        totalPremium += Math.max(moneyValue(row.true_premium ?? row.premium), 0);
+        totalCommission += est.total;
+        agentCommission += est.agent;
+        epsCommission += est.eps;
+      }
+
+      return {
+        monthKey: formatTrendPeriodLabel(periodKey, trendLevel),
+        periodKey,
+        totalPremium: roundMoney(totalPremium),
+        totalCommission: roundMoney(totalCommission),
+        agentCommission: roundMoney(agentCommission),
+        epsCommission: roundMoney(epsCommission),
+      };
+    })
+    .sort((a, b) => a.periodKey.localeCompare(b.periodKey))
+    .slice(-TREND_LIMIT_BY_LEVEL[trendLevel]);
 }
 
 function buildAgencyMonthRows(
@@ -1300,6 +1349,7 @@ function PcTrendLevelSections({
     <>
       <PcCommissionMetricTrendChart
         rows={data.trendRows}
+        unpaidRows={data.unpaidTrendRows}
         trendLevel={trendLevel}
       />
       <MonthlySalesMomGrowthTable

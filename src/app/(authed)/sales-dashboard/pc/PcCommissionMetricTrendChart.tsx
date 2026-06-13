@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-type CommissionTrendRow = {
+export type CommissionTrendRow = {
   monthKey: string;
   periodKey: string;
   totalPremium: number;
@@ -12,6 +12,7 @@ type CommissionTrendRow = {
 };
 
 type MetricKey = "totalCommission" | "epsCommission" | "agentCommission";
+type PaymentView = "paid" | "unpaid";
 type TrendLevel = "month" | "quarter" | "year";
 
 const METRICS: {
@@ -42,14 +43,19 @@ const METRICS: {
 
 export function PcCommissionMetricTrendChart({
   rows,
+  unpaidRows,
   trendLevel,
 }: {
   rows: CommissionTrendRow[];
+  unpaidRows?: CommissionTrendRow[];
   trendLevel: TrendLevel;
 }) {
   const [selectedMetric, setSelectedMetric] = useState<MetricKey>("totalCommission");
+  const [paymentView, setPaymentView] = useState<PaymentView>("paid");
   const metric = METRICS.find((item) => item.key === selectedMetric) ?? METRICS[0];
   const periodLabel = getTrendLevelLabel(trendLevel);
+  const activeRows =
+    paymentView === "unpaid" ? unpaidRows ?? [] : rows;
 
   return (
     <section className="flex flex-col">
@@ -57,35 +63,64 @@ export function PcCommissionMetricTrendChart({
         <h3 className="text-lg font-bold leading-tight text-slate-800">
           Commission Trend by {periodLabel} | {metric.title}
         </h3>
-        <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
-          {METRICS.map((item) => {
-            const isActive = item.key === selectedMetric;
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
+            {(["paid", "unpaid"] as PaymentView[]).map((view) => {
+              const isActive = view === paymentView;
 
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => setSelectedMetric(item.key)}
-                className={`h-8 px-3 text-xs font-semibold transition ${
-                  isActive
-                    ? "bg-[#184e8a] text-white"
-                    : "text-[#344054] hover:bg-[#f3f6fa]"
-                }`}
-                aria-pressed={isActive}
-              >
-                {item.title}
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => setPaymentView(view)}
+                  className={`h-8 px-3 text-xs font-semibold transition ${
+                    isActive
+                      ? "bg-[#184e8a] text-white"
+                      : "text-[#344054] hover:bg-[#f3f6fa]"
+                  }`}
+                  aria-pressed={isActive}
+                >
+                  {view === "paid" ? "Paid" : "Unpaid"}
+                </button>
+              );
+            })}
+          </div>
+          <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
+            {METRICS.map((item) => {
+              const isActive = item.key === selectedMetric;
+
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setSelectedMetric(item.key)}
+                  className={`h-8 px-3 text-xs font-semibold transition ${
+                    isActive
+                      ? "bg-[#184e8a] text-white"
+                      : "text-[#344054] hover:bg-[#f3f6fa]"
+                  }`}
+                  aria-pressed={isActive}
+                >
+                  {item.title}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
-        {rows.length === 0 ? (
+        {activeRows.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm font-medium text-slate-500">
-            No commission trend data.
+            {paymentView === "unpaid"
+              ? "No unpaid commission trend data."
+              : "No commission trend data."}
           </div>
         ) : (
-          <CommissionTrendSvg metric={metric} periodLabel={periodLabel} rows={rows} />
+          <CommissionTrendSvg
+            metric={metric}
+            periodLabel={periodLabel}
+            rows={activeRows}
+          />
         )}
       </div>
     </section>
