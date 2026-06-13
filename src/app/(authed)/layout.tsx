@@ -22,6 +22,7 @@ export default async function AuthedLayout({
         <TopBar
           userName={session.user.name ?? null}
           userEmail={session.user.email}
+          agentId={session.user.agentId ?? null}
         />
         <main className="flex-1">{children}</main>
       </div>

@@ -40,7 +40,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const supabase = getSupabaseAdmin();
         const { data: user } = await supabase
           .from(PORTAL_ACCOUNT_TABLE)
-          .select("id,email,name,password_hash,role,is_active")
+          .select("id,email,name,agent_id,password_hash,role,is_active")
           .eq("email", email)
           .single();
 
@@ -69,6 +69,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           id: user.id,
           email: user.email,
           name: user.name,
+          agentId: user.agent_id ?? null,
           role: access.legacyRole,
           roles: access.roles,
           permissions: access.permissions,
@@ -136,6 +137,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.permissions = user.permissions;
       }
 
+      if (user && "agentId" in user) {
+        token.agentId = user.agentId ?? null;
+      }
+
       if (token.email) {
         const access = await getUserAccessByEmail(token.email);
         if (access.isActive) {
@@ -146,6 +151,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.roles = [];
           token.permissions = [];
         }
+
+        // agent_id luôn lấy mới (Google login không qua authorize).
+        const supabase = getSupabaseAdmin();
+        const { data: account } = await supabase
+          .from(PORTAL_ACCOUNT_TABLE)
+          .select("agent_id")
+          .eq("email", token.email)
+          .maybeSingle();
+        token.agentId = account?.agent_id ?? null;
       }
 
       return token;
@@ -157,6 +171,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.permissions = Array.isArray(token.permissions)
           ? token.permissions
           : [];
+        session.user.agentId = (token.agentId as string | null) ?? null;
       }
       return session;
     },

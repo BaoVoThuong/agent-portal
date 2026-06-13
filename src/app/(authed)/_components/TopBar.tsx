@@ -8,9 +8,10 @@ import styles from "./topbar.module.css";
 type TopBarProps = {
   userName: string | null;
   userEmail: string;
+  agentId: string | null;
 };
 
-export default function TopBar({ userName, userEmail }: TopBarProps) {
+export default function TopBar({ userName, userEmail, agentId }: TopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -36,7 +37,7 @@ export default function TopBar({ userName, userEmail }: TopBarProps) {
     <header className={styles.topbar}>
       <div className={styles.userInfo}>
         <div className={styles.userName}>{userName ?? userEmail}</div>
-        <div className={styles.userId}>ID: Not provided</div>
+        <div className={styles.userId}>ID: {agentId || "Not provided"}</div>
       </div>
 
       <div className={styles.menuWrap} ref={menuRef}>

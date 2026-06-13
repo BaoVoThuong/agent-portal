@@ -36,7 +36,7 @@ export default async function AccountManagerPage() {
   const [{ data, error }, roles, userRolesResponse] = await Promise.all([
     supabase
     .from(PORTAL_ACCOUNT_TABLE)
-    .select("id,email,name,role,is_active,created_at")
+    .select("id,email,name,agent_id,role,is_active,created_at")
       .order("created_at", { ascending: false }),
     fetchRolesWithPermissions(),
     supabase.from("user_roles").select("user_id,role_id"),

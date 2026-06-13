@@ -46,6 +46,7 @@ export type AccountUser = {
   id: string;
   email: string;
   name: string | null;
+  agent_id: string | null;
   role: UserRole;
   is_active: boolean;
   created_at: string;

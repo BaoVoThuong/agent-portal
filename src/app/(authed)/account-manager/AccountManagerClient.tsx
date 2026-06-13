@@ -27,6 +27,7 @@ type ManagedAccountUser = AccountUser & {
 type FormState = {
   email: string;
   name: string;
+  agentId: string;
   password: string;
   roleIds: string[];
 };
@@ -34,11 +35,13 @@ type FormState = {
 type EditAccountFormState = {
   email: string;
   name: string;
+  agentId: string;
 };
 
 const emptyForm: FormState = {
   email: "",
   name: "",
+  agentId: "",
   password: "",
   roleIds: [],
 };
@@ -65,7 +68,9 @@ export default function AccountManagerClient({
   const [editForm, setEditForm] = useState<EditAccountFormState>({
     email: "",
     name: "",
+    agentId: "",
   });
+  const [deleteUser, setDeleteUser] = useState<ManagedAccountUser | null>(null);
   const [roleUser, setRoleUser] = useState<ManagedAccountUser | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [resetUser, setResetUser] = useState<ManagedAccountUser | null>(null);
@@ -157,6 +162,7 @@ export default function AccountManagerClient({
         body: JSON.stringify({
           email: form.email.trim(),
           name: form.name.trim() || null,
+          agentId: form.agentId.trim(),
           password: form.password,
           roleIds: form.roleIds,
         }),
@@ -184,6 +190,7 @@ export default function AccountManagerClient({
     payload: Partial<Pick<AccountUser, "role" | "is_active">> & {
       email?: string;
       name?: string | null;
+      agentId?: string;
       password?: string;
       roleIds?: string[];
     }
@@ -230,6 +237,7 @@ export default function AccountManagerClient({
     setEditForm({
       email: user.email,
       name: user.name ?? "",
+      agentId: user.agent_id ?? "",
     });
   }
 
@@ -240,11 +248,39 @@ export default function AccountManagerClient({
     const updated = await updateUser(editUser, {
       email: editForm.email.trim(),
       name: editForm.name.trim() || null,
+      agentId: editForm.agentId.trim(),
     });
 
     if (updated) {
       setEditUser(null);
-      setEditForm({ email: "", name: "" });
+      setEditForm({ email: "", name: "", agentId: "" });
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!deleteUser) return;
+    setBusyUserId(deleteUser.id);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch(`/api/admin/users/${deleteUser.id}`, {
+        method: "DELETE",
+      });
+      const result = await readJsonResponse(response);
+
+      if (!response.ok) {
+        setError(result.error ?? "Unable to delete account.");
+        return;
+      }
+
+      setMessage(`Deleted ${deleteUser.email}.`);
+      setDeleteUser(null);
+      router.refresh();
+    } catch {
+      setError("Unable to delete account. Please try again.");
+    } finally {
+      setBusyUserId(null);
     }
   }
 
@@ -354,6 +390,9 @@ export default function AccountManagerClient({
                       <div className="mt-1 truncate text-xs text-[#667085]">
                         {user.email}
                       </div>
+                      <div className="mt-0.5 truncate text-xs text-[#98a2b3]">
+                        ID: {user.agent_id || "—"}
+                      </div>
                     </td>
                     <td className="px-4 py-4">
                       <RoleBadges user={user} />
@@ -411,21 +450,15 @@ export default function AccountManagerClient({
                             Reset password
                           </button>
                           <button
-                            className={`flex w-full items-center rounded-md px-3 py-2 text-sm font-medium hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50 ${
-                              user.is_active
-                                ? "text-red-700"
-                                : "text-emerald-700"
-                            }`}
+                            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-red-700 hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
                             type="button"
                             disabled={isBusy || isCurrentUser || !canEdit}
                             onClick={() => {
                               setActionUserId(null);
-                              void updateUser(user, {
-                                is_active: !user.is_active,
-                              });
+                              setDeleteUser(user);
                             }}
                           >
-                            {user.is_active ? "Deactivate" : "Reactivate"}
+                            Delete account
                           </button>
                         </div>
                       )}
@@ -498,6 +531,23 @@ export default function AccountManagerClient({
                       name: event.target.value,
                     }))
                   }
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-[#344054]">
+                  Agent ID
+                </span>
+                <input
+                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
+                  type="text"
+                  value={form.agentId}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      agentId: event.target.value,
+                    }))
+                  }
+                  required
                 />
               </label>
               <label className="block">
@@ -603,6 +653,23 @@ export default function AccountManagerClient({
 	                  }
 	                />
 	              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-[#344054]">
+                  Agent ID
+                </span>
+                <input
+                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
+                  type="text"
+                  value={editForm.agentId}
+                  onChange={(event) =>
+                    setEditForm((current) => ({
+                      ...current,
+                      agentId: event.target.value,
+                    }))
+                  }
+                  required
+                />
+              </label>
 	            </div>
 	            <div className="mt-6 flex justify-end gap-3">
 	              <button
@@ -610,7 +677,7 @@ export default function AccountManagerClient({
 	                type="button"
 	                onClick={() => {
 	                  setEditUser(null);
-	                  setEditForm({ email: "", name: "" });
+	                  setEditForm({ email: "", name: "", agentId: "" });
 	                }}
 	              >
 	                Cancel
@@ -619,11 +686,13 @@ export default function AccountManagerClient({
 	                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155] disabled:cursor-not-allowed disabled:opacity-60"
 	                type="submit"
 	                disabled={
-	                  busyUserId === editUser.id ||
-	                  (editForm.email.trim().toLowerCase() ===
-	                    editUser.email.toLowerCase() &&
-	                    editForm.name.trim() === (editUser.name ?? ""))
-	                }
+                  busyUserId === editUser.id ||
+                  !editForm.agentId.trim() ||
+                  (editForm.email.trim().toLowerCase() ===
+                    editUser.email.toLowerCase() &&
+                    editForm.name.trim() === (editUser.name ?? "") &&
+                    editForm.agentId.trim() === (editUser.agent_id ?? ""))
+                }
 	              >
 	                {busyUserId === editUser.id ? "Saving..." : "Save"}
 	              </button>
@@ -724,6 +793,42 @@ export default function AccountManagerClient({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {deleteUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f2349]/35 px-4">
+          <div className="w-full max-w-[420px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl">
+            <div className="mb-5">
+              <h2 className="text-lg font-semibold text-[#16233a]">
+                Delete Account
+              </h2>
+              <p className="mt-1 text-sm text-[#667085]">
+                This permanently deletes{" "}
+                <span className="font-semibold text-[#16233a]">
+                  {deleteUser.email}
+                </span>
+                . This action cannot be undone.
+              </p>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                className="rounded-md border border-[#cfd6e3] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f4f7fb]"
+                type="button"
+                onClick={() => setDeleteUser(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                disabled={busyUserId === deleteUser.id}
+                onClick={() => void handleDeleteAccount()}
+              >
+                {busyUserId === deleteUser.id ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

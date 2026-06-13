@@ -32,7 +32,8 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const { id } = await context.params;
-    const { email, name, role, roleIds, is_active, password } = await req.json();
+    const { email, name, role, roleIds, is_active, password, agentId } =
+      await req.json();
     const selectedRoleIds = Array.isArray(roleIds)
       ? roleIds.filter((item): item is string => typeof item === "string")
       : null;
@@ -43,7 +44,8 @@ export async function PATCH(req: Request, context: RouteContext) {
         role !== undefined ||
         roleIds !== undefined ||
         is_active !== undefined ||
-        password !== undefined) &&
+        password !== undefined ||
+        agentId !== undefined) &&
       !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
     ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -82,6 +84,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     const updates: {
       email?: string;
       name?: string | null;
+      agent_id?: string;
       role?: UserRole;
       is_active?: boolean;
       password_hash?: string;
@@ -126,6 +129,41 @@ export async function PATCH(req: Request, context: RouteContext) {
     if (name !== undefined) {
       updates.name =
         typeof name === "string" && name.trim() ? name.trim() : null;
+    }
+
+    if (agentId !== undefined) {
+      const normalizedAgentId =
+        typeof agentId === "string" ? agentId.trim() : "";
+
+      if (!normalizedAgentId) {
+        return NextResponse.json(
+          { error: "Agent ID is required." },
+          { status: 400 }
+        );
+      }
+
+      const { data: existingAgentId, error: agentIdError } = await supabase
+        .from(PORTAL_ACCOUNT_TABLE)
+        .select("id")
+        .eq("agent_id", normalizedAgentId)
+        .neq("id", id)
+        .maybeSingle();
+
+      if (agentIdError) {
+        return NextResponse.json(
+          { error: agentIdError.message },
+          { status: 500 }
+        );
+      }
+
+      if (existingAgentId) {
+        return NextResponse.json(
+          { error: "This Agent ID is already in use." },
+          { status: 409 }
+        );
+      }
+
+      updates.agent_id = normalizedAgentId;
     }
 
     if (role !== undefined) {
@@ -232,7 +270,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       .from(PORTAL_ACCOUNT_TABLE)
       .update(updates)
       .eq("id", id)
-      .select("id,email,name,role,is_active,created_at")
+      .select("id,email,name,agent_id,role,is_active,created_at")
       .single();
 
     if (error) {
@@ -247,6 +285,92 @@ export async function PATCH(req: Request, context: RouteContext) {
     return NextResponse.json({ user: data });
   } catch (error) {
     console.error("[account-manager:update] failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Internal Server Error",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(_req: Request, context: RouteContext) {
+  try {
+    const session = await auth();
+
+    if (
+      !session?.user?.email ||
+      !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
+    ) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = await context.params;
+    const supabase = getSupabaseAdmin();
+
+    const { data: targetUser, error: targetError } = await supabase
+      .from(PORTAL_ACCOUNT_TABLE)
+      .select("id,email,role")
+      .eq("id", id)
+      .single();
+
+    if (targetError || !targetUser) {
+      return NextResponse.json({ error: "User not found." }, { status: 404 });
+    }
+
+    if (targetUser.email.toLowerCase() === session.user.email.toLowerCase()) {
+      return NextResponse.json(
+        { error: "You cannot delete your own account." },
+        { status: 400 }
+      );
+    }
+
+    const { data: targetUserRoles, error: targetRolesError } = await supabase
+      .from("user_roles")
+      .select("roles(name)")
+      .eq("user_id", id);
+
+    if (targetRolesError) {
+      return NextResponse.json(
+        { error: targetRolesError.message },
+        { status: 500 }
+      );
+    }
+
+    const targetHasSuperAdmin =
+      targetUser.role === "admin" ||
+      ((targetUserRoles ?? []) as unknown as Array<{
+        roles: { name: string } | null;
+      }>).some(
+        (row) =>
+          row.roles?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
+          row.roles?.name === LEGACY_SUPER_ADMIN_ROLE_NAME
+      );
+
+    if (targetHasSuperAdmin && !(await hasActiveSuperAdminOtherThan(id))) {
+      return NextResponse.json(
+        { error: "At least one active Admin account is required." },
+        { status: 400 }
+      );
+    }
+
+    // user_roles xóa theo cascade (FK on delete cascade).
+    const { error: deleteError } = await supabase
+      .from(PORTAL_ACCOUNT_TABLE)
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("[account-manager:delete] failed", {
       error: error instanceof Error ? error.message : String(error),
     });
 

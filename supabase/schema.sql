@@ -30,6 +30,14 @@ add column if not exists is_active boolean not null default true;
 alter table portal_account
 add column if not exists created_at timestamptz not null default now();
 
+alter table portal_account
+add column if not exists agent_id text;
+
+-- agent_id là duy nhất khi có giá trị (account cũ có thể null).
+create unique index if not exists portal_account_agent_id_key
+  on portal_account (agent_id)
+  where agent_id is not null;
+
 do $$
 begin
   if not exists (

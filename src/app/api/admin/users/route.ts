@@ -26,9 +26,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { email, password, name, role, roleIds } = await req.json();
+    const { email, password, name, role, roleIds, agentId } = await req.json();
     const normalizedEmail =
       typeof email === "string" ? email.trim().toLowerCase() : "";
+    const normalizedAgentId =
+      typeof agentId === "string" ? agentId.trim() : "";
     const selectedRole = roles.includes(role) ? role : "agent";
     const selectedRoleIds = Array.isArray(roleIds)
       ? roleIds.filter((item): item is string => typeof item === "string")
@@ -54,6 +56,13 @@ export async function POST(req: Request) {
       );
     }
 
+    if (!normalizedAgentId) {
+      return NextResponse.json(
+        { error: "Agent ID is required." },
+        { status: 400 }
+      );
+    }
+
     if (selectedRoleIds.length > 1) {
       return NextResponse.json(
         { error: "Select exactly one role for this account." },
@@ -71,6 +80,19 @@ export async function POST(req: Request) {
     if (existingUser) {
       return NextResponse.json(
         { error: "An account with this email already exists." },
+        { status: 409 }
+      );
+    }
+
+    const { data: existingAgentId } = await supabase
+      .from(PORTAL_ACCOUNT_TABLE)
+      .select("id")
+      .eq("agent_id", normalizedAgentId)
+      .maybeSingle();
+
+    if (existingAgentId) {
+      return NextResponse.json(
+        { error: "This Agent ID is already in use." },
         { status: 409 }
       );
     }
@@ -106,12 +128,13 @@ export async function POST(req: Request) {
         {
           email: normalizedEmail,
           name: typeof name === "string" && name.trim() ? name.trim() : null,
+          agent_id: normalizedAgentId,
           password_hash: hashedPassword,
           role: legacyRole,
           is_active: true,
         },
       ])
-      .select("id,email,name,role,is_active,created_at")
+      .select("id,email,name,agent_id,role,is_active,created_at")
       .single();
 
     if (error) {
