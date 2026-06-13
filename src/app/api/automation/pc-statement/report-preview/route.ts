@@ -6,8 +6,10 @@ import { buildPcStatementReport } from "@/lib/automation/pc-statement/report";
 import {
   CLEAN_PAYMENT_HEADERS,
   STATEMENT_HEADERS,
+  UNCLAIM_FEE_HEADERS,
   cleanPaymentValues,
   statementValues,
+  unclaimFeeValues,
 } from "@/lib/automation/pc-statement/table-data";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -86,9 +88,16 @@ export async function POST(request: Request) {
       },
       unclaimPayment: {
         count: report.unclaimedPayment.length,
-        headers: STATEMENT_HEADERS,
+        headers: UNCLAIM_FEE_HEADERS,
         rows: report.unclaimedPayment.map((row) => ({
-          values: statementValues(row),
+          values: unclaimFeeValues(row),
+        })),
+      },
+      feePayment: {
+        count: report.feePayment.length,
+        headers: UNCLAIM_FEE_HEADERS,
+        rows: report.feePayment.map((row) => ({
+          values: unclaimFeeValues(row),
         })),
       },
     });

@@ -79,12 +79,14 @@ export async function POST(request: Request) {
       "X-Base-Policy": String(report.totals.basePolicy),
       "X-Additional": String(report.totals.additional),
       "X-Unclaimed": String(report.totals.unclaimed),
+      "X-Fee": String(report.totals.fee),
       "X-Final": String(report.totals.final),
       "X-Balanced": String(report.totals.balanced),
       "X-Clean-Payment-Rows": String(report.cleanPayment.length),
       "X-New-Policy-Rows": String(report.policyInMonth.length),
       "X-Additional-Rows": String(report.additionalPolicy.length),
       "X-Unclaimed-Rows": String(report.unclaimedPayment.length),
+      "X-Fee-Rows": String(report.feePayment.length),
     },
   });
 }

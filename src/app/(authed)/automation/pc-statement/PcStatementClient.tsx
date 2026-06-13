@@ -26,6 +26,7 @@ type ReviewData = {
     basePolicy: number;
     additional: number;
     unclaimed: number;
+    fee: number;
     final: number;
     balanced: boolean;
   };
@@ -42,6 +43,7 @@ type ReportPreviewData = {
   policyInMonth: ReviewGroup;
   additionalPolicy: ReviewGroup;
   unclaimPayment: ReviewGroup;
+  feePayment: ReviewGroup;
 };
 
 type ReviewTab = "paymentClean" | "oldPolicies" | "newPolicies";
@@ -51,6 +53,7 @@ const emptyTotals = {
   basePolicy: 0,
   additional: 0,
   unclaimed: 0,
+  fee: 0,
   final: 0,
 };
 
@@ -61,7 +64,7 @@ const reviewTabs: Array<{ key: ReviewTab; label: string }> = [
 ];
 
 const EXCEL_PREVIEW_START_ROW = 8;
-const EXCEL_PREVIEW_COLUMN_COUNT = 72;
+const EXCEL_PREVIEW_COLUMN_COUNT = 81;
 const EXCEL_PREVIEW_COLUMN_WIDTH = 148;
 
 const excelPreviewSections = [
@@ -69,6 +72,7 @@ const excelPreviewSections = [
   { column: 8, label: "Policy In Month" },
   { column: 30, label: "Additional" },
   { column: 50, label: "Unclaim" },
+  { column: 70, label: "Fee" },
 ];
 
 type ExcelPreviewCell = {
@@ -124,6 +128,35 @@ async function downloadResponseFile(response: Response, fallback: string) {
   link.download = getFilename(response.headers.get("content-disposition"), fallback);
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function ReconcileRow({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5">
+      <span
+        className={`${
+          strong ? "font-semibold text-[#16233a]" : "text-[#475467]"
+        }`}
+      >
+        {label}
+      </span>
+      <span
+        className={`tabular-nums ${
+          strong ? "font-bold text-[#16233a]" : "font-semibold text-[#16233a]"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
 }
 
 function ReviewTable({
@@ -221,16 +254,17 @@ function statementColumnWidth(offset: number) {
 }
 
 function getExcelPreviewColumnWidth(column: number) {
-  if ([7, 27, 28, 29, 49, 69, 70, 71, 72].includes(column)) return 36;
+  if ([7, 27, 28, 29, 49, 62, 69].includes(column)) return 36;
 
-  if (column >= 1 && column <= 6) {
-    const widths = [210, 150, 128, 140, 118, 150];
+  if (column >= 1 && column <= 7) {
+    const widths = [210, 150, 128, 140, 118, 150, 90];
     return widths[column - 1] ?? EXCEL_PREVIEW_COLUMN_WIDTH;
   }
 
   if (column >= 8 && column <= 26) return statementColumnWidth(column - 8);
   if (column >= 30 && column <= 48) return statementColumnWidth(column - 30);
-  if (column >= 50 && column <= 68) return statementColumnWidth(column - 50);
+  if (column >= 50 && column <= 61) return statementColumnWidth(column - 50);
+  if (column >= 70 && column <= 81) return statementColumnWidth(column - 70);
 
   return EXCEL_PREVIEW_COLUMN_WIDTH;
 }
@@ -248,12 +282,13 @@ function getColumnOffset(column: number) {
 function getColumnBandClass(column: number) {
   if (column >= 8 && column <= 26) return "bg-[#fbfdff]";
   if (column >= 30 && column <= 48) return "bg-[#fbfffb]";
-  if (column >= 50 && column <= 68) return "bg-[#fffdf7]";
+  if (column >= 50 && column <= 61) return "bg-[#fffdf7]";
+  if (column >= 70 && column <= 81) return "bg-[#fdf7ff]";
   return "bg-white";
 }
 
 function getColumnBoundaryClass(column: number) {
-  if ([1, 8, 30, 50].includes(column)) {
+  if ([1, 8, 30, 50, 70].includes(column)) {
     return "border-l-2 border-l-[#245a94]";
   }
 
@@ -302,10 +337,12 @@ function buildExcelPreviewCells(data: ReportPreviewData) {
   setCell(9, 4, formatMoney(data.totals.additional), `${summaryClass} ${rightClass}`);
   setCell(8, 5, "Unclaim Payment", titleClass);
   setCell(9, 5, formatMoney(data.totals.unclaimed), `${summaryClass} ${rightClass}`);
-  setCell(8, 6, "Sum Check", titleClass);
+  setCell(8, 6, "Fee", titleClass);
+  setCell(9, 6, formatMoney(data.totals.fee), `${summaryClass} ${rightClass}`);
+  setCell(8, 7, "Sum Check", titleClass);
   setCell(
     9,
-    6,
+    7,
     data.totals.balanced ? "TRUE" : "FALSE",
     data.totals.balanced
       ? "bg-white text-center font-bold text-[#15803d]"
@@ -321,17 +358,22 @@ function buildExcelPreviewCells(data: ReportPreviewData) {
   setCell(8, 50, "Unclaim Payment", titleClass);
   setCell(9, 50, "Total Premium", redLabelClass);
   setCell(9, 51, formatMoney(data.totals.unclaimed), `${summaryClass} ${rightClass}`);
+  setCell(8, 70, "Fee", titleClass);
+  setCell(9, 70, "Total Premium", redLabelClass);
+  setCell(9, 71, formatMoney(data.totals.fee), `${summaryClass} ${rightClass}`);
 
   addTable(1, data.paymentClean);
   addTable(8, data.policyInMonth);
   addTable(30, data.additionalPolicy);
   addTable(50, data.unclaimPayment);
+  addTable(70, data.feePayment);
 
   const maxDataRows = Math.max(
     data.paymentClean.rows.length,
     data.policyInMonth.rows.length,
     data.additionalPolicy.rows.length,
-    data.unclaimPayment.rows.length
+    data.unclaimPayment.rows.length,
+    data.feePayment.rows.length
   );
 
   return {
@@ -389,11 +431,17 @@ function ExcelSheetPreview({ data }: { data: ReportPreviewData }) {
       rows: data.unclaimPayment.count,
       total: data.totals.unclaimed,
     },
+    {
+      column: 70,
+      label: "Fee",
+      rows: data.feePayment.count,
+      total: data.totals.fee,
+    },
   ];
 
   return (
     <div>
-      <div className="mb-3 grid gap-3 lg:grid-cols-4">
+      <div className="mb-3 grid gap-3 lg:grid-cols-5">
         {blockSummaries.map((block) => (
           <button
             key={block.column}
@@ -582,6 +630,7 @@ export default function PcStatementClient() {
       basePolicy: data.totals.basePolicy,
       additional: data.totals.additional,
       unclaimed: data.totals.unclaimed,
+      fee: data.totals.fee,
       final: data.totals.final,
     });
   };
@@ -718,6 +767,7 @@ export default function PcStatementClient() {
         basePolicy: data.totals.basePolicy,
         additional: data.totals.additional,
         unclaimed: data.totals.unclaimed,
+        fee: data.totals.fee,
         final: data.totals.final,
       });
     } catch (err) {
@@ -762,6 +812,7 @@ export default function PcStatementClient() {
         basePolicy: data.totals.basePolicy,
         additional: data.totals.additional,
         unclaimed: data.totals.unclaimed,
+        fee: data.totals.fee,
         final: data.totals.final,
       });
     } catch (err) {
@@ -796,6 +847,7 @@ export default function PcStatementClient() {
         basePolicy: readNumberHeader(response, "x-base-policy"),
         additional: readNumberHeader(response, "x-additional"),
         unclaimed: readNumberHeader(response, "x-unclaimed"),
+        fee: readNumberHeader(response, "x-fee"),
         final: readNumberHeader(response, "x-final"),
       });
     } catch (err) {
@@ -899,32 +951,21 @@ export default function PcStatementClient() {
         </form>
 
         <section className="rounded-lg border border-[#d8dee7] bg-white shadow-sm">
-          <div className="border-b border-[#e6ebf2] px-6 py-5">
+          <div className="flex items-center justify-between gap-3 border-b border-[#e6ebf2] px-6 py-5">
             <h2 className="text-base font-semibold text-[#16233a]">
               Statement Summary
             </h2>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[#667085]">
+                Files
+              </span>
+              <span className="font-semibold text-[#16233a]">
+                {selectedFileCount || "-"}
+              </span>
+            </div>
           </div>
           <div className="px-6 py-6">
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-[#667085]">
-                  Files
-                </dt>
-                <dd className="mt-1 truncate text-sm text-[#16233a]">
-                  {selectedFileCount || "-"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs font-semibold uppercase tracking-wide text-[#667085]">
-                  Last Black Line
-                </dt>
-                <dd className="mt-1 truncate text-sm text-[#16233a]">
-                  {reportPreview?.lastBlackRow ?? reviewData?.lastBlackRow ?? "-"}
-                </dd>
-              </div>
-            </dl>
-
-            <div className="mt-8 rounded-md border border-[#d8dee7] bg-[#f8fafc] p-4">
+            <div className="rounded-md border border-[#d8dee7] bg-[#f8fafc] p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="text-sm font-semibold text-[#16233a]">
                   Statement Reconcile
@@ -940,23 +981,29 @@ export default function PcStatementClient() {
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-md border border-[#e6ebf2] bg-white">
-                <div className="grid grid-cols-5 bg-[#edf2f7] text-xs font-semibold uppercase tracking-wide text-[#344054]">
-                  <div className="px-3 py-2">All Payments Raw</div>
-                  <div className="px-3 py-2">Base Policy</div>
-                  <div className="px-3 py-2">Additional</div>
-                  <div className="px-3 py-2">Unclaimed</div>
-                  <div className="px-3 py-2">Final</div>
-                </div>
-                <div className="grid grid-cols-5 border-t border-[#e6ebf2] text-sm font-semibold text-[#16233a]">
-                  <div className="px-3 py-3">
-                    {formatMoney(totals.allPaymentsRaw)}
-                  </div>
-                  <div className="px-3 py-3">{formatMoney(totals.basePolicy)}</div>
-                  <div className="px-3 py-3">{formatMoney(totals.additional)}</div>
-                  <div className="px-3 py-3">{formatMoney(totals.unclaimed)}</div>
-                  <div className="px-3 py-3">{formatMoney(totals.final)}</div>
-                </div>
+              <div className="overflow-hidden rounded-md border border-[#e6ebf2] bg-white text-sm">
+                <ReconcileRow
+                  label="All Payments Raw"
+                  value={formatMoney(totals.allPaymentsRaw)}
+                  strong
+                />
+                <div className="border-t-2 border-[#d8dee7]" />
+                <ReconcileRow label="Base Policy" value={formatMoney(totals.basePolicy)} />
+                <ReconcileRow label="Additional Policy" value={formatMoney(totals.additional)} />
+                <ReconcileRow label="Unclaim Policy" value={formatMoney(totals.unclaimed)} />
+                <div className="border-t-2 border-[#d8dee7]" />
+                <ReconcileRow
+                  label="Total Payment"
+                  value={formatMoney(totals.final - totals.fee)}
+                  strong
+                />
+                <ReconcileRow label="Fee" value={formatMoney(totals.fee)} />
+                <div className="border-t-2 border-[#d8dee7]" />
+                <ReconcileRow
+                  label="Total Payment Statement"
+                  value={formatMoney(totals.final)}
+                  strong
+                />
               </div>
             </div>
 

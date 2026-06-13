@@ -111,6 +111,35 @@ function formatMoney(value: number | null | undefined) {
   });
 }
 
+function ReconcileRow({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5">
+      <span
+        className={`${
+          strong ? "font-semibold text-[#16233a]" : "text-[#475467]"
+        }`}
+      >
+        {label}
+      </span>
+      <span
+        className={`tabular-nums ${
+          strong ? "font-bold text-[#16233a]" : "font-semibold text-[#16233a]"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function formatCell(value: ReviewCellValue | undefined) {
   if (value === null || value === undefined) return "";
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
@@ -813,31 +842,34 @@ export default function HealthStatementClient() {
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-md border border-[#e6ebf2] bg-white">
-                <div className="grid grid-cols-5 bg-[#edf2f7] text-xs font-semibold uppercase tracking-wide text-[#344054]">
-                  <div className="px-3 py-2">Initial Payment</div>
-                  <div className="px-3 py-2">Used</div>
-                  <div className="px-3 py-2">Unclaimed</div>
-                  <div className="px-3 py-2">Duplicate</div>
-                  <div className="px-3 py-2">Final</div>
-                </div>
-                <div className="grid grid-cols-5 border-t border-[#e6ebf2] text-sm font-semibold text-[#16233a]">
-                  <div className="px-3 py-3">
-                    {formatMoney(reportTotals.totalPayment)}
-                  </div>
-                  <div className="px-3 py-3">
-                    {formatMoney(reportTotals.used)}
-                  </div>
-                  <div className="px-3 py-3">
-                    {formatMoney(reportTotals.unclaimed)}
-                  </div>
-                  <div className="px-3 py-3">
-                    {formatMoney(reportTotals.duplicate)}
-                  </div>
-                  <div className="px-3 py-3">
-                    {formatMoney(reportTotals.final)}
-                  </div>
-                </div>
+              <div className="overflow-hidden rounded-md border border-[#e6ebf2] bg-white text-sm">
+                <ReconcileRow
+                  label="Initial Payment"
+                  value={formatMoney(reportTotals.totalPayment)}
+                  strong
+                />
+                <div className="border-t-2 border-[#d8dee7]" />
+                <ReconcileRow label="Used" value={formatMoney(reportTotals.used)} />
+                <ReconcileRow
+                  label="Unclaimed"
+                  value={formatMoney(reportTotals.unclaimed)}
+                />
+                <div className="border-t-2 border-[#d8dee7]" />
+                <ReconcileRow
+                  label="Total"
+                  value={formatMoney(reportTotals.used + reportTotals.unclaimed)}
+                  strong
+                />
+                <ReconcileRow
+                  label="Duplicate"
+                  value={formatMoney(reportTotals.duplicate)}
+                />
+                <div className="border-t-2 border-[#d8dee7]" />
+                <ReconcileRow
+                  label="Final"
+                  value={formatMoney(reportTotals.final)}
+                  strong
+                />
               </div>
             </div>
 

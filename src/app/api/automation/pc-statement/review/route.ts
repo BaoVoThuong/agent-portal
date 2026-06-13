@@ -40,6 +40,7 @@ export async function POST(request: Request) {
           basePolicy: 0,
           additional: 0,
           unclaimed: 0,
+          fee: 0,
           final: 0,
           balanced: true,
         },

@@ -34,6 +34,13 @@ export const STATEMENT_HEADERS = [
   "producer_note",
 ];
 
+// Unclaim & Fee không cần các cột commission split (total_comission → producer_note).
+export const UNCLAIM_FEE_HEADERS = STATEMENT_HEADERS.slice(0, 12);
+
+export function unclaimFeeValues(row: PcStatementReportRow) {
+  return statementValues(row).slice(0, 12);
+}
+
 export function cleanPaymentValues(row: PcCleanPaymentReportRow) {
   return [
     row.insured,

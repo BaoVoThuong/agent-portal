@@ -43,6 +43,7 @@ export type PcStatementReport = {
     basePolicy: number;
     additional: number;
     unclaimed: number;
+    fee: number;
     final: number;
     balanced: boolean;
   };
@@ -50,6 +51,7 @@ export type PcStatementReport = {
   policyInMonth: PcStatementReportRow[];
   additionalPolicy: PcStatementReportRow[];
   unclaimedPayment: PcStatementReportRow[];
+  feePayment: PcStatementReportRow[];
 };
 
 type PolicyRow = PcStatementPolicyRow & {
@@ -445,6 +447,11 @@ function buildAdditionalPolicyFlow({
   return rows;
 }
 
+function isFeePayment(payment: PcCleanPaymentReportRow) {
+  // Fee có carrier rate = 100% (1). Payment hoa hồng thường rate < 0.5.
+  return payment.comission_rate !== null && payment.comission_rate >= 0.5;
+}
+
 function buildUnclaimedFlow({
   offset,
   payments,
@@ -455,6 +462,23 @@ function buildUnclaimedFlow({
   return payments.map((payment, index) =>
     buildStatementRow({
       flowOrder: 3,
+      payment,
+      policy: null,
+      rn: offset + index + 1,
+    })
+  );
+}
+
+function buildFeeFlow({
+  offset,
+  payments,
+}: {
+  offset: number;
+  payments: PcCleanPaymentReportRow[];
+}) {
+  return payments.map((payment, index) =>
+    buildStatementRow({
+      flowOrder: 4,
       payment,
       policy: null,
       rn: offset + index + 1,
@@ -495,9 +519,16 @@ export function buildPcStatementReport({
   const unusedPaymentV2 = unusedPayment.filter(
     (payment) => !usedInAdditional.has(payment.payment_id)
   );
+  // Tách fee (rate>=0.5) khỏi unclaim payment.
+  const unclaimedSource = unusedPaymentV2.filter((payment) => !isFeePayment(payment));
+  const feeSource = unusedPaymentV2.filter((payment) => isFeePayment(payment));
   const unclaimedPayment = buildUnclaimedFlow({
     offset: policyInMonth.length + additionalPolicy.length,
-    payments: unusedPaymentV2,
+    payments: unclaimedSource,
+  });
+  const feePayment = buildFeeFlow({
+    offset: policyInMonth.length + additionalPolicy.length + unclaimedPayment.length,
+    payments: feeSource,
   });
   const totalPayment = roundMoney(
     cleanPayment.reduce(
@@ -508,7 +539,8 @@ export function buildPcStatementReport({
   const basePolicyTotal = sumPremium(policyInMonth);
   const additional = sumPremium(additionalPolicy);
   const unclaimed = sumPremium(unclaimedPayment);
-  const final = roundMoney(basePolicyTotal + additional + unclaimed);
+  const fee = sumPremium(feePayment);
+  const final = roundMoney(basePolicyTotal + additional + unclaimed + fee);
 
   return {
     totals: {
@@ -516,6 +548,7 @@ export function buildPcStatementReport({
       basePolicy: basePolicyTotal,
       additional,
       unclaimed,
+      fee,
       final,
       balanced: roundMoney(final - totalPayment) === 0,
     },
@@ -523,5 +556,6 @@ export function buildPcStatementReport({
     policyInMonth,
     additionalPolicy,
     unclaimedPayment,
+    feePayment,
   };
 }

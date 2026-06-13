@@ -26,6 +26,8 @@ function setFormula(sheet: XLSX.WorkSheet, address: string, formula: string) {
   sheet[address] = { t: "n", f: formula.replace(/^=/, "") };
 }
 
+const FORMULA_LAST_ROW = 10000;
+
 function addTable(
   sheet: XLSX.WorkSheet,
   origin: string,
@@ -33,6 +35,46 @@ function addTable(
   rows: Array<Array<string | number | null>>
 ) {
   XLSX.utils.sheet_add_aoa(sheet, [headers, ...rows], { origin });
+}
+
+// !ref chỉ tự cập nhật theo sheet_add_aoa, không theo cell gán trực tiếp.
+// Mở rộng !ref để bao mọi ô đã ghi (nếu không, formula ngoài ref bị bỏ khi xuất xlsx).
+function expandRef(sheet: XLSX.WorkSheet, lastColumn: number, lastRow: number) {
+  const current = sheet["!ref"]
+    ? XLSX.utils.decode_range(sheet["!ref"])
+    : { s: { c: 0, r: 0 }, e: { c: 0, r: 0 } };
+  sheet["!ref"] = XLSX.utils.encode_range({
+    s: { c: 0, r: 0 },
+    e: {
+      c: Math.max(current.e.c, lastColumn),
+      r: Math.max(current.e.r, lastRow),
+    },
+  });
+}
+
+// Sheet đơn: dòng 1 = title + Total, dòng 3 = headers, data từ dòng 4.
+function buildBlockSheet(
+  title: string,
+  headers: string[],
+  rows: Array<Array<string | number | null>>,
+  totalColumn: string,
+  total: number
+) {
+  const sheet = XLSX.utils.aoa_to_sheet([]);
+
+  setCell(sheet, "A1", title);
+  setCell(sheet, "C1", "Total");
+  sheet["D1"] = {
+    t: "n",
+    f: `SUM(${totalColumn}4:${totalColumn}${FORMULA_LAST_ROW})`,
+    v: total,
+  };
+
+  addTable(sheet, "A3", headers, rows);
+  expandRef(sheet, Math.max(3, headers.length - 1), rows.length + 3);
+  sheet["!cols"] = Array.from({ length: headers.length }, () => ({ wch: 18 }));
+
+  return sheet;
 }
 
 function applySummary(sheet: XLSX.WorkSheet, report: HealthStatementReport) {
@@ -68,39 +110,88 @@ function applySummary(sheet: XLSX.WorkSheet, report: HealthStatementReport) {
 
 export function buildHealthStatementWorkbook(report: HealthStatementReport) {
   const workbook = XLSX.utils.book_new();
-  const sheet = XLSX.utils.aoa_to_sheet([]);
+
+  // Sheet 1: Summary (mọi khối cạnh nhau).
+  const summarySheet = XLSX.utils.aoa_to_sheet([]);
 
   addTable(
-    sheet,
+    summarySheet,
     "A10",
     HEALTH_PAYMENT_HEADERS,
     report.allPayment.map(healthPaymentValues)
   );
-
   addTable(
-    sheet,
+    summarySheet,
     "L10",
     HEALTH_PRODUCER_HEADERS,
     report.paymentForProducer.map(healthProducerValues)
   );
-
   addTable(
-    sheet,
+    summarySheet,
     "Z10",
     HEALTH_PAYMENT_HEADERS,
     report.unclaimedPayment.map(healthPaymentValues)
   );
-
   addTable(
-    sheet,
+    summarySheet,
     "AK10",
     HEALTH_DUPLICATE_HEADERS,
     report.duplicatedPayment.map(healthDuplicateValues)
   );
 
-  applySummary(sheet, report);
-  sheet["!cols"] = Array.from({ length: 43 }, () => ({ wch: 18 }));
+  applySummary(summarySheet, report);
+  const maxBlockRows = Math.max(
+    report.allPayment.length,
+    report.paymentForProducer.length,
+    report.unclaimedPayment.length,
+    report.duplicatedPayment.length
+  );
+  expandRef(summarySheet, 42, 10 + maxBlockRows);
+  summarySheet["!cols"] = Array.from({ length: 43 }, () => ({ wch: 18 }));
 
-  XLSX.utils.book_append_sheet(workbook, sheet, SHEET_NAME);
+  XLSX.utils.book_append_sheet(workbook, summarySheet, SHEET_NAME);
+
+  // Carriers_Messer_Paid trong sheet con (bắt đầu cột A):
+  //  - Producer headers: index 8 → cột I
+  //  - Payment headers (Unclaim): index 6 → cột G
+  //  - Duplicate headers: index 1 → cột B
+  XLSX.utils.book_append_sheet(
+    workbook,
+    buildBlockSheet(
+      "Payment For Producer",
+      HEALTH_PRODUCER_HEADERS,
+      report.paymentForProducer.map(healthProducerValues),
+      "I",
+      report.totals.used
+    ),
+    "Payment For Producer"
+  );
+  XLSX.utils.book_append_sheet(
+    workbook,
+    buildBlockSheet(
+      "Unclaim Payment",
+      HEALTH_PAYMENT_HEADERS,
+      report.unclaimedPayment.map(healthPaymentValues),
+      "G",
+      report.totals.unclaimed
+    ),
+    "Unclaim Payment"
+  );
+
+  // Sheet Duplicate chỉ tạo nếu có dòng.
+  if (report.duplicatedPayment.length > 0) {
+    XLSX.utils.book_append_sheet(
+      workbook,
+      buildBlockSheet(
+        "Duplicated Payment",
+        HEALTH_DUPLICATE_HEADERS,
+        report.duplicatedPayment.map(healthDuplicateValues),
+        "B",
+        report.totals.duplicate
+      ),
+      "Duplicated Payment"
+    );
+  }
+
   return XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer;
 }
