@@ -18,6 +18,7 @@ import {
 import { DashboardViewSkeleton } from "../DashboardViewSkeleton";
 import {
   AgentPcDashboard,
+  UNPAID_PAID_DATE_LABEL,
   type AgentPcFilterOptions,
   type AgentPcFilterValues,
   type AgentPcRow,
@@ -160,6 +161,7 @@ async function fetchAgentPcRows(
           "policy_number",
           "premium",
           "true_premium",
+          "carrier_commission",
           "effective_date",
           "expired_date",
           "status",
@@ -218,6 +220,7 @@ async function fetchAgentPcExpiredRows(
           "policy_number",
           "premium",
           "true_premium",
+          "carrier_commission",
           "effective_date",
           "expired_date",
           "status",
@@ -255,12 +258,52 @@ function buildFilterOptions(rows: AgentPcRow[]): AgentPcFilterOptions {
         .map((row) => cleanGroupLabel(row.agency_name))
         .filter((value) => value !== "null")
     ),
+    paidDates: buildPaidDateOptions(rows),
   };
+}
+
+function buildPaidDateOptions(rows: AgentPcRow[]): string[] {
+  const hasUnpaid = rows.some(
+    (row) => cleanGroupLabel(row.paid_producer) === "null"
+  );
+  const dates = [
+    ...new Set(
+      rows
+        .map((row) => cleanGroupLabel(row.paid_producer))
+        .filter((value) => value !== "null")
+    ),
+  ].sort((a, b) => {
+    const aTime = parseSortableDate(a);
+    const bTime = parseSortableDate(b);
+
+    if (aTime !== null && bTime !== null) {
+      return bTime - aTime;
+    }
+
+    return b.localeCompare(a);
+  });
+
+  return hasUnpaid ? [UNPAID_PAID_DATE_LABEL, ...dates] : dates;
+}
+
+function parseSortableDate(value: string) {
+  const mdy = value.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (mdy) {
+    return Date.UTC(Number(mdy[3]), Number(mdy[1]) - 1, Number(mdy[2]));
+  }
+
+  const ymd = value.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$/);
+  if (ymd) {
+    return Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+  }
+
+  return null;
 }
 
 function emptyFilterOptions(): AgentPcFilterOptions {
   return {
     agencies: [],
+    paidDates: [],
   };
 }
 
@@ -269,6 +312,7 @@ function parseFilters(
 ): AgentPcFilterValues {
   return {
     agency: parseStringParam(params.agency),
+    paidDate: parseStringParam(params.paidDate),
     policyNumber: parseStringParam(params.policyNumber),
   };
 }

@@ -14,6 +14,7 @@ export type AgentPcRow = {
   policy_number: string | null;
   premium: number | null;
   true_premium: number | null;
+  carrier_commission: number | null;
   effective_date: string | null;
   expired_date: string | null;
   status: string | null;
@@ -32,14 +33,19 @@ export type AgentPcExpiredMonthRow = {
 
 export type AgentPcFilterOptions = {
   agencies: string[];
+  paidDates: string[];
 };
 
 export type AgentPcFilterValues = {
   agency: string;
+  paidDate: string;
   policyNumber: string;
 };
 
+export const UNPAID_PAID_DATE_LABEL = "Unpaid";
+
 type TrendLevel = "month" | "quarter" | "year";
+type CommissionView = "paid" | "unpaid";
 
 type Summary = {
   policyCount: number;
@@ -89,10 +95,19 @@ type PolicyDetailRow = {
   expiredDate: string | null;
   insuredName: string;
   policyNumber: string;
+  paid: string;
   premium: number;
   agentCommission: number;
   status: string;
   type: string;
+};
+
+type UnpaidPeriodSummary = {
+  periodKey: string;
+  periodLabel: string;
+  policyCount: number;
+  totalPremium: number;
+  agentCommission: number;
 };
 
 type DashboardData = {
@@ -103,6 +118,7 @@ type DashboardData = {
   growthRowsByLevel: Record<TrendLevel, PeriodGrowthRow[]>;
   policyDetailRows: PolicyDetailRow[];
   periodsByLevel: Record<TrendLevel, PeriodSummary[]>;
+  unpaidPeriodsByLevel: Record<TrendLevel, UnpaidPeriodSummary[]>;
 };
 
 type SortDirection = "asc" | "desc";
@@ -112,6 +128,7 @@ type PolicySortKey =
   | "policyNumber"
   | "carrier"
   | "agency"
+  | "paid"
   | "premium"
   | "agentCommission"
   | "effectiveDate"
@@ -158,6 +175,8 @@ export function AgentPcDashboard({
 }) {
   const [clientFilters, setClientFilters] = useState(filters);
   const [trendLevel, setTrendLevel] = useState<TrendLevel>("month");
+  const [commissionView, setCommissionView] =
+    useState<CommissionView>("paid");
   const filteredRows = useMemo(
     () => (rows ? applyClientFilters(rows, clientFilters) : []),
     [clientFilters, rows]
@@ -189,6 +208,11 @@ export function AgentPcDashboard({
   );
   const trendRows = data.periodsByLevel[trendLevel];
   const growthRows = data.growthRowsByLevel[trendLevel];
+  const latestMonth = data.periodsByLevel.month.at(-1) ?? null;
+  const commissionTrendRows: CommissionTrendPoint[] =
+    commissionView === "unpaid"
+      ? data.unpaidPeriodsByLevel[trendLevel]
+      : trendRows;
   const overviewDescription = canViewAll
     ? "Showing agent-facing P&C metrics for all agents."
     : `Showing P&C dashboard for ${agentName || "your account"}.`;
@@ -236,18 +260,34 @@ export function AgentPcDashboard({
             <KpiCard
               label="Agent Commission"
               value={formatCurrencyCompact(data.overview.agentCommission)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatCurrencyShort(latestMonth.agentCommission) : "-"
+              )}
             />
             <KpiCard
               label="Written Premium"
               value={formatCurrencyCompact(data.overview.totalPremium)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatCurrencyShort(latestMonth.totalPremium) : "-"
+              )}
             />
             <KpiCard
               label="Policies"
               value={formatInteger(data.overview.policyCount)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatInteger(latestMonth.policyCount) : "-"
+              )}
             />
             <KpiCard
               label="Active Policies"
               value={formatInteger(data.overview.activePolicyCount)}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth ? formatInteger(latestMonth.activePolicyCount) : "-"
+              )}
             />
           </section>
 
@@ -261,6 +301,17 @@ export function AgentPcDashboard({
                   data.overview.policyCount
                 )
               )}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth
+                  ? formatPercent(
+                      percentOf(
+                        latestMonth.renewalPolicyCount,
+                        latestMonth.policyCount
+                      )
+                    )
+                  : "-"
+              )}
             />
             <KpiCard
               compact
@@ -270,6 +321,17 @@ export function AgentPcDashboard({
                   data.overview.agentCommission,
                   data.overview.totalPremium
                 )
+              )}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth
+                  ? formatPercent(
+                      percentOf(
+                        latestMonth.agentCommission,
+                        latestMonth.totalPremium
+                      )
+                    )
+                  : "-"
               )}
             />
             <KpiCard
@@ -281,6 +343,16 @@ export function AgentPcDashboard({
                   ? 0
                   : data.overview.totalPremium / data.overview.policyCount
               )}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth
+                  ? formatCurrencyShort(
+                      latestMonth.policyCount === 0
+                        ? 0
+                        : latestMonth.totalPremium / latestMonth.policyCount
+                    )
+                  : "-"
+              )}
             />
             <KpiCard
               compact
@@ -290,6 +362,16 @@ export function AgentPcDashboard({
                 data.overview.policyCount === 0
                   ? 0
                   : data.overview.agentCommission / data.overview.policyCount
+              )}
+              footerText={formatLatestMonthMetric(
+                latestMonth,
+                latestMonth
+                  ? formatCurrencyShort(
+                      latestMonth.policyCount === 0
+                        ? 0
+                        : latestMonth.agentCommission / latestMonth.policyCount
+                    )
+                  : "-"
               )}
             />
           </section>
@@ -307,10 +389,20 @@ export function AgentPcDashboard({
           <section>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-xl font-bold tracking-tight text-slate-900">
-                Commission Trend by {trendLevelLabel(trendLevel)} | Agent Commission
+                Commission Trend by {trendLevelLabel(trendLevel)} |{" "}
+                {commissionView === "unpaid"
+                  ? "Estimate Unpaid Commission"
+                  : "Agent Commission"}
               </h3>
+              <CommissionViewTabs
+                value={commissionView}
+                onChange={setCommissionView}
+              />
             </div>
-            <AgentPcCommissionTrendChart rows={trendRows} />
+            <AgentPcCommissionTrendChart
+              rows={commissionTrendRows}
+              lineMetric={commissionView === "unpaid" ? "policies" : "rate"}
+            />
           </section>
 
           <PeriodGrowthTable rows={growthRows} trendLevel={trendLevel} />
@@ -373,6 +465,13 @@ function AgentPcDashboardFilters({
         options={options.agencies}
         placeholder="All agencies"
         value={filters.agency}
+      />
+      <FilterSelect
+        label="Paid Date"
+        onChange={(value) => updateFilter("paidDate", value)}
+        options={options.paidDates}
+        placeholder="All paid dates"
+        value={filters.paidDate}
       />
       <label className="block w-[15rem] shrink-0">
         <span className="sr-only">Policy Number</span>
@@ -563,6 +662,43 @@ function TrendLevelTabs({
   );
 }
 
+function CommissionViewTabs({
+  onChange,
+  value,
+}: {
+  onChange: (value: CommissionView) => void;
+  value: CommissionView;
+}) {
+  const tabs: { key: CommissionView; label: string }[] = [
+    { key: "paid", label: "Paid" },
+    { key: "unpaid", label: "Estimate Unpaid" },
+  ];
+
+  return (
+    <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
+      {tabs.map((tab) => {
+        const active = tab.key === value;
+
+        return (
+          <button
+            aria-pressed={active}
+            className={`h-10 min-w-[7rem] px-4 text-sm font-semibold transition ${
+              active
+                ? "bg-[#1f5b96] text-white"
+                : "text-[#344054] hover:bg-[#f3f6fa]"
+            }`}
+            key={tab.key}
+            onClick={() => onChange(tab.key)}
+            type="button"
+          >
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function AgentPcSalesVolumePremiumTrendChart({
   rows,
 }: {
@@ -746,7 +882,21 @@ function AgentPcSalesVolumePremiumTrendChart({
   );
 }
 
-function AgentPcCommissionTrendChart({ rows }: { rows: PeriodSummary[] }) {
+type CommissionTrendPoint = {
+  periodKey: string;
+  periodLabel: string;
+  agentCommission: number;
+  totalPremium: number;
+  policyCount: number;
+};
+
+function AgentPcCommissionTrendChart({
+  rows,
+  lineMetric = "rate",
+}: {
+  rows: CommissionTrendPoint[];
+  lineMetric?: "rate" | "policies";
+}) {
   const width = 1280;
   const height = 360;
   const left = 76;
@@ -755,21 +905,28 @@ function AgentPcCommissionTrendChart({ rows }: { rows: PeriodSummary[] }) {
   const bottom = 58;
   const plotWidth = width - left - right;
   const plotHeight = height - top - bottom;
+  const showPolicies = lineMetric === "policies";
   const maxAmount = roundAxisMax(maxValue(rows, (row) => row.agentCommission));
-  const maxRate = Math.max(
-    10,
-    roundAxisMax(
-      maxValue(rows, (row) => percentOf(row.agentCommission, row.totalPremium))
-    )
-  );
+  const maxLine = showPolicies
+    ? Math.max(1, roundAxisMax(maxValue(rows, (row) => row.policyCount)))
+    : Math.max(
+        10,
+        roundAxisMax(
+          maxValue(rows, (row) =>
+            percentOf(row.agentCommission, row.totalPremium)
+          )
+        )
+      );
   const groupWidth = plotWidth / Math.max(rows.length, 1);
   const barWidth = Math.min(48, Math.max(20, groupWidth * 0.52));
   const points = rows.map((row, index) => {
-    const rate = percentOf(row.agentCommission, row.totalPremium);
+    const lineValue = showPolicies
+      ? row.policyCount
+      : percentOf(row.agentCommission, row.totalPremium);
     const centerX = left + index * groupWidth + groupWidth / 2;
     const barHeight = (row.agentCommission / maxAmount) * plotHeight;
     const barY = top + plotHeight - barHeight;
-    const lineY = top + plotHeight - (rate / maxRate) * plotHeight;
+    const lineY = top + plotHeight - (lineValue / maxLine) * plotHeight;
     const amountLabelY = resolveAmountLabelY({
       barHeight,
       barY,
@@ -785,7 +942,7 @@ function AgentPcCommissionTrendChart({ rows }: { rows: PeriodSummary[] }) {
       barY,
       centerX,
       lineY,
-      rate,
+      lineValue,
     };
   });
 
@@ -826,7 +983,7 @@ function AgentPcCommissionTrendChart({ rows }: { rows: PeriodSummary[] }) {
                 x="264"
                 y="13"
               >
-                Agent Commission / Premium
+                {showPolicies ? "# Policies" : "Agent Commission / Premium"}
               </text>
             </g>
 
@@ -855,7 +1012,9 @@ function AgentPcCommissionTrendChart({ rows }: { rows: PeriodSummary[] }) {
                     x={width - right + 14}
                     y={y + 5}
                   >
-                    {formatPercent(maxRate * tick)}
+                    {showPolicies
+                      ? formatInteger(maxLine * tick)
+                      : formatPercent(maxLine * tick)}
                   </text>
                 </g>
               );
@@ -904,7 +1063,7 @@ function AgentPcCommissionTrendChart({ rows }: { rows: PeriodSummary[] }) {
             />
 
             {points.map((point) => (
-              <g key={`${point.periodKey}-commission-rate`}>
+              <g key={`${point.periodKey}-line`}>
                 <circle cx={point.centerX} cy={point.lineY} fill="#d94242" r="4" />
                 <text
                   className="fill-[#d94242] text-[12px] font-bold"
@@ -912,7 +1071,9 @@ function AgentPcCommissionTrendChart({ rows }: { rows: PeriodSummary[] }) {
                   x={point.centerX}
                   y={point.lineY - 12}
                 >
-                  {formatPercent(point.rate)}
+                  {showPolicies
+                    ? formatInteger(point.lineValue)
+                    : formatPercent(point.lineValue)}
                 </text>
               </g>
             ))}
@@ -1487,6 +1648,7 @@ function PolicyDetailsTable({
   const [policyFilter, setPolicyFilter] = useState<string[]>([]);
   const [carrierFilter, setCarrierFilter] = useState<string[]>([]);
   const [agencyFilter, setAgencyFilter] = useState<string[]>([]);
+  const [paidFilter, setPaidFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [effectiveDateRange, setEffectiveDateRange] = useState<DateRange | null>(null);
   const [expiredDateRange, setExpiredDateRange] = useState<DateRange | null>(null);
@@ -1498,6 +1660,7 @@ function PolicyDetailsTable({
   const policyOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.policyNumber)), [rows]);
   const carrierOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.carrier)), [rows]);
   const agencyOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.agency)), [rows]);
+  const paidOptions = useMemo(() => getPaidDateFilterOptions(rows.map((r) => r.paid)), [rows]);
   const statusOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.status)), [rows]);
 
   const hasActiveFilters =
@@ -1506,6 +1669,7 @@ function PolicyDetailsTable({
     policyFilter.length > 0 ||
     carrierFilter.length > 0 ||
     agencyFilter.length > 0 ||
+    paidFilter.length > 0 ||
     statusFilter.length > 0 ||
     effectiveDateRange !== null ||
     expiredDateRange !== null ||
@@ -1518,6 +1682,7 @@ function PolicyDetailsTable({
       if (policyFilter.length > 0 && !policyFilter.includes(row.policyNumber)) return false;
       if (carrierFilter.length > 0 && !carrierFilter.includes(row.carrier)) return false;
       if (agencyFilter.length > 0 && !agencyFilter.includes(row.agency)) return false;
+      if (paidFilter.length > 0 && !paidFilter.includes(row.paid)) return false;
       if (statusFilter.length > 0 && !statusFilter.includes(row.status)) return false;
       if (effectiveDateRange) {
         const d = row.effectiveDate ?? "";
@@ -1543,7 +1708,7 @@ function PolicyDetailsTable({
     }
 
     return result;
-  }, [rows, agentFilter, insuredFilter, policyFilter, carrierFilter, agencyFilter, statusFilter, effectiveDateRange, expiredDateRange, sortState]);
+  }, [rows, agentFilter, insuredFilter, policyFilter, carrierFilter, agencyFilter, paidFilter, statusFilter, effectiveDateRange, expiredDateRange, sortState]);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -1580,6 +1745,7 @@ function PolicyDetailsTable({
     setPolicyFilter([]);
     setCarrierFilter([]);
     setAgencyFilter([]);
+    setPaidFilter([]);
     setStatusFilter([]);
     setEffectiveDateRange(null);
     setExpiredDateRange(null);
@@ -1813,12 +1979,32 @@ function PolicyDetailsTable({
                   />
                 </PolicyFilterableHeader>
               </HeaderCell>
+              <HeaderCell width={120}>
+                <PolicyFilterableHeader
+                  active={paidFilter.length > 0 || sortState?.key === "paid"}
+                  isOpen={activePanel === "paid"}
+                  label="Paid Date"
+                  onToggle={() => toggle("paid")}
+                >
+                  <PolicyExcelFilterPanel
+                    label="Paid Date"
+                    options={paidOptions}
+                    selectedValues={paidFilter}
+                    onApply={setPaidFilter}
+                    onCancel={() => setActivePanel(null)}
+                    onClearFilter={() => setPaidFilter([])}
+                    onSort={(d) => doSort("paid", d)}
+                    sortAscLabel="Sort oldest to newest"
+                    sortDescLabel="Sort newest to oldest"
+                  />
+                </PolicyFilterableHeader>
+              </HeaderCell>
             </tr>
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={showAgent ? 11 : 10}>
+                <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={showAgent ? 12 : 11}>
                   No policies matched these filters.
                 </td>
               </tr>
@@ -1841,6 +2027,15 @@ function PolicyDetailsTable({
                   <BodyCell>{formatDate(row.effectiveDate)}</BodyCell>
                   <BodyCell>{formatDate(row.expiredDate)}</BodyCell>
                   <BodyCell>{row.status}</BodyCell>
+                  <BodyCell>
+                    {row.paid === UNPAID_PAID_DATE_LABEL ? (
+                      <span className="font-semibold text-red-600">
+                        {row.paid}
+                      </span>
+                    ) : (
+                      row.paid
+                    )}
+                  </BodyCell>
                 </tr>
               ))
             )}
@@ -1864,6 +2059,7 @@ function exportPolicyDetailsRows(rows: PolicyDetailRow[], showAgent: boolean) {
     "Effective Date",
     "Expired Date",
     "Status",
+    "Paid Date",
   ];
   const exportRows = rows.map((row, index) => [
     index + 1,
@@ -1877,6 +2073,7 @@ function exportPolicyDetailsRows(rows: PolicyDetailRow[], showAgent: boolean) {
     row.effectiveDate ?? "",
     row.expiredDate ?? "",
     row.status,
+    row.paid,
   ]);
   const sheet = XLSX.utils.aoa_to_sheet([headers, ...exportRows]);
 
@@ -2188,6 +2385,26 @@ function getPolicyFilterOptions(values: string[]): PolicyFilterOption[] {
     .map((value) => ({ label: value || "(Blank)", value }));
 }
 
+function getPaidDateFilterOptions(values: string[]): PolicyFilterOption[] {
+  const unique = [...new Set(values)];
+  const hasUnpaid = unique.includes(UNPAID_PAID_DATE_LABEL);
+  const dates = unique
+    .filter((value) => value !== UNPAID_PAID_DATE_LABEL)
+    .sort((a, b) => {
+      const aTime = parsePaidDateValue(a);
+      const bTime = parsePaidDateValue(b);
+
+      if (aTime !== null && bTime !== null) {
+        return bTime - aTime;
+      }
+
+      return b.localeCompare(a);
+    });
+
+  const ordered = hasUnpaid ? [UNPAID_PAID_DATE_LABEL, ...dates] : dates;
+  return ordered.map((value) => ({ label: value || "(Blank)", value }));
+}
+
 function PolicyDateFilterPanel({
   onApply,
   onCancel,
@@ -2347,6 +2564,10 @@ function getPolicySortValue(row: PolicyDetailRow, key: PolicySortKey): string | 
   if (key === "policyNumber") return row.policyNumber;
   if (key === "carrier") return row.carrier;
   if (key === "agency") return row.agency;
+  if (key === "paid")
+    return row.paid === UNPAID_PAID_DATE_LABEL
+      ? 0
+      : parsePaidDateValue(row.paid) ?? 0;
   if (key === "premium") return row.premium;
   if (key === "agentCommission") return row.agentCommission;
   if (key === "effectiveDate") return row.effectiveDate ?? "";
@@ -2397,11 +2618,13 @@ function BodyCell({
 
 function KpiCard({
   compact = false,
+  footerText,
   label,
   muted = false,
   value,
 }: {
   compact?: boolean;
+  footerText?: string;
   label: string;
   muted?: boolean;
   value: string;
@@ -2428,8 +2651,24 @@ function KpiCard({
           {value}
         </div>
       </div>
+      <div
+        className={`min-h-5 truncate font-medium text-slate-500 ${
+          compact ? "text-xs" : "text-sm"
+        }`}
+      >
+        {footerText}
+      </div>
     </article>
   );
+}
+
+function formatLatestMonthMetric(
+  latestMonth: PeriodSummary | null,
+  value: string
+) {
+  return latestMonth
+    ? `${value} in ${latestMonth.periodLabel}`
+    : `Latest month ${value}`;
 }
 
 function buildDashboardData(rows: AgentPcRow[]): DashboardData {
@@ -2453,7 +2692,31 @@ function buildDashboardData(rows: AgentPcRow[]): DashboardData {
     overview,
     periodsByLevel,
     policyDetailRows: buildPolicyDetailRows(rows),
+    unpaidPeriodsByLevel: {
+      month: buildUnpaidPeriodSummaries(rows, "month"),
+      quarter: buildUnpaidPeriodSummaries(rows, "quarter"),
+      year: buildUnpaidPeriodSummaries(rows, "year"),
+    },
   };
+}
+
+function resolvePaidDateLabel(row: AgentPcRow) {
+  const value = cleanGroupLabel(row.paid_producer);
+  return value === "null" ? UNPAID_PAID_DATE_LABEL : value;
+}
+
+function parsePaidDateValue(value: string) {
+  const mdy = value.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (mdy) {
+    return Date.UTC(Number(mdy[3]), Number(mdy[1]) - 1, Number(mdy[2]));
+  }
+
+  const ymd = value.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$/);
+  if (ymd) {
+    return Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+  }
+
+  return null;
 }
 
 function applyClientFilters(rows: AgentPcRow[], filters: AgentPcFilterValues) {
@@ -2461,6 +2724,10 @@ function applyClientFilters(rows: AgentPcRow[], filters: AgentPcFilterValues) {
 
   return rows.filter((row) => {
     if (filters.agency && cleanGroupLabel(row.agency_name) !== filters.agency) {
+      return false;
+    }
+
+    if (filters.paidDate && resolvePaidDateLabel(row) !== filters.paidDate) {
       return false;
     }
 
@@ -2481,9 +2748,11 @@ function syncClientFilterUrl(filters: AgentPcFilterValues) {
   params.delete("agency");
   params.delete("agent");
   params.delete("company");
+  params.delete("paidDate");
   params.delete("policyNumber");
 
   if (filters.agency) params.set("agency", filters.agency);
+  if (filters.paidDate) params.set("paidDate", filters.paidDate);
   if (filters.policyNumber) params.set("policyNumber", filters.policyNumber);
 
   const query = params.toString();
@@ -2559,6 +2828,96 @@ function buildPeriodSummaries(
     .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
     .slice(0, TREND_LIMIT_BY_LEVEL[trendLevel])
     .reverse();
+}
+
+// Carrier rate trung bình theo company, từ các policy đã có rate.
+function buildAvgCarrierRateByCompany(rows: AgentPcRow[]) {
+  const totals = new Map<string, { sum: number; count: number }>();
+
+  for (const row of rows) {
+    const rate = row.carrier_commission;
+    if (rate === null || !Number.isFinite(rate)) continue;
+
+    const company = cleanGroupLabel(row.company);
+    const current = totals.get(company) ?? { sum: 0, count: 0 };
+    current.sum += rate;
+    current.count += 1;
+    totals.set(company, current);
+  }
+
+  const avgByCompany = new Map<string, number>();
+  for (const [company, { sum, count }] of totals) {
+    if (count > 0) avgByCompany.set(company, sum / count);
+  }
+
+  return avgByCompany;
+}
+
+// Ước tính commission cho 1 policy theo rule pc_mart.
+// Rate: carrier_commission của policy, fallback = avg rate theo company.
+function estimateCommission(
+  row: AgentPcRow,
+  avgRateByCompany: Map<string, number>
+) {
+  const premium = Math.max(moneyValue(row.true_premium ?? row.premium), 0);
+  const rate =
+    row.carrier_commission !== null && Number.isFinite(row.carrier_commission)
+      ? row.carrier_commission
+      : avgRateByCompany.get(cleanGroupLabel(row.company)) ?? 0;
+
+  const agencyFactor =
+    cleanGroupLabel(row.agency_name) === "DP"
+      ? 0.75
+      : cleanGroupLabel(row.agency_name) === "TWFG"
+        ? 0.8
+        : 0;
+  const total = rate * premium * agencyFactor;
+  const agentRate = cleanGroupLabel(row.agent_name) === "FIONA" ? 0.6 : 0.75;
+  const agent = agentRate * total;
+
+  return { total, agent, eps: total - agent };
+}
+
+// Policy chưa paid (paid_producer null), nhóm theo period, commission ước tính.
+function buildUnpaidPeriodSummaries(
+  rows: AgentPcRow[],
+  trendLevel: TrendLevel
+): UnpaidPeriodSummary[] {
+  const avgRateByCompany = buildAvgCarrierRateByCompany(rows);
+  const unpaidRows = rows.filter(
+    (row) => cleanGroupLabel(row.paid_producer) === "null"
+  );
+
+  return [
+    ...groupRows(unpaidRows, (row) =>
+      getTrendPeriodKey(getEffectiveMonth(row), trendLevel)
+    ).entries(),
+  ]
+    .filter(([periodKey]) => Boolean(periodKey))
+    .map(([periodKey, group]) => {
+      let totalPremium = 0;
+      let agentCommission = 0;
+
+      for (const row of group) {
+        totalPremium += Math.max(moneyValue(row.true_premium ?? row.premium), 0);
+        agentCommission += estimateCommission(row, avgRateByCompany).agent;
+      }
+
+      return {
+        periodKey,
+        periodLabel: formatTrendPeriodLabel(periodKey, trendLevel),
+        policyCount: group.length,
+        totalPremium: roundMoney(totalPremium),
+        agentCommission: roundMoney(agentCommission),
+      };
+    })
+    .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
+    .slice(0, TREND_LIMIT_BY_LEVEL[trendLevel])
+    .reverse();
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function buildPeriodGrowthRows(
@@ -2729,8 +3088,8 @@ function buildPolicyDetailRows(rows: AgentPcRow[]): PolicyDetailRow[] {
     .filter((row) => moneyValue(row.true_premium ?? row.premium) > 0)
     .sort(
       (a, b) =>
-        (b.effective_date ?? "").localeCompare(a.effective_date ?? "") ||
-        cleanGroupLabel(a.company).localeCompare(cleanGroupLabel(b.company))
+        cleanGroupLabel(b.agent_name).localeCompare(cleanGroupLabel(a.agent_name)) ||
+        (b.effective_date ?? "").localeCompare(a.effective_date ?? "")
     )
     .map((row) => ({
       agency: cleanGroupLabel(row.agency_name),
@@ -2741,7 +3100,8 @@ function buildPolicyDetailRows(rows: AgentPcRow[]): PolicyDetailRow[] {
       expiredDate: row.expired_date,
       insuredName: cleanText(row.insured_name),
       policyNumber: cleanText(row.policy_number),
-      premium: Math.max(moneyValue(row.true_premium ?? row.premium), 0),
+      paid: resolvePaidDateLabel(row),
+      premium: moneyValue(row.true_premium ?? row.premium),
       status: cleanGroupLabel(row.status),
       type: cleanGroupLabel(row.type),
     }));

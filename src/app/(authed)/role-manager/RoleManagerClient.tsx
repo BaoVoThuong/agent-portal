@@ -90,6 +90,7 @@ export default function RoleManagerClient({
   const [form, setForm] = useState<RoleFormState | null>(null);
   const [permissionSearch, setPermissionSearch] = useState("");
   const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
+  const [roleToDelete, setRoleToDelete] = useState<RoleRecord | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -238,8 +239,9 @@ export default function RoleManagerClient({
     }
   }
 
-  async function deleteRole(role: RoleRecord) {
-    if (!confirm(`Delete role "${role.name}"?`)) return;
+  async function handleDeleteRole() {
+    if (!roleToDelete) return;
+    const role = roleToDelete;
 
     setBusyRoleId(role.id);
     setError(null);
@@ -258,6 +260,7 @@ export default function RoleManagerClient({
 
       setRoles(result.roles ?? roles.filter((item) => item.id !== role.id));
       setMessage("Role deleted.");
+      setRoleToDelete(null);
       router.refresh();
     } catch {
       setError("Unable to delete role. Please try again.");
@@ -404,7 +407,7 @@ export default function RoleManagerClient({
                     <button
                       type="button"
                       disabled={isBusy}
-                      onClick={() => void deleteRole(role)}
+                      onClick={() => setRoleToDelete(role)}
                       className="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
                     >
                       Delete
@@ -616,6 +619,42 @@ export default function RoleManagerClient({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {roleToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f2349]/35 px-4">
+          <div className="w-full max-w-[420px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl">
+            <div className="mb-5">
+              <h2 className="text-lg font-semibold text-[#16233a]">
+                Delete Role
+              </h2>
+              <p className="mt-1 text-sm text-[#667085]">
+                This permanently deletes the role{" "}
+                <span className="font-semibold text-[#16233a]">
+                  {roleToDelete.name}
+                </span>
+                . This action cannot be undone.
+              </p>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                className="rounded-md border border-[#cfd6e3] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f4f7fb]"
+                type="button"
+                onClick={() => setRoleToDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                disabled={busyRoleId === roleToDelete.id}
+                onClick={() => void handleDeleteRole()}
+              >
+                {busyRoleId === roleToDelete.id ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
