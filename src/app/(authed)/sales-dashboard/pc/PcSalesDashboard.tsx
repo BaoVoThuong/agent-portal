@@ -164,8 +164,11 @@ type PolicyDetailRow = {
   city: string;
   company: string;
   truePremium: number;
+  agentCommission: number;
   effectiveDate: string | null;
   expiredDate: string | null;
+  status: string;
+  paid: string;
 };
 
 type DashboardData = {
@@ -195,8 +198,11 @@ type PolicySortKey =
   | "city"
   | "company"
   | "truePremium"
+  | "agentCommission"
   | "effectiveDate"
-  | "expiredDate";
+  | "expiredDate"
+  | "status"
+  | "paid";
 type PolicySortState = { key: PolicySortKey; direction: SortDirection };
 type PolicyFilterOption = { label: string; value: string };
 type DateRange = { from: string; to: string };
@@ -1263,12 +1269,11 @@ function buildExpiredRows(
 function buildPolicyDetailRows(rows: PcSalesRow[]): PolicyDetailRow[] {
   return [...rows]
     .filter((row) => moneyValue(row.true_premium ?? row.premium) > 0)
-    .sort((a, b) => {
-      const dateCompare = (b.effective_date ?? "").localeCompare(a.effective_date ?? "");
-      if (dateCompare !== 0) return dateCompare;
-
-      return cleanGroupLabel(a.agent_name).localeCompare(cleanGroupLabel(b.agent_name));
-    })
+    .sort(
+      (a, b) =>
+        cleanGroupLabel(b.agent_name).localeCompare(cleanGroupLabel(a.agent_name)) ||
+        (b.effective_date ?? "").localeCompare(a.effective_date ?? "")
+    )
     .map((row) => ({
       agency: cleanGroupLabel(row.agency_name),
       agent: cleanGroupLabel(row.agent_name),
@@ -1279,7 +1284,10 @@ function buildPolicyDetailRows(rows: PcSalesRow[]): PolicyDetailRow[] {
       insuredName: cleanText(row.insured_name),
       policyNumber: cleanText(row.policy_number),
       state: cleanGroupLabel(row.state),
-      truePremium: Math.max(moneyValue(row.true_premium ?? row.premium), 0),
+      truePremium: moneyValue(row.true_premium ?? row.premium),
+      agentCommission: moneyValue(row.agent_commission_amount),
+      status: cleanGroupLabel(row.status),
+      paid: getRowPaidProducerDate(row),
     }));
 }
 
@@ -3216,6 +3224,8 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
   const [stateFilter, setStateFilter] = useState<string[]>([]);
   const [cityFilter, setCityFilter] = useState<string[]>([]);
   const [companyFilter, setCompanyFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [paidFilter, setPaidFilter] = useState<string[]>([]);
   const [effectiveDateRange, setEffectiveDateRange] = useState<DateRange | null>(null);
   const [expiredDateRange, setExpiredDateRange] = useState<DateRange | null>(null);
   const [sortState, setPolicySortState] = useState<PolicySortState | null>(null);
@@ -3228,11 +3238,14 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
   const stateOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.state)), [rows]);
   const cityOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.city)), [rows]);
   const companyOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.company)), [rows]);
+  const statusOptions = useMemo(() => getPolicyFilterOptions(rows.map((r) => r.status)), [rows]);
+  const paidOptions = useMemo(() => getPaidDateFilterOptions(rows.map((r) => r.paid)), [rows]);
 
   const hasActiveFilters =
     agentFilter.length > 0 || agencyFilter.length > 0 || insuredFilter.length > 0 ||
     policyFilter.length > 0 || stateFilter.length > 0 || cityFilter.length > 0 ||
-    companyFilter.length > 0 || effectiveDateRange !== null || expiredDateRange !== null ||
+    companyFilter.length > 0 || statusFilter.length > 0 || paidFilter.length > 0 ||
+    effectiveDateRange !== null || expiredDateRange !== null ||
     Boolean(sortState);
 
   const filteredRows = useMemo(() => {
@@ -3244,6 +3257,8 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
       if (stateFilter.length > 0 && !stateFilter.includes(row.state)) return false;
       if (cityFilter.length > 0 && !cityFilter.includes(row.city)) return false;
       if (companyFilter.length > 0 && !companyFilter.includes(row.company)) return false;
+      if (statusFilter.length > 0 && !statusFilter.includes(row.status)) return false;
+      if (paidFilter.length > 0 && !paidFilter.includes(row.paid)) return false;
       if (effectiveDateRange) {
         const d = row.effectiveDate ?? "";
         if (effectiveDateRange.from && d < effectiveDateRange.from) return false;
@@ -3268,7 +3283,7 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
     }
 
     return result;
-  }, [rows, agentFilter, agencyFilter, insuredFilter, policyFilter, stateFilter, cityFilter, companyFilter, effectiveDateRange, expiredDateRange, sortState]);
+  }, [rows, agentFilter, agencyFilter, insuredFilter, policyFilter, stateFilter, cityFilter, companyFilter, statusFilter, paidFilter, effectiveDateRange, expiredDateRange, sortState]);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -3302,7 +3317,8 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
   function clearAll() {
     setAgentFilter([]); setAgencyFilter([]); setInsuredFilter([]);
     setPolicyFilter([]); setStateFilter([]); setCityFilter([]);
-    setCompanyFilter([]); setEffectiveDateRange(null); setExpiredDateRange(null);
+    setCompanyFilter([]); setStatusFilter([]); setPaidFilter([]);
+    setEffectiveDateRange(null); setExpiredDateRange(null);
     setPolicySortState(null); setActivePanel(null);
   }
 
@@ -3378,9 +3394,14 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
                   <PolicyExcelFilterPanel label="Company" options={companyOptions} selectedValues={companyFilter} onApply={setCompanyFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setCompanyFilter([])} onSort={(d) => doSort("company", d)} />
                 </PolicyFilterableHeader>
               </HeaderCell>
-              <HeaderCell align="right" width={120}>
-                <PolicyFilterableHeader active={sortState?.key === "truePremium"} align="right" isOpen={activePanel === "truePremium"} label="True Premium" onToggle={() => toggle("truePremium")}>
-                  <PolicyExcelFilterPanel label="True Premium" options={[]} selectedValues={[]} onApply={() => {}} onCancel={() => setActivePanel(null)} onClearFilter={() => {}} onSort={(d) => doSort("truePremium", d)} sortAscLabel="Sort smallest to largest" sortDescLabel="Sort largest to smallest" />
+              <HeaderCell align="right" width={115}>
+                <PolicyFilterableHeader active={sortState?.key === "truePremium"} align="right" isOpen={activePanel === "truePremium"} label="Premium" onToggle={() => toggle("truePremium")}>
+                  <PolicyExcelFilterPanel label="Premium" options={[]} selectedValues={[]} onApply={() => {}} onCancel={() => setActivePanel(null)} onClearFilter={() => {}} onSort={(d) => doSort("truePremium", d)} sortAscLabel="Sort smallest to largest" sortDescLabel="Sort largest to smallest" />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell align="right" width={155}>
+                <PolicyFilterableHeader active={sortState?.key === "agentCommission"} align="right" isOpen={activePanel === "agentCommission"} label="Agent Commission" onToggle={() => toggle("agentCommission")}>
+                  <PolicyExcelFilterPanel label="Agent Commission" options={[]} selectedValues={[]} onApply={() => {}} onCancel={() => setActivePanel(null)} onClearFilter={() => {}} onSort={(d) => doSort("agentCommission", d)} sortAscLabel="Sort smallest to largest" sortDescLabel="Sort largest to smallest" />
                 </PolicyFilterableHeader>
               </HeaderCell>
               <HeaderCell width={110}>
@@ -3393,12 +3414,22 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
                   <PolicyDateFilterPanel onApply={setExpiredDateRange} onCancel={() => setActivePanel(null)} onClear={() => setExpiredDateRange(null)} onSort={(d) => doSort("expiredDate", d)} presets={expiredDatePresets()} value={expiredDateRange} />
                 </PolicyFilterableHeader>
               </HeaderCell>
+              <HeaderCell width={100}>
+                <PolicyFilterableHeader active={statusFilter.length > 0 || sortState?.key === "status"} align="right" isOpen={activePanel === "status"} label="Status" onToggle={() => toggle("status")}>
+                  <PolicyExcelFilterPanel label="Status" options={statusOptions} selectedValues={statusFilter} onApply={setStatusFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setStatusFilter([])} onSort={(d) => doSort("status", d)} />
+                </PolicyFilterableHeader>
+              </HeaderCell>
+              <HeaderCell width={120}>
+                <PolicyFilterableHeader active={paidFilter.length > 0 || sortState?.key === "paid"} isOpen={activePanel === "paid"} label="Paid Date" onToggle={() => toggle("paid")}>
+                  <PolicyExcelFilterPanel label="Paid Date" options={paidOptions} selectedValues={paidFilter} onApply={setPaidFilter} onCancel={() => setActivePanel(null)} onClearFilter={() => setPaidFilter([])} onSort={(d) => doSort("paid", d)} sortAscLabel="Sort oldest to newest" sortDescLabel="Sort newest to oldest" />
+                </PolicyFilterableHeader>
+              </HeaderCell>
             </tr>
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={11}>
+                <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan={14}>
                   No policies matched these filters.
                 </td>
               </tr>
@@ -3416,8 +3447,17 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
                   <BodyCell>{row.city}</BodyCell>
                   <BodyCell>{row.company}</BodyCell>
                   <BodyCell align="right">{formatCurrency(row.truePremium)}</BodyCell>
+                  <BodyCell align="right">{formatCurrency(row.agentCommission)}</BodyCell>
                   <BodyCell>{row.effectiveDate ? formatShortDate(row.effectiveDate) : "-"}</BodyCell>
                   <BodyCell>{row.expiredDate ? formatShortDate(row.expiredDate) : "-"}</BodyCell>
+                  <BodyCell>{row.status}</BodyCell>
+                  <BodyCell>
+                    {row.paid === UNPAID_PRODUCER_LABEL ? (
+                      <span className="font-semibold text-red-600">{row.paid}</span>
+                    ) : (
+                      row.paid
+                    )}
+                  </BodyCell>
                 </tr>
               ))
             )}
@@ -3438,9 +3478,12 @@ function exportPolicyDetailsRows(rows: PolicyDetailRow[]) {
     "State",
     "City",
     "Company",
-    "True Premium",
+    "Premium",
+    "Agent Commission",
     "Effective Date",
     "Expired Date",
+    "Status",
+    "Paid Date",
   ];
   const exportRows = rows.map((row, index) => [
     index + 1,
@@ -3452,8 +3495,11 @@ function exportPolicyDetailsRows(rows: PolicyDetailRow[]) {
     row.city,
     row.company,
     row.truePremium,
+    row.agentCommission,
     row.effectiveDate ?? "",
     row.expiredDate ?? "",
+    row.status,
+    row.paid,
   ]);
   const sheet = XLSX.utils.aoa_to_sheet([headers, ...exportRows]);
 
@@ -3475,7 +3521,8 @@ function getPolicyDetailExportColumnWidth(header: string) {
   if (header === "#") return 8;
   if (header === "Insured Name") return 28;
   if (header === "Policy Number") return 22;
-  if (header === "True Premium") return 16;
+  if (header === "Premium") return 16;
+  if (header === "Agent Commission") return 18;
   if (header.endsWith("Date")) return 16;
   if (header === "Company") return 22;
   if (header === "City") return 18;
@@ -3483,17 +3530,20 @@ function getPolicyDetailExportColumnWidth(header: string) {
 }
 
 function applyPolicyDetailExportFormats(sheet: XLSX.WorkSheet, rowCount: number) {
-  const truePremiumColumnIndex = 8;
+  // Cột Premium (8) và Agent Commission (9) theo thứ tự header export.
+  const currencyColumnIndexes = [8, 9];
 
   for (let rowIndex = 1; rowIndex <= rowCount; rowIndex += 1) {
-    const cellAddress = XLSX.utils.encode_cell({
-      c: truePremiumColumnIndex,
-      r: rowIndex,
-    });
-    const cell = sheet[cellAddress];
+    for (const columnIndex of currencyColumnIndexes) {
+      const cellAddress = XLSX.utils.encode_cell({
+        c: columnIndex,
+        r: rowIndex,
+      });
+      const cell = sheet[cellAddress];
 
-    if (cell && cell.t === "n") {
-      cell.z = "$#,##0.00";
+      if (cell && cell.t === "n") {
+        cell.z = "$#,##0.00";
+      }
     }
   }
 }
@@ -3714,6 +3764,26 @@ function getPolicyFilterOptions(values: string[]): PolicyFilterOption[] {
   return [...new Set(values)].sort((a, b) => (a || "").localeCompare(b || "")).map((value) => ({ label: value || "(Blank)", value }));
 }
 
+function getPaidDateFilterOptions(values: string[]): PolicyFilterOption[] {
+  const unique = [...new Set(values)];
+  const hasUnpaid = unique.includes(UNPAID_PRODUCER_LABEL);
+  const dates = unique
+    .filter((value) => value !== UNPAID_PRODUCER_LABEL)
+    .sort((a, b) => {
+      const aTime = parsePaidDateValue(a);
+      const bTime = parsePaidDateValue(b);
+
+      if (aTime !== null && bTime !== null) {
+        return bTime - aTime;
+      }
+
+      return b.localeCompare(a);
+    });
+
+  const ordered = hasUnpaid ? [UNPAID_PRODUCER_LABEL, ...dates] : dates;
+  return ordered.map((value) => ({ label: value || "(Blank)", value }));
+}
+
 function getSalesPolicySortValue(row: PolicyDetailRow, key: PolicySortKey): string | number {
   if (key === "agent") return row.agent;
   if (key === "agency") return row.agency;
@@ -3723,8 +3793,27 @@ function getSalesPolicySortValue(row: PolicyDetailRow, key: PolicySortKey): stri
   if (key === "city") return row.city;
   if (key === "company") return row.company;
   if (key === "truePremium") return row.truePremium;
+  if (key === "agentCommission") return row.agentCommission;
   if (key === "effectiveDate") return row.effectiveDate ?? "";
-  return row.expiredDate ?? "";
+  if (key === "expiredDate") return row.expiredDate ?? "";
+  if (key === "status") return row.status;
+  return row.paid === UNPAID_PRODUCER_LABEL
+    ? 0
+    : parsePaidDateValue(row.paid) ?? 0;
+}
+
+function parsePaidDateValue(value: string) {
+  const mdy = value.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (mdy) {
+    return Date.UTC(Number(mdy[3]), Number(mdy[1]) - 1, Number(mdy[2]));
+  }
+
+  const ymd = value.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$/);
+  if (ymd) {
+    return Date.UTC(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+  }
+
+  return null;
 }
 
 function policyToISODate(date: Date) { return date.toISOString().slice(0, 10); }
