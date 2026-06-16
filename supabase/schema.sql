@@ -1044,17 +1044,12 @@ as $$
   base as (
     select
       case
-        when f.agent = 'FIONA' then 'EPS1001'
-        when f.agent = 'LINH' then 'EPS1002'
-        when f.agent = 'NAM' then 'EPS1003'
-        when f.agent = 'VUONG' then 'EPS1004'
+        when f.agent = 'Fiona Huynh' then 'EPS1001'
+        when f.agent = 'Linh Le' then 'EPS1002'
+        when f.agent = 'Nam Nguyen' then 'EPS1003'
+        when f.agent = 'Vuong Pham' then 'EPS1004'
       end as agent_id,
-      case
-        when f.agent = 'FIONA' then 'FIONA'
-        when f.agent = 'LINH' then 'LINH'
-        when f.agent = 'NAM' then 'NAM'
-        when f.agent = 'VUONG' then 'VUONG'
-      end as agent_name,
+      f.agent as agent_name,
       case
         when f.agency = 'DP' then 'EPSA001'
         when f.agency = 'TWFG' then 'EPSA002'
