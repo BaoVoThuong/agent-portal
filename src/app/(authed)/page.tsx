@@ -1,10 +1,10 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { Entry } from "@/lib/config";
+import type { Entry } from "@/lib/domain/entry.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { buildVisibleEntriesFilter } from "@/lib/agent-name";
-import EntryGrid from "./EntryGrid";
+import EntryGrid from "./customer-registration/health/EntryGrid";
 
 export const dynamic = "force-dynamic";
 

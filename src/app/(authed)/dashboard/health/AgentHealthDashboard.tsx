@@ -4,164 +4,41 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   AgentHealthDashboardContent,
 } from "./AgentHealthDashboardFilterState";
-import { DashboardNavigationContent } from "../DashboardNavigationState";
-import { DashboardViewSkeleton } from "../DashboardViewSkeleton";
+import { DashboardNavigationContent } from "../../_dashboard-shared/DashboardNavigationState";
+import { DashboardViewSkeleton } from "../../_dashboard-shared/DashboardViewSkeleton";
 import { AgentHealthCarrierMultiSelectFilter } from "./AgentHealthCarrierMultiSelectFilter";
 import { AgentHealthMemberPaymentTable } from "./AgentHealthMemberPaymentTable";
 import { AgentHealthDashboardTrendSection } from "./AgentHealthDashboardTrendSection";
 import { AgentHealthReportMonthRangeFilter } from "./AgentHealthReportMonthRangeFilter";
-import type { ChartLevel } from "./AgentHealthDashboardChart";
 import type { ReportMonthDefaultConfig } from "../../_components/ReportMonthDefaultEditor";
+import type { ChartLevel } from "./AgentHealthDashboardChart";
+import {
+  CHART_MONTH_LIMIT,
+  CHART_QUARTER_LIMIT,
+  CHART_YEAR_LIMIT,
+  MEMBER_PAYMENT_REPORT_YEAR,
+  MIX_BREAKDOWN_TOP_LIMIT,
+  PAID_RATE_TABLE_MAX_HEIGHT,
+  type CarrierPaymentStatusBreakdown,
+  type CarrierPaymentStatusRow,
+  type CombinedCarrierPaymentStatusRow,
+  type CombinedPaymentStatusMonth,
+  type DashboardData,
+  type HealthMartRow,
+  type LatestMonthMixBreakdown,
+  type MemberPaymentRow,
+  type MemberPaymentSummary,
+  type MixBreakdownRow,
+  type MonthlyDashboardSummary,
+  type PaymentStatusMonth,
+  type ReportMonthRange,
+  type ReportYearCommissionMetric,
+  type ScoreCardMetric,
+  type ScoreCards,
+} from "./AgentHealthDashboard.types";
 
-export type HealthMartRow = {
-  deal_name: string | null;
-  carrier: string | null;
-  state: string | null;
-  primary_member_id: string | null;
-  broker_effective_date: string | null;
-  report_month: string | null;
-  paid_to_date: string | null;
-  paid_to_date_raw: string | null;
-  agent_received: number | null;
-  num_client: number | null;
-};
-
-type ScoreCards = {
-  activePolicy: ScoreCardMetric;
-  activeClient: ScoreCardMetric;
-  totalCommission: ScoreCardMetric;
-  totalCommissionInReportYear: ReportYearCommissionMetric;
-};
-
-type ScoreCardMetric = {
-  value: number;
-  changePercent: number | null;
-};
-
-type ReportYearCommissionMetric = {
-  value: number;
-  averageMonthlyCommission: number;
-  reportYear: number | null;
-};
-
-type DashboardMonth = {
-  periodKey: string;
-  periodLabel: string;
-  policyCount: number;
-  clientCount: number;
-  agentReceived: number;
-};
-
-type ChartPeriodsByLevel = Record<ChartLevel, DashboardMonth[]>;
-
-type PaymentStatusMonth = {
-  reportMonth: string;
-  total: number;
-  paid: number;
-  unpaid: number;
-  paidRate: number;
-};
-
-type CarrierPaymentStatusRow = {
-  carrier: string;
-  total: number;
-  paid: number;
-  unpaid: number;
-  paidRate: number;
-};
-
-type CombinedPaymentStatusMonth = {
-  reportMonth: string;
-  policyTotal: number;
-  policyPaid: number;
-  policyPaidRate: number;
-  clientTotal: number;
-  clientPaid: number;
-  clientPaidRate: number;
-};
-
-type CombinedCarrierPaymentStatusRow = {
-  carrier: string;
-  policyTotal: number;
-  policyPaid: number;
-  policyPaidRate: number;
-  clientTotal: number;
-  clientPaid: number;
-  clientPaidRate: number;
-};
-
-type MemberPaymentRow = {
-  dealName: string;
-  carrier: string;
-  primaryMemberId: string;
-  totalPaid: number;
-  months: {
-    reportMonth: string;
-    hasRecord: boolean;
-    paid: number;
-    paidToDate: string | null;
-    paidToDateRaw: string | null;
-  }[];
-};
-
-type MemberPaymentSummary = {
-  rows: MemberPaymentRow[];
-  reportMonths: string[];
-};
-
-type MixBreakdownRow = {
-  label: string;
-  sharePercent: number;
-  policyCount: number;
-  clientCount: number;
-  totalCommission: number;
-};
-
-type LatestMonthMixBreakdown = {
-  reportMonth: string | null;
-  carrierRows: MixBreakdownRow[];
-  stateRows: MixBreakdownRow[];
-};
-
-type CarrierPaymentStatusBreakdown = {
-  reportMonth: string | null;
-  policyRows: CarrierPaymentStatusRow[];
-  clientRows: CarrierPaymentStatusRow[];
-};
-
-type DashboardData = {
-  scoreCards: ScoreCards;
-  memberPayments: MemberPaymentRow[];
-  memberPaymentReportMonths: string[];
-  chartPeriodsByLevel: ChartPeriodsByLevel;
-  policyPaymentStatus: PaymentStatusMonth[];
-  clientPaymentStatus: PaymentStatusMonth[];
-  carrierPaymentStatus: CarrierPaymentStatusBreakdown;
-  latestMonthMixBreakdown: LatestMonthMixBreakdown;
-};
-
-export type ReportMonthRange = {
-  start: string | null;
-  end: string | null;
-};
-
-type MonthlyDashboardSummary = {
-  reportMonth: string;
-  policyIds: Set<string>;
-  maxClientByMemberId: Map<string, number>;
-  agentReceived: number;
-};
-
-const CHART_MONTH_LIMIT = 12;
-const CHART_QUARTER_LIMIT = 8;
-const CHART_YEAR_LIMIT = 5;
-const MEMBER_PAYMENT_REPORT_YEAR = "2026";
-const MIX_BREAKDOWN_TOP_LIMIT = 5;
-const PAID_RATE_VISIBLE_ROW_COUNT = 6;
-const PAID_RATE_HEADER_HEIGHT_PX = 72;
-const PAID_RATE_ROW_HEIGHT_PX = 64;
-const PAID_RATE_TABLE_MAX_HEIGHT =
-  PAID_RATE_HEADER_HEIGHT_PX + PAID_RATE_VISIBLE_ROW_COUNT * PAID_RATE_ROW_HEIGHT_PX;
+// Re-export các type công khai để giữ nguyên đường import của page.tsx.
+export type { HealthMartRow, ReportMonthRange };
 
 export function AgentHealthDashboard({
   agentName,

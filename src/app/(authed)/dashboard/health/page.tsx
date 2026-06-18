@@ -16,8 +16,8 @@ import { AgentHealthDashboardFilterProvider } from "./AgentHealthDashboardFilter
 import {
   DashboardViewSwitch,
   type DashboardView,
-} from "../DashboardViewSwitch";
-import { DashboardNavigationProvider } from "../DashboardNavigationState";
+} from "../../_dashboard-shared/DashboardViewSwitch";
+import { DashboardNavigationProvider } from "../../_dashboard-shared/DashboardNavigationState";
 import HealthSalesDashboardPage from "../../sales-dashboard/health/page";
 
 export const dynamic = "force-dynamic";

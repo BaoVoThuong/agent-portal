@@ -1,4 +1,5 @@
-import { PORTAL_ACCOUNT_TABLE, type UserRole } from "@/lib/config";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
+import type { UserRole } from "@/lib/domain/account.types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   getDefaultSystemRoleName,

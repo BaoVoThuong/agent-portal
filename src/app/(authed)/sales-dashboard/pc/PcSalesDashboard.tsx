@@ -10,205 +10,36 @@ import {
 import { PcSalesDashboardFilters } from "./PcSalesDashboardFilters";
 import { PcSalesTrendSections } from "./PcSalesTrendSections";
 import { PcStateHeatMap } from "./PcStateHeatMap";
+import {
+  TREND_MONTH_LIMIT,
+  UNPAID_PRODUCER_LABEL,
+  type AgencyMonthRow,
+  type AgentPaidDateGroup,
+  type AgentPaidDateRow,
+  type AgentPerformanceRow,
+  type CarrierRow,
+  type DashboardData,
+  type DateRange,
+  type ExpiredMonthRow,
+  type FilterOptions,
+  type FilterValues,
+  type MonthlySummary,
+  type PcSalesRow,
+  type PolicyDetailRow,
+  type PolicyFilterOption,
+  type PolicySortKey,
+  type PolicySortState,
+  type SortDirection,
+  type StateCityRow,
+  type StateGroup,
+  type Summary,
+  type TrendLevel,
+  type UnpaidAgentRow,
+  type UnpaidMonthRow,
+} from "./PcSalesDashboard.types";
 
-export type PcSalesRow = {
-  agent_name: string | null;
-  agency_name: string | null;
-  insured_name: string | null;
-  type: string | null;
-  company: string | null;
-  policy_number: string | null;
-  premium: number | null;
-  effective_date: string | null;
-  expired_date: string | null;
-  carrier_commission: number | null;
-  paid_producer: string | null;
-  statement_number: string | null;
-  true_premium: number | null;
-  expired_month_year: string | null;
-  effective_month_year: string | null;
-  status: string | null;
-  city: string | null;
-  state: string | null;
-  total_commission: number | null;
-  agent_commission_amount: number | null;
-  eps_commission_amount: number | null;
-};
-
-export type FilterValues = {
-  policyNumber: string;
-  agent: string;
-  agency: string;
-  paidProducer: string[];
-  statementNumber: string[];
-  reportMonthRange: ReportMonthRange;
-};
-
-type ReportMonthRange = {
-  start: string | null;
-  end: string | null;
-};
-
-type TrendLevel = "month" | "quarter" | "year";
-
-export type FilterOptions = {
-  agents: string[];
-  agencies: string[];
-  paidProducers: string[];
-  statementNumbers: string[];
-};
-
-type Summary = {
-  policyCount: number;
-  activePolicyCount: number;
-  renewalPolicyCount: number;
-  totalPremium: number;
-  totalCommission: number;
-  agentCommission: number;
-  epsCommission: number;
-};
-
-type MonthlySummary = Summary & {
-  monthKey: string;
-  periodKey: string;
-  policyChange: number | null;
-  policyChangePercent: number | null;
-  premiumChange: number | null;
-  premiumChangePercent: number | null;
-  commissionChange: number | null;
-  commissionChangePercent: number | null;
-  epsCommissionChange: number | null;
-  epsCommissionChangePercent: number | null;
-};
-
-type UnpaidMonthRow = Summary & {
-  monthKey: string;
-  isTotal: boolean;
-  // "total" = dòng tổng tháng; "agent" = dòng con theo agent.
-  level: "total" | "agent";
-  agent: string;
-};
-
-type UnpaidAgentRow = {
-  agent: string;
-  isTotal: boolean;
-  policyCount: number;
-  totalPremium: number;
-  estAgentCommission: number;
-};
-
-type AgencyMonthRow = Summary & {
-  agency: string;
-  isTotal: boolean;
-  monthKey: string;
-  // "agency" = dòng tổng của agency; "producer" = dòng con theo Paid Producer Date.
-  level: "agency" | "producer";
-  paidProducerDate: string;
-  // Các statement number thuộc nhóm paid producer date này (hiển thị nhỏ trong ô).
-  statementNumbers: string;
-};
-
-type AgentPaidDateRow = {
-  agency: string;
-  paidProducerDate: string;
-  statementNumbers: string;
-  isTotal: boolean;
-  policies: Record<string, number>;
-  premium: Record<string, number>;
-  commission: Record<string, number>;
-};
-
-type AgentPaidDateGroup = {
-  monthKey: string;
-  rows: AgentPaidDateRow[];
-  monthlyTotal: AgentPaidDateRow;
-};
-
-type CarrierRow = Summary & {
-  company: string;
-  policySharePercent: number;
-  averageCommissionRate: number;
-};
-
-type AgentPerformanceRow = Summary & {
-  agent: string;
-  averageAgentCommissionPerMonth: number;
-  averageCommissionRate: number;
-  policySharePercent: number;
-};
-
-type StateCityRow = Summary & {
-  state: string;
-  city: string;
-  isTotal: boolean;
-  policySharePercent: number;
-};
-
-type StateGroup = {
-  state: string;
-  rows: StateCityRow[];
-};
-
-type ExpiredMonthRow = {
-  monthKey: string;
-  policyCount: number;
-  totalPremium: number;
-};
-
-type PolicyDetailRow = {
-  agent: string;
-  agency: string;
-  insuredName: string;
-  policyNumber: string;
-  state: string;
-  city: string;
-  company: string;
-  truePremium: number;
-  agentCommission: number;
-  effectiveDate: string | null;
-  expiredDate: string | null;
-  status: string;
-  paid: string;
-};
-
-type DashboardData = {
-  overview: Summary;
-  monthlyRows: MonthlySummary[];
-  trendRows: MonthlySummary[];
-  unpaidTrendRows: CommissionTrendRow[];
-  agencyMonthRows: AgencyMonthRow[];
-  agentNames: string[];
-  agentPaidDateGroups: AgentPaidDateGroup[];
-  unpaidMonthRows: UnpaidMonthRow[];
-  unpaidAgentRows: UnpaidAgentRow[];
-  carrierRows: CarrierRow[];
-  stateGroups: StateGroup[];
-  statePolicyCounts: Record<string, number>;
-  expiredRows: ExpiredMonthRow[];
-  policyDetailRows: PolicyDetailRow[];
-};
-
-type SortDirection = "asc" | "desc";
-type PolicySortKey =
-  | "agent"
-  | "agency"
-  | "insuredName"
-  | "policyNumber"
-  | "state"
-  | "city"
-  | "company"
-  | "truePremium"
-  | "agentCommission"
-  | "effectiveDate"
-  | "expiredDate"
-  | "status"
-  | "paid";
-type PolicySortState = { key: PolicySortKey; direction: SortDirection };
-type PolicyFilterOption = { label: string; value: string };
-type DateRange = { from: string; to: string };
-
-const UNPAID_PRODUCER_LABEL = "Unpaid";
-const TREND_MONTH_LIMIT = 17;
+// Re-export các type công khai để giữ nguyên đường import của page.tsx.
+export type { FilterOptions, FilterValues, PcSalesRow };
 
 function getRowPaidProducerDate(row: PcSalesRow) {
   const value = cleanGroupLabel(row.paid_producer);

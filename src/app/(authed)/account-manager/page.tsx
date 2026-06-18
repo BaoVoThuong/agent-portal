@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { PORTAL_ACCOUNT_TABLE, type AccountUser } from "@/lib/config";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
+import type { AccountUser } from "@/lib/domain/account.types";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   fetchRolesWithPermissions,

@@ -10,12 +10,12 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   DashboardViewSwitch,
   type DashboardView,
-} from "../DashboardViewSwitch";
+} from "../../_dashboard-shared/DashboardViewSwitch";
 import {
   DashboardNavigationContent,
   DashboardNavigationProvider,
-} from "../DashboardNavigationState";
-import { DashboardViewSkeleton } from "../DashboardViewSkeleton";
+} from "../../_dashboard-shared/DashboardNavigationState";
+import { DashboardViewSkeleton } from "../../_dashboard-shared/DashboardViewSkeleton";
 import {
   AgentPcDashboard,
   UNPAID_PAID_DATE_LABEL,

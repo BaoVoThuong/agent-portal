@@ -95,8 +95,49 @@ Open <http://localhost:3000>.
 - P&C registration rows use `pc_entries` and sync to the `P&C Registration`
   sheet tab in the same spreadsheet.
 
+## Project structure
+
+```
+src/
+├── app/                      # Next.js App Router
+│   ├── (authed)/             # authenticated UI (sidebar/topbar shell)
+│   │   ├── _components/        # shared layout primitives (Sidebar, TopBar, DashboardUI)
+│   │   ├── _dashboard-shared/  # dùng chung cho dashboard/ & sales-dashboard/
+│   │   │                       #   (DashboardViewSwitch/Skeleton/NavigationState)
+│   │   ├── page.tsx            # trang Health registration (URL `/`)
+│   │   ├── customer-registration/
+│   │   │   ├── _shared/grid.ts # EntryGrid bits dùng chung (theme, CSV parse, key gen)
+│   │   │   ├── health/EntryGrid.tsx
+│   │   │   └── pc/PcEntryGrid.tsx
+│   │   ├── dashboard/ , sales-dashboard/   # mỗi dashboard: *.tsx + *.types.ts
+│   │   └── automation/
+│   └── api/                  # route handlers (mỏng: auth + parse + gọi lib)
+├── lib/
+│   ├── domain/               # domain types thuần (entry, pc-entry, account)
+│   ├── automation/           # parser/report/workbook health & pc (thuần)
+│   ├── provider-finder/      # maps-service + search core (tách từ route)
+│   ├── admin/                # validate input cho admin (user-input)
+│   ├── rbac/                 # phân quyền; system-roles.ts = legacy↔RBAC shim
+│   ├── config.ts             # chỉ còn infra constant (PORTAL_ACCOUNT_TABLE)
+│   └── ...                   # supabase, sheets, agent-name, health-paid-period...
+└── *.test.ts                 # vitest unit/golden-master cạnh file nguồn
+datasync/                     # ETL Google Sheets → Supabase (context tách biệt)
+apps-script/                  # Apps Script (sync Sheet + maps proxy)
+```
+
+## Testing
+
+```bash
+npm test        # vitest watch
+npm run test:run  # vitest một lần (CI)
+```
+
+Test hiện tập trung vào domain logic thuần (reconciliation/commission, parse ngày,
+RBAC client, validate input) làm golden-master để refactor an toàn.
+
 ## Notes
 
 - Currently append-only — agents can't edit/delete after submission.
 - Required fields: Carrier, State, Zip, Effective Date, Customer, Policy ID.
 - `Agent Email` and `Agent Name` are auto-filled from the Google session.
+- Chi tiết các đợt refactor cấu trúc: xem [`MIGRATION_REPORT.md`](MIGRATION_REPORT.md).

@@ -3,7 +3,8 @@ import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import bcrypt from "bcryptjs";
-import { PORTAL_ACCOUNT_TABLE, type UserRole } from "@/lib/config";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
+import type { UserRole } from "@/lib/domain/account.types";
 import {
   assignDefaultRoleToUser,
   getUserAccessByEmail,

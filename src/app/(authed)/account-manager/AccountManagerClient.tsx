@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { AccountUser } from "@/lib/config";
+import type { AccountUser } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import type { RoleOption } from "@/lib/rbac/role-management";

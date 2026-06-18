@@ -9,205 +9,35 @@ import {
   type TrendComparisonPeriodsByLevel,
 } from "./HealthSalesTrendComparisonChart";
 import { HealthSalesTrendSections } from "./HealthSalesTrendSections";
-
-type HealthSalesRow = {
-  deal_name: string | null;
-  state: string | null;
-  carrier: string | null;
-  plan_name: string | null;
-  primary_member_id: string | null;
-  agent: string | null;
-  broker_effective_date: string | null;
-  paid_to_date: string | null;
-  paid_to_date_raw: string | null;
-  report_month: string | null;
-  carriers_messer_paid: number | null;
-  agent_received: number | null;
-  eps_override: number | null;
-  eps_override_received: number | null;
-  eps_split: number | null;
-  messer_statement: string | null;
-  num_client: number | null;
-};
-
-type ReportMonthRange = {
-  start: string | null;
-  end: string | null;
-};
-
-type FilterValues = {
-  agent: string[];
-  carrier: string[];
-  reportMonthRange: ReportMonthRange;
-  messerStatement: string[];
-  primaryMemberId: string;
-};
-
-type ClientFilterValues = Pick<FilterValues, "agent" | "carrier" | "primaryMemberId">;
-
-type FilterOptions = {
-  agents: string[];
-  carriers: string[];
-};
-
-type Summary = {
-  policyCount: number;
-  paidPolicyCount: number;
-  unpaidPolicyCount: number;
-  clientCount: number;
-  paidClientCount: number;
-  unpaidClientCount: number;
-  totalMesserPaid: number;
-  agentReceived: number;
-  epsCommission: number;
-  epsOverride: number;
-  epsSplit: number;
-  activeAgentCount: number;
-};
-
-type MonthlySummary = Summary & {
-  monthKey: string;
-};
-
-type SalesPeriodSummary = Summary & {
-  periodKey: string;
-  periodLabel: string;
-};
-
-type SalesMomRow = SalesPeriodSummary & {
-  policyChange: number | null;
-  policyChangePercent: number | null;
-  clientChange: number | null;
-  clientChangePercent: number | null;
-  messerPaidChange: number | null;
-  messerPaidChangePercent: number | null;
-  epsCommissionChange: number | null;
-  epsCommissionChangePercent: number | null;
-};
-
-type CombinedPaymentStatusMonth = {
-  reportMonth: string;
-  policyTotal: number;
-  policyPaid: number;
-  policyPaidRate: number;
-  clientTotal: number;
-  clientPaid: number;
-  clientPaidRate: number;
-};
-
-type CombinedCarrierPaymentStatusRow = {
-  carrier: string;
-  policyTotal: number;
-  policyPaid: number;
-  policyPaidRate: number;
-  clientTotal: number;
-  clientPaid: number;
-  clientPaidRate: number;
-};
-
-type CarrierPaidRateBreakdown = {
-  reportMonth: string | null;
-  rows: CombinedCarrierPaymentStatusRow[];
-};
-
-type AgentDashboardRow = Summary & {
-  agent: string;
-  avgAgentCommissionPerMonth: number;
-  paidPolicyPercent: number;
-  revenueSharePercent: number;
-};
-
-type AgentPeriodPivotRow = {
-  periodKey: string;
-  periodLabel: string;
-  agentSummaries: Record<string, Summary>;
-};
-
-type AgentPeriodPivotData = {
-  agentNames: string[];
-  rows: AgentPeriodPivotRow[];
-};
-
-type CarrierDashboardRow = Summary & {
-  carrier: string;
-  paidPolicyPercent: number;
-  revenueSharePercent: number;
-  epsCommissionPercent: number;
-  epsOverridePercent: number;
-  epsSplitPercent: number;
-};
-
-type StateDashboardRow = Summary & {
-  state: string;
-  policySharePercent: number;
-  clientSharePercent: number;
-  revenueSharePercent: number;
-};
-
-type PolicyInfoRow = {
-  dealName: string;
-  agentName: string;
-  carrier: string;
-  primaryMemberId: string;
-  totalPaid: number;
-  months: {
-    hasRecord: boolean;
-    paid: number;
-    paidToDate: string | null;
-    paidToDateRaw: string | null;
-  }[];
-};
-
-type PolicyInfoSummary = {
-  rows: PolicyInfoRow[];
-  visibleMonthCount: number;
-};
-
-type DashboardData = {
-  overview: Summary;
-  monthlyRows: MonthlySummary[];
-  trendPeriodsByLevel: TrendComparisonPeriodsByLevel;
-  commissionRowsByLevel: Record<TrendComparisonChartLevel, SalesPeriodSummary[]>;
-  salesMomRowsByLevel: Record<TrendComparisonChartLevel, SalesMomRow[]>;
-  carrierPaidRateBreakdown: CarrierPaidRateBreakdown;
-  agentRows: AgentDashboardRow[];
-  agentPivotByLevel: Record<TrendComparisonChartLevel, AgentPeriodPivotData>;
-  carrierRows: CarrierDashboardRow[];
-  stateRows: StateDashboardRow[];
-  policyInfoRows: PolicyInfoRow[];
-  policyInfoMonthCount: number;
-};
-
-const TREND_MONTH_LIMIT = 12;
-const TREND_QUARTER_LIMIT = 8;
-const TREND_YEAR_LIMIT = 5;
-const TABLE_MONTH_LIMIT = 14;
-const CARRIER_ROW_LIMIT = 28;
-const STATE_TOP_LIMIT = 5;
-const PAID_RATE_VISIBLE_ROW_COUNT = 6;
-const PAID_RATE_HEADER_HEIGHT_PX = 72;
-const PAID_RATE_ROW_HEIGHT_PX = 64;
-const PAID_RATE_TABLE_MAX_HEIGHT =
-  PAID_RATE_HEADER_HEIGHT_PX + PAID_RATE_VISIBLE_ROW_COUNT * PAID_RATE_ROW_HEIGHT_PX;
-const SALES_MOM_VISIBLE_ROW_COUNT = 6;
-const SALES_MOM_HEADER_HEIGHT_PX = 44;
-const SALES_MOM_ROW_HEIGHT_PX = 56;
-const SALES_MOM_SCROLL_MAX_HEIGHT =
-  SALES_MOM_HEADER_HEIGHT_PX + SALES_MOM_VISIBLE_ROW_COUNT * SALES_MOM_ROW_HEIGHT_PX;
-const EMPTY_SUMMARY: Summary = {
-  activeAgentCount: 0,
-  agentReceived: 0,
-  clientCount: 0,
-  epsCommission: 0,
-  epsOverride: 0,
-  epsSplit: 0,
-  paidClientCount: 0,
-  paidPolicyCount: 0,
-  policyCount: 0,
-  totalMesserPaid: 0,
-  unpaidClientCount: 0,
-  unpaidPolicyCount: 0,
-};
+import {
+  CARRIER_ROW_LIMIT,
+  EMPTY_SUMMARY,
+  PAID_RATE_TABLE_MAX_HEIGHT,
+  SALES_MOM_SCROLL_MAX_HEIGHT,
+  STATE_TOP_LIMIT,
+  TABLE_MONTH_LIMIT,
+  TREND_MONTH_LIMIT,
+  TREND_QUARTER_LIMIT,
+  TREND_YEAR_LIMIT,
+  type AgentDashboardRow,
+  type AgentPeriodPivotData,
+  type CarrierDashboardRow,
+  type CarrierPaidRateBreakdown,
+  type ClientFilterValues,
+  type CombinedCarrierPaymentStatusRow,
+  type CombinedPaymentStatusMonth,
+  type DashboardData,
+  type FilterOptions,
+  type FilterValues,
+  type HealthSalesRow,
+  type MonthlySummary,
+  type PolicyInfoRow,
+  type PolicyInfoSummary,
+  type SalesMomRow,
+  type SalesPeriodSummary,
+  type StateDashboardRow,
+  type Summary,
+} from "./HealthSalesDashboard.types";
 
 export function HealthSalesDashboard({
   filterOptions,

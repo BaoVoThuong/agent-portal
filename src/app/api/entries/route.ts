@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { appendEntriesToSheet } from "@/lib/sheets";
-import type { EntryInput, Entry } from "@/lib/config";
+import type { EntryInput, Entry } from "@/lib/domain/entry.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildVisibleEntriesFilter, normalizeAgentName } from "@/lib/agent-name";

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { PORTAL_ACCOUNT_TABLE, type UserRole } from "@/lib/config";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
+import type { UserRole } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { assignDefaultRoleToUser } from "@/lib/rbac/access";
 import { PERMISSIONS } from "@/lib/rbac/permissions";

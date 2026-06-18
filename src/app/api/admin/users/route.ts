@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { PORTAL_ACCOUNT_TABLE, type UserRole } from "@/lib/config";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
+import type { UserRole } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { assignDefaultRoleToUser } from "@/lib/rbac/access";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -10,9 +11,8 @@ import {
   replaceUserRoles,
 } from "@/lib/rbac/role-management";
 import { getLegacyRoleFromRoleNames } from "@/lib/rbac/system-roles";
+import { parseCreateUserInput } from "@/lib/admin/user-input";
 import bcrypt from "bcryptjs";
-
-const roles: UserRole[] = ["admin", "agent"];
 
 export async function POST(req: Request) {
   let createdUserId: string | null = null;
@@ -26,49 +26,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { email, password, name, role, roleIds, agentId } = await req.json();
-    const normalizedEmail =
-      typeof email === "string" ? email.trim().toLowerCase() : "";
-    const normalizedAgentId =
-      typeof agentId === "string" ? agentId.trim() : "";
-    const selectedRole = roles.includes(role) ? role : "agent";
-    const selectedRoleIds = Array.isArray(roleIds)
-      ? roleIds.filter((item): item is string => typeof item === "string")
-      : [];
+    const parsed = parseCreateUserInput(await req.json());
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+
+    const {
+      email: normalizedEmail,
+      password,
+      name,
+      agentId: normalizedAgentId,
+      legacyRoleFallback: selectedRole,
+      roleIds: selectedRoleIds,
+    } = parsed.value;
 
     console.info("[account-manager:create] request", {
       actor: session?.user?.email ?? null,
       email: normalizedEmail,
       roleIds: selectedRoleIds,
     });
-
-    if (!normalizedEmail || typeof password !== "string") {
-      return NextResponse.json(
-        { error: "Email and password are required." },
-        { status: 400 }
-      );
-    }
-
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters." },
-        { status: 400 }
-      );
-    }
-
-    if (!normalizedAgentId) {
-      return NextResponse.json(
-        { error: "Agent ID is required." },
-        { status: 400 }
-      );
-    }
-
-    if (selectedRoleIds.length > 1) {
-      return NextResponse.json(
-        { error: "Select exactly one role for this account." },
-        { status: 400 }
-      );
-    }
 
     const supabase = getSupabaseAdmin();
     const { data: existingUser } = await supabase
@@ -127,7 +103,7 @@ export async function POST(req: Request) {
       .insert([
         {
           email: normalizedEmail,
-          name: typeof name === "string" && name.trim() ? name.trim() : null,
+          name,
           agent_id: normalizedAgentId,
           password_hash: hashedPassword,
           role: legacyRole,

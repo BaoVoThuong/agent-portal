@@ -1,4 +1,5 @@
-import type { Entry, PcEntry } from "./config";
+import type { Entry } from "@/lib/domain/entry.types";
+import type { PcEntry } from "@/lib/domain/pc-entry.types";
 
 type SheetRow = (string | number)[];
 

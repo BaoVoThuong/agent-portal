@@ -7,12 +7,12 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { DashboardViewSwitch } from "../../dashboard/DashboardViewSwitch";
+import { DashboardViewSwitch } from "../../_dashboard-shared/DashboardViewSwitch";
 import {
   DashboardNavigationContent,
   DashboardNavigationProvider,
-} from "../../dashboard/DashboardNavigationState";
-import { DashboardViewSkeleton } from "../../dashboard/DashboardViewSkeleton";
+} from "../../_dashboard-shared/DashboardNavigationState";
+import { DashboardViewSkeleton } from "../../_dashboard-shared/DashboardViewSkeleton";
 import { HealthSalesHeaderFilters } from "./HealthSalesDashboardFilters";
 import { HealthSalesDashboard } from "./HealthSalesDashboard";
 import { type TrendComparisonChartLevel } from "./HealthSalesTrendComparisonChart";

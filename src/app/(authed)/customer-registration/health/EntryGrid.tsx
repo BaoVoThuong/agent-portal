@@ -6,16 +6,22 @@ import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule,
   ModuleRegistry,
-  themeQuartz,
   type CellValueChangedEvent,
-  type CellStyle,
   type ColDef,
   type GridApi,
   type GridReadyEvent,
   type ICellRendererParams,
   type ValueFormatterParams,
 } from "ag-grid-community";
-import type { Entry, EntryInput } from "../../lib/config";
+import type { Entry, EntryInput } from "@/lib/domain/entry.types";
+import {
+  actionCellStyle,
+  gridTheme,
+  makeDraftKey,
+  normalizeLink,
+  parseCsvLine,
+  rowNumberCellStyle,
+} from "../_shared/grid";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -33,41 +39,11 @@ const EMPTY_DRAFT: Omit<DraftRow, "_key"> = {
   fub_link: "",
 };
 
-const gridTheme = themeQuartz.withParams({
-  accentColor: "#15345f",
-  borderColor: "#d8dee7",
-  browserColorScheme: "light",
-  columnBorder: true,
-  fontFamily: "Arial, Helvetica, sans-serif",
-  foregroundColor: "#16233a",
-  headerBackgroundColor: "#f7f9fc",
-  headerFontWeight: 700,
-  oddRowBackgroundColor: "#fbfcfe",
-  rowBorder: true,
-  wrapperBorderRadius: 0,
-});
-
-const rowNumberCellStyle: CellStyle = {
-  color: "#667085",
-  fontSize: "10px",
-  textAlign: "center",
-  padding: "0",
-};
-
-const actionCellStyle: CellStyle = { border: "none" };
-
 function makeEmptyRows(count: number): DraftRow[] {
   return Array.from({ length: count }, () => ({
     ...EMPTY_DRAFT,
-    _key: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11),
+    _key: makeDraftKey(),
   }));
-}
-
-function normalizeLink(value: unknown) {
-  const href = String(value ?? "").trim();
-  if (!href) return "";
-  if (/^https?:\/\//i.test(href)) return href;
-  return `https://${href}`;
 }
 
 export default function EntryGrid({
@@ -116,24 +92,11 @@ export default function EntryGrid({
 
       const parsedRows: DraftRow[] = lines.slice(1).map(line => {
         // Simple CSV parse handling potential commas in quotes
-        const parts: string[] = [];
-        let current = "";
-        let inQuotes = false;
-        for (let i = 0; i < line.length; i++) {
-          const char = line[i];
-          if (char === '"') inQuotes = !inQuotes;
-          else if (char === "," && !inQuotes) {
-            parts.push(current.trim());
-            current = "";
-          } else {
-            current += char;
-          }
-        }
-        parts.push(current.trim());
+        const parts = parseCsvLine(line);
 
         if (parts.length < 6) return null;
         return {
-          _key: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11),
+          _key: makeDraftKey(),
           carrier_name: parts[0] || "",
           state: parts[1] || "",
           zipcode: parts[2] || "",
