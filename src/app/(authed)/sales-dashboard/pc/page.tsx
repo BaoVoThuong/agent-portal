@@ -13,6 +13,7 @@ import {
   DashboardNavigationProvider,
 } from "../../_dashboard-shared/DashboardNavigationState";
 import { DashboardViewSkeleton } from "../../_dashboard-shared/DashboardViewSkeleton";
+import { AiChatWidget } from "../../_dashboard-shared/AiChatWidget";
 import {
   PcSalesDashboard,
   type FilterOptions,
@@ -127,6 +128,7 @@ export default async function PcSalesDashboardPage({
           </DashboardNavigationContent>
         </div>
       </div>
+      <AiChatWidget context="pc" scope="company" />
     </DashboardNavigationProvider>
   );
 }

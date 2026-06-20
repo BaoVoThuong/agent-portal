@@ -16,6 +16,7 @@ import {
   DashboardNavigationProvider,
 } from "../../_dashboard-shared/DashboardNavigationState";
 import { DashboardViewSkeleton } from "../../_dashboard-shared/DashboardViewSkeleton";
+import { AiChatWidget } from "../../_dashboard-shared/AiChatWidget";
 import {
   AgentPcDashboard,
   UNPAID_PAID_DATE_LABEL,
@@ -135,6 +136,7 @@ export default async function PcDashboardPage({
           </DashboardNavigationContent>
         </div>
       </div>
+      <AiChatWidget context="pc" />
     </DashboardNavigationProvider>
   );
 }

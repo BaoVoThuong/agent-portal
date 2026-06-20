@@ -17,6 +17,7 @@
     "sync:provider": "node datasync/sync.js --config provider-address"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
     "@auth/core": "^0.41.2",
     "@supabase/supabase-js": "^2.105.1",
     "@types/d3-geo": "^3.1.0",
