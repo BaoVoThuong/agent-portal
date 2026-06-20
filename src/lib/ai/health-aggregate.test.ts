@@ -90,6 +90,22 @@ describe("aggregateHealthRows — eligible + đếm", () => {
     expect(aggregateHealthRows(rows, q({ metric: "policy_paid_rate" })).total).toBeCloseTo(50);
   });
 
+  it("unpaid_policy_count = member KHÔNG tháng nào paid (bool_or); bỏ qua filter paid", () => {
+    // M1: Jan paid, Feb/Mar unpaid -> member PAID (có 1 tháng paid). M2: cả 2 unpaid.
+    const rows = [
+      row({ primary_member_id: "M1", report_month: "2026-01-01", paid_to_date: "2026-01-31" }),
+      row({ primary_member_id: "M1", report_month: "2026-02-01", paid_to_date: null }),
+      row({ primary_member_id: "M2", report_month: "2026-01-01", paid_to_date: null }),
+      row({ primary_member_id: "M2", report_month: "2026-02-01", paid_to_date: null }),
+    ];
+    // unpaid = chỉ M2 (M1 có tháng paid). Dù LLM lỡ set paid:unpaid vẫn phải = 1.
+    expect(aggregateHealthRows(rows, q({ metric: "unpaid_policy_count" })).total).toBe(1);
+    expect(
+      aggregateHealthRows(rows, q({ metric: "unpaid_policy_count", filters: { paid: "unpaid" } })).total
+    ).toBe(1);
+    expect(aggregateHealthRows(rows, q({ metric: "paid_policy_count" })).total).toBe(1);
+  });
+
   it("eps_commission = messer_paid - agent_received; rate trên messer_paid", () => {
     const rows = [
       row({

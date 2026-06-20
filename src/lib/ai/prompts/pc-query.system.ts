@@ -88,11 +88,14 @@ FILTERS (filters object) — only include what the user actually constrains
 =============================================================
 - monthStart / monthEnd: "YYYY-MM" inclusive range on effective_date.
 - type, company, agency, state, city: exact text match, ONLY if the user names one
-  (e.g. state="TX"). Use 2-letter US state codes for state.
-- insuredName: a customer / insured person's name (partial match). Use this when the
-  user asks about a specific customer, e.g. "how many policies does Thuan Nguyen have"
-  -> metric=count, insuredName="Thuan Nguyen". "How many times did they register"
-  for a customer means count their policies.
+  (e.g. state="TX", company="GEICO", type="AUTO"). 2-letter US state codes.
+- agent: an AGENT (salesperson) name, for that agent's book: "how many policies does
+  NAM NGUYEN have/sell", "FIONA's commission". (Server still enforces who is visible.)
+- insuredName: a CUSTOMER / insured person's name (partial match): "customer Thuan
+  Nguyen", "policies for <insured>". Counting one customer's policies -> count + insuredName.
+- Disambiguation: in this agent portal, "how many policies does <Name> have" normally
+  means that AGENT's book -> use agent. Use insuredName only when wording says
+  customer/insured.
 - policyScope: "active" | "renewal" | "any" — extra narrowing on top of the metric.
 - paid: "paid" | "unpaid" | "any".
 - groupBy (top-level, optional): company | type | month | agency | agent_name | state | city.
@@ -126,4 +129,7 @@ HARD RULES
    tables like Agent Performance and Unpaid-by-Agent are all-history by default.
 5. For "estimate commission for unpaid policies", use
    metric = estimate_unpaid_agent_commission (unpaid is implied; don't set paid).
-6. If the question is not about P&C policy data, set unsupported = true and metric = "list".`;
+6. If the question is not about P&C policy data, set unsupported = true and metric = "list".
+   This includes HEALTH-insurance questions (health plans, health members/clients,
+   health carriers) — that is a different product; do NOT map "health" to a P&C type.
+   "type" here is a P&C line of business (AUTO, HOME, DP, ...), never "Health".`;

@@ -62,13 +62,18 @@ export function buildHealthMartQuery(
   if (filters.monthEnd) {
     q = q.lte("report_month", monthToEndDate(filters.monthEnd));
   }
-  if (filters.carrier) q = q.eq("carrier", filters.carrier);
-  if (filters.state) q = q.eq("state", filters.state);
-  if (filters.plan) q = q.eq("plan_name", filters.plan);
+  // ilike (case-insensitive, không wildcard): data viết HOA còn LLM hay viết thường.
+  const ci = (v: string) => v.replace(/[%_]/g, "");
+  if (filters.carrier) q = q.ilike("carrier", ci(filters.carrier));
+  if (filters.state) q = q.ilike("state", ci(filters.state));
+  if (filters.plan) q = q.ilike("plan_name", ci(filters.plan));
   // agent filter chỉ có hiệu lực khi scopedAgent=null (user có quyền xem agent khác).
-  if (filters.agent && scopedAgent === null) q = q.eq("agent", filters.agent);
+  if (filters.agent && scopedAgent === null) q = q.ilike("agent", ci(filters.agent));
   if (filters.memberName) {
-    q = q.ilike("primary_member_id", `%${filters.memberName}%`);
+    // Tên khách nằm ở deal_name; primary_member_id là MÃ SỐ. Khớp một phần cả hai
+    // (vd "Thuan" khớp deal_name; "944101131" khớp member id).
+    const m = filters.memberName.replace(/[%,()]/g, "");
+    q = q.or(`deal_name.ilike.%${m}%,primary_member_id.ilike.%${m}%`);
   }
 
   // Không limit/range ở đây — route phân trang qua .range() để lấy TOÀN BỘ dòng

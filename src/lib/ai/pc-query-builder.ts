@@ -22,6 +22,7 @@ export interface PcQueryLike {
   gte: (column: string, value: string) => PcQueryLike;
   lte: (column: string, value: string) => PcQueryLike;
   ilike: (column: string, pattern: string) => PcQueryLike;
+  or: (filters: string) => PcQueryLike;
   order: (column: string, opts: { ascending: boolean }) => PcQueryLike;
   limit: (count: number) => PcQueryLike;
   range: (from: number, to: number) => PcQueryLike;
@@ -92,11 +93,18 @@ export function buildPcMartQuery(
   if (filters.monthEnd) {
     q = q.lte("effective_date", monthToEndDate(filters.monthEnd));
   }
-  if (filters.type) q = q.eq("type", filters.type);
-  if (filters.company) q = q.eq("company", filters.company);
-  if (filters.agency) q = q.eq("agency_name", filters.agency);
-  if (filters.state) q = q.eq("state", filters.state);
-  if (filters.city) q = q.eq("city", filters.city);
+  // Dùng ilike (case-insensitive, không wildcard) cho text filter: data thường viết
+  // HOA ("AUTO","GEICO") còn LLM hay viết "Auto" -> eq sẽ trượt. ci() khớp bất kể hoa thường.
+  const ci = (v: string) => v.replace(/[%_]/g, "");
+  if (filters.type) q = q.ilike("type", ci(filters.type));
+  if (filters.company) q = q.ilike("company", ci(filters.company));
+  if (filters.agency) q = q.ilike("agency_name", ci(filters.agency));
+  if (filters.state) q = q.ilike("state", ci(filters.state));
+  if (filters.city) q = q.ilike("city", ci(filters.city));
+  // agent filter chỉ hiệu lực khi không bị scope (user có quyền xem agent khác).
+  if (filters.agent && scopedAgentName === null) {
+    q = q.ilike("agent_name", ci(filters.agent));
+  }
   if (filters.insuredName) {
     // khớp một phần, không phân biệt hoa thường (vd "thuan" khớp "Thuan Nguyen")
     q = q.ilike("insured_name", `%${filters.insuredName}%`);

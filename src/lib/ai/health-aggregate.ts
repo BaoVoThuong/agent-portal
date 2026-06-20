@@ -149,6 +149,16 @@ function countPaidPolicies(rows: HealthMartRow[]): number {
 function countClients(rows: HealthMartRow[]): number {
   return [...policyBuckets(rows).values()].reduce((s, p) => s + p.clients, 0);
 }
+// Lọc về report month MỚI NHẤT có data (cho scorecard "Active ..."): dashboard lấy
+// tháng report gần nhất, không phải tháng lịch hiện tại (tháng này có thể rỗng).
+function latestMonthRows(rows: HealthMartRow[]): HealthMartRow[] {
+  let latest = "";
+  for (const r of rows) {
+    const m = monthKey(r.report_month);
+    if (m > latest) latest = m;
+  }
+  return latest ? rows.filter((r) => monthKey(r.report_month) === latest) : [];
+}
 
 function metricValue(rows: HealthMartRow[], metric: HealthMetric): number {
   switch (metric) {
@@ -156,6 +166,10 @@ function metricValue(rows: HealthMartRow[], metric: HealthMetric): number {
       return countPolicies(rows);
     case "client_count":
       return countClients(rows);
+    case "active_policy_count":
+      return countPolicies(latestMonthRows(rows));
+    case "active_client_count":
+      return countClients(latestMonthRows(rows));
     case "paid_policy_count":
       return countPaidPolicies(rows);
     case "unpaid_policy_count":
@@ -186,6 +200,18 @@ function metricValue(rows: HealthMartRow[], metric: HealthMetric): number {
         ? 0
         : (rows.reduce((s, r) => s + epsCommissionOf(r), 0) / base) * 100;
     }
+    case "eps_split_rate": {
+      const base = rows.reduce((s, r) => s + money(r.carriers_messer_paid), 0);
+      return base === 0
+        ? 0
+        : (rows.reduce((s, r) => s + money(r.eps_split), 0) / base) * 100;
+    }
+    case "eps_override_rate": {
+      const base = rows.reduce((s, r) => s + money(r.carriers_messer_paid), 0);
+      return base === 0
+        ? 0
+        : (rows.reduce((s, r) => s + money(r.eps_override_received), 0) / base) * 100;
+    }
     case "list":
       return rows.length;
   }
@@ -198,7 +224,16 @@ export function aggregateHealthRows(
   const { metric, groupBy, filters } = query;
 
   const eligible = buildEligibleRows(rawRows);
-  const rows = applyPaidFilter(eligible, filters.paid);
+  // Các metric paid-status TỰ encode trạng thái paid theo từng member (bool_or).
+  // Nếu áp thêm filter paid (lọc dòng) sẽ phá logic -> đếm sai. Bỏ qua filter paid
+  // cho nhóm metric này (khớp dashboard: unpaid = member không tháng nào được trả).
+  const PAID_STATUS_METRICS = new Set<HealthMetric>([
+    "paid_policy_count",
+    "unpaid_policy_count",
+    "policy_paid_rate",
+  ]);
+  const effectivePaid = PAID_STATUS_METRICS.has(metric) ? undefined : filters.paid;
+  const rows = applyPaidFilter(eligible, effectivePaid);
 
   const total = metricValue(rows, metric);
 

@@ -53,6 +53,8 @@ export type PcQueryFilters = {
   agency?: string;
   state?: string;
   city?: string;
+  /** Tên agent (chỉ áp khi user có quyền xem agent khác; server vẫn ép scope). */
+  agent?: string;
   /** Tên người được bảo hiểm (khách) — khớp một phần, không phân biệt hoa thường. */
   insuredName?: string;
   /** Phạm vi trạng thái policy (active/renewal/any). */
@@ -119,12 +121,14 @@ export function parsePcStructuredQuery(raw: unknown): PcStructuredQuery | null {
   const agency = asSafeText(rawFilters.agency);
   const state = asSafeText(rawFilters.state);
   const city = asSafeText(rawFilters.city);
+  const agent = asSafeText(rawFilters.agent);
   const insuredName = asSafeText(rawFilters.insuredName);
   if (type) filters.type = type;
   if (company) filters.company = company;
   if (agency) filters.agency = agency;
   if (state) filters.state = state;
   if (city) filters.city = city;
+  if (agent) filters.agent = agent;
   if (insuredName) filters.insuredName = insuredName;
 
   const policyScope = asEnum(rawFilters.policyScope, PC_POLICY_SCOPE);

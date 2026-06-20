@@ -6,6 +6,8 @@
 export const HEALTH_METRICS = [
   "policy_count", // số policy (unique primary_member_id, eligible)
   "client_count", // tổng num_client (theo policy)
+  "active_policy_count", // policy của report month MỚI NHẤT có data (scorecard "Active Policies")
+  "active_client_count", // client của report month mới nhất có data ("Active Clients")
   "paid_policy_count", // policy đã paid (có paid_to_date)
   "unpaid_policy_count", // policy chưa paid
   "policy_paid_rate", // paid_policy / policy * 100
@@ -16,6 +18,8 @@ export const HEALTH_METRICS = [
   "sum_carrier_paid", // tổng carriers_messer_paid
   "agent_commission_rate", // agent_received / carriers_messer_paid * 100
   "eps_commission_rate", // eps_commission / carriers_messer_paid * 100
+  "eps_split_rate", // eps_split / carriers_messer_paid * 100
+  "eps_override_rate", // eps_override_received / carriers_messer_paid * 100
   "list", // liệt kê policy
 ] as const;
 export type HealthMetric = (typeof HEALTH_METRICS)[number];

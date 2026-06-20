@@ -52,12 +52,14 @@ describe("buildHealthMartQuery — ép phạm vi quyền", () => {
     // bị scope -> chỉ có agent=FIONA, không có agent=NAM
     expect(eqCalls(scoped.calls).filter((c) => c.args[0] === "agent").map((c) => c.args[1])).toEqual(["FIONA"]);
 
+    // scope null: agent filter dùng ilike (case-insensitive).
     const open = makeRecorder();
     buildHealthMartQuery(open.source, { metric: "policy_count", filters: { agent: "NAM" } }, null);
-    expect(eqCalls(open.calls).find((c) => c.args[0] === "agent")?.args[1]).toBe("NAM");
+    const openIlike = open.calls.filter((c) => c.method === "ilike");
+    expect(openIlike.find((c) => c.args[0] === "agent")?.args[1]).toBe("NAM");
   });
 
-  it("carrier/state/plan -> eq, member -> ilike, month -> gte/lte report_month", () => {
+  it("carrier/state/plan -> ilike, member -> or(deal_name/id), month -> gte/lte report_month", () => {
     const { calls, source } = makeRecorder();
     buildHealthMartQuery(
       source,
@@ -74,10 +76,14 @@ describe("buildHealthMartQuery — ép phạm vi quyền", () => {
       },
       "X"
     );
-    expect(eqCalls(calls).find((c) => c.args[0] === "carrier")?.args[1]).toBe("GEICO");
-    expect(eqCalls(calls).find((c) => c.args[0] === "state")?.args[1]).toBe("TX");
-    expect(eqCalls(calls).find((c) => c.args[0] === "plan_name")?.args[1]).toBe("Gold");
-    expect(calls.find((c) => c.method === "ilike")?.args).toEqual(["primary_member_id", "%Thuan%"]);
+    const ilikeCalls = calls.filter((c) => c.method === "ilike");
+    expect(ilikeCalls.find((c) => c.args[0] === "carrier")?.args[1]).toBe("GEICO");
+    expect(ilikeCalls.find((c) => c.args[0] === "state")?.args[1]).toBe("TX");
+    expect(ilikeCalls.find((c) => c.args[0] === "plan_name")?.args[1]).toBe("Gold");
+    // memberName -> .or khớp deal_name HOẶC primary_member_id
+    expect(calls.find((c) => c.method === "or")?.args[0]).toBe(
+      "deal_name.ilike.%Thuan%,primary_member_id.ilike.%Thuan%"
+    );
     expect(calls.some((c) => c.method === "gte" && c.args[0] === "report_month")).toBe(true);
     expect(calls.some((c) => c.method === "lte" && c.args[0] === "report_month")).toBe(true);
   });

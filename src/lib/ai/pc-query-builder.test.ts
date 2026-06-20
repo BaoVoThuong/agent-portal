@@ -70,12 +70,15 @@ describe("buildPcMartQuery — ép phạm vi quyền", () => {
     };
     buildPcMartQuery(source, q, "NAM LE");
 
+    // Scope agent_name vẫn dùng .eq (ép cứng từ session).
     expect(eqCalls(calls).find((c) => c.args[0] === "agent_name")?.args[1]).toBe("NAM LE");
     expect(calls.some((c) => c.method === "gte" && c.args[0] === "effective_date")).toBe(true);
     expect(calls.some((c) => c.method === "lte" && c.args[0] === "effective_date")).toBe(true);
-    expect(eqCalls(calls).find((c) => c.args[0] === "type")?.args[1]).toBe("Auto");
-    expect(eqCalls(calls).find((c) => c.args[0] === "company")?.args[1]).toBe("Progressive");
-    expect(eqCalls(calls).find((c) => c.args[0] === "agency_name")?.args[1]).toBe("DP");
+    // Text filter dùng .ilike (case-insensitive) — khớp data viết HOA.
+    const ilikeCalls = calls.filter((c) => c.method === "ilike");
+    expect(ilikeCalls.find((c) => c.args[0] === "type")?.args[1]).toBe("Auto");
+    expect(ilikeCalls.find((c) => c.args[0] === "company")?.args[1]).toBe("Progressive");
+    expect(ilikeCalls.find((c) => c.args[0] === "agency_name")?.args[1]).toBe("DP");
   });
 
   it("insuredName dùng ilike khớp một phần", () => {

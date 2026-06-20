@@ -28,6 +28,10 @@ const BUILD_PC_QUERY_TOOL: Anthropic.Tool = {
           agency: { type: "string" },
           state: { type: "string", description: "2-letter US state code" },
           city: { type: "string" },
+          agent: {
+            type: "string",
+            description: "Agent (salesperson) name, for that agent's book",
+          },
           insuredName: {
             type: "string",
             description: "Insured/customer name, partial match",
