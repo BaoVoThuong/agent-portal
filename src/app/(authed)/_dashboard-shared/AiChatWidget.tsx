@@ -19,7 +19,7 @@ type ChatTurn = {
 
 type AiChatWidgetProps = {
   /** Mảng dashboard hiện tại — khoá nguồn dữ liệu phía server. */
-  context: "pc";
+  context: "pc" | "health";
   /** View đang hiển thị: "agent" (mặc định, data của mình) hay "company" (toàn cty). */
   scope?: "agent" | "company";
 };
@@ -34,13 +34,26 @@ const PROGRESS_STEPS = [
 ] as const;
 const STEP_INTERVAL_MS = 700;
 
-const SUGGESTIONS = [
-  "How many active policies this month?",
-  "My total premium this year",
-  "Estimate unpaid commission by agent",
-];
+const SUGGESTIONS: Record<"pc" | "health", string[]> = {
+  pc: [
+    "How many active policies this month?",
+    "My total premium this year",
+    "Estimate unpaid commission by agent",
+  ],
+  health: [
+    "How many policies this month?",
+    "How many clients by carrier?",
+    "My agent commission this year",
+  ],
+};
+
+const CONTEXT_LABEL: Record<"pc" | "health", string> = {
+  pc: "P&C",
+  health: "Health",
+};
 
 export function AiChatWidget({ context, scope = "agent" }: AiChatWidgetProps) {
+  const label = CONTEXT_LABEL[context];
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -139,7 +152,7 @@ export function AiChatWidget({ context, scope = "agent" }: AiChatWidgetProps) {
           </span>
           <div>
             <p className="text-sm font-semibold leading-tight">Dashboard Assistant</p>
-            <p className="text-xs text-white/60">Ask about your P&amp;C data</p>
+            <p className="text-xs text-white/60">Ask about your {label} data</p>
           </div>
         </div>
         <button
@@ -159,10 +172,10 @@ export function AiChatWidget({ context, scope = "agent" }: AiChatWidgetProps) {
         {turns.length === 0 ? (
           <div className="mt-6 space-y-3">
             <p className="text-center text-sm text-slate-400">
-              Ask me anything about your P&amp;C numbers.
+              Ask me anything about your {label} numbers.
             </p>
             <div className="space-y-2">
-              {SUGGESTIONS.map((s) => (
+              {SUGGESTIONS[context].map((s) => (
                 <button
                   key={s}
                   type="button"

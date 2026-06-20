@@ -18,6 +18,7 @@ import {
   type DashboardView,
 } from "../../_dashboard-shared/DashboardViewSwitch";
 import { DashboardNavigationProvider } from "../../_dashboard-shared/DashboardNavigationState";
+import { AiChatWidget } from "../../_dashboard-shared/AiChatWidget";
 import HealthSalesDashboardPage from "../../sales-dashboard/health/page";
 
 export const dynamic = "force-dynamic";
@@ -95,6 +96,7 @@ export default async function DashboardPage({
           }
         />
       </AgentHealthDashboardFilterProvider>
+      <AiChatWidget context="health" scope="agent" />
     </DashboardNavigationProvider>
   );
 }

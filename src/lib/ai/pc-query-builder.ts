@@ -24,6 +24,7 @@ export interface PcQueryLike {
   ilike: (column: string, pattern: string) => PcQueryLike;
   order: (column: string, opts: { ascending: boolean }) => PcQueryLike;
   limit: (count: number) => PcQueryLike;
+  range: (from: number, to: number) => PcQueryLike;
 }
 
 export interface PcTableSource {
@@ -31,7 +32,8 @@ export interface PcTableSource {
 }
 
 export const PC_MART_TABLE = "pc_mart";
-export const PC_RESULT_ROW_CAP = 2000;
+// Kích thước mỗi trang khi route phân trang qua .range() (giống dashboard).
+export const AI_QUERY_PAGE_SIZE = 1000;
 
 const SELECT_COLUMNS = [
   "agent_name",
@@ -100,7 +102,8 @@ export function buildPcMartQuery(
     q = q.ilike("insured_name", `%${filters.insuredName}%`);
   }
 
-  q = q.order("effective_date", { ascending: false }).limit(PC_RESULT_ROW_CAP);
+  // Không limit/range ở đây — route phân trang qua .range() để lấy TOÀN BỘ dòng.
+  q = q.order("effective_date", { ascending: false });
 
   return q;
 }

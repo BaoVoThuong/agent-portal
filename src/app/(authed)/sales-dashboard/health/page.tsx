@@ -13,6 +13,7 @@ import {
   DashboardNavigationProvider,
 } from "../../_dashboard-shared/DashboardNavigationState";
 import { DashboardViewSkeleton } from "../../_dashboard-shared/DashboardViewSkeleton";
+import { AiChatWidget } from "../../_dashboard-shared/AiChatWidget";
 import { HealthSalesHeaderFilters } from "./HealthSalesDashboardFilters";
 import { HealthSalesDashboard } from "./HealthSalesDashboard";
 import { type TrendComparisonChartLevel } from "./HealthSalesTrendComparisonChart";
@@ -124,6 +125,7 @@ export default async function HealthSalesDashboardPage({
           </DashboardNavigationContent>
         </div>
       </div>
+      <AiChatWidget context="health" scope="company" />
     </DashboardNavigationProvider>
   );
 }
