@@ -12,6 +12,7 @@ export type HealthMartRow = {
   paid_to_date: string | null;
   paid_to_date_raw: string | null;
   agent_received: number | null;
+  carriers_messer_paid: number | null;
   num_client: number | null;
 };
 

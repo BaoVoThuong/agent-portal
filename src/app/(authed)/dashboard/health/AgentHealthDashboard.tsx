@@ -295,7 +295,7 @@ function compareHealthEffectiveRow(a: HealthMartRow, b: HealthMartRow) {
     return aEffectiveDate.localeCompare(bEffectiveDate);
   }
 
-  return (a.agent_received ?? 0) - (b.agent_received ?? 0);
+  return (a.carriers_messer_paid ?? 0) - (b.carriers_messer_paid ?? 0);
 }
 
 function buildCarrierOptions(rows: HealthMartRow[]) {

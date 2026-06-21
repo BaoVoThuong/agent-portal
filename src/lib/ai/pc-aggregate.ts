@@ -106,7 +106,7 @@ function estimateAgentCommission(
   const agency = cleanLabel(row.agency_name);
   const agencyFactor = agency === "DP" ? 0.75 : agency === "TWFG" ? 0.8 : 0;
   const total = rate * premium * agencyFactor;
-  const agentRate = cleanLabel(row.agent_name).toUpperCase() === "FIONA" ? 0.6 : 0.75;
+  const agentRate = cleanLabel(row.agent_name).toUpperCase().includes("FIONA") ? 0.6 : 0.75;
   return agentRate * total;
 }
 
@@ -128,7 +128,10 @@ function applyBusinessFilters(
 // Đếm policy unique theo policy_number (giống dashboard).
 function uniquePolicyCount(rows: PcMartRow[]): number {
   const seen = new Set<string>();
-  rows.forEach((row, i) => seen.add(cleanLabel(row.policy_number) || `row-${i}`));
+  rows.forEach((row, i) => {
+    const key = row.policy_number?.trim() || `__null_${i}`;
+    seen.add(key);
+  });
   return seen.size;
 }
 

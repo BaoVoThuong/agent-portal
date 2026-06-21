@@ -732,7 +732,7 @@ function estimateCommission(
         ? 0.8
         : 0;
   const total = rate * premium * agencyFactor;
-  const agentRate = cleanGroupLabel(row.agent_name) === "FIONA" ? 0.6 : 0.75;
+  const agentRate = cleanGroupLabel(row.agent_name).includes("FIONA") ? 0.6 : 0.75;
   const agent = agentRate * total;
 
   return { total, agent, eps: total - agent };
