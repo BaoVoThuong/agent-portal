@@ -19,6 +19,14 @@ const FORMAT_ANSWER_TOOL: Anthropic.Tool = {
     type: "object",
     properties: {
       headline: { type: "string" },
+      insights: {
+        type: "array",
+        description:
+          "2-4 meaningful observations derived from the data (trends, cross-metric " +
+          "comparisons, per-unit economics, standouts). Each adds interpretation, " +
+          "not just a restated number. Empty array if the data is too thin.",
+        items: { type: "string" },
+      },
       stats: {
         type: "array",
         items: {

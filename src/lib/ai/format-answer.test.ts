@@ -46,4 +46,33 @@ describe("formatAnswer", () => {
     expect(out.stats).toHaveLength(0);
     expect(out.headline).toContain("No answer");
   });
+
+  it("insights: strip markdown, bỏ phần tử rỗng/không phải string, cắt tối đa 5", () => {
+    const out = formatAnswer({
+      headline: "Summary",
+      insights: [
+        "Commission grew **42%** while policies rose only 14%",
+        "",
+        123,
+        "March was the strongest month",
+        "a",
+        "b",
+        "c",
+        "d", // tổng 7 chuỗi hợp lệ -> cắt còn 5
+      ],
+      stats: [],
+    });
+    expect(out.insights).toEqual([
+      "Commission grew 42% while policies rose only 14%",
+      "March was the strongest month",
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("insights mặc định là mảng rỗng khi LLM không trả", () => {
+    const out = formatAnswer({ headline: "Summary", stats: [] });
+    expect(out.insights).toEqual([]);
+  });
 });

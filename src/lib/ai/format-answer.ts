@@ -13,14 +13,20 @@ export type AnswerStat = {
 /** JSON thô do LLM trả về (qua tool format_answer). */
 export type RawAnswer = {
   headline?: unknown;
+  insights?: unknown;
   stats?: unknown;
 };
 
 /** Kết quả đã làm sạch + format, an toàn để hiển thị. */
 export type FormattedAnswer = {
   headline: string;
+  /** Các nhận định có ý nghĩa LLM rút ra từ số (xu hướng, so sánh...). Prose. */
+  insights: string[];
   stats: { label: string; value: string }[];
 };
+
+// Tối đa số insight hiển thị — đủ để có chiều sâu, không biến thành bài văn.
+const MAX_INSIGHTS = 5;
 
 const usd = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -67,6 +73,13 @@ export function formatAnswer(raw: RawAnswer): FormattedAnswer {
   const headline =
     asText(raw.headline) || "No answer was produced for this question.";
 
+  // insights là prose: chỉ strip markdown, GIỮ NGUYÊN số do LLM viết ($, %, dấu phẩy).
+  const insightsInput = Array.isArray(raw.insights) ? raw.insights : [];
+  const insights = insightsInput
+    .map((item) => asText(item))
+    .filter((s) => s.length > 0)
+    .slice(0, MAX_INSIGHTS);
+
   const statsInput = Array.isArray(raw.stats) ? raw.stats : [];
   const stats = statsInput
     .map((item) => {
@@ -78,5 +91,5 @@ export function formatAnswer(raw: RawAnswer): FormattedAnswer {
     })
     .filter((s): s is { label: string; value: string } => s !== null);
 
-  return { headline, stats };
+  return { headline, insights, stats };
 }

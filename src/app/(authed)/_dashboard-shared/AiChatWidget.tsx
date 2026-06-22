@@ -6,6 +6,7 @@ import { Check, Loader2, Send, Sparkles, X } from "lucide-react";
 type AnswerStat = { label: string; value: string };
 type Answer = {
   headline: string;
+  insights?: string[];
   stats: AnswerStat[];
 };
 
@@ -90,8 +91,9 @@ export function AiChatWidget({ context, scope = "agent" }: AiChatWidgetProps) {
     const history = turns
       .filter((t) => t.answer)
       .map((t) => {
+        const insights = t.answer!.insights ?? [];
         const lines = t.answer!.stats.map((s) => `${s.label}: ${s.value}`);
-        const answer = [t.answer!.headline, ...lines].join("\n");
+        const answer = [t.answer!.headline, ...insights, ...lines].join("\n");
         return { question: t.question, answer };
       });
 
@@ -280,9 +282,20 @@ function ProgressCard({ step }: { step: number }) {
 }
 
 function AnswerCard({ answer }: { answer: Answer }) {
+  const insights = answer.insights ?? [];
   return (
     <div className="w-fit max-w-[90%] space-y-2 rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm">
-      <p className="leading-snug">{answer.headline}</p>
+      <p className="font-medium leading-snug">{answer.headline}</p>
+      {insights.length > 0 && (
+        <ul className="space-y-1.5 border-t border-slate-100 pt-2">
+          {insights.map((insight, i) => (
+            <li key={i} className="flex gap-2 text-xs leading-relaxed text-slate-600">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[#0f2849]/40" />
+              <span>{insight}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {answer.stats.length > 0 && (
         <dl className="space-y-1 border-t border-slate-100 pt-2">
           {answer.stats.map((stat, i) => (

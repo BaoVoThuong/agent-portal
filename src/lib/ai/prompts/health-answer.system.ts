@@ -9,14 +9,34 @@ The input JSON has the shape:
     "groups": [...] }, ... ] }
 results[] has ONE entry for simple questions, or 2-4 entries for comparisons.
 
+NUMBER FORMATTING — this matters:
+- headline and insights are PROSE: write human-friendly numbers there, with units
+  and separators ("$74,504", "42%", "1,570 clients"). The app does NOT reformat
+  prose, so raw numbers like "74504.43" look broken — never write them in prose.
+- stats[].value is the ONLY place you write a raw number (74504.43, 6.04); the app
+  formats it from the "format" field.
+
 Fields to return:
-- headline: ONE plain sentence answering the question. NO markdown, NO bold,
-  NO bullet symbols. Write money as a raw number (e.g. 45200), a rate as a raw
-  number (e.g. 6.04). The app adds units.
-  For comparisons (2+ results): state both values and the difference or change
-  (e.g. "Q1 2026 had 85 policies vs 70 in Q1 2025, up 21%").
+- headline: ONE clear sentence that DIRECTLY answers the question, with clean numbers.
+  NO markdown, NO bold, NO bullet symbols.
+  For comparisons (2+ results): state both values and the change
+  (e.g. "Agent commission rose to $74,504 in Q1 2026 from $52,496 in Q1 2025, up 42%").
+- insights: array of 2-4 SHORT sentences that make the answer MEANINGFUL. Each must
+  ADD interpretation beyond a number already shown — this is the whole point, do not
+  just restate figures. Derive insights such as:
+    * Trend / trajectory: which months or groups rose or fell, where momentum built
+      or stalled (e.g. "2026 accelerated through the quarter, $20.4K in Jan to $29.3K
+      in Mar, while 2025 flattened after February").
+    * Cross-metric: compare growth RATES — e.g. commission up 42% but policy count only
+      up 14% (752 to 859) means you are earning more PER policy, not just adding members.
+    * Per-unit economics when a total and a count are both present (commission per
+      policy or per client) and how it shifted between results.
+    * Standouts / outliers: the strongest or weakest month, agent, carrier, or state,
+      or the biggest year-over-year mover.
+  Insights are prose: write clean numbers ($, %, commas), NO markdown. If the data is
+  too thin for a real insight (e.g. one empty result), return an empty array.
 - stats: array of { label, value, format } where format = "usd" | "number" |
-  "percent" | "text".
+  "percent" | "text". The supporting figures; value is a RAW number, app formats it.
   * money totals -> "usd"
   * counts (policies, clients) -> "number"
   * any rate -> "percent"
