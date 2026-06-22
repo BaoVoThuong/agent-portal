@@ -205,30 +205,43 @@ async function handlePc(
 ) {
   const generated = await generatePcQuery(question, currentDate(), history);
   if (!generated.ok) return couldNotParse("P&C");
-  const { query } = generated;
-  if (query.unsupported) return unrelatedAnswer("P&C policy");
-  if (scopedAgentName !== null && isRequestingOtherAgent(query.filters.agent, scopedAgentName)) {
+  const { queries } = generated;
+
+  if (queries.some((q) => q.unsupported)) return unrelatedAnswer("P&C policy");
+  if (
+    scopedAgentName !== null &&
+    queries.some((q) => isRequestingOtherAgent(q.filters.agent, scopedAgentName))
+  ) {
     return accessDeniedAnswer();
   }
 
   const supabase = getSupabaseAdmin() as unknown as PcTableSource;
-  const data = await fetchAllRows<PcMartRow>(() =>
-    buildPcMartQuery(supabase, query, scopedAgentName)
+  const today = new Date();
+
+  const allData = await Promise.all(
+    queries.map((q) =>
+      fetchAllRows<PcMartRow>(() => buildPcMartQuery(supabase, q, scopedAgentName))
+    )
+  );
+  const aggregates = allData.map((rows, i) => aggregatePcRows(rows, queries[i], today));
+
+  debugLog("pc question", question);
+  debugLog("pc queries", queries);
+  debugLog(
+    "pc results",
+    aggregates.map((a, i) => ({
+      label: queries[i].label,
+      rawRows: allData[i].length,
+      rowCount: a.rowCount,
+      total: a.total,
+      policyCount: a.policyCount,
+      groups: a.groups.slice(0, 5),
+    }))
   );
 
-  const aggregate = aggregatePcRows(data, query, new Date());
-  debugLog("pc question", question);
-  debugLog("pc structured query", query);
-  debugLog("pc result", {
-    rawRowsFromDb: data.length,
-    rowCount: aggregate.rowCount,
-    total: aggregate.total,
-    policyCount: aggregate.policyCount,
-    groups: aggregate.groups.slice(0, 10),
-  });
-
-  const answer = await composePcAnswer(question, query, aggregate);
-  return NextResponse.json({ answer, rowCount: aggregate.rowCount });
+  const answer = await composePcAnswer(question, queries, aggregates);
+  const rowCount = aggregates.reduce((s, a) => s + a.rowCount, 0);
+  return NextResponse.json({ answer, rowCount });
 }
 
 async function handleHealth(
@@ -238,29 +251,41 @@ async function handleHealth(
 ) {
   const generated = await generateHealthQuery(question, currentDate(), history);
   if (!generated.ok) return couldNotParse("Health");
-  const { query } = generated;
-  if (query.unsupported) return unrelatedAnswer("Health insurance");
-  if (scopedAgent !== null && isRequestingOtherAgent(query.filters.agent, scopedAgent)) {
+  const { queries } = generated;
+
+  if (queries.some((q) => q.unsupported)) return unrelatedAnswer("Health insurance");
+  if (
+    scopedAgent !== null &&
+    queries.some((q) => isRequestingOtherAgent(q.filters.agent, scopedAgent))
+  ) {
     return accessDeniedAnswer();
   }
 
   const supabase = getSupabaseAdmin() as unknown as HealthTableSource;
-  const data = await fetchAllRows<HealthMartRow>(() =>
-    buildHealthMartQuery(supabase, query, scopedAgent)
+
+  const allData = await Promise.all(
+    queries.map((q) =>
+      fetchAllRows<HealthMartRow>(() => buildHealthMartQuery(supabase, q, scopedAgent))
+    )
+  );
+  const aggregates = allData.map((rows, i) => aggregateHealthRows(rows, queries[i]));
+
+  debugLog("health question", question);
+  debugLog("health queries", queries);
+  debugLog(
+    "health results",
+    aggregates.map((a, i) => ({
+      label: queries[i].label,
+      rawRows: allData[i].length,
+      eligibleRowCount: a.rowCount,
+      total: a.total,
+      policyCount: a.policyCount,
+      clientCount: a.clientCount,
+      groups: a.groups.slice(0, 5),
+    }))
   );
 
-  const aggregate = aggregateHealthRows(data, query);
-  debugLog("health question", question);
-  debugLog("health structured query", query);
-  debugLog("health result", {
-    rawRowsFromDb: data.length,
-    eligibleRowCount: aggregate.rowCount,
-    total: aggregate.total,
-    policyCount: aggregate.policyCount,
-    clientCount: aggregate.clientCount,
-    groups: aggregate.groups.slice(0, 10),
-  });
-
-  const answer = await composeHealthAnswer(question, query, aggregate);
-  return NextResponse.json({ answer, rowCount: aggregate.rowCount });
+  const answer = await composeHealthAnswer(question, queries, aggregates);
+  const rowCount = aggregates.reduce((s, a) => s + a.rowCount, 0);
+  return NextResponse.json({ answer, rowCount });
 }

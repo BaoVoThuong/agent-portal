@@ -38,33 +38,32 @@ const FORMAT_ANSWER_TOOL: Anthropic.Tool = {
   },
 };
 
-function buildResultPayload(
-  question: string,
-  query: PcStructuredQuery,
-  result: PcAggregateResult
-) {
-  return JSON.stringify({
-    question,
+function buildPcResultEntry(query: PcStructuredQuery, result: PcAggregateResult) {
+  return {
+    label: query.label ?? null,
     appliedFilters: query.filters,
     metric: result.metric,
     groupBy: query.groupBy ?? null,
     total: result.total,
-    // policyCount = số POLICY (unique) — dùng cái này khi nói "số policy".
     policyCount: result.policyCount,
-    // rowCount = số dòng dữ liệu thô; KHÔNG phải số policy. Không hiển thị cho người dùng.
     rowCount: result.rowCount,
     groups: result.groups.slice(0, 25),
     sample: result.sample,
-  });
+  };
 }
 
-/** Diễn đạt kết quả thành câu trả lời đã format sạch (không prose tự do). */
+/** Diễn đạt kết quả thành câu trả lời đã format sạch. Hỗ trợ multi-query so sánh. */
 export async function composePcAnswer(
   question: string,
-  query: PcStructuredQuery,
-  result: PcAggregateResult
+  queries: PcStructuredQuery[],
+  results: PcAggregateResult[]
 ): Promise<FormattedAnswer> {
   const client = getAnthropic();
+
+  const payload = JSON.stringify({
+    question,
+    results: queries.map((q, i) => buildPcResultEntry(q, results[i])),
+  });
 
   const message = await client.messages.create({
     model: AI_MODEL,
@@ -72,49 +71,43 @@ export async function composePcAnswer(
     system: PC_ANSWER_SYSTEM_PROMPT,
     tools: [FORMAT_ANSWER_TOOL],
     tool_choice: { type: "tool", name: "format_answer" },
-    messages: [
-      {
-        role: "user",
-        content: `Query result (JSON):\n${buildResultPayload(question, query, result)}`,
-      },
-    ],
+    messages: [{ role: "user", content: `Query result (JSON):\n${payload}` }],
   });
 
   const toolUse = message.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
   );
-
-  // Dù LLM không gọi tool, vẫn render được câu trả lời an toàn từ con số đã có.
   const raw: RawAnswer = (toolUse?.input as RawAnswer) ?? {};
   return formatAnswer(raw);
 }
 
-function buildHealthResultPayload(
-  question: string,
-  query: HealthStructuredQuery,
-  result: HealthAggregateResult
-) {
-  return JSON.stringify({
-    question,
+function buildHealthResultEntry(query: HealthStructuredQuery, result: HealthAggregateResult) {
+  return {
+    label: query.label ?? null,
     appliedFilters: query.filters,
     metric: result.metric,
     groupBy: query.groupBy ?? null,
     total: result.total,
-    policyCount: result.policyCount, // số POLICY (member) unique
-    clientCount: result.clientCount, // số CLIENT (người được bảo hiểm)
-    rowCount: result.rowCount, // số dòng thô — KHÔNG hiển thị
+    policyCount: result.policyCount,
+    clientCount: result.clientCount,
+    rowCount: result.rowCount,
     groups: result.groups.slice(0, 25),
     sample: result.sample,
-  });
+  };
 }
 
-/** Diễn đạt kết quả Health thành câu trả lời đã format sạch. */
+/** Diễn đạt kết quả Health thành câu trả lời đã format sạch. Hỗ trợ multi-query so sánh. */
 export async function composeHealthAnswer(
   question: string,
-  query: HealthStructuredQuery,
-  result: HealthAggregateResult
+  queries: HealthStructuredQuery[],
+  results: HealthAggregateResult[]
 ): Promise<FormattedAnswer> {
   const client = getAnthropic();
+
+  const payload = JSON.stringify({
+    question,
+    results: queries.map((q, i) => buildHealthResultEntry(q, results[i])),
+  });
 
   const message = await client.messages.create({
     model: AI_MODEL,
@@ -122,12 +115,7 @@ export async function composeHealthAnswer(
     system: HEALTH_ANSWER_SYSTEM_PROMPT,
     tools: [FORMAT_ANSWER_TOOL],
     tool_choice: { type: "tool", name: "format_answer" },
-    messages: [
-      {
-        role: "user",
-        content: `Query result (JSON):\n${buildHealthResultPayload(question, query, result)}`,
-      },
-    ],
+    messages: [{ role: "user", content: `Query result (JSON):\n${payload}` }],
   });
 
   const toolUse = message.content.find(

@@ -53,6 +53,7 @@ export type HealthStructuredQuery = {
   metric: HealthMetric;
   filters: HealthQueryFilters;
   groupBy?: HealthGroupBy;
+  label?: string;
   unsupported?: boolean;
 };
 
@@ -117,11 +118,13 @@ export function parseHealthStructuredQuery(
   }
 
   const groupBy = asEnum(obj.groupBy, HEALTH_GROUP_BY);
+  const label = asSafeText(obj.label);
 
   return {
     metric,
     filters,
     ...(groupBy ? { groupBy } : {}),
+    ...(label ? { label } : {}),
     ...(obj.unsupported === true ? { unsupported: true } : {}),
   };
 }

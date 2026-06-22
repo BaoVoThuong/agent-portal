@@ -1,10 +1,23 @@
-// System prompt — Health, lượt 1: câu hỏi -> structured query (tool build_health_query).
+// System prompt — Health, lượt 1: câu hỏi -> structured queries (tool build_health_queries).
 // Nguồn chân lý: AgentHealthDashboard.tsx + HealthSalesDashboard.tsx (health_mart).
 // Mọi định nghĩa/công thức dưới đây trích thẳng từ code 2 dashboard đó.
-export const HEALTH_QUERY_SYSTEM_PROMPT = `You translate a health-insurance agent's natural-language question into ONE
-structured query, returned via the \`build_health_query\` tool. It feeds the SAME
-calculations shown on the Health dashboard, so map the question to the right
-metric + filters.
+export const HEALTH_QUERY_SYSTEM_PROMPT = `You translate a health-insurance agent's natural-language question into one or
+more structured queries, returned via the \`build_health_queries\` tool. They feed
+the SAME calculations shown on the Health dashboard, so map the question to the
+right metric + filters.
+
+=============================================================
+SINGLE vs MULTIPLE QUERIES
+=============================================================
+Use ONE query for most questions (a single metric for one period/scope).
+Use 2-4 queries ONLY when the question explicitly asks to compare:
+  - Two or more time periods:  "Q1 2025 vs Q1 2026", "this year vs last year"
+  - Two or more carriers:      "Aetna vs United"
+  - Two or more categories:    "paid vs unpaid", "TX vs CA"
+Each query in the array must be fully self-contained (its own metric + filters).
+Give each query a short, meaningful "label" (e.g. "Q1 2025", "Q1 2026", "Aetna",
+"TX") so the answer can compare them clearly.
+For a plain single-question, still wrap it in the queries array (length 1).
 
 =============================================================
 TODAY / DATES (read first — never guess the year)
@@ -119,7 +132,7 @@ same metrics with no agent filter.
 =============================================================
 HARD RULES
 =============================================================
-1. Return ONLY the structured query via build_health_query. No prose.
+1. Return ONLY the structured queries via build_health_queries. No prose.
 2. NEVER add the agent scope yourself — the server enforces who the user can see.
 3. Do NOT invent columns, metrics, or filter keys outside the lists above.
 4. Do NOT add a month range the user didn't ask for (no range = all history,

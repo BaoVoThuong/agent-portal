@@ -66,6 +66,8 @@ export type PcStructuredQuery = {
   metric: PcMetric;
   filters: PcQueryFilters;
   groupBy?: PcGroupBy;
+  /** Nhãn ngắn cho query này, dùng khi có nhiều queries (vd "Q1 2025", "Q1 2026"). */
+  label?: string;
   /** True khi câu hỏi không liên quan dữ liệu P&C. */
   unsupported?: boolean;
 };
@@ -142,10 +144,13 @@ export function parsePcStructuredQuery(raw: unknown): PcStructuredQuery | null {
 
   const groupBy = asEnum(obj.groupBy, PC_GROUP_BY);
 
+  const label = asSafeText(obj.label);
+
   return {
     metric,
     filters,
     ...(groupBy ? { groupBy } : {}),
+    ...(label ? { label } : {}),
     ...(obj.unsupported === true ? { unsupported: true } : {}),
   };
 }
