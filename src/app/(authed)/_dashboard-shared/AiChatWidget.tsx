@@ -59,7 +59,14 @@ export function AiChatWidget({ context, scope = "agent" }: AiChatWidgetProps) {
   const [loading, setLoading] = useState(false);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stepTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function resizeTextarea(el: HTMLTextAreaElement | null) {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }
 
   function scrollToBottom() {
     requestAnimationFrame(() => {
@@ -89,6 +96,7 @@ export function AiChatWidget({ context, scope = "agent" }: AiChatWidgetProps) {
       });
 
     setInput("");
+    resizeTextarea(textareaRef.current);
     setLoading(true);
     setTurns((prev) => [...prev, { question, answer: null, error: null, step: 0 }]);
     scrollToBottom();
@@ -208,8 +216,12 @@ export function AiChatWidget({ context, scope = "agent" }: AiChatWidgetProps) {
       <div className="border-t border-slate-100 bg-white p-3">
         <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1 focus-within:border-[#0f2849]/40 focus-within:bg-white">
           <textarea
+            ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              resizeTextarea(e.target);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -218,7 +230,7 @@ export function AiChatWidget({ context, scope = "agent" }: AiChatWidgetProps) {
             }}
             rows={1}
             placeholder="Ask a question…"
-            className="max-h-24 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
+            className="max-h-32 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
           />
           <button
             type="button"
