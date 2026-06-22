@@ -167,6 +167,28 @@ function unrelatedAnswer(label: string) {
     },
   });
 }
+
+// Trả true nếu LLM yêu cầu agent KHÁC với agent đang đăng nhập. Normalize cả hai
+// (trim + uppercase) rồi kiểm tra không chứa nhau để chịu được tên rút gọn
+// (vd "Ann" khớp "ANN STRAMBLER" → cho qua; "Khang" không khớp → block).
+function isRequestingOtherAgent(
+  filtersAgent: string | undefined,
+  scopedAgent: string
+): boolean {
+  if (!filtersAgent) return false;
+  const requested = normalizeAgentName(filtersAgent);
+  if (!requested) return false;
+  return !scopedAgent.includes(requested) && !requested.includes(scopedAgent);
+}
+
+function accessDeniedAnswer() {
+  return NextResponse.json({
+    answer: {
+      headline: "You can only view your own data. Access to other agents' data is not permitted.",
+      stats: [],
+    },
+  });
+}
 function couldNotParse(label: string) {
   return NextResponse.json({
     answer: {
@@ -185,6 +207,9 @@ async function handlePc(
   if (!generated.ok) return couldNotParse("P&C");
   const { query } = generated;
   if (query.unsupported) return unrelatedAnswer("P&C policy");
+  if (scopedAgentName !== null && isRequestingOtherAgent(query.filters.agent, scopedAgentName)) {
+    return accessDeniedAnswer();
+  }
 
   const supabase = getSupabaseAdmin() as unknown as PcTableSource;
   const data = await fetchAllRows<PcMartRow>(() =>
@@ -215,6 +240,9 @@ async function handleHealth(
   if (!generated.ok) return couldNotParse("Health");
   const { query } = generated;
   if (query.unsupported) return unrelatedAnswer("Health insurance");
+  if (scopedAgent !== null && isRequestingOtherAgent(query.filters.agent, scopedAgent)) {
+    return accessDeniedAnswer();
+  }
 
   const supabase = getSupabaseAdmin() as unknown as HealthTableSource;
   const data = await fetchAllRows<HealthMartRow>(() =>
