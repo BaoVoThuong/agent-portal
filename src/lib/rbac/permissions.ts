@@ -12,6 +12,8 @@ export const PERMISSIONS = {
   ACCOUNT_MANAGER: "management.account_manager",
   ROLE_MANAGER: "management.role_manager",
   SETTINGS: "settings.access",
+  TASK_MANAGE: "task.manage",
+  TASK_WORK: "task.work",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -133,5 +135,21 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Settings",
     description: "Access account settings and change own password.",
     sortOrder: 100,
+  },
+  {
+    key: PERMISSIONS.TASK_MANAGE,
+    label: "Tasks - Manage",
+    groupKey: "tasks",
+    groupLabel: "Tasks",
+    description: "Create, assign and manage all tasks, and see the backlog.",
+    sortOrder: 100,
+  },
+  {
+    key: PERMISSIONS.TASK_WORK,
+    label: "Tasks - Work",
+    groupKey: "tasks",
+    groupLabel: "Tasks",
+    description: "Work on tasks assigned to you.",
+    sortOrder: 200,
   },
 ];
