@@ -121,6 +121,7 @@ export function TaskBoardClient({
           isManager={isManager}
           canEdit={canEditOpen}
           assignees={assignees}
+          currentEmail={currentEmail}
           onClose={() => setOpenId(null)}
           onPatch={(patch) => patchTask(openTask.id, patch)}
           onArchive={() => archiveTask(openTask.id)}

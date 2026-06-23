@@ -4,12 +4,15 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { TASK_PRIORITIES, type TaskPriority, type TaskRow } from "@/lib/tasks/types";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
+import { CommentThread } from "./CommentThread";
+import { ActivityFeed } from "./ActivityFeed";
 
 export function TaskDetailDrawer({
   task,
   isManager,
   canEdit,
   assignees,
+  currentEmail,
   onClose,
   onPatch,
   onArchive,
@@ -18,12 +21,14 @@ export function TaskDetailDrawer({
   isManager: boolean;
   canEdit: boolean;
   assignees: TaskAssignee[];
+  currentEmail: string;
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
   onArchive: () => Promise<void>;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
+  const [tab, setTab] = useState<"details" | "comments" | "activity">("details");
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
@@ -101,10 +106,27 @@ export function TaskDetailDrawer({
             </label>
           )}
 
-          {/* Comments / Activity / Attachments tabs are added in Phases 3-4. */}
-          <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-400">
-            Comments, activity and attachments arrive in later phases.
-          </p>
+          <div className="border-t border-slate-100 pt-3">
+            <div className="mb-3 flex gap-1">
+              {(["details", "comments", "activity"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTab(t)}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-medium capitalize ${
+                    tab === t ? "bg-slate-100 text-[#0f2849]" : "text-slate-400"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            {tab === "comments" && <CommentThread taskId={task.id} currentEmail={currentEmail} />}
+            {tab === "activity" && <ActivityFeed taskId={task.id} />}
+            {tab === "details" && (
+              <p className="text-xs text-slate-400">Use the fields above to edit task details.</p>
+            )}
+          </div>
         </div>
 
         {canEdit && (
