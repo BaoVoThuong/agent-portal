@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
+import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
 
@@ -8,27 +10,48 @@ type Ctx = { params: Promise<{ id: string; cid: string }> };
 const COMMENT_COLUMNS =
   "id,task_id,parent_id,author_email,body,created_at,updated_at,deleted_at";
 
-async function loadAuthorContext(cid: string) {
+async function loadAuthorContext(id: string, cid: string) {
+  // 1. Session / email
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
+
+  const actor = buildTaskActor(session.user.permissions, email);
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+
+  // 2. Load comment (id, author_email, task_id)
+  const { data: comment, error: cErr } = await supabase
     .from("task_comments")
-    .select("id,author_email")
+    .select("id,author_email,task_id")
     .eq("id", cid)
     .maybeSingle();
-  if (error) return { error: error.message, status: 500 };
-  if (!data) return { error: "Not found", status: 404 };
-  const comment = data as { id: string; author_email: string };
-  if (comment.author_email !== email)
+  if (cErr) return { error: cErr.message, status: 500 };
+  if (!comment) return { error: "Not found", status: 404 };
+
+  // 3. Comment must belong to the route task
+  const cmnt = comment as { id: string; author_email: string; task_id: string };
+  if (cmnt.task_id !== id) return { error: "Not found", status: 404 };
+
+  // 4. Actor must be able to view the task
+  const { data: task, error: tErr } = await supabase
+    .from("tasks")
+    .select("id,assignee_email")
+    .eq("id", id)
+    .maybeSingle();
+  if (tErr) return { error: tErr.message, status: 500 };
+  if (!task) return { error: "Not found", status: 404 };
+  if (!canViewTask(actor, task as Pick<TaskRow, "assignee_email">))
     return { error: "Forbidden", status: 403 };
+
+  // 5. Actor must be the comment author
+  if (cmnt.author_email !== email) return { error: "Forbidden", status: 403 };
+
   return { supabase, email };
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
-  const { cid } = await params;
-  const ctx = await loadAuthorContext(cid);
+  const { id, cid } = await params;
+  const ctx = await loadAuthorContext(id, cid);
   if ("error" in ctx) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
   const body = await req.json().catch(() => null);
@@ -46,8 +69,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
-  const { cid } = await params;
-  const ctx = await loadAuthorContext(cid);
+  const { id, cid } = await params;
+  const ctx = await loadAuthorContext(id, cid);
   if ("error" in ctx) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
   const { error } = await ctx.supabase
