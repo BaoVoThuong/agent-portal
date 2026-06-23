@@ -4,14 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import styles from "./topbar.module.css";
+import { NotificationBell } from "./NotificationBell";
 
 type TopBarProps = {
   userName: string | null;
   userEmail: string;
   agentId: string | null;
+  canUseTasks: boolean;
 };
 
-export default function TopBar({ userName, userEmail, agentId }: TopBarProps) {
+export default function TopBar({ userName, userEmail, agentId, canUseTasks }: TopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -39,6 +41,12 @@ export default function TopBar({ userName, userEmail, agentId }: TopBarProps) {
         <div className={styles.userName}>{userName ?? userEmail}</div>
         <div className={styles.userId}>ID: {agentId || "Not provided"}</div>
       </div>
+
+      {canUseTasks && (
+        <div className="mr-2">
+          <NotificationBell />
+        </div>
+      )}
 
       <div className={styles.menuWrap} ref={menuRef}>
         <button

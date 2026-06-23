@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import Sidebar from "./_components/Sidebar";
 import TopBar from "./_components/TopBar";
+import { canAny } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export default async function AuthedLayout({
   children,
@@ -23,6 +25,10 @@ export default async function AuthedLayout({
           userName={session.user.name ?? null}
           userEmail={session.user.email}
           agentId={session.user.agentId ?? null}
+          canUseTasks={canAny(session.user.permissions, [
+            PERMISSIONS.TASK_MANAGE,
+            PERMISSIONS.TASK_WORK,
+          ])}
         />
         <main className="flex-1">{children}</main>
       </div>
