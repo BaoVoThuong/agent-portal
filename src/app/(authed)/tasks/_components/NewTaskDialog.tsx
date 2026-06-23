@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { TASK_PRIORITIES, type TaskPriority } from "@/lib/tasks/types";
+import { TASK_PRIORITIES, type TaskPriority, type TaskCategory } from "@/lib/tasks/types";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 
 export type NewTaskPayload = {
@@ -10,18 +10,21 @@ export type NewTaskPayload = {
   priority: TaskPriority;
   due_date: string;
   assignee_email?: string;
+  category_id?: string;
 };
 
 export function NewTaskDialog({
   open,
   isManager,
   assignees,
+  categories,
   onClose,
   onCreate,
 }: {
   open: boolean;
   isManager: boolean;
   assignees: TaskAssignee[];
+  categories: TaskCategory[];
   onClose: () => void;
   onCreate: (payload: NewTaskPayload) => Promise<void>;
 }) {
@@ -30,6 +33,7 @@ export function NewTaskDialog({
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [dueDate, setDueDate] = useState("");
   const [assignee, setAssignee] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [saving, setSaving] = useState(false);
 
   if (!open) return null;
@@ -44,12 +48,14 @@ export function NewTaskDialog({
         priority,
         due_date: dueDate,
         assignee_email: isManager && assignee ? assignee : undefined,
+        category_id: categoryId || undefined,
       });
       setTitle("");
       setDescription("");
       setPriority("medium");
       setDueDate("");
       setAssignee("");
+      setCategoryId("");
       onClose();
     } finally {
       setSaving(false);
@@ -91,6 +97,16 @@ export function NewTaskDialog({
               className="flex-1 rounded-lg border border-slate-200 px-2 py-2 text-sm"
             />
           </div>
+          <select
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 px-2 py-2 text-sm"
+          >
+            <option value="">No category</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
           {isManager && (
             <select
               value={assignee}

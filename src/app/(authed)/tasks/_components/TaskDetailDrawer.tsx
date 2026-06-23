@@ -2,16 +2,18 @@
 
 import { useState } from "react";
 import { X } from "lucide-react";
-import { TASK_PRIORITIES, type TaskPriority, type TaskRow } from "@/lib/tasks/types";
+import { TASK_PRIORITIES, type TaskPriority, type TaskRow, type TaskCategory } from "@/lib/tasks/types";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
+import { AttachmentPanel } from "./AttachmentPanel";
 
 export function TaskDetailDrawer({
   task,
   isManager,
   canEdit,
   assignees,
+  categories,
   currentEmail,
   onClose,
   onPatch,
@@ -21,6 +23,7 @@ export function TaskDetailDrawer({
   isManager: boolean;
   canEdit: boolean;
   assignees: TaskAssignee[];
+  categories: TaskCategory[];
   currentEmail: string;
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
@@ -84,6 +87,21 @@ export function TaskDetailDrawer({
             </label>
           </div>
 
+          <label className="space-y-1">
+            <span className="text-xs text-slate-500">Category</span>
+            <select
+              value={task.category_id ?? ""}
+              disabled={!canEdit}
+              onChange={(e) => onPatch({ category_id: e.target.value || null })}
+              className="w-full rounded-lg border border-slate-200 px-2 py-1.5 disabled:bg-slate-50"
+            >
+              <option value="">No category</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </label>
+
           {isManager && (
             <label className="block space-y-1 text-sm">
               <span className="text-xs text-slate-500">Assignee</span>
@@ -124,7 +142,10 @@ export function TaskDetailDrawer({
             {tab === "comments" && <CommentThread taskId={task.id} currentEmail={currentEmail} />}
             {tab === "activity" && <ActivityFeed taskId={task.id} />}
             {tab === "details" && (
-              <p className="text-xs text-slate-400">Use the fields above to edit task details.</p>
+              <div className="space-y-2">
+                <span className="text-xs font-medium text-slate-500">Attachments</span>
+                <AttachmentPanel taskId={task.id} canEdit={canEdit} />
+              </div>
             )}
           </div>
         </div>

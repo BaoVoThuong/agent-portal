@@ -3,9 +3,11 @@ import { PriorityDot, DueBadge, WaitingTag, Initials } from "./board-ui";
 
 export function TaskCard({
   task,
+  categoryName,
   onOpen,
 }: {
   task: TaskRow;
+  categoryName?: string | null;
   onOpen: (id: string) => void;
 }) {
   return (
@@ -19,6 +21,11 @@ export function TaskCard({
         <PriorityDot priority={task.priority} />
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {categoryName && (
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+            {categoryName}
+          </span>
+        )}
         <WaitingTag reason={task.waiting_reason} />
         <DueBadge due={task.due_date} />
         <span className="ml-auto">

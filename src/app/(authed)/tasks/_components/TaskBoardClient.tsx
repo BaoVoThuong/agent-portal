@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
-import type { TaskRow, TaskStatus } from "@/lib/tasks/types";
+import { Plus, Tag } from "lucide-react";
+import type { TaskRow, TaskStatus, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { KanbanBoard } from "./KanbanBoard";
 import { BacklogList } from "./BacklogList";
 import { NewTaskDialog, type NewTaskPayload } from "./NewTaskDialog";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
+import { CategoryManager } from "./CategoryManager";
 
 type Tab = "board" | "backlog";
 
@@ -16,16 +17,25 @@ export function TaskBoardClient({
   isManager,
   currentEmail,
   assignees,
+  initialCategories,
 }: {
   initialTasks: TaskRow[];
   isManager: boolean;
   currentEmail: string;
   assignees: TaskAssignee[];
+  initialCategories: TaskCategory[];
 }) {
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
   const [tab, setTab] = useState<Tab>("board");
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
+  const [managingCategories, setManagingCategories] = useState(false);
+
+  const reloadCategories = async () => {
+    const res = await fetch("/api/tasks/categories");
+    if (res.ok) setCategories((await res.json()).categories as TaskCategory[]);
+  };
 
   const openTask = tasks.find((t) => t.id === openId) ?? null;
 
@@ -85,17 +95,28 @@ export function TaskBoardClient({
             <TabButton active={tab === "backlog"} onClick={() => setTab("backlog")}>Backlog</TabButton>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="flex items-center gap-1 rounded-lg bg-[#0f2849] px-3 py-1.5 text-sm text-white"
-        >
-          <Plus className="h-4 w-4" /> New task
-        </button>
+        <div className="flex items-center gap-2">
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => setManagingCategories(true)}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600"
+            >
+              <Tag className="h-4 w-4" /> Categories
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="flex items-center gap-1 rounded-lg bg-[#0f2849] px-3 py-1.5 text-sm text-white"
+          >
+            <Plus className="h-4 w-4" /> New task
+          </button>
+        </div>
       </div>
 
       {tab === "board" ? (
-        <KanbanBoard tasks={tasks} onOpen={setOpenId} onMove={moveTask} />
+        <KanbanBoard tasks={tasks} onOpen={setOpenId} onMove={moveTask} categories={categories} />
       ) : (
         <BacklogList
           tasks={tasks}
@@ -111,6 +132,7 @@ export function TaskBoardClient({
         open={creating}
         isManager={isManager}
         assignees={assignees}
+        categories={categories}
         onClose={() => setCreating(false)}
         onCreate={createTask}
       />
@@ -121,12 +143,19 @@ export function TaskBoardClient({
           isManager={isManager}
           canEdit={canEditOpen}
           assignees={assignees}
+          categories={categories}
           currentEmail={currentEmail}
           onClose={() => setOpenId(null)}
           onPatch={(patch) => patchTask(openTask.id, patch)}
           onArchive={() => archiveTask(openTask.id)}
         />
       )}
+
+      <CategoryManager
+        open={managingCategories}
+        onClose={() => setManagingCategories(false)}
+        onChanged={reloadCategories}
+      />
     </div>
   );
 }

@@ -52,3 +52,5 @@ export type TaskActor = {
   isManager: boolean;
   isWorker: boolean;
 };
+
+export type TaskCategory = { id: string; name: string; color: string | null };

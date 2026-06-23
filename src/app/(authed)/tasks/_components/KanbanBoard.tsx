@@ -14,7 +14,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { KANBAN_STATUSES, type TaskRow, type TaskStatus } from "@/lib/tasks/types";
+import { KANBAN_STATUSES, type TaskRow, type TaskStatus, type TaskCategory } from "@/lib/tasks/types";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TaskCard } from "./TaskCard";
 
@@ -28,9 +28,11 @@ const COLUMN_LABEL: Record<TaskStatus, string> = {
 
 function SortableCard({
   task,
+  categoryName,
   onOpen,
 }: {
   task: TaskRow;
+  categoryName?: string | null;
   onOpen: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -43,7 +45,7 @@ function SortableCard({
       {...listeners}
       className="mb-2"
     >
-      <TaskCard task={task} onOpen={onOpen} />
+      <TaskCard task={task} categoryName={categoryName} onOpen={onOpen} />
     </div>
   );
 }
@@ -52,10 +54,12 @@ function Column({
   status,
   tasks,
   onOpen,
+  categoryName,
 }: {
   status: TaskStatus;
   tasks: TaskRow[];
   onOpen: (id: string) => void;
+  categoryName: (id: string | null) => string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${status}` });
   return (
@@ -69,7 +73,7 @@ function Column({
       <div ref={setNodeRef} className={`min-h-24 rounded-lg p-1 ${isOver ? "bg-slate-200" : ""}`}>
         <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map((t) => (
-            <SortableCard key={t.id} task={t} onOpen={onOpen} />
+            <SortableCard key={t.id} task={t} categoryName={categoryName(t.category_id)} onOpen={onOpen} />
           ))}
         </SortableContext>
       </div>
@@ -81,14 +85,17 @@ export function KanbanBoard({
   tasks,
   onOpen,
   onMove,
+  categories,
 }: {
   tasks: TaskRow[];
   onOpen: (id: string) => void;
   onMove: (taskId: string, change: { status: TaskStatus; position: number }) => void;
+  categories: TaskCategory[];
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const byStatus = (s: TaskStatus) =>
     tasks.filter((t) => t.status === s).sort((a, b) => a.position - b.position);
+  const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? null;
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -127,7 +134,7 @@ export function KanbanBoard({
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="flex gap-3 overflow-x-auto p-4">
         {KANBAN_STATUSES.map((s) => (
-          <Column key={s} status={s} tasks={byStatus(s)} onOpen={onOpen} />
+          <Column key={s} status={s} tasks={byStatus(s)} onOpen={onOpen} categoryName={categoryName} />
         ))}
       </div>
     </DndContext>
