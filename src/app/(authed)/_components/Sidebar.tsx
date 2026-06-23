@@ -94,6 +94,11 @@ const menuData: MenuItem[] = [
     ],
   },
   {
+    href: "/tasks",
+    label: "Tasks",
+    anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+  },
+  {
     title: "Management",
     anyPermission: [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.ROLE_MANAGER],
     children: [
