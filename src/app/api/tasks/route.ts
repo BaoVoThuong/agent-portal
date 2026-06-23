@@ -84,5 +84,13 @@ export async function POST(request: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await supabase.from("task_activity").insert({
+    task_id: (data as { id: string }).id,
+    actor_email: email,
+    type: "created",
+    meta: assignment.assignee_email ? { to: assignment.assignee_email } : null,
+  });
+
   return NextResponse.json({ task: data });
 }

@@ -4,6 +4,8 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask, canMutateTask } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import type { TaskRow } from "@/lib/tasks/types";
+import { buildActivityEntries } from "@/lib/tasks/activity";
+import { insertNotifications } from "@/lib/tasks/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,34 @@ export async function PATCH(req: Request, { params }: Ctx) {
     .select("*")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const entries = buildActivityEntries(
+    { status: r.task.status, assignee_email: r.task.assignee_email },
+    resolved.patch
+  );
+  if (entries.length > 0) {
+    await r.supabase.from("task_activity").insert(
+      entries.map((e) => ({
+        task_id: id,
+        actor_email: r.actor.email,
+        type: e.type,
+        meta: e.meta,
+      }))
+    );
+  }
+
+  // Notify a newly assigned person (not when assigning to self).
+  const newAssignee = resolved.patch.assignee_email as string | null | undefined;
+  if (
+    newAssignee &&
+    newAssignee !== r.task.assignee_email &&
+    newAssignee !== r.actor.email
+  ) {
+    await insertNotifications([
+      { recipient_email: newAssignee, task_id: id, type: "assigned", actor_email: r.actor.email },
+    ]);
+  }
+
   return NextResponse.json({ task: data });
 }
 
@@ -68,5 +98,13 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     .update({ archived_at: new Date().toISOString() })
     .eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await r.supabase.from("task_activity").insert({
+    task_id: id,
+    actor_email: r.actor.email,
+    type: "archived",
+    meta: null,
+  });
+
   return NextResponse.json({ ok: true });
 }
