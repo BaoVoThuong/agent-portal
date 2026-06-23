@@ -78,6 +78,10 @@ export async function POST(request: Request) {
         typeof body?.due_date === "string" && body.due_date.trim() !== ""
           ? body.due_date.trim()
           : null,
+      category_id:
+        typeof body?.category_id === "string" && body.category_id.trim() !== ""
+          ? body.category_id.trim()
+          : null,
       position,
     })
     .select("*")
