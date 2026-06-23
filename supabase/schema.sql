@@ -174,7 +174,9 @@ values
   ('company.view_all', 'View All Agents', 'See all agents'' data in Agent Dashboard and Customer Registration.', 'dashboard', 'Dashboard', 500),
   ('management.account_manager', 'Account Manager', 'Create accounts, assign roles, update status, and reset passwords.', 'management', 'Management', 100),
   ('management.role_manager', 'Role Manager', 'Create roles and manage role permissions.', 'management', 'Management', 200),
-  ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100)
+  ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100),
+  ('task.manage', 'Tasks - Manage', 'Create, assign and manage all tasks, and see the backlog.', 'tasks', 'Tasks', 100),
+  ('task.work', 'Tasks - Work', 'Work on tasks assigned to you.', 'tasks', 'Tasks', 200)
 on conflict (key) do update set
   label = excluded.label,
   description = excluded.description,
@@ -222,7 +224,9 @@ where key not in (
   'company.view_all',
   'management.account_manager',
   'management.role_manager',
-  'settings.access'
+  'settings.access',
+  'task.manage',
+  'task.work'
 );
 
 do $$
@@ -1247,6 +1251,99 @@ as $$
   truncate table health_payment_summary;
 $$;
 
+-- ============================================================
+-- Task Board (customer-service work tracking)
+-- ============================================================
+create table if not exists task_categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  color text,
+  position integer not null default 0,
+  is_active boolean not null default true,
+  created_by text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists tasks (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  description text,
+  status text not null default 'backlog'
+    check (status in ('backlog','todo','in_progress','waiting','done')),
+  priority text not null default 'medium'
+    check (priority in ('low','medium','high','urgent')),
+  category_id uuid references task_categories(id) on delete set null,
+  assignee_email text,
+  reporter_email text not null,
+  due_date date,
+  waiting_reason text
+    check (waiting_reason is null or waiting_reason in ('customer','carrier','documents','other')),
+  position double precision not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  archived_at timestamptz,
+  constraint tasks_backlog_no_assignee
+    check (status <> 'backlog' or assignee_email is null)
+);
+
+create index if not exists tasks_assignee_idx on tasks (assignee_email);
+create index if not exists tasks_status_position_idx on tasks (status, position);
+create index if not exists tasks_category_idx on tasks (category_id);
+create index if not exists tasks_due_date_idx on tasks (due_date);
+create index if not exists tasks_archived_idx on tasks (archived_at);
+
+create table if not exists task_comments (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks(id) on delete cascade,
+  parent_id uuid references task_comments(id) on delete cascade,
+  author_email text not null,
+  body text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+create index if not exists task_comments_task_idx on task_comments (task_id, created_at);
+
+create table if not exists task_attachments (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks(id) on delete cascade,
+  comment_id uuid references task_comments(id) on delete cascade,
+  storage_path text not null,
+  file_name text not null,
+  mime_type text,
+  size_bytes bigint,
+  uploaded_by text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists task_attachments_task_idx on task_attachments (task_id);
+
+create table if not exists task_activity (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks(id) on delete cascade,
+  actor_email text not null,
+  type text not null,
+  meta jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists task_activity_task_idx on task_activity (task_id, created_at);
+
+create table if not exists task_notifications (
+  id uuid primary key default gen_random_uuid(),
+  recipient_email text not null,
+  task_id uuid not null references tasks(id) on delete cascade,
+  type text not null check (type in ('assigned','mentioned','commented')),
+  actor_email text not null,
+  comment_id uuid,
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists task_notifications_recipient_idx
+  on task_notifications (recipient_email, is_read, created_at desc);
+
 -- Defense-in-depth: enable RLS on every table. The app talks to Supabase only
 -- through the service-role key, which bypasses RLS, so behavior is unchanged.
 -- With RLS on and no public policies, anon/authenticated keys are denied by
@@ -1269,7 +1366,13 @@ declare
     'pc_raw_data',
     'pc_mart',
     'health_raw_data',
-    'health_mart'
+    'health_mart',
+    'task_categories',
+    'tasks',
+    'task_comments',
+    'task_attachments',
+    'task_activity',
+    'task_notifications'
   ];
 begin
   foreach table_name in array protected_tables loop
