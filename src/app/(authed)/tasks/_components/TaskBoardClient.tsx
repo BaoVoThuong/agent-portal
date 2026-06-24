@@ -158,9 +158,7 @@ export function TaskBoardClient({
       }
     }
 
-    return [...stats.values()].filter(
-      (stat) => stat.key !== NO_AGENT || stat.total > 0
-    );
+    return [...stats.values()].filter((stat) => stat.total > 0);
   }, [agentChoices, tasks]);
 
   const visibleTasks = useMemo(() => {
@@ -334,15 +332,15 @@ export function TaskBoardClient({
             />
           </label>
 
-          <QuickFilterMenu
-            value={quickFilters}
-            onChange={setQuickFilters}
-          />
-
           <AgentFilterBar
             stats={agentStats}
             selectedAgent={agentFilter}
             onSelect={setAgentFilter}
+          />
+
+          <QuickFilterMenu
+            value={quickFilters}
+            onChange={setQuickFilters}
           />
 
           <span className="text-sm font-medium text-[#626f86]">
@@ -403,6 +401,12 @@ export function TaskBoardClient({
   );
 }
 
+const AGENT_AVATAR_LIMIT = 8;
+
+function agentTooltip(stat: AgentStat) {
+  return `${stat.label} — ${stat.active} open · ${stat.waiting} waiting · ${stat.done} done`;
+}
+
 function AgentFilterBar({
   stats,
   selectedAgent,
@@ -414,45 +418,65 @@ function AgentFilterBar({
 }) {
   if (stats.length === 0) return null;
 
-  const total = stats.reduce(
-    (acc, stat) => ({
-      total: acc.total + stat.total,
-      active: acc.active + stat.active,
-      waiting: acc.waiting + stat.waiting,
-      done: acc.done + stat.done,
-      urgent: acc.urgent + stat.urgent,
-    }),
-    { total: 0, active: 0, waiting: 0, done: 0, urgent: 0 }
-  );
+  const visible = stats.slice(0, AGENT_AVATAR_LIMIT);
+  const overflow = stats.slice(AGENT_AVATAR_LIMIT);
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <span className="mr-0.5 text-sm font-semibold text-[#44546f]">
-        Agents
-      </span>
-      <AgentFilterButton
-        stat={{ key: ALL_AGENTS, label: "All", ...total }}
-        active={selectedAgent === ALL_AGENTS}
-        onClick={() => onSelect(ALL_AGENTS)}
-      />
-      {stats.map((stat) => (
-        <AgentFilterButton
-          key={stat.key}
-          stat={stat}
-          active={selectedAgent === stat.key}
-          onClick={() => onSelect(stat.key)}
-        />
-      ))}
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="text-sm font-medium text-[#44546f]">Agents</span>
+      <div className="flex items-center">
+        {visible.map((stat, index) => (
+          <AgentAvatar
+            key={stat.key}
+            stat={stat}
+            index={index}
+            active={selectedAgent === stat.key}
+            onClick={() =>
+              onSelect(selectedAgent === stat.key ? ALL_AGENTS : stat.key)
+            }
+          />
+        ))}
+        {overflow.length > 0 ? (
+          <AgentOverflowMenu
+            stats={overflow}
+            selectedAgent={selectedAgent}
+            onSelect={onSelect}
+          />
+        ) : null}
+      </div>
+      {selectedAgent !== ALL_AGENTS ? (
+        <button
+          type="button"
+          onClick={() => onSelect(ALL_AGENTS)}
+          className="text-sm font-medium text-[#0c66e4] transition hover:underline"
+        >
+          Clear
+        </button>
+      ) : null}
     </div>
   );
 }
 
-function AgentFilterButton({
+function AgentAvatarFace({ stat }: { stat: AgentStat }) {
+  if (stat.key === NO_AGENT) {
+    return (
+      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#dfe1e6] text-[10px] font-bold text-[#44546f] ring-2 ring-white">
+        ?
+      </span>
+    );
+  }
+
+  return <Initials email={stat.key} />;
+}
+
+function AgentAvatar({
   stat,
+  index,
   active,
   onClick,
 }: {
   stat: AgentStat;
+  index: number;
   active: boolean;
   onClick: () => void;
 }) {
@@ -460,43 +484,106 @@ function AgentFilterButton({
     <button
       type="button"
       onClick={onClick}
-      title={`${stat.label}: ${stat.active} open, ${stat.waiting} waiting, ${stat.done} done, ${stat.urgent} high`}
-      className={`inline-flex h-8 max-w-[13rem] items-center gap-1.5 rounded border px-2 text-sm font-medium transition ${
-        active
-          ? "border-[#0c66e4] bg-[#e9f2ff] text-[#0c66e4]"
-          : "border-transparent bg-transparent text-[#42526e] hover:bg-[#f4f5f7]"
+      title={agentTooltip(stat)}
+      aria-pressed={active}
+      aria-label={stat.label}
+      style={{ marginLeft: index === 0 ? 0 : "-0.375rem" }}
+      className={`relative rounded-full transition hover:z-10 hover:-translate-y-0.5 ${
+        active ? "z-20 ring-2 ring-[#0c66e4] ring-offset-1" : ""
       }`}
     >
-      {stat.key === NO_AGENT || stat.key === ALL_AGENTS ? (
-        <span
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-            active ? "bg-white text-[#0c66e4]" : "bg-[#dfe1e6] text-[#44546f]"
-          }`}
-        >
-          {stat.key === ALL_AGENTS ? "A" : "?"}
-        </span>
-      ) : (
-        <Initials email={stat.key} />
-      )}
-      <span className="min-w-0 truncate">{stat.label}</span>
-      <span
-        className={`rounded-full px-1.5 text-[11px] font-bold leading-5 ${
-          active ? "bg-white text-[#0c66e4]" : "bg-[#ebecf0] text-[#42526e]"
+      <AgentAvatarFace stat={stat} />
+    </button>
+  );
+}
+
+function AgentOverflowMenu({
+  stats,
+  selectedAgent,
+  onSelect,
+}: {
+  stats: AgentStat[];
+  selectedAgent: string;
+  onSelect: (agent: string) => void;
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedInOverflow = stats.some((stat) => stat.key === selectedAgent);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function closeOnOutsidePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        menuRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      setIsOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isOpen]);
+
+  return (
+    <div ref={menuRef} className="relative" style={{ marginLeft: "-0.375rem" }}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        title="More agents"
+        aria-expanded={isOpen}
+        className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ring-2 ring-white transition hover:z-10 ${
+          selectedInOverflow
+            ? "z-20 bg-[#0c66e4] text-white"
+            : "bg-[#dfe1e6] text-[#44546f] hover:bg-[#c1c7d0]"
         }`}
       >
-        {stat.active}
-      </span>
-      {stat.waiting > 0 ? (
-        <span className="rounded-full bg-[#fff0b3] px-1.5 text-[11px] font-bold leading-5 text-[#7f5f01]">
-          {stat.waiting}
-        </span>
+        +{stats.length}
+      </button>
+
+      {isOpen ? (
+        <div className="absolute left-0 z-50 mt-2 max-h-64 w-60 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]">
+          {stats.map((stat) => {
+            const selected = stat.key === selectedAgent;
+
+            return (
+              <button
+                key={stat.key}
+                type="button"
+                onClick={() => {
+                  onSelect(stat.key);
+                  setIsOpen(false);
+                }}
+                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition ${
+                  selected
+                    ? "bg-[#e9f2ff] text-[#0c66e4]"
+                    : "text-[#172b4d] hover:bg-[#f4f5f7]"
+                }`}
+              >
+                <AgentAvatarFace stat={stat} />
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {stat.label}
+                </span>
+                <span className="shrink-0 text-xs font-semibold text-[#626f86]">
+                  {stat.active}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       ) : null}
-      {stat.urgent > 0 ? (
-        <span className="rounded-full bg-[#ffebe6] px-1.5 text-[11px] font-bold leading-5 text-[#de350b]">
-          {stat.urgent}
-        </span>
-      ) : null}
-    </button>
+    </div>
   );
 }
 
