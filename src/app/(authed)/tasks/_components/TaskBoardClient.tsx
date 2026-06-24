@@ -1,78 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Plus, Search, Tag } from "lucide-react";
-import type { TaskRow, TaskStatus, TaskCategory } from "@/lib/tasks/types";
+import { useMemo, useState } from "react";
+import { Plus, Tag } from "lucide-react";
+import type {
+  TaskCategory,
+  TaskPriority,
+  TaskRow,
+  TaskStatus,
+} from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
+import {
+  filterTasks,
+  ALL_AGENTS,
+  NO_AGENT,
+  type QuickFilter,
+} from "@/lib/tasks/filtering";
 import { KanbanBoard } from "./KanbanBoard";
-import { BacklogList } from "./BacklogList";
+import { BacklogBoard } from "./BacklogBoard";
+import { TaskListView } from "./TaskListView";
+import { TaskToolbar, type AgentStat, type BoardView } from "./TaskToolbar";
 import { NewTaskDialog, type NewTaskPayload } from "./NewTaskDialog";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { CategoryManager } from "./CategoryManager";
-import { Initials } from "./board-ui";
-
-type Tab = "board" | "backlog";
-type QuickFilter =
-  | "overdue"
-  | "dueThisWeek"
-  | "highPriority"
-  | "recentlyUpdated"
-  | "mine"
-  | "triage";
-type AgentStat = {
-  key: string;
-  label: string;
-  total: number;
-  active: number;
-  waiting: number;
-  done: number;
-  urgent: number;
-};
-
-const ALL_AGENTS = "__all_agents__";
-const NO_AGENT = "__no_agent__";
-
-type QuickFilterOption = {
-  key: QuickFilter;
-  label: string;
-  description: string;
-  managerOnly?: boolean;
-};
-
-const QUICK_FILTERS: QuickFilterOption[] = [
-  {
-    key: "overdue",
-    label: "Overdue",
-    description: "Past due and not done yet",
-  },
-  {
-    key: "dueThisWeek",
-    label: "Due this week",
-    description: "Due within the next seven days",
-  },
-  {
-    key: "highPriority",
-    label: "High priority",
-    description: "High and urgent work",
-  },
-  {
-    key: "recentlyUpdated",
-    label: "Recently updated",
-    description: "Changed in the last three days",
-  },
-  {
-    key: "mine",
-    label: "My tasks",
-    description: "Assigned to or reported by me",
-    managerOnly: true,
-  },
-  {
-    key: "triage",
-    label: "Needs triage",
-    description: "Missing a category or an agent",
-    managerOnly: true,
-  },
-];
 
 export function TaskBoardClient({
   initialTasks,
@@ -90,7 +39,7 @@ export function TaskBoardClient({
   initialCategories: TaskCategory[];
 }) {
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
-  const [tab, setTab] = useState<Tab>("board");
+  const [view, setView] = useState<BoardView>("board");
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
@@ -98,48 +47,44 @@ export function TaskBoardClient({
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState(ALL_AGENTS);
   const [quickFilters, setQuickFilters] = useState<QuickFilter[]>([]);
+  const [priorityFilter, setPriorityFilter] = useState<"" | TaskPriority>("");
+  const [categoryFilter, setCategoryFilter] = useState<"" | string>("");
+  const [statusFilter, setStatusFilter] = useState<"" | TaskStatus>("");
 
   const reloadCategories = async () => {
     const res = await fetch("/api/tasks/categories");
     if (res.ok) setCategories((await res.json()).categories as TaskCategory[]);
   };
 
-  const categoryById = useMemo(() => {
-    return new Map(categories.map((category) => [category.id, category]));
-  }, [categories]);
+  const categoryById = useMemo(
+    () => new Map(categories.map((category) => [category.id, category])),
+    [categories]
+  );
 
   const agentChoices = useMemo(() => {
     const byEmail = new Map<string, TaskAgent>();
-
-    for (const agent of agents) {
-      byEmail.set(agent.email, agent);
-    }
-
+    for (const agent of agents) byEmail.set(agent.email, agent);
     for (const task of tasks) {
       if (task.agent_email && !byEmail.has(task.agent_email)) {
         byEmail.set(task.agent_email, { email: task.agent_email, name: null });
       }
     }
-
     return [...byEmail.values()].sort((a, b) =>
       formatAgentLabel(a).localeCompare(formatAgentLabel(b))
     );
   }, [agents, tasks]);
 
-  const agentLabelByEmail = useMemo(() => {
-    return new Map(
-      agentChoices.map((agent) => [agent.email, formatAgentLabel(agent)])
-    );
-  }, [agentChoices]);
+  const agentLabelByEmail = useMemo(
+    () => new Map(agentChoices.map((agent) => [agent.email, formatAgentLabel(agent)])),
+    [agentChoices]
+  );
 
   const agentStats = useMemo(() => {
     const stats = new Map<string, AgentStat>();
-
-    function ensure(key: string, label: string) {
+    const ensure = (key: string, label: string) => {
       const existing = stats.get(key);
       if (existing) return existing;
-
-      const next = {
+      const next: AgentStat = {
         key,
         label,
         total: 0,
@@ -150,11 +95,9 @@ export function TaskBoardClient({
       };
       stats.set(key, next);
       return next;
-    }
+    };
 
-    for (const agent of agentChoices) {
-      ensure(agent.email, formatAgentLabel(agent));
-    }
+    for (const agent of agentChoices) ensure(agent.email, formatAgentLabel(agent));
     ensure(NO_AGENT, "No agent");
 
     for (const task of tasks) {
@@ -169,103 +112,55 @@ export function TaskBoardClient({
               }
             );
       const stat = ensure(key, label);
-
       stat.total += 1;
       if (task.status !== "done") stat.active += 1;
       if (task.status === "waiting") stat.waiting += 1;
       if (task.status === "done") stat.done += 1;
-      if (task.priority === "urgent" || task.priority === "high") {
-        stat.urgent += 1;
-      }
+      if (task.priority === "urgent" || task.priority === "high") stat.urgent += 1;
     }
 
     return [...stats.values()].filter((stat) => stat.total > 0);
   }, [agentChoices, tasks]);
 
-  const visibleTasks = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-
-    return tasks.filter((task) => {
-      const matchesAgent =
-        agentFilter === ALL_AGENTS ||
-        (agentFilter === NO_AGENT
-          ? !task.agent_email
-          : task.agent_email === agentFilter);
-
-      if (!matchesAgent) return false;
-
-      const category = task.category_id
-        ? categoryById.get(task.category_id)
-        : null;
-      const searchableText = [
-        task.title,
-        task.description,
-        task.agent_email,
-        task.agent_email ? agentLabelByEmail.get(task.agent_email) : null,
-        task.assignee_email,
-        task.reporter_email,
-        category?.name,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      if (normalizedQuery && !searchableText.includes(normalizedQuery)) {
-        return false;
-      }
-
-      return quickFilters.every((filter) => {
-        if (filter === "overdue") {
-          if (!task.due_date || task.status === "done") return false;
-          return new Date(`${task.due_date}T23:59:59`) < new Date();
-        }
-
-        if (filter === "dueThisWeek") {
-          if (!task.due_date || task.status === "done") return false;
-          const due = new Date(`${task.due_date}T23:59:59`);
-          const now = new Date();
-          const nextWeek = new Date(now);
-          nextWeek.setDate(now.getDate() + 7);
-          return due >= now && due <= nextWeek;
-        }
-
-        if (filter === "highPriority") {
-          return task.priority === "high" || task.priority === "urgent";
-        }
-
-        if (filter === "recentlyUpdated") {
-          const cutoff = new Date();
-          cutoff.setDate(cutoff.getDate() - 3);
-          return new Date(task.updated_at) >= cutoff;
-        }
-
-        if (filter === "mine") {
-          return (
-            task.assignee_email === currentEmail ||
-            task.reporter_email === currentEmail
-          );
-        }
-
-        if (filter === "triage") {
-          return !task.category_id || !task.agent_email;
-        }
-
-        return true;
-      });
-    });
-  }, [
-    agentFilter,
-    agentLabelByEmail,
-    categoryById,
-    currentEmail,
-    query,
-    quickFilters,
-    tasks,
-  ]);
-
-  const quickFilterOptions = useMemo(
-    () => QUICK_FILTERS.filter((option) => !option.managerOnly || isManager),
-    [isManager]
+  const visibleTasks = useMemo(
+    () =>
+      filterTasks(tasks, {
+        query,
+        agent: agentFilter,
+        quick: quickFilters,
+        priority: priorityFilter,
+        category: categoryFilter,
+        status: view === "list" ? statusFilter : "",
+        currentEmail,
+        searchText: (task) => {
+          const category = task.category_id ? categoryById.get(task.category_id) : null;
+          return [
+            task.title,
+            task.description,
+            task.agent_email,
+            task.agent_email ? agentLabelByEmail.get(task.agent_email) : null,
+            task.assignee_email,
+            task.reporter_email,
+            category?.name,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+        },
+      }),
+    [
+      tasks,
+      query,
+      agentFilter,
+      quickFilters,
+      priorityFilter,
+      categoryFilter,
+      statusFilter,
+      view,
+      currentEmail,
+      categoryById,
+      agentLabelByEmail,
+    ]
   );
 
   const openTask = tasks.find((t) => t.id === openId) ?? null;
@@ -276,7 +171,6 @@ export function TaskBoardClient({
 
   async function patchTask(id: string, patch: Record<string, unknown>) {
     const prev = tasks;
-    // optimistic
     setTasks((cur) => cur.map((t) => (t.id === id ? ({ ...t, ...patch } as TaskRow) : t)));
     const res = await fetch(`/api/tasks/${id}`, {
       method: "PATCH",
@@ -284,7 +178,7 @@ export function TaskBoardClient({
       body: JSON.stringify(patch),
     });
     if (!res.ok) {
-      setTasks(prev); // rollback
+      setTasks(prev);
       return;
     }
     const data = await res.json();
@@ -314,6 +208,15 @@ export function TaskBoardClient({
     if (!res.ok) setTasks(prev);
   }
 
+  function clearAllFilters() {
+    setQuery("");
+    setAgentFilter(ALL_AGENTS);
+    setQuickFilters([]);
+    setPriorityFilter("");
+    setCategoryFilter("");
+    setStatusFilter("");
+  }
+
   const canEditOpen =
     openTask !== null && (isManager || openTask.assignee_email === currentEmail);
 
@@ -321,19 +224,7 @@ export function TaskBoardClient({
     <div className="flex h-full min-h-0 flex-col bg-white text-[#172b4d]">
       <div className="shrink-0 px-6 pb-5 pt-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-3xl font-semibold text-[#172b4d]">Board</h1>
-            <div className="mt-4 flex gap-1">
-              <TabButton active={tab === "board"} onClick={() => setTab("board")}>
-                Board
-              </TabButton>
-              {isManager && (
-                <TabButton active={tab === "backlog"} onClick={() => setTab("backlog")}>
-                  Backlog
-                </TabButton>
-              )}
-            </div>
-          </div>
+          <h1 className="text-3xl font-semibold text-[#172b4d]">Tasks</h1>
 
           <div className="flex items-center gap-2">
             {isManager && (
@@ -357,51 +248,62 @@ export function TaskBoardClient({
           </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <label className="relative block h-10 w-[13.5rem]">
-            <span className="sr-only">Search tasks</span>
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#44546f]" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search"
-              className="h-full w-full rounded border-2 border-transparent bg-[#f4f5f7] pl-10 pr-3 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#44546f] hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white"
-            />
-          </label>
-
-          <AgentFilterBar
-            stats={agentStats}
-            selectedAgent={agentFilter}
-            onSelect={setAgentFilter}
-          />
-
-          <QuickFilterMenu
-            options={quickFilterOptions}
-            value={quickFilters}
-            onChange={setQuickFilters}
-          />
-
-          <span className="text-sm font-medium text-[#626f86]">
-            {visibleTasks.length} of {tasks.length} tasks
-          </span>
-        </div>
+        <TaskToolbar
+          view={view}
+          onViewChange={setView}
+          isManager={isManager}
+          query={query}
+          onQuery={setQuery}
+          agentStats={agentStats}
+          agentFilter={agentFilter}
+          onAgentFilter={setAgentFilter}
+          quickValue={quickFilters}
+          onQuickChange={setQuickFilters}
+          priority={priorityFilter}
+          onPriority={setPriorityFilter}
+          category={categoryFilter}
+          onCategory={setCategoryFilter}
+          status={statusFilter}
+          onStatus={setStatusFilter}
+          showStatusFacet={view === "list"}
+          categories={categories}
+          resultCount={visibleTasks.length}
+          totalCount={tasks.length}
+          onClearAll={clearAllFilters}
+        />
       </div>
 
-      {tab === "board" ? (
+      {view === "board" && (
         <KanbanBoard
           tasks={visibleTasks}
           onOpen={setOpenId}
           onMove={moveTask}
           categories={categories}
         />
-      ) : (
-        <BacklogList
+      )}
+
+      {view === "list" && (
+        <TaskListView
           tasks={visibleTasks}
+          categories={categories}
           assignees={assignees}
+          agents={agents}
+          isManager={isManager}
+          currentEmail={currentEmail}
           onOpen={setOpenId}
-          onAssign={(id, email) =>
-            patchTask(id, { assignee_email: email, status: "todo" })
-          }
+          onPatch={patchTask}
+        />
+      )}
+
+      {view === "backlog" && isManager && (
+        <BacklogBoard
+          tasks={tasks}
+          assignees={assignees}
+          categories={categories}
+          onOpen={setOpenId}
+          onAssign={(id, email) => patchTask(id, { assignee_email: email, status: "todo" })}
+          onReorder={(id, position) => patchTask(id, { position })}
+          onCreate={createTask}
         />
       )}
 
@@ -439,337 +341,6 @@ export function TaskBoardClient({
   );
 }
 
-const AGENT_AVATAR_LIMIT = 8;
-
-function agentTooltip(stat: AgentStat) {
-  return `${stat.label} — ${stat.active} open · ${stat.waiting} waiting · ${stat.done} done`;
-}
-
-function AgentFilterBar({
-  stats,
-  selectedAgent,
-  onSelect,
-}: {
-  stats: AgentStat[];
-  selectedAgent: string;
-  onSelect: (agent: string) => void;
-}) {
-  if (stats.length === 0) return null;
-
-  const visible = stats.slice(0, AGENT_AVATAR_LIMIT);
-  const overflow = stats.slice(AGENT_AVATAR_LIMIT);
-
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <span className="text-sm font-medium text-[#44546f]">Agents</span>
-      <div className="flex items-center">
-        {visible.map((stat, index) => (
-          <AgentAvatar
-            key={stat.key}
-            stat={stat}
-            index={index}
-            active={selectedAgent === stat.key}
-            onClick={() =>
-              onSelect(selectedAgent === stat.key ? ALL_AGENTS : stat.key)
-            }
-          />
-        ))}
-        {overflow.length > 0 ? (
-          <AgentOverflowMenu
-            stats={overflow}
-            selectedAgent={selectedAgent}
-            onSelect={onSelect}
-          />
-        ) : null}
-      </div>
-      {selectedAgent !== ALL_AGENTS ? (
-        <button
-          type="button"
-          onClick={() => onSelect(ALL_AGENTS)}
-          className="text-sm font-medium text-[#0c66e4] transition hover:underline"
-        >
-          Clear
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function AgentAvatarFace({ stat }: { stat: AgentStat }) {
-  if (stat.key === NO_AGENT) {
-    return (
-      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#dfe1e6] text-[10px] font-bold text-[#44546f] ring-2 ring-white">
-        ?
-      </span>
-    );
-  }
-
-  return <Initials email={stat.key} />;
-}
-
-function AgentAvatar({
-  stat,
-  index,
-  active,
-  onClick,
-}: {
-  stat: AgentStat;
-  index: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={agentTooltip(stat)}
-      aria-pressed={active}
-      aria-label={stat.label}
-      style={{ marginLeft: index === 0 ? 0 : "-0.375rem" }}
-      className={`relative rounded-full transition hover:z-10 hover:-translate-y-0.5 ${
-        active ? "z-20 ring-2 ring-[#0c66e4] ring-offset-1" : ""
-      }`}
-    >
-      <AgentAvatarFace stat={stat} />
-    </button>
-  );
-}
-
-function AgentOverflowMenu({
-  stats,
-  selectedAgent,
-  onSelect,
-}: {
-  stats: AgentStat[];
-  selectedAgent: string;
-  onSelect: (agent: string) => void;
-}) {
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
-  const selectedInOverflow = stats.some((stat) => stat.key === selectedAgent);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function closeOnOutsidePointerDown(event: PointerEvent) {
-      if (
-        event.target instanceof Node &&
-        menuRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-      setIsOpen(false);
-    }
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setIsOpen(false);
-    }
-
-    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
-    document.addEventListener("keydown", closeOnEscape);
-
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen]);
-
-  return (
-    <div ref={menuRef} className="relative" style={{ marginLeft: "-0.375rem" }}>
-      <button
-        type="button"
-        onClick={() => setIsOpen((current) => !current)}
-        title="More agents"
-        aria-expanded={isOpen}
-        className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ring-2 ring-white transition hover:z-10 ${
-          selectedInOverflow
-            ? "z-20 bg-[#0c66e4] text-white"
-            : "bg-[#dfe1e6] text-[#44546f] hover:bg-[#c1c7d0]"
-        }`}
-      >
-        +{stats.length}
-      </button>
-
-      {isOpen ? (
-        <div className="absolute left-0 z-50 mt-2 max-h-64 w-60 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]">
-          {stats.map((stat) => {
-            const selected = stat.key === selectedAgent;
-
-            return (
-              <button
-                key={stat.key}
-                type="button"
-                onClick={() => {
-                  onSelect(stat.key);
-                  setIsOpen(false);
-                }}
-                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition ${
-                  selected
-                    ? "bg-[#e9f2ff] text-[#0c66e4]"
-                    : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                }`}
-              >
-                <AgentAvatarFace stat={stat} />
-                <span className="min-w-0 flex-1 truncate font-medium">
-                  {stat.label}
-                </span>
-                <span className="shrink-0 text-xs font-semibold text-[#626f86]">
-                  {stat.active}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function formatAgentLabel(agent: TaskAgent) {
   return agent.name?.trim() || agent.email;
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-        active
-          ? "bg-[#e9f2ff] text-[#0c66e4]"
-          : "text-[#44546f] hover:bg-[#f4f5f7]"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function QuickFilterMenu({
-  options,
-  value,
-  onChange,
-}: {
-  options: QuickFilterOption[];
-  value: QuickFilter[];
-  onChange: (value: QuickFilter[]) => void;
-}) {
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
-  const activeCount = value.length;
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function closeOnOutsidePointerDown(event: PointerEvent) {
-      if (
-        event.target instanceof Node &&
-        menuRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-
-      setIsOpen(false);
-    }
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", closeOnOutsidePointerDown);
-    document.addEventListener("keydown", closeOnEscape);
-
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen]);
-
-  function toggleFilter(filter: QuickFilter) {
-    onChange(
-      value.includes(filter)
-        ? value.filter((item) => item !== filter)
-        : [...value, filter]
-    );
-  }
-
-  return (
-    <div ref={menuRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setIsOpen((current) => !current)}
-        className="inline-flex h-10 items-center gap-2 rounded px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7]"
-        aria-expanded={isOpen}
-      >
-        Quick Filters
-        {activeCount > 0 ? (
-          <span className="rounded-full bg-[#deebff] px-2 py-0.5 text-xs text-[#0c66e4]">
-            {activeCount}
-          </span>
-        ) : null}
-        <ChevronDown
-          className={`h-4 w-4 transition ${isOpen ? "rotate-180" : ""}`}
-        />
-      </button>
-
-      {isOpen ? (
-        <div className="absolute left-0 z-40 mt-2 w-72 rounded border border-[#dfe1e6] bg-white p-2 shadow-[0_8px_24px_rgba(9,30,66,0.18)]">
-          {options.map((filter) => {
-            const checked = value.includes(filter.key);
-
-            return (
-              <button
-                key={filter.key}
-                type="button"
-                onClick={() => toggleFilter(filter.key)}
-                className="flex w-full items-start gap-3 rounded px-2 py-2 text-left transition hover:bg-[#f4f5f7]"
-              >
-                <span
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 ${
-                    checked
-                      ? "border-[#0c66e4] bg-[#0c66e4]"
-                      : "border-[#8590a2] bg-white"
-                  }`}
-                >
-                  {checked ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                  ) : null}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-[#172b4d]">
-                    {filter.label}
-                  </span>
-                  <span className="mt-0.5 block text-xs leading-5 text-[#626f86]">
-                    {filter.description}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-
-          {activeCount > 0 ? (
-            <div className="mt-1 border-t border-[#ebecf0] pt-2">
-              <button
-                type="button"
-                onClick={() => onChange([])}
-                className="rounded px-2 py-1 text-sm font-semibold text-[#0c66e4] transition hover:bg-[#f4f5f7]"
-              >
-                Clear filters
-              </button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
 }
