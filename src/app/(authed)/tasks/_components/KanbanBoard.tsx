@@ -67,7 +67,7 @@ function Column({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${status}` });
   return (
-    <section className="flex w-[17.9rem] shrink-0 flex-col rounded bg-[#f4f5f7] p-1.5">
+    <section className="flex min-w-0 flex-1 flex-col rounded bg-[#f4f5f7] p-1.5">
       <div className="flex h-9 items-center px-1">
         <span className="text-xs font-bold uppercase text-[#6b778c]">
           {COLUMN_LABEL[status]}
@@ -78,7 +78,7 @@ function Column({
       </div>
       <div
         ref={setNodeRef}
-        className={`min-h-[32rem] flex-1 rounded px-0.5 pb-1 transition ${
+        className={`flex-1 overflow-y-auto rounded px-0.5 pb-1 transition ${
           isOver ? "bg-[#deebff]" : ""
         }`}
       >
@@ -148,7 +148,7 @@ export function KanbanBoard({
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-6 pb-6">
+      <div className="flex min-h-0 flex-1 gap-4 px-6 pb-6">
         {KANBAN_STATUSES.map((s) => (
           <Column
             key={s}
