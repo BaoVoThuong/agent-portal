@@ -12,7 +12,13 @@ import { CategoryManager } from "./CategoryManager";
 import { Initials } from "./board-ui";
 
 type Tab = "board" | "backlog";
-type QuickFilter = "mine" | "priority" | "dueSoon" | "uncategorized";
+type QuickFilter =
+  | "overdue"
+  | "dueThisWeek"
+  | "highPriority"
+  | "recentlyUpdated"
+  | "mine"
+  | "triage";
 type AgentStat = {
   key: string;
   label: string;
@@ -26,30 +32,45 @@ type AgentStat = {
 const ALL_AGENTS = "__all_agents__";
 const NO_AGENT = "__no_agent__";
 
-const QUICK_FILTERS: Array<{
+type QuickFilterOption = {
   key: QuickFilter;
   label: string;
   description: string;
-}> = [
+  managerOnly?: boolean;
+};
+
+const QUICK_FILTERS: QuickFilterOption[] = [
   {
-    key: "mine",
-    label: "My tasks",
-    description: "Assigned to me or reported by me",
+    key: "overdue",
+    label: "Overdue",
+    description: "Past due and not done yet",
   },
   {
-    key: "priority",
+    key: "dueThisWeek",
+    label: "Due this week",
+    description: "Due within the next seven days",
+  },
+  {
+    key: "highPriority",
     label: "High priority",
     description: "High and urgent work",
   },
   {
-    key: "dueSoon",
-    label: "Due soon",
-    description: "Due in the next seven days",
+    key: "recentlyUpdated",
+    label: "Recently updated",
+    description: "Changed in the last three days",
   },
   {
-    key: "uncategorized",
-    label: "No category",
-    description: "Tasks without a label",
+    key: "mine",
+    label: "My tasks",
+    description: "Assigned to or reported by me",
+    managerOnly: true,
+  },
+  {
+    key: "triage",
+    label: "Needs triage",
+    description: "Missing a category or an agent",
+    managerOnly: true,
   },
 ];
 
@@ -194,18 +215,12 @@ export function TaskBoardClient({
       }
 
       return quickFilters.every((filter) => {
-        if (filter === "mine") {
-          return (
-            task.assignee_email === currentEmail ||
-            task.reporter_email === currentEmail
-          );
+        if (filter === "overdue") {
+          if (!task.due_date || task.status === "done") return false;
+          return new Date(`${task.due_date}T23:59:59`) < new Date();
         }
 
-        if (filter === "priority") {
-          return task.priority === "high" || task.priority === "urgent";
-        }
-
-        if (filter === "dueSoon") {
+        if (filter === "dueThisWeek") {
           if (!task.due_date || task.status === "done") return false;
           const due = new Date(`${task.due_date}T23:59:59`);
           const now = new Date();
@@ -214,8 +229,25 @@ export function TaskBoardClient({
           return due >= now && due <= nextWeek;
         }
 
-        if (filter === "uncategorized") {
-          return !task.category_id;
+        if (filter === "highPriority") {
+          return task.priority === "high" || task.priority === "urgent";
+        }
+
+        if (filter === "recentlyUpdated") {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - 3);
+          return new Date(task.updated_at) >= cutoff;
+        }
+
+        if (filter === "mine") {
+          return (
+            task.assignee_email === currentEmail ||
+            task.reporter_email === currentEmail
+          );
+        }
+
+        if (filter === "triage") {
+          return !task.category_id || !task.agent_email;
         }
 
         return true;
@@ -230,6 +262,11 @@ export function TaskBoardClient({
     quickFilters,
     tasks,
   ]);
+
+  const quickFilterOptions = useMemo(
+    () => QUICK_FILTERS.filter((option) => !option.managerOnly || isManager),
+    [isManager]
+  );
 
   const openTask = tasks.find((t) => t.id === openId) ?? null;
 
@@ -339,6 +376,7 @@ export function TaskBoardClient({
           />
 
           <QuickFilterMenu
+            options={quickFilterOptions}
             value={quickFilters}
             onChange={setQuickFilters}
           />
@@ -616,9 +654,11 @@ function TabButton({
 }
 
 function QuickFilterMenu({
+  options,
   value,
   onChange,
 }: {
+  options: QuickFilterOption[];
   value: QuickFilter[];
   onChange: (value: QuickFilter[]) => void;
 }) {
@@ -684,7 +724,7 @@ function QuickFilterMenu({
 
       {isOpen ? (
         <div className="absolute left-0 z-40 mt-2 w-72 rounded border border-[#dfe1e6] bg-white p-2 shadow-[0_8px_24px_rgba(9,30,66,0.18)]">
-          {QUICK_FILTERS.map((filter) => {
+          {options.map((filter) => {
             const checked = value.includes(filter.key);
 
             return (
