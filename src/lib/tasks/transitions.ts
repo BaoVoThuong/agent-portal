@@ -17,6 +17,7 @@ export type TaskPatchInput = {
   priority?: unknown;
   due_date?: unknown;
   category_id?: unknown;
+  agent_email?: unknown;
   status?: unknown;
   assignee_email?: unknown;
   waiting_reason?: unknown;
@@ -67,6 +68,12 @@ export function resolveTaskPatch(
     patch.category_id =
       typeof r.category_id === "string" && r.category_id.trim() !== ""
         ? r.category_id.trim()
+        : null;
+  }
+  if (r.agent_email !== undefined) {
+    patch.agent_email =
+      typeof r.agent_email === "string" && r.agent_email.trim() !== ""
+        ? r.agent_email.trim()
         : null;
   }
   if (r.position !== undefined) {

@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export type TaskAssignee = { email: string; name: string | null };
+export type TaskAgent = TaskAssignee;
 
 // Active accounts whose role grants task.work or task.manage. Used by the
 // assignee picker (manager only).
@@ -35,5 +36,18 @@ export async function fetchTaskAssignees(): Promise<TaskAssignee[]> {
 
   return ((accounts ?? []) as unknown as { email: string; name: string | null }[])
     .map((a) => ({ email: a.email, name: a.name }))
+    .sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
+}
+
+export async function fetchTaskAgents(): Promise<TaskAgent[]> {
+  const { data: accounts, error } = await getSupabaseAdmin()
+    .from("portal_account")
+    .select("email,name,is_active,role")
+    .eq("is_active", true)
+    .eq("role", "agent");
+  if (error) throw new Error(error.message);
+
+  return ((accounts ?? []) as unknown as { email: string; name: string | null }[])
+    .map((account) => ({ email: account.email, name: account.name }))
     .sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
 }

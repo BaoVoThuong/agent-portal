@@ -2,17 +2,20 @@
 
 import { useState } from "react";
 import { X } from "lucide-react";
-import { TASK_PRIORITIES, type TaskPriority, type TaskRow, type TaskCategory } from "@/lib/tasks/types";
-import type { TaskAssignee } from "@/lib/tasks/assignees";
+import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
+import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
 import { AttachmentPanel } from "./AttachmentPanel";
+import { TaskSelect } from "./TaskSelect";
+import { TaskPrioritySelect } from "./TaskPrioritySelect";
 
 export function TaskDetailDrawer({
   task,
   isManager,
   canEdit,
   assignees,
+  agents,
   categories,
   currentEmail,
   onClose,
@@ -23,6 +26,7 @@ export function TaskDetailDrawer({
   isManager: boolean;
   canEdit: boolean;
   assignees: TaskAssignee[];
+  agents: TaskAgent[];
   categories: TaskCategory[];
   currentEmail: string;
   onClose: () => void;
@@ -32,6 +36,27 @@ export function TaskDetailDrawer({
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [tab, setTab] = useState<"details" | "comments" | "activity">("details");
+  const categoryOptions = [
+    { value: "", label: "No category" },
+    ...categories.map((category) => ({
+      value: category.id,
+      label: category.name,
+    })),
+  ];
+  const agentOptions = [
+    { value: "", label: "No agent" },
+    ...agents.map((agent) => ({
+      value: agent.email,
+      label: agent.name ?? agent.email,
+    })),
+  ];
+  const assigneeOptions = [
+    { value: "", label: "Unassigned (Backlog)" },
+    ...assignees.map((assignee) => ({
+      value: assignee.email,
+      label: assignee.name ?? assignee.email,
+    })),
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
@@ -62,19 +87,16 @@ export function TaskDetailDrawer({
           />
 
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <label className="space-y-1">
+            <div className="space-y-1">
               <span className="text-xs text-slate-500">Priority</span>
-              <select
+              <TaskPrioritySelect
                 value={task.priority}
                 disabled={!canEdit}
-                onChange={(e) => onPatch({ priority: e.target.value as TaskPriority })}
-                className="w-full rounded-lg border border-slate-200 px-2 py-1.5 disabled:bg-slate-50"
-              >
-                {TASK_PRIORITIES.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </label>
+                onChange={(nextPriority) =>
+                  onPatch({ priority: nextPriority as TaskPriority })
+                }
+              />
+            </div>
             <label className="space-y-1">
               <span className="text-xs text-slate-500">Due date</span>
               <input
@@ -87,41 +109,48 @@ export function TaskDetailDrawer({
             </label>
           </div>
 
-          <label className="space-y-1">
+          <div className="space-y-1">
             <span className="text-xs text-slate-500">Category</span>
-            <select
+            <TaskSelect
+              label="Category"
               value={task.category_id ?? ""}
               disabled={!canEdit}
-              onChange={(e) => onPatch({ category_id: e.target.value || null })}
-              className="w-full rounded-lg border border-slate-200 px-2 py-1.5 disabled:bg-slate-50"
-            >
-              <option value="">No category</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </label>
+              options={categoryOptions}
+              onChange={(nextCategoryId) =>
+                onPatch({ category_id: nextCategoryId || null })
+              }
+            />
+          </div>
+
+          <div className="space-y-1">
+            <span className="text-xs text-slate-500">Agent</span>
+            <TaskSelect
+              label="Agent"
+              value={task.agent_email ?? ""}
+              disabled={!canEdit}
+              options={agentOptions}
+              onChange={(nextAgent) =>
+                onPatch({ agent_email: nextAgent || null })
+              }
+            />
+          </div>
 
           {isManager && (
-            <label className="block space-y-1 text-sm">
+            <div className="block space-y-1 text-sm">
               <span className="text-xs text-slate-500">Assignee</span>
-              <select
+              <TaskSelect
+                label="Assignee"
                 value={task.assignee_email ?? ""}
-                onChange={(e) =>
+                options={assigneeOptions}
+                onChange={(nextAssignee) =>
                   onPatch(
-                    e.target.value
-                      ? { assignee_email: e.target.value, status: task.status === "backlog" ? "todo" : task.status }
+                    nextAssignee
+                      ? { assignee_email: nextAssignee, status: task.status === "backlog" ? "todo" : task.status }
                       : { assignee_email: null, status: "backlog" }
                   )
                 }
-                className="w-full rounded-lg border border-slate-200 px-2 py-1.5"
-              >
-                <option value="">Unassigned (Backlog)</option>
-                {assignees.map((a) => (
-                  <option key={a.email} value={a.email}>{a.name ?? a.email}</option>
-                ))}
-              </select>
-            </label>
+              />
+            </div>
           )}
 
           <div className="border-t border-slate-100 pt-3">

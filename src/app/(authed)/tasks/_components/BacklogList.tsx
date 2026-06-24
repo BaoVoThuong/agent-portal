@@ -3,6 +3,7 @@
 import { PriorityDot, DueBadge } from "./board-ui";
 import type { TaskRow } from "@/lib/tasks/types";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
+import { TaskSelect } from "./TaskSelect";
 
 export function BacklogList({
   tasks,
@@ -18,36 +19,58 @@ export function BacklogList({
   const backlog = tasks
     .filter((t) => t.status === "backlog")
     .sort((a, b) => a.position - b.position);
+  const assigneeOptions = [
+    { value: "", label: "Assign..." },
+    ...assignees.map((assignee) => ({
+      value: assignee.email,
+      label: assignee.name ?? assignee.email,
+    })),
+  ];
 
   if (backlog.length === 0) {
-    return <p className="p-6 text-sm text-slate-400">Backlog is empty.</p>;
+    return (
+      <div className="px-6 pb-6">
+        <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
+          Backlog is empty.
+        </div>
+      </div>
+    );
   }
 
   return (
-    <ul className="divide-y divide-slate-100 p-4">
-      {backlog.map((task) => (
-        <li key={task.id} className="flex items-center gap-3 py-2">
-          <PriorityDot priority={task.priority} />
-          <button
-            type="button"
-            onClick={() => onOpen(task.id)}
-            className="flex-1 text-left text-sm text-slate-800 hover:underline"
-          >
-            {task.title}
-          </button>
-          <DueBadge due={task.due_date} />
-          <select
-            defaultValue=""
-            onChange={(e) => e.target.value && onAssign(task.id, e.target.value)}
-            className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
-          >
-            <option value="">Assign…</option>
-            {assignees.map((a) => (
-              <option key={a.email} value={a.email}>{a.name ?? a.email}</option>
-            ))}
-          </select>
-        </li>
-      ))}
-    </ul>
+    <div className="px-6 pb-6">
+      <div className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
+        <div className="border-b border-[#dfe1e6] bg-[#f4f5f7] px-4 py-3 text-xs font-bold uppercase text-[#6b778c]">
+          Backlog {backlog.length}
+        </div>
+        <ul className="divide-y divide-[#ebecf0]">
+          {backlog.map((task) => (
+            <li
+              key={task.id}
+              className="flex items-center gap-3 px-4 py-3 transition hover:bg-[#f4f5f7]"
+            >
+              <PriorityDot priority={task.priority} />
+              <button
+                type="button"
+                onClick={() => onOpen(task.id)}
+                className="min-w-0 flex-1 truncate text-left text-sm font-medium text-[#253858] hover:text-[#0c66e4]"
+              >
+                {task.title}
+              </button>
+              <DueBadge due={task.due_date} />
+              <TaskSelect
+                label="Assign"
+                value=""
+                options={assigneeOptions}
+                align="right"
+                className="w-44 shrink-0"
+                buttonClassName="h-9 border-[#dfe1e6] shadow-none"
+                onChange={(email) => email && onAssign(task.id, email)}
+              />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }

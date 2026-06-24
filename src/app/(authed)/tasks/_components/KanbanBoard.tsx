@@ -28,11 +28,11 @@ const COLUMN_LABEL: Record<TaskStatus, string> = {
 
 function SortableCard({
   task,
-  categoryName,
+  category,
   onOpen,
 }: {
   task: TaskRow;
-  categoryName?: string | null;
+  category?: TaskCategory | null;
   onOpen: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -40,12 +40,16 @@ function SortableCard({
   return (
     <div
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.58 : 1,
+      }}
       {...attributes}
       {...listeners}
       className="mb-2"
     >
-      <TaskCard task={task} categoryName={categoryName} onOpen={onOpen} />
+      <TaskCard task={task} category={category} onOpen={onOpen} />
     </div>
   );
 }
@@ -54,30 +58,42 @@ function Column({
   status,
   tasks,
   onOpen,
-  categoryName,
+  categoryById,
 }: {
   status: TaskStatus;
   tasks: TaskRow[];
   onOpen: (id: string) => void;
-  categoryName: (id: string | null) => string | null;
+  categoryById: Map<string, TaskCategory>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${status}` });
   return (
-    <div className="flex w-72 shrink-0 flex-col rounded-xl bg-slate-100 p-2">
-      <div className="mb-2 flex items-center justify-between px-1">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <section className="flex w-[17.9rem] shrink-0 flex-col rounded bg-[#f4f5f7] p-1.5">
+      <div className="flex h-9 items-center px-1">
+        <span className="text-xs font-bold uppercase text-[#6b778c]">
           {COLUMN_LABEL[status]}
         </span>
-        <span className="text-xs text-slate-400">{tasks.length}</span>
+        <span className="ml-1 text-xs font-bold text-[#6b778c]">
+          {tasks.length}
+        </span>
       </div>
-      <div ref={setNodeRef} className={`min-h-24 rounded-lg p-1 ${isOver ? "bg-slate-200" : ""}`}>
+      <div
+        ref={setNodeRef}
+        className={`min-h-[32rem] flex-1 rounded px-0.5 pb-1 transition ${
+          isOver ? "bg-[#deebff]" : ""
+        }`}
+      >
         <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map((t) => (
-            <SortableCard key={t.id} task={t} categoryName={categoryName(t.category_id)} onOpen={onOpen} />
+            <SortableCard
+              key={t.id}
+              task={t}
+              category={t.category_id ? categoryById.get(t.category_id) : null}
+              onOpen={onOpen}
+            />
           ))}
         </SortableContext>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -95,7 +111,7 @@ export function KanbanBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const byStatus = (s: TaskStatus) =>
     tasks.filter((t) => t.status === s).sort((a, b) => a.position - b.position);
-  const categoryName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? null;
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -132,9 +148,15 @@ export function KanbanBoard({
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div className="flex gap-3 overflow-x-auto p-4">
+      <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-6 pb-6">
         {KANBAN_STATUSES.map((s) => (
-          <Column key={s} status={s} tasks={byStatus(s)} onOpen={onOpen} categoryName={categoryName} />
+          <Column
+            key={s}
+            status={s}
+            tasks={byStatus(s)}
+            onOpen={onOpen}
+            categoryById={categoryById}
+          />
         ))}
       </div>
     </DndContext>

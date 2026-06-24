@@ -57,7 +57,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const entries = buildActivityEntries(
-    { status: r.task.status, assignee_email: r.task.assignee_email },
+    {
+      status: r.task.status,
+      assignee_email: r.task.assignee_email,
+      agent_email: r.task.agent_email,
+    },
     resolved.patch
   );
   if (entries.length > 0) {

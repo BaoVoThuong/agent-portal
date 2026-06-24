@@ -30,11 +30,27 @@ export function CommentThread({
   }, [taskId]);
 
   useEffect(() => {
-    void load();
+    let isCurrent = true;
+
+    void fetch(`/api/tasks/${taskId}/comments`)
+      .then((r) => (r.ok ? r.json() : { comments: [] }))
+      .then((d) => {
+        if (isCurrent) {
+          setComments(d.comments as Comment[]);
+        }
+      });
     void fetch("/api/tasks/members")
       .then((r) => (r.ok ? r.json() : { members: [] }))
-      .then((d) => setMembers(d.members as TaskAssignee[]));
-  }, [load]);
+      .then((d) => {
+        if (isCurrent) {
+          setMembers(d.members as TaskAssignee[]);
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [taskId]);
 
   async function post(body: string, mentions: string[], parentId: string | null) {
     const res = await fetch(`/api/tasks/${taskId}/comments`, {

@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import type { TaskActor, TaskRow } from "./types";
 
 const TASK_COLUMNS =
-  "id,title,description,status,priority,category_id,assignee_email,reporter_email,due_date,waiting_reason,position,created_at,updated_at,archived_at";
+  "id,title,description,status,priority,category_id,agent_email,assignee_email,reporter_email,due_date,waiting_reason,position,created_at,updated_at,archived_at";
 
 export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   const supabase = getSupabaseAdmin();

@@ -29,6 +29,11 @@ describe("buildActivityEntries", () => {
     expect(buildActivityEntries(before, { category_id: "c1" })).toEqual([
       { type: "category_changed", meta: { to: "c1" } },
     ]);
+    expect(
+      buildActivityEntries({ ...before, agent_email: null }, { agent_email: "agent@x.com" })
+    ).toEqual([
+      { type: "agent_changed", meta: { to: "agent@x.com" } },
+    ]);
     expect(buildActivityEntries(before, { title: "x" })).toEqual([
       { type: "edited", meta: null },
     ]);

@@ -12,6 +12,17 @@ describe("resolveTaskPatch", () => {
     expect(r).toEqual({ ok: true, patch: { title: "New title" } });
   });
 
+  it("accepts changing or clearing the customer agent", () => {
+    expect(
+      resolveTaskPatch(manager, assigned, { agent_email: "  agent@x.com  " })
+    ).toEqual({ ok: true, patch: { agent_email: "agent@x.com" } });
+
+    expect(resolveTaskPatch(manager, assigned, { agent_email: "" })).toEqual({
+      ok: true,
+      patch: { agent_email: null },
+    });
+  });
+
   it("rejects empty title", () => {
     const r = resolveTaskPatch(manager, assigned, { title: "   " });
     expect(r.ok).toBe(false);

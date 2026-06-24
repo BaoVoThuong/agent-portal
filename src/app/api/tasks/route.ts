@@ -49,6 +49,10 @@ export async function POST(request: Request) {
     (TASK_PRIORITIES as readonly string[]).includes(body.priority)
       ? body.priority
       : "medium";
+  const agentEmail =
+    typeof body?.agent_email === "string" && body.agent_email.trim() !== ""
+      ? body.agent_email.trim()
+      : null;
 
   const supabase = getSupabaseAdmin();
   // Place new card at the bottom of its column.
@@ -72,6 +76,7 @@ export async function POST(request: Request) {
           : null,
       status: assignment.status,
       priority,
+      agent_email: agentEmail,
       assignee_email: assignment.assignee_email,
       reporter_email: email,
       due_date:

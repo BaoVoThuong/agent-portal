@@ -3,7 +3,11 @@
 export type ActivityEntry = { type: string; meta: Record<string, unknown> | null };
 
 export function buildActivityEntries(
-  before: { status: string; assignee_email: string | null },
+  before: {
+    status: string;
+    assignee_email: string | null;
+    agent_email?: string | null;
+  },
   patch: Record<string, unknown>
 ): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
@@ -23,6 +27,9 @@ export function buildActivityEntries(
   }
   if ("category_id" in patch) {
     entries.push({ type: "category_changed", meta: { to: patch.category_id ?? null } });
+  }
+  if ("agent_email" in patch && patch.agent_email !== before.agent_email) {
+    entries.push({ type: "agent_changed", meta: { to: patch.agent_email ?? null } });
   }
   if ("title" in patch || "description" in patch) {
     entries.push({ type: "edited", meta: null });

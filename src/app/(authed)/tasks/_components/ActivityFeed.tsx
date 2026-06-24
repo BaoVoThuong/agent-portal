@@ -20,6 +20,7 @@ function describe(a: Activity): string {
     case "priority_changed": return `set priority ${to}`;
     case "due_changed": return `set due date ${to}`;
     case "category_changed": return "changed category";
+    case "agent_changed": return `changed agent to ${to}`;
     case "comment_added": return "commented";
     case "edited": return "edited the task";
     case "archived": return "archived the task";

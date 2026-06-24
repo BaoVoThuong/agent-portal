@@ -28,8 +28,20 @@ export function AttachmentPanel({
   }, [taskId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let isCurrent = true;
+
+    void fetch(`/api/tasks/${taskId}/attachments`)
+      .then((res) => (res.ok ? res.json() : { attachments: [] }))
+      .then((data) => {
+        if (isCurrent) {
+          setItems(data.attachments as Attachment[]);
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [taskId]);
 
   async function upload(file: File) {
     setBusy(true);

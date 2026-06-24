@@ -36,9 +36,21 @@ export function NotificationBell() {
   }, []);
 
   useEffect(() => {
-    void load();
+    let isCurrent = true;
+
+    void fetch("/api/tasks/notifications")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!isCurrent || !data) return;
+        setItems(data.notifications as Notif[]);
+        setUnread(data.unread as number);
+      });
+
     const t = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(t);
+    return () => {
+      isCurrent = false;
+      clearInterval(t);
+    };
   }, [load]);
 
   useEffect(() => {

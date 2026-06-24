@@ -1273,6 +1273,7 @@ create table if not exists tasks (
   priority text not null default 'medium'
     check (priority in ('low','medium','high','urgent')),
   category_id uuid references task_categories(id) on delete set null,
+  agent_email text,
   assignee_email text,
   reporter_email text not null,
   due_date date,
@@ -1286,7 +1287,11 @@ create table if not exists tasks (
     check (status <> 'backlog' or assignee_email is null)
 );
 
+alter table tasks
+add column if not exists agent_email text;
+
 create index if not exists tasks_assignee_idx on tasks (assignee_email);
+create index if not exists tasks_agent_email_idx on tasks (agent_email);
 create index if not exists tasks_status_position_idx on tasks (status, position);
 create index if not exists tasks_category_idx on tasks (category_id);
 create index if not exists tasks_due_date_idx on tasks (due_date);
