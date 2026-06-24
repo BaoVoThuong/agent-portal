@@ -1,20 +1,31 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
+  closestCorners,
   useSensor,
   useSensors,
   useDroppable,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  arrayMove,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { KANBAN_STATUSES, type TaskRow, type TaskStatus, type TaskCategory } from "@/lib/tasks/types";
+import {
+  KANBAN_STATUSES,
+  type TaskRow,
+  type TaskStatus,
+  type TaskCategory,
+} from "@/lib/tasks/types";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TaskCard } from "./TaskCard";
 
@@ -25,6 +36,26 @@ const COLUMN_LABEL: Record<TaskStatus, string> = {
   waiting: "Waiting",
   done: "Done",
 };
+
+function byPosition(tasks: TaskRow[]): TaskRow[] {
+  return [...tasks].sort((a, b) => a.position - b.position);
+}
+
+// The column a draggable id currently belongs to. Column drop zones use the id
+// `col:<status>`; cards use their task id.
+function findContainer(id: string, items: TaskRow[]): TaskStatus | null {
+  if (id.startsWith("col:")) return id.slice(4) as TaskStatus;
+  return items.find((task) => task.id === id)?.status ?? null;
+}
+
+// Index just after the last card of a status (where an appended card lands).
+function endIndexOfStatus(items: TaskRow[], status: TaskStatus): number {
+  let lastIndex = -1;
+  items.forEach((task, index) => {
+    if (task.status === status) lastIndex = index;
+  });
+  return lastIndex === -1 ? items.length : lastIndex + 1;
+}
 
 function SortableCard({
   task,
@@ -43,7 +74,9 @@ function SortableCard({
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        opacity: isDragging ? 0.58 : 1,
+        // While dragging, the original keeps its space as an empty placeholder;
+        // the live card is rendered in the DragOverlay instead.
+        opacity: isDragging ? 0 : 1,
       }}
       {...attributes}
       {...listeners}
@@ -78,11 +111,14 @@ function Column({
       </div>
       <div
         ref={setNodeRef}
-        className={`flex-1 overflow-y-auto rounded px-0.5 pb-1 transition ${
+        className={`flex-1 overflow-y-auto rounded px-0.5 pb-1 transition-colors ${
           isOver ? "bg-[#deebff]" : ""
         }`}
       >
-        <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={tasks.map((t) => t.id)}
+          strategy={verticalListSortingStrategy}
+        >
           {tasks.map((t) => (
             <SortableCard
               key={t.id}
@@ -108,57 +144,153 @@ export function KanbanBoard({
   onMove: (taskId: string, change: { status: TaskStatus; position: number }) => void;
   categories: TaskCategory[];
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const byStatus = (s: TaskStatus) =>
-    tasks.filter((t) => t.status === s).sort((a, b) => a.position - b.position);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
   const categoryById = new Map(categories.map((category) => [category.id, category]));
 
-  function handleDragEnd(event: DragEndEvent) {
+  // Local ordered mirror of the tasks so the board can reflow live while dragging
+  // (cross-column move on hover). Array order = display order within a column.
+  const [items, setItems] = useState<TaskRow[]>(() => byPosition(tasks));
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Re-sync from props whenever they change and we are not mid-drag (so an
+  // in-flight drag is never clobbered by an optimistic parent update).
+  useEffect(() => {
+    if (!activeId) setItems(byPosition(tasks));
+  }, [tasks, activeId]);
+
+  const columnTasks = (status: TaskStatus) =>
+    items.filter((task) => task.status === status);
+
+  const activeTask = activeId
+    ? items.find((task) => task.id === activeId) ?? null
+    : null;
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id));
+  }
+
+  // Live cross-column move: when the dragged card hovers a different column,
+  // splice it into that column immediately so the board reflows under the cursor.
+  function handleDragOver(event: DragOverEvent) {
     const { active, over } = event;
     if (!over) return;
     const activeId = String(active.id);
     const overId = String(over.id);
-    const moving = tasks.find((t) => t.id === activeId);
+
+    const activeContainer = findContainer(activeId, items);
+    const overContainer = findContainer(overId, items);
+    if (!activeContainer || !overContainer || activeContainer === overContainer) {
+      return;
+    }
+
+    setItems((prev) => {
+      const activeIndex = prev.findIndex((task) => task.id === activeId);
+      if (activeIndex === -1) return prev;
+
+      const next = [...prev];
+      const [moved] = next.splice(activeIndex, 1);
+      const movedUpdated: TaskRow = { ...moved, status: overContainer };
+
+      let insertIndex: number;
+      if (overId.startsWith("col:")) {
+        insertIndex = endIndexOfStatus(next, overContainer);
+      } else {
+        const overIndex = next.findIndex((task) => task.id === overId);
+        insertIndex =
+          overIndex === -1 ? endIndexOfStatus(next, overContainer) : overIndex;
+      }
+
+      next.splice(insertIndex, 0, movedUpdated);
+      return next;
+    });
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setActiveId(null);
+    if (!over) return;
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+
+    // Same-column reorder commits here (cross-column already happened on hover).
+    let working = items;
+    const activeContainer = findContainer(activeId, items);
+    const overContainer = findContainer(overId, items);
+    if (
+      activeContainer &&
+      overContainer &&
+      activeContainer === overContainer &&
+      !overId.startsWith("col:")
+    ) {
+      const activeIndex = items.findIndex((task) => task.id === activeId);
+      const overIndex = items.findIndex((task) => task.id === overId);
+      if (activeIndex !== -1 && overIndex !== -1 && activeIndex !== overIndex) {
+        working = arrayMove(items, activeIndex, overIndex);
+        setItems(working);
+      }
+    }
+
+    const moving = working.find((task) => task.id === activeId);
     if (!moving) return;
 
-    // Destination status: dropped on a column area, or onto another card.
-    let destStatus: TaskStatus;
-    if (overId.startsWith("col:")) {
-      destStatus = overId.slice(4) as TaskStatus;
-    } else {
-      const overTask = tasks.find((t) => t.id === overId);
-      if (!overTask) return;
-      destStatus = overTask.status;
-    }
-
-    const dest = byStatus(destStatus).filter((t) => t.id !== activeId);
-    // Index where it was dropped.
-    let index = dest.length;
-    if (!overId.startsWith("col:")) {
-      const overIdx = dest.findIndex((t) => t.id === overId);
-      if (overIdx !== -1) index = overIdx;
-    }
-    const before = index > 0 ? dest[index - 1].position : null;
-    const after = index < dest.length ? dest[index].position : null;
+    // New position = midpoint of the neighbours in the destination column.
+    const column = working.filter((task) => task.status === moving.status);
+    const index = column.findIndex((task) => task.id === activeId);
+    const before = index > 0 ? column[index - 1].position : null;
+    const after = index < column.length - 1 ? column[index + 1].position : null;
     const position = midpoint(before, after);
 
-    if (destStatus === moving.status && position === moving.position) return;
-    onMove(activeId, { status: destStatus, position });
+    const original = tasks.find((task) => task.id === activeId);
+    if (
+      original &&
+      original.status === moving.status &&
+      original.position === position
+    ) {
+      return;
+    }
+
+    onMove(activeId, { status: moving.status, position });
   }
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveId(null)}
+    >
       <div className="flex min-h-0 flex-1 gap-4 px-6 pb-6">
-        {KANBAN_STATUSES.map((s) => (
+        {KANBAN_STATUSES.map((status) => (
           <Column
-            key={s}
-            status={s}
-            tasks={byStatus(s)}
+            key={status}
+            status={status}
+            tasks={columnTasks(status)}
             onOpen={onOpen}
             categoryById={categoryById}
           />
         ))}
       </div>
+
+      <DragOverlay dropAnimation={{ duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" }}>
+        {activeTask ? (
+          <div className="rotate-2 cursor-grabbing opacity-95 shadow-[0_12px_28px_rgba(9,30,66,0.28)]">
+            <TaskCard
+              task={activeTask}
+              category={
+                activeTask.category_id
+                  ? categoryById.get(activeTask.category_id)
+                  : null
+              }
+              onOpen={() => {}}
+            />
+          </div>
+        ) : null}
+      </DragOverlay>
     </DndContext>
   );
 }
