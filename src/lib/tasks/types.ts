@@ -55,3 +55,11 @@ export type TaskActor = {
 };
 
 export type TaskCategory = { id: string; name: string; color: string | null };
+
+export const STATUS_LABEL: Record<TaskStatus, string> = {
+  backlog: "Backlog",
+  todo: "To Do",
+  in_progress: "In Progress",
+  waiting: "Waiting",
+  done: "Done",
+};
