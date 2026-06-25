@@ -287,7 +287,6 @@ export function TaskBoardClient({
           tasks={visibleTasks}
           categories={categories}
           assignees={assignees}
-          agents={agents}
           isManager={isManager}
           currentEmail={currentEmail}
           onOpen={setOpenId}
@@ -301,7 +300,7 @@ export function TaskBoardClient({
           assignees={assignees}
           categories={categories}
           onOpen={setOpenId}
-          onAssign={(id, email) => patchTask(id, { assignee_email: email, status: "todo" })}
+          onPatch={patchTask}
           onReorder={(id, position) => patchTask(id, { position })}
           onCreate={createTask}
         />

@@ -18,19 +18,17 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus } from "lucide-react";
 import { midpoint } from "@/lib/tasks/ordering";
-import { taskKey } from "@/lib/tasks/sorting";
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import type { NewTaskPayload } from "./NewTaskDialog";
-import { TaskSelect } from "./TaskSelect";
-import { PriorityIcon, DueBadge } from "./board-ui";
+import { TaskRowItem } from "./TaskRowItem";
 
 export function BacklogBoard({
   tasks,
   assignees,
   categories,
   onOpen,
-  onAssign,
+  onPatch,
   onReorder,
   onCreate,
 }: {
@@ -38,23 +36,18 @@ export function BacklogBoard({
   assignees: TaskAssignee[];
   categories: TaskCategory[];
   onOpen: (id: string) => void;
-  onAssign: (taskId: string, email: string) => void;
+  onPatch: (id: string, patch: Record<string, unknown>) => void;
   onReorder: (taskId: string, position: number) => void;
   onCreate: (payload: NewTaskPayload) => Promise<void>;
 }) {
   const backlog = tasks
     .filter((t) => t.status === "backlog")
     .sort((a, b) => a.position - b.position);
+  const categoryById = new Map(categories.map((c) => [c.id, c]));
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
-  const categoryName = (id: string | null) =>
-    categories.find((c) => c.id === id)?.name ?? null;
-  const assigneeOptions = [
-    { value: "", label: "Assign…" },
-    ...assignees.map((a) => ({ value: a.email, label: a.name ?? a.email })),
-  ];
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -94,13 +87,13 @@ export function BacklogBoard({
             >
               <ul className="divide-y divide-[#ebecf0]">
                 {backlog.map((task) => (
-                  <BacklogRow
+                  <BacklogSortableRow
                     key={task.id}
                     task={task}
-                    categoryName={categoryName(task.category_id)}
-                    assigneeOptions={assigneeOptions}
+                    category={categoryById.get(task.category_id ?? "") ?? null}
+                    assignees={assignees}
                     onOpen={onOpen}
-                    onAssign={onAssign}
+                    onPatch={onPatch}
                   />
                 ))}
               </ul>
@@ -114,18 +107,18 @@ export function BacklogBoard({
   );
 }
 
-function BacklogRow({
+function BacklogSortableRow({
   task,
-  categoryName,
-  assigneeOptions,
+  category,
+  assignees,
   onOpen,
-  onAssign,
+  onPatch,
 }: {
   task: TaskRow;
-  categoryName: string | null;
-  assigneeOptions: { value: string; label: string }[];
+  category: TaskCategory | null;
+  assignees: TaskAssignee[];
   onOpen: (id: string) => void;
-  onAssign: (taskId: string, email: string) => void;
+  onPatch: (id: string, patch: Record<string, unknown>) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id });
@@ -138,47 +131,26 @@ function BacklogRow({
         transition,
         opacity: isDragging ? 0.5 : 1,
       }}
-      className="flex items-center gap-2 bg-white px-3 py-2.5 transition hover:bg-[#f4f5f7]"
     >
-      <button
-        type="button"
-        aria-label="Drag to reorder"
-        className="shrink-0 cursor-grab text-[#97a0af] hover:text-[#42526e] active:cursor-grabbing"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
-      <PriorityIcon priority={task.priority} />
-      <span className="shrink-0 font-mono text-xs font-bold text-[#97a0af]">
-        {taskKey(task.id)}
-      </span>
-      <button
-        type="button"
-        onClick={() => onOpen(task.id)}
-        className="min-w-0 flex-1 truncate text-left text-sm font-medium text-[#253858] hover:text-[#0c66e4]"
-      >
-        {task.title}
-      </button>
-      {categoryName ? (
-        <span className="hidden shrink-0 rounded bg-[#ebecf0] px-1.5 py-0.5 text-[11px] font-bold uppercase text-[#42526e] sm:inline">
-          {categoryName}
-        </span>
-      ) : null}
-      {task.agent_email ? (
-        <span className="hidden min-w-0 max-w-[10rem] shrink-0 truncate text-xs text-[#6b778c] md:inline">
-          {task.agent_email}
-        </span>
-      ) : null}
-      <DueBadge due={task.due_date} />
-      <TaskSelect
-        label="Assign"
-        value=""
-        options={assigneeOptions}
-        align="right"
-        className="w-40 shrink-0"
-        buttonClassName="h-8 border-[#dfe1e6] shadow-none"
-        onChange={(email) => email && onAssign(task.id, email)}
+      <TaskRowItem
+        task={task}
+        category={category}
+        assignees={assignees}
+        canEdit
+        canAssign
+        onOpen={onOpen}
+        onPatch={onPatch}
+        dragHandle={
+          <button
+            type="button"
+            aria-label="Drag to reorder"
+            className="shrink-0 cursor-grab text-[#97a0af] hover:text-[#42526e] active:cursor-grabbing"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        }
       />
     </li>
   );
@@ -210,7 +182,7 @@ function InlineCreateRow({
   }
 
   return (
-    <div className="flex items-center gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-3 py-2.5">
+    <div className="flex items-center gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5">
       <Plus className="h-4 w-4 shrink-0 text-[#6b778c]" />
       <input
         value={title}
