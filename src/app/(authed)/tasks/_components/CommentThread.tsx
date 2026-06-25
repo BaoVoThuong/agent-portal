@@ -77,7 +77,7 @@ export function CommentThread({
       {topLevel.map((c) => (
         <div key={c.id} className="space-y-2">
           <CommentItem c={c} currentEmail={currentEmail} onDelete={remove} onReply={() => setReplyTo(c.id)} />
-          <div className="ml-6 space-y-2 border-l border-slate-100 pl-3">
+          <div className="ml-6 space-y-2 border-l border-[#ebecf0] pl-3">
             {repliesOf(c.id).map((rc) => (
               <CommentItem key={rc.id} c={rc} currentEmail={currentEmail} onDelete={remove} />
             ))}
@@ -104,26 +104,26 @@ function CommentItem({
   onReply?: () => void;
 }) {
   if (c.deleted_at) {
-    return <p className="text-xs italic text-slate-300">comment deleted</p>;
+    return <p className="text-xs italic text-[#97a0af]">comment deleted</p>;
   }
   return (
-    <div className="rounded-lg bg-slate-50 p-2.5">
+    <div className="rounded-lg bg-[#f4f5f7] p-2.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-slate-600">{c.author_email}</span>
+        <span className="text-xs font-semibold text-[#172b4d]">{c.author_email}</span>
         <div className="flex items-center gap-2">
           {onReply && (
-            <button type="button" onClick={onReply} className="text-slate-400 hover:text-slate-600" aria-label="Reply">
+            <button type="button" onClick={onReply} className="text-[#97a0af] transition hover:text-[#42526e]" aria-label="Reply">
               <Reply className="h-3.5 w-3.5" />
             </button>
           )}
           {c.author_email === currentEmail && (
-            <button type="button" onClick={() => onDelete(c.id)} className="text-xs text-red-400 hover:underline">
+            <button type="button" onClick={() => onDelete(c.id)} className="text-xs font-medium text-[#bf2600] hover:underline">
               delete
             </button>
           )}
         </div>
       </div>
-      <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{c.body}</p>
+      <p className="mt-1 whitespace-pre-wrap text-sm text-[#172b4d]">{c.body}</p>
     </div>
   );
 }
@@ -157,18 +157,18 @@ function Composer({
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 p-2">
+    <div className="rounded-lg border border-[#dfe1e6] p-2 focus-within:border-[#0c66e4]">
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder={placeholder}
         rows={2}
-        className="w-full resize-none bg-transparent text-sm focus:outline-none"
+        className="w-full resize-none bg-transparent text-sm text-[#172b4d] placeholder:text-[#7a869a] focus:outline-none"
       />
       {mentions.length > 0 && (
         <div className="mb-1 flex flex-wrap gap-1">
           {mentions.map((m) => (
-            <span key={m} className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-600">@{m}</span>
+            <span key={m} className="rounded bg-[#deebff] px-1.5 py-0.5 text-[10px] font-medium text-[#0c66e4]">@{m}</span>
           ))}
         </div>
       )}
@@ -176,18 +176,18 @@ function Composer({
         <button
           type="button"
           onClick={() => setPickerOpen((o) => !o)}
-          className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600"
+          className="flex items-center gap-1 text-xs font-medium text-[#6b778c] transition hover:text-[#42526e]"
         >
           <AtSign className="h-3.5 w-3.5" /> Mention
         </button>
         {pickerOpen && (
-          <div className="absolute bottom-7 left-0 z-10 max-h-40 w-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+          <div className="absolute bottom-7 left-0 z-10 max-h-40 w-56 overflow-y-auto rounded-lg border border-[#dfe1e6] bg-white shadow-[0_8px_24px_rgba(9,30,66,0.18)]">
             {members.map((m) => (
               <button
                 key={m.email}
                 type="button"
                 onClick={() => addMention(m)}
-                className="block w-full px-3 py-1.5 text-left text-sm hover:bg-slate-50"
+                className="block w-full px-3 py-1.5 text-left text-sm text-[#172b4d] hover:bg-[#f4f5f7]"
               >
                 {m.name ?? m.email}
               </button>
@@ -198,7 +198,7 @@ function Composer({
           type="button"
           onClick={submit}
           disabled={!text.trim()}
-          className="rounded-lg bg-[#0f2849] px-3 py-1 text-xs text-white disabled:opacity-40"
+          className="rounded bg-[#0c66e4] px-3 py-1 text-xs font-semibold text-white transition hover:bg-[#0055cc] disabled:opacity-40"
         >
           Send
         </button>
