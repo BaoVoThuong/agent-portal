@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import {
-  KANBAN_STATUSES,
+  TASK_STATUSES,
   STATUS_LABEL,
   type TaskCategory,
   type TaskRow,
@@ -61,7 +61,7 @@ export function TaskListView({
     categories.find((c) => c.id === id)?.name ?? null;
   const rows = sortTasks(tasks, sort.key, sort.dir, categoryName);
 
-  const statusOptions = KANBAN_STATUSES.map((s) => ({
+  const statusOptions = TASK_STATUSES.map((s) => ({
     value: s,
     label: STATUS_LABEL[s],
   }));
