@@ -37,14 +37,15 @@ export function ActivityFeed({ taskId }: { taskId: string }) {
       .then((d) => setItems(d.activity as Activity[]));
   }, [taskId]);
 
-  if (items.length === 0) return <p className="text-xs text-slate-400">No activity yet.</p>;
+  if (items.length === 0)
+    return <p className="text-xs text-[#6b778c]">No activity yet.</p>;
 
   return (
     <ul className="space-y-2">
       {items.map((a) => (
-        <li key={a.id} className="text-xs text-slate-500">
-          <span className="font-medium text-slate-600">{a.actor_email}</span> {describe(a)}
-          <span className="ml-1 text-slate-300">{new Date(a.created_at).toLocaleString()}</span>
+        <li key={a.id} className="text-xs text-[#6b778c]">
+          <span className="font-semibold text-[#172b4d]">{a.actor_email}</span> {describe(a)}
+          <span className="ml-1 text-[#97a0af]">{new Date(a.created_at).toLocaleString()}</span>
         </li>
       ))}
     </ul>
