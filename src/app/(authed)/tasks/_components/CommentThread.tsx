@@ -37,12 +37,13 @@ const isImage = (mime: string | null) => Boolean(mime && mime.startsWith("image/
 export function CommentThread({
   taskId,
   currentEmail,
+  members,
 }: {
   taskId: string;
   currentEmail: string;
+  members: TaskAssignee[];
 }) {
   const [comments, setComments] = useState<Comment[]>([]);
-  const [members, setMembers] = useState<TaskAssignee[]>([]);
   const [replyTo, setReplyTo] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -56,11 +57,6 @@ export function CommentThread({
       .then((r) => (r.ok ? r.json() : { comments: [] }))
       .then((d) => {
         if (isCurrent) setComments(d.comments as Comment[]);
-      });
-    void fetch("/api/tasks/members")
-      .then((r) => (r.ok ? r.json() : { members: [] }))
-      .then((d) => {
-        if (isCurrent) setMembers(d.members as TaskAssignee[]);
       });
     return () => {
       isCurrent = false;

@@ -136,7 +136,7 @@ export function TaskDetailDrawer({
 
               <section className="space-y-3 border-t border-[#dfe1e6] pt-5">
                 <span className={LABEL_CLASS}>Comments</span>
-                <CommentThread taskId={task.id} currentEmail={currentEmail} />
+                <CommentThread taskId={task.id} currentEmail={currentEmail} members={assignees} />
               </section>
             </main>
 
