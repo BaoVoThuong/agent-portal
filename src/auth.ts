@@ -152,15 +152,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.roles = [];
           token.permissions = [];
         }
-
-        // agent_id luôn lấy mới (Google login không qua authorize).
-        const supabase = getSupabaseAdmin();
-        const { data: account } = await supabase
-          .from(PORTAL_ACCOUNT_TABLE)
-          .select("agent_id")
-          .eq("email", token.email)
-          .maybeSingle();
-        token.agentId = account?.agent_id ?? null;
+        token.agentId = access.agentId;
       }
 
       return token;
