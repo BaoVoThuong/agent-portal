@@ -1379,6 +1379,17 @@ create table if not exists task_participants (
 create index if not exists task_participants_email_idx
   on task_participants (email);
 
+-- Which CS staff support which agent (many-to-many). Admin-managed. Drives task
+-- visibility: a CS sees tasks whose agent_email is one of their agents.
+create table if not exists agent_members (
+  agent_email text not null,
+  cs_email text not null,
+  created_at timestamptz not null default now(),
+  primary key (agent_email, cs_email)
+);
+create index if not exists agent_members_cs_idx on agent_members (cs_email);
+create index if not exists agent_members_agent_idx on agent_members (agent_email);
+
 -- Defense-in-depth: enable RLS on every table. The app talks to Supabase only
 -- through the service-role key, which bypasses RLS, so behavior is unchanged.
 -- With RLS on and no public policies, anon/authenticated keys are denied by
@@ -1408,7 +1419,8 @@ declare
     'task_attachments',
     'task_activity',
     'task_notifications',
-    'task_participants'
+    'task_participants',
+    'agent_members'
   ];
 begin
   foreach table_name in array protected_tables loop
