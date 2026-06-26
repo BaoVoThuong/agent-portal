@@ -26,7 +26,7 @@ export function TaskDetailDrawer({
   currentEmail,
   onClose,
   onPatch,
-  onArchive,
+  onDelete,
 }: {
   task: TaskRow;
   isManager: boolean;
@@ -37,11 +37,12 @@ export function TaskDetailDrawer({
   currentEmail: string;
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
-  onArchive: () => Promise<void>;
+  onDelete: () => Promise<void>;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [tab, setTab] = useState<"details" | "comments" | "activity">("details");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const categoryOptions = [
     { value: "", label: "No category" },
@@ -204,14 +205,52 @@ export function TaskDetailDrawer({
           <footer className="border-t border-[#dfe1e6] p-4">
             <button
               type="button"
-              onClick={onArchive}
+              onClick={() => setConfirmingDelete(true)}
               className="text-sm font-semibold text-[#bf2600] transition hover:underline"
             >
-              Archive task
+              Delete task
             </button>
           </footer>
         )}
       </div>
+
+      {confirmingDelete && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-[#091e42]/50 p-4"
+          onClick={() => setConfirmingDelete(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-[#172b4d]">Delete task?</h2>
+            <p className="mt-2 text-sm leading-6 text-[#5e6c84]">
+              Xoá vĩnh viễn{" "}
+              <span className="font-semibold text-[#172b4d]">{task.title}</span> kèm
+              toàn bộ comment và file đính kèm. Không thể hoàn tác.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded px-3 py-2 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingDelete(false);
+                  void onDelete();
+                }}
+                className="rounded bg-[#ca3521] px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#ae2a19]"
+              >
+                Delete task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

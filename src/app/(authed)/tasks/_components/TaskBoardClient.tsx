@@ -1,13 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Tag } from "lucide-react";
-import type {
-  TaskCategory,
-  TaskPriority,
-  TaskRow,
-  TaskStatus,
-} from "@/lib/tasks/types";
+import type { TaskCategory, TaskRow, TaskStatus } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import {
   filterTasks,
@@ -46,10 +42,24 @@ export function TaskBoardClient({
   const [managingCategories, setManagingCategories] = useState(false);
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState(ALL_AGENTS);
-  const [quickFilters, setQuickFilters] = useState<QuickFilter[]>([]);
-  const [priorityFilter, setPriorityFilter] = useState<"" | TaskPriority>("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [presets, setPresets] = useState<QuickFilter[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<"" | string>("");
   const [statusFilter, setStatusFilter] = useState<"" | TaskStatus>("");
+  const [error, setError] = useState<string | null>(null);
+
+  // Auto-dismiss the error toast so it doesn't linger.
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 5000);
+    return () => clearTimeout(t);
+  }, [error]);
+
+  // Deep-link from a notification (/tasks?task=<id>). Derived during render (no
+  // effect); the param is dropped on open/close so re-clicking re-opens.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const deepLinkId = searchParams.get("task");
 
   const reloadCategories = async () => {
     const res = await fetch("/api/tasks/categories");
@@ -122,15 +132,24 @@ export function TaskBoardClient({
     return [...stats.values()].filter((stat) => stat.total > 0);
   }, [agentChoices, tasks]);
 
+  // Which filters make sense for the current view + role. Hidden filters are also
+  // forced inert here so a stale value can't silently filter a view that hides it.
+  //  - Agent (customer agent_email): manager-only.
+  //  - Assignee: manager-only, and not on Backlog (everything there is unassigned).
+  //  - Status: List only (Board columns already are statuses; Backlog is all backlog).
+  const showAgentFilter = isManager;
+  const showAssigneeFilter = isManager && view !== "backlog";
+  const showStatusFilter = view === "list";
+
   const visibleTasks = useMemo(
     () =>
       filterTasks(tasks, {
         query,
-        agent: agentFilter,
-        quick: quickFilters,
-        priority: priorityFilter,
+        agent: showAgentFilter ? agentFilter : ALL_AGENTS,
+        assignee: showAssigneeFilter ? assigneeFilter : "",
+        quick: presets,
         category: categoryFilter,
-        status: view === "list" ? statusFilter : "",
+        status: showStatusFilter ? statusFilter : "",
         currentEmail,
         searchText: (task) => {
           const category = task.category_id ? categoryById.get(task.category_id) : null;
@@ -152,33 +171,60 @@ export function TaskBoardClient({
       tasks,
       query,
       agentFilter,
-      quickFilters,
-      priorityFilter,
+      assigneeFilter,
+      presets,
       categoryFilter,
       statusFilter,
-      view,
+      showAgentFilter,
+      showAssigneeFilter,
+      showStatusFilter,
       currentEmail,
       categoryById,
       agentLabelByEmail,
     ]
   );
 
-  const openTask = tasks.find((t) => t.id === openId) ?? null;
+  const activeOpenId = deepLinkId ?? openId;
+  const openTask = tasks.find((t) => t.id === activeOpenId) ?? null;
+
+  function openTaskById(id: string) {
+    if (deepLinkId) router.replace("/tasks", { scroll: false });
+    setOpenId(id);
+  }
+  function closeTask() {
+    if (deepLinkId) router.replace("/tasks", { scroll: false });
+    setOpenId(null);
+  }
 
   function replaceTask(updated: TaskRow) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
   }
 
   async function patchTask(id: string, patch: Record<string, unknown>) {
-    const prev = tasks;
+    // Snapshot only the affected task so a failed update reverts just this card,
+    // never clobbering other concurrent optimistic moves.
+    const before = tasks.find((t) => t.id === id) ?? null;
+    const revert = () => {
+      if (before) setTasks((cur) => cur.map((t) => (t.id === id ? before : t)));
+    };
     setTasks((cur) => cur.map((t) => (t.id === id ? ({ ...t, ...patch } as TaskRow) : t)));
-    const res = await fetch(`/api/tasks/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
+
+    let res: Response;
+    try {
+      res = await fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+    } catch {
+      revert();
+      setError("Mất kết nối — không lưu được thay đổi.");
+      return;
+    }
     if (!res.ok) {
-      setTasks(prev);
+      revert();
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(data?.error ?? "Không cập nhật được task.");
       return;
     }
     const data = await res.json();
@@ -200,19 +246,30 @@ export function TaskBoardClient({
     setTasks((cur) => [...cur, data.task as TaskRow]);
   }
 
-  async function archiveTask(id: string) {
+  async function deleteTask(id: string) {
     const prev = tasks;
     setTasks((cur) => cur.filter((t) => t.id !== id));
     setOpenId(null);
-    const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
-    if (!res.ok) setTasks(prev);
+    let res: Response;
+    try {
+      res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    } catch {
+      setTasks(prev);
+      setError("Mất kết nối — không xoá được task.");
+      return;
+    }
+    if (!res.ok) {
+      setTasks(prev);
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(data?.error ?? "Không xoá được task.");
+    }
   }
 
   function clearAllFilters() {
     setQuery("");
     setAgentFilter(ALL_AGENTS);
-    setQuickFilters([]);
-    setPriorityFilter("");
+    setAssigneeFilter("");
+    setPresets([]);
     setCategoryFilter("");
     setStatusFilter("");
   }
@@ -257,15 +314,18 @@ export function TaskBoardClient({
           agentStats={agentStats}
           agentFilter={agentFilter}
           onAgentFilter={setAgentFilter}
-          quickValue={quickFilters}
-          onQuickChange={setQuickFilters}
-          priority={priorityFilter}
-          onPriority={setPriorityFilter}
+          assignees={assignees}
+          assigneeFilter={assigneeFilter}
+          onAssigneeFilter={setAssigneeFilter}
+          presets={presets}
+          onPresets={setPresets}
           category={categoryFilter}
           onCategory={setCategoryFilter}
           status={statusFilter}
           onStatus={setStatusFilter}
-          showStatusFacet={view === "list"}
+          showAgent={showAgentFilter}
+          showAssignee={showAssigneeFilter}
+          showStatus={showStatusFilter}
           categories={categories}
           resultCount={visibleTasks.length}
           totalCount={tasks.length}
@@ -276,7 +336,7 @@ export function TaskBoardClient({
       {view === "board" && (
         <KanbanBoard
           tasks={visibleTasks}
-          onOpen={setOpenId}
+          onOpen={openTaskById}
           onMove={moveTask}
           categories={categories}
         />
@@ -289,17 +349,17 @@ export function TaskBoardClient({
           assignees={assignees}
           isManager={isManager}
           currentEmail={currentEmail}
-          onOpen={setOpenId}
+          onOpen={openTaskById}
           onPatch={patchTask}
         />
       )}
 
       {view === "backlog" && isManager && (
         <BacklogBoard
-          tasks={tasks}
+          tasks={visibleTasks}
           assignees={assignees}
           categories={categories}
-          onOpen={setOpenId}
+          onOpen={openTaskById}
           onPatch={patchTask}
           onReorder={(id, position) => patchTask(id, { position })}
           onCreate={createTask}
@@ -325,9 +385,9 @@ export function TaskBoardClient({
           agents={agents}
           categories={categories}
           currentEmail={currentEmail}
-          onClose={() => setOpenId(null)}
+          onClose={closeTask}
           onPatch={(patch) => patchTask(openTask.id, patch)}
-          onArchive={() => archiveTask(openTask.id)}
+          onDelete={() => deleteTask(openTask.id)}
         />
       )}
 
@@ -336,6 +396,23 @@ export function TaskBoardClient({
         onClose={() => setManagingCategories(false)}
         onChanged={reloadCategories}
       />
+
+      {error && (
+        <div
+          role="alert"
+          className="fixed bottom-5 left-1/2 z-[200] flex max-w-md -translate-x-1/2 items-center gap-3 rounded bg-[#172b4d] px-4 py-2.5 text-sm font-medium text-white shadow-[0_8px_24px_rgba(9,30,66,0.32)]"
+        >
+          <span className="min-w-0">{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            aria-label="Dismiss"
+            className="shrink-0 rounded p-0.5 text-white/70 transition hover:text-white"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -15,6 +15,17 @@ import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { DueBadge, Initials, PriorityIcon, PRIORITY_META } from "./board-ui";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
+// Shared column widths so the List header and the rows line up exactly.
+export const LIST_COL = {
+  key: "w-20",
+  category: "w-52",
+  due: "w-24",
+  created: "w-24",
+  priority: "w-16",
+  status: "w-28",
+  assignee: "w-12",
+};
+
 const STATUS_PILL: Record<TaskStatus, { bg: string; fg: string }> = {
   backlog: { bg: "#dfe1e6", fg: "#42526e" },
   todo: { bg: "#dfe1e6", fg: "#42526e" },
@@ -45,7 +56,9 @@ export function TaskRowItem({
   return (
     <div className="flex items-center gap-3 bg-white px-4 py-2.5 transition hover:bg-[#f7f8f9]">
       {dragHandle}
-      <span className="shrink-0 font-mono text-xs font-bold text-[#97a0af]">
+      <span
+        className={`${LIST_COL.key} shrink-0 truncate font-mono text-xs font-bold text-[#97a0af]`}
+      >
         {taskKey(task.id)}
       </span>
       <button
@@ -57,50 +70,69 @@ export function TaskRowItem({
         {task.title}
       </button>
 
-      {category ? (
-        <span className="hidden shrink-0 rounded bg-[#ebecf0] px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[#42526e] sm:inline">
-          {category.name}
-        </span>
-      ) : null}
+      <span className={`hidden ${LIST_COL.category} shrink-0 truncate sm:block`}>
+        {category ? (
+          <span
+            className="rounded bg-[#ebecf0] px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[#42526e]"
+            title={category.name}
+          >
+            {category.name}
+          </span>
+        ) : null}
+      </span>
 
-      <DueBadge due={task.due_date} />
+      <span className={`${LIST_COL.due} shrink-0`}>
+        <DueBadge due={task.due_date} />
+      </span>
 
-      <span className="shrink-0" title={`${PRIORITY_META[task.priority].label} priority`}>
+      <span className={`${LIST_COL.created} shrink-0 text-[11px] font-medium text-[#6b778c]`}>
+        {task.created_at.slice(0, 10)}
+      </span>
+
+      <span
+        className={`flex ${LIST_COL.priority} shrink-0 justify-center`}
+        title={`${PRIORITY_META[task.priority].label} priority`}
+      >
         <PriorityIcon priority={task.priority} className="h-4 w-4" />
       </span>
 
       <StatusPill
         status={task.status}
+        assigned={task.assignee_email !== null}
         canEdit={canEdit}
         onChange={(status) => onPatch(task.id, { status })}
       />
 
-      <AssigneeMenu
-        email={task.assignee_email}
-        assignees={assignees}
-        canAssign={canAssign}
-        onChange={(email) =>
-          onPatch(
-            task.id,
-            email
-              ? {
-                  assignee_email: email,
-                  status: task.status === "backlog" ? "todo" : task.status,
-                }
-              : { assignee_email: null, status: "backlog" }
-          )
-        }
-      />
+      <span className={`flex ${LIST_COL.assignee} shrink-0 justify-center`}>
+        <AssigneeMenu
+          email={task.assignee_email}
+          assignees={assignees}
+          canAssign={canAssign}
+          onChange={(email) =>
+            onPatch(
+              task.id,
+              email
+                ? {
+                    assignee_email: email,
+                    status: task.status === "backlog" ? "todo" : task.status,
+                  }
+                : { assignee_email: null, status: "backlog" }
+            )
+          }
+        />
+      </span>
     </div>
   );
 }
 
 function StatusPill({
   status,
+  assigned,
   canEdit,
   onChange,
 }: {
   status: TaskStatus;
+  assigned: boolean;
   canEdit: boolean;
   onChange: (status: TaskStatus) => void;
 }) {
@@ -108,22 +140,41 @@ function StatusPill({
     useAnchoredMenu();
   const meta = STATUS_PILL[status];
 
+  // Backlog membership is governed by assignment (the avatar menu), not this
+  // dropdown: assigning moves a task to 'todo', unassigning sends it to backlog.
+  // So we never offer 'backlog' here, and we lock the pill while a task is
+  // unassigned — that avoids emitting a patch the server rejects (the invariant
+  // "non-backlog task must have an assignee" / "unassign before backlog").
+  const interactive = canEdit && assigned;
+  const options = TASK_STATUSES.filter((s) => s !== "backlog");
+
   const pill = (
     <span
       className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wide"
       style={{ backgroundColor: meta.bg, color: meta.fg }}
     >
       {STATUS_LABEL[status]}
-      {canEdit ? <ChevronDown className="h-3 w-3" /> : null}
+      {interactive ? <ChevronDown className="h-3 w-3" /> : null}
     </span>
   );
 
-  if (!canEdit) {
-    return <span className="w-28 shrink-0">{pill}</span>;
+  if (!interactive) {
+    return (
+      <span
+        className={`${LIST_COL.status} shrink-0`}
+        title={
+          canEdit && !assigned
+            ? "Gán người (avatar) để chuyển khỏi backlog"
+            : undefined
+        }
+      >
+        {pill}
+      </span>
+    );
   }
 
   return (
-    <span className="w-28 shrink-0">
+    <span className={`${LIST_COL.status} shrink-0`}>
       <button ref={triggerRef} type="button" onClick={toggle} aria-expanded={isOpen}>
         {pill}
       </button>
@@ -135,7 +186,7 @@ function StatusPill({
               style={menuStyle}
               className="z-[100] overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
             >
-              {TASK_STATUSES.map((s) => (
+              {options.map((s) => (
                 <button
                   key={s}
                   type="button"

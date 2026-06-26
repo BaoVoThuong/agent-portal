@@ -18,7 +18,42 @@ export async function GET() {
     .limit(30);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const notifications = data ?? [];
-  const unread = notifications.filter((n) => !(n as { is_read: boolean }).is_read).length;
+  const base = (data ?? []) as {
+    id: string;
+    task_id: string;
+    type: string;
+    actor_email: string;
+    comment_id: string | null;
+    is_read: boolean;
+    created_at: string;
+  }[];
+
+  // Enrich with the task title + the actor's display name so the bell is readable.
+  const taskIds = [...new Set(base.map((n) => n.task_id))];
+  const actorEmails = [...new Set(base.map((n) => n.actor_email))];
+  const [titlesRes, actorsRes] = await Promise.all([
+    taskIds.length
+      ? supabase.from("tasks").select("id,title").in("id", taskIds)
+      : Promise.resolve({ data: [] as { id: string; title: string }[] }),
+    actorEmails.length
+      ? supabase.from("portal_account").select("email,name").in("email", actorEmails)
+      : Promise.resolve({ data: [] as { email: string; name: string | null }[] }),
+  ]);
+  const titleById = new Map(
+    ((titlesRes.data ?? []) as { id: string; title: string }[]).map((t) => [t.id, t.title])
+  );
+  const nameByEmail = new Map(
+    ((actorsRes.data ?? []) as { email: string; name: string | null }[]).map((a) => [
+      a.email,
+      a.name,
+    ])
+  );
+
+  const notifications = base.map((n) => ({
+    ...n,
+    task_title: titleById.get(n.task_id) ?? null,
+    actor_name: nameByEmail.get(n.actor_email) ?? null,
+  }));
+  const unread = notifications.filter((n) => !n.is_read).length;
   return NextResponse.json({ notifications, unread });
 }

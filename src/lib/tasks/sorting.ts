@@ -8,6 +8,7 @@ export type SortKey =
   | "assignee"
   | "category"
   | "due"
+  | "created"
   | "updated"
   | "key";
 export type SortDir = "asc" | "desc";
@@ -56,6 +57,8 @@ function sortValue(
       return categoryName(task.category_id)?.toLowerCase() ?? null;
     case "due":
       return task.due_date ?? null;
+    case "created":
+      return task.created_at;
     case "updated":
       return task.updated_at;
     case "key":

@@ -1284,11 +1284,27 @@ create table if not exists tasks (
   updated_at timestamptz not null default now(),
   archived_at timestamptz,
   constraint tasks_backlog_no_assignee
-    check (status <> 'backlog' or assignee_email is null)
+    check (status <> 'backlog' or assignee_email is null),
+  -- Mặt còn lại của bất biến: task ngoài backlog BẮT BUỘC có assignee.
+  constraint tasks_nonbacklog_has_assignee
+    check (status = 'backlog' or assignee_email is not null)
 );
 
 alter table tasks
 add column if not exists agent_email text;
+
+-- Áp bất biến "non-backlog phải có assignee" cho DB đã tồn tại (create table
+-- if not exists ở trên không thêm constraint vào bảng cũ).
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'tasks_nonbacklog_has_assignee'
+  ) then
+    alter table tasks
+    add constraint tasks_nonbacklog_has_assignee
+    check (status = 'backlog' or assignee_email is not null);
+  end if;
+end $$;
 
 create index if not exists tasks_assignee_idx on tasks (assignee_email);
 create index if not exists tasks_agent_email_idx on tasks (agent_email);

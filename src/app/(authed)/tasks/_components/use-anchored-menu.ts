@@ -23,13 +23,19 @@ export function useAnchoredMenu() {
     if (el) {
       const rect = el.getBoundingClientRect();
       const maxHeight = 300;
+      const estWidth = 240;
       const spaceBelow = window.innerHeight - rect.bottom;
       const flipUp = spaceBelow < maxHeight && rect.top > spaceBelow;
+      // Not enough room to grow rightward → anchor the menu's right edge to the
+      // trigger so it opens leftward and stays inside the viewport.
+      const overflowRight = rect.left + estWidth > window.innerWidth - 8;
       setMenuStyle({
         position: "fixed",
-        left: rect.left,
         minWidth: rect.width,
         maxHeight,
+        ...(overflowRight
+          ? { right: Math.max(8, window.innerWidth - rect.right) }
+          : { left: rect.left }),
         ...(flipUp
           ? { bottom: window.innerHeight - rect.top + 4 }
           : { top: rect.bottom + 4 }),

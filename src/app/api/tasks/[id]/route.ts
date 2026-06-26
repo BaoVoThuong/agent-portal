@@ -6,6 +6,7 @@ import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import type { TaskRow } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
+import { removeTaskFiles } from "@/lib/tasks/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -97,18 +98,20 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if (!canMutateTask(r.actor, r.task))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
-  const { error } = await r.supabase
-    .from("tasks")
-    .update({ archived_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Best-effort: remove attachment files from storage before the rows cascade away.
+  const { data: atts } = await r.supabase
+    .from("task_attachments")
+    .select("storage_path")
+    .eq("task_id", id);
+  const paths = ((atts ?? []) as { storage_path: string }[]).map((a) => a.storage_path);
+  if (paths.length > 0) {
+    await removeTaskFiles(paths).catch(() => {});
+  }
 
-  await r.supabase.from("task_activity").insert({
-    task_id: id,
-    actor_email: r.actor.email,
-    type: "archived",
-    meta: null,
-  });
+  // Hard delete. Child rows (comments, attachments, activity, notifications)
+  // are removed by the `on delete cascade` foreign keys.
+  const { error } = await r.supabase.from("tasks").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
 }

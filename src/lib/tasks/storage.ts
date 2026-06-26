@@ -38,3 +38,10 @@ export async function removeTaskFile(path: string): Promise<void> {
   const { error } = await supabase.storage.from(TASK_BUCKET).remove([path]);
   if (error) throw new Error(error.message);
 }
+
+export async function removeTaskFiles(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.storage.from(TASK_BUCKET).remove(paths);
+  if (error) throw new Error(error.message);
+}

@@ -105,6 +105,21 @@ body {
   box-shadow: 0 14px 32px rgba(22, 35, 58, 0.14);
 }
 
+/* Messenger-style notification toast slide-in. */
+@keyframes notifToastIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+.notif-toast {
+  animation: notifToastIn 0.22s ease-out;
+}
+
 .dashboard-filter-title {
   color: #667085;
   font-size: 0.74rem;

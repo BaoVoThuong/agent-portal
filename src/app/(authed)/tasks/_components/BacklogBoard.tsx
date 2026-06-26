@@ -77,6 +77,7 @@ export function BacklogBoard({
           </div>
         ) : (
           <DndContext
+            id="backlog-board"
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}

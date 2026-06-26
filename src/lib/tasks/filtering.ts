@@ -2,6 +2,8 @@ import type { TaskPriority, TaskRow, TaskStatus } from "./types";
 
 export const ALL_AGENTS = "__all_agents__";
 export const NO_AGENT = "__no_agent__";
+// Assignee facet (filters by assignee_email). "" = all; this sentinel = unassigned.
+export const NO_ASSIGNEE = "__no_assignee__";
 
 export type QuickFilter =
   | "overdue"
@@ -14,8 +16,9 @@ export type QuickFilter =
 export type FilterCriteria = {
   query: string;
   agent: string;
+  assignee?: string;
   quick: QuickFilter[];
-  priority: "" | TaskPriority;
+  priority?: "" | TaskPriority;
   category: "" | string;
   status: "" | TaskStatus;
   currentEmail: string;
@@ -82,6 +85,13 @@ export function filterTasks(tasks: TaskRow[], c: FilterCriteria): TaskRow[] {
         : c.agent !== ALL_AGENTS && task.agent_email !== c.agent
     ) {
       return false;
+    }
+    if (c.assignee) {
+      if (c.assignee === NO_ASSIGNEE) {
+        if (task.assignee_email) return false;
+      } else if (task.assignee_email !== c.assignee) {
+        return false;
+      }
     }
     if (c.priority && task.priority !== c.priority) return false;
     if (c.category && task.category_id !== c.category) return false;
