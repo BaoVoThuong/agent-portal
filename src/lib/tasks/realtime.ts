@@ -1,14 +1,13 @@
 import { createHmac } from "crypto";
+import { TASKS_TOPIC, taskRoomTopic } from "./realtime-topics";
+
+export { TASKS_TOPIC, taskRoomTopic };
 
 export type RealtimeMessage = {
   topic: string;
   event: string;
   payload: Record<string, never>;
 };
-
-// Shared topic for "the task list changed somewhere" pings (content-free). All
-// board/list viewers subscribe; on a ping they refetch the role-filtered list.
-export const TASKS_TOPIC = "tasks-stream";
 
 // Per-user notification topic. HMAC(email) with the app secret so it can't be
 // guessed from an email alone — broadcasts carry NO content (just a "ping"), the
@@ -62,4 +61,8 @@ export async function broadcastNotif(recipientEmails: string[]): Promise<void> {
 
 export async function broadcastTasksChanged(): Promise<void> {
   await sendBroadcast([{ topic: TASKS_TOPIC, event: "changed", payload: {} }]);
+}
+
+export async function broadcastTaskRoom(taskId: string): Promise<void> {
+  await sendBroadcast([{ topic: taskRoomTopic(taskId), event: "changed", payload: {} }]);
 }

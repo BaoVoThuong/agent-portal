@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
-import { TASKS_TOPIC } from "@/lib/tasks/realtime";
+import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
 import { Plus, Tag } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskStatus } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";

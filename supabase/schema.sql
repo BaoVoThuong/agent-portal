@@ -1365,6 +1365,20 @@ create table if not exists task_notifications (
 create index if not exists task_notifications_recipient_idx
   on task_notifications (recipient_email, is_read, created_at desc);
 
+-- People who can see a task without being its assignee (e.g. @mentioned in a
+-- comment, or explicitly added). Used to widen task visibility for collaboration.
+create table if not exists task_participants (
+  task_id uuid not null references tasks(id) on delete cascade,
+  email text not null,
+  source text not null default 'mention'
+    check (source in ('mention', 'added')),
+  created_at timestamptz not null default now(),
+  primary key (task_id, email)
+);
+
+create index if not exists task_participants_email_idx
+  on task_participants (email);
+
 -- Defense-in-depth: enable RLS on every table. The app talks to Supabase only
 -- through the service-role key, which bypasses RLS, so behavior is unchanged.
 -- With RLS on and no public policies, anon/authenticated keys are denied by
@@ -1393,7 +1407,8 @@ declare
     'task_comments',
     'task_attachments',
     'task_activity',
-    'task_notifications'
+    'task_notifications',
+    'task_participants'
   ];
 begin
   foreach table_name in array protected_tables loop

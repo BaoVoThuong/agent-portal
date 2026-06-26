@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask, canMutateTask } from "@/lib/tasks/access";
 import { buildStoragePath, uploadTaskFile, signTaskFile } from "@/lib/tasks/storage";
+import { isTaskParticipant } from "@/lib/tasks/participants";
+import { broadcastTaskRoom } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -30,13 +32,16 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!canViewTask(r.actor, r.task))
+  const isP = r.actor.isManager ? false : await isTaskParticipant(id, r.actor.email);
+  if (!canViewTask(r.actor, r.task, isP))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
+  // Task-level attachments only; comment attachments live with their comment.
   const { data, error } = await r.supabase
     .from("task_attachments")
     .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
     .eq("task_id", id)
+    .is("comment_id", null)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -67,15 +72,32 @@ export async function POST(req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!canMutateTask(r.actor, r.task))
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File))
     return NextResponse.json({ error: "No file provided." }, { status: 400 });
   if (file.size > MAX_BYTES)
     return NextResponse.json({ error: "File too large (max 15MB)." }, { status: 400 });
+
+  const rawCid = form?.get("comment_id");
+  const commentId = typeof rawCid === "string" && rawCid ? rawCid : null;
+
+  if (commentId) {
+    // Comment attachment: any viewer (incl. participants) may attach to their OWN comment.
+    const isP = r.actor.isManager ? false : await isTaskParticipant(id, r.actor.email);
+    if (!canViewTask(r.actor, r.task, isP))
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    const { data: c } = await r.supabase
+      .from("task_comments")
+      .select("id,task_id,author_email")
+      .eq("id", commentId)
+      .maybeSingle();
+    const cc = c as { task_id: string; author_email: string } | null;
+    if (!cc || cc.task_id !== id || cc.author_email !== r.actor.email)
+      return NextResponse.json({ error: "Invalid comment." }, { status: 400 });
+  } else if (!canMutateTask(r.actor, r.task)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
 
   const path = buildStoragePath(id, file.name);
   const contentType = file.type || "application/octet-stream";
@@ -85,6 +107,7 @@ export async function POST(req: Request, { params }: Ctx) {
     .from("task_attachments")
     .insert({
       task_id: id,
+      comment_id: commentId,
       storage_path: path,
       file_name: file.name,
       mime_type: contentType,
@@ -95,12 +118,16 @@ export async function POST(req: Request, { params }: Ctx) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  await r.supabase.from("task_activity").insert({
-    task_id: id,
-    actor_email: r.actor.email,
-    type: "attachment_added",
-    meta: { file_name: file.name },
-  });
+  if (commentId) {
+    await broadcastTaskRoom(id);
+  } else {
+    await r.supabase.from("task_activity").insert({
+      task_id: id,
+      actor_email: r.actor.email,
+      type: "attachment_added",
+      meta: { file_name: file.name },
+    });
+  }
 
   return NextResponse.json({
     attachment: { ...(data as object), url: await signTaskFile(path) },

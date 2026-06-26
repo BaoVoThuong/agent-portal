@@ -4,6 +4,10 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
 import { fetchTaskAssignees } from "@/lib/tasks/assignees";
 import { resolveCommentRecipients, insertNotifications } from "@/lib/tasks/notifications";
+import { parseMentions } from "@/lib/tasks/mentions";
+import { addParticipants, isTaskParticipant } from "@/lib/tasks/participants";
+import { broadcastTaskRoom } from "@/lib/tasks/realtime";
+import { signTaskFile } from "@/lib/tasks/storage";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -28,11 +32,21 @@ async function loadActorAndTask(id: string) {
   return { actor, task: data as unknown as Pick<TaskRow, "id" | "status" | "assignee_email">, supabase };
 }
 
+// View access including participants (mentioned/added, not just assignee).
+async function canView(
+  actor: ReturnType<typeof buildTaskActor>,
+  task: Pick<TaskRow, "assignee_email">,
+  taskId: string
+): Promise<boolean> {
+  const isP = actor.isManager ? false : await isTaskParticipant(taskId, actor.email);
+  return canViewTask(actor, task, isP);
+}
+
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!canViewTask(r.actor, r.task))
+  if (!(await canView(r.actor, r.task, id)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const { data, error } = await r.supabase
@@ -41,19 +55,58 @@ export async function GET(_req: Request, { params }: Ctx) {
     .eq("task_id", id)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ comments: data ?? [] });
+
+  // Attachments that belong to a comment (task-level ones stay in AttachmentPanel).
+  const { data: attData } = await r.supabase
+    .from("task_attachments")
+    .select("id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at")
+    .eq("task_id", id)
+    .not("comment_id", "is", null)
+    .order("created_at", { ascending: true });
+
+  const byComment = new Map<
+    string,
+    { id: string; file_name: string; mime_type: string | null; size_bytes: number | null; url: string }[]
+  >();
+  for (const a of attData ?? []) {
+    const row = a as {
+      id: string;
+      comment_id: string;
+      file_name: string;
+      mime_type: string | null;
+      size_bytes: number | null;
+      storage_path: string;
+    };
+    const list = byComment.get(row.comment_id) ?? [];
+    list.push({
+      id: row.id,
+      file_name: row.file_name,
+      mime_type: row.mime_type,
+      size_bytes: row.size_bytes,
+      url: await signTaskFile(row.storage_path),
+    });
+    byComment.set(row.comment_id, list);
+  }
+
+  const comments = (data ?? []).map((c) => {
+    const row = c as { id: string };
+    return { ...(c as object), attachments: byComment.get(row.id) ?? [] };
+  });
+  return NextResponse.json({ comments });
 }
 
 export async function POST(req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!canViewTask(r.actor, r.task))
+  if (!(await canView(r.actor, r.task, id)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
   const text = typeof body?.body === "string" ? body.body.trim() : "";
-  if (!text) return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
+  const hasAttachments = body?.hasAttachments === true;
+  if (!text && !hasAttachments)
+    return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
 
   // Validate parent: must be a top-level comment on THIS task (one-level threading).
   let parentId: string | null = null;
@@ -76,7 +129,6 @@ export async function POST(req: Request, { params }: Ctx) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Log activity.
   await r.supabase.from("task_activity").insert({
     task_id: id,
     actor_email: r.actor.email,
@@ -84,12 +136,13 @@ export async function POST(req: Request, { params }: Ctx) {
     meta: null,
   });
 
-  // Validate mentions against board members, then notify.
-  const rawMentions = Array.isArray(body?.mentions)
-    ? (body.mentions as unknown[]).filter((m): m is string => typeof m === "string")
-    : [];
+  // Mentions are parsed from the body (server is the source of truth), then
+  // validated against board members. Mentioned members become participants (so
+  // they can see the task) and get notified.
   const memberEmails = new Set((await fetchTaskAssignees()).map((m) => m.email));
-  const validMentions = rawMentions.filter((m) => memberEmails.has(m));
+  const validMentions = parseMentions(text).filter((m) => memberEmails.has(m));
+  if (validMentions.length > 0) await addParticipants(id, validMentions, "mention");
+
   const recipients = resolveCommentRecipients(r.task, r.actor.email, validMentions);
   await insertNotifications(
     recipients.map((rec) => ({
@@ -101,5 +154,6 @@ export async function POST(req: Request, { params }: Ctx) {
     }))
   );
 
+  await broadcastTaskRoom(id);
   return NextResponse.json({ comment });
 }

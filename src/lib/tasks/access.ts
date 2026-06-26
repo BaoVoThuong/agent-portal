@@ -38,13 +38,16 @@ export function canManageCategories(actor: TaskActor): boolean {
 }
 
 // Manager: any task. Worker: only a task currently assigned to them.
+// `isParticipant` covers people granted view access without being the assignee
+// (e.g. @mentioned in a comment). Callers resolve it from task_participants.
 export function canViewTask(
   actor: TaskActor,
-  task: Pick<TaskRow, "assignee_email">
+  task: Pick<TaskRow, "assignee_email">,
+  isParticipant = false
 ): boolean {
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return task.assignee_email === actor.email;
+  return task.assignee_email === actor.email || isParticipant;
 }
 
 export function canMutateTask(

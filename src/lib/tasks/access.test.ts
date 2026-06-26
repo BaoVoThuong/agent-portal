@@ -64,6 +64,11 @@ describe("per-task view/mutate scope", () => {
     expect(canMutateTask(cs, { assignee_email: "cs@x.com" })).toBe(true);
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
   });
+  it("CS can view (not mutate) a task they participate in", () => {
+    expect(canViewTask(cs, { assignee_email: "other@x.com" }, true)).toBe(true);
+    // participation grants view only — mutation still needs assignment
+    expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
+  });
 });
 
 describe("resolveCreateAssignment", () => {
