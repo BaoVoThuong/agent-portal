@@ -5,6 +5,7 @@ import {
   canSeeBacklog,
   canCreateTask,
   canAssign,
+  canAssignToTask,
   canManageCategories,
   canMutateTask,
   canViewTask,
@@ -65,7 +66,7 @@ describe("per-task view/mutate scope", () => {
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
   });
   it("CS can view (not mutate) a task they participate in", () => {
-    expect(canViewTask(cs, { assignee_email: "other@x.com" }, true)).toBe(true);
+    expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isParticipant: true })).toBe(true);
     // participation grants view only — mutation still needs assignment
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
   });
@@ -110,5 +111,25 @@ describe("resolveCreateAssignment", () => {
       status: "todo",
     });
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("canViewTask with flags", () => {
+  it("agent member (not assignee) can view", () => {
+    expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })).toBe(true);
+  });
+  it("no flags, not assignee → cannot view", () => {
+    expect(canViewTask(cs, { assignee_email: "other@x.com" }, {})).toBe(false);
+  });
+  it("assignee flag → view", () => {
+    expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isAssignee: true })).toBe(true);
+  });
+});
+
+describe("canAssignToTask", () => {
+  it("manager always; CS only if agent member", () => {
+    expect(canAssignToTask(manager, false)).toBe(true);
+    expect(canAssignToTask(cs, true)).toBe(true);
+    expect(canAssignToTask(cs, false)).toBe(false);
   });
 });

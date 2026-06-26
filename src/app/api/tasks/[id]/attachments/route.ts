@@ -33,7 +33,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
   const isP = r.actor.isManager ? false : await isTaskParticipant(id, r.actor.email);
-  if (!canViewTask(r.actor, r.task, isP))
+  if (!canViewTask(r.actor, r.task, { isParticipant: isP }))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   // Task-level attachments only; comment attachments live with their comment.
@@ -85,7 +85,7 @@ export async function POST(req: Request, { params }: Ctx) {
   if (commentId) {
     // Comment attachment: any viewer (incl. participants) may attach to their OWN comment.
     const isP = r.actor.isManager ? false : await isTaskParticipant(id, r.actor.email);
-    if (!canViewTask(r.actor, r.task, isP))
+    if (!canViewTask(r.actor, r.task, { isParticipant: isP }))
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     const { data: c } = await r.supabase
       .from("task_comments")

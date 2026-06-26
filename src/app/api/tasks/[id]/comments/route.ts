@@ -39,7 +39,7 @@ async function canView(
   taskId: string
 ): Promise<boolean> {
   const isP = actor.isManager ? false : await isTaskParticipant(taskId, actor.email);
-  return canViewTask(actor, task, isP);
+  return canViewTask(actor, task, { isParticipant: isP });
 }
 
 export async function GET(_req: Request, { params }: Ctx) {
