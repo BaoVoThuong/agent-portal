@@ -60,10 +60,14 @@ function endIndexOfStatus(items: TaskRow[], status: TaskStatus): number {
 function SortableCard({
   task,
   category,
+  agentLabel,
+  assigneeLabel,
   onOpen,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
+  agentLabel?: string | null;
+  assigneeLabel?: string | null;
   onOpen: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -82,7 +86,13 @@ function SortableCard({
       {...listeners}
       className="mb-2"
     >
-      <TaskCard task={task} category={category} onOpen={onOpen} />
+      <TaskCard
+        task={task}
+        category={category}
+        agentLabel={agentLabel}
+        assigneeLabel={assigneeLabel}
+        onOpen={onOpen}
+      />
     </div>
   );
 }
@@ -92,11 +102,15 @@ function Column({
   tasks,
   onOpen,
   categoryById,
+  agentLabelByEmail,
+  assigneeLabelByEmail,
 }: {
   status: TaskStatus;
   tasks: TaskRow[];
   onOpen: (id: string) => void;
   categoryById: Map<string, TaskCategory>;
+  agentLabelByEmail: Map<string, string>;
+  assigneeLabelByEmail: Map<string, string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${status}` });
   return (
@@ -124,6 +138,17 @@ function Column({
               key={t.id}
               task={t}
               category={t.category_id ? categoryById.get(t.category_id) : null}
+              agentLabel={
+                t.agent_email
+                  ? agentLabelByEmail.get(t.agent_email) ?? t.agent_email
+                  : null
+              }
+              assigneeLabel={
+                t.assignee_email
+                  ? assigneeLabelByEmail.get(t.assignee_email) ??
+                    t.assignee_email
+                  : null
+              }
               onOpen={onOpen}
             />
           ))}
@@ -138,11 +163,15 @@ export function KanbanBoard({
   onOpen,
   onMove,
   categories,
+  agentLabelByEmail,
+  assigneeLabelByEmail,
 }: {
   tasks: TaskRow[];
   onOpen: (id: string) => void;
   onMove: (taskId: string, change: { status: TaskStatus; position: number }) => void;
   categories: TaskCategory[];
+  agentLabelByEmail: Map<string, string>;
+  assigneeLabelByEmail: Map<string, string>;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -273,6 +302,8 @@ export function KanbanBoard({
             tasks={columnTasks(status)}
             onOpen={onOpen}
             categoryById={categoryById}
+            agentLabelByEmail={agentLabelByEmail}
+            assigneeLabelByEmail={assigneeLabelByEmail}
           />
         ))}
       </div>
@@ -285,6 +316,18 @@ export function KanbanBoard({
               category={
                 activeTask.category_id
                   ? categoryById.get(activeTask.category_id)
+                  : null
+              }
+              agentLabel={
+                activeTask.agent_email
+                  ? agentLabelByEmail.get(activeTask.agent_email) ??
+                    activeTask.agent_email
+                  : null
+              }
+              assigneeLabel={
+                activeTask.assignee_email
+                  ? assigneeLabelByEmail.get(activeTask.assignee_email) ??
+                    activeTask.assignee_email
                   : null
               }
               onOpen={() => {}}

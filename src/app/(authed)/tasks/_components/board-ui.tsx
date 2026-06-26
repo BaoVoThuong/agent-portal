@@ -119,16 +119,23 @@ export function WaitingTag({ reason }: { reason: WaitingReason | null }) {
   );
 }
 
-export function Initials({ email }: { email: string | null }) {
+export function Initials({
+  email,
+  label,
+}: {
+  email: string | null;
+  label?: string | null;
+}) {
   if (!email) return null;
-  const initials = email
-    .split("@")[0]
+  const displayName = label?.trim() || email.split("@")[0];
+  const initials = displayName
     .split(/[._-]+/)
+    .flatMap((part) => part.split(/\s+/))
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("")
-    .padEnd(2, email[0]?.toUpperCase() ?? "U")
+    .padEnd(2, displayName[0]?.toUpperCase() ?? "U")
     .slice(0, 2);
   const colors = ["#0747a6", "#00875a", "#bf2600", "#403294", "#0065ff"];
   let hash = 0;
@@ -141,7 +148,7 @@ export function Initials({ email }: { email: string | null }) {
     <span
       className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-white"
       style={{ backgroundColor: colors[hash] }}
-      title={email}
+      title={label ? `${label} (${email})` : email}
     >
       {initials}
     </span>

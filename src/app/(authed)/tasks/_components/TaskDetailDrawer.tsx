@@ -13,6 +13,10 @@ import { TaskPrioritySelect } from "./TaskPrioritySelect";
 
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
+const SIDE_INPUT_CLASS =
+  "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
+const SIDE_SELECT_BUTTON_CLASS =
+  "!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none border-[#dfe1e6] bg-white";
 const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
 
@@ -41,7 +45,6 @@ export function TaskDetailDrawer({
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
-  const [tab, setTab] = useState<"details" | "comments" | "activity">("details");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const categoryOptions = [
@@ -61,8 +64,16 @@ export function TaskDetailDrawer({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-[#091e42]/40">
-      <div className="flex h-full w-full max-w-lg flex-col bg-white shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
           <span className="font-mono text-sm font-bold text-[#97a0af]">
             {taskKey(task.id)}
@@ -77,141 +88,143 @@ export function TaskDetailDrawer({
           </button>
         </header>
 
-        <div className="flex-1 space-y-5 overflow-y-auto p-5">
-          <input
-            value={title}
-            disabled={!canEdit}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={() =>
-              canEdit && title.trim() && title !== task.title && onPatch({ title: title.trim() })
-            }
-            className="w-full rounded border-2 border-transparent px-2 py-1.5 text-lg font-semibold text-[#172b4d] outline-none transition hover:border-[#dfe1e6] focus:border-[#0c66e4] disabled:cursor-default disabled:border-transparent"
-          />
-
-          <label className="block space-y-1.5">
-            <span className={LABEL_CLASS}>Description</span>
-            <textarea
-              value={description}
-              disabled={!canEdit}
-              onChange={(e) => setDescription(e.target.value)}
-              onBlur={() =>
-                canEdit && description !== (task.description ?? "") && onPatch({ description })
-              }
-              rows={4}
-              placeholder="Add a description…"
-              className={INPUT_CLASS}
-            />
-          </label>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <span className={LABEL_CLASS}>Priority</span>
-              <TaskPrioritySelect
-                value={task.priority}
-                disabled={!canEdit}
-                onChange={(nextPriority) => onPatch({ priority: nextPriority as TaskPriority })}
-              />
-            </div>
-            <label className="space-y-1.5">
-              <span className={LABEL_CLASS}>Due date</span>
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid min-h-full grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <main className="min-w-0 space-y-6 p-5 lg:p-7">
               <input
-                type="date"
-                defaultValue={task.due_date ?? ""}
+                value={title}
                 disabled={!canEdit}
-                onChange={(e) => onPatch({ due_date: e.target.value })}
-                className={INPUT_CLASS}
-              />
-            </label>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <span className={LABEL_CLASS}>Category</span>
-              <TaskSelect
-                label="Category"
-                value={task.category_id ?? ""}
-                disabled={!canEdit}
-                options={categoryOptions}
-                buttonClassName="h-10 border-[#dfe1e6] shadow-none"
-                onChange={(nextCategoryId) => onPatch({ category_id: nextCategoryId || null })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <span className={LABEL_CLASS}>Agent</span>
-              <TaskSelect
-                label="Agent"
-                value={task.agent_email ?? ""}
-                disabled={!canEdit}
-                options={agentOptions}
-                buttonClassName="h-10 border-[#dfe1e6] shadow-none"
-                onChange={(nextAgent) => onPatch({ agent_email: nextAgent || null })}
-              />
-            </div>
-          </div>
-
-          {isManager && (
-            <div className="space-y-1.5">
-              <span className={LABEL_CLASS}>Assignee</span>
-              <TaskSelect
-                label="Assignee"
-                value={task.assignee_email ?? ""}
-                options={assigneeOptions}
-                buttonClassName="h-10 border-[#dfe1e6] shadow-none"
-                onChange={(nextAssignee) =>
-                  onPatch(
-                    nextAssignee
-                      ? {
-                          assignee_email: nextAssignee,
-                          status: task.status === "backlog" ? "todo" : task.status,
-                        }
-                      : { assignee_email: null, status: "backlog" }
-                  )
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={() =>
+                  canEdit &&
+                  title.trim() &&
+                  title !== task.title &&
+                  onPatch({ title: title.trim() })
                 }
+                className="w-full rounded border-2 border-transparent px-2 py-1.5 text-xl font-semibold text-[#172b4d] outline-none transition hover:border-[#dfe1e6] focus:border-[#0c66e4] disabled:cursor-default disabled:border-transparent"
               />
-            </div>
-          )}
 
-          <div className="border-t border-[#dfe1e6] pt-4">
-            <div className="mb-3 inline-flex rounded bg-[#f4f5f7] p-0.5">
-              {(["details", "comments", "activity"] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setTab(t)}
-                  className={`rounded px-3 py-1 text-sm font-semibold capitalize transition ${
-                    tab === t
-                      ? "bg-white text-[#0c66e4] shadow-sm"
-                      : "text-[#44546f] hover:text-[#172b4d]"
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-            {tab === "comments" && (
-              <CommentThread taskId={task.id} currentEmail={currentEmail} />
-            )}
-            {tab === "activity" && <ActivityFeed taskId={task.id} />}
-            {tab === "details" && (
-              <div className="space-y-2">
+              <label className="block space-y-1.5">
+                <span className={LABEL_CLASS}>Description</span>
+                <textarea
+                  value={description}
+                  disabled={!canEdit}
+                  onChange={(e) => setDescription(e.target.value)}
+                  onBlur={() =>
+                    canEdit &&
+                    description !== (task.description ?? "") &&
+                    onPatch({ description })
+                  }
+                  rows={5}
+                  placeholder="Add a description…"
+                  className={INPUT_CLASS}
+                />
+              </label>
+
+              <section className="space-y-3 border-t border-[#dfe1e6] pt-5">
+                <span className={LABEL_CLASS}>Comments</span>
+                <CommentThread taskId={task.id} currentEmail={currentEmail} />
+              </section>
+            </main>
+
+            <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <span className={LABEL_CLASS}>Priority</span>
+                  <TaskPrioritySelect
+                    value={task.priority}
+                    disabled={!canEdit}
+                    buttonClassName="!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none"
+                    onChange={(nextPriority) =>
+                      onPatch({ priority: nextPriority as TaskPriority })
+                    }
+                  />
+                </div>
+
+                <label className="space-y-1.5">
+                  <span className={LABEL_CLASS}>Due date</span>
+                  <input
+                    type="date"
+                    defaultValue={task.due_date ?? ""}
+                    disabled={!canEdit}
+                    onChange={(e) => onPatch({ due_date: e.target.value })}
+                    className={SIDE_INPUT_CLASS}
+                  />
+                </label>
+
+                <div className="space-y-1.5">
+                  <span className={LABEL_CLASS}>Category</span>
+                  <TaskSelect
+                    label="Category"
+                    value={task.category_id ?? ""}
+                    disabled={!canEdit}
+                    options={categoryOptions}
+                    buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+                    onChange={(nextCategoryId) =>
+                      onPatch({ category_id: nextCategoryId || null })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className={LABEL_CLASS}>Agent</span>
+                  <TaskSelect
+                    label="Agent"
+                    value={task.agent_email ?? ""}
+                    disabled={!canEdit}
+                    options={agentOptions}
+                    buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+                    onChange={(nextAgent) => onPatch({ agent_email: nextAgent || null })}
+                  />
+                </div>
+
+                {isManager && (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>Assignee</span>
+                    <TaskSelect
+                      label="Assignee"
+                      value={task.assignee_email ?? ""}
+                      options={assigneeOptions}
+                      buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+                      onChange={(nextAssignee) =>
+                        onPatch(
+                          nextAssignee
+                            ? {
+                                assignee_email: nextAssignee,
+                                status: task.status === "backlog" ? "todo" : task.status,
+                              }
+                            : { assignee_email: null, status: "backlog" }
+                        )
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+
+              <section className="space-y-2 border-t border-[#dfe1e6] pt-3">
                 <span className={LABEL_CLASS}>Attachments</span>
                 <AttachmentPanel taskId={task.id} canEdit={canEdit} />
-              </div>
-            )}
+              </section>
+
+              <section className="space-y-2 border-t border-[#dfe1e6] pt-3">
+                <span className={LABEL_CLASS}>Activity</span>
+                <ActivityFeed taskId={task.id} />
+              </section>
+
+              {canEdit && (
+                <div className="border-t border-[#dfe1e6] pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(true)}
+                    className="text-sm font-semibold text-[#bf2600] transition hover:underline"
+                  >
+                    Delete task
+                  </button>
+                </div>
+              )}
+            </aside>
           </div>
         </div>
-
-        {canEdit && (
-          <footer className="border-t border-[#dfe1e6] p-4">
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              className="text-sm font-semibold text-[#bf2600] transition hover:underline"
-            >
-              Delete task
-            </button>
-          </footer>
-        )}
       </div>
 
       {confirmingDelete && (

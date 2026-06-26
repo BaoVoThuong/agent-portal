@@ -89,6 +89,17 @@ export function TaskBoardClient({
     [agentChoices]
   );
 
+  const assigneeLabelByEmail = useMemo(
+    () =>
+      new Map(
+        assignees.map((assignee) => [
+          assignee.email,
+          assignee.name?.trim() || assignee.email,
+        ])
+      ),
+    [assignees]
+  );
+
   const agentStats = useMemo(() => {
     const stats = new Map<string, AgentStat>();
     const ensure = (key: string, label: string) => {
@@ -339,6 +350,8 @@ export function TaskBoardClient({
           onOpen={openTaskById}
           onMove={moveTask}
           categories={categories}
+          agentLabelByEmail={agentLabelByEmail}
+          assigneeLabelByEmail={assigneeLabelByEmail}
         />
       )}
 

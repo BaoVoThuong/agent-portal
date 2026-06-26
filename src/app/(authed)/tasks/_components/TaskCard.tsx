@@ -1,38 +1,49 @@
-import {
-  Bookmark,
-  CheckSquare,
-  UserRound,
-} from "lucide-react";
-import type { TaskCategory, TaskPriority, TaskRow } from "@/lib/tasks/types";
+import { UserRound } from "lucide-react";
+import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
 import { DueBadge, WaitingTag, Initials, PriorityIcon } from "./board-ui";
 
 export function TaskCard({
   task,
   category,
+  agentLabel,
+  assigneeLabel,
   onOpen,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
+  agentLabel?: string | null;
+  assigneeLabel?: string | null;
   onOpen: (id: string) => void;
 }) {
   return (
     <button
       type="button"
       onClick={() => onOpen(task.id)}
-      className="block w-full rounded border border-[#dfe1e6] bg-white p-4 text-left shadow-[0_1px_2px_rgba(9,30,66,0.2)] transition hover:bg-[#fefefe] hover:shadow-[0_2px_8px_rgba(9,30,66,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4]"
+      className="block w-full rounded border border-l-4 border-[#dfe1e6] bg-white p-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:border-[#c1c7d0] hover:bg-[#fefefe] hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4]"
+      style={{ borderLeftColor: statusAccent(task.status) }}
     >
-      <h3 className="text-[15px] font-medium leading-5 text-[#253858]">
-        {task.title}
-      </h3>
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="line-clamp-2 text-[15px] font-semibold leading-5 text-[#172b4d]">
+            {task.title}
+          </h3>
 
-      {task.agent_email ? (
-        <div className="mt-3 flex min-h-5 items-center gap-1.5 text-xs leading-5 text-[#626f86]">
-          <UserRound className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
-          <span className="min-w-0 truncate">{task.agent_email}</span>
+          {task.agent_email ? (
+            <div className="mt-2 flex min-h-5 items-center gap-1.5 text-xs leading-5 text-[#626f86]">
+              <UserRound className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
+              <span className="min-w-0 truncate" title={task.agent_email}>
+                {agentLabel ?? task.agent_email}
+              </span>
+            </div>
+          ) : null}
         </div>
-      ) : null}
 
-      <div className="mt-4 flex min-h-6 flex-wrap items-center gap-2">
+        <span className="shrink-0">
+          <Initials email={task.assignee_email} label={assigneeLabel} />
+        </span>
+      </div>
+
+      <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5">
         {category ? (
           <CategoryBadge category={category} />
         ) : (
@@ -42,20 +53,7 @@ export function TaskCard({
         )}
         <WaitingTag reason={task.waiting_reason} />
         <DueBadge due={task.due_date} />
-      </div>
-
-      <div className="mt-4 flex items-center gap-2 text-[#6b778c]">
-        <IssueTypeIcon status={task.status} />
-        <PriorityIcon priority={task.priority} />
-        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ebecf0] px-1.5 text-xs font-bold text-[#42526e]">
-          {priorityPoints(task.priority)}
-        </span>
-        <span className="ml-auto text-xs font-bold text-[#97a0af]">
-          {ticketKey(task.id)}
-        </span>
-        <span className="shrink-0">
-          <Initials email={task.assignee_email} />
-        </span>
+        <PriorityAlert priority={task.priority} />
       </div>
     </button>
   );
@@ -66,7 +64,7 @@ function CategoryBadge({ category }: { category: TaskCategory }) {
 
   return (
     <span
-      className="rounded px-1.5 py-0.5 text-[11px] font-bold uppercase"
+      className="max-w-full truncate rounded px-1.5 py-0.5 text-[11px] font-semibold"
       style={{
         backgroundColor: palette.background,
         color: palette.foreground,
@@ -77,49 +75,29 @@ function CategoryBadge({ category }: { category: TaskCategory }) {
   );
 }
 
-function IssueTypeIcon({ status }: { status: TaskRow["status"] }) {
-  if (status === "done") {
-    return (
-      <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#36b37e] text-white">
-        <CheckSquare className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
+function PriorityAlert({ priority }: { priority: TaskRow["priority"] }) {
+  if (priority !== "urgent" && priority !== "high") return null;
 
-  if (status === "waiting") {
-    return (
-      <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#ffab00] text-white">
-        <Bookmark className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
+  const label = priority === "urgent" ? "Urgent" : "High";
 
   return (
-    <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#4c9aff] text-white">
-      <CheckSquare className="h-3.5 w-3.5" />
+    <span className="inline-flex items-center gap-1 rounded bg-[#ffebe6] px-1.5 py-0.5 text-[11px] font-bold text-[#de350b]">
+      <PriorityIcon priority={priority} className="h-3.5 w-3.5" />
+      {label}
     </span>
   );
 }
 
-function priorityPoints(priority: TaskPriority) {
-  const points: Record<TaskPriority, number> = {
-    low: 2,
-    medium: 3,
-    high: 5,
-    urgent: 8,
+function statusAccent(status: TaskRow["status"]) {
+  const colors: Record<TaskRow["status"], string> = {
+    backlog: "#a5adba",
+    todo: "#4c9aff",
+    in_progress: "#6554c0",
+    waiting: "#ffab00",
+    done: "#36b37e",
   };
 
-  return points[priority];
-}
-
-function ticketKey(id: string) {
-  let hash = 0;
-
-  for (const character of id) {
-    hash = (hash * 31 + character.charCodeAt(0)) % 900;
-  }
-
-  return `TASK-${hash + 100}`;
+  return colors[status];
 }
 
 function categoryPalette(category: TaskCategory) {
