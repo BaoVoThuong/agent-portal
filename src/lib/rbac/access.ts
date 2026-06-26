@@ -6,12 +6,23 @@ import {
   getLegacyRoleFromRoleNames,
 } from "@/lib/rbac/system-roles";
 
+export type AccessRow = {
+  id: string;
+  role: string | null;
+  is_active: boolean | null;
+  agent_id: string | null;
+  user_roles:
+    | { roles: { id: string; name: string; is_active: boolean; role_permissions: { permission_key: string }[] } | null }[]
+    | null;
+};
+
 export type UserAccess = {
   userId: string | null;
   legacyRole: UserRole;
   roles: string[];
   permissions: string[];
   isActive: boolean;
+  agentId: string | null;
 };
 
 type PortalAccountRow = {
@@ -45,6 +56,29 @@ function emptyAccess(
     roles: [],
     permissions: [],
     isActive: user?.is_active !== false,
+    agentId: null,
+  };
+}
+
+export function flattenAccess(row: AccessRow): UserAccess {
+  const legacyRole: UserRole = row.role === "admin" ? "admin" : "agent";
+  if (row.is_active === false) {
+    return { userId: row.id, legacyRole, roles: [], permissions: [], isActive: false, agentId: row.agent_id ?? null };
+  }
+  const activeRoles = (row.user_roles ?? [])
+    .map((ur) => ur.roles)
+    .filter((r): r is NonNullable<typeof r> => Boolean(r) && r!.is_active);
+  const roleNames = activeRoles.map((r) => r.name);
+  const permissions = [
+    ...new Set(activeRoles.flatMap((r) => r.role_permissions.map((p) => p.permission_key))),
+  ];
+  return {
+    userId: row.id,
+    legacyRole: getLegacyRoleFromRoleNames(roleNames),
+    roles: roleNames,
+    permissions,
+    isActive: true,
+    agentId: row.agent_id ?? null,
   };
 }
 
@@ -63,6 +97,7 @@ export async function getUserAccessByEmail(email: string): Promise<UserAccess> {
       roles: [],
       permissions: [],
       isActive: false,
+      agentId: null,
     };
   }
 
@@ -76,6 +111,7 @@ export async function getUserAccessByEmail(email: string): Promise<UserAccess> {
       roles: [],
       permissions: [],
       isActive: false,
+      agentId: null,
     };
   }
 
@@ -131,6 +167,7 @@ export async function getUserAccessByEmail(email: string): Promise<UserAccess> {
     roles: roleNames,
     permissions: permissionKeys,
     isActive: true,
+    agentId: null,
   };
 }
 
