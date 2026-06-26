@@ -62,6 +62,19 @@ export function TaskDetailDrawer({
       label: assignee.name ?? assignee.email,
     })),
   ];
+  const personLabelByEmail = new Map<string, string>();
+  for (const agent of agents) {
+    personLabelByEmail.set(agent.email, agent.name?.trim() || agent.email);
+  }
+  for (const assignee of assignees) {
+    personLabelByEmail.set(
+      assignee.email,
+      assignee.name?.trim() || assignee.email
+    );
+  }
+  if (!personLabelByEmail.has(currentEmail)) {
+    personLabelByEmail.set(currentEmail, currentEmail);
+  }
 
   return (
     <div
@@ -71,7 +84,7 @@ export function TaskDetailDrawer({
       <div
         role="dialog"
         aria-modal="true"
-        className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+        className="flex h-[calc(100vh-2rem)] max-h-[760px] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
@@ -208,7 +221,10 @@ export function TaskDetailDrawer({
 
               <section className="space-y-2 border-t border-[#dfe1e6] pt-3">
                 <span className={LABEL_CLASS}>Activity</span>
-                <ActivityFeed taskId={task.id} />
+                <ActivityFeed
+                  taskId={task.id}
+                  personLabelByEmail={personLabelByEmail}
+                />
               </section>
 
               {canEdit && (

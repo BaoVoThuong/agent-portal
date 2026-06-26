@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { broadcastNotif } from "./realtime";
 
 export type CommentNotification = { email: string; type: "mentioned" | "commented" };
 
@@ -44,4 +45,7 @@ export async function insertNotifications(
     }))
   );
   if (error) throw new Error(error.message);
+
+  // Realtime "ping" so recipients' open tabs toast instantly (content stays in DB).
+  await broadcastNotif(rows.map((r) => r.recipient_email));
 }

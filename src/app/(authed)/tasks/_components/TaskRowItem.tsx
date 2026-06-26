@@ -43,6 +43,7 @@ export function TaskRowItem({
   onOpen,
   onPatch,
   dragHandle,
+  openOnDoubleClick = false,
 }: {
   task: TaskRow;
   category: TaskCategory | null;
@@ -52,9 +53,15 @@ export function TaskRowItem({
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
   dragHandle?: ReactNode;
+  openOnDoubleClick?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 bg-white px-4 py-2.5 transition hover:bg-[#f7f8f9]">
+    <div
+      onDoubleClick={() => {
+        if (openOnDoubleClick) onOpen(task.id);
+      }}
+      className="flex items-center gap-3 bg-white px-4 py-2.5 transition hover:bg-[#f7f8f9]"
+    >
       {dragHandle}
       <span
         className={`${LIST_COL.key} shrink-0 truncate font-mono text-xs font-bold text-[#97a0af]`}

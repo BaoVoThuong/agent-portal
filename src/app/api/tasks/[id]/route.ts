@@ -7,6 +7,7 @@ import type { TaskRow } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { removeTaskFiles } from "@/lib/tasks/storage";
+import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     ]);
   }
 
+  await broadcastTasksChanged();
   return NextResponse.json({ task: data });
 }
 
@@ -113,5 +115,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const { error } = await r.supabase.from("tasks").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  await broadcastTasksChanged();
   return NextResponse.json({ ok: true });
 }

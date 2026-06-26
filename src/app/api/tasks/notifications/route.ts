@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { notifTopic } from "@/lib/tasks/realtime";
 
 export const dynamic = "force-dynamic";
 
@@ -55,5 +56,5 @@ export async function GET() {
     actor_name: nameByEmail.get(n.actor_email) ?? null,
   }));
   const unread = notifications.filter((n) => !n.is_read).length;
-  return NextResponse.json({ notifications, unread });
+  return NextResponse.json({ notifications, unread, topic: notifTopic(email) });
 }

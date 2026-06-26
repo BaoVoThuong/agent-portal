@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { getBrowserSupabase } from "@/lib/supabase-browser";
+import { TASKS_TOPIC } from "@/lib/tasks/realtime";
 import { Plus, Tag } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskStatus } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
@@ -60,6 +62,40 @@ export function TaskBoardClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const deepLinkId = searchParams.get("task");
+
+  // Live board: refetch the role-filtered list when the server pings that tasks
+  // changed, plus once on (re)connect to catch anything missed while offline.
+  // No polling — the reconnect refetch is the self-heal path.
+  const refetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks");
+      if (!res.ok) return;
+      const data = await res.json();
+      setTasks(data.tasks as TaskRow[]);
+    } catch {
+      // ignore; the next ping or reconnect retries
+    }
+  }, []);
+
+  useEffect(() => {
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void refetchTasks(), 300);
+    };
+    const channel = sb
+      .channel(TASKS_TOPIC)
+      .on("broadcast", { event: "changed" }, schedule)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") void refetchTasks();
+      });
+    return () => {
+      if (timer) clearTimeout(timer);
+      void sb.removeChannel(channel);
+    };
+  }, [refetchTasks]);
 
   const reloadCategories = async () => {
     const res = await fetch("/api/tasks/categories");

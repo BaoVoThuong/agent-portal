@@ -96,6 +96,7 @@ export function TaskListView({
                   canAssign={isManager}
                   onOpen={onOpen}
                   onPatch={onPatch}
+                  openOnDoubleClick
                 />
               </li>
             ))}

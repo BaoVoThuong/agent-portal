@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Bell, X } from "lucide-react";
 import { taskKey } from "@/lib/tasks/sorting";
+import { getBrowserSupabase } from "@/lib/supabase-browser";
 
 type Notif = {
   id: string;
@@ -22,7 +23,10 @@ const LABEL: Record<Notif["type"], string> = {
   commented: "commented",
 };
 
-const POLL_MS = 20000;
+// Polling interval: slow safety net when realtime is configured (broadcast handles
+// instant delivery), faster when it isn't so notifications still feel responsive.
+const POLL_REALTIME_MS = 60000;
+const POLL_FALLBACK_MS = 20000;
 const TOAST_MS = 7000;
 
 function timeAgo(iso: string): string {
@@ -46,6 +50,7 @@ export function NotificationBell() {
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [toasts, setToasts] = useState<Notif[]>([]);
+  const [topic, setTopic] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   // Notification ids we have already processed, so a poll never re-pops a toast.
   const seenIds = useRef<Set<string>>(new Set());
@@ -58,6 +63,7 @@ export function NotificationBell() {
     const list = data.notifications as Notif[];
     setItems(list);
     setUnread(data.unread as number);
+    setTopic((data.topic as string | null) ?? null);
 
     if (!initialized.current) {
       // First load: remember what already exists; don't pop toasts for old items.
@@ -93,8 +99,9 @@ export function NotificationBell() {
   }, []);
 
   useEffect(() => {
+    const pollMs = getBrowserSupabase() ? POLL_REALTIME_MS : POLL_FALLBACK_MS;
     const first = setTimeout(() => void load(), 0);
-    const t = setInterval(() => void load(), POLL_MS);
+    const t = setInterval(() => void load(), pollMs);
     return () => {
       clearTimeout(first);
       clearInterval(t);
@@ -111,6 +118,21 @@ export function NotificationBell() {
       void Notification.requestPermission();
     }
   }, []);
+
+  // Realtime: subscribe to this user's broadcast topic. A ping just re-runs load()
+  // (which dedups + toasts new items); no content travels over the channel.
+  useEffect(() => {
+    if (!topic) return;
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+    const channel = sb
+      .channel(topic)
+      .on("broadcast", { event: "new" }, () => void load())
+      .subscribe();
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [topic, load]);
 
   useEffect(() => {
     if (!open) return;

@@ -5,6 +5,7 @@ import { buildTaskActor, canAccessBoard, canCreateTask, resolveCreateAssignment 
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/tasks/types";
+import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 
 export const dynamic = "force-dynamic";
 
@@ -101,5 +102,6 @@ export async function POST(request: Request) {
     meta: assignment.assignee_email ? { to: assignment.assignee_email } : null,
   });
 
+  await broadcastTasksChanged();
   return NextResponse.json({ task: data });
 }
