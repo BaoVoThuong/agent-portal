@@ -1,5 +1,5 @@
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { can, canAny } from "@/lib/rbac/client";
+import { can } from "@/lib/rbac/client";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {

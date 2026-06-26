@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -149,16 +149,11 @@ export function KanbanBoard({
   );
   const categoryById = new Map(categories.map((category) => [category.id, category]));
 
-  // Local ordered mirror of the tasks so the board can reflow live while dragging
-  // (cross-column move on hover). Array order = display order within a column.
-  const [items, setItems] = useState<TaskRow[]>(() => byPosition(tasks));
+  const sortedTasks = useMemo(() => byPosition(tasks), [tasks]);
+  // Local ordered mirror used only while dragging so the board can reflow live.
+  const [dragItems, setDragItems] = useState<TaskRow[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-
-  // Re-sync from props whenever they change and we are not mid-drag (so an
-  // in-flight drag is never clobbered by an optimistic parent update).
-  useEffect(() => {
-    if (!activeId) setItems(byPosition(tasks));
-  }, [tasks, activeId]);
+  const items = dragItems ?? sortedTasks;
 
   const columnTasks = (status: TaskStatus) =>
     items.filter((task) => task.status === status);
@@ -168,6 +163,7 @@ export function KanbanBoard({
     : null;
 
   function handleDragStart(event: DragStartEvent) {
+    setDragItems(sortedTasks);
     setActiveId(String(event.active.id));
   }
 
@@ -179,17 +175,18 @@ export function KanbanBoard({
     const activeId = String(active.id);
     const overId = String(over.id);
 
-    const activeContainer = findContainer(activeId, items);
-    const overContainer = findContainer(overId, items);
-    if (!activeContainer || !overContainer || activeContainer === overContainer) {
-      return;
-    }
+    setDragItems((prev) => {
+      const current = prev ?? sortedTasks;
+      const activeContainer = findContainer(activeId, current);
+      const overContainer = findContainer(overId, current);
+      if (!activeContainer || !overContainer || activeContainer === overContainer) {
+        return current;
+      }
 
-    setItems((prev) => {
-      const activeIndex = prev.findIndex((task) => task.id === activeId);
-      if (activeIndex === -1) return prev;
+      const activeIndex = current.findIndex((task) => task.id === activeId);
+      if (activeIndex === -1) return current;
 
-      const next = [...prev];
+      const next = [...current];
       const [moved] = next.splice(activeIndex, 1);
       const movedUpdated: TaskRow = { ...moved, status: overContainer };
 
@@ -210,6 +207,7 @@ export function KanbanBoard({
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveId(null);
+    setDragItems(null);
     if (!over) return;
 
     const activeId = String(active.id);
@@ -229,7 +227,6 @@ export function KanbanBoard({
       const overIndex = items.findIndex((task) => task.id === overId);
       if (activeIndex !== -1 && overIndex !== -1 && activeIndex !== overIndex) {
         working = arrayMove(items, activeIndex, overIndex);
-        setItems(working);
       }
     }
 
@@ -263,7 +260,10 @@ export function KanbanBoard({
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
-      onDragCancel={() => setActiveId(null)}
+      onDragCancel={() => {
+        setActiveId(null);
+        setDragItems(null);
+      }}
     >
       <div className="flex min-h-0 flex-1 gap-4 px-6 pb-6">
         {KANBAN_STATUSES.map((status) => (

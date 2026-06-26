@@ -1,4 +1,4 @@
-import { can, canAny } from "@/lib/rbac/client";
+import { can } from "@/lib/rbac/client";
 import {
   DASHBOARD_FILTER_KEYS,
   fetchDashboardMonthDefault,
