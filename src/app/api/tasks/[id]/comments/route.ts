@@ -64,28 +64,26 @@ export async function GET(_req: Request, { params }: Ctx) {
     .not("comment_id", "is", null)
     .order("created_at", { ascending: true });
 
-  const byComment = new Map<
-    string,
-    { id: string; file_name: string; mime_type: string | null; size_bytes: number | null; url: string }[]
-  >();
-  for (const a of attData ?? []) {
-    const row = a as {
-      id: string;
-      comment_id: string;
-      file_name: string;
-      mime_type: string | null;
-      size_bytes: number | null;
-      storage_path: string;
-    };
-    const list = byComment.get(row.comment_id) ?? [];
-    list.push({
-      id: row.id,
-      file_name: row.file_name,
-      mime_type: row.mime_type,
-      size_bytes: row.size_bytes,
-      url: await signTaskFile(row.storage_path),
-    });
-    byComment.set(row.comment_id, list);
+  const signed = await Promise.all(
+    (attData ?? []).map(async (a) => {
+      const row = a as {
+        id: string; comment_id: string; file_name: string;
+        mime_type: string | null; size_bytes: number | null; storage_path: string;
+      };
+      return {
+        comment_id: row.comment_id,
+        att: {
+          id: row.id, file_name: row.file_name, mime_type: row.mime_type,
+          size_bytes: row.size_bytes, url: await signTaskFile(row.storage_path),
+        },
+      };
+    })
+  );
+  const byComment = new Map<string, { id: string; file_name: string; mime_type: string | null; size_bytes: number | null; url: string }[]>();
+  for (const { comment_id, att } of signed) {
+    const list = byComment.get(comment_id) ?? [];
+    list.push(att);
+    byComment.set(comment_id, list);
   }
 
   const comments = (data ?? []).map((c) => {
