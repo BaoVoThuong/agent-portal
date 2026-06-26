@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask, canMutateTask } from "@/lib/tasks/access";
 import { buildStoragePath, uploadTaskFile, signTaskFile } from "@/lib/tasks/storage";
 import { isTaskParticipant } from "@/lib/tasks/participants";
+import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { broadcastTaskRoom } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -11,6 +12,21 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 const MAX_BYTES = 15 * 1024 * 1024; // 15MB
+
+// View access including agent membership and participants.
+async function canViewResolved(
+  actor: ReturnType<typeof buildTaskActor>,
+  task: Pick<TaskRow, "assignee_email" | "agent_email">,
+  taskId: string
+): Promise<boolean> {
+  if (actor.isManager) return true;
+  const [isParticipant, agents] = await Promise.all([
+    isTaskParticipant(taskId, actor.email),
+    fetchAgentsForCs(actor.email),
+  ]);
+  const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
+  return canViewTask(actor, task, { isParticipant, isAgentMember });
+}
 
 async function loadActorAndTask(id: string) {
   const session = await auth();
@@ -20,20 +36,19 @@ async function loadActorAndTask(id: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")
-    .select("id,assignee_email")
+    .select("id,assignee_email,agent_email")
     .eq("id", id)
     .maybeSingle();
   if (error) return { error: error.message, status: 500 };
   if (!data) return { error: "Not found", status: 404 };
-  return { actor, task: data as unknown as Pick<TaskRow, "id" | "assignee_email">, supabase };
+  return { actor, task: data as unknown as Pick<TaskRow, "id" | "assignee_email" | "agent_email">, supabase };
 }
 
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  const isP = r.actor.isManager ? false : await isTaskParticipant(id, r.actor.email);
-  if (!canViewTask(r.actor, r.task, { isParticipant: isP }))
+  if (!(await canViewResolved(r.actor, r.task, id)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   // Task-level attachments only; comment attachments live with their comment.
@@ -84,8 +99,7 @@ export async function POST(req: Request, { params }: Ctx) {
 
   if (commentId) {
     // Comment attachment: any viewer (incl. participants) may attach to their OWN comment.
-    const isP = r.actor.isManager ? false : await isTaskParticipant(id, r.actor.email);
-    if (!canViewTask(r.actor, r.task, { isParticipant: isP }))
+    if (!(await canViewResolved(r.actor, r.task, id)))
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     const { data: c } = await r.supabase
       .from("task_comments")

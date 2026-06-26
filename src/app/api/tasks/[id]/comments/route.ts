@@ -6,6 +6,7 @@ import { fetchTaskAssignees } from "@/lib/tasks/assignees";
 import { resolveCommentRecipients, insertNotifications } from "@/lib/tasks/notifications";
 import { parseMentions } from "@/lib/tasks/mentions";
 import { addParticipants, isTaskParticipant } from "@/lib/tasks/participants";
+import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { broadcastTaskRoom } from "@/lib/tasks/realtime";
 import { signTaskFile } from "@/lib/tasks/storage";
 import type { TaskRow } from "@/lib/tasks/types";
@@ -24,29 +25,34 @@ async function loadActorAndTask(id: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")
-    .select("id,status,assignee_email")
+    .select("id,status,assignee_email,agent_email")
     .eq("id", id)
     .maybeSingle();
   if (error) return { error: error.message, status: 500 };
   if (!data) return { error: "Not found", status: 404 };
-  return { actor, task: data as unknown as Pick<TaskRow, "id" | "status" | "assignee_email">, supabase };
+  return { actor, task: data as unknown as Pick<TaskRow, "id" | "status" | "assignee_email" | "agent_email">, supabase };
 }
 
-// View access including participants (mentioned/added, not just assignee).
-async function canView(
+// View access including participants and agent membership.
+async function canViewResolved(
   actor: ReturnType<typeof buildTaskActor>,
-  task: Pick<TaskRow, "assignee_email">,
+  task: Pick<TaskRow, "assignee_email" | "agent_email">,
   taskId: string
 ): Promise<boolean> {
-  const isP = actor.isManager ? false : await isTaskParticipant(taskId, actor.email);
-  return canViewTask(actor, task, { isParticipant: isP });
+  if (actor.isManager) return true;
+  const [isParticipant, agents] = await Promise.all([
+    isTaskParticipant(taskId, actor.email),
+    fetchAgentsForCs(actor.email),
+  ]);
+  const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
+  return canViewTask(actor, task, { isParticipant, isAgentMember });
 }
 
 export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!(await canView(r.actor, r.task, id)))
+  if (!(await canViewResolved(r.actor, r.task, id)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const { data, error } = await r.supabase
@@ -97,7 +103,7 @@ export async function POST(req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!(await canView(r.actor, r.task, id)))
+  if (!(await canViewResolved(r.actor, r.task, id)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
