@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
+import type { TaskDetail } from "@/lib/tasks/detail";
 import { taskKey } from "@/lib/tasks/sorting";
 import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
@@ -17,6 +18,8 @@ const SIDE_SELECT_BUTTON_CLASS =
   "!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none border-[#dfe1e6] bg-white";
 const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
+
+const detailCache = new Map<string, TaskDetail>();
 
 export function TaskDetailDrawer({
   task,
@@ -43,7 +46,27 @@ export function TaskDetailDrawer({
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
+  const [detail, setDetail] = useState<TaskDetail | null>(
+    () => detailCache.get(task.id) ?? null
+  );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const reload = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/detail`);
+      if (!res.ok) return;
+      const data = (await res.json()) as TaskDetail;
+      detailCache.set(task.id, data);
+      setDetail(data);
+    } catch {
+      // The next mutation/realtime ping retries.
+    }
+  }, [task.id]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => void reload(), 0);
+    return () => clearTimeout(timer);
+  }, [reload]);
 
   const categoryOptions = [
     { value: "", label: "No category" },
@@ -134,7 +157,13 @@ export function TaskDetailDrawer({
 
               <section className="space-y-3 border-t border-[#dfe1e6] pt-5">
                 <span className={LABEL_CLASS}>Comments</span>
-                <CommentThread taskId={task.id} currentEmail={currentEmail} members={assignees} />
+                <CommentThread
+                  taskId={task.id}
+                  currentEmail={currentEmail}
+                  members={assignees}
+                  comments={detail?.comments ?? []}
+                  onReload={reload}
+                />
               </section>
             </main>
 
@@ -203,13 +232,18 @@ export function TaskDetailDrawer({
 
               <section className="space-y-2 border-t border-[#dfe1e6] pt-3">
                 <span className={LABEL_CLASS}>Attachments</span>
-                <AttachmentPanel taskId={task.id} canEdit={canEdit} />
+                <AttachmentPanel
+                  attachments={detail?.attachments ?? []}
+                  taskId={task.id}
+                  canEdit={canEdit}
+                  onReload={reload}
+                />
               </section>
 
               <section className="space-y-2 border-t border-[#dfe1e6] pt-3">
                 <span className={LABEL_CLASS}>Activity</span>
                 <ActivityFeed
-                  taskId={task.id}
+                  activity={detail?.activity ?? []}
                   personLabelByEmail={personLabelByEmail}
                 />
               </section>

@@ -454,6 +454,7 @@ export function TaskBoardClient({
 
       {openTask && (
         <TaskDetailDrawer
+          key={openTask.id}
           task={openTask}
           canEdit={canEditOpen}
           canAssign={canAssignOpen}

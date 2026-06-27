@@ -1,47 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Paperclip, Trash2 } from "lucide-react";
-
-type Attachment = {
-  id: string;
-  file_name: string;
-  size_bytes: number | null;
-  created_at: string;
-  url: string;
-};
+import type { SignedAttachment } from "@/lib/tasks/detail";
 
 export function AttachmentPanel({
+  attachments,
   taskId,
   canEdit,
+  onReload,
 }: {
+  attachments: SignedAttachment[];
   taskId: string;
   canEdit: boolean;
+  onReload: () => Promise<void> | void;
 }) {
-  const [items, setItems] = useState<Attachment[]>([]);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/tasks/${taskId}/attachments`);
-    if (res.ok) setItems((await res.json()).attachments as Attachment[]);
-  }, [taskId]);
-
-  useEffect(() => {
-    let isCurrent = true;
-
-    void fetch(`/api/tasks/${taskId}/attachments`)
-      .then((res) => (res.ok ? res.json() : { attachments: [] }))
-      .then((data) => {
-        if (isCurrent) {
-          setItems(data.attachments as Attachment[]);
-        }
-      });
-
-    return () => {
-      isCurrent = false;
-    };
-  }, [taskId]);
 
   async function upload(file: File) {
     setBusy(true);
@@ -49,7 +24,7 @@ export function AttachmentPanel({
       const form = new FormData();
       form.append("file", file);
       const res = await fetch(`/api/tasks/${taskId}/attachments`, { method: "POST", body: form });
-      if (res.ok) await load();
+      if (res.ok) await onReload();
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -58,13 +33,13 @@ export function AttachmentPanel({
 
   async function remove(aid: string) {
     const res = await fetch(`/api/tasks/${taskId}/attachments/${aid}`, { method: "DELETE" });
-    if (res.ok) await load();
+    if (res.ok) await onReload();
   }
 
   return (
     <div className="space-y-2">
       <ul className="space-y-1">
-        {items.map((a) => (
+        {attachments.map((a) => (
           <li key={a.id} className="flex items-center gap-2 text-sm">
             <Paperclip className="h-3.5 w-3.5 text-[#97a0af]" />
             <a href={a.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-[#0c66e4] hover:underline">
@@ -77,7 +52,7 @@ export function AttachmentPanel({
             )}
           </li>
         ))}
-        {items.length === 0 && <li className="text-xs text-[#6b778c]">No attachments.</li>}
+        {attachments.length === 0 && <li className="text-xs text-[#6b778c]">No attachments.</li>}
       </ul>
       {canEdit && (
         <div>

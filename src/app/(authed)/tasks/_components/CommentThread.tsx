@@ -11,24 +11,17 @@ import {
 import { Paperclip, Reply, Send, X } from "lucide-react";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
+import type { CommentWithAttachments, SignedAttachment } from "@/lib/tasks/detail";
 import { taskRoomTopic } from "@/lib/tasks/realtime-topics";
 
-type CommentAttachment = {
-  id: string;
-  file_name: string;
-  mime_type: string | null;
-  size_bytes: number | null;
-  url: string;
-};
-
-type Comment = {
+type Comment = CommentWithAttachments & {
   id: string;
   parent_id: string | null;
   author_email: string;
   body: string;
   created_at: string;
   deleted_at: string | null;
-  attachments: CommentAttachment[];
+  attachments: SignedAttachment[];
 };
 
 const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
@@ -38,30 +31,16 @@ export function CommentThread({
   taskId,
   currentEmail,
   members,
+  comments,
+  onReload,
 }: {
   taskId: string;
   currentEmail: string;
   members: TaskAssignee[];
+  comments: CommentWithAttachments[];
+  onReload: () => Promise<void> | void;
 }) {
-  const [comments, setComments] = useState<Comment[]>([]);
   const [replyTo, setReplyTo] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/tasks/${taskId}/comments`);
-    if (res.ok) setComments((await res.json()).comments as Comment[]);
-  }, [taskId]);
-
-  useEffect(() => {
-    let isCurrent = true;
-    void fetch(`/api/tasks/${taskId}/comments`)
-      .then((r) => (r.ok ? r.json() : { comments: [] }))
-      .then((d) => {
-        if (isCurrent) setComments(d.comments as Comment[]);
-      });
-    return () => {
-      isCurrent = false;
-    };
-  }, [taskId]);
 
   // Live thread: refetch when the task room pings (someone commented/attached).
   useEffect(() => {
@@ -70,7 +49,7 @@ export function CommentThread({
     let timer: ReturnType<typeof setTimeout> | null = null;
     const schedule = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void load(), 300);
+      timer = setTimeout(() => void onReload(), 300);
     };
     const channel = sb
       .channel(taskRoomTopic(taskId))
@@ -80,7 +59,7 @@ export function CommentThread({
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
-  }, [taskId, load]);
+  }, [taskId, onReload]);
 
   const nameOf = useCallback(
     (email: string) => members.find((m) => m.email === email)?.name ?? email,
@@ -102,17 +81,18 @@ export function CommentThread({
       await fetch(`/api/tasks/${taskId}/attachments`, { method: "POST", body: form });
     }
     setReplyTo(null);
-    await load();
+    await onReload();
     return true;
   }
 
   async function remove(id: string) {
     const res = await fetch(`/api/tasks/${taskId}/comments/${id}`, { method: "DELETE" });
-    if (res.ok) await load();
+    if (res.ok) await onReload();
   }
 
-  const topLevel = comments.filter((c) => c.parent_id === null);
-  const repliesOf = (id: string) => comments.filter((c) => c.parent_id === id);
+  const rows = comments as Comment[];
+  const topLevel = rows.filter((c) => c.parent_id === null);
+  const repliesOf = (id: string) => rows.filter((c) => c.parent_id === id);
 
   return (
     <div className="space-y-3">

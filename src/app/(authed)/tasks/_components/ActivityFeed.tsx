@@ -1,16 +1,9 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import type { ActivityRow } from "@/lib/tasks/detail";
 
-type Activity = {
-  id: string;
-  actor_email: string;
-  type: string;
-  meta: Record<string, unknown> | null;
-  created_at: string;
-};
-
-function describe(a: Activity, personLabel: (email: string) => string): ReactNode {
+function describe(a: ActivityRow, personLabel: (email: string) => string): ReactNode {
   const rawTo =
     a.meta && "to" in a.meta ? String((a.meta as { to: unknown }).to ?? "—") : "";
   const to = formatActivityValue(a.type, rawTo, personLabel);
@@ -31,28 +24,21 @@ function describe(a: Activity, personLabel: (email: string) => string): ReactNod
 }
 
 export function ActivityFeed({
-  taskId,
+  activity,
   personLabelByEmail,
 }: {
-  taskId: string;
+  activity: ActivityRow[];
   personLabelByEmail?: Map<string, string>;
 }) {
-  const [items, setItems] = useState<Activity[]>([]);
   const personLabel = (email: string) =>
     personLabelByEmail?.get(email) ?? formatEmailAsName(email);
 
-  useEffect(() => {
-    void fetch(`/api/tasks/${taskId}/activity`)
-      .then((r) => (r.ok ? r.json() : { activity: [] }))
-      .then((d) => setItems(d.activity as Activity[]));
-  }, [taskId]);
-
-  if (items.length === 0)
+  if (activity.length === 0)
     return <p className="text-xs text-[#6b778c]">No activity yet.</p>;
 
   return (
     <ul className="space-y-2">
-      {items.map((a) => (
+      {activity.map((a) => (
         <li key={a.id} className="text-xs leading-5 text-[#6b778c]">
           <strong className="font-semibold text-[#172b4d]">
             {personLabel(a.actor_email)}
