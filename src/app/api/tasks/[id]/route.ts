@@ -48,13 +48,20 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
-  const reassigning = body !== null && typeof body === "object" && "assignee_email" in body;
-  const agents = r.actor.isManager ? [] : await fetchAgentsForCs(r.actor.email);
-  const isAgentMember = Boolean(r.task.agent_email && agents.includes(r.task.agent_email));
-  if (reassigning && !canAssignToTask(r.actor, isAgentMember)) {
+  const reassigning =
+    !!body && typeof body === "object" &&
+    (body as { assignee_email?: unknown }).assignee_email !== undefined;
+
+  let mayAssign = r.actor.isManager;
+  if (reassigning && !r.actor.isManager) {
+    const agents = await fetchAgentsForCs(r.actor.email);
+    const isAgentMember = Boolean(r.task.agent_email && agents.includes(r.task.agent_email));
+    mayAssign = canAssignToTask(r.actor, isAgentMember);
+  }
+  if (reassigning && !mayAssign) {
     return NextResponse.json({ error: "You cannot assign this task." }, { status: 403 });
   }
-  const resolved = resolveTaskPatch(r.actor, r.task, body, { canAssign: canAssignToTask(r.actor, isAgentMember) });
+  const resolved = resolveTaskPatch(r.actor, r.task, body, { canAssign: mayAssign });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
 
   const { data, error } = await r.supabase
