@@ -112,6 +112,11 @@ const menuData: MenuItem[] = [
         label: "Role Manager",
         permission: PERMISSIONS.ROLE_MANAGER,
       },
+      {
+        href: "/management/agent-groups",
+        label: "Agent Groups",
+        permission: PERMISSIONS.ACCOUNT_MANAGER,
+      },
     ],
   },
 ];
@@ -134,7 +139,8 @@ export default function Sidebar({
       pathname.startsWith("/sales-dashboard"),
     Management:
       pathname.startsWith("/account-manager") ||
-      pathname.startsWith("/role-manager"),
+      pathname.startsWith("/role-manager") ||
+      pathname.startsWith("/management"),
   });
   const menuItems = menuData
     .map((item) => {
