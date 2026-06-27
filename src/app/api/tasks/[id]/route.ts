@@ -54,7 +54,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (reassigning && !canAssignToTask(r.actor, isAgentMember)) {
     return NextResponse.json({ error: "You cannot assign this task." }, { status: 403 });
   }
-  const resolved = resolveTaskPatch(r.actor, r.task, body);
+  const resolved = resolveTaskPatch(r.actor, r.task, body, { canAssign: canAssignToTask(r.actor, isAgentMember) });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
 
   const { data, error } = await r.supabase

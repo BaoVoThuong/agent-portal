@@ -82,6 +82,17 @@ describe("resolveTaskPatch", () => {
     });
   });
 
+  it("worker cannot reassign when opts.canAssign is false", () => {
+    const r = resolveTaskPatch(cs, assigned, { assignee_email: "other@x.com" }, { canAssign: false });
+    expect(r.ok).toBe(false);
+    expect((r as { ok: false; error: string }).error).toBe("You cannot reassign tasks.");
+  });
+
+  it("worker can reassign when opts.canAssign is true", () => {
+    const r = resolveTaskPatch(cs, assigned, { assignee_email: "other@x.com" }, { canAssign: true });
+    expect(r).toEqual({ ok: true, patch: { assignee_email: "other@x.com" } });
+  });
+
   it("validates enums and position", () => {
     expect(resolveTaskPatch(manager, assigned, { priority: "nope" }).ok).toBe(false);
     expect(resolveTaskPatch(manager, assigned, { status: "nope" }).ok).toBe(false);

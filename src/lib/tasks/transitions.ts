@@ -36,7 +36,8 @@ function isEnum<T extends readonly string[]>(v: unknown, allowed: T): v is T[num
 export function resolveTaskPatch(
   actor: TaskActor,
   current: Current,
-  raw: unknown
+  raw: unknown,
+  opts?: { canAssign?: boolean }
 ): Result {
   if (!raw || typeof raw !== "object") return { ok: false, error: "Invalid body." };
   const r = raw as TaskPatchInput;
@@ -84,7 +85,8 @@ export function resolveTaskPatch(
 
   // --- status / assignee / waiting_reason are interdependent ---
   const reassigning = r.assignee_email !== undefined;
-  if (reassigning && !canAssign(actor)) {
+  const mayAssign = opts?.canAssign ?? canAssign(actor);
+  if (reassigning && !mayAssign) {
     return { ok: false, error: "You cannot reassign tasks." };
   }
   if (r.status !== undefined && !isEnum(r.status, TASK_STATUSES)) {
