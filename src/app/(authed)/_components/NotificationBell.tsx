@@ -57,44 +57,49 @@ export function NotificationBell() {
   const initialized = useRef(false);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/tasks/notifications");
-    if (!res.ok) return;
-    const data = await res.json();
-    const list = data.notifications as Notif[];
-    setItems(list);
-    setUnread(data.unread as number);
-    setTopic((data.topic as string | null) ?? null);
+    try {
+      const res = await fetch("/api/tasks/notifications");
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = data.notifications as Notif[];
+      setItems(list);
+      setUnread(data.unread as number);
+      setTopic((data.topic as string | null) ?? null);
 
-    if (!initialized.current) {
-      // First load: remember what already exists; don't pop toasts for old items.
-      list.forEach((n) => seenIds.current.add(n.id));
-      initialized.current = true;
-      return;
-    }
-
-    const fresh = list.filter((n) => !seenIds.current.has(n.id) && !n.is_read);
-    list.forEach((n) => seenIds.current.add(n.id));
-
-    // Oldest first so the newest toast ends up on top of the stack.
-    for (const n of [...fresh].reverse()) {
-      setToasts((cur) => [n, ...cur].slice(0, 4));
-      const id = n.id;
-      setTimeout(
-        () => setToasts((cur) => cur.filter((t) => t.id !== id)),
-        TOAST_MS
-      );
-
-      // Bonus: native OS notification when the tab isn't focused.
-      if (
-        typeof window !== "undefined" &&
-        "Notification" in window &&
-        Notification.permission === "granted" &&
-        document.hidden
-      ) {
-        new Notification(`${taskKey(n.task_id)} · ${actorName(n)}`, {
-          body: `${LABEL[n.type]}${n.task_title ? ` · ${n.task_title}` : ""}`,
-        });
+      if (!initialized.current) {
+        // First load: remember what already exists; don't pop toasts for old items.
+        list.forEach((n) => seenIds.current.add(n.id));
+        initialized.current = true;
+        return;
       }
+
+      const fresh = list.filter((n) => !seenIds.current.has(n.id) && !n.is_read);
+      list.forEach((n) => seenIds.current.add(n.id));
+
+      // Oldest first so the newest toast ends up on top of the stack.
+      for (const n of [...fresh].reverse()) {
+        setToasts((cur) => [n, ...cur].slice(0, 4));
+        const id = n.id;
+        setTimeout(
+          () => setToasts((cur) => cur.filter((t) => t.id !== id)),
+          TOAST_MS
+        );
+
+        // Bonus: native OS notification when the tab isn't focused.
+        if (
+          typeof window !== "undefined" &&
+          "Notification" in window &&
+          Notification.permission === "granted" &&
+          document.hidden
+        ) {
+          new Notification(`${taskKey(n.task_id)} · ${actorName(n)}`, {
+            body: `${LABEL[n.type]}${n.task_title ? ` · ${n.task_title}` : ""}`,
+          });
+        }
+      }
+    } catch {
+      // Transient network error (HMR reload, offline, navigation abort) —
+      // ignore; the next poll / realtime ping retries.
     }
   }, []);
 
