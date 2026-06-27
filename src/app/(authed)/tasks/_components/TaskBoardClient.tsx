@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
-import { Plus, Tag } from "lucide-react";
+import { Plus, Tag, UsersRound } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskStatus } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import {
@@ -20,6 +20,7 @@ import { TaskToolbar, type AgentStat, type BoardView } from "./TaskToolbar";
 import { NewTaskDialog, type NewTaskPayload } from "./NewTaskDialog";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { CategoryManager } from "./CategoryManager";
+import { AgentGroupsModal } from "./AgentGroupsModal";
 
 export function TaskBoardClient({
   initialTasks,
@@ -27,6 +28,7 @@ export function TaskBoardClient({
   currentEmail,
   assignees,
   agents,
+  agentCandidates,
   myAgents,
   initialCategories,
 }: {
@@ -35,15 +37,18 @@ export function TaskBoardClient({
   currentEmail: string;
   assignees: TaskAssignee[];
   agents: TaskAgent[];
+  agentCandidates: TaskAgent[];
   myAgents: string[];
   initialCategories: TaskCategory[];
 }) {
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
+  const [taskAgents, setTaskAgents] = useState<TaskAgent[]>(agents);
   const [view, setView] = useState<BoardView>("board");
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
   const [managingCategories, setManagingCategories] = useState(false);
+  const [managingAgentGroups, setManagingAgentGroups] = useState(false);
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState(ALL_AGENTS);
   const [assigneeFilter, setAssigneeFilter] = useState("");
@@ -111,7 +116,7 @@ export function TaskBoardClient({
 
   const agentChoices = useMemo(() => {
     const byEmail = new Map<string, TaskAgent>();
-    for (const agent of agents) byEmail.set(agent.email, agent);
+    for (const agent of taskAgents) byEmail.set(agent.email, agent);
     for (const task of tasks) {
       if (task.agent_email && !byEmail.has(task.agent_email)) {
         byEmail.set(task.agent_email, { email: task.agent_email, name: null });
@@ -120,7 +125,7 @@ export function TaskBoardClient({
     return [...byEmail.values()].sort((a, b) =>
       formatAgentLabel(a).localeCompare(formatAgentLabel(b))
     );
-  }, [agents, tasks]);
+  }, [taskAgents, tasks]);
 
   const agentLabelByEmail = useMemo(
     () => new Map(agentChoices.map((agent) => [agent.email, formatAgentLabel(agent)])),
@@ -172,14 +177,17 @@ export function TaskBoardClient({
             );
       const stat = ensure(key, label);
       stat.total += 1;
-      if (task.status !== "done") stat.active += 1;
+      if (task.status !== "done" && task.status !== "cancel") stat.active += 1;
       if (task.status === "waiting") stat.waiting += 1;
       if (task.status === "done") stat.done += 1;
       if (task.priority === "urgent" || task.priority === "high") stat.urgent += 1;
     }
 
-    return [...stats.values()].filter((stat) => stat.total > 0);
-  }, [agentChoices, tasks]);
+    const selectedAgentEmails = new Set(taskAgents.map((agent) => agent.email));
+    return [...stats.values()].filter(
+      (stat) => stat.total > 0 || selectedAgentEmails.has(stat.key)
+    );
+  }, [agentChoices, taskAgents, tasks]);
 
   // Which filters make sense for the current view + role. Hidden filters are also
   // forced inert here so a stale value can't silently filter a view that hides it.
@@ -247,6 +255,10 @@ export function TaskBoardClient({
 
   function replaceTask(updated: TaskRow) {
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+  }
+
+  function canAssignTask(task: TaskRow): boolean {
+    return isManager || Boolean(task.agent_email && myAgents.includes(task.agent_email));
   }
 
   async function patchTask(id: string, patch: Record<string, unknown>) {
@@ -325,6 +337,7 @@ export function TaskBoardClient({
 
   const canEditOpen =
     openTask !== null && (isManager || openTask.assignee_email === currentEmail);
+  const canAssignOpen = openTask !== null && canAssignTask(openTask);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white text-[#172b4d]">
@@ -334,14 +347,24 @@ export function TaskBoardClient({
 
           <div className="flex items-center gap-2">
             {isManager && (
-              <button
-                type="button"
-                onClick={() => setManagingCategories(true)}
-                className="inline-flex h-9 items-center gap-2 rounded border border-transparent bg-[#f4f5f7] px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#ebecf0]"
-              >
-                <Tag className="h-4 w-4" />
-                Categories
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setManagingAgentGroups(true)}
+                  className="inline-flex h-9 items-center gap-2 rounded border border-transparent bg-[#f4f5f7] px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#ebecf0]"
+                >
+                  <UsersRound className="h-4 w-4" />
+                  Agent Groups
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManagingCategories(true)}
+                  className="inline-flex h-9 items-center gap-2 rounded border border-transparent bg-[#f4f5f7] px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#ebecf0]"
+                >
+                  <Tag className="h-4 w-4" />
+                  Categories
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -399,6 +422,7 @@ export function TaskBoardClient({
           categories={categories}
           assignees={assignees}
           isManager={isManager}
+          myAgents={myAgents}
           currentEmail={currentEmail}
           onOpen={openTaskById}
           onPatch={patchTask}
@@ -421,7 +445,7 @@ export function TaskBoardClient({
         open={creating}
         isManager={isManager}
         assignees={assignees}
-        agents={agents}
+        agents={taskAgents}
         myAgents={myAgents}
         categories={categories}
         onClose={() => setCreating(false)}
@@ -431,10 +455,10 @@ export function TaskBoardClient({
       {openTask && (
         <TaskDetailDrawer
           task={openTask}
-          isManager={isManager}
           canEdit={canEditOpen}
+          canAssign={canAssignOpen}
           assignees={assignees}
-          agents={agents}
+          agents={taskAgents}
           categories={categories}
           currentEmail={currentEmail}
           onClose={closeTask}
@@ -447,6 +471,15 @@ export function TaskBoardClient({
         open={managingCategories}
         onClose={() => setManagingCategories(false)}
         onChanged={reloadCategories}
+      />
+
+      <AgentGroupsModal
+        open={managingAgentGroups}
+        agents={taskAgents}
+        candidates={agentCandidates}
+        cs={assignees}
+        onAgentsChange={setTaskAgents}
+        onClose={() => setManagingAgentGroups(false)}
       />
 
       {error && (

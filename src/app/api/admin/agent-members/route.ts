@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { can } from "@/lib/rbac/client";
+import { canAny } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 export const dynamic = "force-dynamic";
 
+const AGENT_GROUP_PERMISSIONS = [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.TASK_MANAGE];
+
+function canManageAgentGroups(permissions: readonly string[] | undefined): boolean {
+  return canAny(permissions, AGENT_GROUP_PERMISSIONS);
+}
+
 export async function GET(req: Request) {
   const session = await auth();
-  if (!can(session?.user?.permissions, PERMISSIONS.ACCOUNT_MANAGER)) {
+  if (!canManageAgentGroups(session?.user?.permissions)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -27,7 +33,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!can(session?.user?.permissions, PERMISSIONS.ACCOUNT_MANAGER)) {
+  if (!canManageAgentGroups(session?.user?.permissions)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -43,7 +49,21 @@ export async function POST(req: Request) {
     );
   }
 
-  const { error } = await getSupabaseAdmin()
+  const sb = getSupabaseAdmin();
+  const { data: agentRow, error: agentErr } = await sb
+    .from("task_agents")
+    .select("email")
+    .eq("email", agent_email)
+    .maybeSingle();
+  if (agentErr) return NextResponse.json({ error: agentErr.message }, { status: 500 });
+  if (!agentRow) {
+    return NextResponse.json(
+      { error: "Select this person as an agent first." },
+      { status: 400 }
+    );
+  }
+
+  const { error } = await sb
     .from("agent_members")
     .upsert({ agent_email, cs_email }, { onConflict: "agent_email,cs_email", ignoreDuplicates: true });
 
@@ -53,7 +73,7 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const session = await auth();
-  if (!can(session?.user?.permissions, PERMISSIONS.ACCOUNT_MANAGER)) {
+  if (!canManageAgentGroups(session?.user?.permissions)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

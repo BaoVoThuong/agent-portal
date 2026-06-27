@@ -6,8 +6,6 @@ export const NO_AGENT = "__no_agent__";
 export const NO_ASSIGNEE = "__no_assignee__";
 
 export type QuickFilter =
-  | "overdue"
-  | "dueThisWeek"
   | "highPriority"
   | "recentlyUpdated"
   | "mine"
@@ -46,16 +44,6 @@ function matchesQuick(
   now: Date
 ): boolean {
   switch (filter) {
-    case "overdue":
-      if (!task.due_date || task.status === "done") return false;
-      return new Date(`${task.due_date}T23:59:59`) < now;
-    case "dueThisWeek": {
-      if (!task.due_date || task.status === "done") return false;
-      const due = new Date(`${task.due_date}T23:59:59`);
-      const week = new Date(now);
-      week.setDate(now.getDate() + 7);
-      return due >= now && due <= week;
-    }
     case "highPriority":
       return task.priority === "high" || task.priority === "urgent";
     case "recentlyUpdated": {

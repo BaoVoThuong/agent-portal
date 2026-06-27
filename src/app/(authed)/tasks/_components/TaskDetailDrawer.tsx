@@ -13,8 +13,6 @@ import { TaskPrioritySelect } from "./TaskPrioritySelect";
 
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
-const SIDE_INPUT_CLASS =
-  "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
 const SIDE_SELECT_BUTTON_CLASS =
   "!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none border-[#dfe1e6] bg-white";
 const LABEL_CLASS =
@@ -22,8 +20,8 @@ const LABEL_CLASS =
 
 export function TaskDetailDrawer({
   task,
-  isManager,
   canEdit,
+  canAssign,
   assignees,
   agents,
   categories,
@@ -33,8 +31,8 @@ export function TaskDetailDrawer({
   onDelete,
 }: {
   task: TaskRow;
-  isManager: boolean;
   canEdit: boolean;
+  canAssign: boolean;
   assignees: TaskAssignee[];
   agents: TaskAgent[];
   categories: TaskCategory[];
@@ -154,17 +152,6 @@ export function TaskDetailDrawer({
                   />
                 </div>
 
-                <label className="space-y-1.5">
-                  <span className={LABEL_CLASS}>Due date</span>
-                  <input
-                    type="date"
-                    defaultValue={task.due_date ?? ""}
-                    disabled={!canEdit}
-                    onChange={(e) => onPatch({ due_date: e.target.value })}
-                    className={SIDE_INPUT_CLASS}
-                  />
-                </label>
-
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Category</span>
                   <TaskSelect
@@ -191,7 +178,7 @@ export function TaskDetailDrawer({
                   />
                 </div>
 
-                {isManager && (
+                {canAssign && (
                   <div className="space-y-1.5">
                     <span className={LABEL_CLASS}>Assignee</span>
                     <TaskSelect

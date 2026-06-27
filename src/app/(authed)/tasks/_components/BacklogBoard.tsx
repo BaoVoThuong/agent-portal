@@ -174,7 +174,6 @@ function InlineCreateRow({
         title: trimmed,
         description: "",
         priority: "medium",
-        due_date: "",
       });
       setTitle("");
     } finally {

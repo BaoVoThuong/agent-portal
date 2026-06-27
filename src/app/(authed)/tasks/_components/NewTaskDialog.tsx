@@ -11,7 +11,6 @@ export type NewTaskPayload = {
   title: string;
   description: string;
   priority: TaskPriority;
-  due_date: string;
   agent_email?: string;
   assignee_email?: string;
   category_id?: string;
@@ -40,7 +39,6 @@ export function NewTaskDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [dueDate, setDueDate] = useState("");
   const [agentEmail, setAgentEmail] = useState(defaultAgent);
   const [assignee, setAssignee] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -80,7 +78,6 @@ export function NewTaskDialog({
         title: title.trim(),
         description: description.trim(),
         priority,
-        due_date: dueDate,
         agent_email: agentEmail || undefined,
         assignee_email: isManager && assignee ? assignee : undefined,
         category_id: categoryId || undefined,
@@ -88,7 +85,6 @@ export function NewTaskDialog({
       setTitle("");
       setDescription("");
       setPriority("medium");
-      setDueDate("");
       setAgentEmail(defaultAgent);
       setAssignee("");
       setCategoryId("");
@@ -106,7 +102,7 @@ export function NewTaskDialog({
             <div>
               <h2 className="text-xl font-semibold text-[#172b4d]">New task</h2>
               <p className="mt-1 text-sm text-[#626f86]">
-                Capture the work item, then set ownership and timing on the right.
+                Capture the work item, then set ownership on the right.
               </p>
             </div>
             <button
@@ -167,15 +163,6 @@ export function NewTaskDialog({
                 />
               </MetaField>
 
-              <MetaField label="Due date">
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4]"
-                />
-              </MetaField>
-
               <MetaField label="Category">
                 <TaskSelect
                   label="Category"
@@ -215,10 +202,6 @@ export function NewTaskDialog({
                 )}
               </MetaField>
 
-              <div className="rounded border border-[#dfe1e6] bg-white px-3 py-2 text-xs leading-5 text-[#626f86]">
-                Unassigned tasks start in Backlog. Assigned tasks move straight
-                to To Do.
-              </div>
             </aside>
           </div>
         </div>

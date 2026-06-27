@@ -12,6 +12,7 @@ export function TaskListView({
   categories,
   assignees,
   isManager,
+  myAgents,
   currentEmail,
   onOpen,
   onPatch,
@@ -20,12 +21,13 @@ export function TaskListView({
   categories: TaskCategory[];
   assignees: TaskAssignee[];
   isManager: boolean;
+  myAgents: string[];
   currentEmail: string;
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("due");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>("created");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const categoryById = new Map(categories.map((c) => [c.id, c]));
   const categoryName = (id: string | null) => categoryById.get(id ?? "")?.name ?? null;
@@ -59,7 +61,6 @@ export function TaskListView({
               widthClass={`hidden ${LIST_COL.category} shrink-0 sm:flex`}
               {...sp}
             />
-            <SortTh label="Due" col="due" widthClass={`flex ${LIST_COL.due} shrink-0`} {...sp} />
             <SortTh
               label="Created"
               col="created"
@@ -93,7 +94,10 @@ export function TaskListView({
                   category={categoryById.get(task.category_id ?? "") ?? null}
                   assignees={assignees}
                   canEdit={isManager || task.assignee_email === currentEmail}
-                  canAssign={isManager}
+                  canAssign={
+                    isManager ||
+                    Boolean(task.agent_email && myAgents.includes(task.agent_email))
+                  }
                   onOpen={onOpen}
                   onPatch={onPatch}
                   openOnDoubleClick

@@ -15,7 +15,6 @@ export type TaskPatchInput = {
   title?: unknown;
   description?: unknown;
   priority?: unknown;
-  due_date?: unknown;
   category_id?: unknown;
   agent_email?: unknown;
   status?: unknown;
@@ -58,12 +57,6 @@ export function resolveTaskPatch(
     if (!isEnum(r.priority, TASK_PRIORITIES))
       return { ok: false, error: "Invalid priority." };
     patch.priority = r.priority;
-  }
-  if (r.due_date !== undefined) {
-    patch.due_date =
-      typeof r.due_date === "string" && r.due_date.trim() !== ""
-        ? r.due_date.trim()
-        : null;
   }
   if (r.category_id !== undefined) {
     patch.category_id =

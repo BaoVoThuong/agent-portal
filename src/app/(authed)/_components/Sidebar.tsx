@@ -112,11 +112,6 @@ const menuData: MenuItem[] = [
         label: "Role Manager",
         permission: PERMISSIONS.ROLE_MANAGER,
       },
-      {
-        href: "/management/agent-groups",
-        label: "Agent Groups",
-        permission: PERMISSIONS.ACCOUNT_MANAGER,
-      },
     ],
   },
 ];

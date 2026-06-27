@@ -19,12 +19,9 @@ describe("buildActivityEntries", () => {
       { type: "assigned", meta: { to: "other@x.com" } },
     ]);
   });
-  it("logs priority, due, category, and edits", () => {
+  it("logs priority, category, agent, and edits", () => {
     expect(buildActivityEntries(before, { priority: "high" })).toEqual([
       { type: "priority_changed", meta: { to: "high" } },
-    ]);
-    expect(buildActivityEntries(before, { due_date: "2026-07-01" })).toEqual([
-      { type: "due_changed", meta: { to: "2026-07-01" } },
     ]);
     expect(buildActivityEntries(before, { category_id: "c1" })).toEqual([
       { type: "category_changed", meta: { to: "c1" } },

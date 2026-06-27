@@ -40,14 +40,41 @@ export async function fetchTaskAssignees(): Promise<TaskAssignee[]> {
 }
 
 export async function fetchTaskAgents(): Promise<TaskAgent[]> {
-  const { data: accounts, error } = await getSupabaseAdmin()
+  const supabase = getSupabaseAdmin();
+  const { data: selected, error: selectedErr } = await supabase
+    .from("task_agents")
+    .select("email");
+  if (selectedErr) throw new Error(selectedErr.message);
+
+  const emails = [...new Set((selected ?? []).map((row) => (row as { email: string }).email))];
+  if (emails.length === 0) return [];
+
+  const { data: accounts, error } = await supabase
     .from("portal_account")
-    .select("email,name,is_active,role")
-    .eq("is_active", true)
-    .eq("role", "agent");
+    .select("email,name,is_active")
+    .in("email", emails)
+    .eq("is_active", true);
   if (error) throw new Error(error.message);
 
-  return ((accounts ?? []) as unknown as { email: string; name: string | null }[])
-    .map((account) => ({ email: account.email, name: account.name }))
-    .sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
+  return sortPeople(
+    ((accounts ?? []) as unknown as { email: string; name: string | null }[])
+      .map((account) => ({ email: account.email, name: account.name }))
+  );
+}
+
+export async function fetchTaskAgentCandidates(): Promise<TaskAgent[]> {
+  const { data: accounts, error } = await getSupabaseAdmin()
+    .from("portal_account")
+    .select("email,name,is_active")
+    .eq("is_active", true);
+  if (error) throw new Error(error.message);
+
+  return sortPeople(
+    ((accounts ?? []) as unknown as { email: string; name: string | null }[])
+      .map((account) => ({ email: account.email, name: account.name }))
+  );
+}
+
+function sortPeople<T extends TaskAssignee>(people: T[]): T[] {
+  return [...people].sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
 }

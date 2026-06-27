@@ -21,7 +21,6 @@ function describe(a: Activity, personLabel: (email: string) => string): ReactNod
     case "reopened": return <>reopened ({to})</>;
     case "assigned": return <>assigned to {to}</>;
     case "priority_changed": return <>set priority {to}</>;
-    case "due_changed": return <>set due date {to}</>;
     case "category_changed": return "changed category";
     case "agent_changed": return <>changed agent to {to}</>;
     case "comment_added": return "commented";

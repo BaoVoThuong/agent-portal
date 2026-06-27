@@ -1,8 +1,12 @@
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { buildTaskActor, canAssign } from "@/lib/tasks/access";
+import { buildTaskActor } from "@/lib/tasks/access";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
-import { fetchTaskAgents, fetchTaskAssignees } from "@/lib/tasks/assignees";
+import {
+  fetchTaskAgentCandidates,
+  fetchTaskAgents,
+  fetchTaskAssignees,
+} from "@/lib/tasks/assignees";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { TaskBoardClient } from "./_components/TaskBoardClient";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -19,8 +23,9 @@ export default async function TasksPage() {
   const actor = buildTaskActor(session.user.permissions, email);
 
   const tasks = await fetchTasksForActor(actor);
-  const assignees = canAssign(actor) ? await fetchTaskAssignees() : [];
+  const assignees = await fetchTaskAssignees();
   const agents = await fetchTaskAgents();
+  const agentCandidates = await fetchTaskAgentCandidates();
   const myAgents = actor.isManager
     ? agents.map((a) => a.email)
     : await fetchAgentsForCs(email);
@@ -40,6 +45,7 @@ export default async function TasksPage() {
       currentEmail={email}
       assignees={assignees}
       agents={agents}
+      agentCandidates={agentCandidates}
       myAgents={myAgents}
       initialCategories={categories}
     />

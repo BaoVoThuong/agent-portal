@@ -105,6 +105,17 @@ describe("resolveCreateAssignment", () => {
       status: "in_progress",
     });
   });
+  it("manager may create a canceled task with an assignee", () => {
+    const r = resolveCreateAssignment(manager, {
+      assignee_email: "cs@x.com",
+      status: "cancel",
+    });
+    expect(r).toEqual({
+      ok: true,
+      assignee_email: "cs@x.com",
+      status: "cancel",
+    });
+  });
   it("rejects a non-backlog task with no assignee", () => {
     const r = resolveCreateAssignment(manager, {
       assignee_email: null,

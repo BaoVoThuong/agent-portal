@@ -12,14 +12,13 @@ import {
 } from "@/lib/tasks/types";
 import { taskKey } from "@/lib/tasks/sorting";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
-import { DueBadge, Initials, PriorityIcon, PRIORITY_META } from "./board-ui";
+import { Initials, PriorityIcon, PRIORITY_META } from "./board-ui";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
 // Shared column widths so the List header and the rows line up exactly.
 export const LIST_COL = {
   key: "w-20",
   category: "w-52",
-  due: "w-24",
   created: "w-24",
   priority: "w-16",
   status: "w-28",
@@ -32,6 +31,7 @@ const STATUS_PILL: Record<TaskStatus, { bg: string; fg: string }> = {
   in_progress: { bg: "#deebff", fg: "#0055cc" },
   waiting: { bg: "#fff0b3", fg: "#7f5f01" },
   done: { bg: "#e3fcef", fg: "#006644" },
+  cancel: { bg: "#ffebe6", fg: "#bf2600" },
 };
 
 export function TaskRowItem({
@@ -86,10 +86,6 @@ export function TaskRowItem({
             {category.name}
           </span>
         ) : null}
-      </span>
-
-      <span className={`${LIST_COL.due} shrink-0`}>
-        <DueBadge due={task.due_date} />
       </span>
 
       <span className={`${LIST_COL.created} shrink-0 text-[11px] font-medium text-[#6b778c]`}>

@@ -7,6 +7,7 @@ export const TASK_STATUSES = [
   "in_progress",
   "waiting",
   "done",
+  "cancel",
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
@@ -27,6 +28,7 @@ export const KANBAN_STATUSES: TaskStatus[] = [
   "in_progress",
   "waiting",
   "done",
+  "cancel",
 ];
 
 export type TaskRow = {
@@ -39,7 +41,6 @@ export type TaskRow = {
   agent_email: string | null;
   assignee_email: string | null;
   reporter_email: string;
-  due_date: string | null;
   waiting_reason: WaitingReason | null;
   position: number;
   created_at: string;
@@ -62,4 +63,5 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   in_progress: "In Progress",
   waiting: "Waiting",
   done: "Done",
+  cancel: "Cancel",
 };

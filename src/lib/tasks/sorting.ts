@@ -7,7 +7,6 @@ export type SortKey =
   | "agent"
   | "assignee"
   | "category"
-  | "due"
   | "created"
   | "updated"
   | "key";
@@ -25,6 +24,7 @@ const STATUS_RANK: Record<TaskStatus, number> = {
   in_progress: 2,
   waiting: 3,
   done: 4,
+  cancel: 5,
 };
 
 // Deterministic display key, matching the one shown on cards.
@@ -55,8 +55,6 @@ function sortValue(
       return task.assignee_email?.toLowerCase() ?? null;
     case "category":
       return categoryName(task.category_id)?.toLowerCase() ?? null;
-    case "due":
-      return task.due_date ?? null;
     case "created":
       return task.created_at;
     case "updated":

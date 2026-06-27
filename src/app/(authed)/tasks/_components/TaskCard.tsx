@@ -1,6 +1,6 @@
 import { UserRound } from "lucide-react";
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import { DueBadge, WaitingTag, Initials, PriorityIcon } from "./board-ui";
+import { WaitingTag, Initials, PriorityIcon } from "./board-ui";
 
 export function TaskCard({
   task,
@@ -52,7 +52,6 @@ export function TaskCard({
           </span>
         )}
         <WaitingTag reason={task.waiting_reason} />
-        <DueBadge due={task.due_date} />
         <PriorityAlert priority={task.priority} />
       </div>
     </button>
@@ -95,6 +94,7 @@ function statusAccent(status: TaskRow["status"]) {
     in_progress: "#6554c0",
     waiting: "#ffab00",
     done: "#36b37e",
+    cancel: "#de350b",
   };
 
   return colors[status];

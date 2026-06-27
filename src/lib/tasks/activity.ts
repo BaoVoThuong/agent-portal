@@ -22,9 +22,6 @@ export function buildActivityEntries(
   if (typeof patch.priority === "string") {
     entries.push({ type: "priority_changed", meta: { to: patch.priority } });
   }
-  if ("due_date" in patch) {
-    entries.push({ type: "due_changed", meta: { to: patch.due_date ?? null } });
-  }
   if ("category_id" in patch) {
     entries.push({ type: "category_changed", meta: { to: patch.category_id ?? null } });
   }

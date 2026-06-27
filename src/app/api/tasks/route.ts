@@ -80,10 +80,6 @@ export async function POST(request: Request) {
       agent_email: agentEmail,
       assignee_email: assignment.assignee_email,
       reporter_email: email,
-      due_date:
-        typeof body?.due_date === "string" && body.due_date.trim() !== ""
-          ? body.due_date.trim()
-          : null,
       category_id:
         typeof body?.category_id === "string" && body.category_id.trim() !== ""
           ? body.category_id.trim()

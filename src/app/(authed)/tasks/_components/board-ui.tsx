@@ -89,20 +89,6 @@ export function PriorityDot({ priority }: { priority: TaskPriority }) {
   );
 }
 
-export function DueBadge({ due }: { due: string | null }) {
-  if (!due) return null;
-  const overdue = new Date(`${due}T23:59:59`) < new Date();
-  return (
-    <span
-      className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${
-        overdue ? "bg-[#ffebe6] text-[#de350b]" : "bg-[#e9f2ff] text-[#0c66e4]"
-      }`}
-    >
-      {due}
-    </span>
-  );
-}
-
 const WAITING_LABEL: Record<WaitingReason, string> = {
   customer: "waiting: customer",
   carrier: "waiting: carrier",

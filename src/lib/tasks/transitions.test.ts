@@ -82,6 +82,11 @@ describe("resolveTaskPatch", () => {
     });
   });
 
+  it("accepts cancel as a terminal task status", () => {
+    const r = resolveTaskPatch(manager, assigned, { status: "cancel" });
+    expect(r).toEqual({ ok: true, patch: { status: "cancel" } });
+  });
+
   it("worker cannot reassign when opts.canAssign is false", () => {
     const r = resolveTaskPatch(cs, assigned, { assignee_email: "other@x.com" }, { canAssign: false });
     expect(r.ok).toBe(false);

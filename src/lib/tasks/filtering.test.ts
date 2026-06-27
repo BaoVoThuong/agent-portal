@@ -18,7 +18,6 @@ function task(p: Partial<TaskRow>): TaskRow {
     agent_email: null,
     assignee_email: null,
     reporter_email: "r@x.com",
-    due_date: null,
     waiting_reason: null,
     position: 0,
     created_at: "2026-01-01T00:00:00Z",
@@ -69,6 +68,7 @@ describe("filterTasks", () => {
       task({ id: "1", priority: "high", category_id: "c1", status: "todo" }),
       task({ id: "2", priority: "low", category_id: "c1", status: "todo" }),
       task({ id: "3", priority: "high", category_id: "c2", status: "done" }),
+      task({ id: "4", priority: "medium", category_id: "c2", status: "cancel" }),
     ];
     expect(filterTasks(rows, { ...base, priority: "high" }).map((t) => t.id)).toEqual([
       "1",
@@ -81,21 +81,9 @@ describe("filterTasks", () => {
     expect(filterTasks(rows, { ...base, status: "done" }).map((t) => t.id)).toEqual([
       "3",
     ]);
-  });
-
-  it("quick: overdue and dueThisWeek", () => {
-    const rows = [
-      task({ id: "1", due_date: "2026-06-01", status: "todo" }),
-      task({ id: "2", due_date: "2026-06-26", status: "todo" }),
-      task({ id: "3", due_date: "2026-08-01", status: "todo" }),
-      task({ id: "4", due_date: "2026-06-01", status: "done" }),
-    ];
-    expect(filterTasks(rows, { ...base, quick: ["overdue"] }).map((t) => t.id)).toEqual([
-      "1",
+    expect(filterTasks(rows, { ...base, status: "cancel" }).map((t) => t.id)).toEqual([
+      "4",
     ]);
-    expect(
-      filterTasks(rows, { ...base, quick: ["dueThisWeek"] }).map((t) => t.id)
-    ).toEqual(["2"]);
   });
 
   it("quick: mine and triage", () => {

@@ -35,6 +35,7 @@ const COLUMN_LABEL: Record<TaskStatus, string> = {
   in_progress: "In Progress",
   waiting: "Waiting",
   done: "Done",
+  cancel: "Cancel",
 };
 
 function byPosition(tasks: TaskRow[]): TaskRow[] {

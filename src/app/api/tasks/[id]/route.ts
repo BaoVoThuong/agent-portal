@@ -9,10 +9,61 @@ import { insertNotifications } from "@/lib/tasks/notifications";
 import { removeTaskFiles } from "@/lib/tasks/storage";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { isTaskParticipant } from "@/lib/tasks/participants";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+const ASSIGNMENT_PATCH_KEYS = new Set(["assignee_email", "status"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function normalizeAssignmentOnlyPatch(
+  task: Pick<TaskRow, "status" | "assignee_email">,
+  body: Record<string, unknown>
+): { ok: true; body: Record<string, unknown> } | { ok: false } {
+  if (!Object.keys(body).every((key) => ASSIGNMENT_PATCH_KEYS.has(key))) {
+    return { ok: false };
+  }
+
+  const nextAssignee =
+    typeof body.assignee_email === "string" && body.assignee_email.trim() !== ""
+      ? body.assignee_email.trim()
+      : null;
+  const requiredStatus =
+    nextAssignee === null
+      ? "backlog"
+      : task.status === "backlog"
+        ? "todo"
+        : task.status;
+
+  if (body.status !== undefined && body.status !== requiredStatus) {
+    return { ok: false };
+  }
+
+  const normalized = { ...body };
+  if (requiredStatus !== task.status || body.status !== undefined) {
+    normalized.status = requiredStatus;
+  }
+  return { ok: true, body: normalized };
+}
+
+async function canViewResolved(
+  actor: ReturnType<typeof buildTaskActor>,
+  task: Pick<TaskRow, "assignee_email" | "agent_email">,
+  taskId: string
+): Promise<boolean> {
+  if (actor.isManager) return true;
+  const [isParticipant, agents] = await Promise.all([
+    isTaskParticipant(taskId, actor.email),
+    fetchAgentsForCs(actor.email),
+  ]);
+  const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
+  return canViewTask(actor, task, { isParticipant, isAgentMember });
+}
 
 async function loadActorAndTask(id: string) {
   const session = await auth();
@@ -35,7 +86,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!canViewTask(r.actor, r.task))
+  if (!(await canViewResolved(r.actor, r.task, id)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   return NextResponse.json({ task: r.task });
 }
@@ -44,13 +95,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!canMutateTask(r.actor, r.task))
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
-  const reassigning =
-    !!body && typeof body === "object" &&
-    (body as { assignee_email?: unknown }).assignee_email !== undefined;
+  const bodyRecord = isRecord(body) ? body : null;
+  const reassigning = bodyRecord?.assignee_email !== undefined;
 
   let mayAssign = r.actor.isManager;
   if (reassigning && !r.actor.isManager) {
@@ -61,7 +109,21 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (reassigning && !mayAssign) {
     return NextResponse.json({ error: "You cannot assign this task." }, { status: 403 });
   }
-  const resolved = resolveTaskPatch(r.actor, r.task, body, { canAssign: mayAssign });
+
+  const canMutate = canMutateTask(r.actor, r.task);
+  let resolvedBody: unknown = body;
+  if (!canMutate) {
+    if (!reassigning || !bodyRecord) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+    const assignmentOnly = normalizeAssignmentOnlyPatch(r.task, bodyRecord);
+    if (!assignmentOnly.ok) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+    resolvedBody = assignmentOnly.body;
+  }
+
+  const resolved = resolveTaskPatch(r.actor, r.task, resolvedBody, { canAssign: mayAssign });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
 
   const { data, error } = await r.supabase

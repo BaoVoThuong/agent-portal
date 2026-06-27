@@ -13,7 +13,6 @@ function task(p: Partial<TaskRow>): TaskRow {
     agent_email: null,
     assignee_email: null,
     reporter_email: "r@x.com",
-    due_date: null,
     waiting_reason: null,
     position: 0,
     created_at: "2026-01-01T00:00:00Z",
@@ -52,14 +51,17 @@ describe("sortTasks", () => {
     ]);
   });
 
-  it("puts null due dates last in both directions", () => {
+  it("sorts cancel after done in status order", () => {
     const rows = [
-      task({ id: "1", due_date: null }),
-      task({ id: "2", due_date: "2026-03-01" }),
-      task({ id: "3", due_date: "2026-01-01" }),
+      task({ id: "1", status: "cancel" }),
+      task({ id: "2", status: "done" }),
+      task({ id: "3", status: "todo" }),
     ];
-    expect(sortTasks(rows, "due", "asc").map((t) => t.id)).toEqual(["3", "2", "1"]);
-    expect(sortTasks(rows, "due", "desc").map((t) => t.id)).toEqual(["2", "3", "1"]);
+    expect(sortTasks(rows, "status", "asc").map((t) => t.id)).toEqual([
+      "3",
+      "2",
+      "1",
+    ]);
   });
 
   it("sorts by category name via the resolver", () => {

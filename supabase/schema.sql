@@ -1269,14 +1269,13 @@ create table if not exists tasks (
   title text not null,
   description text,
   status text not null default 'backlog'
-    check (status in ('backlog','todo','in_progress','waiting','done')),
+    check (status in ('backlog','todo','in_progress','waiting','done','cancel')),
   priority text not null default 'medium'
     check (priority in ('low','medium','high','urgent')),
   category_id uuid references task_categories(id) on delete set null,
   agent_email text,
   assignee_email text,
   reporter_email text not null,
-  due_date date,
   waiting_reason text
     check (waiting_reason is null or waiting_reason in ('customer','carrier','documents','other')),
   position double precision not null default 0,
@@ -1292,6 +1291,24 @@ create table if not exists tasks (
 
 alter table tasks
 add column if not exists agent_email text;
+
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint where conname = 'tasks_status_check'
+  ) then
+    alter table tasks drop constraint tasks_status_check;
+  end if;
+
+  alter table tasks
+  add constraint tasks_status_check
+  check (status in ('backlog','todo','in_progress','waiting','done','cancel'));
+end $$;
+
+drop index if exists tasks_due_date_idx;
+
+alter table tasks
+drop column if exists due_date;
 
 -- Áp bất biến "non-backlog phải có assignee" cho DB đã tồn tại (create table
 -- if not exists ở trên không thêm constraint vào bảng cũ).
@@ -1310,7 +1327,6 @@ create index if not exists tasks_assignee_idx on tasks (assignee_email);
 create index if not exists tasks_agent_email_idx on tasks (agent_email);
 create index if not exists tasks_status_position_idx on tasks (status, position);
 create index if not exists tasks_category_idx on tasks (category_id);
-create index if not exists tasks_due_date_idx on tasks (due_date);
 create index if not exists tasks_archived_idx on tasks (archived_at);
 
 create table if not exists task_comments (
@@ -1351,6 +1367,9 @@ create table if not exists task_activity (
 
 create index if not exists task_activity_task_idx on task_activity (task_id, created_at);
 
+delete from task_activity
+where type = 'due_changed';
+
 create table if not exists task_notifications (
   id uuid primary key default gen_random_uuid(),
   recipient_email text not null,
@@ -1379,8 +1398,16 @@ create table if not exists task_participants (
 create index if not exists task_participants_email_idx
   on task_participants (email);
 
--- Which CS staff support which agent (many-to-many). Admin-managed. Drives task
--- visibility: a CS sees tasks whose agent_email is one of their agents.
+-- People selected as task agents/team owners. This is independent of the
+-- legacy portal_account.role value.
+create table if not exists task_agents (
+  email text not null primary key,
+  created_at timestamptz not null default now()
+);
+
+-- Which CS staff support which task agent (many-to-many). Admin-managed.
+-- Drives task visibility: a CS sees tasks whose agent_email is one of their
+-- selected task agents.
 create table if not exists agent_members (
   agent_email text not null,
   cs_email text not null,
@@ -1389,6 +1416,11 @@ create table if not exists agent_members (
 );
 create index if not exists agent_members_cs_idx on agent_members (cs_email);
 create index if not exists agent_members_agent_idx on agent_members (agent_email);
+
+-- Backfill selected task agents from existing groups (idempotent).
+insert into task_agents (email)
+select distinct agent_email from agent_members
+on conflict (email) do nothing;
 
 -- Defense-in-depth: enable RLS on every table. The app talks to Supabase only
 -- through the service-role key, which bypasses RLS, so behavior is unchanged.
@@ -1420,6 +1452,7 @@ declare
     'task_activity',
     'task_notifications',
     'task_participants',
+    'task_agents',
     'agent_members'
   ];
 begin
