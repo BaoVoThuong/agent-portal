@@ -20,6 +20,7 @@ const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
 
 const detailCache = new Map<string, TaskDetail>();
+type DetailTab = "comments" | "activity" | "attachments";
 
 export function TaskDetailDrawer({
   task,
@@ -49,6 +50,7 @@ export function TaskDetailDrawer({
   const [detail, setDetail] = useState<TaskDetail | null>(
     () => detailCache.get(task.id) ?? null
   );
+  const [tab, setTab] = useState<DetailTab>("comments");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const reload = useCallback(async () => {
@@ -156,14 +158,53 @@ export function TaskDetailDrawer({
               </label>
 
               <section className="space-y-3 border-t border-[#dfe1e6] pt-5">
-                <span className={LABEL_CLASS}>Comments</span>
-                <CommentThread
-                  taskId={task.id}
-                  currentEmail={currentEmail}
-                  members={assignees}
-                  comments={detail?.comments ?? []}
-                  onReload={reload}
-                />
+                <div className="flex flex-wrap gap-1 rounded bg-[#f4f5f7] p-1">
+                  <DetailTabButton
+                    label={`Comments (${detail?.comments.length ?? 0})`}
+                    active={tab === "comments"}
+                    onClick={() => setTab("comments")}
+                  />
+                  <DetailTabButton
+                    label={`Activity (${detail?.activity.length ?? 0})`}
+                    active={tab === "activity"}
+                    onClick={() => setTab("activity")}
+                  />
+                  <DetailTabButton
+                    label={`Attachments (${detail?.attachments.length ?? 0})`}
+                    active={tab === "attachments"}
+                    onClick={() => setTab("attachments")}
+                  />
+                </div>
+
+                {detail === null ? (
+                  <DetailSkeleton />
+                ) : (
+                  <>
+                    {tab === "comments" && (
+                      <CommentThread
+                        taskId={task.id}
+                        currentEmail={currentEmail}
+                        members={assignees}
+                        comments={detail.comments}
+                        onReload={reload}
+                      />
+                    )}
+                    {tab === "activity" && (
+                      <ActivityFeed
+                        activity={detail.activity}
+                        personLabelByEmail={personLabelByEmail}
+                      />
+                    )}
+                    {tab === "attachments" && (
+                      <AttachmentPanel
+                        attachments={detail.attachments}
+                        taskId={task.id}
+                        canEdit={canEdit}
+                        onReload={reload}
+                      />
+                    )}
+                  </>
+                )}
               </section>
             </main>
 
@@ -230,24 +271,6 @@ export function TaskDetailDrawer({
                 )}
               </div>
 
-              <section className="space-y-2 border-t border-[#dfe1e6] pt-3">
-                <span className={LABEL_CLASS}>Attachments</span>
-                <AttachmentPanel
-                  attachments={detail?.attachments ?? []}
-                  taskId={task.id}
-                  canEdit={canEdit}
-                  onReload={reload}
-                />
-              </section>
-
-              <section className="space-y-2 border-t border-[#dfe1e6] pt-3">
-                <span className={LABEL_CLASS}>Activity</span>
-                <ActivityFeed
-                  activity={detail?.activity ?? []}
-                  personLabelByEmail={personLabelByEmail}
-                />
-              </section>
-
               {canEdit && (
                 <div className="border-t border-[#dfe1e6] pt-3">
                   <button
@@ -301,6 +324,40 @@ export function TaskDetailDrawer({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DetailTabButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+        active
+          ? "bg-white text-[#0c66e4] shadow-sm"
+          : "text-[#44546f] hover:text-[#172b4d]"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <div className="space-y-2">
+      <div className="h-4 w-1/3 animate-pulse rounded bg-[#f1f2f4]" />
+      <div className="h-16 w-full animate-pulse rounded bg-[#f1f2f4]" />
+      <div className="h-16 w-5/6 animate-pulse rounded bg-[#f1f2f4]" />
     </div>
   );
 }
