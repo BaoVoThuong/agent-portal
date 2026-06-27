@@ -276,8 +276,12 @@ export function TaskBoardClient({
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
   }
 
-  function canAssignTask(task: TaskRow): boolean {
-    return isManager || Boolean(task.agent_email && myAgents.includes(task.agent_email));
+  function canChangeStatusTask(task: TaskRow): boolean {
+    return (
+      isManager ||
+      task.assignee_email === currentEmail ||
+      Boolean(task.agent_email && myAgents.includes(task.agent_email))
+    );
   }
 
   async function patchTask(id: string, patch: Record<string, unknown>) {
@@ -354,9 +358,8 @@ export function TaskBoardClient({
     setStatusFilter("");
   }
 
-  const canEditOpen =
-    openTask !== null && (isManager || openTask.assignee_email === currentEmail);
-  const canAssignOpen = openTask !== null && canAssignTask(openTask);
+  const canEditOpen = openTask !== null && isManager;
+  const canAssignOpen = openTask !== null && isManager;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white text-[#172b4d]">
@@ -429,6 +432,7 @@ export function TaskBoardClient({
           tasks={visibleTasks}
           onOpen={openTaskById}
           onMove={moveTask}
+          canMoveTask={canChangeStatusTask}
           categories={categories}
           agentLabelByEmail={agentLabelByEmail}
           assigneeLabelByEmail={assigneeLabelByEmail}
@@ -465,6 +469,7 @@ export function TaskBoardClient({
         isManager={isManager}
         assignees={assignees}
         agents={taskAgents}
+        agentCandidates={agentCandidates}
         myAgents={myAgents}
         categories={categories}
         onClose={() => setCreating(false)}

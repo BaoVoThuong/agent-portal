@@ -58,17 +58,30 @@ export function canViewTask(
 }
 
 export function canAssignToTask(actor: TaskActor, isAgentMember: boolean): boolean {
-  if (actor.isManager) return true;
-  return actor.isWorker && isAgentMember;
+  void isAgentMember;
+  return actor.isManager;
 }
 
 export function canMutateTask(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">
 ): boolean {
+  void task;
+  return actor.isManager;
+}
+
+export function canChangeTaskStatus(
+  actor: TaskActor,
+  task: Pick<TaskRow, "assignee_email">,
+  flags: { isAgentMember?: boolean } = {}
+): boolean {
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return task.assignee_email === actor.email;
+  return task.assignee_email === actor.email || Boolean(flags.isAgentMember);
+}
+
+export function canDeleteTask(actor: TaskActor): boolean {
+  return actor.isManager;
 }
 
 export type CreateAssignmentInput = {

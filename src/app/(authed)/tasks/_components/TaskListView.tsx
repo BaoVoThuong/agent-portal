@@ -93,11 +93,12 @@ export function TaskListView({
                   task={task}
                   category={categoryById.get(task.category_id ?? "") ?? null}
                   assignees={assignees}
-                  canEdit={isManager || task.assignee_email === currentEmail}
-                  canAssign={
+                  canEdit={
                     isManager ||
+                    task.assignee_email === currentEmail ||
                     Boolean(task.agent_email && myAgents.includes(task.agent_email))
                   }
+                  canAssign={isManager}
                   onOpen={onOpen}
                   onPatch={onPatch}
                   openOnDoubleClick

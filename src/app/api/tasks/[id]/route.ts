@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canViewTask, canMutateTask, canAssignToTask } from "@/lib/tasks/access";
+import {
+  buildTaskActor,
+  canAssignToTask,
+  canChangeTaskStatus,
+  canDeleteTask,
+  canMutateTask,
+  canViewTask,
+} from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import type { TaskRow } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
@@ -15,54 +22,38 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const ASSIGNMENT_PATCH_KEYS = new Set(["assignee_email", "status"]);
+const STATUS_PATCH_KEYS = new Set(["status", "waiting_reason", "position"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
 }
 
-function normalizeAssignmentOnlyPatch(
-  task: Pick<TaskRow, "status" | "assignee_email">,
-  body: Record<string, unknown>
-): { ok: true; body: Record<string, unknown> } | { ok: false } {
-  if (!Object.keys(body).every((key) => ASSIGNMENT_PATCH_KEYS.has(key))) {
-    return { ok: false };
-  }
-
-  const nextAssignee =
-    typeof body.assignee_email === "string" && body.assignee_email.trim() !== ""
-      ? body.assignee_email.trim()
-      : null;
-  const requiredStatus =
-    nextAssignee === null
-      ? "backlog"
-      : task.status === "backlog"
-        ? "todo"
-        : task.status;
-
-  if (body.status !== undefined && body.status !== requiredStatus) {
-    return { ok: false };
-  }
-
-  const normalized = { ...body };
-  if (requiredStatus !== task.status || body.status !== undefined) {
-    normalized.status = requiredStatus;
-  }
-  return { ok: true, body: normalized };
+function isStatusOnlyPatch(body: Record<string, unknown>): boolean {
+  return Object.keys(body).every((key) => STATUS_PATCH_KEYS.has(key));
 }
 
-async function canViewResolved(
+async function resolveTaskAccess(
   actor: ReturnType<typeof buildTaskActor>,
   task: Pick<TaskRow, "assignee_email" | "agent_email">,
   taskId: string
-): Promise<boolean> {
-  if (actor.isManager) return true;
+): Promise<{
+  canView: boolean;
+  isAgentMember: boolean;
+  isParticipant: boolean;
+}> {
+  if (actor.isManager) {
+    return { canView: true, isAgentMember: false, isParticipant: false };
+  }
   const [isParticipant, agents] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
     fetchAgentsForCs(actor.email),
   ]);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
-  return canViewTask(actor, task, { isParticipant, isAgentMember });
+  return {
+    canView: canViewTask(actor, task, { isParticipant, isAgentMember }),
+    isAgentMember,
+    isParticipant,
+  };
 }
 
 async function loadActorAndTask(id: string) {
@@ -86,7 +77,8 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!(await canViewResolved(r.actor, r.task, id)))
+  const access = await resolveTaskAccess(r.actor, r.task, id);
+  if (!access.canView)
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   return NextResponse.json({ task: r.task });
 }
@@ -98,13 +90,20 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
   const body = await req.json().catch(() => null);
   const bodyRecord = isRecord(body) ? body : null;
+  if (!bodyRecord) {
+    return NextResponse.json({ error: "Invalid body." }, { status: 400 });
+  }
+
+  const access = await resolveTaskAccess(r.actor, r.task, id);
+  if (!access.canView) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
   const reassigning = bodyRecord?.assignee_email !== undefined;
 
-  let mayAssign = r.actor.isManager;
+  let mayAssign = canAssignToTask(r.actor, false);
   if (reassigning && !r.actor.isManager) {
-    const agents = await fetchAgentsForCs(r.actor.email);
-    const isAgentMember = Boolean(r.task.agent_email && agents.includes(r.task.agent_email));
-    mayAssign = canAssignToTask(r.actor, isAgentMember);
+    mayAssign = canAssignToTask(r.actor, access.isAgentMember);
   }
   if (reassigning && !mayAssign) {
     return NextResponse.json({ error: "You cannot assign this task." }, { status: 403 });
@@ -113,14 +112,15 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const canMutate = canMutateTask(r.actor, r.task);
   let resolvedBody: unknown = body;
   if (!canMutate) {
-    if (!reassigning || !bodyRecord) {
+    if (
+      !isStatusOnlyPatch(bodyRecord) ||
+      !canChangeTaskStatus(r.actor, r.task, {
+        isAgentMember: access.isAgentMember,
+      })
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
-    const assignmentOnly = normalizeAssignmentOnlyPatch(r.task, bodyRecord);
-    if (!assignmentOnly.ok) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
-    resolvedBody = assignmentOnly.body;
+    resolvedBody = bodyRecord;
   }
 
   const resolved = resolveTaskPatch(r.actor, r.task, resolvedBody, { canAssign: mayAssign });
@@ -173,7 +173,7 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!canMutateTask(r.actor, r.task))
+  if (!canDeleteTask(r.actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   // Best-effort: remove attachment files from storage before the rows cascade away.

@@ -63,16 +63,18 @@ function SortableCard({
   category,
   agentLabel,
   assigneeLabel,
+  canMove,
   onOpen,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
   agentLabel?: string | null;
   assigneeLabel?: string | null;
+  canMove: boolean;
   onOpen: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: task.id });
+    useSortable({ id: task.id, disabled: !canMove });
   return (
     <div
       ref={setNodeRef}
@@ -83,8 +85,8 @@ function SortableCard({
         // the live card is rendered in the DragOverlay instead.
         opacity: isDragging ? 0 : 1,
       }}
-      {...attributes}
-      {...listeners}
+      {...(canMove ? attributes : {})}
+      {...(canMove ? listeners : {})}
       className="mb-2"
     >
       <TaskCard
@@ -102,6 +104,7 @@ function Column({
   status,
   tasks,
   onOpen,
+  canMoveTask,
   categoryById,
   agentLabelByEmail,
   assigneeLabelByEmail,
@@ -109,6 +112,7 @@ function Column({
   status: TaskStatus;
   tasks: TaskRow[];
   onOpen: (id: string) => void;
+  canMoveTask: (task: TaskRow) => boolean;
   categoryById: Map<string, TaskCategory>;
   agentLabelByEmail: Map<string, string>;
   assigneeLabelByEmail: Map<string, string>;
@@ -150,6 +154,7 @@ function Column({
                     t.assignee_email
                   : null
               }
+              canMove={canMoveTask(t)}
               onOpen={onOpen}
             />
           ))}
@@ -163,6 +168,7 @@ export function KanbanBoard({
   tasks,
   onOpen,
   onMove,
+  canMoveTask,
   categories,
   agentLabelByEmail,
   assigneeLabelByEmail,
@@ -170,6 +176,7 @@ export function KanbanBoard({
   tasks: TaskRow[];
   onOpen: (id: string) => void;
   onMove: (taskId: string, change: { status: TaskStatus; position: number }) => void;
+  canMoveTask: (task: TaskRow) => boolean;
   categories: TaskCategory[];
   agentLabelByEmail: Map<string, string>;
   assigneeLabelByEmail: Map<string, string>;
@@ -193,8 +200,11 @@ export function KanbanBoard({
     : null;
 
   function handleDragStart(event: DragStartEvent) {
+    const id = String(event.active.id);
+    const task = sortedTasks.find((item) => item.id === id);
+    if (!task || !canMoveTask(task)) return;
     setDragItems(sortedTasks);
-    setActiveId(String(event.active.id));
+    setActiveId(id);
   }
 
   // Live cross-column move: when the dragged card hovers a different column,
@@ -204,6 +214,8 @@ export function KanbanBoard({
     if (!over) return;
     const activeId = String(active.id);
     const overId = String(over.id);
+    const original = tasks.find((task) => task.id === activeId);
+    if (!original || !canMoveTask(original)) return;
 
     setDragItems((prev) => {
       const current = prev ?? sortedTasks;
@@ -242,6 +254,8 @@ export function KanbanBoard({
 
     const activeId = String(active.id);
     const overId = String(over.id);
+    const original = tasks.find((task) => task.id === activeId);
+    if (!original || !canMoveTask(original)) return;
 
     // Same-column reorder commits here (cross-column already happened on hover).
     let working = items;
@@ -270,7 +284,6 @@ export function KanbanBoard({
     const after = index < column.length - 1 ? column[index + 1].position : null;
     const position = midpoint(before, after);
 
-    const original = tasks.find((task) => task.id === activeId);
     if (
       original &&
       original.status === moving.status &&
@@ -302,6 +315,7 @@ export function KanbanBoard({
             status={status}
             tasks={columnTasks(status)}
             onOpen={onOpen}
+            canMoveTask={canMoveTask}
             categoryById={categoryById}
             agentLabelByEmail={agentLabelByEmail}
             assigneeLabelByEmail={assigneeLabelByEmail}

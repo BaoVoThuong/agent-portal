@@ -6,6 +6,7 @@ import { fetchTasksForActor } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/tasks/types";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { fetchAgentsForCs } from "@/lib/tasks/membership";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,15 @@ export async function POST(request: Request) {
     typeof body?.agent_email === "string" && body.agent_email.trim() !== ""
       ? body.agent_email.trim()
       : null;
+  if (!actor.isManager && agentEmail) {
+    const allowedAgents = await fetchAgentsForCs(email);
+    if (!allowedAgents.includes(agentEmail)) {
+      return NextResponse.json(
+        { error: "You cannot create tasks for this agent." },
+        { status: 403 }
+      );
+    }
+  }
   const fubLink =
     typeof body?.fub_link === "string" && body.fub_link.trim() !== ""
       ? body.fub_link.trim()

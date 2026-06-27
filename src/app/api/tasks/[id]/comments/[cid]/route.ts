@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
+import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { isTaskParticipant } from "@/lib/tasks/participants";
 import { broadcastTaskRoom } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -10,6 +12,20 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string; cid: string }> };
 const COMMENT_COLUMNS =
   "id,task_id,parent_id,author_email,body,created_at,updated_at,deleted_at";
+
+async function canViewResolved(
+  actor: ReturnType<typeof buildTaskActor>,
+  task: Pick<TaskRow, "assignee_email" | "agent_email">,
+  taskId: string
+): Promise<boolean> {
+  if (actor.isManager) return true;
+  const [isParticipant, agents] = await Promise.all([
+    isTaskParticipant(taskId, actor.email),
+    fetchAgentsForCs(actor.email),
+  ]);
+  const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
+  return canViewTask(actor, task, { isParticipant, isAgentMember });
+}
 
 async function loadAuthorContext(id: string, cid: string) {
   // 1. Session / email
@@ -36,12 +52,18 @@ async function loadAuthorContext(id: string, cid: string) {
   // 4. Actor must be able to view the task
   const { data: task, error: tErr } = await supabase
     .from("tasks")
-    .select("id,assignee_email")
+    .select("id,assignee_email,agent_email")
     .eq("id", id)
     .maybeSingle();
   if (tErr) return { error: tErr.message, status: 500 };
   if (!task) return { error: "Not found", status: 404 };
-  if (!canViewTask(actor, task as Pick<TaskRow, "assignee_email">))
+  if (
+    !(await canViewResolved(
+      actor,
+      task as Pick<TaskRow, "assignee_email" | "agent_email">,
+      id
+    ))
+  )
     return { error: "Forbidden", status: 403 };
 
   // 5. Actor must be the comment author

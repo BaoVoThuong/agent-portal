@@ -230,9 +230,13 @@ function AssigneeMenu({
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
+  const selectedAssignee = email
+    ? assignees.find((assignee) => assignee.email === email)
+    : null;
+  const selectedLabel = selectedAssignee?.name?.trim() || email;
 
   const face = email ? (
-    <Initials email={email} />
+    <Initials email={email} label={selectedLabel} />
   ) : (
     <span className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-[#8590a2] text-[#8590a2]">
       <UserPlus className="h-3.5 w-3.5" />
@@ -241,7 +245,7 @@ function AssigneeMenu({
 
   if (!canAssign) {
     return (
-      <span className="shrink-0" title={email ?? "Unassigned"}>
+      <span className="shrink-0" title={selectedLabel ?? "Unassigned"}>
         {face}
       </span>
     );
@@ -254,7 +258,7 @@ function AssigneeMenu({
         type="button"
         onClick={toggle}
         aria-expanded={isOpen}
-        title={email ?? "Unassigned"}
+        title={selectedLabel ?? "Unassigned"}
         className="rounded-full transition hover:opacity-80"
       >
         {face}
@@ -300,7 +304,7 @@ function AssigneeMenu({
                       : "text-[#172b4d] hover:bg-[#f4f5f7]"
                   }`}
                 >
-                  <Initials email={a.email} />
+                  <Initials email={a.email} label={a.name ?? a.email} />
                   <span className="min-w-0 flex-1 truncate">{a.name ?? a.email}</span>
                 </button>
               ))}

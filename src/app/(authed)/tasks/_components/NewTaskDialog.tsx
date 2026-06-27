@@ -22,6 +22,7 @@ export function NewTaskDialog({
   isManager,
   assignees,
   agents,
+  agentCandidates,
   myAgents,
   categories,
   onClose,
@@ -31,6 +32,7 @@ export function NewTaskDialog({
   isManager: boolean;
   assignees: TaskAssignee[];
   agents: TaskAgent[];
+  agentCandidates: TaskAgent[];
   myAgents: string[];
   categories: TaskCategory[];
   onClose: () => void;
@@ -52,9 +54,16 @@ export function NewTaskDialog({
       label: category.name,
     })),
   ];
-  const visibleAgents = isManager
-    ? agents
-    : agents.filter((agent) => myAgents.includes(agent.email));
+  const visibleAgents = (() => {
+    if (isManager) return agents;
+    const byEmail = new Map<string, TaskAgent>();
+    for (const agent of [...agents, ...agentCandidates]) {
+      byEmail.set(agent.email, agent);
+    }
+    return myAgents.map(
+      (email) => byEmail.get(email) ?? { email, name: null }
+    );
+  })();
   const agentOptions = [
     { value: "", label: "No agent" },
     ...visibleAgents.map((agent) => ({

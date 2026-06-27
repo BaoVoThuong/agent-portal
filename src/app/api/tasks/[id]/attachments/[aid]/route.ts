@@ -1,13 +1,29 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canMutateTask } from "@/lib/tasks/access";
+import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
+import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { isTaskParticipant } from "@/lib/tasks/participants";
 import { removeTaskFile } from "@/lib/tasks/storage";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string; aid: string }> };
+
+async function canViewResolved(
+  actor: ReturnType<typeof buildTaskActor>,
+  task: Pick<TaskRow, "assignee_email" | "agent_email">,
+  taskId: string
+): Promise<boolean> {
+  if (actor.isManager) return true;
+  const [isParticipant, agents] = await Promise.all([
+    isTaskParticipant(taskId, actor.email),
+    fetchAgentsForCs(actor.email),
+  ]);
+  const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
+  return canViewTask(actor, task, { isParticipant, isAgentMember });
+}
 
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { id, aid } = await params;
@@ -19,11 +35,17 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const supabase = getSupabaseAdmin();
   const { data: task } = await supabase
     .from("tasks")
-    .select("id,assignee_email")
+    .select("id,assignee_email,agent_email")
     .eq("id", id)
     .maybeSingle();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!canMutateTask(actor, task as Pick<TaskRow, "assignee_email">))
+  if (
+    !(await canViewResolved(
+      actor,
+      task as Pick<TaskRow, "assignee_email" | "agent_email">,
+      id
+    ))
+  )
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const { data: att } = await supabase

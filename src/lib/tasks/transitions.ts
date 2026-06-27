@@ -1,7 +1,7 @@
 // Pure validation + invariant enforcement for task updates. Returns a clean
 // patch object (only the fields that actually change) or an error. The API route
-// applies the patch via Supabase. Permission to mutate the task at all is checked
-// separately (canMutateTask); this enforces field-level rules + invariants.
+// applies the patch via Supabase. Permission to edit full fields vs. status-only
+// is checked separately; this enforces field-level shape + invariants.
 import { canAssign } from "./access";
 import {
   TASK_PRIORITIES,
