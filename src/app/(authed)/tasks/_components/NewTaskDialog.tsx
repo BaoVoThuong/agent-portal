@@ -22,6 +22,7 @@ export function NewTaskDialog({
   isManager,
   assignees,
   agents,
+  myAgents,
   categories,
   onClose,
   onCreate,
@@ -30,15 +31,17 @@ export function NewTaskDialog({
   isManager: boolean;
   assignees: TaskAssignee[];
   agents: TaskAgent[];
+  myAgents: string[];
   categories: TaskCategory[];
   onClose: () => void;
   onCreate: (payload: NewTaskPayload) => Promise<void>;
 }) {
+  const defaultAgent = !isManager && myAgents.length === 1 ? myAgents[0] : "";
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [dueDate, setDueDate] = useState("");
-  const [agentEmail, setAgentEmail] = useState("");
+  const [agentEmail, setAgentEmail] = useState(defaultAgent);
   const [assignee, setAssignee] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -49,9 +52,12 @@ export function NewTaskDialog({
       label: category.name,
     })),
   ];
+  const visibleAgents = isManager
+    ? agents
+    : agents.filter((agent) => myAgents.includes(agent.email));
   const agentOptions = [
     { value: "", label: "No agent" },
-    ...agents.map((agent) => ({
+    ...visibleAgents.map((agent) => ({
       value: agent.email,
       label: agent.name ?? agent.email,
     })),
@@ -83,7 +89,7 @@ export function NewTaskDialog({
       setDescription("");
       setPriority("medium");
       setDueDate("");
-      setAgentEmail("");
+      setAgentEmail(defaultAgent);
       setAssignee("");
       setCategoryId("");
       onClose();

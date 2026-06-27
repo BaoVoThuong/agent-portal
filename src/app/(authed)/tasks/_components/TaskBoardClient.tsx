@@ -27,6 +27,7 @@ export function TaskBoardClient({
   currentEmail,
   assignees,
   agents,
+  myAgents,
   initialCategories,
 }: {
   initialTasks: TaskRow[];
@@ -34,6 +35,7 @@ export function TaskBoardClient({
   currentEmail: string;
   assignees: TaskAssignee[];
   agents: TaskAgent[];
+  myAgents: string[];
   initialCategories: TaskCategory[];
 }) {
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
@@ -420,6 +422,7 @@ export function TaskBoardClient({
         isManager={isManager}
         assignees={assignees}
         agents={agents}
+        myAgents={myAgents}
         categories={categories}
         onClose={() => setCreating(false)}
         onCreate={createTask}
