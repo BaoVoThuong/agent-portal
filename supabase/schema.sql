@@ -1268,6 +1268,7 @@ create table if not exists tasks (
   id uuid primary key default gen_random_uuid(),
   title text not null,
   description text,
+  fub_link text,
   status text not null default 'backlog'
     check (status in ('backlog','todo','in_progress','waiting','done','cancel')),
   priority text not null default 'medium'
@@ -1291,6 +1292,9 @@ create table if not exists tasks (
 
 alter table tasks
 add column if not exists agent_email text;
+
+alter table tasks
+add column if not exists fub_link text;
 
 do $$
 begin

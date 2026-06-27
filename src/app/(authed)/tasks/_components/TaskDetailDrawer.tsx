@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { ExternalLink, X } from "lucide-react";
 import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskDetail } from "@/lib/tasks/detail";
@@ -28,6 +28,7 @@ export function TaskDetailDrawer({
   canAssign,
   assignees,
   agents,
+  mentionMembers,
   categories,
   currentEmail,
   onClose,
@@ -39,6 +40,7 @@ export function TaskDetailDrawer({
   canAssign: boolean;
   assignees: TaskAssignee[];
   agents: TaskAgent[];
+  mentionMembers: TaskAssignee[];
   categories: TaskCategory[];
   currentEmail: string;
   onClose: () => void;
@@ -47,6 +49,7 @@ export function TaskDetailDrawer({
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
+  const [fubLink, setFubLink] = useState(task.fub_link ?? "");
   const [detail, setDetail] = useState<TaskDetail | null>(
     () => detailCache.get(task.id) ?? null
   );
@@ -95,9 +98,13 @@ export function TaskDetailDrawer({
       assignee.name?.trim() || assignee.email
     );
   }
+  for (const member of mentionMembers) {
+    personLabelByEmail.set(member.email, member.name?.trim() || member.email);
+  }
   if (!personLabelByEmail.has(currentEmail)) {
     personLabelByEmail.set(currentEmail, currentEmail);
   }
+  const fubHref = formatExternalLink(fubLink);
 
   return (
     <div
@@ -127,18 +134,21 @@ export function TaskDetailDrawer({
         <div className="flex-1 overflow-y-auto">
           <div className="grid min-h-full grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px]">
             <main className="min-w-0 space-y-6 p-5 lg:p-7">
-              <input
-                value={title}
-                disabled={!canEdit}
-                onChange={(e) => setTitle(e.target.value)}
-                onBlur={() =>
-                  canEdit &&
-                  title.trim() &&
-                  title !== task.title &&
-                  onPatch({ title: title.trim() })
-                }
-                className="w-full rounded border-2 border-transparent px-2 py-1.5 text-xl font-semibold text-[#172b4d] outline-none transition hover:border-[#dfe1e6] focus:border-[#0c66e4] disabled:cursor-default disabled:border-transparent"
-              />
+              <label className="block space-y-1.5">
+                <span className={LABEL_CLASS}>Ticket</span>
+                <input
+                  value={title}
+                  disabled={!canEdit}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onBlur={() =>
+                    canEdit &&
+                    title.trim() &&
+                    title !== task.title &&
+                    onPatch({ title: title.trim() })
+                  }
+                  className={`${INPUT_CLASS} h-11 text-base font-semibold`}
+                />
+              </label>
 
               <label className="block space-y-1.5">
                 <span className={LABEL_CLASS}>Description</span>
@@ -184,7 +194,7 @@ export function TaskDetailDrawer({
                       <CommentThread
                         taskId={task.id}
                         currentEmail={currentEmail}
-                        members={assignees}
+                        members={mentionMembers}
                         comments={detail.comments}
                         onReload={reload}
                       />
@@ -234,6 +244,36 @@ export function TaskDetailDrawer({
                       onPatch({ category_id: nextCategoryId || null })
                     }
                   />
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className={LABEL_CLASS}>FUB Link</span>
+                  <div className="flex gap-1.5">
+                    <input
+                      value={fubLink}
+                      disabled={!canEdit}
+                      onChange={(e) => setFubLink(e.target.value)}
+                      onBlur={() => {
+                        const next = fubLink.trim();
+                        if (canEdit && next !== (task.fub_link ?? "")) {
+                          onPatch({ fub_link: next || null });
+                        }
+                      }}
+                      placeholder="No FUB link"
+                      className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
+                    />
+                    {fubHref ? (
+                      <a
+                        href={fubHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open FUB link"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div className="space-y-1.5">
@@ -360,4 +400,11 @@ function DetailSkeleton() {
       <div className="h-16 w-5/6 animate-pulse rounded bg-[#f1f2f4]" />
     </div>
   );
+}
+
+function formatExternalLink(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
 }

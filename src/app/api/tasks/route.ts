@@ -54,6 +54,10 @@ export async function POST(request: Request) {
     typeof body?.agent_email === "string" && body.agent_email.trim() !== ""
       ? body.agent_email.trim()
       : null;
+  const fubLink =
+    typeof body?.fub_link === "string" && body.fub_link.trim() !== ""
+      ? body.fub_link.trim()
+      : null;
 
   const supabase = getSupabaseAdmin();
   // Place new card at the bottom of its column.
@@ -75,6 +79,7 @@ export async function POST(request: Request) {
         typeof body?.description === "string" && body.description.trim() !== ""
           ? body.description.trim()
           : null,
+      fub_link: fubLink,
       status: assignment.status,
       priority,
       agent_email: agentEmail,

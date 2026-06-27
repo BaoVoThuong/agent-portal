@@ -143,6 +143,24 @@ export function TaskBoardClient({
     [assignees]
   );
 
+  const mentionMembers = useMemo(() => {
+    const byEmail = new Map<string, TaskAssignee>();
+    for (const person of [...agentCandidates, ...taskAgents, ...assignees]) {
+      const existing = byEmail.get(person.email);
+      byEmail.set(person.email, {
+        email: person.email,
+        name: person.name?.trim() || existing?.name || null,
+      });
+    }
+    if (!byEmail.has(currentEmail)) {
+      byEmail.set(currentEmail, { email: currentEmail, name: null });
+    }
+
+    return [...byEmail.values()].sort((a, b) =>
+      (a.name ?? a.email).localeCompare(b.name ?? b.email)
+    );
+  }, [agentCandidates, taskAgents, assignees, currentEmail]);
+
   const agentStats = useMemo(() => {
     const stats = new Map<string, AgentStat>();
     const ensure = (key: string, label: string) => {
@@ -213,6 +231,7 @@ export function TaskBoardClient({
           return [
             task.title,
             task.description,
+            task.fub_link,
             task.agent_email,
             task.agent_email ? agentLabelByEmail.get(task.agent_email) : null,
             task.assignee_email,
@@ -460,6 +479,7 @@ export function TaskBoardClient({
           canAssign={canAssignOpen}
           assignees={assignees}
           agents={taskAgents}
+          mentionMembers={mentionMembers}
           categories={categories}
           currentEmail={currentEmail}
           onClose={closeTask}

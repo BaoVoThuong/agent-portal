@@ -28,6 +28,7 @@ function defaultSearchText(task: TaskRow): string {
   return [
     task.title,
     task.description,
+    task.fub_link,
     task.agent_email,
     task.assignee_email,
     task.reporter_email,

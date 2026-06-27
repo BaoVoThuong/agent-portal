@@ -35,6 +35,7 @@ export type TaskRow = {
   id: string;
   title: string;
   description: string | null;
+  fub_link: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   category_id: string | null;

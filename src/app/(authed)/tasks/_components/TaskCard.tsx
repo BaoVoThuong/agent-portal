@@ -28,18 +28,18 @@ export function TaskCard({
             {task.title}
           </h3>
 
-          {task.agent_email ? (
+          {task.assignee_email ? (
             <div className="mt-2 flex min-h-5 items-center gap-1.5 text-xs leading-5 text-[#626f86]">
               <UserRound className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
-              <span className="min-w-0 truncate" title={task.agent_email}>
-                {agentLabel ?? task.agent_email}
+              <span className="min-w-0 truncate" title={task.assignee_email}>
+                {assigneeLabel ?? task.assignee_email}
               </span>
             </div>
           ) : null}
         </div>
 
         <span className="shrink-0">
-          <Initials email={task.assignee_email} label={assigneeLabel} />
+          <Initials email={task.agent_email} label={agentLabel} />
         </span>
       </div>
 

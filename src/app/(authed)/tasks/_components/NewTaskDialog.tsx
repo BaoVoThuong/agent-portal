@@ -10,6 +10,7 @@ import { TaskPrioritySelect } from "./TaskPrioritySelect";
 export type NewTaskPayload = {
   title: string;
   description: string;
+  fub_link?: string;
   priority: TaskPriority;
   agent_email?: string;
   assignee_email?: string;
@@ -38,6 +39,7 @@ export function NewTaskDialog({
   const defaultAgent = !isManager && myAgents.length === 1 ? myAgents[0] : "";
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [fubLink, setFubLink] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [agentEmail, setAgentEmail] = useState(defaultAgent);
   const [assignee, setAssignee] = useState("");
@@ -77,6 +79,7 @@ export function NewTaskDialog({
       await onCreate({
         title: title.trim(),
         description: description.trim(),
+        fub_link: fubLink.trim() || undefined,
         priority,
         agent_email: agentEmail || undefined,
         assignee_email: isManager && assignee ? assignee : undefined,
@@ -84,6 +87,7 @@ export function NewTaskDialog({
       });
       setTitle("");
       setDescription("");
+      setFubLink("");
       setPriority("medium");
       setAgentEmail(defaultAgent);
       setAssignee("");
@@ -171,6 +175,15 @@ export function NewTaskDialog({
                   onChange={setCategoryId}
                   buttonClassName="!h-10 !border-[#dfe1e6] !bg-white !shadow-none"
                   menuClassName="min-w-full"
+                />
+              </MetaField>
+
+              <MetaField label="FUB Link">
+                <input
+                  value={fubLink}
+                  onChange={(e) => setFubLink(e.target.value)}
+                  placeholder="https://..."
+                  className="h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none transition placeholder:font-normal placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]"
                 />
               </MetaField>
 

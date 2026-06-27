@@ -7,6 +7,7 @@ function task(p: Partial<TaskRow>): TaskRow {
     id: "id",
     title: "",
     description: null,
+    fub_link: null,
     status: "todo",
     priority: "medium",
     category_id: null,

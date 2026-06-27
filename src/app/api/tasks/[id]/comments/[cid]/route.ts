@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
+import { broadcastTaskRoom } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -52,11 +53,13 @@ async function loadAuthorContext(id: string, cid: string) {
 export async function PATCH(req: Request, { params }: Ctx) {
   const { id, cid } = await params;
   const ctx = await loadAuthorContext(id, cid);
-  if ("error" in ctx) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+  if ("error" in ctx)
+    return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
   const body = await req.json().catch(() => null);
   const text = typeof body?.body === "string" ? body.body.trim() : "";
-  if (!text) return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
+  if (!text)
+    return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
 
   const { data, error } = await ctx.supabase
     .from("task_comments")
@@ -64,19 +67,24 @@ export async function PATCH(req: Request, { params }: Ctx) {
     .eq("id", cid)
     .select(COMMENT_COLUMNS)
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error)
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  await broadcastTaskRoom(id);
   return NextResponse.json({ comment: data });
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { id, cid } = await params;
   const ctx = await loadAuthorContext(id, cid);
-  if ("error" in ctx) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
+  if ("error" in ctx)
+    return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
   const { error } = await ctx.supabase
     .from("task_comments")
     .update({ deleted_at: new Date().toISOString(), body: "" })
     .eq("id", cid);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error)
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  await broadcastTaskRoom(id);
   return NextResponse.json({ ok: true });
 }

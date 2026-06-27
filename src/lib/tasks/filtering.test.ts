@@ -12,6 +12,7 @@ function task(p: Partial<TaskRow>): TaskRow {
     id: "id",
     title: "",
     description: null,
+    fub_link: null,
     status: "todo",
     priority: "medium",
     category_id: null,
@@ -59,6 +60,16 @@ describe("filterTasks", () => {
       task({ id: "2", title: "Call client" }),
     ];
     expect(filterTasks(rows, { ...base, query: "renew" }).map((t) => t.id)).toEqual([
+      "1",
+    ]);
+  });
+
+  it("search matches FUB links", () => {
+    const rows = [
+      task({ id: "1", fub_link: "https://app.followupboss.com/2/people/view/123" }),
+      task({ id: "2", fub_link: null }),
+    ];
+    expect(filterTasks(rows, { ...base, query: "followupboss" }).map((t) => t.id)).toEqual([
       "1",
     ]);
   });

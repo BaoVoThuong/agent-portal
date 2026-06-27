@@ -14,6 +14,7 @@ import {
 export type TaskPatchInput = {
   title?: unknown;
   description?: unknown;
+  fub_link?: unknown;
   priority?: unknown;
   category_id?: unknown;
   agent_email?: unknown;
@@ -51,6 +52,12 @@ export function resolveTaskPatch(
     patch.description =
       typeof r.description === "string" && r.description.trim() !== ""
         ? r.description.trim()
+        : null;
+  }
+  if (r.fub_link !== undefined) {
+    patch.fub_link =
+      typeof r.fub_link === "string" && r.fub_link.trim() !== ""
+        ? r.fub_link.trim()
         : null;
   }
   if (r.priority !== undefined) {

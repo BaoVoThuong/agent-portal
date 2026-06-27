@@ -23,6 +23,20 @@ describe("resolveTaskPatch", () => {
     });
   });
 
+  it("accepts changing or clearing the FUB link", () => {
+    expect(
+      resolveTaskPatch(manager, assigned, { fub_link: "  https://app.fub.test/people/1  " })
+    ).toEqual({
+      ok: true,
+      patch: { fub_link: "https://app.fub.test/people/1" },
+    });
+
+    expect(resolveTaskPatch(manager, assigned, { fub_link: "" })).toEqual({
+      ok: true,
+      patch: { fub_link: null },
+    });
+  });
+
   it("rejects empty title", () => {
     const r = resolveTaskPatch(manager, assigned, { title: "   " });
     expect(r.ok).toBe(false);

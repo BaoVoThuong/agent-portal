@@ -8,11 +8,24 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Paperclip, Reply, Send, X } from "lucide-react";
+import {
+  FileText,
+  ImageIcon,
+  MoreHorizontal,
+  Paperclip,
+  Send,
+  X,
+} from "lucide-react";
+import { createPortal } from "react-dom";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
-import type { CommentWithAttachments, SignedAttachment } from "@/lib/tasks/detail";
+import type {
+  CommentWithAttachments,
+  SignedAttachment,
+} from "@/lib/tasks/detail";
 import { taskRoomTopic } from "@/lib/tasks/realtime-topics";
+import { Initials } from "./board-ui";
+import { useAnchoredMenu } from "./use-anchored-menu";
 
 type Comment = CommentWithAttachments & {
   id: string;
@@ -22,10 +35,130 @@ type Comment = CommentWithAttachments & {
   created_at: string;
   deleted_at: string | null;
   attachments: SignedAttachment[];
+  optimistic?: boolean;
+  failed?: boolean;
+};
+
+type DraftMention = {
+  label: string;
+  email: string;
+};
+
+type ActiveMention = {
+  query: string;
+  start: number;
+  end: number;
+};
+
+type MentionMenuPosition = {
+  top: number;
+  left: number;
 };
 
 const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
-const isImage = (mime: string | null) => Boolean(mime && mime.startsWith("image/"));
+const MENTION_MENU_WIDTH = 288;
+const isImage = (mime: string | null) =>
+  Boolean(mime && mime.startsWith("image/"));
+
+function mentionLabel(member: TaskAssignee) {
+  return member.name ?? member.email;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findActiveMention(value: string, caret: number): ActiveMention | null {
+  const beforeCaret = value.slice(0, caret);
+  const match = beforeCaret.match(/(^|\s)@([^\s@]*)$/);
+  if (!match) return null;
+
+  const tokenLength = match[0].length - match[1].length;
+  return {
+    query: match[2],
+    start: beforeCaret.length - tokenLength,
+    end: caret,
+  };
+}
+
+function measureTextareaCaret(
+  textarea: HTMLTextAreaElement,
+  caret: number,
+): MentionMenuPosition {
+  const style = window.getComputedStyle(textarea);
+  const mirror = document.createElement("div");
+  const marker = document.createElement("span");
+
+  mirror.style.position = "absolute";
+  mirror.style.visibility = "hidden";
+  mirror.style.pointerEvents = "none";
+  mirror.style.left = "-9999px";
+  mirror.style.top = "0";
+  mirror.style.boxSizing = style.boxSizing;
+  mirror.style.width = `${textarea.offsetWidth}px`;
+  mirror.style.border = style.border;
+  mirror.style.padding = style.padding;
+  mirror.style.font = style.font;
+  mirror.style.letterSpacing = style.letterSpacing;
+  mirror.style.lineHeight = style.lineHeight;
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.overflowWrap = "break-word";
+  mirror.style.wordBreak = "break-word";
+
+  mirror.textContent = textarea.value.slice(0, caret);
+  marker.textContent = textarea.value.slice(caret, caret + 1) || "\u200b";
+  mirror.appendChild(marker);
+  document.body.appendChild(mirror);
+
+  const markerTop = marker.offsetTop - textarea.scrollTop;
+  const markerLeft = marker.offsetLeft - textarea.scrollLeft;
+  const markerHeight = marker.offsetHeight;
+  document.body.removeChild(mirror);
+
+  return {
+    top: Math.max(34, markerTop + markerHeight + 6),
+    left: Math.min(
+      Math.max(12, markerLeft),
+      Math.max(12, textarea.clientWidth - MENTION_MENU_WIDTH - 12),
+    ),
+  };
+}
+
+function encodeDraftMentions(body: string, mentions: DraftMention[]) {
+  const uniqueMentions = [
+    ...new Map(mentions.map((mention) => [mention.email, mention])).values(),
+  ].sort((a, b) => b.label.length - a.label.length);
+
+  return uniqueMentions.reduce((nextBody, mention) => {
+    const label = mention.label.trim();
+    if (!label) return nextBody;
+
+    const pattern = new RegExp(
+      `(^|\\s)@${escapeRegExp(label)}(?=\\s|$|[.,!?;:])`,
+      "g",
+    );
+    return nextBody.replace(
+      pattern,
+      (_, prefix: string) => `${prefix}@[${label}](${mention.email})`,
+    );
+  }, body);
+}
+
+function decodeStoredMentions(body: string): {
+  text: string;
+  mentions: DraftMention[];
+} {
+  const mentions: DraftMention[] = [];
+  const text = body.replace(
+    MENTION_TOKEN,
+    (_, label: string, email: string) => {
+      mentions.push({ label, email });
+      return `@${label}`;
+    },
+  );
+
+  return { text, mentions };
+}
 
 export function CommentThread({
   taskId,
@@ -41,6 +174,19 @@ export function CommentThread({
   onReload: () => Promise<void> | void;
 }) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
+  const optimisticUrlsRef = useRef(new Map<string, string[]>());
+  const optimisticCounterRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      for (const urls of optimisticUrlsRef.current.values()) {
+        for (const url of urls) URL.revokeObjectURL(url);
+      }
+      optimisticUrlsRef.current.clear();
+    },
+    [],
+  );
 
   // Live thread: refetch when the task room pings (someone commented/attached).
   useEffect(() => {
@@ -63,60 +209,180 @@ export function CommentThread({
 
   const nameOf = useCallback(
     (email: string) => members.find((m) => m.email === email)?.name ?? email,
-    [members]
+    [members],
   );
 
-  async function post(body: string, files: File[], parentId: string | null) {
-    const res = await fetch(`/api/tasks/${taskId}/comments`, {
-      method: "POST",
+  function releaseOptimistic(id: string) {
+    const urls = optimisticUrlsRef.current.get(id) ?? [];
+    for (const url of urls) URL.revokeObjectURL(url);
+    optimisticUrlsRef.current.delete(id);
+    setOptimisticComments((current) =>
+      current.filter((comment) => comment.id !== id),
+    );
+  }
+
+  function post(body: string, files: File[], parentId: string | null) {
+    const tempId = `optimistic-${taskId}-${optimisticCounterRef.current++}`;
+    const urls: string[] = [];
+    const attachments = files.map((file, index) => {
+      const url = URL.createObjectURL(file);
+      urls.push(url);
+      return {
+        id: `${tempId}-file-${index}`,
+        file_name: file.name,
+        mime_type: file.type || null,
+        size_bytes: file.size,
+        url,
+      };
+    });
+    optimisticUrlsRef.current.set(tempId, urls);
+    setOptimisticComments((current) => [
+      ...current,
+      {
+        id: tempId,
+        parent_id: parentId,
+        author_email: currentEmail,
+        body,
+        created_at: new Date().toISOString(),
+        deleted_at: null,
+        attachments,
+        optimistic: true,
+      },
+    ]);
+    setReplyTo(null);
+
+    void persistComment(tempId, body, files, parentId);
+    return true;
+  }
+
+  async function persistComment(
+    tempId: string,
+    body: string,
+    files: File[],
+    parentId: string | null,
+  ) {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body,
+          parentId,
+          hasAttachments: files.length > 0,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to create comment.");
+
+      const { comment } = (await res.json()) as { comment: { id: string } };
+      for (const file of files) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("comment_id", comment.id);
+        const upload = await fetch(`/api/tasks/${taskId}/attachments`, {
+          method: "POST",
+          body: form,
+        });
+        if (!upload.ok) throw new Error("Failed to upload attachment.");
+      }
+
+      await onReload();
+      releaseOptimistic(tempId);
+    } catch {
+      setOptimisticComments((current) =>
+        current.map((comment) =>
+          comment.id === tempId ? { ...comment, failed: true } : comment,
+        ),
+      );
+    }
+  }
+
+  async function remove(id: string) {
+    const res = await fetch(`/api/tasks/${taskId}/comments/${id}`, {
+      method: "DELETE",
+    });
+    if (res.ok) await onReload();
+  }
+
+  async function edit(id: string, body: string) {
+    const res = await fetch(`/api/tasks/${taskId}/comments/${id}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body, parentId, hasAttachments: files.length > 0 }),
+      body: JSON.stringify({ body }),
     });
     if (!res.ok) return false;
-    const { comment } = (await res.json()) as { comment: { id: string } };
-    for (const file of files) {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("comment_id", comment.id);
-      await fetch(`/api/tasks/${taskId}/attachments`, { method: "POST", body: form });
-    }
-    setReplyTo(null);
     await onReload();
     return true;
   }
 
-  async function remove(id: string) {
-    const res = await fetch(`/api/tasks/${taskId}/comments/${id}`, { method: "DELETE" });
-    if (res.ok) await onReload();
-  }
-
-  const rows = comments as Comment[];
-  const topLevel = rows.filter((c) => c.parent_id === null);
-  const repliesOf = (id: string) => rows.filter((c) => c.parent_id === id);
+  const rows = [...(comments as Comment[]), ...optimisticComments];
+  const timestampOf = (comment: Comment) =>
+    new Date(comment.created_at).getTime() || 0;
+  const repliesOf = (id: string) =>
+    rows
+      .filter((c) => c.parent_id === id)
+      .sort((a, b) => timestampOf(b) - timestampOf(a));
+  const latestThreadTimestamp = (comment: Comment) =>
+    Math.max(timestampOf(comment), ...repliesOf(comment.id).map(timestampOf));
+  const topLevel = rows
+    .filter((c) => c.parent_id === null)
+    .sort((a, b) => latestThreadTimestamp(b) - latestThreadTimestamp(a));
 
   return (
-    <div className="space-y-3">
-      {topLevel.map((c) => (
-        <div key={c.id} className="space-y-2">
-          <CommentItem
-            c={c}
-            currentEmail={currentEmail}
-            nameOf={nameOf}
-            onDelete={remove}
-            onReply={() => setReplyTo(c.id)}
-          />
-          <div className="ml-6 space-y-2 border-l border-[#ebecf0] pl-3">
-            {repliesOf(c.id).map((rc) => (
-              <CommentItem key={rc.id} c={rc} currentEmail={currentEmail} nameOf={nameOf} onDelete={remove} />
-            ))}
-            {replyTo === c.id && (
-              <Composer members={members} onSubmit={(b, f) => post(b, f, c.id)} placeholder="Reply…" />
-            )}
-          </div>
+    <section className="space-y-3">
+      <div className="border-b border-[#dfe1e6] pb-3">
+        <Composer
+          currentEmail={currentEmail}
+          members={members}
+          nameOf={nameOf}
+          onSubmit={(b, f) => post(b, f, null)}
+          placeholder="Add a comment..."
+        />
+      </div>
+
+      {topLevel.length === 0 ? (
+        <div className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]">
+          No comments yet.
         </div>
-      ))}
-      <Composer members={members} onSubmit={(b, f) => post(b, f, null)} placeholder="Write a comment…" />
-    </div>
+      ) : (
+        <div className="space-y-2.5">
+          {topLevel.map((c) => (
+            <div key={c.id} className="space-y-2">
+              <CommentItem
+                c={c}
+                currentEmail={currentEmail}
+                nameOf={nameOf}
+                onDelete={c.optimistic ? releaseOptimistic : remove}
+                onEdit={edit}
+                onReply={c.optimistic ? undefined : () => setReplyTo(c.id)}
+              />
+              <div className="ml-5 space-y-2 border-l-2 border-[#dfe1e6] pl-4">
+                {repliesOf(c.id).map((rc) => (
+                  <CommentItem
+                    key={rc.id}
+                    c={rc}
+                    currentEmail={currentEmail}
+                    nameOf={nameOf}
+                    onDelete={rc.optimistic ? releaseOptimistic : remove}
+                    onEdit={edit}
+                  />
+                ))}
+                {replyTo === c.id && (
+                  <Composer
+                    initiallyExpanded
+                    currentEmail={currentEmail}
+                    members={members}
+                    nameOf={nameOf}
+                    onCancel={() => setReplyTo(null)}
+                    onSubmit={(b, f) => post(b, f, c.id)}
+                    placeholder="Reply..."
+                  />
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -133,7 +399,7 @@ function renderBody(body: string): ReactNode[] {
         className="rounded bg-[#deebff] px-1 font-medium text-[#0c66e4]"
       >
         @{m[1]}
-      </span>
+      </span>,
     );
     last = idx + m[0].length;
   }
@@ -146,83 +412,275 @@ function CommentItem({
   currentEmail,
   nameOf,
   onDelete,
+  onEdit,
   onReply,
 }: {
   c: Comment;
   currentEmail: string;
   nameOf: (email: string) => string;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<void> | void;
+  onEdit: (id: string, body: string) => Promise<boolean>;
   onReply?: () => void;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
+    useAnchoredMenu();
+  const canReply = Boolean(onReply && !c.optimistic);
+  const canEdit = c.author_email === currentEmail && !c.optimistic && !c.failed;
+  const canDelete =
+    c.author_email === currentEmail && (!c.optimistic || c.failed);
+  const hasMenu = canEdit || canDelete;
+
   if (c.deleted_at) {
-    return <p className="text-xs italic text-[#97a0af]">comment deleted</p>;
-  }
-  return (
-    <div className="rounded-lg bg-[#f4f5f7] p-2.5">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-[#172b4d]">{nameOf(c.author_email)}</span>
-        <div className="flex items-center gap-2">
-          {onReply && (
-            <button type="button" onClick={onReply} className="text-[#97a0af] transition hover:text-[#42526e]" aria-label="Reply">
-              <Reply className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {c.author_email === currentEmail && (
-            <button type="button" onClick={() => onDelete(c.id)} className="text-xs font-medium text-[#bf2600] hover:underline">
-              delete
-            </button>
-          )}
-        </div>
+    return (
+      <div className="flex gap-2.5">
+        <Initials email={c.author_email} label={nameOf(c.author_email)} />
+        <p className="pt-1 text-xs italic text-[#97a0af]">comment deleted</p>
       </div>
-      {c.body && (
-        <p className="mt-1 whitespace-pre-wrap text-sm text-[#172b4d]">{renderBody(c.body)}</p>
-      )}
-      {c.attachments.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {c.attachments.map((a) =>
-            isImage(a.mime_type) ? (
-              <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={a.url}
-                  alt={a.file_name}
-                  className="h-24 w-24 rounded border border-[#dfe1e6] object-cover"
-                />
-              </a>
-            ) : (
-              <a
-                key={a.id}
-                href={a.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 rounded border border-[#dfe1e6] bg-white px-2 py-1 text-xs text-[#0c66e4] hover:underline"
-              >
-                <Paperclip className="h-3 w-3 shrink-0" /> {a.file_name}
-              </a>
-            )
+    );
+  }
+
+  return (
+    <article className="group flex gap-2.5">
+      <div className="shrink-0 pt-0.5">
+        <Initials email={c.author_email} label={nameOf(c.author_email)} />
+      </div>
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-sm font-semibold text-[#172b4d]">
+              {nameOf(c.author_email)}
+            </span>
+            <span
+              className="text-xs font-medium text-[#6b778c]"
+              title={formatExactCommentTime(c.created_at)}
+            >
+              {formatCommentTime(c.created_at)}
+            </span>
+            {c.failed ? (
+              <span className="rounded bg-[#ffebe6] px-1.5 py-0.5 text-[11px] font-bold text-[#bf2600]">
+                Failed to send
+              </span>
+            ) : null}
+          </div>
+
+          {isEditing ? (
+            <EditCommentForm
+              initialBody={c.body}
+              onCancel={() => setIsEditing(false)}
+              onSave={(body) => onEdit(c.id, body)}
+            />
+          ) : (
+            <>
+              <div className="mt-0.5 text-sm leading-5 text-[#172b4d]">
+                {c.body ? (
+                  <p className="whitespace-pre-wrap">{renderBody(c.body)}</p>
+                ) : null}
+              </div>
+
+              {c.attachments.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {c.attachments.map((a) =>
+                    isImage(a.mime_type) ? (
+                      <a
+                        key={a.id}
+                        href={a.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group/image block overflow-hidden rounded border border-[#dfe1e6] bg-[#f7f8f9] transition hover:border-[#85b8ff]"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={a.url}
+                          alt={a.file_name}
+                          className="h-24 w-24 object-cover transition group-hover/image:scale-[1.02]"
+                        />
+                      </a>
+                    ) : (
+                      <AttachmentLink key={a.id} attachment={a} />
+                    ),
+                  )}
+                </div>
+              )}
+
+              {canReply ? (
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-[#44546f]">
+                  <button
+                    type="button"
+                    onClick={onReply}
+                    className="rounded px-1 py-0.5 transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
+                  >
+                    Reply
+                  </button>
+                </div>
+              ) : null}
+            </>
           )}
         </div>
-      )}
+
+        {hasMenu ? (
+          <div className="relative shrink-0">
+            <button
+              ref={triggerRef}
+              type="button"
+              onClick={toggle}
+              aria-label="Comment actions"
+              aria-expanded={isOpen}
+              className="flex h-7 w-7 items-center justify-center rounded border border-transparent text-[#6b778c] transition hover:border-[#dfe1e6] hover:bg-[#f4f5f7] hover:text-[#172b4d]"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {isOpen
+              ? createPortal(
+                  <div
+                    ref={menuRef}
+                    role="menu"
+                    style={menuStyle}
+                    className="z-[100] min-w-[8rem] overflow-hidden rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+                  >
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsOpen(false);
+                          setIsEditing(true);
+                        }}
+                        className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-sm font-medium text-[#172b4d] transition hover:bg-[#f4f5f7]"
+                      >
+                        Edit
+                      </button>
+                    ) : null}
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsOpen(false);
+                          void onDelete(c.id);
+                        }}
+                        className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-sm font-medium text-[#bf2600] transition hover:bg-[#ffebe6]"
+                      >
+                        {c.failed ? "Remove" : "Delete"}
+                      </button>
+                    ) : null}
+                  </div>,
+                  document.body,
+                )
+              : null}
+          </div>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function EditCommentForm({
+  initialBody,
+  onCancel,
+  onSave,
+}: {
+  initialBody: string;
+  onCancel: () => void;
+  onSave: (body: string) => Promise<boolean>;
+}) {
+  const [decodedInitialBody] = useState(() =>
+    decodeStoredMentions(initialBody),
+  );
+  const [body, setBody] = useState(decodedInitialBody.text);
+  const [saving, setSaving] = useState(false);
+  const trimmed = body.trim();
+  const encodedBody = encodeDraftMentions(trimmed, decodedInitialBody.mentions);
+  const unchanged = encodedBody === initialBody.trim();
+
+  async function save() {
+    if (!trimmed || saving) return;
+    if (unchanged) {
+      onCancel();
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const ok = await onSave(encodedBody);
+      if (ok) onCancel();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel();
+      return;
+    }
+
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      void save();
+    }
+  }
+
+  return (
+    <div className="mt-1.5 overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_1px_rgba(9,30,66,0.08)] focus-within:border-[#0c66e4] focus-within:shadow-[0_0_0_1px_#0c66e4]">
+      <textarea
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={onKeyDown}
+        rows={3}
+        className="block min-h-[4.5rem] w-full resize-y bg-white px-3 py-2 text-sm leading-5 text-[#172b4d] outline-none"
+      />
+      <div className="flex items-center justify-end gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-3 py-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="h-8 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d] disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={!trimmed || saving}
+          className="inline-flex h-8 items-center rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? "Saving..." : "Save"}
+        </button>
+      </div>
     </div>
   );
 }
 
 function Composer({
+  initiallyExpanded = false,
+  currentEmail,
   members,
+  nameOf,
+  onCancel,
   onSubmit,
   placeholder,
 }: {
+  initiallyExpanded?: boolean;
+  currentEmail: string;
   members: TaskAssignee[];
-  onSubmit: (body: string, files: File[]) => Promise<boolean>;
+  nameOf: (email: string) => string;
+  onCancel?: () => void;
+  onSubmit: (body: string, files: File[]) => boolean;
   placeholder: string;
 }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [sending, setSending] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
+  const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [query, setQuery] = useState<string | null>(null);
+  const [mentionPosition, setMentionPosition] =
+    useState<MentionMenuPosition | null>(null);
   const [hi, setHi] = useState(0);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const caretRef = useRef<number | null>(null);
+  const activeMentionRef = useRef<ActiveMention | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Apply a programmatic caret position after a mention insert.
@@ -235,43 +693,72 @@ function Composer({
     }
   });
 
+  useEffect(() => {
+    if (!expanded) return;
+    const frame = requestAnimationFrame(() => taRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [expanded]);
+
   const matches =
     query === null
       ? []
-      : members
+      : [...members]
           .filter((m) => {
-            const q = query.toLowerCase();
+            const q = query.trim().toLowerCase();
             return (
-              (m.name ?? "").toLowerCase().includes(q) ||
+              mentionLabel(m).toLowerCase().includes(q) ||
               m.email.toLowerCase().includes(q)
             );
           })
-          .slice(0, 6);
+          .sort((a, b) => {
+            const q = query.trim().toLowerCase();
+            const aLabel = mentionLabel(a).toLowerCase();
+            const bLabel = mentionLabel(b).toLowerCase();
+            const aStarts = aLabel.startsWith(q) || a.email.toLowerCase().startsWith(q);
+            const bStarts = bLabel.startsWith(q) || b.email.toLowerCase().startsWith(q);
+            if (aStarts !== bStarts) return aStarts ? -1 : 1;
+            return mentionLabel(a).localeCompare(mentionLabel(b));
+          });
+  const highlightedMatch = matches[hi] ?? matches[0];
 
-  function onChange(value: string, caret: number) {
+  function onChange(
+    value: string,
+    caret: number,
+    textarea: HTMLTextAreaElement,
+  ) {
     setText(value);
-    const before = value.slice(0, caret);
-    const m = before.match(/@([^\s@]*)$/);
-    if (m) {
-      setQuery(m[1]);
+    const activeMention = findActiveMention(value, caret);
+    activeMentionRef.current = activeMention;
+    if (activeMention) {
+      setQuery(activeMention.query);
+      setMentionPosition(measureTextareaCaret(textarea, caret));
       setHi(0);
     } else {
       setQuery(null);
+      setMentionPosition(null);
     }
   }
 
   function pick(member: TaskAssignee) {
     const el = taRef.current;
-    const caret = el ? el.selectionStart : text.length;
-    const before = text.slice(0, caret);
-    const after = text.slice(caret);
-    const m = before.match(/@([^\s@]*)$/);
-    const start = m ? before.length - m[0].length : before.length;
-    const token = `@[${member.name ?? member.email}](${member.email}) `;
-    const next = text.slice(0, start) + token + after;
+    const currentText = el?.value ?? text;
+    const caret = el?.selectionStart ?? currentText.length;
+    const activeMention =
+      activeMentionRef.current ?? findActiveMention(currentText, caret);
+    const start = activeMention?.start ?? caret;
+    const end = activeMention?.end ?? caret;
+    const label = mentionLabel(member);
+    const token = `@${label} `;
+    const next = currentText.slice(0, start) + token + currentText.slice(end);
     setText(next);
+    setDraftMentions((current) => [
+      ...current.filter((mention) => mention.email !== member.email),
+      { label, email: member.email },
+    ]);
     caretRef.current = start + token.length;
+    activeMentionRef.current = null;
     setQuery(null);
+    setMentionPosition(null);
   }
 
   function addFiles(list: FileList | null) {
@@ -279,18 +766,38 @@ function Composer({
     setFiles((cur) => [...cur, ...Array.from(list)]);
   }
 
-  async function submit() {
+  function clearDraft() {
+    setText("");
+    setFiles([]);
+    setDraftMentions([]);
+    setQuery(null);
+    setMentionPosition(null);
+    setHi(0);
+    activeMentionRef.current = null;
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function cancel() {
+    clearDraft();
+    if (onCancel) {
+      onCancel();
+    } else {
+      setExpanded(false);
+    }
+  }
+
+  function submit() {
     const trimmed = text.trim();
-    if ((!trimmed && files.length === 0) || sending) return;
-    setSending(true);
-    try {
-      const ok = await onSubmit(trimmed, files);
-      if (ok) {
-        setText("");
-        setFiles([]);
+    if (!trimmed && files.length === 0) return;
+
+    const ok = onSubmit(encodeDraftMentions(trimmed, draftMentions), files);
+    if (ok) {
+      clearDraft();
+      if (onCancel) {
+        onCancel();
+      } else {
+        setExpanded(false);
       }
-    } finally {
-      setSending(false);
     }
   }
 
@@ -308,113 +815,218 @@ function Composer({
       }
       if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
-        pick(matches[hi]);
+        if (highlightedMatch) pick(highlightedMatch);
         return;
       }
       if (e.key === "Escape") {
         setQuery(null);
+        setMentionPosition(null);
         return;
       }
     }
-    // Cmd/Ctrl+Enter sends.
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    // Enter sends; Shift+Enter keeps the normal newline behavior.
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      void submit();
+      submit();
     }
   }
 
+  if (!expanded) {
+    return (
+      <div className="flex gap-3">
+        <div className="shrink-0 pt-1">
+          <Initials email={currentEmail} label={nameOf(currentEmail)} />
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="min-h-11 flex-1 rounded border border-[#dfe1e6] bg-white px-4 text-left text-sm font-medium text-[#6b778c] shadow-[0_1px_1px_rgba(9,30,66,0.08)] transition hover:bg-[#fafbfc] hover:text-[#172b4d] focus:border-[#0c66e4] focus:outline-none focus:ring-2 focus:ring-[#85b8ff]"
+        >
+          {placeholder}
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="relative rounded-lg border border-[#dfe1e6] p-2 focus-within:border-[#0c66e4]">
-      <textarea
-        ref={taRef}
-        value={text}
-        onChange={(e) => onChange(e.target.value, e.target.selectionStart)}
-        onKeyDown={onKeyDown}
-        onPaste={(e) => {
-          if (e.clipboardData.files.length > 0) {
-            e.preventDefault();
-            addFiles(e.clipboardData.files);
+    <div className="flex gap-3">
+      <div className="shrink-0 pt-1">
+        <Initials email={currentEmail} label={nameOf(currentEmail)} />
+      </div>
+      <div className="relative min-w-0 flex-1 overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_1px_rgba(9,30,66,0.08)] transition focus-within:border-[#0c66e4] focus-within:shadow-[0_0_0_1px_#0c66e4]">
+        <textarea
+          ref={taRef}
+          value={text}
+          onChange={(e) =>
+            onChange(e.target.value, e.target.selectionStart, e.target)
           }
-        }}
-        onDrop={(e) => {
-          if (e.dataTransfer.files.length > 0) {
-            e.preventDefault();
-            addFiles(e.dataTransfer.files);
-          }
-        }}
-        placeholder={placeholder}
-        rows={2}
-        className="w-full resize-none bg-transparent text-sm text-[#172b4d] placeholder:text-[#7a869a] focus:outline-none"
-      />
-
-      {query !== null && matches.length > 0 && (
-        <div className="absolute bottom-12 left-2 z-10 w-56 overflow-hidden rounded-lg border border-[#dfe1e6] bg-white shadow-[0_8px_24px_rgba(9,30,66,0.18)]">
-          {matches.map((m, i) => (
-            <button
-              key={m.email}
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                pick(m);
-              }}
-              className={`block w-full px-3 py-1.5 text-left text-sm ${
-                i === hi ? "bg-[#e9f2ff] text-[#0c66e4]" : "text-[#172b4d] hover:bg-[#f4f5f7]"
-              }`}
-            >
-              {m.name ?? m.email}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {files.length > 0 && (
-        <div className="mb-1 flex flex-wrap gap-2">
-          {files.map((f, i) => (
-            <span
-              key={`${f.name}-${i}`}
-              className="flex items-center gap-1 rounded bg-[#f4f5f7] px-2 py-1 text-[11px] text-[#42526e]"
-            >
-              {f.type.startsWith("image/") ? "🖼" : "📎"} {f.name}
-              <button
-                type="button"
-                onClick={() => setFiles((cur) => cur.filter((_, idx) => idx !== i))}
-                aria-label="Remove file"
-                className="text-[#97a0af] hover:text-[#bf2600]"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between">
-        <input
-          ref={fileRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            addFiles(e.target.files);
-            if (fileRef.current) fileRef.current.value = "";
+          onKeyDown={onKeyDown}
+          onPaste={(e) => {
+            if (e.clipboardData.files.length > 0) {
+              e.preventDefault();
+              addFiles(e.clipboardData.files);
+            }
           }}
+          onDrop={(e) => {
+            if (e.dataTransfer.files.length > 0) {
+              e.preventDefault();
+              addFiles(e.dataTransfer.files);
+            }
+          }}
+          placeholder={placeholder}
+          rows={3}
+          className="block min-h-[5.5rem] w-full resize-y bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none placeholder:text-[#7a869a]"
         />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-1 text-xs font-medium text-[#6b778c] transition hover:text-[#42526e]"
-        >
-          <Paperclip className="h-3.5 w-3.5" /> Attach
-        </button>
-        <button
-          type="button"
-          onClick={() => void submit()}
-          disabled={(!text.trim() && files.length === 0) || sending}
-          className="flex items-center gap-1 rounded bg-[#0c66e4] px-3 py-1 text-xs font-semibold text-white transition hover:bg-[#0055cc] disabled:opacity-40"
-        >
-          <Send className="h-3 w-3" /> {sending ? "Sending…" : "Send"}
-        </button>
+
+        {query !== null && matches.length > 0 && (
+          <div
+            style={{
+              top: mentionPosition?.top ?? 42,
+              left: mentionPosition?.left ?? 12,
+            }}
+            className="absolute z-20 max-h-56 w-72 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+          >
+            {matches.map((m, i) => (
+              <button
+                key={m.email}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(m);
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
+                  i === hi
+                    ? "bg-[#e9f2ff] text-[#0c66e4]"
+                    : "text-[#172b4d] hover:bg-[#f4f5f7]"
+                }`}
+              >
+                <Initials email={m.email} label={m.name ?? m.email} />
+                <span className="min-w-0 flex-1 truncate font-semibold">
+                  {mentionLabel(m)}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {files.length > 0 && (
+          <div className="flex flex-wrap gap-2 border-t border-[#ebecf0] px-3 py-2">
+            {files.map((f, i) => (
+              <span
+                key={`${f.name}-${i}`}
+                className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-[#f7f8f9] px-2 py-1 text-xs font-medium text-[#42526e]"
+              >
+                {f.type.startsWith("image/") ? (
+                  <ImageIcon className="h-3.5 w-3.5 shrink-0 text-[#0c66e4]" />
+                ) : (
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-[#6b778c]" />
+                )}
+                <span className="min-w-0 truncate">{f.name}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFiles((cur) => cur.filter((_, idx) => idx !== i))
+                  }
+                  aria-label="Remove file"
+                  className="rounded text-[#6b778c] transition hover:bg-[#ebecf0] hover:text-[#bf2600]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-3 py-2">
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              addFiles(e.target.files);
+              if (fileRef.current) fileRef.current.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="inline-flex h-8 items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
+          >
+            <Paperclip className="h-4 w-4" /> Attach
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={cancel}
+              className="h-8 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!text.trim() && files.length === 0}
+              className="inline-flex h-8 items-center gap-1.5 rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Send className="h-3.5 w-3.5" /> Send
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
+}
+
+function AttachmentLink({ attachment }: { attachment: SignedAttachment }) {
+  return (
+    <a
+      href={attachment.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-[#fafbfc] px-2 py-1 text-xs font-medium text-[#0c66e4] transition hover:bg-[#e9f2ff] hover:underline"
+    >
+      <FileText className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 truncate">{attachment.file_name}</span>
+    </a>
+  );
+}
+
+function formatCommentTime(value: string) {
+  const date = new Date(value);
+  const timestamp = date.getTime();
+  if (!Number.isFinite(timestamp)) return value;
+
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds} seconds ago`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatExactCommentTime(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+
+  return date.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }

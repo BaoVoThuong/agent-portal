@@ -34,6 +34,9 @@ describe("buildActivityEntries", () => {
     expect(buildActivityEntries(before, { title: "x" })).toEqual([
       { type: "edited", meta: null },
     ]);
+    expect(buildActivityEntries(before, { fub_link: "https://app.fub.test" })).toEqual([
+      { type: "edited", meta: null },
+    ]);
   });
   it("ignores position-only reorders", () => {
     expect(buildActivityEntries(before, { position: 5 })).toEqual([]);

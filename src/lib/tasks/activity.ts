@@ -28,7 +28,7 @@ export function buildActivityEntries(
   if ("agent_email" in patch && patch.agent_email !== before.agent_email) {
     entries.push({ type: "agent_changed", meta: { to: patch.agent_email ?? null } });
   }
-  if ("title" in patch || "description" in patch) {
+  if ("title" in patch || "description" in patch || "fub_link" in patch) {
     entries.push({ type: "edited", meta: null });
   }
   return entries;
