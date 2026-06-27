@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canViewTask, canMutateTask } from "@/lib/tasks/access";
+import { buildTaskActor, canViewTask, canMutateTask, canAssignToTask } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import type { TaskRow } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { removeTaskFiles } from "@/lib/tasks/storage";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { fetchAgentsForCs } from "@/lib/tasks/membership";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
+  const reassigning = body !== null && typeof body === "object" && "assignee_email" in body;
+  const agents = r.actor.isManager ? [] : await fetchAgentsForCs(r.actor.email);
+  const isAgentMember = Boolean(r.task.agent_email && agents.includes(r.task.agent_email));
+  if (reassigning && !canAssignToTask(r.actor, isAgentMember)) {
+    return NextResponse.json({ error: "You cannot assign this task." }, { status: 403 });
+  }
   const resolved = resolveTaskPatch(r.actor, r.task, body);
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
 
