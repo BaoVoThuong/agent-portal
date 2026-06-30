@@ -60,6 +60,11 @@ type MentionMenuPosition = {
   left: number;
 };
 
+type ImagePreview = {
+  url: string;
+  fileName: string;
+};
+
 const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
 const MENTION_MENU_WIDTH = 288;
 const isImage = (mime: string | null) =>
@@ -193,6 +198,7 @@ export function CommentThread({
   onReload: () => Promise<void> | void;
 }) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
   const optimisticCounterRef = useRef(0);
@@ -354,61 +360,103 @@ export function CommentThread({
     .sort((a, b) => timestampOf(a) - timestampOf(b));
 
   return (
-    <section className="space-y-3">
-      <div className="border-b border-[#dfe1e6] pb-3">
-        <Composer
-          currentEmail={currentEmail}
-          members={members}
-          nameOf={nameOf}
-          onSubmit={(b, f) => post(b, f, null)}
-          placeholder="Add a comment..."
-        />
-      </div>
+    <>
+      <section className="space-y-3">
+        <div className="border-b border-[#dfe1e6] pb-3">
+          <Composer
+            currentEmail={currentEmail}
+            members={members}
+            nameOf={nameOf}
+            onSubmit={(b, f) => post(b, f, null)}
+            placeholder="Add a comment..."
+          />
+        </div>
 
-      {topLevel.length === 0 ? (
-        <div className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]">
-          No comments yet.
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {topLevel.map((c) => (
-            <div key={c.id} className="space-y-2">
-              <CommentItem
-                c={c}
-                currentEmail={currentEmail}
-                nameOf={nameOf}
-                onDelete={c.optimistic ? releaseOptimistic : remove}
-                onEdit={edit}
-                onReply={c.optimistic ? undefined : () => setReplyTo(c.id)}
-              />
-              <div className="ml-5 space-y-2 border-l-2 border-[#dfe1e6] pl-4">
-                {repliesOf(c.id).map((rc) => (
-                  <CommentItem
-                    key={rc.id}
-                    c={rc}
-                    currentEmail={currentEmail}
-                    nameOf={nameOf}
-                    onDelete={rc.optimistic ? releaseOptimistic : remove}
-                    onEdit={edit}
-                  />
-                ))}
-                {replyTo === c.id && (
-                  <Composer
-                    initiallyExpanded
-                    currentEmail={currentEmail}
-                    members={members}
-                    nameOf={nameOf}
-                    onCancel={() => setReplyTo(null)}
-                    onSubmit={(b, f) => post(b, f, c.id)}
-                    placeholder="Reply..."
-                  />
-                )}
+        {topLevel.length === 0 ? (
+          <div className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]">
+            No comments yet.
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {topLevel.map((c) => (
+              <div key={c.id} className="space-y-2">
+                <CommentItem
+                  c={c}
+                  currentEmail={currentEmail}
+                  nameOf={nameOf}
+                  onDelete={c.optimistic ? releaseOptimistic : remove}
+                  onEdit={edit}
+                  onPreviewImage={setImagePreview}
+                  onReply={c.optimistic ? undefined : () => setReplyTo(c.id)}
+                />
+                <div className="ml-5 space-y-2 border-l-2 border-[#dfe1e6] pl-4">
+                  {repliesOf(c.id).map((rc) => (
+                    <CommentItem
+                      key={rc.id}
+                      c={rc}
+                      currentEmail={currentEmail}
+                      nameOf={nameOf}
+                      onDelete={rc.optimistic ? releaseOptimistic : remove}
+                      onEdit={edit}
+                      onPreviewImage={setImagePreview}
+                    />
+                  ))}
+                  {replyTo === c.id && (
+                    <Composer
+                      initiallyExpanded
+                      currentEmail={currentEmail}
+                      members={members}
+                      nameOf={nameOf}
+                      onCancel={() => setReplyTo(null)}
+                      onSubmit={(b, f) => post(b, f, c.id)}
+                      placeholder="Reply..."
+                    />
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {imagePreview
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[120] flex items-center justify-center bg-[#091e42]/80 p-4 sm:p-6"
+              onClick={() => setImagePreview(null)}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label={imagePreview.fileName}
+                className="relative flex max-h-full max-w-5xl flex-col overflow-hidden rounded-lg bg-[#0b1220] shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2 text-white">
+                  <span className="min-w-0 truncate text-sm font-semibold">
+                    {imagePreview.fileName}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setImagePreview(null)}
+                    aria-label="Close preview"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-white/80 transition hover:bg-white/10 hover:text-white"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imagePreview.url}
+                  alt={imagePreview.fileName}
+                  className="max-h-[calc(100vh-8rem)] max-w-full object-contain"
+                />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -439,6 +487,7 @@ function CommentItem({
   nameOf,
   onDelete,
   onEdit,
+  onPreviewImage,
   onReply,
 }: {
   c: Comment;
@@ -446,6 +495,7 @@ function CommentItem({
   nameOf: (email: string) => string;
   onDelete: (id: string) => Promise<void> | void;
   onEdit: (id: string, body: string) => Promise<boolean>;
+  onPreviewImage: (preview: ImagePreview) => void;
   onReply?: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -511,12 +561,16 @@ function CommentItem({
                 <div className="mt-1.5 flex flex-wrap gap-2">
                   {c.attachments.map((a) =>
                     isImage(a.mime_type) ? (
-                      <a
+                      <button
                         key={a.id}
-                        href={a.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group/image block overflow-hidden rounded border border-[#dfe1e6] bg-[#f7f8f9] transition hover:border-[#85b8ff]"
+                        type="button"
+                        onClick={() =>
+                          onPreviewImage({
+                            url: a.url,
+                            fileName: a.file_name,
+                          })
+                        }
+                        className="group/image block overflow-hidden rounded border border-[#dfe1e6] bg-[#f7f8f9] text-left transition hover:border-[#85b8ff] focus:border-[#0c66e4] focus:outline-none focus:ring-2 focus:ring-[#85b8ff]"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
@@ -524,7 +578,7 @@ function CommentItem({
                           alt={a.file_name}
                           className="h-24 w-24 object-cover transition group-hover/image:scale-[1.02]"
                         />
-                      </a>
+                      </button>
                     ) : (
                       <AttachmentLink key={a.id} attachment={a} />
                     ),
