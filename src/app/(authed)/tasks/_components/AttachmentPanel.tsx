@@ -3,6 +3,10 @@
 import { useRef, useState } from "react";
 import { Paperclip, Trash2 } from "lucide-react";
 import type { SignedAttachment } from "@/lib/tasks/detail";
+import {
+  attachmentTooLargeMessage,
+  TASK_ATTACHMENT_MAX_BYTES,
+} from "@/lib/tasks/attachments";
 
 export function AttachmentPanel({
   attachments,
@@ -16,15 +20,36 @@ export function AttachmentPanel({
   onReload: () => Promise<void> | void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function upload(file: File) {
+    setError(null);
+    if (file.size > TASK_ATTACHMENT_MAX_BYTES) {
+      setError(attachmentTooLargeMessage());
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+
     setBusy(true);
     try {
       const form = new FormData();
       form.append("file", file);
       const res = await fetch(`/api/tasks/${taskId}/attachments`, { method: "POST", body: form });
-      if (res.ok) await onReload();
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        setError(data?.error ?? "Could not upload attachment.");
+        return;
+      }
+      await onReload();
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Could not upload attachment."
+      );
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -54,6 +79,11 @@ export function AttachmentPanel({
         ))}
         {attachments.length === 0 && <li className="text-xs text-[#6b778c]">No attachments.</li>}
       </ul>
+      {error ? (
+        <div className="rounded border border-[#ffbdad] bg-[#ffebe6] px-2.5 py-2 text-xs font-semibold text-[#bf2600]">
+          {error}
+        </div>
+      ) : null}
       {canEdit && (
         <div>
           <input

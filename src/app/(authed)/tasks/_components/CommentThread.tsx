@@ -23,6 +23,10 @@ import type {
   CommentWithAttachments,
   SignedAttachment,
 } from "@/lib/tasks/detail";
+import {
+  attachmentTooLargeMessage,
+  TASK_ATTACHMENT_MAX_BYTES,
+} from "@/lib/tasks/attachments";
 import { taskRoomTopic } from "@/lib/tasks/realtime-topics";
 import { Initials } from "./board-ui";
 import { useAnchoredMenu } from "./use-anchored-menu";
@@ -37,6 +41,7 @@ type Comment = CommentWithAttachments & {
   attachments: SignedAttachment[];
   optimistic?: boolean;
   failed?: boolean;
+  error?: string;
 };
 
 type DraftMention = {
@@ -59,6 +64,20 @@ const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
 const MENTION_MENU_WIDTH = 288;
 const isImage = (mime: string | null) =>
   Boolean(mime && mime.startsWith("image/"));
+
+async function readResponseError(
+  response: Response,
+  fallback: string
+): Promise<string> {
+  const data = (await response.json().catch(() => null)) as
+    | { error?: string }
+    | null;
+  return data?.error ?? fallback;
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
 
 function mentionLabel(member: TaskAssignee) {
   return member.name ?? member.email;
@@ -271,7 +290,9 @@ export function CommentThread({
           hasAttachments: files.length > 0,
         }),
       });
-      if (!res.ok) throw new Error("Failed to create comment.");
+      if (!res.ok) {
+        throw new Error(await readResponseError(res, "Failed to create comment."));
+      }
 
       const { comment } = (await res.json()) as { comment: { id: string } };
       for (const file of files) {
@@ -282,15 +303,22 @@ export function CommentThread({
           method: "POST",
           body: form,
         });
-        if (!upload.ok) throw new Error("Failed to upload attachment.");
+        if (!upload.ok) {
+          throw new Error(
+            await readResponseError(upload, "Failed to upload attachment.")
+          );
+        }
       }
 
       await onReload();
       releaseOptimistic(tempId);
-    } catch {
+    } catch (error) {
+      const message = getErrorMessage(error, "Failed to send comment.");
       setOptimisticComments((current) =>
         current.map((comment) =>
-          comment.id === tempId ? { ...comment, failed: true } : comment,
+          comment.id === tempId
+            ? { ...comment, failed: true, error: message }
+            : comment,
         ),
       );
     }
@@ -456,7 +484,10 @@ function CommentItem({
               {formatCommentTime(c.created_at)}
             </span>
             {c.failed ? (
-              <span className="rounded bg-[#ffebe6] px-1.5 py-0.5 text-[11px] font-bold text-[#bf2600]">
+              <span
+                title={c.error}
+                className="rounded bg-[#ffebe6] px-1.5 py-0.5 text-[11px] font-bold text-[#bf2600]"
+              >
                 Failed to send
               </span>
             ) : null}
@@ -500,6 +531,12 @@ function CommentItem({
                   )}
                 </div>
               )}
+
+              {c.failed && c.error ? (
+                <p className="mt-1 rounded border border-[#ffbdad] bg-[#ffebe6] px-2 py-1.5 text-xs font-semibold text-[#bf2600]">
+                  {c.error}
+                </p>
+              ) : null}
 
               {canReply ? (
                 <div className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-[#44546f]">
@@ -670,6 +707,7 @@ function Composer({
 }) {
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [query, setQuery] = useState<string | null>(null);
@@ -761,12 +799,20 @@ function Composer({
 
   function addFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
-    setFiles((cur) => [...cur, ...Array.from(list)]);
+    const selected = Array.from(list);
+    const accepted = selected.filter((file) => file.size <= TASK_ATTACHMENT_MAX_BYTES);
+    const rejected = selected.find((file) => file.size > TASK_ATTACHMENT_MAX_BYTES);
+
+    setFileError(
+      rejected ? `${rejected.name}: ${attachmentTooLargeMessage()}` : null
+    );
+    if (accepted.length > 0) setFiles((cur) => [...cur, ...accepted]);
   }
 
   function clearDraft() {
     setText("");
     setFiles([]);
+    setFileError(null);
     setDraftMentions([]);
     setQuery(null);
     setMentionPosition(null);
@@ -906,6 +952,12 @@ function Composer({
             ))}
           </div>
         )}
+
+        {fileError ? (
+          <div className="border-t border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
+            {fileError}
+          </div>
+        ) : null}
 
         {files.length > 0 && (
           <div className="flex flex-wrap gap-2 border-t border-[#ebecf0] px-3 py-2">

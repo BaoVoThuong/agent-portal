@@ -8,11 +8,15 @@ import { isTaskParticipant } from "@/lib/tasks/participants";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { broadcastTaskRoom } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
+import {
+  attachmentTooLargeMessage,
+  inferAttachmentMimeType,
+  TASK_ATTACHMENT_MAX_BYTES,
+} from "@/lib/tasks/attachments";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
-const MAX_BYTES = 15 * 1024 * 1024; // 15MB
 
 // View access including agent membership and participants.
 async function canViewResolved(
@@ -93,8 +97,11 @@ export async function POST(req: Request, { params }: Ctx) {
   const file = form?.get("file");
   if (!(file instanceof File))
     return NextResponse.json({ error: "No file provided." }, { status: 400 });
-  if (file.size > MAX_BYTES)
-    return NextResponse.json({ error: "File too large (max 15MB)." }, { status: 400 });
+  if (file.size > TASK_ATTACHMENT_MAX_BYTES)
+    return NextResponse.json(
+      { error: attachmentTooLargeMessage() },
+      { status: 400 }
+    );
 
   const rawCid = form?.get("comment_id");
   const commentId = typeof rawCid === "string" && rawCid ? rawCid : null;
@@ -122,8 +129,20 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   const path = buildStoragePath(id, file.name);
-  const contentType = file.type || "application/octet-stream";
-  await uploadTaskFile(path, await file.arrayBuffer(), contentType);
+  const contentType = inferAttachmentMimeType(file.name, file.type);
+  try {
+    await uploadTaskFile(path, await file.arrayBuffer(), contentType);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Could not upload attachment.",
+      },
+      { status: 500 }
+    );
+  }
 
   const { data, error } = await r.supabase
     .from("task_attachments")
