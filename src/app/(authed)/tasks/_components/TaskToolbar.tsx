@@ -90,17 +90,17 @@ export function TaskToolbar({
   query: string;
   onQuery: (value: string) => void;
   agentStats: AgentStat[];
-  agentFilter: string;
-  onAgentFilter: (agent: string) => void;
+  agentFilter: string[];
+  onAgentFilter: (agent: string[]) => void;
   assignees: TaskAssignee[];
-  assigneeFilter: string;
-  onAssigneeFilter: (assignee: string) => void;
+  assigneeFilter: string[];
+  onAssigneeFilter: (assignee: string[]) => void;
   presets: QuickFilter[];
   onPresets: (value: QuickFilter[]) => void;
-  category: "" | string;
-  onCategory: (value: "" | string) => void;
-  status: "" | TaskStatus;
-  onStatus: (value: "" | TaskStatus) => void;
+  category: string[];
+  onCategory: (value: string[]) => void;
+  status: TaskStatus[];
+  onStatus: (value: TaskStatus[]) => void;
   dateFrom: string;
   dateTo: string;
   defaultDateRange: TaskDateRangeValue;
@@ -136,11 +136,11 @@ export function TaskToolbar({
 
   const hasActiveFilters =
     query.trim() !== "" ||
-    (showAgent && agentFilter !== ALL_AGENTS) ||
-    (showAssignee && assigneeFilter !== "") ||
+    (showAgent && agentFilter.length > 0) ||
+    (showAssignee && assigneeFilter.length > 0) ||
     presets.length > 0 ||
-    category !== "" ||
-    (showStatus && status !== "") ||
+    category.length > 0 ||
+    (showStatus && status.length > 0) ||
     dateFrom !== defaultDateRange.from ||
     dateTo !== defaultDateRange.to;
 
@@ -190,44 +190,56 @@ export function TaskToolbar({
       <div className="flex flex-wrap items-center gap-2">
         {showAgent ? (
           <TaskSelect
-            value={agentFilter}
+            multi
+            values={agentFilter}
             options={agentOptions}
             placeholder="Agent"
-            className="w-32"
+            allValue={ALL_AGENTS}
+            summaryLabel="agents"
+            className="w-max min-w-[9rem]"
             buttonClassName="h-9 border-[#dfe1e6] shadow-none"
-            onChange={(v) => onAgentFilter(v)}
+            onValuesChange={onAgentFilter}
           />
         ) : null}
 
         {showAssignee ? (
           <TaskSelect
-            value={assigneeFilter}
+            multi
+            values={assigneeFilter}
             options={assigneeOptions}
             placeholder="Assignee"
-            className="w-32"
+            allValue=""
+            summaryLabel="assignees"
+            className="w-max min-w-[11rem]"
             buttonClassName="h-9 border-[#dfe1e6] shadow-none"
-            onChange={(v) => onAssigneeFilter(v)}
+            onValuesChange={onAssigneeFilter}
           />
         ) : null}
 
         {showStatus ? (
           <TaskSelect
-            value={status}
+            multi
+            values={status}
             options={statusOptions}
             placeholder="Status"
-            className="w-32"
+            allValue=""
+            summaryLabel="statuses"
+            className="w-max min-w-[10rem]"
             buttonClassName="h-9 border-[#dfe1e6] shadow-none"
-            onChange={(v) => onStatus(v as "" | TaskStatus)}
+            onValuesChange={(values) => onStatus(values as TaskStatus[])}
           />
         ) : null}
 
         <TaskSelect
-          value={category}
+          multi
+          values={category}
           options={categoryOptions}
           placeholder="Category"
-          className="w-32"
+          allValue=""
+          summaryLabel="categories"
+          className="w-max min-w-[11rem]"
           buttonClassName="h-9 border-[#dfe1e6] shadow-none"
-          onChange={(v) => onCategory(v)}
+          onValuesChange={onCategory}
         />
 
         <DateRangeFilter

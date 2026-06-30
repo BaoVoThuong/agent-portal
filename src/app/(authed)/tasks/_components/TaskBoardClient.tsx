@@ -9,7 +9,6 @@ import type { TaskCategory, TaskRow, TaskStatus } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import {
   filterTasks,
-  ALL_AGENTS,
   NO_AGENT,
   type QuickFilter,
 } from "@/lib/tasks/filtering";
@@ -59,11 +58,11 @@ export function TaskBoardClient({
   const [managingCategories, setManagingCategories] = useState(false);
   const [managingAgentGroups, setManagingAgentGroups] = useState(false);
   const [query, setQuery] = useState("");
-  const [agentFilter, setAgentFilter] = useState(ALL_AGENTS);
-  const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [agentFilter, setAgentFilter] = useState<string[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
   const [presets, setPresets] = useState<QuickFilter[]>([]);
-  const [categoryFilter, setCategoryFilter] = useState<"" | string>("");
-  const [statusFilter, setStatusFilter] = useState<"" | TaskStatus>("");
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<TaskStatus[]>([]);
   const initialDateRangeDefault = useMemo(
     () => getFallbackTaskDateRangeDefault(),
     []
@@ -253,11 +252,11 @@ export function TaskBoardClient({
     () =>
       filterTasks(tasks, {
         query,
-        agent: showAgentFilter ? agentFilter : ALL_AGENTS,
-        assignee: showAssigneeFilter ? assigneeFilter : "",
+        agent: showAgentFilter ? agentFilter : [],
+        assignee: showAssigneeFilter ? assigneeFilter : [],
         quick: presets,
         category: categoryFilter,
-        status: showStatusFilter ? statusFilter : "",
+        status: showStatusFilter ? statusFilter : [],
         dateFrom: dateRange.from,
         dateTo: dateRange.to,
         currentEmail,
@@ -446,11 +445,11 @@ export function TaskBoardClient({
 
   function clearAllFilters() {
     setQuery("");
-    setAgentFilter(ALL_AGENTS);
-    setAssigneeFilter("");
+    setAgentFilter([]);
+    setAssigneeFilter([]);
     setPresets([]);
-    setCategoryFilter("");
-    setStatusFilter("");
+    setCategoryFilter([]);
+    setStatusFilter([]);
     setDateRange(defaultDateRange);
   }
 

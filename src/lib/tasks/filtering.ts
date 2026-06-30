@@ -13,12 +13,12 @@ export type QuickFilter =
 
 export type FilterCriteria = {
   query: string;
-  agent: string;
-  assignee?: string;
+  agent: string | string[];
+  assignee?: string | string[];
   quick: QuickFilter[];
   priority?: "" | TaskPriority;
-  category: "" | string;
-  status: "" | TaskStatus;
+  category: string | string[];
+  status: "" | TaskStatus | TaskStatus[];
   dateFrom?: string;
   dateTo?: string;
   currentEmail: string;
@@ -70,29 +70,68 @@ export function filterTasks(tasks: TaskRow[], c: FilterCriteria): TaskRow[] {
   const searchText = c.searchText ?? defaultSearchText;
   const dateFrom = normalizeDateKey(c.dateFrom);
   const dateTo = normalizeDateKey(c.dateTo);
+  const agentValues = normalizeFilterValues(c.agent, ALL_AGENTS);
+  const assigneeValues = normalizeFilterValues(c.assignee ?? "");
+  const categoryValues = normalizeFilterValues(c.category);
+  const statusValues = normalizeFilterValues(c.status);
 
   return tasks.filter((task) => {
     if (!matchesDateWindow(task, dateFrom, dateTo)) return false;
-    if (
-      c.agent === NO_AGENT
-        ? !!task.agent_email
-        : c.agent !== ALL_AGENTS && task.agent_email !== c.agent
-    ) {
-      return false;
-    }
-    if (c.assignee) {
-      if (c.assignee === NO_ASSIGNEE) {
-        if (task.assignees.length > 0) return false;
-      } else if (!task.assignees.includes(c.assignee)) {
-        return false;
-      }
-    }
+    if (!matchesAgent(task, agentValues)) return false;
+    if (!matchesAssignee(task, assigneeValues)) return false;
     if (c.priority && task.priority !== c.priority) return false;
-    if (c.category && task.category_id !== c.category) return false;
-    if (c.status && task.status !== c.status) return false;
+    if (!matchesCategory(task, categoryValues)) return false;
+    if (!matchesStatus(task, statusValues)) return false;
     if (query && !searchText(task).includes(query)) return false;
     return c.quick.every((filter) => matchesQuick(task, filter, c.currentEmail, now));
   });
+}
+
+function normalizeFilterValues(
+  value: string | string[] | undefined,
+  allValue = ""
+): string[] {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const selectedValue of values) {
+    if (!selectedValue || selectedValue === allValue || seen.has(selectedValue)) {
+      continue;
+    }
+    seen.add(selectedValue);
+    normalized.push(selectedValue);
+  }
+
+  return normalized;
+}
+
+function matchesAgent(task: TaskRow, selectedAgents: string[]): boolean {
+  if (selectedAgents.length === 0) return true;
+  if (!task.agent_email) return selectedAgents.includes(NO_AGENT);
+  return selectedAgents.includes(task.agent_email);
+}
+
+function matchesAssignee(task: TaskRow, selectedAssignees: string[]): boolean {
+  if (selectedAssignees.length === 0) return true;
+  if (
+    selectedAssignees.includes(NO_ASSIGNEE) &&
+    task.assignees.length === 0
+  ) {
+    return true;
+  }
+
+  return task.assignees.some((assignee) => selectedAssignees.includes(assignee));
+}
+
+function matchesCategory(task: TaskRow, selectedCategories: string[]): boolean {
+  if (selectedCategories.length === 0) return true;
+  return Boolean(task.category_id && selectedCategories.includes(task.category_id));
+}
+
+function matchesStatus(task: TaskRow, selectedStatuses: string[]): boolean {
+  if (selectedStatuses.length === 0) return true;
+  return selectedStatuses.includes(task.status);
 }
 
 function matchesDateWindow(

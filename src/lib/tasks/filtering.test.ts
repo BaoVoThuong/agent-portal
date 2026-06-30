@@ -3,6 +3,7 @@ import {
   filterTasks,
   ALL_AGENTS,
   NO_AGENT,
+  NO_ASSIGNEE,
   type FilterCriteria,
 } from "@/lib/tasks/filtering";
 import type { TaskRow } from "@/lib/tasks/types";
@@ -53,6 +54,20 @@ describe("filterTasks", () => {
     expect(filterTasks(rows, { ...base, agent: NO_AGENT }).map((t) => t.id)).toEqual([
       "2",
     ]);
+  });
+
+  it("agent facet accepts multiple selected values", () => {
+    const rows = [
+      task({ id: "1", agent_email: "a@x.com" }),
+      task({ id: "2", agent_email: "b@x.com" }),
+      task({ id: "3", agent_email: null }),
+    ];
+
+    expect(
+      filterTasks(rows, { ...base, agent: ["a@x.com", NO_AGENT] }).map(
+        (t) => t.id
+      )
+    ).toEqual(["1", "3"]);
   });
 
   it("search matches title (case-insensitive)", () => {
@@ -128,9 +143,33 @@ describe("filterTasks", () => {
     expect(filterTasks(rows, { ...base, assignee: "b@x.com" }).map((t) => t.id)).toEqual([
       "1",
     ]);
-    expect(filterTasks(rows, { ...base, assignee: "__no_assignee__" }).map((t) => t.id)).toEqual([
+    expect(filterTasks(rows, { ...base, assignee: NO_ASSIGNEE }).map((t) => t.id)).toEqual([
       "3",
     ]);
+    expect(
+      filterTasks(rows, {
+        ...base,
+        assignee: ["b@x.com", NO_ASSIGNEE],
+      }).map((t) => t.id)
+    ).toEqual(["1", "3"]);
+  });
+
+  it("multi-value facets match any selected value within a facet and combine across facets", () => {
+    const rows = [
+      task({ id: "1", category_id: "c1", status: "todo", assignees: ["a@x.com"] }),
+      task({ id: "2", category_id: "c2", status: "done", assignees: ["b@x.com"] }),
+      task({ id: "3", category_id: "c3", status: "done", assignees: ["b@x.com"] }),
+      task({ id: "4", category_id: "c2", status: "waiting", assignees: ["c@x.com"] }),
+    ];
+
+    expect(
+      filterTasks(rows, {
+        ...base,
+        category: ["c1", "c2"],
+        status: ["todo", "done"],
+        assignee: ["a@x.com", "b@x.com"],
+      }).map((t) => t.id)
+    ).toEqual(["1", "2"]);
   });
 
   it("date range keeps all tasks created inside the window and only unfinished carry-over before it", () => {
