@@ -5,10 +5,12 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  pointerWithin,
   closestCorners,
   useSensor,
   useSensors,
   useDroppable,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
@@ -57,6 +59,30 @@ function endIndexOfStatus(items: TaskRow[], status: TaskStatus): number {
   });
   return lastIndex === -1 ? items.length : lastIndex + 1;
 }
+
+function isColumnId(id: unknown): boolean {
+  return String(id).startsWith("col:");
+}
+
+const kanbanCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args).filter(
+    (collision) => collision.id !== args.active.id
+  );
+
+  if (pointerCollisions.length > 0) {
+    const cardCollisions = pointerCollisions.filter(
+      (collision) => !isColumnId(collision.id)
+    );
+    if (cardCollisions.length > 0) return cardCollisions;
+
+    const columnCollisions = pointerCollisions.filter((collision) =>
+      isColumnId(collision.id)
+    );
+    if (columnCollisions.length > 0) return columnCollisions;
+  }
+
+  return closestCorners(args);
+};
 
 function SortableCard({
   task,
@@ -119,7 +145,12 @@ function Column({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${status}` });
   return (
-    <section className="flex min-w-0 flex-1 flex-col rounded bg-[#f4f5f7] p-1.5">
+    <section
+      ref={setNodeRef}
+      className={`flex min-w-0 flex-1 flex-col rounded bg-[#f4f5f7] p-1.5 transition-colors ${
+        isOver ? "bg-[#deebff]" : ""
+      }`}
+    >
       <div className="flex h-9 items-center px-1">
         <span className="text-xs font-bold uppercase text-[#6b778c]">
           {COLUMN_LABEL[status]}
@@ -129,10 +160,7 @@ function Column({
         </span>
       </div>
       <div
-        ref={setNodeRef}
-        className={`flex-1 overflow-y-auto rounded px-0.5 pb-1 transition-colors ${
-          isOver ? "bg-[#deebff]" : ""
-        }`}
+        className="min-h-[12rem] flex-1 overflow-y-auto rounded px-0.5 pb-1"
       >
         <SortableContext
           items={tasks.map((t) => t.id)}
@@ -294,7 +322,7 @@ export function KanbanBoard({
     <DndContext
       id="kanban-board"
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={kanbanCollisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
