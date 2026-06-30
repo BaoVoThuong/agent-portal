@@ -7,7 +7,7 @@ import {
   fetchTaskAgents,
   fetchTaskAssignees,
 } from "@/lib/tasks/assignees";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { fetchAgentsForCs, fetchCsForAgent } from "@/lib/tasks/membership";
 import { TaskBoardClient } from "./_components/TaskBoardClient";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { TaskCategory } from "@/lib/tasks/types";
@@ -29,6 +29,23 @@ export default async function TasksPage() {
   const myAgents = actor.isManager
     ? agents.map((a) => a.email)
     : await fetchAgentsForCs(email);
+  const agentEmailsForMembers = [
+    ...new Set(
+      [
+        ...agents.map((agent) => agent.email),
+        ...tasks.map((task) => task.agent_email).filter(Boolean),
+        ...myAgents,
+      ] as string[]
+    ),
+  ];
+  const agentMembersByAgent = Object.fromEntries(
+    await Promise.all(
+      agentEmailsForMembers.map(async (agentEmail) => [
+        agentEmail,
+        await fetchCsForAgent(agentEmail),
+      ])
+    )
+  );
 
   const { data: categoryRows } = await getSupabaseAdmin()
     .from("task_categories")
@@ -47,6 +64,7 @@ export default async function TasksPage() {
       agents={agents}
       agentCandidates={agentCandidates}
       myAgents={myAgents}
+      agentMembersByAgent={agentMembersByAgent}
       initialCategories={categories}
     />
   );

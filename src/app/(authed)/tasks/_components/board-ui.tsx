@@ -3,6 +3,7 @@ import {
   ArrowUp,
   ChevronsUp,
   Equal,
+  UserPlus,
   type LucideIcon,
 } from "lucide-react";
 import type { TaskPriority, WaitingReason } from "@/lib/tasks/types";
@@ -137,6 +138,47 @@ export function Initials({
       title={label ? `${label} (${email})` : email}
     >
       {initials}
+    </span>
+  );
+}
+
+export function AvatarStack({
+  emails,
+  labelByEmail,
+  max = 3,
+}: {
+  emails: string[];
+  labelByEmail?: Map<string, string>;
+  max?: number;
+}) {
+  if (emails.length === 0) {
+    return (
+      <span className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-[#8590a2] text-[#8590a2]">
+        <UserPlus className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+
+  const visible = emails.slice(0, max);
+  const overflow = emails.length - visible.length;
+  const title = emails.map((email) => labelByEmail?.get(email) ?? email).join(", ");
+
+  return (
+    <span className="inline-flex items-center" title={title}>
+      {visible.map((email, index) => (
+        <span
+          key={email}
+          className={index === 0 ? "" : "-ml-2"}
+          style={{ zIndex: visible.length - index }}
+        >
+          <Initials email={email} label={labelByEmail?.get(email) ?? email} />
+        </span>
+      ))}
+      {overflow > 0 ? (
+        <span className="-ml-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-[#dfe1e6] px-1.5 text-[10px] font-bold text-[#42526e] ring-2 ring-white">
+          +{overflow}
+        </span>
+      ) : null}
     </span>
   );
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
+import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { removeTaskFile } from "@/lib/tasks/storage";
@@ -17,12 +18,13 @@ async function canViewResolved(
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
-  const [isParticipant, agents] = await Promise.all([
+  const [isParticipant, isAssignee, agents] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
+    isTaskAssignee(taskId, actor.email),
     fetchAgentsForCs(actor.email),
   ]);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
-  return canViewTask(actor, task, { isParticipant, isAgentMember });
+  return canViewTask(actor, task, { isParticipant, isAgentMember, isAssignee });
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {

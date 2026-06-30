@@ -320,12 +320,10 @@ export function CommentThread({
   const repliesOf = (id: string) =>
     rows
       .filter((c) => c.parent_id === id)
-      .sort((a, b) => timestampOf(b) - timestampOf(a));
-  const latestThreadTimestamp = (comment: Comment) =>
-    Math.max(timestampOf(comment), ...repliesOf(comment.id).map(timestampOf));
+      .sort((a, b) => timestampOf(a) - timestampOf(b));
   const topLevel = rows
     .filter((c) => c.parent_id === null)
-    .sort((a, b) => latestThreadTimestamp(b) - latestThreadTimestamp(a));
+    .sort((a, b) => timestampOf(a) - timestampOf(b));
 
   return (
     <section className="space-y-3">

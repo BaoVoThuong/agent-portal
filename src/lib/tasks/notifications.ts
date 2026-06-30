@@ -4,9 +4,9 @@ import { broadcastNotif } from "./realtime";
 export type CommentNotification = { email: string; type: "mentioned" | "commented" };
 
 // Who to notify for a new comment: mentioned users (minus the author), plus the
-// task's assignee as 'commented' (unless they are the author or already mentioned).
+// task's assignees as 'commented' (unless they are the author or already mentioned).
 export function resolveCommentRecipients(
-  task: { assignee_email: string | null },
+  task: { assignees?: string[]; assignee_email?: string | null },
   authorEmail: string,
   mentions: string[]
 ): CommentNotification[] {
@@ -17,9 +17,17 @@ export function resolveCommentRecipients(
     email,
     type: "mentioned",
   }));
-  const assignee = task.assignee_email;
-  if (assignee && assignee !== authorEmail && !mentionSet.has(assignee)) {
-    out.push({ email: assignee, type: "commented" });
+
+  const assignees =
+    task.assignees && task.assignees.length > 0
+      ? task.assignees
+      : task.assignee_email
+        ? [task.assignee_email]
+        : [];
+  for (const assignee of [...new Set(assignees)]) {
+    if (assignee && assignee !== authorEmail && !mentionSet.has(assignee)) {
+      out.push({ email: assignee, type: "commented" });
+    }
   }
   return out;
 }

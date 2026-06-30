@@ -6,15 +6,16 @@ import type { TaskPriority, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { TaskSelect } from "./TaskSelect";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
+import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
 
 export type NewTaskPayload = {
   title: string;
   description: string;
   fub_link?: string;
   priority: TaskPriority;
-  agent_email?: string;
-  assignee_email?: string;
-  category_id?: string;
+  agent_email: string;
+  assignees?: string[];
+  category_id: string;
 };
 
 export function NewTaskDialog({
@@ -24,6 +25,7 @@ export function NewTaskDialog({
   agents,
   agentCandidates,
   myAgents,
+  agentMembersByAgent,
   categories,
   onClose,
   onCreate,
@@ -34,26 +36,23 @@ export function NewTaskDialog({
   agents: TaskAgent[];
   agentCandidates: TaskAgent[];
   myAgents: string[];
+  agentMembersByAgent: Record<string, string[]>;
   categories: TaskCategory[];
   onClose: () => void;
   onCreate: (payload: NewTaskPayload) => Promise<void>;
 }) {
-  const defaultAgent = !isManager && myAgents.length === 1 ? myAgents[0] : "";
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [fubLink, setFubLink] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
-  const [agentEmail, setAgentEmail] = useState(defaultAgent);
-  const [assignee, setAssignee] = useState("");
+  const [agentEmail, setAgentEmail] = useState("");
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [categoryId, setCategoryId] = useState("");
   const [saving, setSaving] = useState(false);
-  const categoryOptions = [
-    { value: "", label: "No category" },
-    ...categories.map((category) => ({
-      value: category.id,
-      label: category.name,
-    })),
-  ];
+  const categoryOptions = categories.map((category) => ({
+    value: category.id,
+    label: category.name,
+  }));
   const visibleAgents = (() => {
     if (isManager) return agents;
     const byEmail = new Map<string, TaskAgent>();
@@ -64,25 +63,32 @@ export function NewTaskDialog({
       (email) => byEmail.get(email) ?? { email, name: null }
     );
   })();
-  const agentOptions = [
-    { value: "", label: "No agent" },
-    ...visibleAgents.map((agent) => ({
-      value: agent.email,
-      label: agent.name ?? agent.email,
-    })),
-  ];
-  const assigneeOptions = [
-    { value: "", label: "Unassigned (Backlog)" },
-    ...assignees.map((assigneeOption) => ({
-      value: assigneeOption.email,
-      label: assigneeOption.name ?? assigneeOption.email,
-    })),
-  ];
+  const agentOptions = visibleAgents.map((agent) => ({
+    value: agent.email,
+    label: agent.name ?? agent.email,
+  }));
+  const canSubmit = Boolean(title.trim() && categoryId && agentEmail && !saving);
+  function toggleAssignee(email: string, on: boolean) {
+    setSelectedAssignees((current) =>
+      on
+        ? [...new Set([...current, email])]
+        : current.filter((assignee) => assignee !== email)
+    );
+  }
+
+  function changeAgent(nextAgent: string) {
+    setAgentEmail(nextAgent);
+    if (!nextAgent) return;
+    const allowed = new Set(agentMembersByAgent[nextAgent] ?? []);
+    setSelectedAssignees((current) =>
+      current.filter((assignee) => allowed.has(assignee))
+    );
+  }
 
   if (!open) return null;
 
   async function submit() {
-    if (!title.trim() || saving) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
       await onCreate({
@@ -90,18 +96,20 @@ export function NewTaskDialog({
         description: description.trim(),
         fub_link: fubLink.trim() || undefined,
         priority,
-        agent_email: agentEmail || undefined,
-        assignee_email: isManager && assignee ? assignee : undefined,
-        category_id: categoryId || undefined,
+        agent_email: agentEmail,
+        assignees: isManager ? selectedAssignees : undefined,
+        category_id: categoryId,
       });
       setTitle("");
       setDescription("");
       setFubLink("");
       setPriority("medium");
-      setAgentEmail(defaultAgent);
-      setAssignee("");
+      setAgentEmail("");
+      setSelectedAssignees([]);
       setCategoryId("");
       onClose();
+    } catch {
+      // TaskBoardClient owns the visible error toast.
     } finally {
       setSaving(false);
     }
@@ -181,6 +189,7 @@ export function NewTaskDialog({
                   label="Category"
                   value={categoryId}
                   options={categoryOptions}
+                  placeholder="Select category"
                   onChange={setCategoryId}
                   buttonClassName="!h-10 !border-[#dfe1e6] !bg-white !shadow-none"
                   menuClassName="min-w-full"
@@ -201,7 +210,8 @@ export function NewTaskDialog({
                   label="Agent"
                   value={agentEmail}
                   options={agentOptions}
-                  onChange={setAgentEmail}
+                  placeholder="Select agent"
+                  onChange={changeAgent}
                   buttonClassName="!h-10 !border-[#dfe1e6] !bg-white !shadow-none"
                   menuClassName="min-w-full"
                 />
@@ -209,13 +219,12 @@ export function NewTaskDialog({
 
               <MetaField label="Assignee">
                 {isManager ? (
-                  <TaskSelect
-                    label="Assignee"
-                    value={assignee}
-                    options={assigneeOptions}
-                    onChange={setAssignee}
-                    buttonClassName="!h-10 !border-[#dfe1e6] !bg-white !shadow-none"
-                    menuClassName="min-w-full"
+                  <TaskAssigneeDropdown
+                    assignees={assignees}
+                    selectedEmails={selectedAssignees}
+                    agentEmail={agentEmail || null}
+                    agentMembersByAgent={agentMembersByAgent}
+                    onToggle={toggleAssignee}
                   />
                 ) : (
                   <div className="flex h-10 items-center rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d]">
@@ -239,7 +248,7 @@ export function NewTaskDialog({
           <button
             type="button"
             onClick={submit}
-            disabled={!title.trim() || saving}
+            disabled={!canSubmit}
             className="rounded bg-[#0c66e4] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saving ? "Creating..." : "Create"}

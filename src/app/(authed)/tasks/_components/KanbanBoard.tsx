@@ -62,14 +62,14 @@ function SortableCard({
   task,
   category,
   agentLabel,
-  assigneeLabel,
+  assigneeLabelByEmail,
   canMove,
   onOpen,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
   agentLabel?: string | null;
-  assigneeLabel?: string | null;
+  assigneeLabelByEmail: Map<string, string>;
   canMove: boolean;
   onOpen: (id: string) => void;
 }) {
@@ -93,7 +93,7 @@ function SortableCard({
         task={task}
         category={category}
         agentLabel={agentLabel}
-        assigneeLabel={assigneeLabel}
+        assigneeLabelByEmail={assigneeLabelByEmail}
         onOpen={onOpen}
       />
     </div>
@@ -148,12 +148,7 @@ function Column({
                   ? agentLabelByEmail.get(t.agent_email) ?? t.agent_email
                   : null
               }
-              assigneeLabel={
-                t.assignee_email
-                  ? assigneeLabelByEmail.get(t.assignee_email) ??
-                    t.assignee_email
-                  : null
-              }
+              assigneeLabelByEmail={assigneeLabelByEmail}
               canMove={canMoveTask(t)}
               onOpen={onOpen}
             />
@@ -339,12 +334,7 @@ export function KanbanBoard({
                     activeTask.agent_email
                   : null
               }
-              assigneeLabel={
-                activeTask.assignee_email
-                  ? assigneeLabelByEmail.get(activeTask.assignee_email) ??
-                    activeTask.assignee_email
-                  : null
-              }
+              assigneeLabelByEmail={assigneeLabelByEmail}
               onOpen={() => {}}
             />
           </div>

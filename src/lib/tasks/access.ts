@@ -37,7 +37,7 @@ export function canManageCategories(actor: TaskActor): boolean {
   return actor.isManager;
 }
 
-// Manager: any task. Worker: only a task currently assigned to them.
+// Manager: any task. Worker: task access comes from resolved flags.
 // `flags` covers additional ways a worker may gain view access:
 //   isAssignee    – caller already resolved assignment externally
 //   isAgentMember – worker belongs to the task's agent team
@@ -47,10 +47,10 @@ export function canViewTask(
   task: Pick<TaskRow, "assignee_email">,
   flags: { isAssignee?: boolean; isAgentMember?: boolean; isParticipant?: boolean } = {}
 ): boolean {
+  void task;
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
   return (
-    task.assignee_email === actor.email ||
     Boolean(flags.isAssignee) ||
     Boolean(flags.isAgentMember) ||
     Boolean(flags.isParticipant)
@@ -58,26 +58,31 @@ export function canViewTask(
 }
 
 export function canAssignToTask(actor: TaskActor, isAgentMember: boolean): boolean {
-  void isAgentMember;
-  return actor.isManager;
+  if (actor.isManager) return true;
+  if (!actor.isWorker) return false;
+  return isAgentMember;
 }
 
 export function canMutateTask(
   actor: TaskActor,
-  task: Pick<TaskRow, "assignee_email">
+  task: Pick<TaskRow, "assignee_email">,
+  isAssignee = false
 ): boolean {
   void task;
-  return actor.isManager;
+  if (actor.isManager) return true;
+  if (!actor.isWorker) return false;
+  return isAssignee;
 }
 
 export function canChangeTaskStatus(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">,
-  flags: { isAgentMember?: boolean } = {}
+  flags: { isAssignee?: boolean } = {}
 ): boolean {
+  void task;
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return task.assignee_email === actor.email || Boolean(flags.isAgentMember);
+  return Boolean(flags.isAssignee);
 }
 
 export function canDeleteTask(actor: TaskActor): boolean {

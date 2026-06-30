@@ -61,12 +61,12 @@ describe("per-task view/mutate scope", () => {
     expect(canMutateTask(manager, { assignee_email: null })).toBe(true);
     expect(canDeleteTask(manager)).toBe(true);
   });
-  it("CS can view own tasks and change status, but cannot full-edit/delete", () => {
-    expect(canViewTask(cs, { assignee_email: "cs@x.com" })).toBe(true);
+  it("CS can view, mutate, and change status only when resolved as assigned", () => {
+    expect(canViewTask(cs, { assignee_email: "cs@x.com" }, { isAssignee: true })).toBe(true);
     expect(canViewTask(cs, { assignee_email: "other@x.com" })).toBe(false);
     expect(canViewTask(cs, { assignee_email: null })).toBe(false);
-    expect(canChangeTaskStatus(cs, { assignee_email: "cs@x.com" })).toBe(true);
-    expect(canMutateTask(cs, { assignee_email: "cs@x.com" })).toBe(false);
+    expect(canChangeTaskStatus(cs, { assignee_email: "cs@x.com" }, { isAssignee: true })).toBe(true);
+    expect(canMutateTask(cs, { assignee_email: "cs@x.com" }, true)).toBe(true);
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
     expect(canDeleteTask(cs)).toBe(false);
   });
@@ -134,7 +134,7 @@ describe("resolveCreateAssignment", () => {
 describe("canViewTask with flags", () => {
   it("agent member (not assignee) can view", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })).toBe(true);
-    expect(canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })).toBe(true);
+    expect(canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAssignee: false })).toBe(false);
   });
   it("no flags, not assignee → cannot view", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, {})).toBe(false);
@@ -145,9 +145,17 @@ describe("canViewTask with flags", () => {
 });
 
 describe("canAssignToTask", () => {
-  it("manager only", () => {
+  it("manager or CS in the task agent", () => {
     expect(canAssignToTask(manager, false)).toBe(true);
-    expect(canAssignToTask(cs, true)).toBe(false);
+    expect(canAssignToTask(cs, true)).toBe(true);
     expect(canAssignToTask(cs, false)).toBe(false);
+  });
+});
+
+describe("canMutateTask with isAssignee flag", () => {
+  it("manager always; CS only when resolved as an assignee", () => {
+    expect(canMutateTask(manager, { assignee_email: null }, false)).toBe(true);
+    expect(canMutateTask(cs, { assignee_email: "x@x.com" }, true)).toBe(true);
+    expect(canMutateTask(cs, { assignee_email: "x@x.com" }, false)).toBe(false);
   });
 });

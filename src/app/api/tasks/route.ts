@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canAccessBoard, canCreateTask, resolveCreateAssignment } from "@/lib/tasks/access";
+import { attachAssigneesToTasks, isTaskAssigneesMissingError } from "@/lib/tasks/assignees";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/tasks/types";
@@ -39,12 +40,24 @@ export async function POST(request: Request) {
     (TASK_STATUSES as readonly string[]).includes(body.status)
       ? body.status
       : "backlog";
+  const requestedAssignees = Array.isArray(body?.assignees)
+    ? [
+        ...new Set(
+          body.assignees
+            .map((value: unknown) => (typeof value === "string" ? value.trim() : ""))
+            .filter(Boolean)
+        ),
+      ]
+    : typeof body?.assignee_email === "string" && body.assignee_email.trim() !== ""
+      ? [body.assignee_email.trim()]
+      : [];
   const assignment = resolveCreateAssignment(actor, {
-    assignee_email: typeof body?.assignee_email === "string" ? body.assignee_email : null,
+    assignee_email: requestedAssignees[0] ?? null,
     status: requestedStatus,
   });
   if (!assignment.ok)
     return NextResponse.json({ error: assignment.error }, { status: 400 });
+  const assignedEmails = actor.isManager ? requestedAssignees : [email];
 
   const priority =
     typeof body?.priority === "string" &&
@@ -55,6 +68,9 @@ export async function POST(request: Request) {
     typeof body?.agent_email === "string" && body.agent_email.trim() !== ""
       ? body.agent_email.trim()
       : null;
+  if (!agentEmail) {
+    return NextResponse.json({ error: "Agent is required." }, { status: 400 });
+  }
   if (!actor.isManager && agentEmail) {
     const allowedAgents = await fetchAgentsForCs(email);
     if (!allowedAgents.includes(agentEmail)) {
@@ -68,6 +84,13 @@ export async function POST(request: Request) {
     typeof body?.fub_link === "string" && body.fub_link.trim() !== ""
       ? body.fub_link.trim()
       : null;
+  const categoryId =
+    typeof body?.category_id === "string" && body.category_id.trim() !== ""
+      ? body.category_id.trim()
+      : null;
+  if (!categoryId) {
+    return NextResponse.json({ error: "Category is required." }, { status: 400 });
+  }
 
   const supabase = getSupabaseAdmin();
   // Place new card at the bottom of its column.
@@ -95,10 +118,7 @@ export async function POST(request: Request) {
       agent_email: agentEmail,
       assignee_email: assignment.assignee_email,
       reporter_email: email,
-      category_id:
-        typeof body?.category_id === "string" && body.category_id.trim() !== ""
-          ? body.category_id.trim()
-          : null,
+      category_id: categoryId,
       position,
     })
     .select("*")
@@ -106,13 +126,27 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  if (assignedEmails.length > 0) {
+    const taskId = (data as { id: string }).id;
+    const { error: assigneeError } = await supabase.from("task_assignees").insert(
+      assignedEmails.map((assigneeEmail) => ({
+        task_id: taskId,
+        email: assigneeEmail,
+      }))
+    );
+    if (assigneeError && !isTaskAssigneesMissingError(assigneeError)) {
+      return NextResponse.json({ error: assigneeError.message }, { status: 500 });
+    }
+  }
+
   await supabase.from("task_activity").insert({
     task_id: (data as { id: string }).id,
     actor_email: email,
     type: "created",
-    meta: assignment.assignee_email ? { to: assignment.assignee_email } : null,
+    meta: assignedEmails.length > 0 ? { to: assignedEmails } : null,
   });
 
+  const [task] = await attachAssigneesToTasks([data as { id: string; assignee_email: string | null }], supabase);
   await broadcastTasksChanged();
-  return NextResponse.json({ task: data });
+  return NextResponse.json({ task });
 }

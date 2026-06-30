@@ -19,24 +19,31 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Plus } from "lucide-react";
 import { midpoint } from "@/lib/tasks/ordering";
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import type { TaskAssignee } from "@/lib/tasks/assignees";
+import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import type { NewTaskPayload } from "./NewTaskDialog";
+import { TaskSelect } from "./TaskSelect";
 import { TaskRowItem } from "./TaskRowItem";
 
 export function BacklogBoard({
   tasks,
   assignees,
+  agents,
+  agentMembersByAgent,
   categories,
   onOpen,
   onPatch,
+  onAssigneeChange,
   onReorder,
   onCreate,
 }: {
   tasks: TaskRow[];
   assignees: TaskAssignee[];
+  agents: TaskAgent[];
+  agentMembersByAgent: Record<string, string[]>;
   categories: TaskCategory[];
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
+  onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
   onReorder: (taskId: string, position: number) => void;
   onCreate: (payload: NewTaskPayload) => Promise<void>;
 }) {
@@ -93,8 +100,10 @@ export function BacklogBoard({
                     task={task}
                     category={categoryById.get(task.category_id ?? "") ?? null}
                     assignees={assignees}
+                    agentMembersByAgent={agentMembersByAgent}
                     onOpen={onOpen}
                     onPatch={onPatch}
+                    onAssigneeChange={onAssigneeChange}
                   />
                 ))}
               </ul>
@@ -102,7 +111,11 @@ export function BacklogBoard({
           </DndContext>
         )}
 
-        <InlineCreateRow onCreate={onCreate} />
+        <InlineCreateRow
+          agents={agents}
+          categories={categories}
+          onCreate={onCreate}
+        />
       </div>
     </div>
   );
@@ -112,14 +125,18 @@ function BacklogSortableRow({
   task,
   category,
   assignees,
+  agentMembersByAgent,
   onOpen,
   onPatch,
+  onAssigneeChange,
 }: {
   task: TaskRow;
   category: TaskCategory | null;
   assignees: TaskAssignee[];
+  agentMembersByAgent: Record<string, string[]>;
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
+  onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id });
@@ -137,10 +154,12 @@ function BacklogSortableRow({
         task={task}
         category={category}
         assignees={assignees}
+        agentMembersByAgent={agentMembersByAgent}
         canEdit
         canAssign
         onOpen={onOpen}
         onPatch={onPatch}
+        onAssigneeChange={onAssigneeChange}
         dragHandle={
           <button
             type="button"
@@ -158,46 +177,94 @@ function BacklogSortableRow({
 }
 
 function InlineCreateRow({
+  agents,
+  categories,
   onCreate,
 }: {
+  agents: TaskAgent[];
+  categories: TaskCategory[];
   onCreate: (payload: NewTaskPayload) => Promise<void>;
 }) {
   const [title, setTitle] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [agentEmail, setAgentEmail] = useState("");
   const [saving, setSaving] = useState(false);
+  const categoryOptions = categories.map((category) => ({
+    value: category.id,
+    label: category.name,
+  }));
+  const agentOptions = agents.map((agent) => ({
+    value: agent.email,
+    label: agent.name ?? agent.email,
+  }));
+  const canSubmit = Boolean(title.trim() && categoryId && agentEmail && !saving);
 
   async function submit() {
     const trimmed = title.trim();
-    if (!trimmed || saving) return;
+    if (!trimmed || !categoryId || !agentEmail || saving) return;
     setSaving(true);
     try {
       await onCreate({
         title: trimmed,
         description: "",
         priority: "medium",
+        category_id: categoryId,
+        agent_email: agentEmail,
       });
       setTitle("");
+    } catch {
+      // TaskBoardClient owns the visible error toast.
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="flex items-center gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5">
-      <Plus className="h-4 w-4 shrink-0 text-[#6b778c]" />
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void submit();
-          }
-        }}
-        onBlur={() => void submit()}
+    <div className="grid items-center gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 md:grid-cols-[minmax(14rem,1fr)_13rem_13rem_auto]">
+      <div className="flex min-w-0 items-center gap-2">
+        <Plus className="h-4 w-4 shrink-0 text-[#6b778c]" />
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void submit();
+            }
+          }}
+          disabled={saving}
+          placeholder="Task title"
+          className="min-w-0 flex-1 bg-transparent text-sm text-[#172b4d] outline-none placeholder:text-[#7a869a] disabled:opacity-60"
+        />
+      </div>
+      <TaskSelect
+        label="Category"
+        value={categoryId}
+        options={categoryOptions}
+        placeholder="Select category"
         disabled={saving}
-        placeholder="Create a task and press Enter"
-        className="min-w-0 flex-1 bg-transparent text-sm text-[#172b4d] outline-none placeholder:text-[#7a869a] disabled:opacity-60"
+        onChange={setCategoryId}
+        buttonClassName="!h-9 !border-[#dfe1e6] !bg-white !text-sm !shadow-none"
+        menuClassName="min-w-full"
       />
+      <TaskSelect
+        label="Agent"
+        value={agentEmail}
+        options={agentOptions}
+        placeholder="Select agent"
+        disabled={saving}
+        onChange={setAgentEmail}
+        buttonClassName="!h-9 !border-[#dfe1e6] !bg-white !text-sm !shadow-none"
+        menuClassName="min-w-full"
+      />
+      <button
+        type="button"
+        onClick={() => void submit()}
+        disabled={!canSubmit}
+        className="inline-flex h-9 items-center justify-center rounded bg-[#0c66e4] px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        Add
+      </button>
     </div>
   );
 }

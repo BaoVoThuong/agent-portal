@@ -66,16 +66,16 @@ export function resolveTaskPatch(
     patch.priority = r.priority;
   }
   if (r.category_id !== undefined) {
-    patch.category_id =
-      typeof r.category_id === "string" && r.category_id.trim() !== ""
-        ? r.category_id.trim()
-        : null;
+    if (typeof r.category_id !== "string" || r.category_id.trim() === "") {
+      return { ok: false, error: "Category is required." };
+    }
+    patch.category_id = r.category_id.trim();
   }
   if (r.agent_email !== undefined) {
-    patch.agent_email =
-      typeof r.agent_email === "string" && r.agent_email.trim() !== ""
-        ? r.agent_email.trim()
-        : null;
+    if (typeof r.agent_email !== "string" || r.agent_email.trim() === "") {
+      return { ok: false, error: "Agent is required." };
+    }
+    patch.agent_email = r.agent_email.trim();
   }
   if (r.position !== undefined) {
     if (typeof r.position !== "number" || !Number.isFinite(r.position))

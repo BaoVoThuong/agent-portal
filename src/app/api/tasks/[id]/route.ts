@@ -14,9 +14,15 @@ import type { TaskRow } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { removeTaskFiles } from "@/lib/tasks/storage";
-import { broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
+import {
+  attachAssigneesToTasks,
+  fetchTaskAssigneeEmails,
+  isTaskAssigneesMissingError,
+  isTaskAssignee,
+} from "@/lib/tasks/assignees";
 
 export const dynamic = "force-dynamic";
 
@@ -39,19 +45,22 @@ async function resolveTaskAccess(
 ): Promise<{
   canView: boolean;
   isAgentMember: boolean;
+  isAssignee: boolean;
   isParticipant: boolean;
 }> {
   if (actor.isManager) {
-    return { canView: true, isAgentMember: false, isParticipant: false };
+    return { canView: true, isAgentMember: false, isAssignee: false, isParticipant: false };
   }
-  const [isParticipant, agents] = await Promise.all([
+  const [isParticipant, isAssignee, agents] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
+    isTaskAssignee(taskId, actor.email),
     fetchAgentsForCs(actor.email),
   ]);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
   return {
-    canView: canViewTask(actor, task, { isParticipant, isAgentMember }),
+    canView: canViewTask(actor, task, { isParticipant, isAgentMember, isAssignee }),
     isAgentMember,
+    isAssignee,
     isParticipant,
   };
 }
@@ -80,7 +89,8 @@ export async function GET(_req: Request, { params }: Ctx) {
   const access = await resolveTaskAccess(r.actor, r.task, id);
   if (!access.canView)
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-  return NextResponse.json({ task: r.task });
+  const [task] = await attachAssigneesToTasks([r.task], r.supabase);
+  return NextResponse.json({ task });
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -99,23 +109,25 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  const reassigning = bodyRecord?.assignee_email !== undefined;
+  const currentAssignees = await fetchTaskAssigneeEmails(id, r.supabase);
+  const currentForPatch = {
+    status: r.task.status,
+    assignee_email: currentAssignees[0] ?? r.task.assignee_email,
+  };
+  const reassigning = bodyRecord.assignee_email !== undefined;
 
-  let mayAssign = canAssignToTask(r.actor, false);
-  if (reassigning && !r.actor.isManager) {
-    mayAssign = canAssignToTask(r.actor, access.isAgentMember);
-  }
+  const mayAssign = canAssignToTask(r.actor, access.isAgentMember);
   if (reassigning && !mayAssign) {
     return NextResponse.json({ error: "You cannot assign this task." }, { status: 403 });
   }
 
-  const canMutate = canMutateTask(r.actor, r.task);
+  const canMutate = canMutateTask(r.actor, r.task, access.isAssignee);
   let resolvedBody: unknown = body;
   if (!canMutate) {
     if (
       !isStatusOnlyPatch(bodyRecord) ||
       !canChangeTaskStatus(r.actor, r.task, {
-        isAgentMember: access.isAgentMember,
+        isAssignee: access.isAssignee,
       })
     ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
@@ -123,8 +135,27 @@ export async function PATCH(req: Request, { params }: Ctx) {
     resolvedBody = bodyRecord;
   }
 
-  const resolved = resolveTaskPatch(r.actor, r.task, resolvedBody, { canAssign: mayAssign });
+  const resolved = resolveTaskPatch(r.actor, currentForPatch, resolvedBody, { canAssign: mayAssign });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+
+  if (reassigning) {
+    const nextAssignee = resolved.patch.assignee_email as string | null;
+    const { error: deleteAssigneesError } = await r.supabase
+      .from("task_assignees")
+      .delete()
+      .eq("task_id", id);
+    if (deleteAssigneesError && !isTaskAssigneesMissingError(deleteAssigneesError)) {
+      return NextResponse.json({ error: deleteAssigneesError.message }, { status: 500 });
+    }
+    if (nextAssignee) {
+      const { error: insertAssigneeError } = await r.supabase
+        .from("task_assignees")
+        .insert({ task_id: id, email: nextAssignee });
+      if (insertAssigneeError && !isTaskAssigneesMissingError(insertAssigneeError)) {
+        return NextResponse.json({ error: insertAssigneeError.message }, { status: 500 });
+      }
+    }
+  }
 
   const { data, error } = await r.supabase
     .from("tasks")
@@ -166,7 +197,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
 
   await broadcastTasksChanged();
-  return NextResponse.json({ task: data });
+  await broadcastTaskRoom(id);
+  const [task] = await attachAssigneesToTasks([data as TaskRow], r.supabase);
+  return NextResponse.json({ task });
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {

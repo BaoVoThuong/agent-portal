@@ -11,6 +11,8 @@ import { ActivityFeed } from "./ActivityFeed";
 import { AttachmentPanel } from "./AttachmentPanel";
 import { TaskSelect } from "./TaskSelect";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
+import { AvatarStack } from "./board-ui";
+import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
 
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
@@ -27,24 +29,28 @@ export function TaskDetailDrawer({
   canEdit,
   canAssign,
   assignees,
+  agentMembersByAgent,
   agents,
   mentionMembers,
   categories,
   currentEmail,
   onClose,
   onPatch,
+  onAssigneeChange,
   onDelete,
 }: {
   task: TaskRow;
   canEdit: boolean;
   canAssign: boolean;
   assignees: TaskAssignee[];
+  agentMembersByAgent: Record<string, string[]>;
   agents: TaskAgent[];
   mentionMembers: TaskAssignee[];
   categories: TaskCategory[];
   currentEmail: string;
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
+  onAssigneeChange: (email: string, assigned: boolean) => void;
   onDelete: () => Promise<void>;
 }) {
   const [title, setTitle] = useState(task.title);
@@ -73,21 +79,14 @@ export function TaskDetailDrawer({
     return () => clearTimeout(timer);
   }, [reload]);
 
-  const categoryOptions = [
-    { value: "", label: "No category" },
-    ...categories.map((category) => ({ value: category.id, label: category.name })),
-  ];
-  const agentOptions = [
-    { value: "", label: "No agent" },
-    ...agents.map((agent) => ({ value: agent.email, label: agent.name ?? agent.email })),
-  ];
-  const assigneeOptions = [
-    { value: "", label: "Unassigned (Backlog)" },
-    ...assignees.map((assignee) => ({
-      value: assignee.email,
-      label: assignee.name ?? assignee.email,
-    })),
-  ];
+  const categoryOptions = categories.map((category) => ({
+    value: category.id,
+    label: category.name,
+  }));
+  const agentOptions = agents.map((agent) => ({
+    value: agent.email,
+    label: agent.name ?? agent.email,
+  }));
   const personLabelByEmail = new Map<string, string>();
   for (const agent of agents) {
     personLabelByEmail.set(agent.email, agent.name?.trim() || agent.email);
@@ -239,10 +238,9 @@ export function TaskDetailDrawer({
                     value={task.category_id ?? ""}
                     disabled={!canEdit}
                     options={categoryOptions}
+                    placeholder="Select category"
                     buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                    onChange={(nextCategoryId) =>
-                      onPatch({ category_id: nextCategoryId || null })
-                    }
+                    onChange={(nextCategoryId) => onPatch({ category_id: nextCategoryId })}
                   />
                 </div>
 
@@ -283,32 +281,35 @@ export function TaskDetailDrawer({
                     value={task.agent_email ?? ""}
                     disabled={!canEdit}
                     options={agentOptions}
+                    placeholder="Select agent"
                     buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                    onChange={(nextAgent) => onPatch({ agent_email: nextAgent || null })}
+                    onChange={(nextAgent) => onPatch({ agent_email: nextAgent })}
                   />
                 </div>
 
-                {canAssign && (
-                  <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>Assignee</span>
-                    <TaskSelect
-                      label="Assignee"
-                      value={task.assignee_email ?? ""}
-                      options={assigneeOptions}
-                      buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                      onChange={(nextAssignee) =>
-                        onPatch(
-                          nextAssignee
-                            ? {
-                                assignee_email: nextAssignee,
-                                status: task.status === "backlog" ? "todo" : task.status,
-                              }
-                            : { assignee_email: null, status: "backlog" }
-                        )
-                      }
+                <div className="space-y-1.5">
+                  <span className={LABEL_CLASS}>Assignees</span>
+                  {canAssign ? (
+                    <TaskAssigneeDropdown
+                      assignees={assignees}
+                      selectedEmails={task.assignees}
+                      agentEmail={task.agent_email}
+                      agentMembersByAgent={agentMembersByAgent}
+                      onToggle={onAssigneeChange}
                     />
-                  </div>
-                )}
+                  ) : (
+                    <div className="flex min-h-10 items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-sm font-medium text-[#172b4d]">
+                      <AvatarStack emails={task.assignees} labelByEmail={personLabelByEmail} />
+                      <span className="min-w-0 truncate">
+                        {task.assignees.length > 0
+                          ? task.assignees
+                              .map((email) => personLabelByEmail.get(email) ?? email)
+                              .join(", ")
+                          : "Unassigned"}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {canEdit && (

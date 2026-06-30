@@ -17,6 +17,7 @@ function task(p: Partial<TaskRow>): TaskRow {
     priority: "medium",
     category_id: null,
     agent_email: null,
+    assignees: [],
     assignee_email: null,
     reporter_email: "r@x.com",
     waiting_reason: null,
@@ -99,9 +100,9 @@ describe("filterTasks", () => {
 
   it("quick: mine and triage", () => {
     const rows = [
-      task({ id: "1", assignee_email: "me@x.com" }),
+      task({ id: "1", assignees: ["me@x.com"], assignee_email: "me@x.com" }),
       task({ id: "2", reporter_email: "me@x.com" }),
-      task({ id: "3", assignee_email: "other@x.com", reporter_email: "other@x.com" }),
+      task({ id: "3", assignees: ["other@x.com"], assignee_email: "other@x.com", reporter_email: "other@x.com" }),
       task({ id: "4", category_id: "c1", agent_email: "a@x.com" }),
     ];
     expect(
@@ -115,5 +116,39 @@ describe("filterTasks", () => {
     expect(
       filterTasks(rows, { ...base, quick: ["triage"] }).map((t) => t.id)
     ).not.toContain("4");
+  });
+
+  it("assignee facet matches any assigned member", () => {
+    const rows = [
+      task({ id: "1", assignees: ["a@x.com", "b@x.com"], assignee_email: "a@x.com" }),
+      task({ id: "2", assignees: ["c@x.com"], assignee_email: "c@x.com" }),
+      task({ id: "3", assignees: [], assignee_email: null }),
+    ];
+
+    expect(filterTasks(rows, { ...base, assignee: "b@x.com" }).map((t) => t.id)).toEqual([
+      "1",
+    ]);
+    expect(filterTasks(rows, { ...base, assignee: "__no_assignee__" }).map((t) => t.id)).toEqual([
+      "3",
+    ]);
+  });
+
+  it("date range keeps all tasks created inside the window and only unfinished carry-over before it", () => {
+    const rows = [
+      task({ id: "old-open", status: "todo", created_at: "2026-03-10T12:00:00Z" }),
+      task({ id: "old-done", status: "done", created_at: "2026-03-10T12:00:00Z" }),
+      task({ id: "old-cancel", status: "cancel", created_at: "2026-03-10T12:00:00Z" }),
+      task({ id: "range-done", status: "done", created_at: "2026-04-10T12:00:00Z" }),
+      task({ id: "range-cancel", status: "cancel", created_at: "2026-04-11T12:00:00Z" }),
+      task({ id: "after-open", status: "todo", created_at: "2026-05-10T12:00:00Z" }),
+    ];
+
+    expect(
+      filterTasks(rows, {
+        ...base,
+        dateFrom: "2026-04-01",
+        dateTo: "2026-04-30",
+      }).map((t) => t.id)
+    ).toEqual(["old-open", "range-done", "range-cancel"]);
   });
 });

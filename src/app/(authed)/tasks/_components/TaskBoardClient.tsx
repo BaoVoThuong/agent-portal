@@ -16,7 +16,14 @@ import {
 import { KanbanBoard } from "./KanbanBoard";
 import { BacklogBoard } from "./BacklogBoard";
 import { TaskListView } from "./TaskListView";
-import { TaskToolbar, type AgentStat, type BoardView } from "./TaskToolbar";
+import {
+  TaskToolbar,
+  type AgentStat,
+  type BoardView,
+  type TaskDatePresetKey,
+  type TaskDateRangeDefault,
+  type TaskDateRangeValue,
+} from "./TaskToolbar";
 import { NewTaskDialog, type NewTaskPayload } from "./NewTaskDialog";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { CategoryManager } from "./CategoryManager";
@@ -30,6 +37,7 @@ export function TaskBoardClient({
   agents,
   agentCandidates,
   myAgents,
+  agentMembersByAgent,
   initialCategories,
 }: {
   initialTasks: TaskRow[];
@@ -39,6 +47,7 @@ export function TaskBoardClient({
   agents: TaskAgent[];
   agentCandidates: TaskAgent[];
   myAgents: string[];
+  agentMembersByAgent: Record<string, string[]>;
   initialCategories: TaskCategory[];
 }) {
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
@@ -55,7 +64,31 @@ export function TaskBoardClient({
   const [presets, setPresets] = useState<QuickFilter[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<"" | string>("");
   const [statusFilter, setStatusFilter] = useState<"" | TaskStatus>("");
+  const initialDateRangeDefault = useMemo(
+    () => getFallbackTaskDateRangeDefault(),
+    []
+  );
+  const [dateRangeDefault, setDateRangeDefault] = useState(
+    initialDateRangeDefault
+  );
+  const defaultDateRange = useMemo(
+    () => resolveTaskDateRangeDefault(dateRangeDefault),
+    [dateRangeDefault]
+  );
+  const [dateRange, setDateRange] = useState(() =>
+    resolveTaskDateRangeDefault(initialDateRangeDefault)
+  );
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const storedDefault = readTaskDateRangeDefault();
+      setDateRangeDefault(storedDefault);
+      setDateRange(resolveTaskDateRangeDefault(storedDefault));
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // Auto-dismiss the error toast so it doesn't linger.
   useEffect(() => {
@@ -225,6 +258,8 @@ export function TaskBoardClient({
         quick: presets,
         category: categoryFilter,
         status: showStatusFilter ? statusFilter : "",
+        dateFrom: dateRange.from,
+        dateTo: dateRange.to,
         currentEmail,
         searchText: (task) => {
           const category = task.category_id ? categoryById.get(task.category_id) : null;
@@ -234,7 +269,9 @@ export function TaskBoardClient({
             task.fub_link,
             task.agent_email,
             task.agent_email ? agentLabelByEmail.get(task.agent_email) : null,
-            task.assignee_email,
+            ...task.assignees.map(
+              (email) => assigneeLabelByEmail.get(email) ?? email
+            ),
             task.reporter_email,
             category?.name,
           ]
@@ -251,12 +288,14 @@ export function TaskBoardClient({
       presets,
       categoryFilter,
       statusFilter,
+      dateRange,
       showAgentFilter,
       showAssigneeFilter,
       showStatusFilter,
       currentEmail,
       categoryById,
       agentLabelByEmail,
+      assigneeLabelByEmail,
     ]
   );
 
@@ -277,11 +316,7 @@ export function TaskBoardClient({
   }
 
   function canChangeStatusTask(task: TaskRow): boolean {
-    return (
-      isManager ||
-      task.assignee_email === currentEmail ||
-      Boolean(task.agent_email && myAgents.includes(task.agent_email))
-    );
+    return isManager || task.assignees.includes(currentEmail);
   }
 
   async function patchTask(id: string, patch: Record<string, unknown>) {
@@ -319,13 +354,73 @@ export function TaskBoardClient({
     void patchTask(id, change);
   }
 
+  async function changeAssignee(id: string, email: string, assigned: boolean) {
+    const before = tasks.find((t) => t.id === id) ?? null;
+    if (!before) return;
+
+    const nextAssignees = assigned
+      ? [...new Set([...before.assignees, email])]
+      : before.assignees.filter((assignee) => assignee !== email);
+    const optimistic: TaskRow = {
+      ...before,
+      assignees: nextAssignees,
+      assignee_email: nextAssignees[0] ?? null,
+      status:
+        nextAssignees.length === 0
+          ? "backlog"
+          : before.status === "backlog"
+            ? "todo"
+            : before.status,
+      waiting_reason: nextAssignees.length === 0 ? null : before.waiting_reason,
+    };
+    setTasks((cur) => cur.map((task) => (task.id === id ? optimistic : task)));
+
+    let res: Response;
+    try {
+      res = await fetch(
+        assigned
+          ? `/api/tasks/${id}/assignees`
+          : `/api/tasks/${id}/assignees/${encodeURIComponent(email)}`,
+        {
+          method: assigned ? "POST" : "DELETE",
+          headers: assigned ? { "Content-Type": "application/json" } : undefined,
+          body: assigned ? JSON.stringify({ email }) : undefined,
+        }
+      );
+    } catch {
+      setTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
+      setError("Mất kết nối — không cập nhật được assignee.");
+      return;
+    }
+
+    if (!res.ok) {
+      setTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(data?.error ?? "Không cập nhật được assignee.");
+      return;
+    }
+
+    const data = await res.json();
+    replaceTask(data.task as TaskRow);
+  }
+
   async function createTask(payload: NewTaskPayload) {
-    const res = await fetch("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) return;
+    let res: Response;
+    try {
+      res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      setError("Mất kết nối — không tạo được task.");
+      throw new Error("Failed to create task.");
+    }
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(data?.error ?? "Không tạo được task.");
+      throw new Error(data?.error ?? "Failed to create task.");
+    }
     const data = await res.json();
     setTasks((cur) => [...cur, data.task as TaskRow]);
   }
@@ -356,10 +451,19 @@ export function TaskBoardClient({
     setPresets([]);
     setCategoryFilter("");
     setStatusFilter("");
+    setDateRange(defaultDateRange);
   }
 
-  const canEditOpen = openTask !== null && isManager;
-  const canAssignOpen = openTask !== null && isManager;
+  function saveDefaultDateRange(nextDefault: TaskDateRangeDefault) {
+    setDateRangeDefault(nextDefault);
+    writeTaskDateRangeDefault(nextDefault);
+  }
+
+  const canAssignOpen =
+    openTask !== null &&
+    (isManager || Boolean(openTask.agent_email && myAgents.includes(openTask.agent_email)));
+  const canEditOpen =
+    openTask !== null && (isManager || openTask.assignees.includes(currentEmail));
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white text-[#172b4d]">
@@ -417,6 +521,11 @@ export function TaskBoardClient({
           onCategory={setCategoryFilter}
           status={statusFilter}
           onStatus={setStatusFilter}
+          dateFrom={dateRange.from}
+          dateTo={dateRange.to}
+          defaultDateRange={defaultDateRange}
+          onDateRange={setDateRange}
+          onDefaultDateRange={saveDefaultDateRange}
           showAgent={showAgentFilter}
           showAssignee={showAssigneeFilter}
           showStatus={showStatusFilter}
@@ -446,9 +555,11 @@ export function TaskBoardClient({
           assignees={assignees}
           isManager={isManager}
           myAgents={myAgents}
+          agentMembersByAgent={agentMembersByAgent}
           currentEmail={currentEmail}
           onOpen={openTaskById}
           onPatch={patchTask}
+          onAssigneeChange={changeAssignee}
         />
       )}
 
@@ -456,25 +567,31 @@ export function TaskBoardClient({
         <BacklogBoard
           tasks={visibleTasks}
           assignees={assignees}
+          agents={taskAgents}
+          agentMembersByAgent={agentMembersByAgent}
           categories={categories}
           onOpen={openTaskById}
           onPatch={patchTask}
+          onAssigneeChange={changeAssignee}
           onReorder={(id, position) => patchTask(id, { position })}
           onCreate={createTask}
         />
       )}
 
-      <NewTaskDialog
-        open={creating}
-        isManager={isManager}
-        assignees={assignees}
-        agents={taskAgents}
-        agentCandidates={agentCandidates}
-        myAgents={myAgents}
-        categories={categories}
-        onClose={() => setCreating(false)}
-        onCreate={createTask}
-      />
+      {creating ? (
+        <NewTaskDialog
+          open={creating}
+          isManager={isManager}
+          assignees={assignees}
+          agents={taskAgents}
+          agentCandidates={agentCandidates}
+          myAgents={myAgents}
+          agentMembersByAgent={agentMembersByAgent}
+          categories={categories}
+          onClose={() => setCreating(false)}
+          onCreate={createTask}
+        />
+      ) : null}
 
       {openTask && (
         <TaskDetailDrawer
@@ -483,12 +600,16 @@ export function TaskBoardClient({
           canEdit={canEditOpen}
           canAssign={canAssignOpen}
           assignees={assignees}
+          agentMembersByAgent={agentMembersByAgent}
           agents={taskAgents}
           mentionMembers={mentionMembers}
           categories={categories}
           currentEmail={currentEmail}
           onClose={closeTask}
           onPatch={(patch) => patchTask(openTask.id, patch)}
+          onAssigneeChange={(email, assigned) =>
+            changeAssignee(openTask.id, email, assigned)
+          }
           onDelete={() => deleteTask(openTask.id)}
         />
       )}
@@ -530,4 +651,145 @@ export function TaskBoardClient({
 
 function formatAgentLabel(agent: TaskAgent) {
   return agent.name?.trim() || agent.email;
+}
+
+const TASK_DATE_RANGE_DEFAULT_STORAGE_KEY = "eps.tasks.dateRangeDefault.v1";
+
+const TASK_DATE_PRESET_KEYS: TaskDatePresetKey[] = [
+  "fixed",
+  "today",
+  "yesterday",
+  "thisMonth",
+  "last7",
+  "last14",
+  "last30",
+  "all",
+];
+
+function getFallbackTaskDateRangeDefault(): TaskDateRangeDefault {
+  return {
+    preset: "thisMonth",
+    ...getTaskPresetDateRange("thisMonth"),
+  };
+}
+
+function readTaskDateRangeDefault(): TaskDateRangeDefault {
+  const fallback = getFallbackTaskDateRangeDefault();
+
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(
+      TASK_DATE_RANGE_DEFAULT_STORAGE_KEY
+    );
+    if (!rawValue) return fallback;
+
+    const parsedValue = JSON.parse(rawValue) as Partial<TaskDateRangeDefault>;
+    if (!isTaskDatePresetKey(parsedValue.preset)) return fallback;
+
+    if (parsedValue.preset === "fixed") {
+      return {
+        preset: "fixed",
+        ...normalizeTaskDateRange({
+          from: isDateKey(parsedValue.from) ? parsedValue.from : "",
+          to: isDateKey(parsedValue.to) ? parsedValue.to : "",
+        }),
+      };
+    }
+
+    if (parsedValue.preset === "all") {
+      return { preset: "all", from: "", to: "" };
+    }
+
+    return {
+      preset: parsedValue.preset,
+      ...getTaskPresetDateRange(parsedValue.preset),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeTaskDateRangeDefault(value: TaskDateRangeDefault) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(
+    TASK_DATE_RANGE_DEFAULT_STORAGE_KEY,
+    JSON.stringify(value)
+  );
+}
+
+function resolveTaskDateRangeDefault(
+  value: TaskDateRangeDefault
+): TaskDateRangeValue {
+  if (value.preset === "fixed") {
+    return normalizeTaskDateRange(value);
+  }
+
+  return getTaskPresetDateRange(value.preset);
+}
+
+function getTaskPresetDateRange(preset: TaskDatePresetKey): TaskDateRangeValue {
+  const today = new Date();
+  const todayKey = toDateInputValue(today);
+
+  switch (preset) {
+    case "today":
+      return { from: todayKey, to: todayKey };
+    case "yesterday": {
+      const yesterday = addDays(today, -1);
+      const yesterdayKey = toDateInputValue(yesterday);
+      return { from: yesterdayKey, to: yesterdayKey };
+    }
+    case "thisMonth": {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      return { from: toDateInputValue(firstDay), to: todayKey };
+    }
+    case "last7":
+      return { from: toDateInputValue(addDays(today, -6)), to: todayKey };
+    case "last14":
+      return { from: toDateInputValue(addDays(today, -13)), to: todayKey };
+    case "last30":
+      return { from: toDateInputValue(addDays(today, -29)), to: todayKey };
+    case "all":
+    case "fixed":
+      return { from: "", to: "" };
+  }
+}
+
+function normalizeTaskDateRange(value: TaskDateRangeValue): TaskDateRangeValue {
+  if (value.from && value.to && value.from.localeCompare(value.to) > 0) {
+    return { from: value.to, to: value.from };
+  }
+
+  if (value.from && !value.to) return { from: value.from, to: value.from };
+  if (!value.from && value.to) return { from: value.to, to: value.to };
+
+  return { from: value.from, to: value.to };
+}
+
+function isTaskDatePresetKey(value: unknown): value is TaskDatePresetKey {
+  return (
+    typeof value === "string" &&
+    TASK_DATE_PRESET_KEYS.includes(value as TaskDatePresetKey)
+  );
+}
+
+function isDateKey(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function addDays(date: Date, amount: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + amount);
+  return nextDate;
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }

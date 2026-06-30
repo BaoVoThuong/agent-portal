@@ -39,6 +39,7 @@ export function TaskSelect({
     useAnchoredMenu();
   const selectedOption = options.find((option) => option.value === value);
   const selectedLabel = selectedOption?.label ?? placeholder;
+  const isPlaceholder = !selectedOption;
 
   function selectOption(option: TaskSelectOption) {
     if (option.disabled) return;
@@ -58,7 +59,13 @@ export function TaskSelect({
         aria-haspopup="listbox"
         aria-controls={isOpen ? listboxId : undefined}
       >
-        <span className="min-w-0 truncate leading-5">{selectedLabel}</span>
+        <span
+          className={`min-w-0 truncate leading-5 ${
+            isPlaceholder ? "font-normal text-[#97a0af]" : "text-[#172b4d]"
+          }`}
+        >
+          {selectedLabel}
+        </span>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-[#667085] transition ${
             isOpen ? "rotate-180" : ""

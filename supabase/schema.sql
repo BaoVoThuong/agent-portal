@@ -1402,6 +1402,24 @@ create table if not exists task_participants (
 create index if not exists task_participants_email_idx
   on task_participants (email);
 
+-- Multi-assignee source of truth for tasks. The legacy tasks.assignee_email
+-- column is kept temporarily and mirrored by application code during rollout.
+create table if not exists task_assignees (
+  task_id uuid not null references tasks(id) on delete cascade,
+  email text not null,
+  created_at timestamptz not null default now(),
+  primary key (task_id, email)
+);
+
+create index if not exists task_assignees_email_idx
+  on task_assignees (email);
+
+-- Backfill from the legacy single-assignee column (idempotent).
+insert into task_assignees (task_id, email)
+select id, assignee_email from tasks
+where assignee_email is not null
+on conflict (task_id, email) do nothing;
+
 -- People selected as task agents/team owners. This is independent of the
 -- legacy portal_account.role value.
 create table if not exists task_agents (
@@ -1456,6 +1474,7 @@ declare
     'task_activity',
     'task_notifications',
     'task_participants',
+    'task_assignees',
     'task_agents',
     'agent_members'
   ];

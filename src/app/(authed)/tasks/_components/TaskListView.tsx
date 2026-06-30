@@ -13,18 +13,22 @@ export function TaskListView({
   assignees,
   isManager,
   myAgents,
+  agentMembersByAgent,
   currentEmail,
   onOpen,
   onPatch,
+  onAssigneeChange,
 }: {
   tasks: TaskRow[];
   categories: TaskCategory[];
   assignees: TaskAssignee[];
   isManager: boolean;
   myAgents: string[];
+  agentMembersByAgent: Record<string, string[]>;
   currentEmail: string;
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
+  onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("created");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -93,14 +97,18 @@ export function TaskListView({
                   task={task}
                   category={categoryById.get(task.category_id ?? "") ?? null}
                   assignees={assignees}
+                  agentMembersByAgent={agentMembersByAgent}
                   canEdit={
                     isManager ||
-                    task.assignee_email === currentEmail ||
+                    task.assignees.includes(currentEmail)
+                  }
+                  canAssign={
+                    isManager ||
                     Boolean(task.agent_email && myAgents.includes(task.agent_email))
                   }
-                  canAssign={isManager}
                   onOpen={onOpen}
                   onPatch={onPatch}
+                  onAssigneeChange={onAssigneeChange}
                   openOnDoubleClick
                 />
               </li>

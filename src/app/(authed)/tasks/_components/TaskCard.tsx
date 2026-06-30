@@ -1,18 +1,18 @@
-import { UserRound } from "lucide-react";
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
+import { CalendarDays, UserRound } from "lucide-react";
 import { WaitingTag, Initials, PriorityIcon } from "./board-ui";
 
 export function TaskCard({
   task,
   category,
   agentLabel,
-  assigneeLabel,
+  assigneeLabelByEmail,
   onOpen,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
   agentLabel?: string | null;
-  assigneeLabel?: string | null;
+  assigneeLabelByEmail?: Map<string, string>;
   onOpen: (id: string) => void;
 }) {
   return (
@@ -28,14 +28,32 @@ export function TaskCard({
             {task.title}
           </h3>
 
-          {task.assignee_email ? (
-            <div className="mt-2 flex min-h-5 items-center gap-1.5 text-xs leading-5 text-[#626f86]">
-              <UserRound className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
-              <span className="min-w-0 truncate" title={task.assignee_email}>
-                {assigneeLabel ?? task.assignee_email}
-              </span>
+          {task.assignees.length > 0 ? (
+            <div className="mt-2 space-y-1">
+              {task.assignees.map((email) => {
+                const label = assigneeLabelByEmail?.get(email) ?? email;
+
+                return (
+                  <div
+                    key={email}
+                    className="flex min-h-5 min-w-0 items-center gap-1.5 text-xs leading-5 text-[#626f86]"
+                    title={label}
+                  >
+                    <UserRound className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
+                    <span className="min-w-0 truncate">{label}</span>
+                  </div>
+                );
+              })}
             </div>
           ) : null}
+
+          <div
+            className="mt-2 flex min-h-5 min-w-0 items-center gap-1.5 text-xs leading-5 text-[#6b778c]"
+            title={`Created ${formatCreatedDate(task.created_at)}`}
+          >
+            <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
+            <span className="min-w-0 truncate">{formatCreatedDate(task.created_at)}</span>
+          </div>
         </div>
 
         <span className="shrink-0">
@@ -56,6 +74,17 @@ export function TaskCard({
       </div>
     </button>
   );
+}
+
+function formatCreatedDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
 }
 
 function CategoryBadge({ category }: { category: TaskCategory }) {

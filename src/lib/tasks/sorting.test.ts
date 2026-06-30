@@ -12,6 +12,7 @@ function task(p: Partial<TaskRow>): TaskRow {
     priority: "medium",
     category_id: null,
     agent_email: null,
+    assignees: [],
     assignee_email: null,
     reporter_email: "r@x.com",
     waiting_reason: null,

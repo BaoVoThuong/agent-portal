@@ -15,6 +15,17 @@ describe("resolveCommentRecipients", () => {
     const r = resolveCommentRecipients({ assignee_email: "cs@x.com" }, "mgr@x.com", []);
     expect(r).toEqual([{ email: "cs@x.com", type: "commented" }]);
   });
+  it("notifies each assignee with 'commented' when not mentioned", () => {
+    const r = resolveCommentRecipients(
+      { assignees: ["a@x.com", "b@x.com"] },
+      "mgr@x.com",
+      []
+    );
+    expect(r).toEqual([
+      { email: "a@x.com", type: "commented" },
+      { email: "b@x.com", type: "commented" },
+    ]);
+  });
   it("does not double-notify: mention wins over commented for the same person", () => {
     const r = resolveCommentRecipients({ assignee_email: "cs@x.com" }, "mgr@x.com", ["cs@x.com"]);
     expect(r).toEqual([{ email: "cs@x.com", type: "mentioned" }]);

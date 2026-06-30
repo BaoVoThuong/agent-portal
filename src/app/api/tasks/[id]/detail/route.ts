@@ -5,6 +5,7 @@ import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
 import { loadTaskDetail } from "@/lib/tasks/detail";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
+import { isTaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -30,14 +31,15 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const taskScope = task as Pick<TaskRow, "assignee_email" | "agent_email">;
   if (!actor.isManager) {
-    const [isParticipant, agents] = await Promise.all([
+    const [isParticipant, isAssignee, agents] = await Promise.all([
       isTaskParticipant(id, actor.email),
+      isTaskAssignee(id, actor.email, supabase),
       fetchAgentsForCs(actor.email),
     ]);
     const isAgentMember = Boolean(
       taskScope.agent_email && agents.includes(taskScope.agent_email)
     );
-    if (!canViewTask(actor, taskScope, { isParticipant, isAgentMember })) {
+    if (!canViewTask(actor, taskScope, { isParticipant, isAgentMember, isAssignee })) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
   }

@@ -40,6 +40,7 @@ export type TaskRow = {
   priority: TaskPriority;
   category_id: string | null;
   agent_email: string | null;
+  assignees: string[];
   assignee_email: string | null;
   reporter_email: string;
   waiting_reason: WaitingReason | null;

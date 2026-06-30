@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
-import { fetchTaskAssignees } from "@/lib/tasks/assignees";
+import {
+  fetchTaskAssigneeEmails,
+  fetchTaskAssignees,
+  isTaskAssignee,
+} from "@/lib/tasks/assignees";
 import { resolveCommentRecipients, insertNotifications } from "@/lib/tasks/notifications";
 import { parseMentions } from "@/lib/tasks/mentions";
 import { addParticipants, isTaskParticipant } from "@/lib/tasks/participants";
@@ -40,12 +44,13 @@ async function canViewResolved(
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
-  const [isParticipant, agents] = await Promise.all([
+  const [isParticipant, isAssignee, agents] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
+    isTaskAssignee(taskId, actor.email),
     fetchAgentsForCs(actor.email),
   ]);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
-  return canViewTask(actor, task, { isParticipant, isAgentMember });
+  return canViewTask(actor, task, { isParticipant, isAgentMember, isAssignee });
 }
 
 export async function GET(_req: Request, { params }: Ctx) {
@@ -147,7 +152,15 @@ export async function POST(req: Request, { params }: Ctx) {
   const validMentions = parseMentions(text).filter((m) => memberEmails.has(m));
   if (validMentions.length > 0) await addParticipants(id, validMentions, "mention");
 
-  const recipients = resolveCommentRecipients(r.task, r.actor.email, validMentions);
+  const assigneeEmails = await fetchTaskAssigneeEmails(id, r.supabase);
+  const recipients = resolveCommentRecipients(
+    {
+      assignees: assigneeEmails.length > 0 ? assigneeEmails : undefined,
+      assignee_email: r.task.assignee_email,
+    },
+    r.actor.email,
+    validMentions
+  );
   await insertNotifications(
     recipients.map((rec) => ({
       recipient_email: rec.email,

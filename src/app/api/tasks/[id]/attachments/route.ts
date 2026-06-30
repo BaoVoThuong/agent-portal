@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask, canMutateTask } from "@/lib/tasks/access";
+import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { buildStoragePath, uploadTaskFile, signTaskFile } from "@/lib/tasks/storage";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
@@ -20,12 +21,13 @@ async function canViewResolved(
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
-  const [isParticipant, agents] = await Promise.all([
+  const [isParticipant, isAssignee, agents] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
+    isTaskAssignee(taskId, actor.email),
     fetchAgentsForCs(actor.email),
   ]);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
-  return canViewTask(actor, task, { isParticipant, isAgentMember });
+  return canViewTask(actor, task, { isParticipant, isAgentMember, isAssignee });
 }
 
 async function loadActorAndTask(id: string) {
@@ -109,7 +111,13 @@ export async function POST(req: Request, { params }: Ctx) {
     const cc = c as { task_id: string; author_email: string } | null;
     if (!cc || cc.task_id !== id || cc.author_email !== r.actor.email)
       return NextResponse.json({ error: "Invalid comment." }, { status: 400 });
-  } else if (!canMutateTask(r.actor, r.task)) {
+  } else if (
+    !canMutateTask(
+      r.actor,
+      r.task,
+      r.actor.isManager ? false : await isTaskAssignee(id, r.actor.email, r.supabase)
+    )
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

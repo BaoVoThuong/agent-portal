@@ -12,14 +12,26 @@ describe("resolveTaskPatch", () => {
     expect(r).toEqual({ ok: true, patch: { title: "New title" } });
   });
 
-  it("accepts changing or clearing the customer agent", () => {
+  it("accepts changing the customer agent and rejects clearing it", () => {
     expect(
       resolveTaskPatch(manager, assigned, { agent_email: "  agent@x.com  " })
     ).toEqual({ ok: true, patch: { agent_email: "agent@x.com" } });
 
     expect(resolveTaskPatch(manager, assigned, { agent_email: "" })).toEqual({
+      ok: false,
+      error: "Agent is required.",
+    });
+  });
+
+  it("accepts changing the category and rejects clearing it", () => {
+    expect(resolveTaskPatch(manager, assigned, { category_id: "  c1  " })).toEqual({
       ok: true,
-      patch: { agent_email: null },
+      patch: { category_id: "c1" },
+    });
+
+    expect(resolveTaskPatch(manager, assigned, { category_id: null })).toEqual({
+      ok: false,
+      error: "Category is required.",
     });
   });
 

@@ -52,7 +52,7 @@ function sortValue(
     case "agent":
       return task.agent_email?.toLowerCase() ?? null;
     case "assignee":
-      return task.assignee_email?.toLowerCase() ?? null;
+      return task.assignees[0]?.toLowerCase() ?? null;
     case "category":
       return categoryName(task.category_id)?.toLowerCase() ?? null;
     case "created":
