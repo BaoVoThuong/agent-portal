@@ -74,9 +74,6 @@ export function BacklogBoard({
   return (
     <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
       <div className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
-        <div className="border-b border-[#dfe1e6] bg-[#f4f5f7] px-4 py-3 text-xs font-bold uppercase text-[#6b778c]">
-          Backlog {backlog.length}
-        </div>
         <BacklogHeader />
 
         {backlog.length === 0 ? (
