@@ -20,8 +20,8 @@ type Notif = {
 
 // Polling interval: slow safety net when realtime is configured (broadcast handles
 // instant delivery), faster when it isn't so notifications still feel responsive.
-const POLL_REALTIME_MS = 60000;
-const POLL_FALLBACK_MS = 20000;
+const POLL_REALTIME_MS = 20000;
+const POLL_FALLBACK_MS = 10000;
 const TOAST_MS = 7000;
 const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
 
@@ -182,17 +182,8 @@ export function NotificationBell() {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  async function openAndMarkRead() {
-    setOpen((o) => !o);
-    if (!open && unread > 0) {
-      await fetch("/api/tasks/notifications/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      setUnread(0);
-      setItems((cur) => cur.map((n) => ({ ...n, is_read: true })));
-    }
+  function toggleNotifications() {
+    setOpen((current) => !current);
   }
 
   async function markRead(ids: string[]) {
@@ -203,6 +194,18 @@ export function NotificationBell() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids }),
+    }).catch(() => {});
+  }
+
+  async function markAllRead() {
+    if (unread === 0) return;
+    setUnread(0);
+    setItems((cur) => cur.map((n) => ({ ...n, is_read: true })));
+    setToasts([]);
+    await fetch("/api/tasks/notifications/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
     }).catch(() => {});
   }
 
@@ -220,7 +223,7 @@ export function NotificationBell() {
       <div className="relative" ref={ref}>
         <button
           type="button"
-          onClick={openAndMarkRead}
+          onClick={toggleNotifications}
           aria-label="Notifications"
           className="relative flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
         >
@@ -233,8 +236,22 @@ export function NotificationBell() {
         </button>
         {open && (
           <div className="absolute right-0 z-50 mt-2 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-            <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-500">
-              Notifications
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2">
+              <div>
+                <p className="text-xs font-semibold text-slate-600">Notifications</p>
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  {unread > 0 ? `${unread} unread` : "All caught up"}
+                </p>
+              </div>
+              {unread > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void markAllRead()}
+                  className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-[#0c66e4] transition hover:bg-[#e9f2ff]"
+                >
+                  Mark all read
+                </button>
+              ) : null}
             </div>
             <div className="max-h-80 overflow-y-auto">
               {items.length === 0 ? (

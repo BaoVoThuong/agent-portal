@@ -8,6 +8,7 @@ import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/tasks/types";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { insertNotifications } from "@/lib/tasks/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -126,8 +127,8 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  const taskId = (data as { id: string }).id;
   if (assignedEmails.length > 0) {
-    const taskId = (data as { id: string }).id;
     const { error: assigneeError } = await supabase.from("task_assignees").insert(
       assignedEmails.map((assigneeEmail) => ({
         task_id: taskId,
@@ -140,11 +141,23 @@ export async function POST(request: Request) {
   }
 
   await supabase.from("task_activity").insert({
-    task_id: (data as { id: string }).id,
+    task_id: taskId,
     actor_email: email,
     type: "created",
     meta: assignedEmails.length > 0 ? { to: assignedEmails } : null,
   });
+
+  const assignedRecipients = assignedEmails.filter(
+    (assigneeEmail) => assigneeEmail !== email
+  );
+  await insertNotifications(
+    assignedRecipients.map((assigneeEmail) => ({
+      recipient_email: assigneeEmail,
+      task_id: taskId,
+      type: "assigned",
+      actor_email: email,
+    }))
+  );
 
   const [task] = await attachAssigneesToTasks([data as { id: string; assignee_email: string | null }], supabase);
   await broadcastTasksChanged();
