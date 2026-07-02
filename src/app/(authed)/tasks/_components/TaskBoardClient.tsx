@@ -184,7 +184,7 @@ export function TaskBoardClient({
 
   const mentionMembers = useMemo(() => {
     const byEmail = new Map<string, TaskAssignee>();
-    for (const person of [...agentCandidates, ...taskAgents, ...assignees]) {
+    for (const person of assignees) {
       const existing = byEmail.get(person.email);
       byEmail.set(person.email, {
         email: person.email,
@@ -198,7 +198,7 @@ export function TaskBoardClient({
     return [...byEmail.values()].sort((a, b) =>
       (a.name ?? a.email).localeCompare(b.name ?? b.email)
     );
-  }, [agentCandidates, taskAgents, assignees, currentEmail]);
+  }, [assignees, currentEmail]);
 
   const agentStats = useMemo(() => {
     const stats = new Map<string, AgentStat>();

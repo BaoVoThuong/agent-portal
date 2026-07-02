@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
 import {
   fetchTaskAssigneeEmails,
+  fetchTaskAssignees,
   isTaskAssignee,
 } from "@/lib/tasks/assignees";
 import { resolveCommentRecipients, insertNotifications } from "@/lib/tasks/notifications";
@@ -158,14 +159,9 @@ export async function POST(req: Request, { params }: Ctx) {
   // Mentions are parsed from the body (server is the source of truth), then
   // validated against board members. Mentioned members become participants (so
   // they can see the task) and get notified.
-  const { data: activeAccounts } = await r.supabase
-    .from("portal_account")
-    .select("email")
-    .eq("is_active", true);
-  const activeEmails = new Set(
-    ((activeAccounts ?? []) as { email: string }[]).map((account) => account.email)
-  );
-  const validMentions = parseMentions(text).filter((m) => activeEmails.has(m));
+  const taskMembers = await fetchTaskAssignees();
+  const actionableEmails = new Set(taskMembers.map((member) => member.email));
+  const validMentions = parseMentions(text).filter((m) => actionableEmails.has(m));
   if (validMentions.length > 0) await addParticipants(id, validMentions, "mention");
 
   const [assigneeEmails, participantEmails] = await Promise.all([
@@ -173,12 +169,14 @@ export async function POST(req: Request, { params }: Ctx) {
     fetchTaskParticipantEmails(id, r.supabase),
   ]);
   const activeOnly = (email: string | null | undefined) =>
-    email && activeEmails.has(email) ? email : null;
+    email && actionableEmails.has(email) ? email : null;
   const recipients = resolveCommentRecipients(
     {
-      assignees: assigneeEmails.filter((email) => activeEmails.has(email)),
+      assignees: assigneeEmails.filter((email) => actionableEmails.has(email)),
       assignee_email: activeOnly(r.task.assignee_email),
-      participants: participantEmails.filter((email) => activeEmails.has(email)),
+      participants: participantEmails.filter((email) =>
+        actionableEmails.has(email)
+      ),
       reporter_email: activeOnly(r.task.reporter_email),
       agent_email: activeOnly(r.task.agent_email),
     },
