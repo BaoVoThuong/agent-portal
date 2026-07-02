@@ -76,7 +76,12 @@ describe("resolveTaskPatch", () => {
     });
     expect(r).toEqual({
       ok: true,
-      patch: { status: "backlog", assignee_email: null },
+      patch: {
+        status: "backlog",
+        assignee_email: null,
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+      },
     });
   });
 
@@ -96,7 +101,12 @@ describe("resolveTaskPatch", () => {
     });
     expect(r1).toEqual({
       ok: true,
-      patch: { status: "waiting", waiting_reason: "customer" },
+      patch: {
+        status: "waiting",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+        waiting_reason: "customer",
+      },
     });
     const r2 = resolveTaskPatch(cs, assigned, {
       status: "in_progress",
@@ -104,13 +114,60 @@ describe("resolveTaskPatch", () => {
     });
     expect(r2).toEqual({
       ok: true,
-      patch: { status: "in_progress", waiting_reason: null },
+      patch: {
+        status: "in_progress",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+        waiting_reason: null,
+      },
     });
   });
 
   it("accepts cancel as a terminal task status", () => {
     const r = resolveTaskPatch(manager, assigned, { status: "cancel" });
-    expect(r).toEqual({ ok: true, patch: { status: "cancel" } });
+    expect(r).toEqual({
+      ok: true,
+      patch: {
+        status: "cancel",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+      },
+    });
+  });
+
+  it("resets QC review whenever status changes", () => {
+    const r = resolveTaskPatch(manager, assigned, { status: "done" });
+    expect(r).toEqual({
+      ok: true,
+      patch: {
+        status: "done",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+      },
+    });
+  });
+
+  it("allows final QC only for done tasks when permitted", () => {
+    const done = { status: "done" as const, assignee_email: "cs@x.com" };
+    expect(
+      resolveTaskPatch(manager, done, { done_reviewed: true }, {
+        canReviewDone: true,
+        nowIso: "2026-07-02T00:00:00.000Z",
+      })
+    ).toEqual({
+      ok: true,
+      patch: {
+        done_reviewed_by_email: "mgr@x.com",
+        done_reviewed_at: "2026-07-02T00:00:00.000Z",
+      },
+    });
+
+    expect(
+      resolveTaskPatch(manager, assigned, { done_reviewed: true }, {
+        canReviewDone: true,
+      }).ok
+    ).toBe(false);
+    expect(resolveTaskPatch(cs, done, { done_reviewed: true }).ok).toBe(false);
   });
 
   it("worker cannot reassign when opts.canAssign is false", () => {

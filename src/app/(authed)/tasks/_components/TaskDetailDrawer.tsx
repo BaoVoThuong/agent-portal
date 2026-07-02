@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, X } from "lucide-react";
+import { CheckCircle2, Circle, ExternalLink, X } from "lucide-react";
 import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskDetail } from "@/lib/tasks/detail";
@@ -34,8 +34,10 @@ export function TaskDetailDrawer({
   mentionMembers,
   categories,
   currentEmail,
+  canReviewDone,
   onClose,
   onPatch,
+  onReviewDone,
   onAssigneeChange,
   onDelete,
 }: {
@@ -48,8 +50,10 @@ export function TaskDetailDrawer({
   mentionMembers: TaskAssignee[];
   categories: TaskCategory[];
   currentEmail: string;
+  canReviewDone: boolean;
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
+  onReviewDone: (reviewed: boolean) => void;
   onAssigneeChange: (email: string, assigned: boolean) => void;
   onDelete: () => Promise<void>;
 }) {
@@ -310,6 +314,21 @@ export function TaskDetailDrawer({
                     </div>
                   )}
                 </div>
+
+                <div className="space-y-1.5">
+                  <span className={LABEL_CLASS}>QC Review</span>
+                  <DoneReviewPanel
+                    task={task}
+                    canReviewDone={canReviewDone}
+                    reviewerLabel={
+                      task.done_reviewed_by_email
+                        ? personLabelByEmail.get(task.done_reviewed_by_email) ??
+                          task.done_reviewed_by_email
+                        : null
+                    }
+                    onReviewDone={onReviewDone}
+                  />
+                </div>
               </div>
 
               {canEdit && (
@@ -367,6 +386,66 @@ export function TaskDetailDrawer({
       )}
     </div>
   );
+}
+
+function DoneReviewPanel({
+  task,
+  canReviewDone,
+  reviewerLabel,
+  onReviewDone,
+}: {
+  task: TaskRow;
+  canReviewDone: boolean;
+  reviewerLabel: string | null;
+  onReviewDone: (reviewed: boolean) => void;
+}) {
+  const reviewed = Boolean(task.done_reviewed_at);
+  const disabled = task.status !== "done" || !canReviewDone;
+
+  return (
+    <div className="rounded-lg border border-[#dfe1e6] bg-white p-3">
+      <div className="flex items-start gap-2">
+        <span
+          className={`mt-0.5 shrink-0 ${
+            reviewed ? "text-[#00875a]" : "text-[#ff991f]"
+          }`}
+        >
+          {reviewed ? (
+            <CheckCircle2 className="h-5 w-5" />
+          ) : (
+            <Circle className="h-5 w-5" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-[#172b4d]">
+            {reviewed ? "QC checked" : "Needs agent/admin QC"}
+          </p>
+          <p className="mt-0.5 text-xs leading-5 text-[#626f86]">
+            {task.status !== "done"
+              ? "Available after CS moves this task to Done."
+              : reviewed
+                ? `Checked by ${reviewerLabel ?? "unknown"}${task.done_reviewed_at ? ` on ${formatReviewTime(task.done_reviewed_at)}` : ""}.`
+                : "CS marked this Done. Agent/admin should verify the result."}
+          </p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onReviewDone(!reviewed)}
+        className="mt-3 inline-flex h-8 w-full items-center justify-center gap-2 rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:bg-[#dfe1e6] disabled:text-[#6b778c]"
+      >
+        {reviewed ? "Clear QC check" : "Mark QC checked"}
+      </button>
+    </div>
+  );
+}
+
+function formatReviewTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 function DetailTabButton({

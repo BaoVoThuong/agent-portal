@@ -133,6 +133,9 @@ function BacklogHeader() {
         Priority
       </span>
       <span className={`${LIST_COL.status} shrink-0 truncate`}>Status</span>
+      <span className={`flex ${LIST_COL.review} shrink-0 justify-center`}>
+        QC
+      </span>
       <span className={`flex ${LIST_COL.assignee} shrink-0 justify-center`}>
         Assignee
       </span>
@@ -176,8 +179,10 @@ function BacklogSortableRow({
         agentMembersByAgent={agentMembersByAgent}
         canEdit
         canAssign
+        canReviewDone={false}
         onOpen={onOpen}
         onPatch={onPatch}
+        onReviewDone={() => {}}
         onAssigneeChange={onAssigneeChange}
         dragHandle={
           <button

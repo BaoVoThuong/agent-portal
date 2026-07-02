@@ -7,6 +7,7 @@ export function buildActivityEntries(
     status: string;
     assignee_email: string | null;
     agent_email?: string | null;
+    done_reviewed_at?: string | null;
   },
   patch: Record<string, unknown>
 ): ActivityEntry[] {
@@ -27,6 +28,16 @@ export function buildActivityEntries(
   }
   if ("agent_email" in patch && patch.agent_email !== before.agent_email) {
     entries.push({ type: "agent_changed", meta: { to: patch.agent_email ?? null } });
+  }
+  if (
+    ("done_reviewed_at" in patch || "done_reviewed_by_email" in patch) &&
+    !("status" in patch)
+  ) {
+    if (patch.done_reviewed_at && !before.done_reviewed_at) {
+      entries.push({ type: "done_reviewed", meta: null });
+    } else if (!patch.done_reviewed_at && before.done_reviewed_at) {
+      entries.push({ type: "done_review_cleared", meta: null });
+    }
   }
   if ("title" in patch || "description" in patch || "fub_link" in patch) {
     entries.push({ type: "edited", meta: null });

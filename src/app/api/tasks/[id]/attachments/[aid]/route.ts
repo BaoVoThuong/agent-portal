@@ -24,7 +24,13 @@ async function canViewResolved(
     fetchAgentsForCs(actor.email),
   ]);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
-  return canViewTask(actor, task, { isParticipant, isAgentMember, isAssignee });
+  const isAgentOwner = Boolean(task.agent_email && task.agent_email === actor.email);
+  return canViewTask(actor, task, {
+    isParticipant,
+    isAgentMember,
+    isAgentOwner,
+    isAssignee,
+  });
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {

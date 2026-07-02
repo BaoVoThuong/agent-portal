@@ -17,6 +17,8 @@ export function TaskListView({
   currentEmail,
   onOpen,
   onPatch,
+  canReviewDoneTask,
+  onReviewDone,
   onAssigneeChange,
 }: {
   tasks: TaskRow[];
@@ -28,6 +30,8 @@ export function TaskListView({
   currentEmail: string;
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
+  canReviewDoneTask: (task: TaskRow) => boolean;
+  onReviewDone: (taskId: string, reviewed: boolean) => void;
   onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("created");
@@ -83,6 +87,9 @@ export function TaskListView({
               widthClass={`flex ${LIST_COL.status} shrink-0`}
               {...sp}
             />
+            <span className={`flex ${LIST_COL.review} shrink-0 justify-center`}>
+              QC
+            </span>
             <SortTh
               label="Assignee"
               col="assignee"
@@ -108,6 +115,8 @@ export function TaskListView({
                   }
                   onOpen={onOpen}
                   onPatch={onPatch}
+                  canReviewDone={canReviewDoneTask(task)}
+                  onReviewDone={(reviewed) => onReviewDone(task.id, reviewed)}
                   onAssigneeChange={onAssigneeChange}
                   openOnDoubleClick
                 />

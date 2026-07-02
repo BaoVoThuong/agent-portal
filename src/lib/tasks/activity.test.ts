@@ -14,6 +14,23 @@ describe("buildActivityEntries", () => {
       buildActivityEntries({ status: "done", assignee_email: "cs@x.com" }, { status: "in_progress" })
     ).toEqual([{ type: "reopened", meta: { from: "done", to: "in_progress" } }]);
   });
+  it("logs explicit QC review changes", () => {
+    expect(
+      buildActivityEntries(before, {
+        done_reviewed_by_email: "agent@x.com",
+        done_reviewed_at: "2026-07-02T00:00:00.000Z",
+      })
+    ).toEqual([{ type: "done_reviewed", meta: null }]);
+    expect(
+      buildActivityEntries(
+        {
+          ...before,
+          done_reviewed_at: "2026-07-02T00:00:00.000Z",
+        },
+        { done_reviewed_by_email: null, done_reviewed_at: null }
+      )
+    ).toEqual([{ type: "done_review_cleared", meta: null }]);
+  });
   it("logs assignment", () => {
     expect(buildActivityEntries(before, { assignee_email: "other@x.com" })).toEqual([
       { type: "assigned", meta: { to: "other@x.com" } },

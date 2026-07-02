@@ -21,6 +21,7 @@ export type TaskPatchInput = {
   status?: unknown;
   assignee_email?: unknown;
   waiting_reason?: unknown;
+  done_reviewed?: unknown;
   position?: unknown;
 };
 
@@ -37,7 +38,7 @@ export function resolveTaskPatch(
   actor: TaskActor,
   current: Current,
   raw: unknown,
-  opts?: { canAssign?: boolean }
+  opts?: { canAssign?: boolean; canReviewDone?: boolean; nowIso?: string }
 ): Result {
   if (!raw || typeof raw !== "object") return { ok: false, error: "Invalid body." };
   const r = raw as TaskPatchInput;
@@ -99,6 +100,7 @@ export function resolveTaskPatch(
         : null)
     : current.assignee_email;
   const nextStatus = (r.status as TaskRow["status"]) ?? current.status;
+  const statusChanged = r.status !== undefined && nextStatus !== current.status;
 
   if (nextStatus === "backlog" && nextAssignee !== null) {
     return { ok: false, error: "Unassign the task before moving it to backlog." };
@@ -109,6 +111,26 @@ export function resolveTaskPatch(
 
   if (reassigning) patch.assignee_email = nextAssignee;
   if (r.status !== undefined) patch.status = nextStatus;
+  if (statusChanged) {
+    patch.done_reviewed_by_email = null;
+    patch.done_reviewed_at = null;
+  }
+
+  if (r.done_reviewed !== undefined) {
+    if (typeof r.done_reviewed !== "boolean") {
+      return { ok: false, error: "Invalid QC review value." };
+    }
+    if (!opts?.canReviewDone) {
+      return { ok: false, error: "You cannot QC check this task." };
+    }
+    if (nextStatus !== "done") {
+      return { ok: false, error: "Only done tasks can be QC checked." };
+    }
+    patch.done_reviewed_by_email = r.done_reviewed ? actor.email : null;
+    patch.done_reviewed_at = r.done_reviewed
+      ? opts.nowIso ?? new Date().toISOString()
+      : null;
+  }
 
   // waiting_reason only meaningful in 'waiting'; otherwise force null when status changes.
   if (r.waiting_reason !== undefined || (r.status !== undefined && current.status === "waiting")) {

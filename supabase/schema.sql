@@ -1279,6 +1279,8 @@ create table if not exists tasks (
   reporter_email text not null,
   waiting_reason text
     check (waiting_reason is null or waiting_reason in ('customer','carrier','documents','other')),
+  done_reviewed_by_email text,
+  done_reviewed_at timestamptz,
   position double precision not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -1295,6 +1297,12 @@ add column if not exists agent_email text;
 
 alter table tasks
 add column if not exists fub_link text;
+
+alter table tasks
+add column if not exists done_reviewed_by_email text;
+
+alter table tasks
+add column if not exists done_reviewed_at timestamptz;
 
 do $$
 begin
@@ -1330,6 +1338,7 @@ end $$;
 create index if not exists tasks_assignee_idx on tasks (assignee_email);
 create index if not exists tasks_agent_email_idx on tasks (agent_email);
 create index if not exists tasks_status_position_idx on tasks (status, position);
+create index if not exists tasks_done_review_idx on tasks (status, done_reviewed_at);
 create index if not exists tasks_category_idx on tasks (category_id);
 create index if not exists tasks_archived_idx on tasks (archived_at);
 

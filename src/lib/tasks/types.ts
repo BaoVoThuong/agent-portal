@@ -44,6 +44,8 @@ export type TaskRow = {
   assignee_email: string | null;
   reporter_email: string;
   waiting_reason: WaitingReason | null;
+  done_reviewed_by_email: string | null;
+  done_reviewed_at: string | null;
   position: number;
   created_at: string;
   updated_at: string;

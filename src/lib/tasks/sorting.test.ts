@@ -16,6 +16,8 @@ function task(p: Partial<TaskRow>): TaskRow {
     assignee_email: null,
     reporter_email: "r@x.com",
     waiting_reason: null,
+    done_reviewed_by_email: null,
+    done_reviewed_at: null,
     position: 0,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",

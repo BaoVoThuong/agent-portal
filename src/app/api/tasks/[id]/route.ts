@@ -7,6 +7,7 @@ import {
   canChangeTaskStatus,
   canDeleteTask,
   canMutateTask,
+  canReviewDoneTask,
   canViewTask,
 } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
@@ -29,6 +30,7 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 const STATUS_PATCH_KEYS = new Set(["status", "waiting_reason", "position"]);
+const REVIEW_PATCH_KEYS = new Set(["done_reviewed"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
@@ -38,6 +40,10 @@ function isStatusOnlyPatch(body: Record<string, unknown>): boolean {
   return Object.keys(body).every((key) => STATUS_PATCH_KEYS.has(key));
 }
 
+function isReviewOnlyPatch(body: Record<string, unknown>): boolean {
+  return Object.keys(body).every((key) => REVIEW_PATCH_KEYS.has(key));
+}
+
 async function resolveTaskAccess(
   actor: ReturnType<typeof buildTaskActor>,
   task: Pick<TaskRow, "assignee_email" | "agent_email">,
@@ -45,21 +51,35 @@ async function resolveTaskAccess(
 ): Promise<{
   canView: boolean;
   isAgentMember: boolean;
+  isAgentOwner: boolean;
   isAssignee: boolean;
   isParticipant: boolean;
 }> {
   if (actor.isManager) {
-    return { canView: true, isAgentMember: false, isAssignee: false, isParticipant: false };
+    return {
+      canView: true,
+      isAgentMember: false,
+      isAgentOwner: false,
+      isAssignee: false,
+      isParticipant: false,
+    };
   }
   const [isParticipant, isAssignee, agents] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
     isTaskAssignee(taskId, actor.email),
     fetchAgentsForCs(actor.email),
   ]);
+  const isAgentOwner = Boolean(task.agent_email && task.agent_email === actor.email);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
   return {
-    canView: canViewTask(actor, task, { isParticipant, isAgentMember, isAssignee }),
+    canView: canViewTask(actor, task, {
+      isParticipant,
+      isAgentMember,
+      isAgentOwner,
+      isAssignee,
+    }),
     isAgentMember,
+    isAgentOwner,
     isAssignee,
     isParticipant,
   };
@@ -122,20 +142,27 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
 
   const canMutate = canMutateTask(r.actor, r.task, access.isAssignee);
+  const canReviewDone = canReviewDoneTask(r.actor, r.task);
   let resolvedBody: unknown = body;
   if (!canMutate) {
-    if (
-      !isStatusOnlyPatch(bodyRecord) ||
-      !canChangeTaskStatus(r.actor, r.task, {
+    const statusOnly = isStatusOnlyPatch(bodyRecord);
+    const reviewOnly = isReviewOnlyPatch(bodyRecord);
+    const canPatchStatus =
+      statusOnly &&
+      canChangeTaskStatus(r.actor, r.task, {
         isAssignee: access.isAssignee,
-      })
-    ) {
+      });
+    const canPatchReview = reviewOnly && canReviewDone;
+    if (!canPatchStatus && !canPatchReview) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
     resolvedBody = bodyRecord;
   }
 
-  const resolved = resolveTaskPatch(r.actor, currentForPatch, resolvedBody, { canAssign: mayAssign });
+  const resolved = resolveTaskPatch(r.actor, currentForPatch, resolvedBody, {
+    canAssign: mayAssign,
+    canReviewDone,
+  });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
 
   if (reassigning) {
@@ -170,6 +197,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       status: r.task.status,
       assignee_email: r.task.assignee_email,
       agent_email: r.task.agent_email,
+      done_reviewed_at: r.task.done_reviewed_at,
     },
     resolved.patch
   );

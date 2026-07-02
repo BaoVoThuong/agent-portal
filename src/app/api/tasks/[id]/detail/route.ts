@@ -39,7 +39,17 @@ export async function GET(_req: Request, { params }: Ctx) {
     const isAgentMember = Boolean(
       taskScope.agent_email && agents.includes(taskScope.agent_email)
     );
-    if (!canViewTask(actor, taskScope, { isParticipant, isAgentMember, isAssignee })) {
+    const isAgentOwner = Boolean(
+      taskScope.agent_email && taskScope.agent_email === actor.email
+    );
+    if (
+      !canViewTask(actor, taskScope, {
+        isParticipant,
+        isAgentMember,
+        isAgentOwner,
+        isAssignee,
+      })
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
   }

@@ -350,6 +350,14 @@ export function TaskBoardClient({
     return isManager || task.assignees.includes(currentEmail);
   }
 
+  function canReviewDoneTask(task: TaskRow): boolean {
+    return task.status === "done" && (isManager || task.agent_email === currentEmail);
+  }
+
+  function reviewDoneTask(id: string, reviewed: boolean) {
+    void patchTask(id, { done_reviewed: reviewed });
+  }
+
   async function patchTask(id: string, patch: Record<string, unknown>) {
     // Snapshot only the affected task so a failed update reverts just this card,
     // never clobbering other concurrent optimistic moves.
@@ -357,7 +365,10 @@ export function TaskBoardClient({
     const revert = () => {
       if (before) setTasks((cur) => cur.map((t) => (t.id === id ? before : t)));
     };
-    setTasks((cur) => cur.map((t) => (t.id === id ? ({ ...t, ...patch } as TaskRow) : t)));
+    const optimisticPatch = buildOptimisticTaskPatch(patch, currentEmail);
+    setTasks((cur) =>
+      cur.map((t) => (t.id === id ? ({ ...t, ...optimisticPatch } as TaskRow) : t))
+    );
 
     let res: Response;
     try {
@@ -573,6 +584,8 @@ export function TaskBoardClient({
           onOpen={openTaskById}
           onMove={moveTask}
           canMoveTask={canChangeStatusTask}
+          canReviewDoneTask={canReviewDoneTask}
+          onReviewDone={reviewDoneTask}
           categories={categories}
           agentLabelByEmail={agentLabelByEmail}
           assigneeLabelByEmail={assigneeLabelByEmail}
@@ -590,6 +603,8 @@ export function TaskBoardClient({
           currentEmail={currentEmail}
           onOpen={openTaskById}
           onPatch={patchTask}
+          canReviewDoneTask={canReviewDoneTask}
+          onReviewDone={reviewDoneTask}
           onAssigneeChange={changeAssignee}
         />
       )}
@@ -636,8 +651,10 @@ export function TaskBoardClient({
           mentionMembers={mentionMembers}
           categories={categories}
           currentEmail={currentEmail}
+          canReviewDone={canReviewDoneTask(openTask)}
           onClose={closeTask}
           onPatch={(patch) => patchTask(openTask.id, patch)}
+          onReviewDone={(reviewed) => reviewDoneTask(openTask.id, reviewed)}
           onAssigneeChange={(email, assigned) =>
             changeAssignee(openTask.id, email, assigned)
           }
@@ -682,6 +699,27 @@ export function TaskBoardClient({
 
 function formatAgentLabel(agent: TaskAgent) {
   return agent.name?.trim() || agent.email;
+}
+
+function buildOptimisticTaskPatch(
+  patch: Record<string, unknown>,
+  currentEmail: string
+): Record<string, unknown> {
+  const optimistic = { ...patch };
+
+  if (typeof optimistic.status === "string") {
+    optimistic.done_reviewed_by_email = null;
+    optimistic.done_reviewed_at = null;
+  }
+
+  if (typeof optimistic.done_reviewed === "boolean") {
+    const reviewed = optimistic.done_reviewed;
+    delete optimistic.done_reviewed;
+    optimistic.done_reviewed_by_email = reviewed ? currentEmail : null;
+    optimistic.done_reviewed_at = reviewed ? new Date().toISOString() : null;
+  }
+
+  return optimistic;
 }
 
 const TASK_DATE_RANGE_DEFAULT_STORAGE_KEY = "eps.tasks.dateRangeDefault.v1";

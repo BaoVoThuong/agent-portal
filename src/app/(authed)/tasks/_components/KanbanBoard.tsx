@@ -89,6 +89,8 @@ function SortableCard({
   category,
   agentLabel,
   assigneeLabelByEmail,
+  canReviewDone,
+  onReviewDone,
   canMove,
   onOpen,
 }: {
@@ -96,6 +98,8 @@ function SortableCard({
   category?: TaskCategory | null;
   agentLabel?: string | null;
   assigneeLabelByEmail: Map<string, string>;
+  canReviewDone: boolean;
+  onReviewDone: (taskId: string, reviewed: boolean) => void;
   canMove: boolean;
   onOpen: (id: string) => void;
 }) {
@@ -120,6 +124,8 @@ function SortableCard({
         category={category}
         agentLabel={agentLabel}
         assigneeLabelByEmail={assigneeLabelByEmail}
+        canReviewDone={canReviewDone}
+        onReviewDone={onReviewDone}
         onOpen={onOpen}
       />
     </div>
@@ -134,11 +140,15 @@ function Column({
   categoryById,
   agentLabelByEmail,
   assigneeLabelByEmail,
+  canReviewDoneTask,
+  onReviewDone,
 }: {
   status: TaskStatus;
   tasks: TaskRow[];
   onOpen: (id: string) => void;
   canMoveTask: (task: TaskRow) => boolean;
+  canReviewDoneTask: (task: TaskRow) => boolean;
+  onReviewDone: (taskId: string, reviewed: boolean) => void;
   categoryById: Map<string, TaskCategory>;
   agentLabelByEmail: Map<string, string>;
   assigneeLabelByEmail: Map<string, string>;
@@ -177,6 +187,8 @@ function Column({
                   : null
               }
               assigneeLabelByEmail={assigneeLabelByEmail}
+              canReviewDone={canReviewDoneTask(t)}
+              onReviewDone={onReviewDone}
               canMove={canMoveTask(t)}
               onOpen={onOpen}
             />
@@ -192,6 +204,8 @@ export function KanbanBoard({
   onOpen,
   onMove,
   canMoveTask,
+  canReviewDoneTask,
+  onReviewDone,
   categories,
   agentLabelByEmail,
   assigneeLabelByEmail,
@@ -200,6 +214,8 @@ export function KanbanBoard({
   onOpen: (id: string) => void;
   onMove: (taskId: string, change: { status: TaskStatus; position: number }) => void;
   canMoveTask: (task: TaskRow) => boolean;
+  canReviewDoneTask: (task: TaskRow) => boolean;
+  onReviewDone: (taskId: string, reviewed: boolean) => void;
   categories: TaskCategory[];
   agentLabelByEmail: Map<string, string>;
   assigneeLabelByEmail: Map<string, string>;
@@ -339,6 +355,8 @@ export function KanbanBoard({
             tasks={columnTasks(status)}
             onOpen={onOpen}
             canMoveTask={canMoveTask}
+            canReviewDoneTask={canReviewDoneTask}
+            onReviewDone={onReviewDone}
             categoryById={categoryById}
             agentLabelByEmail={agentLabelByEmail}
             assigneeLabelByEmail={assigneeLabelByEmail}
@@ -363,6 +381,8 @@ export function KanbanBoard({
                   : null
               }
               assigneeLabelByEmail={assigneeLabelByEmail}
+              canReviewDone={false}
+              onReviewDone={onReviewDone}
               onOpen={() => {}}
             />
           </div>

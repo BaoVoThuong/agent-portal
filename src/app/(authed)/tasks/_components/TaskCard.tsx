@@ -1,5 +1,5 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import { CalendarDays, UserRound } from "lucide-react";
+import { CalendarDays, CheckCircle2, Circle, UserRound } from "lucide-react";
 import { WaitingTag, Initials, PriorityIcon } from "./board-ui";
 
 export function TaskCard({
@@ -7,18 +7,28 @@ export function TaskCard({
   category,
   agentLabel,
   assigneeLabelByEmail,
+  canReviewDone = false,
+  onReviewDone,
   onOpen,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
   agentLabel?: string | null;
   assigneeLabelByEmail?: Map<string, string>;
+  canReviewDone?: boolean;
+  onReviewDone?: (id: string, reviewed: boolean) => void;
   onOpen: (id: string) => void;
 }) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onOpen(task.id)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onOpen(task.id);
+      }}
       className="block w-full rounded border border-l-4 border-[#dfe1e6] bg-white p-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:border-[#c1c7d0] hover:bg-[#fefefe] hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4]"
       style={{ borderLeftColor: statusAccent(task.status) }}
     >
@@ -62,6 +72,11 @@ export function TaskCard({
       </div>
 
       <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5">
+        <DoneReviewBadge
+          task={task}
+          canReviewDone={canReviewDone}
+          onReviewDone={onReviewDone}
+        />
         {category ? (
           <CategoryBadge category={category} />
         ) : (
@@ -72,6 +87,57 @@ export function TaskCard({
         <WaitingTag reason={task.waiting_reason} />
         <PriorityAlert priority={task.priority} />
       </div>
+    </div>
+  );
+}
+
+function DoneReviewBadge({
+  task,
+  canReviewDone,
+  onReviewDone,
+}: {
+  task: TaskRow;
+  canReviewDone: boolean;
+  onReviewDone?: (id: string, reviewed: boolean) => void;
+}) {
+  if (task.status !== "done") return null;
+
+  const reviewed = Boolean(task.done_reviewed_at);
+  const label = reviewed ? "QC checked" : "Needs QC";
+  const icon = reviewed ? (
+    <CheckCircle2 className="h-3.5 w-3.5" />
+  ) : (
+    <Circle className="h-3.5 w-3.5" />
+  );
+  const className = reviewed
+    ? "inline-flex items-center gap-1 rounded bg-[#e3fcef] px-1.5 py-0.5 text-[11px] font-bold text-[#006644]"
+    : "inline-flex items-center gap-1 rounded bg-[#fff0b3] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]";
+
+  if (!canReviewDone || !onReviewDone) {
+    return (
+      <span
+        className={className}
+        title={reviewed ? `QC checked by ${task.done_reviewed_by_email}` : "Waiting for agent/admin QC"}
+      >
+        {icon}
+        {label}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={`${className} transition hover:brightness-95`}
+      title={reviewed ? "Clear QC check" : "Mark QC checked"}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        onReviewDone(task.id, !reviewed);
+      }}
+    >
+      {icon}
+      {label}
     </button>
   );
 }

@@ -16,6 +16,8 @@ function describe(a: ActivityRow, personLabel: (email: string) => string): React
     case "priority_changed": return <>set priority {to}</>;
     case "category_changed": return "changed category";
     case "agent_changed": return <>changed agent to {to}</>;
+    case "done_reviewed": return "QC checked the completed task";
+    case "done_review_cleared": return "cleared the QC check";
     case "comment_added": return "commented";
     case "edited": return "edited the task";
     case "archived": return "archived the task";

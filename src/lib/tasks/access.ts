@@ -41,11 +41,17 @@ export function canManageCategories(actor: TaskActor): boolean {
 // `flags` covers additional ways a worker may gain view access:
 //   isAssignee    – caller already resolved assignment externally
 //   isAgentMember – worker belongs to the task's agent team
+//   isAgentOwner  – worker is the task's customer agent / final QC owner
 //   isParticipant – worker was @mentioned / added as a participant
 export function canViewTask(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">,
-  flags: { isAssignee?: boolean; isAgentMember?: boolean; isParticipant?: boolean } = {}
+  flags: {
+    isAssignee?: boolean;
+    isAgentMember?: boolean;
+    isAgentOwner?: boolean;
+    isParticipant?: boolean;
+  } = {}
 ): boolean {
   void task;
   if (actor.isManager) return true;
@@ -53,8 +59,18 @@ export function canViewTask(
   return (
     Boolean(flags.isAssignee) ||
     Boolean(flags.isAgentMember) ||
+    Boolean(flags.isAgentOwner) ||
     Boolean(flags.isParticipant)
   );
+}
+
+export function canReviewDoneTask(
+  actor: TaskActor,
+  task: Pick<TaskRow, "agent_email">
+): boolean {
+  if (actor.isManager) return true;
+  if (!actor.isWorker) return false;
+  return Boolean(task.agent_email && task.agent_email === actor.email);
 }
 
 export function canAssignToTask(actor: TaskActor, isAgentMember: boolean): boolean {

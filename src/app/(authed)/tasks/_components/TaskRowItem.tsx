@@ -2,7 +2,7 @@
 
 import { type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, CheckCircle2, ChevronDown, Circle } from "lucide-react";
 import {
   STATUS_LABEL,
   TASK_STATUSES,
@@ -23,6 +23,7 @@ export const LIST_COL = {
   created: "w-24",
   priority: "w-16",
   status: "w-28",
+  review: "w-28",
   assignee: "w-20",
 };
 
@@ -42,8 +43,10 @@ export function TaskRowItem({
   agentMembersByAgent,
   canEdit,
   canAssign,
+  canReviewDone,
   onOpen,
   onPatch,
+  onReviewDone,
   onAssigneeChange,
   dragHandle,
   openOnDoubleClick = false,
@@ -54,8 +57,10 @@ export function TaskRowItem({
   agentMembersByAgent: Record<string, string[]>;
   canEdit: boolean;
   canAssign: boolean;
+  canReviewDone: boolean;
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
+  onReviewDone: (reviewed: boolean) => void;
   onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
   dragHandle?: ReactNode;
   openOnDoubleClick?: boolean;
@@ -118,6 +123,14 @@ export function TaskRowItem({
         onChange={(status) => onPatch(task.id, { status })}
       />
 
+      <span className={`flex ${LIST_COL.review} shrink-0 justify-center`}>
+        <DoneReviewPill
+          task={task}
+          canReviewDone={canReviewDone}
+          onReviewDone={onReviewDone}
+        />
+      </span>
+
       <span className={`flex ${LIST_COL.assignee} shrink-0 justify-center`}>
         <AssigneeMenu
           emails={task.assignees}
@@ -130,6 +143,55 @@ export function TaskRowItem({
         />
       </span>
     </div>
+  );
+}
+
+function DoneReviewPill({
+  task,
+  canReviewDone,
+  onReviewDone,
+}: {
+  task: TaskRow;
+  canReviewDone: boolean;
+  onReviewDone: (reviewed: boolean) => void;
+}) {
+  if (task.status !== "done") {
+    return <span className="text-[11px] font-semibold text-[#97a0af]">—</span>;
+  }
+
+  const reviewed = Boolean(task.done_reviewed_at);
+  const className = reviewed
+    ? "inline-flex h-7 items-center gap-1 rounded bg-[#e3fcef] px-2 text-[11px] font-bold text-[#006644]"
+    : "inline-flex h-7 items-center gap-1 rounded bg-[#fff0b3] px-2 text-[11px] font-bold text-[#7f5f01]";
+  const icon = reviewed ? (
+    <CheckCircle2 className="h-3.5 w-3.5" />
+  ) : (
+    <Circle className="h-3.5 w-3.5" />
+  );
+  const label = reviewed ? "Checked" : "Needs QC";
+
+  if (!canReviewDone) {
+    return (
+      <span className={className} title={reviewed ? "QC checked" : "Waiting for agent/admin QC"}>
+        {icon}
+        {label}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={`${className} transition hover:brightness-95`}
+      title={reviewed ? "Clear QC check" : "Mark QC checked"}
+      onClick={(event) => {
+        event.stopPropagation();
+        onReviewDone(!reviewed);
+      }}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 

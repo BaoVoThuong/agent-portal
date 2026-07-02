@@ -10,6 +10,7 @@ import {
   canDeleteTask,
   canManageCategories,
   canMutateTask,
+  canReviewDoneTask,
   canViewTask,
   resolveCreateAssignment,
 } from "@/lib/tasks/access";
@@ -75,6 +76,14 @@ describe("per-task view/mutate scope", () => {
     // participation grants view only — status changes still need assignment or agent-team membership
     expect(canChangeTaskStatus(cs, { assignee_email: "other@x.com" })).toBe(false);
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
+  });
+  it("task agent owner can view and QC-check their own agent tasks", () => {
+    expect(
+      canViewTask(cs, { assignee_email: "other@x.com" }, { isAgentOwner: true })
+    ).toBe(true);
+    expect(canReviewDoneTask(cs, { agent_email: "cs@x.com" })).toBe(true);
+    expect(canReviewDoneTask(cs, { agent_email: "other@x.com" })).toBe(false);
+    expect(canReviewDoneTask(manager, { agent_email: "other@x.com" })).toBe(true);
   });
 });
 
