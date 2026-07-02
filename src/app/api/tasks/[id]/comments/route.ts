@@ -4,12 +4,15 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
 import {
   fetchTaskAssigneeEmails,
-  fetchTaskAssignees,
   isTaskAssignee,
 } from "@/lib/tasks/assignees";
 import { resolveCommentRecipients, insertNotifications } from "@/lib/tasks/notifications";
 import { parseMentions } from "@/lib/tasks/mentions";
-import { addParticipants, isTaskParticipant } from "@/lib/tasks/participants";
+import {
+  addParticipants,
+  fetchTaskParticipantEmails,
+  isTaskParticipant,
+} from "@/lib/tasks/participants";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { broadcastTaskRoom } from "@/lib/tasks/realtime";
 import { signTaskFile } from "@/lib/tasks/storage";
@@ -29,12 +32,19 @@ async function loadActorAndTask(id: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")
-    .select("id,status,assignee_email,agent_email")
+    .select("id,status,assignee_email,agent_email,reporter_email")
     .eq("id", id)
     .maybeSingle();
   if (error) return { error: error.message, status: 500 };
   if (!data) return { error: "Not found", status: 404 };
-  return { actor, task: data as unknown as Pick<TaskRow, "id" | "status" | "assignee_email" | "agent_email">, supabase };
+  return {
+    actor,
+    task: data as unknown as Pick<
+      TaskRow,
+      "id" | "status" | "assignee_email" | "agent_email" | "reporter_email"
+    >,
+    supabase,
+  };
 }
 
 // View access including participants and agent membership.
@@ -148,15 +158,29 @@ export async function POST(req: Request, { params }: Ctx) {
   // Mentions are parsed from the body (server is the source of truth), then
   // validated against board members. Mentioned members become participants (so
   // they can see the task) and get notified.
-  const memberEmails = new Set((await fetchTaskAssignees()).map((m) => m.email));
-  const validMentions = parseMentions(text).filter((m) => memberEmails.has(m));
+  const { data: activeAccounts } = await r.supabase
+    .from("portal_account")
+    .select("email")
+    .eq("is_active", true);
+  const activeEmails = new Set(
+    ((activeAccounts ?? []) as { email: string }[]).map((account) => account.email)
+  );
+  const validMentions = parseMentions(text).filter((m) => activeEmails.has(m));
   if (validMentions.length > 0) await addParticipants(id, validMentions, "mention");
 
-  const assigneeEmails = await fetchTaskAssigneeEmails(id, r.supabase);
+  const [assigneeEmails, participantEmails] = await Promise.all([
+    fetchTaskAssigneeEmails(id, r.supabase),
+    fetchTaskParticipantEmails(id, r.supabase),
+  ]);
+  const activeOnly = (email: string | null | undefined) =>
+    email && activeEmails.has(email) ? email : null;
   const recipients = resolveCommentRecipients(
     {
-      assignees: assigneeEmails.length > 0 ? assigneeEmails : undefined,
-      assignee_email: r.task.assignee_email,
+      assignees: assigneeEmails.filter((email) => activeEmails.has(email)),
+      assignee_email: activeOnly(r.task.assignee_email),
+      participants: participantEmails.filter((email) => activeEmails.has(email)),
+      reporter_email: activeOnly(r.task.reporter_email),
+      agent_email: activeOnly(r.task.agent_email),
     },
     r.actor.email,
     validMentions

@@ -6,7 +6,13 @@ export type CommentNotification = { email: string; type: "mentioned" | "commente
 // Who to notify for a new comment: mentioned users (minus the author), plus the
 // task's assignees as 'commented' (unless they are the author or already mentioned).
 export function resolveCommentRecipients(
-  task: { assignees?: string[]; assignee_email?: string | null },
+  task: {
+    assignees?: string[];
+    assignee_email?: string | null;
+    participants?: string[];
+    reporter_email?: string | null;
+    agent_email?: string | null;
+  },
   authorEmail: string,
   mentions: string[]
 ): CommentNotification[] {
@@ -24,9 +30,15 @@ export function resolveCommentRecipients(
       : task.assignee_email
         ? [task.assignee_email]
         : [];
-  for (const assignee of [...new Set(assignees)]) {
-    if (assignee && assignee !== authorEmail && !mentionSet.has(assignee)) {
-      out.push({ email: assignee, type: "commented" });
+  const commentTargets = [
+    ...assignees,
+    ...(task.participants ?? []),
+    task.reporter_email ?? "",
+    task.agent_email ?? "",
+  ];
+  for (const email of [...new Set(commentTargets)]) {
+    if (email && email !== authorEmail && !mentionSet.has(email)) {
+      out.push({ email, type: "commented" });
     }
   }
   return out;

@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 // People who can see a task without being its assignee (added via @mention or
 // explicitly). All helpers degrade gracefully if the table doesn't exist yet
@@ -11,6 +12,24 @@ export async function fetchParticipantTaskIds(email: string): Promise<string[]> 
     .eq("email", email);
   if (error) return [];
   return [...new Set((data ?? []).map((r) => (r as { task_id: string }).task_id))];
+}
+
+export async function fetchTaskParticipantEmails(
+  taskId: string,
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("task_participants")
+    .select("email")
+    .eq("task_id", taskId);
+  if (error) return [];
+  return [
+    ...new Set(
+      (data ?? [])
+        .map((row) => (row as { email: string }).email?.trim())
+        .filter(Boolean)
+    ),
+  ];
 }
 
 export async function isTaskParticipant(taskId: string, email: string): Promise<boolean> {

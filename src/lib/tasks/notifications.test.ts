@@ -30,6 +30,23 @@ describe("resolveCommentRecipients", () => {
     const r = resolveCommentRecipients({ assignee_email: "cs@x.com" }, "mgr@x.com", ["cs@x.com"]);
     expect(r).toEqual([{ email: "cs@x.com", type: "mentioned" }]);
   });
+  it("notifies task participants, reporter, and agent on comments", () => {
+    const r = resolveCommentRecipients(
+      {
+        assignee_email: null,
+        participants: ["participant@x.com", "agent@x.com"],
+        reporter_email: "reporter@x.com",
+        agent_email: "agent@x.com",
+      },
+      "author@x.com",
+      []
+    );
+    expect(r).toEqual([
+      { email: "participant@x.com", type: "commented" },
+      { email: "agent@x.com", type: "commented" },
+      { email: "reporter@x.com", type: "commented" },
+    ]);
+  });
   it("no assignee, no mentions -> no notifications", () => {
     expect(resolveCommentRecipients({ assignee_email: null }, "a@x.com", [])).toEqual([]);
   });
