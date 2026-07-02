@@ -1,6 +1,10 @@
 "use client";
 
-import { type ReactNode } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import { Check, CheckCircle2, ChevronDown, Circle } from "lucide-react";
 import {
@@ -169,6 +173,12 @@ function DoneReviewPill({
     <Circle className="h-3.5 w-3.5" />
   );
   const label = reviewed ? "Checked" : "Needs QC";
+  const stopInteractiveEvent = (event: SyntheticEvent) => {
+    event.stopPropagation();
+  };
+  const stopDragStart = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+  };
 
   if (!canReviewDone) {
     return (
@@ -184,6 +194,12 @@ function DoneReviewPill({
       type="button"
       className={`${className} transition hover:brightness-95`}
       title={reviewed ? "Clear QC check" : "Mark QC checked"}
+      data-no-dnd="true"
+      onPointerDown={stopDragStart}
+      onMouseDown={stopInteractiveEvent}
+      onTouchStart={stopInteractiveEvent}
+      onDoubleClick={stopInteractiveEvent}
+      onKeyDown={stopInteractiveEvent}
       onClick={(event) => {
         event.stopPropagation();
         onReviewDone(!reviewed);

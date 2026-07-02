@@ -1,5 +1,6 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
 import { CalendarDays, CheckCircle2, Circle, UserRound } from "lucide-react";
+import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
 import { WaitingTag, Initials, PriorityIcon } from "./board-ui";
 
 export function TaskCard({
@@ -112,6 +113,12 @@ function DoneReviewBadge({
   const className = reviewed
     ? "inline-flex items-center gap-1 rounded bg-[#e3fcef] px-1.5 py-0.5 text-[11px] font-bold text-[#006644]"
     : "inline-flex items-center gap-1 rounded bg-[#fff0b3] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]";
+  const stopInteractiveEvent = (event: SyntheticEvent) => {
+    event.stopPropagation();
+  };
+  const stopDragStart = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+  };
 
   if (!canReviewDone || !onReviewDone) {
     return (
@@ -130,7 +137,12 @@ function DoneReviewBadge({
       type="button"
       className={`${className} transition hover:brightness-95`}
       title={reviewed ? "Clear QC check" : "Mark QC checked"}
-      onPointerDown={(event) => event.stopPropagation()}
+      data-no-dnd="true"
+      onPointerDown={stopDragStart}
+      onMouseDown={stopInteractiveEvent}
+      onTouchStart={stopInteractiveEvent}
+      onDoubleClick={stopInteractiveEvent}
+      onKeyDown={stopInteractiveEvent}
       onClick={(event) => {
         event.stopPropagation();
         onReviewDone(task.id, !reviewed);

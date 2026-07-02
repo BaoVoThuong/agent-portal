@@ -13,7 +13,9 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
     .from("tasks")
     .select(TASK_COLUMNS)
     .is("archived_at", null)
-    .order("position", { ascending: true });
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
   // Manager sees everything; worker sees their own assigned tasks plus any task
   // they participate in (e.g. were @mentioned on).
