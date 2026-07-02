@@ -22,7 +22,7 @@ import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import type { NewTaskPayload } from "./NewTaskDialog";
 import { TaskSelect } from "./TaskSelect";
-import { TaskRowItem } from "./TaskRowItem";
+import { LIST_COL, TaskRowItem } from "./TaskRowItem";
 
 export function BacklogBoard({
   tasks,
@@ -77,6 +77,7 @@ export function BacklogBoard({
         <div className="border-b border-[#dfe1e6] bg-[#f4f5f7] px-4 py-3 text-xs font-bold uppercase text-[#6b778c]">
           Backlog {backlog.length}
         </div>
+        <BacklogHeader />
 
         {backlog.length === 0 ? (
           <div className="px-6 py-10 text-center text-sm font-semibold text-[#6b778c]">
@@ -117,6 +118,27 @@ export function BacklogBoard({
           onCreate={onCreate}
         />
       </div>
+    </div>
+  );
+}
+
+function BacklogHeader() {
+  return (
+    <div className="flex items-center gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+      <span className="w-4 shrink-0" aria-hidden="true" />
+      <span className={`${LIST_COL.key} shrink-0 truncate`}>Key</span>
+      <span className="min-w-0 flex-1 truncate">Summary</span>
+      <span className={`hidden ${LIST_COL.category} shrink-0 truncate sm:block`}>
+        Category
+      </span>
+      <span className={`${LIST_COL.created} shrink-0 truncate`}>Created</span>
+      <span className={`flex ${LIST_COL.priority} shrink-0 justify-center`}>
+        Priority
+      </span>
+      <span className={`${LIST_COL.status} shrink-0 truncate`}>Status</span>
+      <span className={`flex ${LIST_COL.assignee} shrink-0 justify-center`}>
+        Assignee
+      </span>
     </div>
   );
 }
