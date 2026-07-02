@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Bell, X } from "lucide-react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { taskKey } from "@/lib/tasks/sorting";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
+import { dispatchOpenTask } from "@/lib/tasks/client-events";
 
 type Notif = {
   id: string;
@@ -85,6 +88,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [toasts, setToasts] = useState<Notif[]>([]);
   const [topic, setTopic] = useState<string | null>(null);
+  const pathname = usePathname();
   const ref = useRef<HTMLDivElement>(null);
   // Notification ids we have already processed, so a poll never re-pops a toast.
   const seenIds = useRef<Set<string>>(new Set());
@@ -212,10 +216,17 @@ export function NotificationBell() {
   const dismissToast = (id: string) =>
     setToasts((cur) => cur.filter((t) => t.id !== id));
 
-  function handleOpenNotification(n: Notif) {
+  function handleOpenNotification(
+    n: Notif,
+    event?: ReactMouseEvent<HTMLAnchorElement>
+  ) {
     setOpen(false);
     dismissToast(n.id);
     if (!n.is_read) void markRead([n.id]);
+    if (pathname === "/tasks") {
+      event?.preventDefault();
+      dispatchOpenTask(n.task_id);
+    }
   }
 
   return (
@@ -263,7 +274,7 @@ export function NotificationBell() {
                   <Link
                     key={n.id}
                     href={`/tasks?task=${n.task_id}`}
-                    onClick={() => handleOpenNotification(n)}
+                    onClick={(event) => handleOpenNotification(n, event)}
                     className={`block px-3 py-2.5 hover:bg-slate-50 ${
                       n.is_read ? "" : "bg-blue-50/40"
                     }`}
@@ -284,7 +295,7 @@ export function NotificationBell() {
             <Link
               key={n.id}
               href={`/tasks?task=${n.task_id}`}
-              onClick={() => handleOpenNotification(n)}
+              onClick={(event) => handleOpenNotification(n, event)}
               className="notif-toast block rounded-xl border border-slate-200 bg-white p-3 shadow-[0_10px_30px_rgba(9,30,66,0.18)] hover:border-[#c1c7d0]"
             >
               <div className="flex items-start gap-2">

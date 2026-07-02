@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
+import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
 import { Plus, Tag, UsersRound } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskStatus } from "@/lib/tasks/types";
@@ -49,10 +50,12 @@ export function TaskBoardClient({
   agentMembersByAgent: Record<string, string[]>;
   initialCategories: TaskCategory[];
 }) {
+  const searchParams = useSearchParams();
+  const deepLinkId = searchParams.get("task");
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
   const [taskAgents, setTaskAgents] = useState<TaskAgent[]>(agents);
   const [view, setView] = useState<BoardView>("board");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(() => deepLinkId);
   const [creating, setCreating] = useState(false);
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
   const [managingCategories, setManagingCategories] = useState(false);
@@ -78,6 +81,7 @@ export function TaskBoardClient({
     resolveTaskDateRangeDefault(initialDateRangeDefault)
   );
   const [error, setError] = useState<string | null>(null);
+  const missingOpenRefetchId = useRef<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -96,11 +100,25 @@ export function TaskBoardClient({
     return () => clearTimeout(t);
   }, [error]);
 
-  // Deep-link from a notification (/tasks?task=<id>). Derived during render (no
-  // effect); the param is dropped on open/close so re-clicking re-opens.
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const deepLinkId = searchParams.get("task");
+  useEffect(() => {
+    const onOpenTask = (event: Event) => {
+      const taskId = (event as CustomEvent<{ taskId?: unknown }>).detail?.taskId;
+      if (typeof taskId !== "string" || taskId.length === 0) return;
+      setOpenId(taskId);
+      writeTaskDeepLink(taskId, "push");
+    };
+    window.addEventListener(OPEN_TASK_EVENT, onOpenTask);
+    return () => window.removeEventListener(OPEN_TASK_EVENT, onOpenTask);
+  }, []);
+
+  useEffect(() => {
+    const onHistoryNavigation = () => {
+      const taskId = new URL(window.location.href).searchParams.get("task");
+      setOpenId(taskId);
+    };
+    window.addEventListener("popstate", onHistoryNavigation);
+    return () => window.removeEventListener("popstate", onHistoryNavigation);
+  }, []);
 
   // Live board: refetch the role-filtered list when the server pings that tasks
   // changed, plus once on (re)connect to catch anything missed while offline.
@@ -137,11 +155,19 @@ export function TaskBoardClient({
   }, [refetchTasks]);
 
   useEffect(() => {
-    if (!deepLinkId) return;
-    if (tasks.some((task) => task.id === deepLinkId)) return;
+    if (!openId) {
+      missingOpenRefetchId.current = null;
+      return;
+    }
+    if (tasks.some((task) => task.id === openId)) {
+      missingOpenRefetchId.current = null;
+      return;
+    }
+    if (missingOpenRefetchId.current === openId) return;
+    missingOpenRefetchId.current = openId;
     const timer = window.setTimeout(() => void refetchTasks(), 0);
     return () => window.clearTimeout(timer);
-  }, [deepLinkId, tasks, refetchTasks]);
+  }, [openId, tasks, refetchTasks]);
 
   const reloadCategories = async () => {
     const res = await fetch("/api/tasks/categories");
@@ -305,16 +331,15 @@ export function TaskBoardClient({
     ]
   );
 
-  const activeOpenId = deepLinkId ?? openId;
-  const openTask = tasks.find((t) => t.id === activeOpenId) ?? null;
+  const openTask = tasks.find((t) => t.id === openId) ?? null;
 
   function openTaskById(id: string) {
-    if (deepLinkId) router.replace("/tasks", { scroll: false });
     setOpenId(id);
+    writeTaskDeepLink(null);
   }
   function closeTask() {
-    if (deepLinkId) router.replace("/tasks", { scroll: false });
     setOpenId(null);
+    writeTaskDeepLink(null);
   }
 
   function replaceTask(updated: TaskRow) {
