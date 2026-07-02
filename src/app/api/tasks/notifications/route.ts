@@ -29,16 +29,23 @@ export async function GET() {
     created_at: string;
   }[];
 
-  // Enrich with the task title + the actor's display name so the bell is readable.
+  // Enrich with the task title, actor display name, and comment body so the bell
+  // tells users exactly what happened before they click.
   const taskIds = [...new Set(base.map((n) => n.task_id))];
   const actorEmails = [...new Set(base.map((n) => n.actor_email))];
-  const [titlesRes, actorsRes] = await Promise.all([
+  const commentIds = [
+    ...new Set(base.map((n) => n.comment_id).filter((id): id is string => Boolean(id))),
+  ];
+  const [titlesRes, actorsRes, commentsRes] = await Promise.all([
     taskIds.length
       ? supabase.from("tasks").select("id,title").in("id", taskIds)
       : Promise.resolve({ data: [] as { id: string; title: string }[] }),
     actorEmails.length
       ? supabase.from("portal_account").select("email,name").in("email", actorEmails)
       : Promise.resolve({ data: [] as { email: string; name: string | null }[] }),
+    commentIds.length
+      ? supabase.from("task_comments").select("id,body").in("id", commentIds)
+      : Promise.resolve({ data: [] as { id: string; body: string }[] }),
   ]);
   const titleById = new Map(
     ((titlesRes.data ?? []) as { id: string; title: string }[]).map((t) => [t.id, t.title])
@@ -49,11 +56,18 @@ export async function GET() {
       a.name,
     ])
   );
+  const commentById = new Map(
+    ((commentsRes.data ?? []) as { id: string; body: string }[]).map((c) => [
+      c.id,
+      c.body,
+    ])
+  );
 
   const notifications = base.map((n) => ({
     ...n,
     task_title: titleById.get(n.task_id) ?? null,
     actor_name: nameByEmail.get(n.actor_email) ?? null,
+    comment_body: n.comment_id ? commentById.get(n.comment_id) ?? null : null,
   }));
   const unread = notifications.filter((n) => !n.is_read).length;
   return NextResponse.json({ notifications, unread, topic: notifTopic(email) });

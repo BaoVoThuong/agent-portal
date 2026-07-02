@@ -136,6 +136,13 @@ export function TaskBoardClient({
     };
   }, [refetchTasks]);
 
+  useEffect(() => {
+    if (!deepLinkId) return;
+    if (tasks.some((task) => task.id === deepLinkId)) return;
+    const timer = window.setTimeout(() => void refetchTasks(), 0);
+    return () => window.clearTimeout(timer);
+  }, [deepLinkId, tasks, refetchTasks]);
+
   const reloadCategories = async () => {
     const res = await fetch("/api/tasks/categories");
     if (res.ok) setCategories((await res.json()).categories as TaskCategory[]);
