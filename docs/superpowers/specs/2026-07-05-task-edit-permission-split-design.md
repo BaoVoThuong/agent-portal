@@ -1,59 +1,75 @@
 # Task Board — Split "Edit Content" from "Change Status"
 
-Date: 2026-07-05
+Date: 2026-07-05 (corrected same day — see note)
 Branch: `main`
-Status: Approved (delegated — user asked for design + implementation, no review round)
+Status: Implemented
+
+## Correction note
+
+An earlier version of this doc was written against a stale read of
+`access.ts` (a `canEditTask(actor, task)` keyed on `agent_email`/
+`reporter_email`). The actual current code (confirmed by fresh `Read` +
+`grep` + passing tests) already went through the "Assignment & Visibility
+Overhaul" refactor from `2026-06-27-assignment-visibility-and-perf-design.md`:
+permission functions take **resolved boolean flags**
+(`isAssignee`, `isAgentOwner`, `isAgentMember`), not raw task columns. This
+version reflects and implements against that real baseline.
 
 ## Problem
 
-Request: only admin (manager) and the task's sales agent (`agent_email` owner)
-should be able to edit a task; the reporter (creator) and the assignee should
-not be able to edit.
+Ask: only admin (manager) and the task's sales agent (`agent_email` owner)
+should be able to edit a task's content; the reporter and the assignee
+should not.
 
-Today `canEditTask` = `isManager || agent_email === me || reporter_email === me`,
-and `canChangeTaskStatus` literally calls `canEditTask` — they are the same
-permission. If we just remove `reporter_email` (and never add assignee) from
-that one function, status changes break too: a CS worker who self-creates and
-self-assigns a task (the normal worker flow — see `resolveCreateAssignment`)
-is both reporter and assignee, so today they can drag their own card across
-the board *only* because they're the reporter. Removing reporter rights from
-the same function that also gates status would leave workers unable to move
-their own tasks from To Do → In Progress → Done at all, which breaks the
-board and contradicts point 3 of this same request (assignee must be able to
-move to In Progress and later submit an overdue reason to unlock).
+Current baseline (`src/lib/tasks/access.ts`):
+- `canMutateTask(actor, task, isAssignee)` = `manager || isAssignee` — gates
+  full content-field edits (title/description/priority/category/agent_email/
+  fub_link) and task-level attachment uploads.
+- `canChangeTaskStatus(actor, task, { isAssignee })` = `manager ||
+  isAssignee` — same condition, separate function, used for the kanban
+  drag/status-only patch path.
+- `canAssignToTask(actor, isAgentMember)` = `manager || isAgentMember`
+  (CS belongs to the task's agent team) — reassignment, unrelated to this ask.
+- Reporter already has **no** special rights anywhere in the current code —
+  that part of the ask is already true.
+
+So the actual gap is narrower than first thought: assignee currently *can*
+edit content (via `canMutateTask`), and the ask says they shouldn't. But
+assignee must still be able to *change status* — they're the one doing the
+work, and the SLA/overdue spec depends on it (assignee moves to In Progress,
+later submits an overdue reason to unlock).
 
 ## Decision
 
-Split one permission into two:
+- `canMutateTask`: keep the function, change what grants it. Third param
+  becomes `isAgentOwner` (task's `agent_email === actor.email`) instead of
+  `isAssignee`. `manager || isAgentOwner` only.
+- `canChangeTaskStatus`: add `isAgentOwner` alongside the existing
+  `isAssignee`. `manager || isAssignee || isAgentOwner`.
+- `canAssignToTask` unchanged (agent-team based, not this ask's concern).
+- `canReviewDoneTask` unchanged (`manager || agent_email owner`).
 
-- **`canEditTaskFields`** (content: title, description, `fub_link`, priority,
-  category, `agent_email`, reassignment) = `isManager || agent_email === me`.
-  Reporter and assignee no longer qualify on their own.
-- **`canChangeTaskStatus`** (status, `waiting_reason`/overdue reason, kanban
-  position) = `isManager || agent_email === me || isAssignee`. This is a new,
-  looser check so the person doing the work can still progress it — required
-  for the SLA/overdue flow in the next spec.
+### Files (implemented)
+- `src/lib/tasks/access.ts` — `canMutateTask` param renamed to `isAgentOwner`
+  in meaning; `canChangeTaskStatus` flags gain `isAgentOwner`.
+- `src/app/api/tasks/[id]/route.ts` — passes `access.isAgentOwner` to
+  `canMutateTask` (was `access.isAssignee`); `canChangeTaskStatus` call gets
+  both flags.
+- `src/app/api/tasks/[id]/attachments/route.ts` — task-level upload gate
+  computes `isAgentOwner` from `task.agent_email` directly (no longer needs
+  an extra `isTaskAssignee` DB round-trip for this branch).
+- `TaskBoardClient.tsx` — `canChangeStatusTask` adds `task.agent_email ===
+  currentEmail`; `canEditOpen` (drawer content-edit gate) switches from
+  `assignees.includes` to `agent_email === currentEmail`. The drawer
+  (`TaskDetailDrawer`) has no separate status control, only content fields,
+  so this one flag is sufficient there.
+- `TaskListView.tsx` — its `canEdit` prop actually gates the inline **status**
+  pill (not content — content editing happens in the shared drawer), so it
+  gets the same treatment as `canChangeStatusTask`: add `agent_email ===
+  currentEmail` alongside the existing assignee check.
+- `access.test.ts` — updated to assert assignee-only grants status-change but
+  not content-mutate; agent-owner grants both.
 
-`canAssignToTask` keeps calling the fields-permission (reassigning is a
-content-ish action reserved for manager/agent owner — unchanged behavior
-except reporter loses it, consistent with the ask).
-
-`canDeleteTask` unchanged (manager only).
-
-### Files
-- `src/lib/tasks/access.ts` — rename `canEditTask` → `canEditTaskFields`,
-  add `isAssignee` param; add new `canChangeTaskStatus(actor, task, isAssignee)`
-  independent of it (currently defined as an alias, see line ~97).
-- `src/lib/tasks/transitions.ts` — `resolveTaskPatch` takes the two resolved
-  booleans instead of one.
-- `src/app/api/tasks/[id]/route.ts` — `resolveTaskAccess` already resolves
-  `isAssignee`; wire it into both checks instead of only view.
-- `src/app/api/tasks/[id]/attachments/route.ts` — uses `canEditTask` today for
-  upload gating; switch to `canEditTaskFields` (attachments are content).
-- `TaskBoardClient.tsx`, `TaskListView.tsx` — mirror the same split
-  client-side (used only for UI gating; server is authoritative).
-- `access.test.ts`, `transitions.test.ts` — update/add cases: assignee-only
-  (not manager/agent) can change status but not fields; reporter-only can do
-  neither.
-
-No schema change.
+No schema change. No `transitions.ts` change needed — it already just takes
+resolved patch data and doesn't call these permission functions itself (the
+route resolves permission before shaping the patch).

@@ -128,7 +128,7 @@ export async function POST(req: Request, { params }: Ctx) {
     !canMutateTask(
       r.actor,
       r.task,
-      r.actor.isManager ? false : await isTaskAssignee(id, r.actor.email, r.supabase)
+      Boolean(r.task.agent_email && r.task.agent_email === r.actor.email)
     )
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });

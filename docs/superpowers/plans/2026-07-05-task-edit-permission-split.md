@@ -1,35 +1,30 @@
 # Plan — Split edit-content from change-status permission
 
 Spec: `docs/superpowers/specs/2026-07-05-task-edit-permission-split-design.md`
+(corrected same day against the real current `access.ts` baseline — see the
+spec's correction note).
 
-1. `src/lib/tasks/access.ts`
-   - Rename `canEditTask` → `canEditTaskFields`: `isManager || agent_email === actor.email`.
-   - Add `canChangeTaskStatus(actor, task, isAssignee)`:
-     `isManager || agent_email === actor.email || isAssignee`.
-   - `canAssignToTask` calls `canEditTaskFields`.
-   - `canDeleteTask` unchanged.
-2. `src/lib/tasks/transitions.ts` — `resolveTaskPatch` takes
-   `{ canEditFields, canChangeStatus, canAssign, canReviewDone, nowIso }`;
-   field-shape edits (title/description/fub_link/priority/category/agent_email)
-   require `canEditFields`; status/waiting-adjacent edits require
-   `canChangeStatus`. (`waiting_reason` handling removed here per the SLA
-   spec — coordinate order of these two changes so this file isn't edited
-   twice; do the permission split first, land it, then the SLA spec removes
-   the waiting_reason block entirely.)
-3. `src/app/api/tasks/[id]/route.ts` — `resolveTaskAccess` already resolves
-   `isAssignee`; pass it into both the `canMutate`/content check and the
-   status-only fallback so the second branch is no longer permanently
-   `false`.
-4. `src/app/api/tasks/[id]/attachments/route.ts` — swap `canEditTask` →
-   `canEditTaskFields`.
-5. `TaskBoardClient.tsx`, `TaskListView.tsx` — mirror the split client-side
-   (need `isAssignee` computed client-side too — check how `assignees` is
-   already available on `TaskRow` for the open task, e.g.
-   `task.assignees.includes(currentEmail)`).
-6. Tests: `access.test.ts` (assignee-only can change status, not fields;
-   reporter-only can do neither; agent-owner can do both), `transitions.test.ts`
-   (status-only patch succeeds with only `canChangeStatus`, rejected without
-   it; field patch rejected without `canEditFields` even with
-   `canChangeStatus`).
-7. `npm run test:run`, `npm run typecheck`, `npm run build` — fix failures.
-8. Commit.
+## Done
+1. `src/lib/tasks/access.ts` — `canMutateTask(actor, task, isAgentOwner)` =
+   `manager || isAgentOwner`; `canChangeTaskStatus(actor, task, { isAssignee,
+   isAgentOwner })` = `manager || isAssignee || isAgentOwner`.
+2. `src/app/api/tasks/[id]/route.ts` — `canMutateTask` call passes
+   `access.isAgentOwner`; `canChangeTaskStatus` call passes both flags.
+3. `src/app/api/tasks/[id]/attachments/route.ts` — task-level upload gate
+   computes `isAgentOwner` from `r.task.agent_email` directly.
+4. `TaskBoardClient.tsx` — `canChangeStatusTask` adds agent-owner;
+   `canEditOpen` becomes agent-owner-only (drawer has no separate status
+   control).
+5. `TaskListView.tsx` — row `canEdit` (gates the status pill) adds
+   agent-owner.
+6. `access.test.ts` — updated assertions + a new case for agent-owner
+   granting both mutate and status-change.
+7. `npm run test:run` — 208/208 pass. `npm run typecheck` — clean.
+
+## Remaining
+- `npm run build` as part of the final verification pass (bundled with the
+  other two features' build check before the implementation commit).
+- Manual smoke check once the dev server is up: log in as a CS who is
+  assigned-but-not-agent-owner on a task, confirm the drawer's fields are
+  now read-only but the kanban card / list status pill still lets them
+  progress it.

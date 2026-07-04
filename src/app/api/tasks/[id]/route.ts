@@ -141,7 +141,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "You cannot assign this task." }, { status: 403 });
   }
 
-  const canMutate = canMutateTask(r.actor, r.task, access.isAssignee);
+  const canMutate = canMutateTask(r.actor, r.task, access.isAgentOwner);
   const canReviewDone = canReviewDoneTask(r.actor, r.task);
   let resolvedBody: unknown = body;
   if (!canMutate) {
@@ -151,6 +151,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       statusOnly &&
       canChangeTaskStatus(r.actor, r.task, {
         isAssignee: access.isAssignee,
+        isAgentOwner: access.isAgentOwner,
       });
     const canPatchReview = reviewOnly && canReviewDone;
     if (!canPatchStatus && !canPatchReview) {

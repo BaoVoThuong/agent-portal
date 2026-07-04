@@ -79,26 +79,33 @@ export function canAssignToTask(actor: TaskActor, isAgentMember: boolean): boole
   return isAgentMember;
 }
 
+// Content edit (title/description/priority/category/agent/fub_link, plus
+// task-level attachment uploads): manager or the task's agent owner only.
+// Being the assignee or the reporter does NOT grant this.
 export function canMutateTask(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">,
-  isAssignee = false
+  isAgentOwner = false
 ): boolean {
   void task;
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return isAssignee;
+  return isAgentOwner;
 }
 
+// Status transitions (kanban move, position, the overdue-unlock flow):
+// manager, the agent owner, or whoever is actually assigned the work — the
+// assignee needs this even though they can't edit content, otherwise they
+// couldn't progress their own tasks.
 export function canChangeTaskStatus(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">,
-  flags: { isAssignee?: boolean } = {}
+  flags: { isAssignee?: boolean; isAgentOwner?: boolean } = {}
 ): boolean {
   void task;
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return Boolean(flags.isAssignee);
+  return Boolean(flags.isAssignee) || Boolean(flags.isAgentOwner);
 }
 
 export function canDeleteTask(actor: TaskActor): boolean {

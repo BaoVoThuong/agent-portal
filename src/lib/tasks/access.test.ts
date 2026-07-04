@@ -62,14 +62,22 @@ describe("per-task view/mutate scope", () => {
     expect(canMutateTask(manager, { assignee_email: null })).toBe(true);
     expect(canDeleteTask(manager)).toBe(true);
   });
-  it("CS can view, mutate, and change status only when resolved as assigned", () => {
+  it("CS can view when assigned, but assignment alone no longer grants content edit", () => {
     expect(canViewTask(cs, { assignee_email: "cs@x.com" }, { isAssignee: true })).toBe(true);
     expect(canViewTask(cs, { assignee_email: "other@x.com" })).toBe(false);
     expect(canViewTask(cs, { assignee_email: null })).toBe(false);
+    // Assignee can change status (progress their own work)...
     expect(canChangeTaskStatus(cs, { assignee_email: "cs@x.com" }, { isAssignee: true })).toBe(true);
-    expect(canMutateTask(cs, { assignee_email: "cs@x.com" }, true)).toBe(true);
+    // ...but cannot edit content fields — only manager or agent owner can.
+    expect(canMutateTask(cs, { assignee_email: "cs@x.com" }, false)).toBe(false);
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
     expect(canDeleteTask(cs)).toBe(false);
+  });
+  it("agent owner can edit content and change status even when not the assignee", () => {
+    expect(canMutateTask(cs, { assignee_email: "other@x.com" }, true)).toBe(true);
+    expect(
+      canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAgentOwner: true })
+    ).toBe(true);
   });
   it("CS can view (not mutate) a task they participate in", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isParticipant: true })).toBe(true);
@@ -161,8 +169,8 @@ describe("canAssignToTask", () => {
   });
 });
 
-describe("canMutateTask with isAssignee flag", () => {
-  it("manager always; CS only when resolved as an assignee", () => {
+describe("canMutateTask with isAgentOwner flag", () => {
+  it("manager always; CS only when resolved as the task's agent owner", () => {
     expect(canMutateTask(manager, { assignee_email: null }, false)).toBe(true);
     expect(canMutateTask(cs, { assignee_email: "x@x.com" }, true)).toBe(true);
     expect(canMutateTask(cs, { assignee_email: "x@x.com" }, false)).toBe(false);

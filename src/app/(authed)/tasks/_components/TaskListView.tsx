@@ -107,7 +107,8 @@ export function TaskListView({
                   agentMembersByAgent={agentMembersByAgent}
                   canEdit={
                     isManager ||
-                    task.assignees.includes(currentEmail)
+                    task.assignees.includes(currentEmail) ||
+                    task.agent_email === currentEmail
                   }
                   canAssign={
                     isManager ||

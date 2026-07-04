@@ -347,7 +347,11 @@ export function TaskBoardClient({
   }
 
   function canChangeStatusTask(task: TaskRow): boolean {
-    return isManager || task.assignees.includes(currentEmail);
+    return (
+      isManager ||
+      task.assignees.includes(currentEmail) ||
+      task.agent_email === currentEmail
+    );
   }
 
   function canReviewDoneTask(task: TaskRow): boolean {
@@ -505,7 +509,7 @@ export function TaskBoardClient({
     openTask !== null &&
     (isManager || Boolean(openTask.agent_email && myAgents.includes(openTask.agent_email)));
   const canEditOpen =
-    openTask !== null && (isManager || openTask.assignees.includes(currentEmail));
+    openTask !== null && (isManager || openTask.agent_email === currentEmail);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white text-[#172b4d]">
