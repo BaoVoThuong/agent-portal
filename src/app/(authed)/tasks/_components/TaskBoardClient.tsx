@@ -5,14 +5,15 @@ import { useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
-import { Plus, Tag, UsersRound } from "lucide-react";
-import type { TaskCategory, TaskRow, TaskStatus } from "@/lib/tasks/types";
+import { Clock, Plus, Tag, UsersRound } from "lucide-react";
+import type { TaskCategory, TaskRow, TaskSlaRule, TaskStatus } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import {
   filterTasks,
   NO_AGENT,
   type QuickFilter,
 } from "@/lib/tasks/filtering";
+import { isTaskOverdue } from "@/lib/tasks/sla";
 import { KanbanBoard } from "./KanbanBoard";
 import { BacklogBoard } from "./BacklogBoard";
 import { TaskListView } from "./TaskListView";
@@ -28,6 +29,12 @@ import { NewTaskDialog, type NewTaskPayload } from "./NewTaskDialog";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { CategoryManager } from "./CategoryManager";
 import { AgentGroupsModal } from "./AgentGroupsModal";
+import { SlaRulesModal } from "./SlaRulesModal";
+import { OverdueUnlockModal } from "./OverdueUnlockModal";
+
+// Countdown/overdue labels only need to refresh every so often, not on every
+// render — 30s keeps the board close to live without a timer per card.
+const SLA_TICK_MS = 30_000;
 
 export function TaskBoardClient({
   initialTasks,
@@ -60,6 +67,10 @@ export function TaskBoardClient({
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
   const [managingCategories, setManagingCategories] = useState(false);
   const [managingAgentGroups, setManagingAgentGroups] = useState(false);
+  const [managingSlaRules, setManagingSlaRules] = useState(false);
+  const [slaRules, setSlaRules] = useState<TaskSlaRule[]>([]);
+  const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
+  const [now, setNow] = useState(() => new Date());
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
@@ -174,6 +185,21 @@ export function TaskBoardClient({
     if (res.ok) setCategories((await res.json()).categories as TaskCategory[]);
   };
 
+  const reloadSlaRules = useCallback(async () => {
+    const res = await fetch("/api/admin/task-sla-rules");
+    if (res.ok) setSlaRules((await res.json()).rules as TaskSlaRule[]);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => void reloadSlaRules(), 0);
+    return () => clearTimeout(timer);
+  }, [reloadSlaRules]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), SLA_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
   const categoryById = useMemo(
     () => new Map(categories.map((category) => [category.id, category])),
     [categories]
@@ -236,7 +262,7 @@ export function TaskBoardClient({
         label,
         total: 0,
         active: 0,
-        waiting: 0,
+        overdue: 0,
         done: 0,
         urgent: 0,
       };
@@ -261,7 +287,7 @@ export function TaskBoardClient({
       const stat = ensure(key, label);
       stat.total += 1;
       if (task.status !== "done" && task.status !== "cancel") stat.active += 1;
-      if (task.status === "waiting") stat.waiting += 1;
+      if (isTaskOverdue(task, slaRules, now)) stat.overdue += 1;
       if (task.status === "done") stat.done += 1;
       if (task.priority === "urgent" || task.priority === "high") stat.urgent += 1;
     }
@@ -270,7 +296,15 @@ export function TaskBoardClient({
     return [...stats.values()].filter(
       (stat) => stat.total > 0 || selectedAgentEmails.has(stat.key)
     );
-  }, [agentChoices, taskAgents, tasks]);
+  }, [agentChoices, taskAgents, tasks, slaRules, now]);
+
+  const overdueIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const task of tasks) {
+      if (isTaskOverdue(task, slaRules, now)) ids.add(task.id);
+    }
+    return ids;
+  }, [tasks, slaRules, now]);
 
   // Which filters make sense for the current view + role. Hidden filters are also
   // forced inert here so a stale value can't silently filter a view that hides it.
@@ -293,6 +327,7 @@ export function TaskBoardClient({
         dateFrom: dateRange.from,
         dateTo: dateRange.to,
         currentEmail,
+        overdueIds,
         searchText: (task) => {
           const category = task.category_id ? categoryById.get(task.category_id) : null;
           return [
@@ -328,6 +363,7 @@ export function TaskBoardClient({
       categoryById,
       agentLabelByEmail,
       assigneeLabelByEmail,
+      overdueIds,
     ]
   );
 
@@ -400,6 +436,31 @@ export function TaskBoardClient({
     void patchTask(id, change);
   }
 
+  async function submitOverdueUnlock(reason: string): Promise<boolean> {
+    const id = unlockingTaskId;
+    if (!id) return false;
+    let res: Response;
+    try {
+      res = await fetch(`/api/tasks/${id}/overdue-unlock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+    } catch {
+      setError("Mất kết nối — không unlock được task.");
+      return false;
+    }
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(data?.error ?? "Không unlock được task.");
+      return false;
+    }
+    const data = await res.json();
+    replaceTask(data.task as TaskRow);
+    setUnlockingTaskId(null);
+    return true;
+  }
+
   async function changeAssignee(id: string, email: string, assigned: boolean) {
     const before = tasks.find((t) => t.id === id) ?? null;
     if (!before) return;
@@ -417,7 +478,6 @@ export function TaskBoardClient({
           : before.status === "backlog"
             ? "todo"
             : before.status,
-      waiting_reason: nextAssignees.length === 0 ? null : before.waiting_reason,
     };
     setTasks((cur) => cur.map((task) => (task.id === id ? optimistic : task)));
 
@@ -536,6 +596,14 @@ export function TaskBoardClient({
                   <Tag className="h-4 w-4" />
                   Categories
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setManagingSlaRules(true)}
+                  className="inline-flex h-9 items-center gap-2 rounded border border-transparent bg-[#f4f5f7] px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#ebecf0]"
+                >
+                  <Clock className="h-4 w-4" />
+                  SLA Times
+                </button>
               </>
             )}
             <button
@@ -593,6 +661,9 @@ export function TaskBoardClient({
           categories={categories}
           agentLabelByEmail={agentLabelByEmail}
           assigneeLabelByEmail={assigneeLabelByEmail}
+          rules={slaRules}
+          now={now}
+          onUnlockOverdue={setUnlockingTaskId}
         />
       )}
 
@@ -610,6 +681,7 @@ export function TaskBoardClient({
           canReviewDoneTask={canReviewDoneTask}
           onReviewDone={reviewDoneTask}
           onAssigneeChange={changeAssignee}
+          overdueIds={overdueIds}
         />
       )}
 
@@ -679,6 +751,20 @@ export function TaskBoardClient({
         cs={assignees}
         onAgentsChange={setTaskAgents}
         onClose={() => setManagingAgentGroups(false)}
+      />
+
+      <SlaRulesModal
+        open={managingSlaRules}
+        categories={categories}
+        rules={slaRules}
+        onRulesChange={setSlaRules}
+        onClose={() => setManagingSlaRules(false)}
+      />
+
+      <OverdueUnlockModal
+        open={unlockingTaskId !== null}
+        onClose={() => setUnlockingTaskId(null)}
+        onSubmit={submitOverdueUnlock}
       />
 
       {error && (

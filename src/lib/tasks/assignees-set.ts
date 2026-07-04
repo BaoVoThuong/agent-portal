@@ -5,7 +5,6 @@ export type AssigneeChange = { add?: string; remove?: string };
 export type AssigneeChangeResult = {
   assignees: string[];
   status: TaskStatus;
-  clearWaitingReason: boolean;
 };
 
 export function resolveAssigneeChange(
@@ -21,14 +20,12 @@ export function resolveAssigneeChange(
 
   const assignees = [...set];
   let status = current.status;
-  let clearWaitingReason = false;
 
   if (assignees.length === 0) {
     status = "backlog";
-    clearWaitingReason = current.status === "waiting";
   } else if (current.status === "backlog") {
     status = "todo";
   }
 
-  return { assignees, status, clearWaitingReason };
+  return { assignees, status };
 }

@@ -41,7 +41,7 @@ export type AgentStat = {
   label: string;
   total: number;
   active: number;
-  waiting: number;
+  overdue: number;
   done: number;
   urgent: number;
 };
@@ -49,6 +49,7 @@ export type AgentStat = {
 // One-click smart views. Each maps to a `matchesQuick` rule; multiple combine (AND).
 const PRESETS: { key: QuickFilter; label: string; managerOnly?: boolean }[] = [
   { key: "mine", label: "My tasks", managerOnly: true },
+  { key: "overdue", label: "Overdue" },
   { key: "highPriority", label: "High priority" },
   { key: "recentlyUpdated", label: "Recently updated" },
 ];

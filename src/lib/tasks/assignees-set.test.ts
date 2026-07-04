@@ -10,7 +10,6 @@ describe("resolveAssigneeChange", () => {
 
     expect(r.assignees).toEqual(["a@x.com"]);
     expect(r.status).toBe("todo");
-    expect(r.clearWaitingReason).toBe(false);
   });
 
   it("keeps status when adding a second assignee", () => {
@@ -23,15 +22,14 @@ describe("resolveAssigneeChange", () => {
     expect(r.status).toBe("in_progress");
   });
 
-  it("moves to backlog and clears waiting when removing the last assignee", () => {
+  it("moves to backlog when removing the last assignee", () => {
     const r = resolveAssigneeChange(
-      { status: "waiting", assignees: ["a@x.com"] },
+      { status: "in_progress", assignees: ["a@x.com"] },
       { remove: "a@x.com" }
     );
 
     expect(r.assignees).toEqual([]);
     expect(r.status).toBe("backlog");
-    expect(r.clearWaitingReason).toBe(true);
   });
 
   it("keeps status when removing one of many assignees", () => {

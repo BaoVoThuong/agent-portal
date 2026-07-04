@@ -9,7 +9,8 @@ export type QuickFilter =
   | "highPriority"
   | "recentlyUpdated"
   | "mine"
-  | "triage";
+  | "triage"
+  | "overdue";
 
 export type FilterCriteria = {
   query: string;
@@ -23,6 +24,9 @@ export type FilterCriteria = {
   dateTo?: string;
   currentEmail: string;
   now?: Date;
+  // Precomputed (needs SLA rules, which live outside this pure module) —
+  // required only when quick includes "overdue".
+  overdueIds?: Set<string>;
   searchText?: (task: TaskRow) => string;
 };
 
@@ -44,7 +48,8 @@ function matchesQuick(
   task: TaskRow,
   filter: QuickFilter,
   currentEmail: string,
-  now: Date
+  now: Date,
+  overdueIds: Set<string> | undefined
 ): boolean {
   switch (filter) {
     case "highPriority":
@@ -61,6 +66,8 @@ function matchesQuick(
       );
     case "triage":
       return !task.category_id || !task.agent_email;
+    case "overdue":
+      return overdueIds?.has(task.id) ?? false;
   }
 }
 
@@ -83,7 +90,9 @@ export function filterTasks(tasks: TaskRow[], c: FilterCriteria): TaskRow[] {
     if (!matchesCategory(task, categoryValues)) return false;
     if (!matchesStatus(task, statusValues)) return false;
     if (query && !searchText(task).includes(query)) return false;
-    return c.quick.every((filter) => matchesQuick(task, filter, c.currentEmail, now));
+    return c.quick.every((filter) =>
+      matchesQuick(task, filter, c.currentEmail, now, c.overdueIds)
+    );
   });
 }
 

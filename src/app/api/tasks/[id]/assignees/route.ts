@@ -27,7 +27,7 @@ async function loadContext(id: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")
-    .select("id,status,agent_email,assignee_email,waiting_reason")
+    .select("id,status,agent_email,assignee_email")
     .eq("id", id)
     .maybeSingle();
   if (error) return { error: error.message, status: 500 };
@@ -35,7 +35,7 @@ async function loadContext(id: string) {
 
   const task = data as unknown as Pick<
     TaskRow,
-    "id" | "status" | "agent_email" | "assignee_email" | "waiting_reason"
+    "id" | "status" | "agent_email" | "assignee_email"
   >;
   const agents = actor.isManager ? [] : await fetchAgentsForCs(actor.email);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
@@ -91,7 +91,6 @@ export async function POST(req: Request, { params }: Ctx) {
     updated_at: new Date().toISOString(),
   };
   if (next.status !== ctx.task.status) taskPatch.status = next.status;
-  if (next.clearWaitingReason) taskPatch.waiting_reason = null;
 
   const { error: updateError } = await ctx.supabase
     .from("tasks")

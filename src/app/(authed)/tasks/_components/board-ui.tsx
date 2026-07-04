@@ -2,11 +2,13 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronsUp,
+  Clock,
   Equal,
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
-import type { TaskPriority, WaitingReason } from "@/lib/tasks/types";
+import type { TaskPriority } from "@/lib/tasks/types";
+import { formatSlaRemaining } from "@/lib/tasks/sla";
 
 export const PRIORITY_META: Record<
   TaskPriority,
@@ -90,18 +92,19 @@ export function PriorityDot({ priority }: { priority: TaskPriority }) {
   );
 }
 
-const WAITING_LABEL: Record<WaitingReason, string> = {
-  customer: "waiting: customer",
-  carrier: "waiting: carrier",
-  documents: "waiting: docs",
-  other: "waiting",
-};
-
-export function WaitingTag({ reason }: { reason: WaitingReason | null }) {
-  if (!reason) return null;
+// Countdown while running, red "Overdue by …" once past deadline. `null`
+// deadline means the task isn't in_progress (no timer to show).
+export function SlaTimer({ deadline, now }: { deadline: Date | null; now: Date }) {
+  if (!deadline) return null;
+  const overdue = now.getTime() >= deadline.getTime();
   return (
-    <span className="rounded bg-[#fff7d6] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]">
-      {WAITING_LABEL[reason]}
+    <span
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold ${
+        overdue ? "bg-[#ffebe6] text-[#bf2600]" : "bg-[#f4f5f7] text-[#44546f]"
+      }`}
+    >
+      <Clock className="h-3.5 w-3.5" />
+      {formatSlaRemaining(deadline, now)}
     </span>
   );
 }

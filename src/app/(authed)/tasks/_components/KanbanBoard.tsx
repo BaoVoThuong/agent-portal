@@ -23,32 +23,34 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  KANBAN_STATUSES,
+  BOARD_COLUMN_LABEL,
+  KANBAN_COLUMNS,
+  type BoardColumn,
   type TaskRow,
   type TaskStatus,
   type TaskCategory,
+  type TaskSlaRule,
 } from "@/lib/tasks/types";
+import { isTaskOverdue, resolveSlaMinutes, slaDeadline } from "@/lib/tasks/sla";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TaskCard } from "./TaskCard";
-
-const COLUMN_LABEL: Record<TaskStatus, string> = {
-  backlog: "Backlog",
-  todo: "To Do",
-  in_progress: "In Progress",
-  waiting: "Waiting",
-  done: "Done",
-  cancel: "Cancel",
-};
 
 function byPosition(tasks: TaskRow[]): TaskRow[] {
   return [...tasks].sort((a, b) => a.position - b.position);
 }
 
-// The column a draggable id currently belongs to. Column drop zones use the id
-// `col:<status>`; cards use their task id.
-function findContainer(id: string, items: TaskRow[]): TaskStatus | null {
-  if (id.startsWith("col:")) return id.slice(4) as TaskStatus;
-  return items.find((task) => task.id === id)?.status ?? null;
+// The board column a draggable id currently belongs to. Column drop zones use
+// the id `col:<column>`; cards use their task id. "overdue" is a computed
+// bucket, never a real status, so it can never be the resolved container for
+// a card that's actually being moved (see the drag handlers below).
+function findContainer(
+  id: string,
+  items: TaskRow[],
+  columnOf: (task: TaskRow) => BoardColumn
+): BoardColumn | null {
+  if (id.startsWith("col:")) return id.slice(4) as BoardColumn;
+  const task = items.find((t) => t.id === id);
+  return task ? columnOf(task) : null;
 }
 
 // Index just after the last card of a status (where an appended card lands).
@@ -93,6 +95,10 @@ function SortableCard({
   onReviewDone,
   canMove,
   onOpen,
+  slaDeadline,
+  isOverdue,
+  now,
+  onUnlockOverdue,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
@@ -102,6 +108,10 @@ function SortableCard({
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   canMove: boolean;
   onOpen: (id: string) => void;
+  slaDeadline: Date | null;
+  isOverdue: boolean;
+  now: Date;
+  onUnlockOverdue: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id, disabled: !canMove });
@@ -127,13 +137,17 @@ function SortableCard({
         canReviewDone={canReviewDone}
         onReviewDone={onReviewDone}
         onOpen={onOpen}
+        slaDeadline={slaDeadline}
+        isOverdue={isOverdue}
+        now={now}
+        onUnlockOverdue={onUnlockOverdue}
       />
     </div>
   );
 }
 
 function Column({
-  status,
+  column,
   tasks,
   onOpen,
   canMoveTask,
@@ -142,8 +156,11 @@ function Column({
   assigneeLabelByEmail,
   canReviewDoneTask,
   onReviewDone,
+  slaDeadlineFor,
+  now,
+  onUnlockOverdue,
 }: {
-  status: TaskStatus;
+  column: BoardColumn;
   tasks: TaskRow[];
   onOpen: (id: string) => void;
   canMoveTask: (task: TaskRow) => boolean;
@@ -152,20 +169,32 @@ function Column({
   categoryById: Map<string, TaskCategory>;
   agentLabelByEmail: Map<string, string>;
   assigneeLabelByEmail: Map<string, string>;
+  slaDeadlineFor: (task: TaskRow) => Date | null;
+  now: Date;
+  onUnlockOverdue: (id: string) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `col:${status}` });
+  const { setNodeRef, isOver } = useDroppable({ id: `col:${column}` });
+  const isOverdueColumn = column === "overdue";
   return (
     <section
       ref={setNodeRef}
-      className={`flex min-w-0 flex-1 flex-col rounded bg-[#f4f5f7] p-1.5 transition-colors ${
-        isOver ? "bg-[#deebff]" : ""
-      }`}
+      className={`flex min-w-0 flex-1 flex-col rounded p-1.5 transition-colors ${
+        isOverdueColumn ? "bg-[#fff0ee]" : "bg-[#f4f5f7]"
+      } ${isOver && !isOverdueColumn ? "bg-[#deebff]" : ""}`}
     >
       <div className="flex h-9 items-center px-1">
-        <span className="text-xs font-bold uppercase text-[#6b778c]">
-          {COLUMN_LABEL[status]}
+        <span
+          className={`text-xs font-bold uppercase ${
+            isOverdueColumn ? "text-[#bf2600]" : "text-[#6b778c]"
+          }`}
+        >
+          {BOARD_COLUMN_LABEL[column]}
         </span>
-        <span className="ml-1 text-xs font-bold text-[#6b778c]">
+        <span
+          className={`ml-1 text-xs font-bold ${
+            isOverdueColumn ? "text-[#bf2600]" : "text-[#6b778c]"
+          }`}
+        >
           {tasks.length}
         </span>
       </div>
@@ -189,8 +218,12 @@ function Column({
               assigneeLabelByEmail={assigneeLabelByEmail}
               canReviewDone={canReviewDoneTask(t)}
               onReviewDone={onReviewDone}
-              canMove={canMoveTask(t)}
+              canMove={!isOverdueColumn && canMoveTask(t)}
               onOpen={onOpen}
+              slaDeadline={slaDeadlineFor(t)}
+              isOverdue={isOverdueColumn}
+              now={now}
+              onUnlockOverdue={onUnlockOverdue}
             />
           ))}
         </SortableContext>
@@ -209,6 +242,9 @@ export function KanbanBoard({
   categories,
   agentLabelByEmail,
   assigneeLabelByEmail,
+  rules,
+  now,
+  onUnlockOverdue,
 }: {
   tasks: TaskRow[];
   onOpen: (id: string) => void;
@@ -219,11 +255,28 @@ export function KanbanBoard({
   categories: TaskCategory[];
   agentLabelByEmail: Map<string, string>;
   assigneeLabelByEmail: Map<string, string>;
+  rules: TaskSlaRule[];
+  now: Date;
+  onUnlockOverdue: (id: string) => void;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
   const categoryById = new Map(categories.map((category) => [category.id, category]));
+
+  const isOverdueTask = (task: TaskRow) => isTaskOverdue(task, rules, now);
+  const slaDeadlineFor = (task: TaskRow): Date | null => {
+    if (task.status !== "in_progress" || !task.in_progress_at) return null;
+    const minutes = resolveSlaMinutes(task.priority, task.category_id, rules);
+    return slaDeadline(task.in_progress_at, minutes);
+  };
+  // Kanban never receives backlog tasks (Backlog is a separate view), but
+  // TaskStatus includes it — narrow it away so the fallback return type-checks.
+  const columnOf = (task: TaskRow): BoardColumn => {
+    if (task.status === "in_progress" && isOverdueTask(task)) return "overdue";
+    if (task.status === "backlog") return "todo";
+    return task.status;
+  };
 
   const sortedTasks = useMemo(() => byPosition(tasks), [tasks]);
   // Local ordered mirror used only while dragging so the board can reflow live.
@@ -231,36 +284,46 @@ export function KanbanBoard({
   const [activeId, setActiveId] = useState<string | null>(null);
   const items = dragItems ?? sortedTasks;
 
-  const columnTasks = (status: TaskStatus) =>
-    items.filter((task) => task.status === status);
+  const columnTasks = (column: BoardColumn) =>
+    items.filter((task) => columnOf(task) === column);
 
   const activeTask = activeId
     ? items.find((task) => task.id === activeId) ?? null
     : null;
 
+  function canDragTask(task: TaskRow): boolean {
+    return canMoveTask(task) && !isOverdueTask(task);
+  }
+
   function handleDragStart(event: DragStartEvent) {
     const id = String(event.active.id);
     const task = sortedTasks.find((item) => item.id === id);
-    if (!task || !canMoveTask(task)) return;
+    if (!task || !canDragTask(task)) return;
     setDragItems(sortedTasks);
     setActiveId(id);
   }
 
   // Live cross-column move: when the dragged card hovers a different column,
   // splice it into that column immediately so the board reflows under the cursor.
+  // "Overdue" is a computed bucket, not a real status — dropping there is a no-op.
   function handleDragOver(event: DragOverEvent) {
     const { active, over } = event;
     if (!over) return;
     const activeId = String(active.id);
     const overId = String(over.id);
     const original = tasks.find((task) => task.id === activeId);
-    if (!original || !canMoveTask(original)) return;
+    if (!original || !canDragTask(original)) return;
 
     setDragItems((prev) => {
       const current = prev ?? sortedTasks;
-      const activeContainer = findContainer(activeId, current);
-      const overContainer = findContainer(overId, current);
-      if (!activeContainer || !overContainer || activeContainer === overContainer) {
+      const activeContainer = findContainer(activeId, current, columnOf);
+      const overContainer = findContainer(overId, current, columnOf);
+      if (
+        !activeContainer ||
+        !overContainer ||
+        activeContainer === overContainer ||
+        overContainer === "overdue"
+      ) {
         return current;
       }
 
@@ -294,12 +357,12 @@ export function KanbanBoard({
     const activeId = String(active.id);
     const overId = String(over.id);
     const original = tasks.find((task) => task.id === activeId);
-    if (!original || !canMoveTask(original)) return;
+    if (!original || !canDragTask(original)) return;
 
     // Same-column reorder commits here (cross-column already happened on hover).
     let working = items;
-    const activeContainer = findContainer(activeId, items);
-    const overContainer = findContainer(overId, items);
+    const activeContainer = findContainer(activeId, items, columnOf);
+    const overContainer = findContainer(overId, items, columnOf);
     if (
       activeContainer &&
       overContainer &&
@@ -348,11 +411,11 @@ export function KanbanBoard({
       }}
     >
       <div className="flex min-h-0 flex-1 gap-4 px-6 pb-6">
-        {KANBAN_STATUSES.map((status) => (
+        {KANBAN_COLUMNS.map((column) => (
           <Column
-            key={status}
-            status={status}
-            tasks={columnTasks(status)}
+            key={column}
+            column={column}
+            tasks={columnTasks(column)}
             onOpen={onOpen}
             canMoveTask={canMoveTask}
             canReviewDoneTask={canReviewDoneTask}
@@ -360,6 +423,9 @@ export function KanbanBoard({
             categoryById={categoryById}
             agentLabelByEmail={agentLabelByEmail}
             assigneeLabelByEmail={assigneeLabelByEmail}
+            slaDeadlineFor={slaDeadlineFor}
+            now={now}
+            onUnlockOverdue={onUnlockOverdue}
           />
         ))}
       </div>
@@ -384,6 +450,8 @@ export function KanbanBoard({
               canReviewDone={false}
               onReviewDone={onReviewDone}
               onOpen={() => {}}
+              slaDeadline={slaDeadlineFor(activeTask)}
+              now={now}
             />
           </div>
         ) : null}

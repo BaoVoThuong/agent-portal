@@ -20,6 +20,7 @@ export function TaskListView({
   canReviewDoneTask,
   onReviewDone,
   onAssigneeChange,
+  overdueIds,
 }: {
   tasks: TaskRow[];
   categories: TaskCategory[];
@@ -33,6 +34,7 @@ export function TaskListView({
   canReviewDoneTask: (task: TaskRow) => boolean;
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
+  overdueIds: Set<string>;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("created");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -120,6 +122,7 @@ export function TaskListView({
                   onReviewDone={(reviewed) => onReviewDone(task.id, reviewed)}
                   onAssigneeChange={onAssigneeChange}
                   openOnDoubleClick
+                  isOverdue={overdueIds.has(task.id)}
                 />
               </li>
             ))}

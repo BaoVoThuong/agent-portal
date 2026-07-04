@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const STATUS_PATCH_KEYS = new Set(["status", "waiting_reason", "position"]);
+const STATUS_PATCH_KEYS = new Set(["status", "position"]);
 const REVIEW_PATCH_KEYS = new Set(["done_reviewed"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {

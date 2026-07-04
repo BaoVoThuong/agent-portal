@@ -2,7 +2,24 @@
 
 Date: 2026-07-05
 Branch: `main`
-Status: Approved (delegated — user asked for design + implementation, no review round)
+Status: Implemented
+
+## Implementation notes
+- Built as designed. `POST /api/tasks/[id]/overdue-unlock` reuses
+  `canChangeTaskStatus` (manager/assignee/agent-owner) from the permission
+  split spec rather than a new permission function.
+- `GET /api/admin/task-sla-rules` is readable by any board actor (manager or
+  worker) since workers need the rules to render their own countdowns; only
+  `POST` (upsert one rule) is manager-only.
+- Upsert is done as a manual read-then-insert/update, not `.upsert()` with
+  `onConflict` — the uniqueness constraint is a functional index
+  (`coalesce(category_id, sentinel)`), which Supabase's onConflict can't
+  target by plain column list.
+- Added a "SLA Times" toolbar button (manager-only, next to Agent Groups) and
+  an "Overdue" quick-filter chip in `TaskToolbar`, both straightforward
+  extensions of the existing patterns.
+- Full sweep confirmed zero remaining references to `waiting`/`waiting_reason`
+  anywhere in `src/`.
 
 ## Ask (as given)
 

@@ -1,7 +1,7 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import { CalendarDays, CheckCircle2, Circle, UserRound } from "lucide-react";
+import { AlertTriangle, CalendarDays, CheckCircle2, Circle, UserRound } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
-import { WaitingTag, Initials, PriorityIcon } from "./board-ui";
+import { Initials, PriorityIcon, SlaTimer } from "./board-ui";
 
 export function TaskCard({
   task,
@@ -11,6 +11,10 @@ export function TaskCard({
   canReviewDone = false,
   onReviewDone,
   onOpen,
+  slaDeadline = null,
+  isOverdue = false,
+  now = new Date(),
+  onUnlockOverdue,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
@@ -19,6 +23,10 @@ export function TaskCard({
   canReviewDone?: boolean;
   onReviewDone?: (id: string, reviewed: boolean) => void;
   onOpen: (id: string) => void;
+  slaDeadline?: Date | null;
+  isOverdue?: boolean;
+  now?: Date;
+  onUnlockOverdue?: (id: string) => void;
 }) {
   return (
     <div
@@ -30,8 +38,12 @@ export function TaskCard({
         event.preventDefault();
         onOpen(task.id);
       }}
-      className="block w-full rounded border border-l-4 border-[#dfe1e6] bg-white p-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:border-[#c1c7d0] hover:bg-[#fefefe] hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4]"
-      style={{ borderLeftColor: statusAccent(task.status) }}
+      className={`block w-full rounded p-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] ${
+        isOverdue
+          ? "border-2 border-[#de350b] bg-[#fff5f5] hover:border-[#bf2600]"
+          : "border border-l-4 border-[#dfe1e6] bg-white hover:border-[#c1c7d0] hover:bg-[#fefefe]"
+      }`}
+      style={isOverdue ? undefined : { borderLeftColor: statusAccent(task.status) }}
     >
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -85,9 +97,26 @@ export function TaskCard({
             General
           </span>
         )}
-        <WaitingTag reason={task.waiting_reason} />
+        <SlaTimer deadline={slaDeadline} now={now} />
         <PriorityAlert priority={task.priority} />
       </div>
+
+      {isOverdue && onUnlockOverdue ? (
+        <button
+          type="button"
+          data-no-dnd="true"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onUnlockOverdue(task.id);
+          }}
+          className="mt-2.5 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded bg-[#de350b] text-[11px] font-bold text-white transition hover:bg-[#bf2600]"
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          Nhập lý do để unlock
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -199,7 +228,6 @@ function statusAccent(status: TaskRow["status"]) {
     backlog: "#a5adba",
     todo: "#4c9aff",
     in_progress: "#6554c0",
-    waiting: "#ffab00",
     done: "#36b37e",
     cancel: "#de350b",
   };

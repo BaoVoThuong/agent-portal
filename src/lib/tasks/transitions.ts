@@ -3,13 +3,7 @@
 // applies the patch via Supabase. Permission to edit full fields vs. status-only
 // is checked separately; this enforces field-level shape + invariants.
 import { canAssign } from "./access";
-import {
-  TASK_PRIORITIES,
-  TASK_STATUSES,
-  WAITING_REASONS,
-  type TaskActor,
-  type TaskRow,
-} from "./types";
+import { TASK_PRIORITIES, TASK_STATUSES, type TaskActor, type TaskRow } from "./types";
 
 export type TaskPatchInput = {
   title?: unknown;
@@ -20,7 +14,6 @@ export type TaskPatchInput = {
   agent_email?: unknown;
   status?: unknown;
   assignee_email?: unknown;
-  waiting_reason?: unknown;
   done_reviewed?: unknown;
   position?: unknown;
 };
@@ -84,7 +77,7 @@ export function resolveTaskPatch(
     patch.position = r.position;
   }
 
-  // --- status / assignee / waiting_reason are interdependent ---
+  // --- status / assignee are interdependent ---
   const reassigning = r.assignee_email !== undefined;
   const mayAssign = opts?.canAssign ?? canAssign(actor);
   if (reassigning && !mayAssign) {
@@ -115,6 +108,12 @@ export function resolveTaskPatch(
     patch.done_reviewed_by_email = null;
     patch.done_reviewed_at = null;
   }
+  // (Re-)entering in_progress always restarts the SLA clock, including a
+  // Done/Cancel reopen — the timer measures active work, not wall-clock
+  // time since creation.
+  if (statusChanged && nextStatus === "in_progress") {
+    patch.in_progress_at = opts?.nowIso ?? new Date().toISOString();
+  }
 
   if (r.done_reviewed !== undefined) {
     if (typeof r.done_reviewed !== "boolean") {
@@ -130,27 +129,6 @@ export function resolveTaskPatch(
     patch.done_reviewed_at = r.done_reviewed
       ? opts.nowIso ?? new Date().toISOString()
       : null;
-  }
-
-  // waiting_reason only meaningful in 'waiting'; otherwise force null when status changes.
-  if (r.waiting_reason !== undefined || (r.status !== undefined && current.status === "waiting")) {
-    if (nextStatus === "waiting") {
-      if (r.waiting_reason !== undefined) {
-        if (r.waiting_reason === null) {
-          patch.waiting_reason = null;
-        } else if (isEnum(r.waiting_reason, WAITING_REASONS)) {
-          patch.waiting_reason = r.waiting_reason;
-        } else {
-          return { ok: false, error: "Invalid waiting reason." };
-        }
-      }
-    } else if (r.waiting_reason !== undefined) {
-      // User explicitly provided waiting_reason for non-waiting status
-      patch.waiting_reason = null;
-    } else if (current.status === "waiting" && r.status !== undefined) {
-      // Transitioning away from waiting status
-      patch.waiting_reason = null;
-    }
   }
 
   if (Object.keys(patch).length === 0)

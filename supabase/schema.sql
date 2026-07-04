@@ -1304,6 +1304,17 @@ add column if not exists done_reviewed_by_email text;
 alter table tasks
 add column if not exists done_reviewed_at timestamptz;
 
+alter table tasks add column if not exists in_progress_at timestamptz;
+
+-- "Waiting" status removed in favor of a computed Overdue bucket (SLA timer
+-- past deadline while in_progress) — no cron needed, nothing to migrate to.
+-- Existing waiting tasks become in_progress with a fresh clock; must run
+-- before the check constraint below drops 'waiting' as an allowed value.
+update tasks set status = 'in_progress', in_progress_at = now()
+where status = 'waiting';
+
+alter table tasks drop column if exists waiting_reason;
+
 do $$
 begin
   if exists (
@@ -1314,7 +1325,7 @@ begin
 
   alter table tasks
   add constraint tasks_status_check
-  check (status in ('backlog','todo','in_progress','waiting','done','cancel'));
+  check (status in ('backlog','todo','in_progress','done','cancel'));
 end $$;
 
 drop index if exists tasks_due_date_idx;
@@ -1341,6 +1352,46 @@ create index if not exists tasks_status_position_idx on tasks (status, position)
 create index if not exists tasks_done_review_idx on tasks (status, done_reviewed_at);
 create index if not exists tasks_category_idx on tasks (category_id);
 create index if not exists tasks_archived_idx on tasks (archived_at);
+
+-- SLA time budget per priority, optionally overridden per category.
+-- category_id = null means "default for this priority, any/no category".
+create table if not exists task_sla_rules (
+  id uuid primary key default gen_random_uuid(),
+  priority text not null check (priority in ('low','medium','high','urgent')),
+  category_id uuid references task_categories(id) on delete cascade,
+  duration_minutes integer not null check (duration_minutes > 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Primary key can't have a nullable column, so enforce one row per
+-- (priority, category) with a functional unique index over a sentinel for null.
+create unique index if not exists task_sla_rules_priority_category_key
+  on task_sla_rules (priority,
+    coalesce(category_id, '00000000-0000-0000-0000-000000000000'));
+
+-- Seed a default per priority if missing (idempotent).
+do $$
+declare
+  seed record;
+begin
+  for seed in
+    select * from (values
+      ('low', 1440),
+      ('medium', 480),
+      ('high', 240),
+      ('urgent', 60)
+    ) as s(priority, duration_minutes)
+  loop
+    if not exists (
+      select 1 from task_sla_rules
+      where priority = seed.priority and category_id is null
+    ) then
+      insert into task_sla_rules (priority, category_id, duration_minutes)
+      values (seed.priority, null, seed.duration_minutes::integer);
+    end if;
+  end loop;
+end $$;
 
 create table if not exists task_comments (
   id uuid primary key default gen_random_uuid(),
@@ -1485,7 +1536,8 @@ declare
     'task_participants',
     'task_assignees',
     'task_agents',
-    'agent_members'
+    'agent_members',
+    'task_sla_rules'
   ];
 begin
   foreach table_name in array protected_tables loop

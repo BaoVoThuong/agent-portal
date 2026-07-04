@@ -21,7 +21,7 @@ function task(p: Partial<TaskRow>): TaskRow {
     assignees: [],
     assignee_email: null,
     reporter_email: "r@x.com",
-    waiting_reason: null,
+    in_progress_at: null,
     done_reviewed_by_email: null,
     done_reviewed_at: null,
     position: 0,
@@ -135,6 +135,23 @@ describe("filterTasks", () => {
     ).not.toContain("4");
   });
 
+  it("quick: overdue matches the precomputed id set", () => {
+    const rows = [
+      task({ id: "1" }),
+      task({ id: "2" }),
+    ];
+    expect(
+      filterTasks(rows, {
+        ...base,
+        quick: ["overdue"],
+        overdueIds: new Set(["2"]),
+      }).map((t) => t.id)
+    ).toEqual(["2"]);
+    expect(
+      filterTasks(rows, { ...base, quick: ["overdue"] }).map((t) => t.id)
+    ).toEqual([]);
+  });
+
   it("assignee facet matches any assigned member", () => {
     const rows = [
       task({ id: "1", assignees: ["a@x.com", "b@x.com"], assignee_email: "a@x.com" }),
@@ -161,7 +178,7 @@ describe("filterTasks", () => {
       task({ id: "1", category_id: "c1", status: "todo", assignees: ["a@x.com"] }),
       task({ id: "2", category_id: "c2", status: "done", assignees: ["b@x.com"] }),
       task({ id: "3", category_id: "c3", status: "done", assignees: ["b@x.com"] }),
-      task({ id: "4", category_id: "c2", status: "waiting", assignees: ["c@x.com"] }),
+      task({ id: "4", category_id: "c2", status: "in_progress", assignees: ["c@x.com"] }),
     ];
 
     expect(

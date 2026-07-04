@@ -35,7 +35,6 @@ const STATUS_PILL: Record<TaskStatus, { bg: string; fg: string }> = {
   backlog: { bg: "#dfe1e6", fg: "#42526e" },
   todo: { bg: "#dfe1e6", fg: "#42526e" },
   in_progress: { bg: "#deebff", fg: "#0055cc" },
-  waiting: { bg: "#fff0b3", fg: "#7f5f01" },
   done: { bg: "#e3fcef", fg: "#006644" },
   cancel: { bg: "#ffebe6", fg: "#bf2600" },
 };
@@ -54,6 +53,7 @@ export function TaskRowItem({
   onAssigneeChange,
   dragHandle,
   openOnDoubleClick = false,
+  isOverdue = false,
 }: {
   task: TaskRow;
   category: TaskCategory | null;
@@ -68,6 +68,7 @@ export function TaskRowItem({
   onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
   dragHandle?: ReactNode;
   openOnDoubleClick?: boolean;
+  isOverdue?: boolean;
 }) {
   const assigneeLabelByEmail = new Map(
     assignees.map((assignee) => [
@@ -81,7 +82,9 @@ export function TaskRowItem({
       onDoubleClick={() => {
         if (openOnDoubleClick) onOpen(task.id);
       }}
-      className="flex items-center gap-3 bg-white px-4 py-2.5 transition hover:bg-[#f7f8f9]"
+      className={`flex items-center gap-3 px-4 py-2.5 transition hover:bg-[#f7f8f9] ${
+        isOverdue ? "border-l-4 border-[#de350b] bg-[#fff5f5]" : "bg-white"
+      }`}
     >
       {dragHandle}
       <span
@@ -124,6 +127,7 @@ export function TaskRowItem({
         status={task.status}
         assigned={task.assignees.length > 0}
         canEdit={canEdit}
+        isOverdue={isOverdue}
         onChange={(status) => onPatch(task.id, { status })}
       />
 
@@ -215,16 +219,19 @@ function StatusPill({
   status,
   assigned,
   canEdit,
+  isOverdue = false,
   onChange,
 }: {
   status: TaskStatus;
   assigned: boolean;
   canEdit: boolean;
+  isOverdue?: boolean;
   onChange: (status: TaskStatus) => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
-  const meta = STATUS_PILL[status];
+  const meta = isOverdue ? { bg: "#ffebe6", fg: "#bf2600" } : STATUS_PILL[status];
+  const label = isOverdue ? "Overdue" : STATUS_LABEL[status];
 
   // Backlog membership is governed by assignment (the avatar menu), not this
   // dropdown: assigning moves a task to 'todo', unassigning sends it to backlog.
@@ -239,7 +246,7 @@ function StatusPill({
       className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wide"
       style={{ backgroundColor: meta.bg, color: meta.fg }}
     >
-      {STATUS_LABEL[status]}
+      {label}
       {interactive ? <ChevronDown className="h-3 w-3" /> : null}
     </span>
   );

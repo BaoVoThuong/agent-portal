@@ -94,33 +94,47 @@ describe("resolveTaskPatch", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("waiting_reason kept only when status is waiting", () => {
-    const r1 = resolveTaskPatch(cs, assigned, {
-      status: "waiting",
-      waiting_reason: "customer",
-    });
-    expect(r1).toEqual({
-      ok: true,
-      patch: {
-        status: "waiting",
-        done_reviewed_by_email: null,
-        done_reviewed_at: null,
-        waiting_reason: "customer",
-      },
-    });
-    const r2 = resolveTaskPatch(cs, assigned, {
-      status: "in_progress",
-      waiting_reason: "customer",
-    });
-    expect(r2).toEqual({
+  it("stamps in_progress_at when entering in_progress from another status", () => {
+    const r = resolveTaskPatch(
+      manager,
+      assigned,
+      { status: "in_progress" },
+      { nowIso: "2026-07-05T00:00:00.000Z" }
+    );
+    expect(r).toEqual({
       ok: true,
       patch: {
         status: "in_progress",
         done_reviewed_by_email: null,
         done_reviewed_at: null,
-        waiting_reason: null,
+        in_progress_at: "2026-07-05T00:00:00.000Z",
       },
     });
+  });
+
+  it("restamps in_progress_at on a Done/Cancel reopen", () => {
+    const done = { status: "done" as const, assignee_email: "cs@x.com" };
+    const r = resolveTaskPatch(
+      manager,
+      done,
+      { status: "in_progress" },
+      { nowIso: "2026-07-05T01:00:00.000Z" }
+    );
+    expect(r).toEqual({
+      ok: true,
+      patch: {
+        status: "in_progress",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+        in_progress_at: "2026-07-05T01:00:00.000Z",
+      },
+    });
+  });
+
+  it("does not restamp in_progress_at when staying in in_progress (e.g. position-only patch)", () => {
+    const inProgress = { status: "in_progress" as const, assignee_email: "cs@x.com" };
+    const r = resolveTaskPatch(manager, inProgress, { position: 5 });
+    expect(r).toEqual({ ok: true, patch: { position: 5 } });
   });
 
   it("accepts cancel as a terminal task status", () => {
