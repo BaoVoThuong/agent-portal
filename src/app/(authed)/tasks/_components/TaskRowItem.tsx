@@ -257,7 +257,7 @@ function StatusPill({
         className={`${LIST_COL.status} shrink-0`}
         title={
           canEdit && !assigned
-            ? "Gán người (avatar) để chuyển khỏi backlog"
+            ? "Assign someone (avatar) to move it out of backlog"
             : undefined
         }
       >

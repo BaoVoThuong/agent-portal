@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
-import { isTaskOverdue } from "@/lib/tasks/sla";
+import { isTaskOverdue, resolveSlaMinutes, slaDeadline } from "@/lib/tasks/sla";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -45,11 +45,16 @@ export async function POST(req: Request, { params }: Ctx) {
     .select("priority,category_id,duration_minutes");
   if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
 
-  if (!isTaskOverdue(task, rulesData ?? [])) {
+  const rules = rulesData ?? [];
+  if (!isTaskOverdue(task, rules)) {
     return NextResponse.json({ error: "Task isn't overdue." }, { status: 400 });
   }
 
+  // task.in_progress_at is non-null here (isTaskOverdue only returns true when set).
+  const minutes = resolveSlaMinutes(task.priority, task.category_id, rules);
+  const dueAt = slaDeadline(task.in_progress_at as string, minutes);
   const nowIso = new Date().toISOString();
+
   const { data: updated, error: updateError } = await supabase
     .from("tasks")
     .update({ in_progress_at: nowIso, updated_at: nowIso })
@@ -64,7 +69,11 @@ export async function POST(req: Request, { params }: Ctx) {
     task_id: id,
     actor_email: actor.email,
     type: "overdue_resolved",
-    meta: { reason },
+    meta: {
+      reason,
+      due_at: dueAt.toISOString(),
+      resolved_at: nowIso,
+    },
   });
 
   await broadcastTasksChanged();

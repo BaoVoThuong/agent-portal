@@ -41,9 +41,16 @@ export function TaskCard({
       className={`block w-full rounded p-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] ${
         isOverdue
           ? "border-2 border-[#de350b] bg-[#fff5f5] hover:border-[#bf2600]"
-          : "border border-l-4 border-[#dfe1e6] bg-white hover:border-[#c1c7d0] hover:bg-[#fefefe]"
+          : "border border-l-4 border-[#dfe1e6] hover:border-[#c1c7d0]"
       }`}
-      style={isOverdue ? undefined : { borderLeftColor: statusAccent(task.status) }}
+      style={
+        isOverdue
+          ? undefined
+          : {
+              borderLeftColor: STATUS_CARD_STYLE[task.status].accent,
+              backgroundColor: STATUS_CARD_STYLE[task.status].bg,
+            }
+      }
     >
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -114,7 +121,7 @@ export function TaskCard({
           className="mt-2.5 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded bg-[#de350b] text-[11px] font-bold text-white transition hover:bg-[#bf2600]"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
-          Nhập lý do để unlock
+          Enter reason to unlock
         </button>
       ) : null}
     </div>
@@ -223,17 +230,13 @@ function PriorityAlert({ priority }: { priority: TaskRow["priority"] }) {
   );
 }
 
-function statusAccent(status: TaskRow["status"]) {
-  const colors: Record<TaskRow["status"], string> = {
-    backlog: "#a5adba",
-    todo: "#4c9aff",
-    in_progress: "#6554c0",
-    done: "#36b37e",
-    cancel: "#de350b",
-  };
-
-  return colors[status];
-}
+const STATUS_CARD_STYLE: Record<TaskRow["status"], { accent: string; bg: string }> = {
+  backlog: { accent: "#a5adba", bg: "#ffffff" },
+  todo: { accent: "#4c9aff", bg: "#f5f9ff" },
+  in_progress: { accent: "#6554c0", bg: "#f8f6fd" },
+  done: { accent: "#36b37e", bg: "#f0faf5" },
+  cancel: { accent: "#5e6c84", bg: "#f7f8fa" },
+};
 
 function categoryPalette(category: TaskCategory) {
   if (category.color && /^#[0-9a-f]{6}$/i.test(category.color)) {

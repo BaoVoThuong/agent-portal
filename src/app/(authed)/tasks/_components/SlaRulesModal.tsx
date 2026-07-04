@@ -18,13 +18,10 @@ const PRIORITY_LABEL: Record<TaskPriority, string> = {
 };
 
 const DEFAULT_ROW_KEY = "__default__";
+const MINUTES_PER_HOUR = 60;
 
-function formatDuration(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (hours === 0) return `${minutes}m`;
-  if (rest === 0) return `${hours}h`;
-  return `${hours}h ${rest}m`;
+function formatHours(hours: number): string {
+  return `${Number(hours.toFixed(2))}h`;
 }
 
 export function SlaRulesModal({
@@ -51,12 +48,12 @@ export function SlaRulesModal({
 
   if (!open) return null;
 
-  function minutesFor(categoryId: string | null): number {
-    return resolveSlaMinutes(priority, categoryId, rules);
+  function hoursFor(categoryId: string | null): number {
+    return resolveSlaMinutes(priority, categoryId, rules) / MINUTES_PER_HOUR;
   }
 
-  async function save(categoryId: string | null, minutes: number, key: string) {
-    if (!Number.isFinite(minutes) || minutes <= 0) return;
+  async function save(categoryId: string | null, hours: number, key: string) {
+    if (!Number.isFinite(hours) || hours <= 0) return;
     setSavingKey(key);
     setError(null);
     try {
@@ -66,7 +63,7 @@ export function SlaRulesModal({
         body: JSON.stringify({
           priority,
           category_id: categoryId,
-          duration_minutes: Math.round(minutes),
+          duration_minutes: Math.round(hours * MINUTES_PER_HOUR),
         }),
       });
       const data = (await res.json().catch(() => null)) as
@@ -104,7 +101,7 @@ export function SlaRulesModal({
             <div className="min-w-0">
               <h2 className="truncate text-xl font-semibold text-[#172b4d]">SLA Times</h2>
               <p className="mt-1 text-xs font-semibold text-[#626f86]">
-                Thời gian trước khi task In Progress chuyển sang Overdue
+                Hours before an In Progress task becomes Overdue
               </p>
             </div>
           </div>
@@ -153,16 +150,16 @@ export function SlaRulesModal({
                   <SlaRuleRow
                     key={key}
                     label={row.name}
-                    minutes={minutesFor(categoryId)}
+                    hours={hoursFor(categoryId)}
                     saving={saving}
-                    onSave={(minutes) => save(categoryId, minutes, key)}
+                    onSave={(hours) => save(categoryId, hours, key)}
                   />
                 );
               })}
             </ul>
             <p className="mt-3 text-xs text-[#97a0af]">
-              Mặc định hệ thống: {formatDuration(DEFAULT_SLA_MINUTES[priority])}. Category
-              không có override sẽ dùng dòng &quot;Default&quot; ở trên.
+              System default: {formatHours(DEFAULT_SLA_MINUTES[priority] / MINUTES_PER_HOUR)}.
+              Categories without an override use the &quot;Default&quot; row above.
             </p>
             {error ? (
               <div className="mt-3 rounded bg-[#ffebe6] px-3 py-2 text-sm font-medium text-[#ae2a19]">
@@ -178,37 +175,35 @@ export function SlaRulesModal({
 
 function SlaRuleRow({
   label,
-  minutes,
+  hours,
   saving,
   onSave,
 }: {
   label: string;
-  minutes: number;
+  hours: number;
   saving: boolean;
-  onSave: (minutes: number) => void;
+  onSave: (hours: number) => void;
 }) {
-  const [draft, setDraft] = useState(String(minutes));
+  const [draft, setDraft] = useState(String(hours));
 
   return (
     <li className="flex items-center justify-between gap-3 rounded border border-[#dfe1e6] bg-white px-3 py-2">
       <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#172b4d]">
         {label}
       </span>
-      <span className="shrink-0 text-xs font-medium text-[#97a0af]">
-        {formatDuration(Number(draft) || 0)}
-      </span>
       <input
         type="number"
-        min={1}
+        min={0.25}
+        step={0.25}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
           const next = Number(draft);
-          if (next !== minutes) onSave(next);
+          if (next !== hours) onSave(next);
         }}
         className="h-8 w-20 shrink-0 rounded border-2 border-[#dfe1e6] px-2 text-right text-sm font-semibold text-[#172b4d] outline-none focus:border-[#0c66e4]"
       />
-      <span className="w-14 shrink-0 text-xs text-[#97a0af]">min</span>
+      <span className="w-12 shrink-0 text-xs text-[#97a0af]">hours</span>
       {saving ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" /> : null}
     </li>
   );

@@ -52,14 +52,14 @@ export function OverdueUnlockModal({
           </button>
         </div>
         <p className="mt-2 text-sm text-[#626f86]">
-          Nhập lý do để unlock task khỏi Overdue và quay lại In Progress.
+          Enter a reason to unlock this task from Overdue and move it back to In Progress.
         </p>
         <textarea
           value={reason}
           onChange={(event) => setReason(event.target.value)}
           rows={3}
           autoFocus
-          placeholder="Lý do overdue..."
+          placeholder="Reason for the delay..."
           className="mt-3 w-full rounded border-2 border-[#dfe1e6] p-2 text-sm outline-none focus:border-[#0c66e4]"
         />
         <div className="mt-4 flex justify-end gap-2">
@@ -69,7 +69,7 @@ export function OverdueUnlockModal({
             disabled={submitting}
             className="rounded px-3 py-1.5 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:opacity-50"
           >
-            Huỷ
+            Cancel
           </button>
           <button
             type="button"

@@ -447,12 +447,12 @@ export function TaskBoardClient({
         body: JSON.stringify({ reason }),
       });
     } catch {
-      setError("Mất kết nối — không unlock được task.");
+      setError("Connection lost — could not unlock the task.");
       return false;
     }
     if (!res.ok) {
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
-      setError(data?.error ?? "Không unlock được task.");
+      setError(data?.error ?? "Could not unlock the task.");
       return false;
     }
     const data = await res.json();

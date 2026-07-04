@@ -9,6 +9,7 @@ import { taskKey } from "@/lib/tasks/sorting";
 import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
 import { AttachmentPanel } from "./AttachmentPanel";
+import { OverdueLog } from "./OverdueLog";
 import { TaskSelect } from "./TaskSelect";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
 import { AvatarStack } from "./board-ui";
@@ -22,7 +23,7 @@ const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
 
 const detailCache = new Map<string, TaskDetail>();
-type DetailTab = "comments" | "activity" | "attachments";
+type DetailTab = "comments" | "activity" | "attachments" | "overdue";
 
 export function TaskDetailDrawer({
   task,
@@ -108,6 +109,7 @@ export function TaskDetailDrawer({
     personLabelByEmail.set(currentEmail, currentEmail);
   }
   const fubHref = formatExternalLink(fubLink);
+  const overdueLog = detail?.activity.filter((a) => a.type === "overdue_resolved") ?? [];
 
   return (
     <div
@@ -187,6 +189,11 @@ export function TaskDetailDrawer({
                     active={tab === "attachments"}
                     onClick={() => setTab("attachments")}
                   />
+                  <DetailTabButton
+                    label={`Overdue (${overdueLog.length})`}
+                    active={tab === "overdue"}
+                    onClick={() => setTab("overdue")}
+                  />
                 </div>
 
                 {detail === null ? (
@@ -214,6 +221,12 @@ export function TaskDetailDrawer({
                         taskId={task.id}
                         canEdit={canEdit}
                         onReload={reload}
+                      />
+                    )}
+                    {tab === "overdue" && (
+                      <OverdueLog
+                        entries={overdueLog}
+                        personLabelByEmail={personLabelByEmail}
                       />
                     )}
                   </>
