@@ -3,12 +3,25 @@
 import { useState } from "react";
 import { Loader2, X } from "lucide-react";
 
-export function OverdueUnlockModal({
+// Generic "type a reason to proceed" dialog — used both for unlocking an
+// overdue task and for reopening a Done/Cancel task. Both actions restart
+// the SLA clock, so both require a reason for the audit trail.
+export function ReasonModal({
   open,
+  title,
+  description,
+  placeholder = "Reason...",
+  submitLabel = "Submit",
+  accentColor = "#0c66e4",
   onClose,
   onSubmit,
 }: {
   open: boolean;
+  title: string;
+  description: string;
+  placeholder?: string;
+  submitLabel?: string;
+  accentColor?: string;
   onClose: () => void;
   onSubmit: (reason: string) => Promise<boolean>;
 }) {
@@ -41,7 +54,7 @@ export function OverdueUnlockModal({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-[#172b4d]">Task overdue</h2>
+          <h2 className="text-lg font-semibold text-[#172b4d]">{title}</h2>
           <button
             type="button"
             onClick={handleClose}
@@ -51,15 +64,13 @@ export function OverdueUnlockModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <p className="mt-2 text-sm text-[#626f86]">
-          Enter a reason to unlock this task from Overdue and move it back to In Progress.
-        </p>
+        <p className="mt-2 text-sm text-[#626f86]">{description}</p>
         <textarea
           value={reason}
           onChange={(event) => setReason(event.target.value)}
           rows={3}
           autoFocus
-          placeholder="Reason for the delay..."
+          placeholder={placeholder}
           className="mt-3 w-full rounded border-2 border-[#dfe1e6] p-2 text-sm outline-none focus:border-[#0c66e4]"
         />
         <div className="mt-4 flex justify-end gap-2">
@@ -75,10 +86,11 @@ export function OverdueUnlockModal({
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!reason.trim() || submitting}
-            className="inline-flex items-center gap-1.5 rounded bg-[#de350b] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[#bf2600] disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ backgroundColor: accentColor }}
+            className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-semibold text-white transition hover:brightness-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Unlock
+            {submitLabel}
           </button>
         </div>
       </div>

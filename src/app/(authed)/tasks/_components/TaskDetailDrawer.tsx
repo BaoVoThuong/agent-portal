@@ -29,6 +29,8 @@ export function TaskDetailDrawer({
   task,
   canEdit,
   canAssign,
+  canDelete,
+  canChangeStatus,
   assignees,
   agentMembersByAgent,
   agents,
@@ -41,10 +43,13 @@ export function TaskDetailDrawer({
   onReviewDone,
   onAssigneeChange,
   onDelete,
+  onReopenRequest,
 }: {
   task: TaskRow;
   canEdit: boolean;
   canAssign: boolean;
+  canDelete: boolean;
+  canChangeStatus: boolean;
   assignees: TaskAssignee[];
   agentMembersByAgent: Record<string, string[]>;
   agents: TaskAgent[];
@@ -57,6 +62,7 @@ export function TaskDetailDrawer({
   onReviewDone: (reviewed: boolean) => void;
   onAssigneeChange: (email: string, assigned: boolean) => void;
   onDelete: () => Promise<void>;
+  onReopenRequest: () => void;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -109,7 +115,11 @@ export function TaskDetailDrawer({
     personLabelByEmail.set(currentEmail, currentEmail);
   }
   const fubHref = formatExternalLink(fubLink);
-  const overdueLog = detail?.activity.filter((a) => a.type === "overdue_resolved") ?? [];
+  const overdueLog =
+    detail?.activity.filter(
+      (a) => a.type === "overdue_resolved" || a.type === "task_reopened"
+    ) ?? [];
+  const canReopen = canChangeStatus && (task.status === "done" || task.status === "cancel");
 
   return (
     <div
@@ -344,7 +354,19 @@ export function TaskDetailDrawer({
                 </div>
               </div>
 
-              {canEdit && (
+              {canReopen && (
+                <div className="border-t border-[#dfe1e6] pt-3">
+                  <button
+                    type="button"
+                    onClick={onReopenRequest}
+                    className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  >
+                    Reopen (reason required)
+                  </button>
+                </div>
+              )}
+
+              {canDelete && (
                 <div className="border-t border-[#dfe1e6] pt-3">
                   <button
                     type="button"

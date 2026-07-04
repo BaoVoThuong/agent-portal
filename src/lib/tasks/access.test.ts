@@ -68,16 +68,19 @@ describe("per-task view/mutate scope", () => {
     expect(canViewTask(cs, { assignee_email: null })).toBe(false);
     // Assignee can change status (progress their own work)...
     expect(canChangeTaskStatus(cs, { assignee_email: "cs@x.com" }, { isAssignee: true })).toBe(true);
-    // ...but cannot edit content fields — only manager or agent owner can.
-    expect(canMutateTask(cs, { assignee_email: "cs@x.com" }, false)).toBe(false);
+    // ...but cannot edit content fields — manager, agent owner, or reporter only.
+    expect(canMutateTask(cs, { assignee_email: "cs@x.com" }, {})).toBe(false);
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
     expect(canDeleteTask(cs)).toBe(false);
   });
   it("agent owner can edit content and change status even when not the assignee", () => {
-    expect(canMutateTask(cs, { assignee_email: "other@x.com" }, true)).toBe(true);
+    expect(canMutateTask(cs, { assignee_email: "other@x.com" }, { isAgentOwner: true })).toBe(true);
     expect(
       canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAgentOwner: true })
     ).toBe(true);
+  });
+  it("reporter (creator) can edit content even when not assignee or agent owner", () => {
+    expect(canMutateTask(cs, { assignee_email: "other@x.com" }, { isReporter: true })).toBe(true);
   });
   it("CS can view (not mutate) a task they participate in", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isParticipant: true })).toBe(true);
@@ -162,17 +165,27 @@ describe("canViewTask with flags", () => {
 });
 
 describe("canAssignToTask", () => {
-  it("manager or CS in the task agent", () => {
+  it("manager or the task's agent owner (not just any agent-team member anymore)", () => {
     expect(canAssignToTask(manager, false)).toBe(true);
     expect(canAssignToTask(cs, true)).toBe(true);
     expect(canAssignToTask(cs, false)).toBe(false);
   });
 });
 
-describe("canMutateTask with isAgentOwner flag", () => {
+describe("canMutateTask flags", () => {
+  it("manager always; CS only when agent owner or reporter", () => {
+    expect(canMutateTask(manager, { assignee_email: null }, {})).toBe(true);
+    expect(canMutateTask(cs, { assignee_email: "x@x.com" }, { isAgentOwner: true })).toBe(true);
+    expect(canMutateTask(cs, { assignee_email: "x@x.com" }, { isReporter: true })).toBe(true);
+    expect(canMutateTask(cs, { assignee_email: "x@x.com" }, {})).toBe(false);
+  });
+});
+
+describe("canDeleteTask with isAgentOwner flag", () => {
   it("manager always; CS only when resolved as the task's agent owner", () => {
-    expect(canMutateTask(manager, { assignee_email: null }, false)).toBe(true);
-    expect(canMutateTask(cs, { assignee_email: "x@x.com" }, true)).toBe(true);
-    expect(canMutateTask(cs, { assignee_email: "x@x.com" }, false)).toBe(false);
+    expect(canDeleteTask(manager)).toBe(true);
+    expect(canDeleteTask(cs, true)).toBe(true);
+    expect(canDeleteTask(cs, false)).toBe(false);
+    expect(canDeleteTask(cs)).toBe(false);
   });
 });

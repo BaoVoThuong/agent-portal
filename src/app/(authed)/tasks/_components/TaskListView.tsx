@@ -12,7 +12,7 @@ export function TaskListView({
   categories,
   assignees,
   isManager,
-  myAgents,
+  myAssistantAgents,
   agentMembersByAgent,
   currentEmail,
   onOpen,
@@ -21,12 +21,13 @@ export function TaskListView({
   onReviewDone,
   onAssigneeChange,
   overdueIds,
+  onReopenRequest,
 }: {
   tasks: TaskRow[];
   categories: TaskCategory[];
   assignees: TaskAssignee[];
   isManager: boolean;
-  myAgents: string[];
+  myAssistantAgents: string[];
   agentMembersByAgent: Record<string, string[]>;
   currentEmail: string;
   onOpen: (id: string) => void;
@@ -35,7 +36,12 @@ export function TaskListView({
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
   overdueIds: Set<string>;
+  onReopenRequest: (id: string) => void;
 }) {
+  function isAgentOwnerOrAssistantOf(agentEmail: string | null): boolean {
+    if (!agentEmail) return false;
+    return agentEmail === currentEmail || myAssistantAgents.includes(agentEmail);
+  }
   const [sortKey, setSortKey] = useState<SortKey>("created");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -110,12 +116,9 @@ export function TaskListView({
                   canEdit={
                     isManager ||
                     task.assignees.includes(currentEmail) ||
-                    task.agent_email === currentEmail
+                    isAgentOwnerOrAssistantOf(task.agent_email)
                   }
-                  canAssign={
-                    isManager ||
-                    Boolean(task.agent_email && myAgents.includes(task.agent_email))
-                  }
+                  canAssign={isManager || isAgentOwnerOrAssistantOf(task.agent_email)}
                   onOpen={onOpen}
                   onPatch={onPatch}
                   canReviewDone={canReviewDoneTask(task)}
@@ -123,6 +126,7 @@ export function TaskListView({
                   onAssigneeChange={onAssigneeChange}
                   openOnDoubleClick
                   isOverdue={overdueIds.has(task.id)}
+                  onReopenRequest={() => onReopenRequest(task.id)}
                 />
               </li>
             ))}

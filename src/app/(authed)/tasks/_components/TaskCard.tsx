@@ -1,5 +1,5 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import { AlertTriangle, CalendarDays, CheckCircle2, Circle, UserRound } from "lucide-react";
+import { AlertTriangle, CalendarDays, CheckCircle2, Circle, RotateCcw, UserRound } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
 import { Initials, PriorityIcon, SlaTimer } from "./board-ui";
 
@@ -15,6 +15,7 @@ export function TaskCard({
   isOverdue = false,
   now = new Date(),
   onUnlockOverdue,
+  onReopenRequest,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
@@ -27,7 +28,9 @@ export function TaskCard({
   isOverdue?: boolean;
   now?: Date;
   onUnlockOverdue?: (id: string) => void;
+  onReopenRequest?: (id: string) => void;
 }) {
+  const isTerminal = task.status === "done" || task.status === "cancel";
   return (
     <div
       role="button"
@@ -115,6 +118,23 @@ export function TaskCard({
         >
           <AlertTriangle className="h-3.5 w-3.5" />
           Enter reason to unlock
+        </button>
+      ) : null}
+
+      {isTerminal && onReopenRequest ? (
+        <button
+          type="button"
+          data-no-dnd="true"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onReopenRequest(task.id);
+          }}
+          className="mt-2.5 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-[#dfe1e6] bg-white text-[11px] font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Reopen
         </button>
       ) : null}
     </div>

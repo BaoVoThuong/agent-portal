@@ -5,7 +5,7 @@ import { buildTaskActor, canViewTask, canMutateTask } from "@/lib/tasks/access";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { buildStoragePath, uploadTaskFile, signTaskFile } from "@/lib/tasks/storage";
 import { isTaskParticipant } from "@/lib/tasks/participants";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { broadcastTaskRoom } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 import {
@@ -25,13 +25,13 @@ async function canViewResolved(
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
-  const [isParticipant, isAssignee, agents] = await Promise.all([
+  const [isParticipant, isAssignee, agents, isAgentOwner] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
     isTaskAssignee(taskId, actor.email),
     fetchAgentsForCs(actor.email),
+    isAgentOwnerOrAssistant(task.agent_email, actor.email),
   ]);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
-  const isAgentOwner = Boolean(task.agent_email && task.agent_email === actor.email);
   return canViewTask(actor, task, {
     isParticipant,
     isAgentMember,
@@ -48,12 +48,19 @@ async function loadActorAndTask(id: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")
-    .select("id,assignee_email,agent_email")
+    .select("id,assignee_email,agent_email,reporter_email")
     .eq("id", id)
     .maybeSingle();
   if (error) return { error: error.message, status: 500 };
   if (!data) return { error: "Not found", status: 404 };
-  return { actor, task: data as unknown as Pick<TaskRow, "id" | "assignee_email" | "agent_email">, supabase };
+  return {
+    actor,
+    task: data as unknown as Pick<
+      TaskRow,
+      "id" | "assignee_email" | "agent_email" | "reporter_email"
+    >,
+    supabase,
+  };
 }
 
 export async function GET(_req: Request, { params }: Ctx) {
@@ -125,11 +132,10 @@ export async function POST(req: Request, { params }: Ctx) {
     if (!cc || cc.task_id !== id || cc.author_email !== r.actor.email)
       return NextResponse.json({ error: "Invalid comment." }, { status: 400 });
   } else if (
-    !canMutateTask(
-      r.actor,
-      r.task,
-      Boolean(r.task.agent_email && r.task.agent_email === r.actor.email)
-    )
+    !canMutateTask(r.actor, r.task, {
+      isAgentOwner: await isAgentOwnerOrAssistant(r.task.agent_email, r.actor.email),
+      isReporter: r.task.reporter_email === r.actor.email,
+    })
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }

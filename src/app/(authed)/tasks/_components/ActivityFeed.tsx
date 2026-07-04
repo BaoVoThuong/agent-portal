@@ -22,6 +22,8 @@ function describe(a: ActivityRow, personLabel: (email: string) => string): React
     case "edited": return "edited the task";
     case "archived": return "archived the task";
     case "overdue_resolved": return "resolved an overdue task";
+    case "task_reopened": return "reopened this task (with a reason)";
+    case "went_overdue": return "task went overdue";
     default: return a.type;
   }
 }

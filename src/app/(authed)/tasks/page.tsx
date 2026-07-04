@@ -7,7 +7,11 @@ import {
   fetchTaskAgents,
   fetchTaskAssignees,
 } from "@/lib/tasks/assignees";
-import { fetchAgentsForCs, fetchCsForAgent } from "@/lib/tasks/membership";
+import {
+  fetchAgentsForCs,
+  fetchAssistantAgentsForCs,
+  fetchCsForAgent,
+} from "@/lib/tasks/membership";
 import { TaskBoardClient } from "./_components/TaskBoardClient";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { TaskCategory } from "@/lib/tasks/types";
@@ -29,6 +33,7 @@ export default async function TasksPage() {
   const myAgents = actor.isManager
     ? agents.map((a) => a.email)
     : await fetchAgentsForCs(email);
+  const myAssistantAgents = actor.isManager ? [] : await fetchAssistantAgentsForCs(email);
   const agentEmailsForMembers = [
     ...new Set(
       [
@@ -64,6 +69,7 @@ export default async function TasksPage() {
       agents={agents}
       agentCandidates={agentCandidates}
       myAgents={myAgents}
+      myAssistantAgents={myAssistantAgents}
       agentMembersByAgent={agentMembersByAgent}
       initialCategories={categories}
     />

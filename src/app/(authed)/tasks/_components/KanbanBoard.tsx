@@ -99,6 +99,7 @@ function SortableCard({
   isOverdue,
   now,
   onUnlockOverdue,
+  onReopenRequest,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
@@ -112,6 +113,7 @@ function SortableCard({
   isOverdue: boolean;
   now: Date;
   onUnlockOverdue: (id: string) => void;
+  onReopenRequest: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id, disabled: !canMove });
@@ -141,6 +143,7 @@ function SortableCard({
         isOverdue={isOverdue}
         now={now}
         onUnlockOverdue={onUnlockOverdue}
+        onReopenRequest={onReopenRequest}
       />
     </div>
   );
@@ -159,6 +162,7 @@ function Column({
   slaDeadlineFor,
   now,
   onUnlockOverdue,
+  onReopenRequest,
 }: {
   column: BoardColumn;
   tasks: TaskRow[];
@@ -172,9 +176,11 @@ function Column({
   slaDeadlineFor: (task: TaskRow) => Date | null;
   now: Date;
   onUnlockOverdue: (id: string) => void;
+  onReopenRequest: (id: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${column}` });
   const isOverdueColumn = column === "overdue";
+  const isTerminalColumn = column === "done" || column === "cancel";
   return (
     <section
       ref={setNodeRef}
@@ -218,12 +224,13 @@ function Column({
               assigneeLabelByEmail={assigneeLabelByEmail}
               canReviewDone={canReviewDoneTask(t)}
               onReviewDone={onReviewDone}
-              canMove={!isOverdueColumn && canMoveTask(t)}
+              canMove={!isOverdueColumn && !isTerminalColumn && canMoveTask(t)}
               onOpen={onOpen}
               slaDeadline={slaDeadlineFor(t)}
               isOverdue={isOverdueColumn}
               now={now}
               onUnlockOverdue={onUnlockOverdue}
+              onReopenRequest={onReopenRequest}
             />
           ))}
         </SortableContext>
@@ -245,6 +252,7 @@ export function KanbanBoard({
   rules,
   now,
   onUnlockOverdue,
+  onReopenRequest,
 }: {
   tasks: TaskRow[];
   onOpen: (id: string) => void;
@@ -258,6 +266,7 @@ export function KanbanBoard({
   rules: TaskSlaRule[];
   now: Date;
   onUnlockOverdue: (id: string) => void;
+  onReopenRequest: (id: string) => void;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -291,8 +300,16 @@ export function KanbanBoard({
     ? items.find((task) => task.id === activeId) ?? null
     : null;
 
+  // Done/Cancel cards can't be dragged straight back to In Progress — that
+  // has to go through the reason-gated Reopen action (see the Reopen button
+  // on the card), same lock treatment as the Overdue column.
   function canDragTask(task: TaskRow): boolean {
-    return canMoveTask(task) && !isOverdueTask(task);
+    return (
+      canMoveTask(task) &&
+      !isOverdueTask(task) &&
+      task.status !== "done" &&
+      task.status !== "cancel"
+    );
   }
 
   function handleDragStart(event: DragStartEvent) {
@@ -426,6 +443,7 @@ export function KanbanBoard({
             slaDeadlineFor={slaDeadlineFor}
             now={now}
             onUnlockOverdue={onUnlockOverdue}
+            onReopenRequest={onReopenRequest}
           />
         ))}
       </div>

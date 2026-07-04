@@ -54,6 +54,7 @@ export function TaskRowItem({
   dragHandle,
   openOnDoubleClick = false,
   isOverdue = false,
+  onReopenRequest,
 }: {
   task: TaskRow;
   category: TaskCategory | null;
@@ -69,6 +70,7 @@ export function TaskRowItem({
   dragHandle?: ReactNode;
   openOnDoubleClick?: boolean;
   isOverdue?: boolean;
+  onReopenRequest?: () => void;
 }) {
   const assigneeLabelByEmail = new Map(
     assignees.map((assignee) => [
@@ -129,6 +131,7 @@ export function TaskRowItem({
         canEdit={canEdit}
         isOverdue={isOverdue}
         onChange={(status) => onPatch(task.id, { status })}
+        onReopenRequest={onReopenRequest}
       />
 
       <span className={`flex ${LIST_COL.review} shrink-0 justify-center`}>
@@ -221,24 +224,28 @@ function StatusPill({
   canEdit,
   isOverdue = false,
   onChange,
+  onReopenRequest,
 }: {
   status: TaskStatus;
   assigned: boolean;
   canEdit: boolean;
   isOverdue?: boolean;
   onChange: (status: TaskStatus) => void;
+  onReopenRequest?: () => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
   const meta = isOverdue ? { bg: "#ffebe6", fg: "#bf2600" } : STATUS_PILL[status];
   const label = isOverdue ? "Overdue" : STATUS_LABEL[status];
+  const isTerminal = status === "done" || status === "cancel";
 
   // Backlog membership is governed by assignment (the avatar menu), not this
   // dropdown: assigning moves a task to 'todo', unassigning sends it to backlog.
   // So we never offer 'backlog' here, and we lock the pill while a task is
   // unassigned — that avoids emitting a patch the server rejects (the invariant
   // "non-backlog task must have an assignee" / "unassign before backlog").
-  const interactive = canEdit && assigned;
+  const interactive = canEdit && assigned && !isTerminal;
+  const canReopen = canEdit && isTerminal && Boolean(onReopenRequest);
   const options = TASK_STATUSES.filter((s) => s !== "backlog");
 
   const pill = (
@@ -247,9 +254,22 @@ function StatusPill({
       style={{ backgroundColor: meta.bg, color: meta.fg }}
     >
       {label}
-      {interactive ? <ChevronDown className="h-3 w-3" /> : null}
+      {interactive || canReopen ? <ChevronDown className="h-3 w-3" /> : null}
     </span>
   );
+
+  // Done/Cancel can't go back to In Progress via this dropdown — that
+  // restarts the SLA clock and needs a reason, so clicking the pill opens
+  // the Reopen dialog directly instead of a status list.
+  if (canReopen) {
+    return (
+      <span className={`${LIST_COL.status} shrink-0`}>
+        <button type="button" onClick={onReopenRequest} title="Reopen (reason required)">
+          {pill}
+        </button>
+      </span>
+    );
+  }
 
   if (!interactive) {
     return (

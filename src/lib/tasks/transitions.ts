@@ -18,7 +18,7 @@ export type TaskPatchInput = {
   position?: unknown;
 };
 
-type Current = Pick<TaskRow, "status" | "assignee_email">;
+type Current = Pick<TaskRow, "status" | "assignee_email" | "in_progress_at">;
 type Result =
   | { ok: true; patch: Record<string, unknown> }
   | { ok: false; error: string };
@@ -94,12 +94,24 @@ export function resolveTaskPatch(
     : current.assignee_email;
   const nextStatus = (r.status as TaskRow["status"]) ?? current.status;
   const statusChanged = r.status !== undefined && nextStatus !== current.status;
+  const isTerminalReopen = current.status === "done" || current.status === "cancel";
 
   if (nextStatus === "backlog" && nextAssignee !== null) {
     return { ok: false, error: "Unassign the task before moving it to backlog." };
   }
   if (nextStatus !== "backlog" && nextAssignee === null) {
     return { ok: false, error: "Assign someone before moving out of backlog." };
+  }
+  // Reopening a Done/Cancelled task restarts the SLA clock, so it always
+  // needs a reason — that only happens through POST /api/tasks/[id]/reopen,
+  // never this generic patch (otherwise a plain drag-and-drop would silently
+  // reset the clock with no audit trail and no permission check beyond
+  // canChangeTaskStatus, which includes the assignee).
+  if (statusChanged && nextStatus === "in_progress" && isTerminalReopen) {
+    return {
+      ok: false,
+      error: "Reopening a Done/Cancelled task needs a reason — use the Reopen action.",
+    };
   }
 
   if (reassigning) patch.assignee_email = nextAssignee;
@@ -108,11 +120,14 @@ export function resolveTaskPatch(
     patch.done_reviewed_by_email = null;
     patch.done_reviewed_at = null;
   }
-  // (Re-)entering in_progress always restarts the SLA clock, including a
-  // Done/Cancel reopen — the timer measures active work, not wall-clock
-  // time since creation.
-  if (statusChanged && nextStatus === "in_progress") {
+  // Stamp the SLA clock only on the very first start. Bouncing through To Do
+  // and back does NOT restart it: otherwise the assignee (who is allowed to
+  // change status) could reset their own overdue clock for free just by
+  // toggling status, which defeats using overdue as a KPI signal. Reopening
+  // from Done/Cancel is handled entirely by the /reopen endpoint above.
+  if (statusChanged && nextStatus === "in_progress" && !current.in_progress_at) {
     patch.in_progress_at = opts?.nowIso ?? new Date().toISOString();
+    patch.overdue_flagged_at = null;
   }
 
   if (r.done_reviewed !== undefined) {

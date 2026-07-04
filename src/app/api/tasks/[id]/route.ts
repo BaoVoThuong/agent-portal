@@ -14,9 +14,8 @@ import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import type { TaskRow } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
-import { removeTaskFiles } from "@/lib/tasks/storage";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
   attachAssigneesToTasks,
@@ -46,7 +45,7 @@ function isReviewOnlyPatch(body: Record<string, unknown>): boolean {
 
 async function resolveTaskAccess(
   actor: ReturnType<typeof buildTaskActor>,
-  task: Pick<TaskRow, "assignee_email" | "agent_email">,
+  task: Pick<TaskRow, "assignee_email" | "agent_email" | "reporter_email">,
   taskId: string
 ): Promise<{
   canView: boolean;
@@ -54,6 +53,7 @@ async function resolveTaskAccess(
   isAgentOwner: boolean;
   isAssignee: boolean;
   isParticipant: boolean;
+  isReporter: boolean;
 }> {
   if (actor.isManager) {
     return {
@@ -62,15 +62,17 @@ async function resolveTaskAccess(
       isAgentOwner: false,
       isAssignee: false,
       isParticipant: false,
+      isReporter: false,
     };
   }
-  const [isParticipant, isAssignee, agents] = await Promise.all([
+  const [isParticipant, isAssignee, agents, isAgentOwner] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
     isTaskAssignee(taskId, actor.email),
     fetchAgentsForCs(actor.email),
+    isAgentOwnerOrAssistant(task.agent_email, actor.email),
   ]);
-  const isAgentOwner = Boolean(task.agent_email && task.agent_email === actor.email);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
+  const isReporter = task.reporter_email === actor.email;
   return {
     canView: canViewTask(actor, task, {
       isParticipant,
@@ -82,6 +84,7 @@ async function resolveTaskAccess(
     isAgentOwner,
     isAssignee,
     isParticipant,
+    isReporter,
   };
 }
 
@@ -133,15 +136,19 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const currentForPatch = {
     status: r.task.status,
     assignee_email: currentAssignees[0] ?? r.task.assignee_email,
+    in_progress_at: r.task.in_progress_at,
   };
   const reassigning = bodyRecord.assignee_email !== undefined;
 
-  const mayAssign = canAssignToTask(r.actor, access.isAgentMember);
+  const mayAssign = canAssignToTask(r.actor, access.isAgentOwner);
   if (reassigning && !mayAssign) {
     return NextResponse.json({ error: "You cannot assign this task." }, { status: 403 });
   }
 
-  const canMutate = canMutateTask(r.actor, r.task, access.isAgentOwner);
+  const canMutate = canMutateTask(r.actor, r.task, {
+    isAgentOwner: access.isAgentOwner,
+    isReporter: access.isReporter,
+  });
   const canReviewDone = canReviewDoneTask(r.actor, r.task);
   let resolvedBody: unknown = body;
   if (!canMutate) {
@@ -235,22 +242,20 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!canDeleteTask(r.actor))
+  const isAgentOwner = r.actor.isManager
+    ? false
+    : await isAgentOwnerOrAssistant(r.task.agent_email, r.actor.email);
+  if (!canDeleteTask(r.actor, isAgentOwner))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
-  // Best-effort: remove attachment files from storage before the rows cascade away.
-  const { data: atts } = await r.supabase
-    .from("task_attachments")
-    .select("storage_path")
-    .eq("task_id", id);
-  const paths = ((atts ?? []) as { storage_path: string }[]).map((a) => a.storage_path);
-  if (paths.length > 0) {
-    await removeTaskFiles(paths).catch(() => {});
-  }
-
-  // Hard delete. Child rows (comments, attachments, activity, notifications)
-  // are removed by the `on delete cascade` foreign keys.
-  const { error } = await r.supabase.from("tasks").delete().eq("id", id);
+  // Soft-delete (archive), not a hard delete: a hard delete would cascade away
+  // task_activity — including the overdue/reopen history now used for KPI
+  // reporting. Archived tasks are already excluded from board queries
+  // (fetchTasksForActor filters `archived_at is null`); nothing else changes.
+  const { error } = await r.supabase
+    .from("tasks")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await broadcastTasksChanged();

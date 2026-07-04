@@ -4,7 +4,11 @@ import { buildTaskActor } from "@/lib/tasks/access";
 
 const manager = buildTaskActor(["task.manage"], "mgr@x.com");
 const cs = buildTaskActor(["task.work"], "cs@x.com");
-const assigned = { status: "todo" as const, assignee_email: "cs@x.com" };
+const assigned = {
+  status: "todo" as const,
+  assignee_email: "cs@x.com",
+  in_progress_at: null,
+};
 
 describe("resolveTaskPatch", () => {
   it("accepts a simple field edit", () => {
@@ -88,13 +92,13 @@ describe("resolveTaskPatch", () => {
   it("rejects leaving backlog without an assignee", () => {
     const r = resolveTaskPatch(
       manager,
-      { status: "backlog", assignee_email: null },
+      { status: "backlog", assignee_email: null, in_progress_at: null },
       { status: "todo" }
     );
     expect(r.ok).toBe(false);
   });
 
-  it("stamps in_progress_at when entering in_progress from another status", () => {
+  it("stamps in_progress_at on the very first start (never started before)", () => {
     const r = resolveTaskPatch(
       manager,
       assigned,
@@ -108,15 +112,31 @@ describe("resolveTaskPatch", () => {
         done_reviewed_by_email: null,
         done_reviewed_at: null,
         in_progress_at: "2026-07-05T00:00:00.000Z",
+        overdue_flagged_at: null,
       },
     });
   });
 
-  it("restamps in_progress_at on a Done/Cancel reopen", () => {
-    const done = { status: "done" as const, assignee_email: "cs@x.com" };
+  it("rejects reopening Done/Cancel straight to in_progress via the generic patch (must use the reason-gated /reopen endpoint)", () => {
+    const done = {
+      status: "done" as const,
+      assignee_email: "cs@x.com",
+      in_progress_at: "2026-06-01T00:00:00.000Z",
+    };
+    const cancelled = { ...done, status: "cancel" as const };
+    expect(resolveTaskPatch(manager, done, { status: "in_progress" }).ok).toBe(false);
+    expect(resolveTaskPatch(manager, cancelled, { status: "in_progress" }).ok).toBe(false);
+  });
+
+  it("does NOT restart the clock bouncing through To Do (anti-gaming: assignee can't free-reset overdue)", () => {
+    const alreadyStarted = {
+      status: "todo" as const,
+      assignee_email: "cs@x.com",
+      in_progress_at: "2026-06-01T00:00:00.000Z",
+    };
     const r = resolveTaskPatch(
       manager,
-      done,
+      alreadyStarted,
       { status: "in_progress" },
       { nowIso: "2026-07-05T01:00:00.000Z" }
     );
@@ -126,13 +146,16 @@ describe("resolveTaskPatch", () => {
         status: "in_progress",
         done_reviewed_by_email: null,
         done_reviewed_at: null,
-        in_progress_at: "2026-07-05T01:00:00.000Z",
       },
     });
   });
 
   it("does not restamp in_progress_at when staying in in_progress (e.g. position-only patch)", () => {
-    const inProgress = { status: "in_progress" as const, assignee_email: "cs@x.com" };
+    const inProgress = {
+      status: "in_progress" as const,
+      assignee_email: "cs@x.com",
+      in_progress_at: "2026-06-01T00:00:00.000Z",
+    };
     const r = resolveTaskPatch(manager, inProgress, { position: 5 });
     expect(r).toEqual({ ok: true, patch: { position: 5 } });
   });
@@ -162,7 +185,7 @@ describe("resolveTaskPatch", () => {
   });
 
   it("allows final QC only for done tasks when permitted", () => {
-    const done = { status: "done" as const, assignee_email: "cs@x.com" };
+    const done = { status: "done" as const, assignee_email: "cs@x.com", in_progress_at: null };
     expect(
       resolveTaskPatch(manager, done, { done_reviewed: true }, {
         canReviewDone: true,

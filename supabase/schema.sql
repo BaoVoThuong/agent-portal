@@ -1306,10 +1306,19 @@ add column if not exists done_reviewed_at timestamptz;
 
 alter table tasks add column if not exists in_progress_at timestamptz;
 
+-- Set the first time a cron detection pass (see /api/cron/check-overdue)
+-- notices the task has crossed its SLA deadline; cleared whenever
+-- in_progress_at restarts (fresh start or Done/Cancel reopen) or the task is
+-- unlocked. This is what makes "this task went overdue" a permanent,
+-- tamper-resistant fact in the activity log instead of something that
+-- disappears the instant someone bounces the status back and forth — needed
+-- now that overdue counts feed into KPI.
+alter table tasks add column if not exists overdue_flagged_at timestamptz;
+
 -- "Waiting" status removed in favor of a computed Overdue bucket (SLA timer
--- past deadline while in_progress) — no cron needed, nothing to migrate to.
--- Existing waiting tasks become in_progress with a fresh clock; must run
--- before the check constraint below drops 'waiting' as an allowed value.
+-- past deadline while in_progress). Existing waiting tasks become in_progress
+-- with a fresh clock; must run before the check constraint below drops
+-- 'waiting' as an allowed value.
 update tasks set status = 'in_progress', in_progress_at = now()
 where status = 'waiting';
 
@@ -1498,6 +1507,11 @@ create table if not exists agent_members (
 );
 create index if not exists agent_members_cs_idx on agent_members (cs_email);
 create index if not exists agent_members_agent_idx on agent_members (agent_email);
+
+-- A CS member promoted to "Assistant" for that agent gets the same rights as
+-- the agent owner on that agent's tasks (edit content, unlock overdue,
+-- reopen, QC review, assign, delete) — a deputy, not just a worker.
+alter table agent_members add column if not exists is_assistant boolean not null default false;
 
 -- Backfill selected task agents from existing groups (idempotent).
 insert into task_agents (email)

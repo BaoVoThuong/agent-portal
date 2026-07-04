@@ -46,6 +46,7 @@ export type TaskRow = {
   assignee_email: string | null;
   reporter_email: string;
   in_progress_at: string | null;
+  overdue_flagged_at: string | null;
   done_reviewed_by_email: string | null;
   done_reviewed_at: string | null;
   position: number;

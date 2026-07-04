@@ -5,12 +5,15 @@ import { Check, Loader2, Plus, Search, Trash2, UsersRound, X } from "lucide-reac
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 
 type Person = { email: string; name: string | null };
+type Member = { email: string; is_assistant: boolean };
 
 export function AgentGroupsModal({
   open,
   agents,
   candidates,
   cs,
+  isManager,
+  manageableAgentEmails,
   onAgentsChange,
   onClose,
 }: {
@@ -18,17 +21,22 @@ export function AgentGroupsModal({
   agents: TaskAgent[];
   candidates: TaskAgent[];
   cs: TaskAssignee[];
+  isManager: boolean;
+  manageableAgentEmails: string[];
   onAgentsChange: (agents: TaskAgent[]) => void;
   onClose: () => void;
 }) {
+  const visibleAgents = isManager
+    ? agents
+    : agents.filter((agent) => manageableAgentEmails.includes(agent.email));
   const [selectedAgent, setSelectedAgent] = useState<string | null>(
-    agents[0]?.email ?? null
+    visibleAgents[0]?.email ?? null
   );
   const activeAgent =
-    selectedAgent && agents.some((agent) => agent.email === selectedAgent)
+    selectedAgent && visibleAgents.some((agent) => agent.email === selectedAgent)
       ? selectedAgent
-      : agents[0]?.email ?? null;
-  const [members, setMembers] = useState<string[]>([]);
+      : visibleAgents[0]?.email ?? null;
+  const [members, setMembers] = useState<Member[]>([]);
   const [loadedAgent, setLoadedAgent] = useState<string | null>(null);
   const [agentQuery, setAgentQuery] = useState("");
   const [candidateQuery, setCandidateQuery] = useState("");
@@ -90,8 +98,8 @@ export function AgentGroupsModal({
   );
 
   const filteredAgents = useMemo(
-    () => filterPeople(agents, agentQuery),
-    [agents, agentQuery]
+    () => filterPeople(visibleAgents, agentQuery),
+    [visibleAgents, agentQuery]
   );
 
   const availableCandidates = useMemo(
@@ -182,7 +190,9 @@ export function AgentGroupsModal({
     setSavingEmail(csEmail);
     setError(null);
     setMembers((cur) =>
-      on ? [...new Set([...cur, csEmail])] : cur.filter((m) => m !== csEmail)
+      on
+        ? [...cur.filter((m) => m.email !== csEmail), { email: csEmail, is_assistant: false }]
+        : cur.filter((m) => m.email !== csEmail)
     );
 
     try {
@@ -195,6 +205,35 @@ export function AgentGroupsModal({
     } catch {
       setMembers(before);
       setError("Could not save this member.");
+    } finally {
+      setSavingEmail(null);
+    }
+  }
+
+  async function toggleAssistant(csEmail: string, isAssistant: boolean) {
+    if (!activeAgent || savingEmail) return;
+
+    const before = members;
+    setSavingEmail(csEmail);
+    setError(null);
+    setMembers((cur) =>
+      cur.map((m) => (m.email === csEmail ? { ...m, is_assistant: isAssistant } : m))
+    );
+
+    try {
+      const res = await fetch("/api/admin/agent-members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_email: activeAgent,
+          cs_email: csEmail,
+          is_assistant: isAssistant,
+        }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+    } catch {
+      setMembers(before);
+      setError("Could not update assistant status.");
     } finally {
       setSavingEmail(null);
     }
@@ -222,7 +261,7 @@ export function AgentGroupsModal({
               </h2>
               <div className="mt-1 flex items-center gap-2 text-xs font-semibold text-[#626f86]">
                 <span className="rounded bg-white px-2 py-0.5 shadow-sm">
-                  {agents.length} agents
+                  {visibleAgents.length} agent{visibleAgents.length === 1 ? "" : "s"}
                 </span>
                 <span className="rounded bg-white px-2 py-0.5 shadow-sm">
                   {members.length} CS selected
@@ -243,64 +282,66 @@ export function AgentGroupsModal({
         <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-[#dfe1e6] md:grid-cols-[22rem_minmax(0,1fr)] md:divide-x md:divide-y-0">
           <section className="flex min-h-0 flex-col bg-[#f7f8f9]">
             <div className="shrink-0 space-y-4 border-b border-[#dfe1e6] p-4">
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-xs font-bold uppercase text-[#6b778c]">
-                    Add Agent
-                  </span>
-                  <span className="rounded bg-white px-2 py-0.5 text-xs font-semibold text-[#626f86] shadow-sm">
-                    {availableCandidates.length} available
-                  </span>
-                </div>
-                <div ref={candidatePickerRef} className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#626f86]" />
-                  <input
-                    value={candidateQuery}
-                    onFocus={() => setCandidatePickerOpen(true)}
-                    onChange={(event) => {
-                      setCandidateQuery(event.target.value);
-                      setCandidatePickerOpen(true);
-                    }}
-                    placeholder="Search people"
-                    className="h-10 w-full rounded border-2 border-[#dfe1e6] bg-white pl-9 pr-3 text-sm font-semibold text-[#172b4d] outline-none transition placeholder:font-medium placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]"
-                  />
-                  {candidatePickerOpen ? (
-                    <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-[70] max-h-72 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_10px_28px_rgba(9,30,66,0.22)]">
-                      {filteredCandidates.map((candidate) => (
-                        <button
-                          key={candidate.email}
-                          type="button"
-                          onClick={() => addAgent(candidate.email)}
-                          disabled={savingAgent}
-                          className="flex w-full items-center gap-3 rounded px-2.5 py-2 text-left transition hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <Initials email={candidate.email} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold text-[#172b4d]">
-                              {personLabel(candidate)}
-                            </span>
-                            {candidate.name?.trim() ? (
-                              <span className="block truncate text-xs text-[#626f86]">
-                                {candidate.email}
+              {isManager ? (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold uppercase text-[#6b778c]">
+                      Add Agent
+                    </span>
+                    <span className="rounded bg-white px-2 py-0.5 text-xs font-semibold text-[#626f86] shadow-sm">
+                      {availableCandidates.length} available
+                    </span>
+                  </div>
+                  <div ref={candidatePickerRef} className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#626f86]" />
+                    <input
+                      value={candidateQuery}
+                      onFocus={() => setCandidatePickerOpen(true)}
+                      onChange={(event) => {
+                        setCandidateQuery(event.target.value);
+                        setCandidatePickerOpen(true);
+                      }}
+                      placeholder="Search people"
+                      className="h-10 w-full rounded border-2 border-[#dfe1e6] bg-white pl-9 pr-3 text-sm font-semibold text-[#172b4d] outline-none transition placeholder:font-medium placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]"
+                    />
+                    {candidatePickerOpen ? (
+                      <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-[70] max-h-72 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_10px_28px_rgba(9,30,66,0.22)]">
+                        {filteredCandidates.map((candidate) => (
+                          <button
+                            key={candidate.email}
+                            type="button"
+                            onClick={() => addAgent(candidate.email)}
+                            disabled={savingAgent}
+                            className="flex w-full items-center gap-3 rounded px-2.5 py-2 text-left transition hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Initials email={candidate.email} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-semibold text-[#172b4d]">
+                                {personLabel(candidate)}
                               </span>
-                            ) : null}
-                          </span>
-                          {savingAgent ? (
-                            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
-                          ) : (
-                            <Plus className="h-4 w-4 shrink-0 text-[#0c66e4]" />
-                          )}
-                        </button>
-                      ))}
-                      {filteredCandidates.length === 0 ? (
-                        <div className="px-3 py-6 text-center text-sm font-semibold text-[#626f86]">
-                          No available people.
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                              {candidate.name?.trim() ? (
+                                <span className="block truncate text-xs text-[#626f86]">
+                                  {candidate.email}
+                                </span>
+                              ) : null}
+                            </span>
+                            {savingAgent ? (
+                              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
+                            ) : (
+                              <Plus className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                            )}
+                          </button>
+                        ))}
+                        {filteredCandidates.length === 0 ? (
+                          <div className="px-3 py-6 text-center text-sm font-semibold text-[#626f86]">
+                            No available people.
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
@@ -352,19 +393,21 @@ export function AgentGroupsModal({
                       </span>
                       {active ? <Check className="h-4 w-4 shrink-0" /> : null}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => removeAgent(agent.email)}
-                      disabled={removingAgent !== null || savingAgent}
-                      aria-label={`Remove ${personLabel(agent)} as agent`}
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#626f86] transition hover:bg-[#ffebe6] hover:text-[#ae2a19] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {removing ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </button>
+                    {isManager ? (
+                      <button
+                        type="button"
+                        onClick={() => removeAgent(agent.email)}
+                        disabled={removingAgent !== null || savingAgent}
+                        aria-label={`Remove ${personLabel(agent)} as agent`}
+                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#626f86] transition hover:bg-[#ffebe6] hover:text-[#ae2a19] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {removing ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </button>
+                    ) : null}
                   </div>
                 );
               })}
@@ -410,11 +453,12 @@ export function AgentGroupsModal({
               ) : (
                 <ul className="grid gap-2 lg:grid-cols-2">
                   {filteredCs.map((person) => {
-                    const checked = members.includes(person.email);
+                    const member = members.find((m) => m.email === person.email);
+                    const checked = Boolean(member);
                     const saving = savingEmail === person.email;
                     return (
                       <li key={person.email}>
-                        <label
+                        <div
                           className={`flex min-h-14 items-center gap-3 rounded border px-3 py-2 transition ${
                             checked
                               ? "border-[#85b8ff] bg-[#e9f2ff]"
@@ -441,10 +485,27 @@ export function AgentGroupsModal({
                               </span>
                             ) : null}
                           </span>
+                          {checked ? (
+                            <label
+                              className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-[#42526e]"
+                              title="Assistant gets the same rights as the agent owner on this agent's tasks"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={member?.is_assistant ?? false}
+                                disabled={savingEmail !== null}
+                                onChange={(event) =>
+                                  toggleAssistant(person.email, event.target.checked)
+                                }
+                                className="h-4 w-4 accent-[#0c66e4]"
+                              />
+                              Assistant
+                            </label>
+                          ) : null}
                           {saving ? (
                             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
                           ) : null}
-                        </label>
+                        </div>
                       </li>
                     );
                   })}

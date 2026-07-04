@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
 import type { ActivityRow } from "@/lib/tasks/detail";
 
 function formatDateTime(value: unknown): string | null {
@@ -40,17 +40,31 @@ export function OverdueLog({
         const dueLabel = formatDateTime(meta.due_at);
         const resolvedLabel = formatDateTime(meta.resolved_at ?? entry.created_at);
         const overdueBy = formatOverdueBy(meta.due_at, meta.resolved_at);
+        const fromStatus = typeof meta.from_status === "string" ? meta.from_status : null;
         const actorLabel =
           personLabelByEmail?.get(entry.actor_email) ?? entry.actor_email;
+        const isReopen = entry.type === "task_reopened";
 
         return (
           <li
             key={entry.id}
-            className="rounded border border-[#ffbdad] bg-[#fff5f5] p-3"
+            className={`rounded border p-3 ${
+              isReopen ? "border-[#dfe1e6] bg-[#f7f8f9]" : "border-[#ffbdad] bg-[#fff5f5]"
+            }`}
           >
-            <div className="flex items-center gap-1.5 text-xs font-bold text-[#bf2600]">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              Resolved by {actorLabel}
+            <div
+              className={`flex items-center gap-1.5 text-xs font-bold ${
+                isReopen ? "text-[#42526e]" : "text-[#bf2600]"
+              }`}
+            >
+              {isReopen ? (
+                <RotateCcw className="h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              )}
+              {isReopen
+                ? `Reopened by ${actorLabel}${fromStatus ? ` (from ${fromStatus})` : ""}`
+                : `Overdue resolved by ${actorLabel}`}
             </div>
             <dl className="mt-1.5 space-y-0.5 text-xs leading-5 text-[#6b778c]">
               {dueLabel ? (
@@ -60,7 +74,9 @@ export function OverdueLog({
                 </div>
               ) : null}
               <div>
-                <dt className="inline font-semibold text-[#42526e]">Resolved at:</dt>{" "}
+                <dt className="inline font-semibold text-[#42526e]">
+                  {isReopen ? "Reopened at:" : "Resolved at:"}
+                </dt>{" "}
                 <dd className="inline">{resolvedLabel ?? "—"}</dd>
               </div>
               {overdueBy ? (

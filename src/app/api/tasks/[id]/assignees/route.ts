@@ -8,7 +8,7 @@ import {
   isTaskAssigneesMissingError,
 } from "@/lib/tasks/assignees";
 import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
@@ -37,9 +37,10 @@ async function loadContext(id: string) {
     TaskRow,
     "id" | "status" | "agent_email" | "assignee_email"
   >;
-  const agents = actor.isManager ? [] : await fetchAgentsForCs(actor.email);
-  const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
-  if (!canAssignToTask(actor, isAgentMember)) {
+  const isAgentOwner = actor.isManager
+    ? false
+    : await isAgentOwnerOrAssistant(task.agent_email, actor.email);
+  if (!canAssignToTask(actor, isAgentOwner)) {
     return { error: "You cannot assign this task.", status: 403 };
   }
 

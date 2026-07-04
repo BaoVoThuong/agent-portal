@@ -30,7 +30,7 @@ import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { CategoryManager } from "./CategoryManager";
 import { AgentGroupsModal } from "./AgentGroupsModal";
 import { SlaRulesModal } from "./SlaRulesModal";
-import { OverdueUnlockModal } from "./OverdueUnlockModal";
+import { ReasonModal } from "./ReasonModal";
 
 // Countdown/overdue labels only need to refresh every so often, not on every
 // render — 30s keeps the board close to live without a timer per card.
@@ -44,6 +44,7 @@ export function TaskBoardClient({
   agents,
   agentCandidates,
   myAgents,
+  myAssistantAgents,
   agentMembersByAgent,
   initialCategories,
 }: {
@@ -54,6 +55,7 @@ export function TaskBoardClient({
   agents: TaskAgent[];
   agentCandidates: TaskAgent[];
   myAgents: string[];
+  myAssistantAgents: string[];
   agentMembersByAgent: Record<string, string[]>;
   initialCategories: TaskCategory[];
 }) {
@@ -70,6 +72,7 @@ export function TaskBoardClient({
   const [managingSlaRules, setManagingSlaRules] = useState(false);
   const [slaRules, setSlaRules] = useState<TaskSlaRule[]>([]);
   const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
+  const [reopeningTaskId, setReopeningTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState<string[]>([]);
@@ -382,16 +385,27 @@ export function TaskBoardClient({
     setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
   }
 
+  // "Agent owner" rights extend to a promoted Assistant of that agent —
+  // same standing as the agent themself, just not the agent's own account.
+  function isAgentOwnerOrAssistantOf(agentEmail: string | null): boolean {
+    if (!agentEmail) return false;
+    return agentEmail === currentEmail || myAssistantAgents.includes(agentEmail);
+  }
+
   function canChangeStatusTask(task: TaskRow): boolean {
     return (
       isManager ||
       task.assignees.includes(currentEmail) ||
-      task.agent_email === currentEmail
+      isAgentOwnerOrAssistantOf(task.agent_email)
     );
   }
 
   function canReviewDoneTask(task: TaskRow): boolean {
-    return task.status === "done" && (isManager || task.agent_email === currentEmail);
+    return task.status === "done" && (isManager || isAgentOwnerOrAssistantOf(task.agent_email));
+  }
+
+  function canDeleteOpenTask(task: TaskRow): boolean {
+    return isManager || isAgentOwnerOrAssistantOf(task.agent_email);
   }
 
   function reviewDoneTask(id: string, reviewed: boolean) {
@@ -458,6 +472,31 @@ export function TaskBoardClient({
     const data = await res.json();
     replaceTask(data.task as TaskRow);
     setUnlockingTaskId(null);
+    return true;
+  }
+
+  async function submitReopen(reason: string): Promise<boolean> {
+    const id = reopeningTaskId;
+    if (!id) return false;
+    let res: Response;
+    try {
+      res = await fetch(`/api/tasks/${id}/reopen`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+    } catch {
+      setError("Connection lost — could not reopen the task.");
+      return false;
+    }
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      setError(data?.error ?? "Could not reopen the task.");
+      return false;
+    }
+    const data = await res.json();
+    replaceTask(data.task as TaskRow);
+    setReopeningTaskId(null);
     return true;
   }
 
@@ -566,10 +605,18 @@ export function TaskBoardClient({
   }
 
   const canAssignOpen =
-    openTask !== null &&
-    (isManager || Boolean(openTask.agent_email && myAgents.includes(openTask.agent_email)));
+    openTask !== null && (isManager || isAgentOwnerOrAssistantOf(openTask.agent_email));
   const canEditOpen =
-    openTask !== null && (isManager || openTask.agent_email === currentEmail);
+    openTask !== null &&
+    (isManager ||
+      isAgentOwnerOrAssistantOf(openTask.agent_email) ||
+      openTask.reporter_email === currentEmail);
+  const canDeleteOpen = openTask !== null && canDeleteOpenTask(openTask);
+  const isMyOwnAgentAccount = agents.some((agent) => agent.email === currentEmail);
+  const manageableAgentEmails = isMyOwnAgentAccount
+    ? [...new Set([currentEmail, ...myAssistantAgents])]
+    : myAssistantAgents;
+  const canManageOwnAgentGroup = manageableAgentEmails.length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white text-[#172b4d]">
@@ -578,16 +625,18 @@ export function TaskBoardClient({
           <h1 className="text-3xl font-semibold text-[#172b4d]">Tasks</h1>
 
           <div className="flex items-center gap-2">
+            {(isManager || canManageOwnAgentGroup) && (
+              <button
+                type="button"
+                onClick={() => setManagingAgentGroups(true)}
+                className="inline-flex h-9 items-center gap-2 rounded border border-transparent bg-[#f4f5f7] px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#ebecf0]"
+              >
+                <UsersRound className="h-4 w-4" />
+                Agent Groups
+              </button>
+            )}
             {isManager && (
               <>
-                <button
-                  type="button"
-                  onClick={() => setManagingAgentGroups(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded border border-transparent bg-[#f4f5f7] px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#ebecf0]"
-                >
-                  <UsersRound className="h-4 w-4" />
-                  Agent Groups
-                </button>
                 <button
                   type="button"
                   onClick={() => setManagingCategories(true)}
@@ -664,6 +713,7 @@ export function TaskBoardClient({
           rules={slaRules}
           now={now}
           onUnlockOverdue={setUnlockingTaskId}
+          onReopenRequest={setReopeningTaskId}
         />
       )}
 
@@ -673,7 +723,7 @@ export function TaskBoardClient({
           categories={categories}
           assignees={assignees}
           isManager={isManager}
-          myAgents={myAgents}
+          myAssistantAgents={myAssistantAgents}
           agentMembersByAgent={agentMembersByAgent}
           currentEmail={currentEmail}
           onOpen={openTaskById}
@@ -682,6 +732,7 @@ export function TaskBoardClient({
           onReviewDone={reviewDoneTask}
           onAssigneeChange={changeAssignee}
           overdueIds={overdueIds}
+          onReopenRequest={setReopeningTaskId}
         />
       )}
 
@@ -721,6 +772,9 @@ export function TaskBoardClient({
           task={openTask}
           canEdit={canEditOpen}
           canAssign={canAssignOpen}
+          canDelete={canDeleteOpen}
+          canChangeStatus={openTask !== null && canChangeStatusTask(openTask)}
+          onReopenRequest={() => setReopeningTaskId(openTask.id)}
           assignees={assignees}
           agentMembersByAgent={agentMembersByAgent}
           agents={taskAgents}
@@ -749,6 +803,8 @@ export function TaskBoardClient({
         agents={taskAgents}
         candidates={agentCandidates}
         cs={assignees}
+        isManager={isManager}
+        manageableAgentEmails={manageableAgentEmails}
         onAgentsChange={setTaskAgents}
         onClose={() => setManagingAgentGroups(false)}
       />
@@ -761,10 +817,26 @@ export function TaskBoardClient({
         onClose={() => setManagingSlaRules(false)}
       />
 
-      <OverdueUnlockModal
+      <ReasonModal
         open={unlockingTaskId !== null}
+        title="Task overdue"
+        description="Enter a reason to unlock this task from Overdue and move it back to In Progress."
+        placeholder="Reason for the delay..."
+        submitLabel="Unlock"
+        accentColor="#de350b"
         onClose={() => setUnlockingTaskId(null)}
         onSubmit={submitOverdueUnlock}
+      />
+
+      <ReasonModal
+        open={reopeningTaskId !== null}
+        title="Reopen task"
+        description="This task is Done/Cancelled. Enter a reason to move it back to In Progress."
+        placeholder="Reason for reopening..."
+        submitLabel="Reopen"
+        accentColor="#0c66e4"
+        onClose={() => setReopeningTaskId(null)}
+        onSubmit={submitReopen}
       />
 
       {error && (

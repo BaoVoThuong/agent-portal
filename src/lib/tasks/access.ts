@@ -73,30 +73,35 @@ export function canReviewDoneTask(
   return Boolean(task.agent_email && task.agent_email === actor.email);
 }
 
-export function canAssignToTask(actor: TaskActor, isAgentMember: boolean): boolean {
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return isAgentMember;
-}
-
-// Content edit (title/description/priority/category/agent/fub_link, plus
-// task-level attachment uploads): manager or the task's agent owner only.
-// Being the assignee or the reporter does NOT grant this.
-export function canMutateTask(
-  actor: TaskActor,
-  task: Pick<TaskRow, "assignee_email">,
-  isAgentOwner = false
-): boolean {
-  void task;
+// Assign/reassign: manager or the task's agent owner (agent themself, or a
+// promoted Assistant — see isAgentOwnerOrAssistant) only. Being a plain
+// member of the agent's support group (Agent Groups) is no longer enough on
+// its own; that list still drives who's shown as an assignee *candidate*.
+export function canAssignToTask(actor: TaskActor, isAgentOwner: boolean): boolean {
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
   return isAgentOwner;
 }
 
-// Status transitions (kanban move, position, the overdue-unlock flow):
-// manager, the agent owner, or whoever is actually assigned the work — the
-// assignee needs this even though they can't edit content, otherwise they
-// couldn't progress their own tasks.
+// Content edit (title/description/priority/category/agent/fub_link, plus
+// task-level attachment uploads): manager, the task's agent owner, or the
+// person who reported (created) the task.
+export function canMutateTask(
+  actor: TaskActor,
+  task: Pick<TaskRow, "assignee_email">,
+  flags: { isAgentOwner?: boolean; isReporter?: boolean } = {}
+): boolean {
+  void task;
+  if (actor.isManager) return true;
+  if (!actor.isWorker) return false;
+  return Boolean(flags.isAgentOwner) || Boolean(flags.isReporter);
+}
+
+// Status transitions (kanban move, position), overdue-unlock, and reopening
+// a Done/Cancel task: manager, the agent owner, or whoever is actually
+// assigned the work. The assignee is deliberately included even for
+// overdue-unlock/reopen — the reason text + activity log is the audit trail
+// for KPI purposes, not a second-party approval gate.
 export function canChangeTaskStatus(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">,
@@ -108,8 +113,10 @@ export function canChangeTaskStatus(
   return Boolean(flags.isAssignee) || Boolean(flags.isAgentOwner);
 }
 
-export function canDeleteTask(actor: TaskActor): boolean {
-  return actor.isManager;
+export function canDeleteTask(actor: TaskActor, isAgentOwner = false): boolean {
+  if (actor.isManager) return true;
+  if (!actor.isWorker) return false;
+  return isAgentOwner;
 }
 
 export type CreateAssignmentInput = {
