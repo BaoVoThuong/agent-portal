@@ -41,16 +41,9 @@ export function TaskCard({
       className={`block w-full rounded p-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] ${
         isOverdue
           ? "border-2 border-[#de350b] bg-[#fff5f5] hover:border-[#bf2600]"
-          : "border border-l-4 border-[#dfe1e6] hover:border-[#c1c7d0]"
+          : "border border-l-4 border-[#dfe1e6] bg-white hover:border-[#c1c7d0]"
       }`}
-      style={
-        isOverdue
-          ? undefined
-          : {
-              borderLeftColor: STATUS_CARD_STYLE[task.status].accent,
-              backgroundColor: STATUS_CARD_STYLE[task.status].bg,
-            }
-      }
+      style={isOverdue ? undefined : { borderLeftColor: STATUS_ACCENT[task.status] }}
     >
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -230,12 +223,12 @@ function PriorityAlert({ priority }: { priority: TaskRow["priority"] }) {
   );
 }
 
-const STATUS_CARD_STYLE: Record<TaskRow["status"], { accent: string; bg: string }> = {
-  backlog: { accent: "#a5adba", bg: "#ffffff" },
-  todo: { accent: "#4c9aff", bg: "#f5f9ff" },
-  in_progress: { accent: "#6554c0", bg: "#f8f6fd" },
-  done: { accent: "#36b37e", bg: "#f0faf5" },
-  cancel: { accent: "#5e6c84", bg: "#f7f8fa" },
+const STATUS_ACCENT: Record<TaskRow["status"], string> = {
+  backlog: "#a5adba",
+  todo: "#4c9aff",
+  in_progress: "#6554c0",
+  done: "#36b37e",
+  cancel: "#5e6c84",
 };
 
 function categoryPalette(category: TaskCategory) {
