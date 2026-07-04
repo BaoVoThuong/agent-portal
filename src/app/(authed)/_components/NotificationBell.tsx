@@ -8,6 +8,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { taskKey } from "@/lib/tasks/sorting";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { dispatchOpenTask } from "@/lib/tasks/client-events";
+import { playNotificationChime, primeNotificationSound } from "@/lib/tasks/sound";
 
 type Notif = {
   id: string;
@@ -114,6 +115,9 @@ export function NotificationBell() {
       const fresh = list.filter((n) => !seenIds.current.has(n.id) && !n.is_read);
       list.forEach((n) => seenIds.current.add(n.id));
 
+      // One chime per batch, not per item, so a burst doesn't overlap tones.
+      if (fresh.length > 0) playNotificationChime();
+
       // Oldest first so the newest toast ends up on top of the stack.
       for (const n of [...fresh].reverse()) {
         setToasts((cur) => [n, ...cur].slice(0, 4));
@@ -123,12 +127,12 @@ export function NotificationBell() {
           TOAST_MS
         );
 
-        // Bonus: native OS notification when the tab isn't focused.
+        // Native OS popup too — fires regardless of whether the tab is
+        // focused, not just when it's hidden.
         if (
           typeof window !== "undefined" &&
           "Notification" in window &&
-          Notification.permission === "granted" &&
-          document.hidden
+          Notification.permission === "granted"
         ) {
           new Notification(`${taskKey(n.task_id)} · ${notificationHeading(n)}`, {
             body: nativeNotificationBody(n),
@@ -160,6 +164,17 @@ export function NotificationBell() {
     ) {
       void Notification.requestPermission();
     }
+  }, []);
+
+  // Prime the shared AudioContext on the first user gesture anywhere in the
+  // app — autoplay policy suspends it until then, so a chime fired before
+  // this would otherwise be silently skipped.
+  useEffect(() => {
+    function prime() {
+      primeNotificationSound();
+    }
+    document.addEventListener("pointerdown", prime, { once: true });
+    return () => document.removeEventListener("pointerdown", prime);
   }, []);
 
   // Realtime: subscribe to this user's broadcast topic. A ping just re-runs load()
