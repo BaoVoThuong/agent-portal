@@ -184,9 +184,9 @@ function Column({
   return (
     <section
       ref={setNodeRef}
-      className={`flex min-w-0 flex-1 flex-col rounded p-1.5 transition-colors ${
-        isOverdueColumn ? "bg-[#fff0ee]" : "bg-[#f4f5f7]"
-      } ${isOver && !isOverdueColumn ? "bg-[#deebff]" : ""}`}
+      className={`flex min-w-0 flex-1 flex-col rounded bg-[#f4f5f7] p-1.5 transition-colors ${
+        isOver && !isOverdueColumn ? "bg-[#deebff]" : ""
+      }`}
     >
       <div className="flex h-9 items-center px-1">
         <span
