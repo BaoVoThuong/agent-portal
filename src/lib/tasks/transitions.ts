@@ -129,6 +129,17 @@ export function resolveTaskPatch(
       error: "Reopening a Done/Cancelled task needs a reason — use the Reopen action.",
     };
   }
+  // Overdue only ever applies to a task that has been In Progress — skipping
+  // straight from To Do/Backlog to Done means in_progress_at never gets
+  // stamped, so the task can never be flagged overdue no matter how long it
+  // actually sat unworked. Cancel is left unrestricted: cancelling something
+  // that was never started isn't a completed-work claim, nothing to measure.
+  if (statusChanged && nextStatus === "done" && !current.in_progress_at) {
+    return {
+      ok: false,
+      error: "Move the task to In Progress before marking it Done.",
+    };
+  }
 
   if (reassigning) patch.assignee_email = nextAssignee;
   if (r.status !== undefined) patch.status = nextStatus;

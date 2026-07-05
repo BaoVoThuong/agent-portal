@@ -196,6 +196,34 @@ describe("resolveTaskPatch", () => {
     expect((r as { ok: true; patch: Record<string, unknown> }).patch.sla_minutes).toBe(1440);
   });
 
+  it("rejects jumping straight to Done without ever having been In Progress (anti-gaming: skipping the SLA window entirely)", () => {
+    const neverStarted = resolveTaskPatch(manager, assigned, { status: "done" });
+    expect(neverStarted.ok).toBe(false);
+    expect((neverStarted as { ok: false; error: string }).error).toMatch(
+      /In Progress/
+    );
+
+    // Backlog -> Done in one patch (with an assignee provided) is the same
+    // loophole and must also be rejected.
+    const fromBacklog = resolveTaskPatch(
+      manager,
+      { status: "backlog", assignee_email: null, in_progress_at: null },
+      { status: "done", assignee_email: "cs@x.com" }
+    );
+    expect(fromBacklog.ok).toBe(false);
+  });
+
+  it("allows jumping straight to Cancel without having been In Progress (nothing was started, nothing to measure)", () => {
+    const r = resolveTaskPatch(manager, assigned, { status: "cancel" });
+    expect(r.ok).toBe(true);
+  });
+
+  it("allows Done once the task has actually been In Progress", () => {
+    const started = { ...assigned, in_progress_at: "2026-06-01T00:00:00.000Z" };
+    const r = resolveTaskPatch(manager, started, { status: "done" });
+    expect(r.ok).toBe(true);
+  });
+
   it("does not restamp in_progress_at when staying in in_progress (e.g. position-only patch)", () => {
     const inProgress = {
       status: "in_progress" as const,
@@ -219,7 +247,8 @@ describe("resolveTaskPatch", () => {
   });
 
   it("resets QC review whenever status changes", () => {
-    const r = resolveTaskPatch(manager, assigned, { status: "done" });
+    const started = { ...assigned, in_progress_at: "2026-06-01T00:00:00.000Z" };
+    const r = resolveTaskPatch(manager, started, { status: "done" });
     expect(r).toEqual({
       ok: true,
       patch: {
