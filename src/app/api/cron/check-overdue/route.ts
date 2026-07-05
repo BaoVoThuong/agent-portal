@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { effectiveSlaMinutes, isTaskOverdue, slaDeadline } from "@/lib/tasks/sla";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { fetchTaskAssigneeEmails } from "@/lib/tasks/assignees";
+import { insertNotifications } from "@/lib/tasks/notifications";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +39,9 @@ export async function GET(request: Request) {
   const supabase = getSupabaseAdmin();
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
-    .select("id,status,priority,category_id,in_progress_at,overdue_flagged_at,sla_minutes")
+    .select(
+      "id,status,priority,category_id,in_progress_at,overdue_flagged_at,sla_minutes,overdue_count"
+    )
     .eq("status", "in_progress")
     .is("overdue_flagged_at", null)
     .is("archived_at", null)
@@ -53,6 +57,7 @@ export async function GET(request: Request) {
     | "in_progress_at"
     | "overdue_flagged_at"
     | "sla_minutes"
+    | "overdue_count"
   >[];
 
   if (tasks.length === 0) {
@@ -68,6 +73,20 @@ export async function GET(request: Request) {
   const now = new Date();
   const newlyOverdue = tasks.filter((task) => isTaskOverdue(task, rules, now));
 
+  // Tasks already flagged overdue from a previous run — still unresolved,
+  // so send a repeat reminder. Runs once/day (see vercel.json), which is
+  // exactly the "remind again after 24h" cadence asked for.
+  const { data: stillOverdueRows, error: stillOverdueError } = await supabase
+    .from("tasks")
+    .select("id")
+    .eq("status", "in_progress")
+    .not("overdue_flagged_at", "is", null)
+    .is("archived_at", null);
+  if (stillOverdueError) {
+    return NextResponse.json({ error: stillOverdueError.message }, { status: 500 });
+  }
+  const stillOverdue = (stillOverdueRows ?? []) as { id: string }[];
+
   if (newlyOverdue.length > 0) {
     const nowIso = now.toISOString();
     await Promise.all(
@@ -76,7 +95,7 @@ export async function GET(request: Request) {
         const dueAt = slaDeadline(task.in_progress_at as string, minutes);
         await supabase
           .from("tasks")
-          .update({ overdue_flagged_at: nowIso })
+          .update({ overdue_flagged_at: nowIso, overdue_count: task.overdue_count + 1 })
           .eq("id", task.id)
           .is("overdue_flagged_at", null);
         await supabase.from("task_activity").insert({
@@ -85,10 +104,39 @@ export async function GET(request: Request) {
           type: "went_overdue",
           meta: { due_at: dueAt.toISOString(), flagged_at: nowIso },
         });
+        const assignees = await fetchTaskAssigneeEmails(task.id, supabase);
+        await insertNotifications(
+          assignees.map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "overdue",
+            actor_email: "system",
+          }))
+        );
       })
     );
     await broadcastTasksChanged();
   }
 
-  return NextResponse.json({ checked: tasks.length, flagged: newlyOverdue.length });
+  if (stillOverdue.length > 0) {
+    await Promise.all(
+      stillOverdue.map(async (task) => {
+        const assignees = await fetchTaskAssigneeEmails(task.id, supabase);
+        await insertNotifications(
+          assignees.map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "overdue_reminder",
+            actor_email: "system",
+          }))
+        );
+      })
+    );
+  }
+
+  return NextResponse.json({
+    checked: tasks.length,
+    flagged: newlyOverdue.length,
+    reminded: stillOverdue.length,
+  });
 }

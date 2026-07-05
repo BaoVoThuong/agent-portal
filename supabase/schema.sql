@@ -1326,6 +1326,15 @@ alter table tasks add column if not exists overdue_flagged_at timestamptz;
 -- resolution for those.
 alter table tasks add column if not exists sla_minutes integer;
 
+-- Permanent tally of how many times this task has gone overdue — unlike
+-- overdue_flagged_at (cleared on every unlock/reopen so it can re-arm), this
+-- never resets, including once the task reaches Done/Cancel. Powers: (1) a
+-- "was overdue" badge on completed tasks, since the live overdue check goes
+-- blank the moment status leaves in_progress; (2) switching a reopened
+-- task's SLA display from a fresh countdown to a plain elapsed-time counter,
+-- since a task with prior overdue history shouldn't look like a clean slate.
+alter table tasks add column if not exists overdue_count integer not null default 0;
+
 -- "Waiting" status removed in favor of a computed Overdue bucket (SLA timer
 -- past deadline while in_progress). Existing waiting tasks become in_progress
 -- with a fresh clock; must run before the check constraint below drops

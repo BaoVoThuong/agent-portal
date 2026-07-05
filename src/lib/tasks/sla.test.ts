@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SLA_MINUTES,
   effectiveSlaMinutes,
+  formatElapsedSince,
   formatSlaRemaining,
   isTaskOverdue,
   resolveSlaMinutes,
@@ -93,6 +94,19 @@ describe("isTaskOverdue", () => {
     const now = new Date("2026-07-05T05:00:00.000Z");
     expect(isTaskOverdue({ ...base, status: "done" }, rules, now)).toBe(false);
     expect(isTaskOverdue({ ...base, in_progress_at: null }, rules, now)).toBe(false);
+  });
+});
+
+describe("formatElapsedSince", () => {
+  it("formats elapsed hours and minutes", () => {
+    const since = "2026-07-05T00:00:00.000Z";
+    const now = new Date("2026-07-05T02:15:00.000Z");
+    expect(formatElapsedSince(since, now)).toBe("2h 15m");
+  });
+  it("formats sub-hour elapsed without the hour segment", () => {
+    const since = "2026-07-05T00:00:00.000Z";
+    const now = new Date("2026-07-05T00:10:00.000Z");
+    expect(formatElapsedSince(since, now)).toBe("10m");
   });
 });
 

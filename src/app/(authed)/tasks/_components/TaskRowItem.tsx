@@ -6,7 +6,7 @@ import {
   type SyntheticEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { Check, CheckCircle2, ChevronDown, Circle } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Circle } from "lucide-react";
 import {
   STATUS_LABEL,
   TASK_STATUSES,
@@ -97,10 +97,18 @@ export function TaskRowItem({
       <button
         type="button"
         onClick={() => onOpen(task.id)}
-        className="min-w-0 flex-1 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]"
+        className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]"
         title={task.title}
       >
-        {task.title}
+        <span className="truncate">{task.title}</span>
+        {(task.status === "done" || task.status === "cancel") && task.overdue_count > 0 ? (
+          <span
+            className="shrink-0"
+            title={`Was overdue ${task.overdue_count}x before closing`}
+          >
+            <AlertTriangle className="h-3.5 w-3.5 text-[#7f5f01]" />
+          </span>
+        ) : null}
       </button>
 
       <span className={`hidden ${LIST_COL.category} shrink-0 truncate sm:block`}>

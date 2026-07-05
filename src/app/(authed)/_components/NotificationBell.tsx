@@ -13,7 +13,7 @@ import { playNotificationChime, primeNotificationSound } from "@/lib/tasks/sound
 type Notif = {
   id: string;
   task_id: string;
-  type: "assigned" | "mentioned" | "commented";
+  type: "assigned" | "mentioned" | "commented" | "overdue" | "overdue_reminder";
   actor_email: string;
   actor_name: string | null;
   task_title: string | null;
@@ -67,11 +67,21 @@ function actionText(n: Notif): string {
       return "tagged you in a comment";
     case "commented":
       return "commented on a task assigned to you";
+    case "overdue":
+      return "Task just went overdue";
+    case "overdue_reminder":
+      return "Task is still overdue — reminder";
   }
 }
 
+// System-triggered (cron) notifications aren't "from" anyone — actionText is
+// already a complete sentence for these, so skip the actor-name prefix.
+function isSystemNotif(n: Notif): boolean {
+  return n.type === "overdue" || n.type === "overdue_reminder";
+}
+
 function notificationHeading(n: Notif): string {
-  return `${actorName(n)} ${actionText(n)}`;
+  return isSystemNotif(n) ? actionText(n) : `${actorName(n)} ${actionText(n)}`;
 }
 
 function nativeNotificationBody(n: Notif): string {
@@ -358,7 +368,13 @@ function NotifContent({ n }: { n: Notif }) {
           n.is_read ? "text-slate-500" : "text-slate-800"
         }`}
       >
-        <span className="font-semibold">{actorName(n)}</span> {actionText(n)}
+        {isSystemNotif(n) ? (
+          actionText(n)
+        ) : (
+          <>
+            <span className="font-semibold">{actorName(n)}</span> {actionText(n)}
+          </>
+        )}
       </p>
       {n.task_title && (
         <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500" title={n.task_title}>

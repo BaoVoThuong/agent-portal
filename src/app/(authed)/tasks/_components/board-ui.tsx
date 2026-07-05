@@ -8,7 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { TaskPriority } from "@/lib/tasks/types";
-import { formatSlaRemaining } from "@/lib/tasks/sla";
+import { formatElapsedSince, formatSlaRemaining } from "@/lib/tasks/sla";
 
 export const PRIORITY_META: Record<
   TaskPriority,
@@ -94,7 +94,32 @@ export function PriorityDot({ priority }: { priority: TaskPriority }) {
 
 // Countdown while running, red "Overdue by …" once past deadline. `null`
 // deadline means the task isn't in_progress (no timer to show).
-export function SlaTimer({ deadline, now }: { deadline: Date | null; now: Date }) {
+export function SlaTimer({
+  deadline,
+  now,
+  elapsedSinceIso,
+}: {
+  deadline: Date | null;
+  now: Date;
+  /**
+   * Set when the task has prior overdue history (overdue_count > 0). A fresh
+   * "time left" countdown would look like a clean slate for a task already
+   * flagged as high-risk, so show plain elapsed time instead — no deadline
+   * framing.
+   */
+  elapsedSinceIso?: string | null;
+}) {
+  if (elapsedSinceIso) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded bg-[#fff0b3] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]"
+        title="This task has prior overdue history — showing elapsed time, not a fresh countdown."
+      >
+        <Clock className="h-3.5 w-3.5" />
+        In progress {formatElapsedSince(elapsedSinceIso, now)}
+      </span>
+    );
+  }
   if (!deadline) return null;
   const overdue = now.getTime() >= deadline.getTime();
   return (

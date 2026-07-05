@@ -77,3 +77,17 @@ export function formatSlaRemaining(deadline: Date, now: Date = new Date()): stri
   const label = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   return overdue ? `Overdue by ${label}` : `${label} left`;
 }
+
+// A task that has ever gone overdue (overdue_count > 0) shows this instead
+// of a fresh countdown once reopened/unlocked — a "time left" framing would
+// look like a clean slate, which is misleading for a task already flagged as
+// high-risk. Plain elapsed time since the current in_progress_at instead.
+export function formatElapsedSince(sinceIso: string, now: Date = new Date()): string {
+  const totalMinutes = Math.max(
+    0,
+    Math.round((now.getTime() - new Date(sinceIso).getTime()) / 60_000)
+  );
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}

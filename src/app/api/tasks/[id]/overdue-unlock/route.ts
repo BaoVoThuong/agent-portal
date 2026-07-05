@@ -60,6 +60,12 @@ export async function POST(req: Request, { params }: Ctx) {
   // Re-snapshot at the current priority/category — locks in the SLA for the
   // new run the same way a first start does (see sla_minutes in schema.sql).
   const nextSlaMinutes = resolveSlaMinutes(task.priority, task.category_id, rules);
+  // Only bump the permanent tally if the cron hasn't already counted this
+  // occurrence (overdue_flagged_at unset means the person noticed and
+  // unlocked it before the daily cron ran).
+  const nextOverdueCount = task.overdue_flagged_at
+    ? task.overdue_count
+    : task.overdue_count + 1;
 
   const { data: updated, error: updateError } = await supabase
     .from("tasks")
@@ -67,6 +73,7 @@ export async function POST(req: Request, { params }: Ctx) {
       in_progress_at: nowIso,
       overdue_flagged_at: null,
       sla_minutes: nextSlaMinutes,
+      overdue_count: nextOverdueCount,
       updated_at: nowIso,
     })
     .eq("id", id)

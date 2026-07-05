@@ -11,6 +11,7 @@ import {
   canViewTask,
 } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
+import { isTaskOverdue } from "@/lib/tasks/sla";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
@@ -143,10 +144,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
   };
   const reassigning = bodyRecord.assignee_email !== undefined;
 
-  // Only needed to snapshot sla_minutes on a first start into in_progress —
-  // skip the query otherwise.
+  // Needed to snapshot sla_minutes on a first start into in_progress, and to
+  // check whether a task was overdue at the moment it's marked Done directly
+  // (skipping /overdue-unlock) so overdue_count still gets credited.
   let slaRules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[] = [];
-  if (bodyRecord.status === "in_progress" && !r.task.in_progress_at) {
+  const enteringInProgress = bodyRecord.status === "in_progress" && !r.task.in_progress_at;
+  const enteringDoneFromInProgress =
+    bodyRecord.status === "done" && r.task.status === "in_progress";
+  if (enteringInProgress || enteringDoneFromInProgress) {
     const { data: rulesData, error: rulesError } = await r.supabase
       .from("task_sla_rules")
       .select("priority,category_id,duration_minutes");
@@ -187,6 +192,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
     rules: slaRules,
   });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+
+  // A task can go straight from In Progress (currently overdue) to Done
+  // without ever touching /overdue-unlock — completing it isn't the same as
+  // continuing to work on it. Still credit overdue_count so it doesn't only
+  // get counted when someone happens to unlock first, and a "was overdue"
+  // note can show on the Done card. Skipped if the cron already counted this
+  // occurrence (overdue_flagged_at set).
+  if (enteringDoneFromInProgress && !r.task.overdue_flagged_at && isTaskOverdue(r.task, slaRules)) {
+    resolved.patch.overdue_count = r.task.overdue_count + 1;
+  }
 
   // A non-manager (agent owner/Assistant) can freely pick any assignee, but
   // only within their own agent's team — same bound the create-task flow and

@@ -100,7 +100,16 @@ export function TaskCard({
             General
           </span>
         )}
-        <SlaTimer deadline={slaDeadline} now={now} />
+        <SlaTimer
+          deadline={slaDeadline}
+          now={now}
+          elapsedSinceIso={
+            task.overdue_count > 0 && task.status === "in_progress"
+              ? task.in_progress_at
+              : null
+          }
+        />
+        <WasOverdueBadge task={task} />
         <PriorityAlert priority={task.priority} />
       </div>
 
@@ -226,6 +235,25 @@ function CategoryBadge({ category }: { category: TaskCategory }) {
       }}
     >
       {category.name}
+    </span>
+  );
+}
+
+// Permanent marker for Done/Cancel cards that were overdue at some point —
+// the live overdue check goes blank the moment status leaves in_progress, so
+// without this a task that dodged its SLA for days would look completely
+// clean once finished.
+function WasOverdueBadge({ task }: { task: TaskRow }) {
+  if (task.status !== "done" && task.status !== "cancel") return null;
+  if (task.overdue_count <= 0) return null;
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded bg-[#fff0b3] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]"
+      title="This task went overdue at least once before it was closed."
+    >
+      <AlertTriangle className="h-3.5 w-3.5" />
+      Was overdue{task.overdue_count > 1 ? ` ${task.overdue_count}x` : ""}
     </span>
   );
 }
