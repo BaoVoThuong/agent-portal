@@ -20,10 +20,10 @@ export function primeNotificationSound(): void {
 function playTone(ctx: AudioContext, frequency: number, startTime: number, duration: number) {
   const oscillator = ctx.createOscillator();
   const gain = ctx.createGain();
-  oscillator.type = "sine";
+  oscillator.type = "triangle";
   oscillator.frequency.value = frequency;
   gain.gain.setValueAtTime(0, startTime);
-  gain.gain.linearRampToValueAtTime(0.2, startTime + 0.015);
+  gain.gain.linearRampToValueAtTime(0.18, startTime + 0.015);
   gain.gain.linearRampToValueAtTime(0, startTime + duration);
   oscillator.connect(gain);
   gain.connect(ctx.destination);
@@ -37,6 +37,9 @@ export function playNotificationChime(): void {
   if (ctx.state === "suspended") void ctx.resume().catch(() => {});
   if (ctx.state === "closed") return;
   const now = ctx.currentTime;
-  playTone(ctx, 880, now, 0.09);
-  playTone(ctx, 1175, now + 0.1, 0.11);
+  // Three-note ascending arpeggio (G5-B5-D6), triangle wave — softer and
+  // more distinct from the old two-tone sine sweep.
+  playTone(ctx, 784, now, 0.08);
+  playTone(ctx, 988, now + 0.08, 0.08);
+  playTone(ctx, 1175, now + 0.16, 0.14);
 }

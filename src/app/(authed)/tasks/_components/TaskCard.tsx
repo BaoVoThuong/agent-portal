@@ -43,7 +43,7 @@ export function TaskCard({
       }}
       className={`block w-full rounded p-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] ${
         isOverdue
-          ? "border-2 border-[#de350b] bg-[#fff5f5] hover:border-[#bf2600]"
+          ? "border-2 border-[#de350b] bg-[#ffebe6] hover:border-[#bf2600]"
           : "border border-l-4 border-[#dfe1e6] bg-white hover:border-[#c1c7d0]"
       }`}
       style={isOverdue ? undefined : { borderLeftColor: STATUS_ACCENT[task.status] }}

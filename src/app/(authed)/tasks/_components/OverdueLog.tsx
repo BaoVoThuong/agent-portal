@@ -49,7 +49,7 @@ export function OverdueLog({
           <li
             key={entry.id}
             className={`rounded border p-3 ${
-              isReopen ? "border-[#dfe1e6] bg-[#f7f8f9]" : "border-[#ffbdad] bg-[#fff5f5]"
+              isReopen ? "border-[#dfe1e6] bg-[#f7f8f9]" : "border-[#ffbdad] bg-[#ffebe6]"
             }`}
           >
             <div
