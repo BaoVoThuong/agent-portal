@@ -15,7 +15,8 @@ import type { TaskRow } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import { fetchAgentsForCs, fetchCsForAgent, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import { reconcileAssigneesForNewAgent } from "@/lib/tasks/assignees-set";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
   attachAssigneesToTasks,
@@ -172,6 +173,33 @@ export async function PATCH(req: Request, { params }: Ctx) {
     canReviewDone,
   });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+
+  // Changing the agent (without also explicitly reassigning in the same
+  // request) prunes any assignees who aren't on the new agent's team.
+  if (
+    !reassigning &&
+    typeof resolved.patch.agent_email === "string" &&
+    resolved.patch.agent_email !== r.task.agent_email
+  ) {
+    const newTeam = await fetchCsForAgent(resolved.patch.agent_email);
+    const reconciled = reconcileAssigneesForNewAgent(currentAssignees, newTeam);
+    if (reconciled.assignees !== null) {
+      const nextAssignees = reconciled.assignees;
+      const staleAssignees = currentAssignees.filter((e) => !nextAssignees.includes(e));
+      const { error: pruneError } = await r.supabase
+        .from("task_assignees")
+        .delete()
+        .eq("task_id", id)
+        .in("email", staleAssignees);
+      if (pruneError && !isTaskAssigneesMissingError(pruneError)) {
+        return NextResponse.json({ error: pruneError.message }, { status: 500 });
+      }
+      resolved.patch.assignee_email = nextAssignees[0] ?? null;
+      if (reconciled.status) {
+        resolved.patch.status = reconciled.status;
+      }
+    }
+  }
 
   if (reassigning) {
     const nextAssignee = resolved.patch.assignee_email as string | null;

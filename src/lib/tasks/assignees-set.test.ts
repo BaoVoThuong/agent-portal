@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
+import { reconcileAssigneesForNewAgent, resolveAssigneeChange } from "@/lib/tasks/assignees-set";
 
 describe("resolveAssigneeChange", () => {
   it("moves a backlog task to todo when adding the first assignee", () => {
@@ -40,5 +40,27 @@ describe("resolveAssigneeChange", () => {
 
     expect(r.assignees).toEqual(["b@x.com"]);
     expect(r.status).toBe("done");
+  });
+});
+
+describe("reconcileAssigneesForNewAgent", () => {
+  it("returns null (no-op) when every current assignee is on the new agent's team", () => {
+    const r = reconcileAssigneesForNewAgent(["a@x.com", "b@x.com"], ["a@x.com", "b@x.com", "c@x.com"]);
+    expect(r).toEqual({ assignees: null, status: null });
+  });
+
+  it("drops assignees not on the new agent's team, keeps status when someone remains", () => {
+    const r = reconcileAssigneesForNewAgent(["a@x.com", "b@x.com"], ["b@x.com"]);
+    expect(r).toEqual({ assignees: ["b@x.com"], status: null });
+  });
+
+  it("falls back to backlog when pruning empties the assignee list", () => {
+    const r = reconcileAssigneesForNewAgent(["a@x.com"], ["b@x.com", "c@x.com"]);
+    expect(r).toEqual({ assignees: [], status: "backlog" });
+  });
+
+  it("no-op when there were no assignees to begin with", () => {
+    const r = reconcileAssigneesForNewAgent([], ["b@x.com"]);
+    expect(r).toEqual({ assignees: null, status: null });
   });
 });
