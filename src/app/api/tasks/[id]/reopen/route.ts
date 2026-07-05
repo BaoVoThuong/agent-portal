@@ -5,6 +5,7 @@ import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +53,14 @@ export async function POST(req: Request, { params }: Ctx) {
     );
   }
 
+  const { data: rulesData, error: rulesError } = await supabase
+    .from("task_sla_rules")
+    .select("priority,category_id,duration_minutes");
+  if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
+  // Re-snapshot at the current priority/category — locks in the SLA for the
+  // new run the same way a first start does (see sla_minutes in schema.sql).
+  const nextSlaMinutes = resolveSlaMinutes(task.priority, task.category_id, rulesData ?? []);
+
   const nowIso = new Date().toISOString();
   const { data: updated, error: updateError } = await supabase
     .from("tasks")
@@ -59,6 +68,7 @@ export async function POST(req: Request, { params }: Ctx) {
       status: "in_progress",
       in_progress_at: nowIso,
       overdue_flagged_at: null,
+      sla_minutes: nextSlaMinutes,
       done_reviewed_by_email: null,
       done_reviewed_at: null,
       updated_at: nowIso,

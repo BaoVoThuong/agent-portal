@@ -34,13 +34,35 @@ export function slaDeadline(inProgressAt: string, minutes: number): Date {
   return new Date(new Date(inProgressAt).getTime() + minutes * 60_000);
 }
 
+// Prefers the snapshot taken when in_progress_at was last (re)stamped over a
+// live recomputation from the task's current priority/category. Without
+// this, editing priority/category on an already-overdue task (allowed for
+// the agent owner and the reporter, not just managers) would silently move
+// the deadline and un-flag it as overdue — no reason required, same class of
+// gaming as the status-bounce loophole already closed in transitions.ts.
+// Falls back to live resolution only for rows with no snapshot yet (not
+// started, or predates this column).
+export function effectiveSlaMinutes(
+  task: Pick<TaskRow, "priority" | "category_id" | "sla_minutes">,
+  rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[]
+): number {
+  if (typeof task.sla_minutes === "number") return task.sla_minutes;
+  return resolveSlaMinutes(task.priority, task.category_id, rules);
+}
+
 export function isTaskOverdue(
-  task: Pick<TaskRow, "status" | "in_progress_at" | "priority" | "category_id">,
+  task: Pick<
+    TaskRow,
+    "status" | "in_progress_at" | "priority" | "category_id"
+  > & { sla_minutes?: number | null },
   rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[],
   now: Date = new Date()
 ): boolean {
   if (task.status !== "in_progress" || !task.in_progress_at) return false;
-  const minutes = resolveSlaMinutes(task.priority, task.category_id, rules);
+  const minutes = effectiveSlaMinutes(
+    { priority: task.priority, category_id: task.category_id, sla_minutes: task.sla_minutes ?? null },
+    rules
+  );
   return now.getTime() >= slaDeadline(task.in_progress_at, minutes).getTime();
 }
 

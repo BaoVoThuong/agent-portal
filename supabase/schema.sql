@@ -1315,6 +1315,17 @@ alter table tasks add column if not exists in_progress_at timestamptz;
 -- now that overdue counts feed into KPI.
 alter table tasks add column if not exists overdue_flagged_at timestamptz;
 
+-- SLA minutes resolved and locked in the moment in_progress_at is (re)stamped
+-- (first start, overdue-unlock, or reopen) — NOT recomputed from the task's
+-- current priority/category afterwards. Without this, an agent owner or the
+-- task's reporter (both allowed to edit priority/category) could silently
+-- lower the priority on an already-overdue task and make it stop counting as
+-- overdue with no reason required, defeating the same KPI integrity goal as
+-- the status-bounce and reopen-reason protections above. Null means "not
+-- started yet" or a pre-migration row — isTaskOverdue falls back to live
+-- resolution for those.
+alter table tasks add column if not exists sla_minutes integer;
+
 -- "Waiting" status removed in favor of a computed Overdue bucket (SLA timer
 -- past deadline while in_progress). Existing waiting tasks become in_progress
 -- with a fresh clock; must run before the check constraint below drops

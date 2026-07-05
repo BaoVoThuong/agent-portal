@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { isTaskOverdue, resolveSlaMinutes, slaDeadline } from "@/lib/tasks/sla";
+import { effectiveSlaMinutes, isTaskOverdue, slaDeadline } from "@/lib/tasks/sla";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 
@@ -37,15 +37,22 @@ export async function GET(request: Request) {
   const supabase = getSupabaseAdmin();
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
-    .select("id,status,priority,category_id,in_progress_at,overdue_flagged_at")
+    .select("id,status,priority,category_id,in_progress_at,overdue_flagged_at,sla_minutes")
     .eq("status", "in_progress")
     .is("overdue_flagged_at", null)
+    .is("archived_at", null)
     .not("in_progress_at", "is", null);
   if (tasksError) return NextResponse.json({ error: tasksError.message }, { status: 500 });
 
   const tasks = (taskRows ?? []) as Pick<
     TaskRow,
-    "id" | "status" | "priority" | "category_id" | "in_progress_at" | "overdue_flagged_at"
+    | "id"
+    | "status"
+    | "priority"
+    | "category_id"
+    | "in_progress_at"
+    | "overdue_flagged_at"
+    | "sla_minutes"
   >[];
 
   if (tasks.length === 0) {
@@ -65,7 +72,7 @@ export async function GET(request: Request) {
     const nowIso = now.toISOString();
     await Promise.all(
       newlyOverdue.map(async (task) => {
-        const minutes = resolveSlaMinutes(task.priority, task.category_id, rules);
+        const minutes = effectiveSlaMinutes(task, rules);
         const dueAt = slaDeadline(task.in_progress_at as string, minutes);
         await supabase
           .from("tasks")

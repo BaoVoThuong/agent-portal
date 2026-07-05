@@ -117,7 +117,7 @@ describe("resolveTaskPatch", () => {
     });
   });
 
-  it("rejects reopening Done/Cancel straight to in_progress via the generic patch (must use the reason-gated /reopen endpoint)", () => {
+  it("rejects reopening Done/Cancel via the generic patch to ANY other status (must use the reason-gated /reopen endpoint)", () => {
     const done = {
       status: "done" as const,
       assignee_email: "cs@x.com",
@@ -126,6 +126,13 @@ describe("resolveTaskPatch", () => {
     const cancelled = { ...done, status: "cancel" as const };
     expect(resolveTaskPatch(manager, done, { status: "in_progress" }).ok).toBe(false);
     expect(resolveTaskPatch(manager, cancelled, { status: "in_progress" }).ok).toBe(false);
+    // Not just in_progress — To Do and swapping between Done/Cancel must also
+    // go through /reopen, otherwise it's an unaudited bypass with no reason
+    // and no task_reopened log entry.
+    expect(resolveTaskPatch(manager, done, { status: "todo" }).ok).toBe(false);
+    expect(resolveTaskPatch(manager, cancelled, { status: "todo" }).ok).toBe(false);
+    expect(resolveTaskPatch(manager, cancelled, { status: "done" }).ok).toBe(false);
+    expect(resolveTaskPatch(manager, done, { status: "cancel" }).ok).toBe(false);
   });
 
   it("does NOT restart the clock bouncing through To Do (anti-gaming: assignee can't free-reset overdue)", () => {
@@ -148,6 +155,45 @@ describe("resolveTaskPatch", () => {
         done_reviewed_at: null,
       },
     });
+  });
+
+  it("snapshots sla_minutes on first start from the CURRENT priority/category (anti-gaming: editing priority later can't silently move an already-overdue deadline)", () => {
+    const rules = [
+      { priority: "urgent" as const, category_id: null, duration_minutes: 60 },
+      { priority: "low" as const, category_id: null, duration_minutes: 1440 },
+    ];
+    const r = resolveTaskPatch(
+      manager,
+      { ...assigned, priority: "urgent" as const, category_id: null },
+      { status: "in_progress" },
+      { nowIso: "2026-07-05T00:00:00.000Z", rules }
+    );
+    expect(r).toEqual({
+      ok: true,
+      patch: {
+        status: "in_progress",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        overdue_flagged_at: null,
+        sla_minutes: 60,
+      },
+    });
+  });
+
+  it("snapshots sla_minutes using the NEW priority when priority is changed in the same patch that starts the task", () => {
+    const rules = [
+      { priority: "urgent" as const, category_id: null, duration_minutes: 60 },
+      { priority: "low" as const, category_id: null, duration_minutes: 1440 },
+    ];
+    const r = resolveTaskPatch(
+      manager,
+      { ...assigned, priority: "urgent" as const, category_id: null },
+      { status: "in_progress", priority: "low" },
+      { nowIso: "2026-07-05T00:00:00.000Z", rules }
+    );
+    expect(r.ok).toBe(true);
+    expect((r as { ok: true; patch: Record<string, unknown> }).patch.sla_minutes).toBe(1440);
   });
 
   it("does not restamp in_progress_at when staying in in_progress (e.g. position-only patch)", () => {

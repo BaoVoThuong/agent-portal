@@ -5,7 +5,7 @@ import { fetchParticipantTaskIds } from "./participants";
 import type { TaskActor, TaskRow } from "./types";
 
 export const TASK_COLUMNS =
-  "id,title,description,fub_link,status,priority,category_id,agent_email,assignee_email,reporter_email,in_progress_at,overdue_flagged_at,done_reviewed_by_email,done_reviewed_at,position,created_at,updated_at,archived_at";
+  "id,title,description,fub_link,status,priority,category_id,agent_email,assignee_email,reporter_email,in_progress_at,overdue_flagged_at,sla_minutes,done_reviewed_by_email,done_reviewed_at,position,created_at,updated_at,archived_at";
 
 export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   const supabase = getSupabaseAdmin();

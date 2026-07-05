@@ -31,7 +31,7 @@ import {
   type TaskCategory,
   type TaskSlaRule,
 } from "@/lib/tasks/types";
-import { isTaskOverdue, resolveSlaMinutes, slaDeadline } from "@/lib/tasks/sla";
+import { effectiveSlaMinutes, isTaskOverdue, slaDeadline } from "@/lib/tasks/sla";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TaskCard } from "./TaskCard";
 
@@ -276,7 +276,7 @@ export function KanbanBoard({
   const isOverdueTask = (task: TaskRow) => isTaskOverdue(task, rules, now);
   const slaDeadlineFor = (task: TaskRow): Date | null => {
     if (task.status !== "in_progress" || !task.in_progress_at) return null;
-    const minutes = resolveSlaMinutes(task.priority, task.category_id, rules);
+    const minutes = effectiveSlaMinutes(task, rules);
     return slaDeadline(task.in_progress_at, minutes);
   };
   // Kanban never receives backlog tasks (Backlog is a separate view), but

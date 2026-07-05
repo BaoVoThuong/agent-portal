@@ -8,7 +8,7 @@ import {
   isTaskAssigneesMissingError,
 } from "@/lib/tasks/assignees";
 import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
-import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import { fetchCsForAgent, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
@@ -58,6 +58,18 @@ export async function POST(req: Request, { params }: Ctx) {
   const email = typeof body?.email === "string" ? body.email.trim() : "";
   if (!email) {
     return NextResponse.json({ error: "email is required." }, { status: 400 });
+  }
+
+  // Same bound as the create-task flow and the UI picker: a non-manager can
+  // assign freely, but only within their own agent's team.
+  if (!ctx.actor.isManager && email !== ctx.task.agent_email) {
+    const teamEmails = new Set(await fetchCsForAgent(ctx.task.agent_email ?? ""));
+    if (!teamEmails.has(email)) {
+      return NextResponse.json(
+        { error: "Assignee must be part of this agent's team." },
+        { status: 400 }
+      );
+    }
   }
 
   const currentFromJunction = await fetchTaskAssigneeEmails(id, ctx.supabase);

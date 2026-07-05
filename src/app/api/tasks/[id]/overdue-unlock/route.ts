@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
-import { isTaskOverdue, resolveSlaMinutes, slaDeadline } from "@/lib/tasks/sla";
+import { effectiveSlaMinutes, isTaskOverdue, resolveSlaMinutes, slaDeadline } from "@/lib/tasks/sla";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -54,13 +54,21 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   // task.in_progress_at is non-null here (isTaskOverdue only returns true when set).
-  const minutes = resolveSlaMinutes(task.priority, task.category_id, rules);
+  const minutes = effectiveSlaMinutes(task, rules);
   const dueAt = slaDeadline(task.in_progress_at as string, minutes);
   const nowIso = new Date().toISOString();
+  // Re-snapshot at the current priority/category — locks in the SLA for the
+  // new run the same way a first start does (see sla_minutes in schema.sql).
+  const nextSlaMinutes = resolveSlaMinutes(task.priority, task.category_id, rules);
 
   const { data: updated, error: updateError } = await supabase
     .from("tasks")
-    .update({ in_progress_at: nowIso, overdue_flagged_at: null, updated_at: nowIso })
+    .update({
+      in_progress_at: nowIso,
+      overdue_flagged_at: null,
+      sla_minutes: nextSlaMinutes,
+      updated_at: nowIso,
+    })
     .eq("id", id)
     .select("*")
     .single();

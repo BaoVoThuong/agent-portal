@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SLA_MINUTES,
+  effectiveSlaMinutes,
   formatSlaRemaining,
   isTaskOverdue,
   resolveSlaMinutes,
@@ -23,6 +24,42 @@ describe("resolveSlaMinutes", () => {
   });
   it("falls back to the hardcoded default when no rules loaded", () => {
     expect(resolveSlaMinutes("high", null, [])).toBe(DEFAULT_SLA_MINUTES.high);
+  });
+});
+
+describe("effectiveSlaMinutes", () => {
+  it("prefers the locked-in snapshot over recomputing from current priority/category", () => {
+    // Task's priority now says "low" (1440m), but it started as "urgent" and
+    // locked in 60m — that snapshot must win, otherwise editing priority
+    // after the fact silently un-overdues it.
+    expect(
+      effectiveSlaMinutes(
+        { priority: "low", category_id: null, sla_minutes: 60 },
+        rules
+      )
+    ).toBe(60);
+  });
+  it("falls back to live resolution when there is no snapshot yet", () => {
+    expect(
+      effectiveSlaMinutes(
+        { priority: "urgent", category_id: null, sla_minutes: null },
+        rules
+      )
+    ).toBe(60);
+  });
+});
+
+describe("isTaskOverdue with a locked-in sla_minutes snapshot", () => {
+  it("stays overdue even if priority is edited down afterwards (anti-gaming)", () => {
+    const startedUrgent = {
+      status: "in_progress" as const,
+      in_progress_at: "2026-07-05T00:00:00.000Z",
+      priority: "low" as const, // edited down after the fact
+      category_id: null,
+      sla_minutes: 60, // locked in while it was still "urgent"
+    };
+    const now = new Date("2026-07-05T02:00:00.000Z");
+    expect(isTaskOverdue(startedUrgent, rules, now)).toBe(true);
   });
 });
 

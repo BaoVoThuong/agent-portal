@@ -3,7 +3,14 @@
 // applies the patch via Supabase. Permission to edit full fields vs. status-only
 // is checked separately; this enforces field-level shape + invariants.
 import { canAssign } from "./access";
-import { TASK_PRIORITIES, TASK_STATUSES, type TaskActor, type TaskRow } from "./types";
+import { resolveSlaMinutes } from "./sla";
+import {
+  TASK_PRIORITIES,
+  TASK_STATUSES,
+  type TaskActor,
+  type TaskRow,
+  type TaskSlaRule,
+} from "./types";
 
 export type TaskPatchInput = {
   title?: unknown;
@@ -18,7 +25,10 @@ export type TaskPatchInput = {
   position?: unknown;
 };
 
-type Current = Pick<TaskRow, "status" | "assignee_email" | "in_progress_at">;
+type Current = Pick<TaskRow, "status" | "assignee_email" | "in_progress_at"> & {
+  priority?: TaskRow["priority"];
+  category_id?: TaskRow["category_id"];
+};
 type Result =
   | { ok: true; patch: Record<string, unknown> }
   | { ok: false; error: string };
@@ -31,7 +41,12 @@ export function resolveTaskPatch(
   actor: TaskActor,
   current: Current,
   raw: unknown,
-  opts?: { canAssign?: boolean; canReviewDone?: boolean; nowIso?: string }
+  opts?: {
+    canAssign?: boolean;
+    canReviewDone?: boolean;
+    nowIso?: string;
+    rules?: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[];
+  }
 ): Result {
   if (!raw || typeof raw !== "object") return { ok: false, error: "Invalid body." };
   const r = raw as TaskPatchInput;
@@ -102,12 +117,13 @@ export function resolveTaskPatch(
   if (nextStatus !== "backlog" && nextAssignee === null) {
     return { ok: false, error: "Assign someone before moving out of backlog." };
   }
-  // Reopening a Done/Cancelled task restarts the SLA clock, so it always
+  // Leaving Done/Cancelled for ANY other status restarts the SLA clock and
   // needs a reason — that only happens through POST /api/tasks/[id]/reopen,
-  // never this generic patch (otherwise a plain drag-and-drop would silently
-  // reset the clock with no audit trail and no permission check beyond
-  // canChangeTaskStatus, which includes the assignee).
-  if (statusChanged && nextStatus === "in_progress" && isTerminalReopen) {
+  // never this generic patch. Blocking only the in_progress target would
+  // leave Done/Cancel -> To Do (or Cancel -> Done) as an unaudited bypass
+  // with no reason and no task_reopened log entry, even though the UI has
+  // no button for it.
+  if (statusChanged && isTerminalReopen) {
     return {
       ok: false,
       error: "Reopening a Done/Cancelled task needs a reason — use the Reopen action.",
@@ -128,6 +144,18 @@ export function resolveTaskPatch(
   if (statusChanged && nextStatus === "in_progress" && !current.in_progress_at) {
     patch.in_progress_at = opts?.nowIso ?? new Date().toISOString();
     patch.overdue_flagged_at = null;
+    // Snapshot the SLA duration in effect right now (including a
+    // priority/category change arriving in this same patch) and lock it in —
+    // see the sla_minutes column comment in schema.sql for why this can't
+    // just be recomputed live from the task's current fields later.
+    if (opts?.rules && current.priority !== undefined) {
+      const nextPriority = (patch.priority as TaskRow["priority"] | undefined) ?? current.priority;
+      const nextCategoryId =
+        "category_id" in patch
+          ? (patch.category_id as string | null)
+          : (current.category_id ?? null);
+      patch.sla_minutes = resolveSlaMinutes(nextPriority, nextCategoryId, opts.rules);
+    }
   }
 
   if (r.done_reviewed !== undefined) {

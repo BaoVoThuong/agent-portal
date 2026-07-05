@@ -11,7 +11,7 @@ import {
   canViewTask,
 } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
-import type { TaskRow } from "@/lib/tasks/types";
+import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
@@ -138,8 +138,21 @@ export async function PATCH(req: Request, { params }: Ctx) {
     status: r.task.status,
     assignee_email: currentAssignees[0] ?? r.task.assignee_email,
     in_progress_at: r.task.in_progress_at,
+    priority: r.task.priority,
+    category_id: r.task.category_id,
   };
   const reassigning = bodyRecord.assignee_email !== undefined;
+
+  // Only needed to snapshot sla_minutes on a first start into in_progress —
+  // skip the query otherwise.
+  let slaRules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[] = [];
+  if (bodyRecord.status === "in_progress" && !r.task.in_progress_at) {
+    const { data: rulesData, error: rulesError } = await r.supabase
+      .from("task_sla_rules")
+      .select("priority,category_id,duration_minutes");
+    if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
+    slaRules = rulesData ?? [];
+  }
 
   const mayAssign = canAssignToTask(r.actor, access.isAgentOwner);
   if (reassigning && !mayAssign) {
@@ -171,8 +184,30 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const resolved = resolveTaskPatch(r.actor, currentForPatch, resolvedBody, {
     canAssign: mayAssign,
     canReviewDone,
+    rules: slaRules,
   });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+
+  // A non-manager (agent owner/Assistant) can freely pick any assignee, but
+  // only within their own agent's team — same bound the create-task flow and
+  // the UI picker enforce. Without this, the picker's restriction is
+  // cosmetic: calling the API directly could assign anyone at all.
+  if (reassigning && !r.actor.isManager) {
+    const nextAssignee = resolved.patch.assignee_email as string | null;
+    if (nextAssignee) {
+      const targetAgent =
+        typeof resolved.patch.agent_email === "string"
+          ? resolved.patch.agent_email
+          : r.task.agent_email;
+      const teamEmails = new Set(await fetchCsForAgent(targetAgent ?? ""));
+      if (nextAssignee !== targetAgent && !teamEmails.has(nextAssignee)) {
+        return NextResponse.json(
+          { error: "Assignee must be part of this agent's team." },
+          { status: 400 }
+        );
+      }
+    }
+  }
 
   // Changing the agent (without also explicitly reassigning in the same
   // request) prunes any assignees who aren't on the new agent's team.
