@@ -129,22 +129,28 @@ export type CreateAssignmentResult =
   | { ok: false; error: string };
 
 // Enforces the core invariants at creation time:
-//  - A worker can only create tasks assigned to themselves, never in backlog.
+//  - A plain worker can only create tasks assigned to themselves, never in backlog.
+//  - A manager, or a worker with agent-scope (owner/Assistant) for the task's
+//    agent, gets free choice — any assignee within that agent's team, or
+//    backlog — same as a manager.
 //  - A backlog task must have no assignee; assigning forces status -> 'todo'.
 //  - A non-backlog task must have an assignee.
 export function resolveCreateAssignment(
   actor: TaskActor,
-  input: CreateAssignmentInput
+  input: CreateAssignmentInput,
+  opts?: { hasAgentScope?: boolean }
 ): CreateAssignmentResult {
-  if (!actor.isManager && actor.isWorker) {
-    // Worker: always self-assigned, always 'todo'.
+  const elevated = actor.isManager || Boolean(opts?.hasAgentScope);
+
+  if (!elevated) {
+    if (!actor.isWorker) {
+      return { ok: false, error: "Not allowed to create tasks." };
+    }
+    // Plain worker: always self-assigned, always 'todo'.
     return { ok: true, assignee_email: actor.email, status: "todo" };
   }
-  if (!actor.isManager) {
-    return { ok: false, error: "Not allowed to create tasks." };
-  }
 
-  // Manager.
+  // Manager, or agent owner/Assistant creating for their own agent: free choice.
   const assignee = input.assignee_email?.trim() || null;
   if (assignee === null) {
     // Unassigned -> must be backlog.

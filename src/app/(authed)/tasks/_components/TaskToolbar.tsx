@@ -58,6 +58,7 @@ export function TaskToolbar({
   view,
   onViewChange,
   isManager,
+  showBacklog,
   query,
   onQuery,
   agentStats,
@@ -88,6 +89,7 @@ export function TaskToolbar({
   view: BoardView;
   onViewChange: (view: BoardView) => void;
   isManager: boolean;
+  showBacklog: boolean;
   query: string;
   onQuery: (value: string) => void;
   agentStats: AgentStat[];
@@ -153,7 +155,7 @@ export function TaskToolbar({
   const views: { key: BoardView; label: string }[] = [
     { key: "board", label: "Board" },
     { key: "list", label: "List" },
-    ...(isManager ? [{ key: "backlog" as const, label: "Backlog" }] : []),
+    ...(showBacklog ? [{ key: "backlog" as const, label: "Backlog" }] : []),
   ];
 
   return (

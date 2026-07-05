@@ -670,6 +670,7 @@ export function TaskBoardClient({
           view={view}
           onViewChange={setView}
           isManager={isManager}
+          showBacklog={isManager || canManageOwnAgentGroup}
           query={query}
           onQuery={setQuery}
           agentStats={agentStats}
@@ -736,7 +737,7 @@ export function TaskBoardClient({
         />
       )}
 
-      {view === "backlog" && isManager && (
+      {view === "backlog" && (isManager || canManageOwnAgentGroup) && (
         <BacklogBoard
           tasks={visibleTasks}
           assignees={assignees}
@@ -755,6 +756,8 @@ export function TaskBoardClient({
         <NewTaskDialog
           open={creating}
           isManager={isManager}
+          currentEmail={currentEmail}
+          myAssistantAgents={myAssistantAgents}
           assignees={assignees}
           agents={taskAgents}
           agentCandidates={agentCandidates}

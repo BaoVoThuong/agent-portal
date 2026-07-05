@@ -7,7 +7,7 @@ import { fetchTasksForActor } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/tasks/types";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { fetchAgentsForCs, fetchCsForAgent, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +36,30 @@ export async function POST(request: Request) {
   const title = typeof body?.title === "string" ? body.title.trim() : "";
   if (!title) return NextResponse.json({ error: "Title is required." }, { status: 400 });
 
+  const priority =
+    typeof body?.priority === "string" &&
+    (TASK_PRIORITIES as readonly string[]).includes(body.priority)
+      ? body.priority
+      : "medium";
+  const agentEmail =
+    typeof body?.agent_email === "string" && body.agent_email.trim() !== ""
+      ? body.agent_email.trim()
+      : null;
+  if (!agentEmail) {
+    return NextResponse.json({ error: "Agent is required." }, { status: 400 });
+  }
+  let hasAgentScope = false;
+  if (!actor.isManager) {
+    const allowedAgents = await fetchAgentsForCs(email);
+    if (!allowedAgents.includes(agentEmail)) {
+      return NextResponse.json(
+        { error: "You cannot create tasks for this agent." },
+        { status: 403 }
+      );
+    }
+    hasAgentScope = await isAgentOwnerOrAssistant(agentEmail, email);
+  }
+
   const requestedStatus =
     typeof body?.status === "string" &&
     (TASK_STATUSES as readonly string[]).includes(body.status)
@@ -52,32 +76,27 @@ export async function POST(request: Request) {
     : typeof body?.assignee_email === "string" && body.assignee_email.trim() !== ""
       ? [body.assignee_email.trim()]
       : [];
-  const assignment = resolveCreateAssignment(actor, {
-    assignee_email: requestedAssignees[0] ?? null,
-    status: requestedStatus,
-  });
+  const assignment = resolveCreateAssignment(
+    actor,
+    { assignee_email: requestedAssignees[0] ?? null, status: requestedStatus },
+    { hasAgentScope }
+  );
   if (!assignment.ok)
     return NextResponse.json({ error: assignment.error }, { status: 400 });
-  const assignedEmails = actor.isManager ? requestedAssignees : [email];
-
-  const priority =
-    typeof body?.priority === "string" &&
-    (TASK_PRIORITIES as readonly string[]).includes(body.priority)
-      ? body.priority
-      : "medium";
-  const agentEmail =
-    typeof body?.agent_email === "string" && body.agent_email.trim() !== ""
-      ? body.agent_email.trim()
-      : null;
-  if (!agentEmail) {
-    return NextResponse.json({ error: "Agent is required." }, { status: 400 });
-  }
-  if (!actor.isManager && agentEmail) {
-    const allowedAgents = await fetchAgentsForCs(email);
-    if (!allowedAgents.includes(agentEmail)) {
+  const elevated = actor.isManager || hasAgentScope;
+  const assignedEmails = elevated ? requestedAssignees : [email];
+  if (elevated && assignedEmails.length > 0 && !actor.isManager) {
+    // Free choice is still bounded to the agent's own team, same restriction
+    // the assignee picker UI enforces — reject anything outside it rather
+    // than silently dropping/ignoring an out-of-scope pick.
+    const teamEmails = new Set(await fetchCsForAgent(agentEmail));
+    const outOfScope = assignedEmails.filter(
+      (assigneeEmail) => assigneeEmail !== agentEmail && !teamEmails.has(assigneeEmail)
+    );
+    if (outOfScope.length > 0) {
       return NextResponse.json(
-        { error: "You cannot create tasks for this agent." },
-        { status: 403 }
+        { error: "Assignee must be part of this agent's team." },
+        { status: 400 }
       );
     }
   }

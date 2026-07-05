@@ -149,6 +149,29 @@ describe("resolveCreateAssignment", () => {
     });
     expect(r.ok).toBe(false);
   });
+  it("CS with agent scope (owner/Assistant) gets free choice like a manager", () => {
+    const r = resolveCreateAssignment(
+      cs,
+      { assignee_email: "teammate@x.com", status: "backlog" },
+      { hasAgentScope: true }
+    );
+    expect(r).toEqual({ ok: true, assignee_email: "teammate@x.com", status: "todo" });
+
+    const backlogged = resolveCreateAssignment(
+      cs,
+      { assignee_email: null, status: "backlog" },
+      { hasAgentScope: true }
+    );
+    expect(backlogged).toEqual({ ok: true, assignee_email: null, status: "backlog" });
+  });
+  it("CS without agent scope is still forced to self + todo even with a teammate requested", () => {
+    const r = resolveCreateAssignment(
+      cs,
+      { assignee_email: "teammate@x.com", status: "backlog" },
+      { hasAgentScope: false }
+    );
+    expect(r).toEqual({ ok: true, assignee_email: "cs@x.com", status: "todo" });
+  });
 });
 
 describe("canViewTask with flags", () => {

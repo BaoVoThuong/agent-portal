@@ -21,6 +21,8 @@ export type NewTaskPayload = {
 export function NewTaskDialog({
   open,
   isManager,
+  currentEmail,
+  myAssistantAgents,
   assignees,
   agents,
   agentCandidates,
@@ -32,6 +34,8 @@ export function NewTaskDialog({
 }: {
   open: boolean;
   isManager: boolean;
+  currentEmail: string;
+  myAssistantAgents: string[];
   assignees: TaskAssignee[];
   agents: TaskAgent[];
   agentCandidates: TaskAgent[];
@@ -67,6 +71,10 @@ export function NewTaskDialog({
     value: agent.email,
     label: agent.name ?? agent.email,
   }));
+  const hasAgentScope = Boolean(
+    agentEmail && (agentEmail === currentEmail || myAssistantAgents.includes(agentEmail))
+  );
+  const canPickAssignee = isManager || hasAgentScope;
   const canSubmit = Boolean(title.trim() && categoryId && agentEmail && !saving);
   function toggleAssignee(email: string, on: boolean) {
     setSelectedAssignees((current) =>
@@ -97,7 +105,7 @@ export function NewTaskDialog({
         fub_link: fubLink.trim() || undefined,
         priority,
         agent_email: agentEmail,
-        assignees: isManager ? selectedAssignees : undefined,
+        assignees: canPickAssignee ? selectedAssignees : undefined,
         category_id: categoryId,
       });
       setTitle("");
@@ -218,7 +226,7 @@ export function NewTaskDialog({
               </MetaField>
 
               <MetaField label="Assignee">
-                {isManager ? (
+                {canPickAssignee ? (
                   <TaskAssigneeDropdown
                     assignees={assignees}
                     selectedEmails={selectedAssignees}
