@@ -143,6 +143,14 @@ function matchesStatus(task: TaskRow, selectedStatuses: string[]): boolean {
   return selectedStatuses.includes(task.status);
 }
 
+function dateKeyInRange(
+  dateKey: string,
+  dateFrom: string | null,
+  dateTo: string | null
+): boolean {
+  return (!dateFrom || dateKey >= dateFrom) && (!dateTo || dateKey <= dateTo);
+}
+
 function matchesDateWindow(
   task: TaskRow,
   dateFrom: string | null,
@@ -151,17 +159,18 @@ function matchesDateWindow(
   if (!dateFrom && !dateTo) return true;
 
   const createdDate = getLocalDateKey(task.created_at);
-  const inRange =
-    (!dateFrom || createdDate >= dateFrom) && (!dateTo || createdDate <= dateTo);
-  if (inRange) return true;
+  if (dateKeyInRange(createdDate, dateFrom, dateTo)) return true;
 
-  const isCarryOver =
-    dateFrom !== null &&
-    createdDate < dateFrom &&
-    task.status !== "done" &&
-    task.status !== "cancel";
+  const isTerminal = task.status === "done" || task.status === "cancel";
+  if (isTerminal) {
+    // No dedicated "closed at" column, so approximate with updated_at —
+    // still shows a task closed inside the window even if it was created
+    // before it.
+    return dateKeyInRange(getLocalDateKey(task.updated_at), dateFrom, dateTo);
+  }
 
-  return isCarryOver;
+  // Active tasks always carry over once created before the window start.
+  return dateFrom !== null && createdDate < dateFrom;
 }
 
 function normalizeDateKey(value: string | undefined): string | null {

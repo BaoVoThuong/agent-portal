@@ -194,12 +194,42 @@ describe("filterTasks", () => {
 
   it("date range keeps all tasks created inside the window and only unfinished carry-over before it", () => {
     const rows = [
-      task({ id: "old-open", status: "todo", created_at: "2026-03-10T12:00:00Z" }),
-      task({ id: "old-done", status: "done", created_at: "2026-03-10T12:00:00Z" }),
-      task({ id: "old-cancel", status: "cancel", created_at: "2026-03-10T12:00:00Z" }),
-      task({ id: "range-done", status: "done", created_at: "2026-04-10T12:00:00Z" }),
-      task({ id: "range-cancel", status: "cancel", created_at: "2026-04-11T12:00:00Z" }),
-      task({ id: "after-open", status: "todo", created_at: "2026-05-10T12:00:00Z" }),
+      task({
+        id: "old-open",
+        status: "todo",
+        created_at: "2026-03-10T12:00:00Z",
+        updated_at: "2026-03-10T12:00:00Z",
+      }),
+      task({
+        id: "old-done",
+        status: "done",
+        created_at: "2026-03-10T12:00:00Z",
+        updated_at: "2026-03-10T12:00:00Z",
+      }),
+      task({
+        id: "old-cancel",
+        status: "cancel",
+        created_at: "2026-03-10T12:00:00Z",
+        updated_at: "2026-03-10T12:00:00Z",
+      }),
+      task({
+        id: "range-done",
+        status: "done",
+        created_at: "2026-04-10T12:00:00Z",
+        updated_at: "2026-04-10T12:00:00Z",
+      }),
+      task({
+        id: "range-cancel",
+        status: "cancel",
+        created_at: "2026-04-11T12:00:00Z",
+        updated_at: "2026-04-11T12:00:00Z",
+      }),
+      task({
+        id: "after-open",
+        status: "todo",
+        created_at: "2026-05-10T12:00:00Z",
+        updated_at: "2026-05-10T12:00:00Z",
+      }),
     ];
 
     expect(
@@ -209,5 +239,36 @@ describe("filterTasks", () => {
         dateTo: "2026-04-30",
       }).map((t) => t.id)
     ).toEqual(["old-open", "range-done", "range-cancel"]);
+  });
+
+  it("date range also keeps done/cancel tasks created outside the window but closed inside it", () => {
+    const rows = [
+      task({
+        id: "old-done-closed-in-range",
+        status: "done",
+        created_at: "2026-03-01T12:00:00Z",
+        updated_at: "2026-04-15T12:00:00Z",
+      }),
+      task({
+        id: "old-cancel-closed-in-range",
+        status: "cancel",
+        created_at: "2026-03-01T12:00:00Z",
+        updated_at: "2026-04-20T12:00:00Z",
+      }),
+      task({
+        id: "old-done-closed-before-range",
+        status: "done",
+        created_at: "2026-02-01T12:00:00Z",
+        updated_at: "2026-03-15T12:00:00Z",
+      }),
+    ];
+
+    expect(
+      filterTasks(rows, {
+        ...base,
+        dateFrom: "2026-04-01",
+        dateTo: "2026-04-30",
+      }).map((t) => t.id)
+    ).toEqual(["old-done-closed-in-range", "old-cancel-closed-in-range"]);
   });
 });
