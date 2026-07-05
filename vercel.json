@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/check-overdue",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 3 * * *"
     }
   ]
 }
