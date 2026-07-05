@@ -86,3 +86,33 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ rule: data });
 }
+
+// Clears a specific override so that priority+category falls back to the
+// priority-only rule, then the hardcoded DEFAULT_SLA_MINUTES.
+export async function DELETE(req: Request) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = buildTaskActor(session.user.permissions, email);
+  if (!actor.isManager) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const priority = typeof body?.priority === "string" ? body.priority : "";
+  if (!TASK_PRIORITIES.includes(priority as (typeof TASK_PRIORITIES)[number])) {
+    return NextResponse.json({ error: "Invalid priority." }, { status: 400 });
+  }
+  const categoryId =
+    typeof body?.category_id === "string" && body.category_id.trim() !== ""
+      ? body.category_id.trim()
+      : null;
+
+  const supabase = getSupabaseAdmin();
+  let query = supabase.from("task_sla_rules").delete().eq("priority", priority);
+  query = categoryId ? query.eq("category_id", categoryId) : query.is("category_id", null);
+  const { error } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
+}
