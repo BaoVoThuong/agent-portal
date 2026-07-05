@@ -96,6 +96,14 @@ export function TaskBoardClient({
   );
   const [error, setError] = useState<string | null>(null);
   const missingOpenRefetchId = useRef<string | null>(null);
+  // Bumped by every write to `tasks` (a direct mutation response, or a full
+  // refetch). `refetchTasks` is a full-list GET racing against direct
+  // mutations (assign/patch/etc.) and other refetches — without this guard,
+  // an older, slower-to-resolve refetch can land AFTER a newer direct
+  // mutation and clobber it with stale data (symptom: assignee flashes back
+  // to unassigned for ~1s before correcting itself). Any response whose
+  // captured version no longer matches the latest is stale and discarded.
+  const tasksVersionRef = useRef(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -138,10 +146,14 @@ export function TaskBoardClient({
   // changed, plus once on (re)connect to catch anything missed while offline.
   // No polling — the reconnect refetch is the self-heal path.
   const refetchTasks = useCallback(async () => {
+    const requestVersion = ++tasksVersionRef.current;
     try {
       const res = await fetch("/api/tasks");
       if (!res.ok) return;
       const data = await res.json();
+      // Something newer (another refetch or a direct mutation) already
+      // landed while this was in flight — this response is stale, drop it.
+      if (tasksVersionRef.current !== requestVersion) return;
       setTasks(data.tasks as TaskRow[]);
     } catch {
       // ignore; the next ping or reconnect retries
@@ -381,8 +393,16 @@ export function TaskBoardClient({
     writeTaskDeepLink(null);
   }
 
+  // Every write to `tasks` — optimistic or confirmed — goes through this so
+  // a stale in-flight refetch can never clobber a more-recent one (see
+  // tasksVersionRef above).
+  function updateTasks(updater: (prev: TaskRow[]) => TaskRow[]) {
+    tasksVersionRef.current += 1;
+    setTasks(updater);
+  }
+
   function replaceTask(updated: TaskRow) {
-    setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    updateTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
   }
 
   // "Agent owner" rights extend to a promoted Assistant of that agent —
@@ -417,10 +437,10 @@ export function TaskBoardClient({
     // never clobbering other concurrent optimistic moves.
     const before = tasks.find((t) => t.id === id) ?? null;
     const revert = () => {
-      if (before) setTasks((cur) => cur.map((t) => (t.id === id ? before : t)));
+      if (before) updateTasks((cur) => cur.map((t) => (t.id === id ? before : t)));
     };
     const optimisticPatch = buildOptimisticTaskPatch(patch, currentEmail);
-    setTasks((cur) =>
+    updateTasks((cur) =>
       cur.map((t) => (t.id === id ? ({ ...t, ...optimisticPatch } as TaskRow) : t))
     );
 
@@ -518,7 +538,7 @@ export function TaskBoardClient({
             ? "todo"
             : before.status,
     };
-    setTasks((cur) => cur.map((task) => (task.id === id ? optimistic : task)));
+    updateTasks((cur) => cur.map((task) => (task.id === id ? optimistic : task)));
 
     let res: Response;
     try {
@@ -533,13 +553,13 @@ export function TaskBoardClient({
         }
       );
     } catch {
-      setTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
+      updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
       setError("Mất kết nối — không cập nhật được assignee.");
       return;
     }
 
     if (!res.ok) {
-      setTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
+      updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       setError(data?.error ?? "Không cập nhật được assignee.");
       return;
@@ -567,23 +587,23 @@ export function TaskBoardClient({
       throw new Error(data?.error ?? "Failed to create task.");
     }
     const data = await res.json();
-    setTasks((cur) => [...cur, data.task as TaskRow]);
+    updateTasks((cur) => [...cur, data.task as TaskRow]);
   }
 
   async function deleteTask(id: string) {
     const prev = tasks;
-    setTasks((cur) => cur.filter((t) => t.id !== id));
+    updateTasks((cur) => cur.filter((t) => t.id !== id));
     setOpenId(null);
     let res: Response;
     try {
       res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
     } catch {
-      setTasks(prev);
+      updateTasks(() => prev);
       setError("Mất kết nối — không xoá được task.");
       return;
     }
     if (!res.ok) {
-      setTasks(prev);
+      updateTasks(() => prev);
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       setError(data?.error ?? "Không xoá được task.");
     }
