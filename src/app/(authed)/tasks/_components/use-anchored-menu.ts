@@ -65,7 +65,14 @@ export function useAnchoredMenu() {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") setIsOpen(false);
     }
-    function onScrollOrResize() {
+    // Closes the menu when the page/an ancestor scrolls out from under the
+    // trigger (so a stale-positioned menu doesn't linger). Must NOT fire for
+    // scrolling inside the menu's own content (e.g. a long options list) —
+    // otherwise the menu closes itself the instant a user tries to scroll it.
+    function onScrollOrResize(event: Event) {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) {
+        return;
+      }
       setIsOpen(false);
     }
 
