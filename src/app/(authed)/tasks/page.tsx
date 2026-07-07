@@ -15,6 +15,10 @@ import {
 import { TaskBoardClient } from "./_components/TaskBoardClient";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { TaskCategory } from "@/lib/tasks/types";
+import {
+  LEGACY_SUPER_ADMIN_ROLE_NAME,
+  SYSTEM_ROLE_NAMES,
+} from "@/lib/rbac/system-roles";
 
 export const dynamic = "force-dynamic";
 
@@ -59,10 +63,17 @@ export default async function TasksPage() {
     .order("position", { ascending: true })
     .order("name", { ascending: true });
   const categories = (categoryRows ?? []) as TaskCategory[];
+  const boardTitle = getTaskBoardTitle({
+    legacyRole: session.user.role ?? null,
+    roleNames: session.user.roles ?? [],
+    isTaskAgent: agents.some((agent) => agent.email === email),
+    isAssistant: myAssistantAgents.length > 0,
+  });
 
   return (
     <TaskBoardClient
       initialTasks={tasks}
+      boardTitle={boardTitle}
       isManager={actor.isManager}
       currentEmail={email}
       assignees={assignees}
@@ -74,4 +85,26 @@ export default async function TasksPage() {
       initialCategories={categories}
     />
   );
+}
+
+function getTaskBoardTitle({
+  legacyRole,
+  roleNames,
+  isTaskAgent,
+  isAssistant,
+}: {
+  legacyRole: string | null;
+  roleNames: string[];
+  isTaskAgent: boolean;
+  isAssistant: boolean;
+}) {
+  const isAdmin =
+    legacyRole === "admin" ||
+    roleNames.includes(SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
+    roleNames.includes(LEGACY_SUPER_ADMIN_ROLE_NAME);
+
+  if (isAdmin) return "Admin Task Board";
+  if (isTaskAgent) return "Agent Task Board";
+  if (isAssistant) return "Assistant Task Board";
+  return "Customer Service Task Board";
 }

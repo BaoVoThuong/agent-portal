@@ -38,6 +38,7 @@ const SLA_TICK_MS = 30_000;
 
 export function TaskBoardClient({
   initialTasks,
+  boardTitle,
   isManager,
   currentEmail,
   assignees,
@@ -49,6 +50,7 @@ export function TaskBoardClient({
   initialCategories,
 }: {
   initialTasks: TaskRow[];
+  boardTitle: string;
   isManager: boolean;
   currentEmail: string;
   assignees: TaskAssignee[];
@@ -642,7 +644,9 @@ export function TaskBoardClient({
     <div className="flex h-full min-h-0 flex-col bg-white text-[#172b4d]">
       <div className="shrink-0 px-6 pb-5 pt-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <h1 className="text-3xl font-semibold text-[#172b4d]">Tasks</h1>
+          <h1 className="text-3xl font-semibold text-[#172b4d]">
+            {boardTitle}
+          </h1>
 
           <div className="flex items-center gap-2">
             {(isManager || canManageOwnAgentGroup) && (
