@@ -4,6 +4,7 @@ import {
   canAccessBoard,
   canSeeBacklog,
   canCreateTask,
+  canCreateTaskWithScope,
   canAssign,
   canAssignToTask,
   canChangeTaskStatus,
@@ -42,10 +43,16 @@ describe("board access", () => {
 });
 
 describe("create / assign / categories", () => {
-  it("both roles can create tasks", () => {
+  it("manager can create; plain CS cannot", () => {
     expect(canCreateTask(manager)).toBe(true);
-    expect(canCreateTask(cs)).toBe(true);
+    expect(canCreateTask(cs)).toBe(false);
     expect(canCreateTask(outsider)).toBe(false);
+  });
+  it("CS can create only with agent owner/Assistant scope", () => {
+    expect(canCreateTaskWithScope(manager)).toBe(true);
+    expect(canCreateTaskWithScope(cs, true)).toBe(true);
+    expect(canCreateTaskWithScope(cs, false)).toBe(false);
+    expect(canCreateTaskWithScope(outsider, true)).toBe(false);
   });
   it("only manager assigns and manages categories", () => {
     expect(canAssign(manager)).toBe(true);
@@ -99,12 +106,12 @@ describe("per-task view/mutate scope", () => {
 });
 
 describe("resolveCreateAssignment", () => {
-  it("CS create is forced to self + todo regardless of input", () => {
+  it("CS without agent scope cannot create tasks", () => {
     const r = resolveCreateAssignment(cs, {
       assignee_email: "someone@x.com",
       status: "backlog",
     });
-    expect(r).toEqual({ ok: true, assignee_email: "cs@x.com", status: "todo" });
+    expect(r).toEqual({ ok: false, error: "Not allowed to create tasks." });
   });
   it("manager may leave it in backlog (unassigned)", () => {
     const r = resolveCreateAssignment(manager, {
@@ -164,13 +171,13 @@ describe("resolveCreateAssignment", () => {
     );
     expect(backlogged).toEqual({ ok: true, assignee_email: null, status: "backlog" });
   });
-  it("CS without agent scope is still forced to self + todo even with a teammate requested", () => {
+  it("CS without agent scope is rejected even with a teammate requested", () => {
     const r = resolveCreateAssignment(
       cs,
       { assignee_email: "teammate@x.com", status: "backlog" },
       { hasAgentScope: false }
     );
-    expect(r).toEqual({ ok: true, assignee_email: "cs@x.com", status: "todo" });
+    expect(r).toEqual({ ok: false, error: "Not allowed to create tasks." });
   });
 });
 

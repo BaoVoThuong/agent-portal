@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canAccessBoard, canCreateTask, resolveCreateAssignment } from "@/lib/tasks/access";
+import {
+  buildTaskActor,
+  canAccessBoard,
+  canCreateTaskWithScope,
+  resolveCreateAssignment,
+} from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssigneesMissingError } from "@/lib/tasks/assignees";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
@@ -29,7 +34,7 @@ export async function POST(request: Request) {
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const actor = buildTaskActor(session.user.permissions, email);
-  if (!canCreateTask(actor))
+  if (!canAccessBoard(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -50,14 +55,20 @@ export async function POST(request: Request) {
   }
   let hasAgentScope = false;
   if (!actor.isManager) {
+    hasAgentScope = await isAgentOwnerOrAssistant(agentEmail, email);
     const allowedAgents = await fetchAgentsForCs(email);
-    if (!allowedAgents.includes(agentEmail)) {
+    if (!allowedAgents.includes(agentEmail) && !hasAgentScope) {
       return NextResponse.json(
         { error: "You cannot create tasks for this agent." },
         { status: 403 }
       );
     }
-    hasAgentScope = await isAgentOwnerOrAssistant(agentEmail, email);
+  }
+  if (!canCreateTaskWithScope(actor, hasAgentScope)) {
+    return NextResponse.json(
+      { error: "Customer Service cannot create tasks." },
+      { status: 403 }
+    );
   }
 
   const requestedStatus =

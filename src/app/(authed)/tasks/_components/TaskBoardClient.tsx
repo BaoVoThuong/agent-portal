@@ -639,6 +639,7 @@ export function TaskBoardClient({
     ? [...new Set([currentEmail, ...myAssistantAgents])]
     : myAssistantAgents;
   const canManageOwnAgentGroup = manageableAgentEmails.length > 0;
+  const canCreateTasks = isManager || canManageOwnAgentGroup;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white text-[#172b4d]">
@@ -679,14 +680,16 @@ export function TaskBoardClient({
                 </button>
               </>
             )}
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0055cc]"
-            >
-              <Plus className="h-4 w-4" />
-              New task
-            </button>
+            {canCreateTasks && (
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0055cc]"
+              >
+                <Plus className="h-4 w-4" />
+                New task
+              </button>
+            )}
           </div>
         </div>
 
@@ -776,7 +779,7 @@ export function TaskBoardClient({
         />
       )}
 
-      {creating ? (
+      {creating && canCreateTasks ? (
         <NewTaskDialog
           open={creating}
           isManager={isManager}
