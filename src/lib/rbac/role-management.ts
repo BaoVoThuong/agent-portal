@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import { normalizeExclusivePermissionKeys } from "@/lib/rbac/permissions";
 import {
   LEGACY_SUPER_ADMIN_ROLE_NAME,
@@ -42,6 +43,11 @@ type UserRoleRow = {
 type UserRoleWithUserRow = {
   user_id: string;
   portal_account: { is_active: boolean | null } | null;
+};
+
+type LegacyAdminRow = {
+  id: string;
+  user_roles: { role_id: string }[] | null;
 };
 
 export type RoleOption = Pick<
@@ -270,10 +276,33 @@ export async function countActiveUsersForRoleName(
   ).length;
 }
 
+export async function countActiveLegacyAdminUsers(excludeUserId?: string) {
+  const supabase = getSupabaseAdmin();
+  let query = supabase
+    .from(PORTAL_ACCOUNT_TABLE)
+    .select("id,user_roles(role_id)")
+    .eq("role", "admin")
+    .eq("is_active", true);
+
+  if (excludeUserId) {
+    query = query.neq("id", excludeUserId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as unknown as LegacyAdminRow[]).filter(
+    (row) => (row.user_roles ?? []).length === 0
+  ).length;
+}
+
 export async function hasActiveSuperAdminOtherThan(userId: string) {
-  return (
-    (await countActiveUsersForRoleName(SYSTEM_ROLE_NAMES.SUPER_ADMIN, userId)) +
-      (await countActiveUsersForRoleName(LEGACY_SUPER_ADMIN_ROLE_NAME, userId)) >
-    0
-  );
+  const [activeAdminUsers, activeLegacySuperAdminUsers, activeLegacyAdmins] =
+    await Promise.all([
+      countActiveUsersForRoleName(SYSTEM_ROLE_NAMES.SUPER_ADMIN, userId),
+      countActiveUsersForRoleName(LEGACY_SUPER_ADMIN_ROLE_NAME, userId),
+      countActiveLegacyAdminUsers(userId),
+    ]);
+
+  return activeAdminUsers + activeLegacySuperAdminUsers + activeLegacyAdmins > 0;
 }
