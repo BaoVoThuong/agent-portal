@@ -30,7 +30,12 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const STATUS_PATCH_KEYS = new Set(["status", "position"]);
+const TEAM_STATUS_CONFIRMED_KEY = "team_status_confirmed";
+const STATUS_PATCH_KEYS = new Set([
+  "status",
+  "position",
+  TEAM_STATUS_CONFIRMED_KEY,
+]);
 const REVIEW_PATCH_KEYS = new Set(["done_reviewed"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -177,11 +182,25 @@ export async function PATCH(req: Request, { params }: Ctx) {
       statusOnly &&
       canChangeTaskStatus(r.actor, r.task, {
         isAssignee: access.isAssignee,
+        isAgentMember: access.isAgentMember,
         isAgentOwner: access.isAgentOwner,
       });
     const canPatchReview = reviewOnly && canReviewDone;
     if (!canPatchStatus && !canPatchReview) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+    const needsTeamStatusConfirm =
+      statusOnly &&
+      typeof bodyRecord.status === "string" &&
+      bodyRecord.status !== r.task.status &&
+      access.isAgentMember &&
+      !access.isAssignee &&
+      !access.isAgentOwner;
+    if (needsTeamStatusConfirm && bodyRecord[TEAM_STATUS_CONFIRMED_KEY] !== true) {
+      return NextResponse.json(
+        { error: "Confirm before changing a teammate's task status." },
+        { status: 400 }
+      );
     }
     resolvedBody = bodyRecord;
   }

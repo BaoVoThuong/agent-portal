@@ -105,19 +105,25 @@ export function canMutateTask(
 }
 
 // Status transitions (kanban move, position), overdue-unlock, and reopening
-// a Done/Cancel task: manager, the agent owner, or whoever is actually
-// assigned the work. The assignee is deliberately included even for
-// overdue-unlock/reopen — the reason text + activity log is the audit trail
-// for KPI purposes, not a second-party approval gate.
+// a Done/Cancel task: manager, the agent owner/Assistant, CS on that agent's
+// team, or whoever is actually assigned the work.
 export function canChangeTaskStatus(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">,
-  flags: { isAssignee?: boolean; isAgentOwner?: boolean } = {}
+  flags: {
+    isAssignee?: boolean;
+    isAgentMember?: boolean;
+    isAgentOwner?: boolean;
+  } = {}
 ): boolean {
   void task;
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return Boolean(flags.isAssignee) || Boolean(flags.isAgentOwner);
+  return (
+    Boolean(flags.isAssignee) ||
+    Boolean(flags.isAgentMember) ||
+    Boolean(flags.isAgentOwner)
+  );
 }
 
 export function canDeleteTask(actor: TaskActor, isAgentOwner = false): boolean {

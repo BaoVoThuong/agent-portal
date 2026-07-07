@@ -95,6 +95,12 @@ describe("per-task view/mutate scope", () => {
     expect(canChangeTaskStatus(cs, { assignee_email: "other@x.com" })).toBe(false);
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
   });
+  it("CS agent-team member can change status without content edit", () => {
+    expect(
+      canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })
+    ).toBe(true);
+    expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
+  });
   it("task agent owner can view and QC-check their own agent tasks", () => {
     expect(
       canViewTask(cs, { assignee_email: "other@x.com" }, { isAgentOwner: true })
@@ -184,7 +190,9 @@ describe("resolveCreateAssignment", () => {
 describe("canViewTask with flags", () => {
   it("agent member (not assignee) can view", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })).toBe(true);
-    expect(canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAssignee: false })).toBe(false);
+    expect(
+      canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })
+    ).toBe(true);
   });
   it("no flags, not assignee → cannot view", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, {})).toBe(false);

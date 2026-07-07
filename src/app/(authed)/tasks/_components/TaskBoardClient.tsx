@@ -35,6 +35,7 @@ import { ReasonModal } from "./ReasonModal";
 // Countdown/overdue labels only need to refresh every so often, not on every
 // render — 30s keeps the board close to live without a timer per card.
 const SLA_TICK_MS = 30_000;
+const TEAM_STATUS_CONFIRMED_KEY = "team_status_confirmed";
 
 export function TaskBoardClient({
   initialTasks,
@@ -414,11 +415,32 @@ export function TaskBoardClient({
     return agentEmail === currentEmail || myAssistantAgents.includes(agentEmail);
   }
 
+  function isAgentTeamMemberOf(agentEmail: string | null): boolean {
+    return Boolean(
+      agentEmail && (agentMembersByAgent[agentEmail] ?? []).includes(currentEmail)
+    );
+  }
+
   function canChangeStatusTask(task: TaskRow): boolean {
     return (
       isManager ||
       task.assignees.includes(currentEmail) ||
+      isAgentTeamMemberOf(task.agent_email) ||
       isAgentOwnerOrAssistantOf(task.agent_email)
+    );
+  }
+
+  function needsTeamStatusConfirm(
+    task: TaskRow,
+    patch: Record<string, unknown>
+  ) {
+    return (
+      !isManager &&
+      typeof patch.status === "string" &&
+      patch.status !== task.status &&
+      !task.assignees.includes(currentEmail) &&
+      !isAgentOwnerOrAssistantOf(task.agent_email) &&
+      isAgentTeamMemberOf(task.agent_email)
     );
   }
 
@@ -441,6 +463,14 @@ export function TaskBoardClient({
     const revert = () => {
       if (before) updateTasks((cur) => cur.map((t) => (t.id === id ? before : t)));
     };
+    let requestPatch = patch;
+    if (before && needsTeamStatusConfirm(before, patch)) {
+      const confirmed = window.confirm(
+        "This task is assigned to someone in your team. Change its status?"
+      );
+      if (!confirmed) return;
+      requestPatch = { ...patch, [TEAM_STATUS_CONFIRMED_KEY]: true };
+    }
     const optimisticPatch = buildOptimisticTaskPatch(patch, currentEmail);
     updateTasks((cur) =>
       cur.map((t) => (t.id === id ? ({ ...t, ...optimisticPatch } as TaskRow) : t))
@@ -451,7 +481,7 @@ export function TaskBoardClient({
       res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(requestPatch),
       });
     } catch {
       revert();
