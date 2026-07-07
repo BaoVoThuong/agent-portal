@@ -194,6 +194,9 @@ describe("canViewTask with flags", () => {
       canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })
     ).toBe(true);
   });
+  it("agent member cannot view an unassigned team task", () => {
+    expect(canViewTask(cs, { assignee_email: null }, { isAgentMember: true })).toBe(false);
+  });
   it("no flags, not assignee → cannot view", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, {})).toBe(false);
   });

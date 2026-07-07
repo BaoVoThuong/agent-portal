@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { attachAssigneesToTasks, fetchAssignedTaskIdsForEmail } from "./assignees";
-import { fetchAgentsForCs } from "./membership";
+import { canViewTask } from "./access";
+import { fetchAgentsForCs, fetchAssistantAgentsForCs } from "./membership";
 import { fetchParticipantTaskIds } from "./participants";
 import type { TaskActor, TaskRow } from "./types";
 
@@ -19,12 +20,21 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
 
   // Manager sees everything; worker sees their own assigned tasks plus any task
   // they participate in (e.g. were @mentioned on).
+  let workerScope:
+    | {
+        agents: string[];
+        assistantAgents: string[];
+        participantIds: string[];
+      }
+    | null = null;
   if (!actor.isManager) {
-    const [agents, assignedIds, participantIds] = await Promise.all([
+    const [agents, assistantAgents, assignedIds, participantIds] = await Promise.all([
       fetchAgentsForCs(actor.email),
+      fetchAssistantAgentsForCs(actor.email),
       fetchAssignedTaskIdsForEmail(actor.email, supabase),
       fetchParticipantTaskIds(actor.email),
     ]);
+    workerScope = { agents, assistantAgents, participantIds };
     const ors: string[] = [`assignee_email.eq."${actor.email}"`];
     ors.push(`agent_email.eq."${actor.email}"`);
     if (agents.length > 0) ors.push(`agent_email.in.(${agents.map((a) => `"${a}"`).join(",")})`);
@@ -38,5 +48,29 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return attachAssigneesToTasks((data ?? []) as unknown as TaskRow[], supabase);
+  const tasks = await attachAssigneesToTasks(
+    (data ?? []) as unknown as TaskRow[],
+    supabase
+  );
+
+  if (!workerScope) return tasks;
+
+  const participantIdSet = new Set(workerScope.participantIds);
+  return tasks.filter((task) => {
+    const effectiveAssigneeEmail = task.assignees[0] ?? task.assignee_email;
+    return canViewTask(actor, { assignee_email: effectiveAssigneeEmail }, {
+      isAssignee:
+        task.assignees.includes(actor.email) ||
+        task.assignee_email === actor.email,
+      isAgentMember: Boolean(
+        task.agent_email && workerScope.agents.includes(task.agent_email)
+      ),
+      isAgentOwner: Boolean(
+        task.agent_email &&
+          (task.agent_email === actor.email ||
+            workerScope.assistantAgents.includes(task.agent_email))
+      ),
+      isParticipant: participantIdSet.has(task.id),
+    });
+  });
 }
