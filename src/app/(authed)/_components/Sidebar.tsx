@@ -94,9 +94,15 @@ const menuData: MenuItem[] = [
     ],
   },
   {
-    href: "/tasks",
-    label: "Tasks",
+    title: "Task Management",
     anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+    children: [
+      {
+        href: "/tasks",
+        label: "Health Customer Service",
+        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+      },
+    ],
   },
   {
     title: "Management",
@@ -132,6 +138,7 @@ export default function Sidebar({
     Dashboard:
       pathname.startsWith("/dashboard") ||
       pathname.startsWith("/sales-dashboard"),
+    "Task Management": pathname.startsWith("/tasks"),
     Management:
       pathname.startsWith("/account-manager") ||
       pathname.startsWith("/role-manager") ||
