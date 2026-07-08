@@ -96,7 +96,6 @@ const kanbanCollisionDetection: CollisionDetection = (args) => {
 function SortableCard({
   task,
   category,
-  agentLabel,
   assigneeLabelByEmail,
   canReviewDone,
   onReviewDone,
@@ -110,7 +109,6 @@ function SortableCard({
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
-  agentLabel?: string | null;
   assigneeLabelByEmail: Map<string, string>;
   canReviewDone: boolean;
   onReviewDone: (taskId: string, reviewed: boolean) => void;
@@ -141,7 +139,6 @@ function SortableCard({
       <TaskCard
         task={task}
         category={category}
-        agentLabel={agentLabel}
         assigneeLabelByEmail={assigneeLabelByEmail}
         canReviewDone={canReviewDone}
         onReviewDone={onReviewDone}
@@ -162,7 +159,6 @@ function Column({
   onOpen,
   canMoveTask,
   categoryById,
-  agentLabelByEmail,
   assigneeLabelByEmail,
   canReviewDoneTask,
   onReviewDone,
@@ -178,7 +174,6 @@ function Column({
   canReviewDoneTask: (task: TaskRow) => boolean;
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   categoryById: Map<string, TaskCategory>;
-  agentLabelByEmail: Map<string, string>;
   assigneeLabelByEmail: Map<string, string>;
   slaDeadlineFor: (task: TaskRow) => Date | null;
   now: Date;
@@ -226,11 +221,6 @@ function Column({
               key={t.id}
               task={t}
               category={t.category_id ? categoryById.get(t.category_id) : null}
-              agentLabel={
-                t.agent_email
-                  ? agentLabelByEmail.get(t.agent_email) ?? t.agent_email
-                  : null
-              }
               assigneeLabelByEmail={assigneeLabelByEmail}
               canReviewDone={canReviewDoneTask(t)}
               onReviewDone={onReviewDone}
@@ -257,7 +247,6 @@ export function KanbanBoard({
   canReviewDoneTask,
   onReviewDone,
   categories,
-  agentLabelByEmail,
   assigneeLabelByEmail,
   rules,
   now,
@@ -271,7 +260,6 @@ export function KanbanBoard({
   canReviewDoneTask: (task: TaskRow) => boolean;
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   categories: TaskCategory[];
-  agentLabelByEmail: Map<string, string>;
   assigneeLabelByEmail: Map<string, string>;
   rules: TaskSlaRule[];
   now: Date;
@@ -321,7 +309,6 @@ export function KanbanBoard({
       canReviewDoneTask={canReviewDoneTask}
       onReviewDone={onReviewDone}
       categoryById={categoryById}
-      agentLabelByEmail={agentLabelByEmail}
       assigneeLabelByEmail={assigneeLabelByEmail}
       slaDeadlineFor={slaDeadlineFor}
       now={now}
@@ -471,12 +458,6 @@ export function KanbanBoard({
               category={
                 activeTask.category_id
                   ? categoryById.get(activeTask.category_id)
-                  : null
-              }
-              agentLabel={
-                activeTask.agent_email
-                  ? agentLabelByEmail.get(activeTask.agent_email) ??
-                    activeTask.agent_email
                   : null
               }
               assigneeLabelByEmail={assigneeLabelByEmail}

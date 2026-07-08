@@ -803,7 +803,6 @@ export function TaskBoardClient({
           canReviewDoneTask={canReviewDoneTask}
           onReviewDone={reviewDoneTask}
           categories={categories}
-          agentLabelByEmail={agentLabelByEmail}
           assigneeLabelByEmail={assigneeLabelByEmail}
           rules={slaRules}
           now={now}

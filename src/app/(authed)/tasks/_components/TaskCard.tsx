@@ -6,7 +6,6 @@ import { Initials, PriorityIcon, SlaTimer, StageElapsedBadge } from "./board-ui"
 export function TaskCard({
   task,
   category,
-  agentLabel,
   assigneeLabelByEmail,
   canReviewDone = false,
   onReviewDone,
@@ -19,7 +18,6 @@ export function TaskCard({
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
-  agentLabel?: string | null;
   assigneeLabelByEmail?: Map<string, string>;
   canReviewDone?: boolean;
   onReviewDone?: (id: string, reviewed: boolean) => void;
@@ -34,6 +32,10 @@ export function TaskCard({
   const assigneeLabels = task.assignees.map(
     (email) => assigneeLabelByEmail?.get(email) ?? email
   );
+  const primaryAssigneeEmail = task.assignees[0] ?? null;
+  const primaryAssigneeLabel = primaryAssigneeEmail
+    ? assigneeLabelByEmail?.get(primaryAssigneeEmail) ?? primaryAssigneeEmail
+    : null;
   return (
     <div
       role="button"
@@ -61,7 +63,7 @@ export function TaskCard({
         </div>
 
         <span className="shrink-0">
-          <Initials email={task.agent_email} label={agentLabel} />
+          <Initials email={primaryAssigneeEmail} label={primaryAssigneeLabel} />
         </span>
       </div>
 
