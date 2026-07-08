@@ -1277,8 +1277,6 @@ create table if not exists tasks (
   agent_email text,
   assignee_email text,
   reporter_email text not null,
-  waiting_reason text
-    check (waiting_reason is null or waiting_reason in ('customer','carrier','documents','other')),
   done_reviewed_by_email text,
   done_reviewed_at timestamptz,
   position double precision not null default 0,
@@ -1335,13 +1333,6 @@ alter table tasks add column if not exists sla_minutes integer;
 -- since a task with prior overdue history shouldn't look like a clean slate.
 alter table tasks add column if not exists overdue_count integer not null default 0;
 
--- "Waiting" status removed in favor of a computed Overdue bucket (SLA timer
--- past deadline while in_progress). Existing waiting tasks become in_progress
--- with a fresh clock; must run before the check constraint below drops
--- 'waiting' as an allowed value.
-update tasks set status = 'in_progress', in_progress_at = now()
-where status = 'waiting';
-
 alter table tasks drop column if exists waiting_reason;
 
 do $$
@@ -1354,7 +1345,7 @@ begin
 
   alter table tasks
   add constraint tasks_status_check
-  check (status in ('backlog','todo','in_progress','done','cancel'));
+  check (status in ('backlog','todo','in_progress','waiting','done','cancel'));
 end $$;
 
 drop index if exists tasks_due_date_idx;

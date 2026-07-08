@@ -35,6 +35,7 @@ const STATUS_PILL: Record<TaskStatus, { bg: string; fg: string }> = {
   backlog: { bg: "#dfe1e6", fg: "#42526e" },
   todo: { bg: "#dfe1e6", fg: "#42526e" },
   in_progress: { bg: "#deebff", fg: "#0055cc" },
+  waiting: { bg: "#fff0b3", fg: "#7f5f01" },
   done: { bg: "#e3fcef", fg: "#006644" },
   cancel: { bg: "#ffebe6", fg: "#bf2600" },
 };

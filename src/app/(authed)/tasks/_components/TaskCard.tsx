@@ -275,6 +275,7 @@ const STATUS_ACCENT: Record<TaskRow["status"], string> = {
   backlog: "#a5adba",
   todo: "#4c9aff",
   in_progress: "#6554c0",
+  waiting: "#ffab00",
   done: "#36b37e",
   cancel: "#5e6c84",
 };

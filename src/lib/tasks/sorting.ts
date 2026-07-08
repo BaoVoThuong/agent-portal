@@ -22,8 +22,9 @@ const STATUS_RANK: Record<TaskStatus, number> = {
   backlog: 0,
   todo: 1,
   in_progress: 2,
-  done: 3,
-  cancel: 4,
+  waiting: 3,
+  done: 4,
+  cancel: 5,
 };
 
 // Deterministic display key, matching the one shown on cards.
