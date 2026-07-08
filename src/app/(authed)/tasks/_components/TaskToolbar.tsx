@@ -251,7 +251,7 @@ export function TaskToolbar({
                 : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
             }`}
           >
-            Team tasks
+            Group tasks
           </button>
         ) : null}
 
