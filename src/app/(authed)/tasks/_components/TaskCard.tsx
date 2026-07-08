@@ -1,7 +1,7 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
 import { AlertTriangle, CheckCircle2, Circle, RotateCcw, UserRound } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
-import { Initials, PriorityIcon, SlaTimer } from "./board-ui";
+import { Initials, PriorityIcon, SlaTimer, StageElapsedBadge } from "./board-ui";
 
 export function TaskCard({
   task,
@@ -79,6 +79,9 @@ export function TaskCard({
           canReviewDone={canReviewDone}
           onReviewDone={onReviewDone}
         />
+        {task.status === "todo" ? (
+          <StageElapsedBadge label="To do" sinceIso={task.created_at} now={now} />
+        ) : null}
         <SlaTimer
           deadline={slaDeadline}
           now={now}

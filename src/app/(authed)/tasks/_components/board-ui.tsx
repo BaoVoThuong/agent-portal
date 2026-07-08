@@ -92,6 +92,23 @@ export function PriorityDot({ priority }: { priority: TaskPriority }) {
   );
 }
 
+export function StageElapsedBadge({
+  label,
+  sinceIso,
+  now,
+}: {
+  label: string;
+  sinceIso: string;
+  now: Date;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded bg-[#f4f5f7] px-1.5 py-0.5 text-[11px] font-bold text-[#44546f]">
+      <Clock className="h-3.5 w-3.5" />
+      {label} {formatElapsedSince(sinceIso, now)}
+    </span>
+  );
+}
+
 // Countdown while running, red "Overdue by …" once past deadline. `null`
 // deadline means the task isn't in_progress (no timer to show).
 export function SlaTimer({
