@@ -51,6 +51,7 @@ export type TaskRow = {
   agent_email: string | null;
   assignees: string[];
   assignee_email: string | null;
+  assignee_started_at?: string | null;
   viewer_is_participant?: boolean;
   reporter_email: string;
   in_progress_at: string | null;

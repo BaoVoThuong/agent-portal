@@ -50,7 +50,8 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   if (error) throw new Error(error.message);
   const tasks = await attachAssigneesToTasks(
     (data ?? []) as unknown as TaskRow[],
-    supabase
+    supabase,
+    { currentEmail: actor.email }
   );
 
   if (!workerScope) return tasks;

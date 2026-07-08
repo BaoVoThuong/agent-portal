@@ -4,9 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type TaskAssignee = { email: string; name: string | null };
 export type TaskAgent = TaskAssignee;
-export type TaskAssigneeRow = { task_id: string; email: string };
+export type TaskAssigneeRow = { task_id: string; email: string; created_at: string };
 
 type SupabaseErrorLike = { code?: string; message?: string };
+type AttachAssigneeOptions = { currentEmail?: string | null };
 
 // Active accounts whose role grants task.work or task.manage. Used by the
 // assignee picker (manager only).
@@ -148,8 +149,9 @@ export async function attachAssigneesToTasks<
   T extends { id: string; assignee_email?: string | null },
 >(
   tasks: T[],
-  supabase: SupabaseClient = getSupabaseAdmin()
-): Promise<(T & { assignees: string[] })[]> {
+  supabase: SupabaseClient = getSupabaseAdmin(),
+  options: AttachAssigneeOptions = {}
+): Promise<(T & { assignees: string[]; assignee_started_at: string | null })[]> {
   if (tasks.length === 0) return [];
 
   const ids = tasks.map((task) => task.id);
@@ -163,21 +165,31 @@ export async function attachAssigneesToTasks<
     throw new Error(error.message);
   }
 
-  const assigneesByTask = new Map<string, string[]>();
+  const rowsByTask = new Map<string, TaskAssigneeRow[]>();
   for (const row of (data ?? []) as unknown as TaskAssigneeRow[]) {
-    const list = assigneesByTask.get(row.task_id) ?? [];
-    if (!list.includes(row.email)) list.push(row.email);
-    assigneesByTask.set(row.task_id, list);
+    const list = rowsByTask.get(row.task_id) ?? [];
+    if (!list.some((existing) => existing.email === row.email)) list.push(row);
+    rowsByTask.set(row.task_id, list);
   }
 
   return tasks.map((task) => {
-    const fromJunction = assigneesByTask.get(task.id) ?? [];
+    const rows = rowsByTask.get(task.id) ?? [];
+    const fromJunction = rows.map((row) => row.email);
     const legacyFallback =
       fromJunction.length === 0 && task.assignee_email ? [task.assignee_email] : [];
+    const currentAssigneeRow = options.currentEmail
+      ? rows.find((row) => row.email === options.currentEmail)
+      : null;
+    const assigneeStartedAt =
+      currentAssigneeRow?.created_at ??
+      rows[0]?.created_at ??
+      ((task as { created_at?: string }).created_at ?? null);
 
     return {
       ...task,
       assignees: fromJunction.length > 0 ? fromJunction : legacyFallback,
+      assignee_started_at:
+        fromJunction.length > 0 || legacyFallback.length > 0 ? assigneeStartedAt : null,
     };
   });
 }
@@ -196,9 +208,12 @@ export function isTaskAssigneesMissingError(error: SupabaseErrorLike): boolean {
 
 function attachLegacyAssignees<T extends { assignee_email?: string | null }>(
   tasks: T[]
-): (T & { assignees: string[] })[] {
+): (T & { assignees: string[]; assignee_started_at: string | null })[] {
   return tasks.map((task) => ({
     ...task,
     assignees: task.assignee_email ? [task.assignee_email] : [],
+    assignee_started_at: task.assignee_email
+      ? ((task as { created_at?: string }).created_at ?? null)
+      : null,
   }));
 }

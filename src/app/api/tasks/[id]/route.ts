@@ -119,7 +119,9 @@ export async function GET(_req: Request, { params }: Ctx) {
   const access = await resolveTaskAccess(r.actor, r.task, id);
   if (!access.canView)
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-  const [task] = await attachAssigneesToTasks([r.task], r.supabase);
+  const [task] = await attachAssigneesToTasks([r.task], r.supabase, {
+    currentEmail: r.actor.email,
+  });
   return NextResponse.json({ task });
 }
 
@@ -272,19 +274,24 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
   if (reassigning) {
     const nextAssignee = resolved.patch.assignee_email as string | null;
-    const { error: deleteAssigneesError } = await r.supabase
-      .from("task_assignees")
-      .delete()
-      .eq("task_id", id);
-    if (deleteAssigneesError && !isTaskAssigneesMissingError(deleteAssigneesError)) {
-      return NextResponse.json({ error: deleteAssigneesError.message }, { status: 500 });
-    }
-    if (nextAssignee) {
-      const { error: insertAssigneeError } = await r.supabase
+    const currentPrimaryAssignee = currentAssignees[0] ?? r.task.assignee_email ?? null;
+    const assigneeActuallyChanged =
+      nextAssignee !== currentPrimaryAssignee || currentAssignees.length > 1;
+    if (assigneeActuallyChanged) {
+      const { error: deleteAssigneesError } = await r.supabase
         .from("task_assignees")
-        .insert({ task_id: id, email: nextAssignee });
-      if (insertAssigneeError && !isTaskAssigneesMissingError(insertAssigneeError)) {
-        return NextResponse.json({ error: insertAssigneeError.message }, { status: 500 });
+        .delete()
+        .eq("task_id", id);
+      if (deleteAssigneesError && !isTaskAssigneesMissingError(deleteAssigneesError)) {
+        return NextResponse.json({ error: deleteAssigneesError.message }, { status: 500 });
+      }
+      if (nextAssignee) {
+        const { error: insertAssigneeError } = await r.supabase
+          .from("task_assignees")
+          .insert({ task_id: id, email: nextAssignee });
+        if (insertAssigneeError && !isTaskAssigneesMissingError(insertAssigneeError)) {
+          return NextResponse.json({ error: insertAssigneeError.message }, { status: 500 });
+        }
       }
     }
   }
@@ -331,7 +338,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
   await broadcastTasksChanged();
   await broadcastTaskRoom(id);
-  const [task] = await attachAssigneesToTasks([data as TaskRow], r.supabase);
+  const [task] = await attachAssigneesToTasks([data as TaskRow], r.supabase, {
+    currentEmail: r.actor.email,
+  });
   return NextResponse.json({ task });
 }
 

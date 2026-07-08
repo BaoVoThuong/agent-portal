@@ -90,6 +90,8 @@ export async function POST(req: Request, { params }: Ctx) {
   await broadcastTasksChanged();
   await broadcastTaskRoom(id);
 
-  const [task2] = await attachAssigneesToTasks([updated as TaskRow], supabase);
+  const [task2] = await attachAssigneesToTasks([updated as TaskRow], supabase, {
+    currentEmail: actor.email,
+  });
   return NextResponse.json({ task: task2 });
 }

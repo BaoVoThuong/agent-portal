@@ -189,7 +189,11 @@ export async function POST(request: Request) {
     }))
   );
 
-  const [task] = await attachAssigneesToTasks([data as { id: string; assignee_email: string | null }], supabase);
+  const [task] = await attachAssigneesToTasks(
+    [data as { id: string; assignee_email: string | null }],
+    supabase,
+    { currentEmail: email }
+  );
   await broadcastTasksChanged();
   return NextResponse.json({ task });
 }
