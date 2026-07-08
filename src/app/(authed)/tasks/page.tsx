@@ -69,10 +69,12 @@ export default async function TasksPage() {
     isTaskAgent: agents.some((agent) => agent.email === email),
     isAssistant: myAssistantAgents.length > 0,
   });
+  const initialNowIso = new Date().toISOString();
 
   return (
     <TaskBoardClient
       initialTasks={tasks}
+      initialNowIso={initialNowIso}
       boardTitle={boardTitle}
       isManager={actor.isManager}
       currentEmail={email}

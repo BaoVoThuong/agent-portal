@@ -39,6 +39,7 @@ const TEAM_STATUS_CONFIRMED_KEY = "team_status_confirmed";
 
 export function TaskBoardClient({
   initialTasks,
+  initialNowIso,
   boardTitle,
   isManager,
   currentEmail,
@@ -51,6 +52,7 @@ export function TaskBoardClient({
   initialCategories,
 }: {
   initialTasks: TaskRow[];
+  initialNowIso: string;
   boardTitle: string;
   isManager: boolean;
   currentEmail: string;
@@ -76,7 +78,7 @@ export function TaskBoardClient({
   const [slaRules, setSlaRules] = useState<TaskSlaRule[]>([]);
   const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
   const [reopeningTaskId, setReopeningTaskId] = useState<string | null>(null);
-  const [now, setNow] = useState(() => new Date());
+  const [now, setNow] = useState(() => new Date(initialNowIso));
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
@@ -215,8 +217,13 @@ export function TaskBoardClient({
   }, [reloadSlaRules]);
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), SLA_TICK_MS);
-    return () => clearInterval(timer);
+    const refreshNow = () => setNow(new Date());
+    const firstTick = window.setTimeout(refreshNow, 0);
+    const timer = window.setInterval(refreshNow, SLA_TICK_MS);
+    return () => {
+      window.clearTimeout(firstTick);
+      window.clearInterval(timer);
+    };
   }, []);
 
   const categoryById = useMemo(
