@@ -72,10 +72,20 @@ export function formatSlaRemaining(deadline: Date, now: Date = new Date()): stri
   const diffMs = deadline.getTime() - now.getTime();
   const overdue = diffMs < 0;
   const totalMinutes = Math.max(1, Math.round(Math.abs(diffMs) / 60_000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const label = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  const label = formatDurationMinutes(totalMinutes);
   return overdue ? `Overdue by ${label}` : `${label} left`;
+}
+
+export function formatDurationMinutes(totalMinutes: number): string {
+  const roundedMinutes = Math.max(0, Math.round(totalMinutes));
+  const hours = Math.floor(roundedMinutes / 60);
+  const minutes = roundedMinutes % 60;
+  if (roundedMinutes >= 24 * 60) {
+    const days = Math.floor(roundedMinutes / (24 * 60));
+    const remainingHours = Math.floor((roundedMinutes % (24 * 60)) / 60);
+    return `${days}d ${remainingHours}h`;
+  }
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
 // A task that has ever gone overdue (overdue_count > 0) shows this instead
@@ -87,7 +97,5 @@ export function formatElapsedSince(sinceIso: string, now: Date = new Date()): st
     0,
     Math.round((now.getTime() - new Date(sinceIso).getTime()) / 60_000)
   );
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  return formatDurationMinutes(totalMinutes);
 }

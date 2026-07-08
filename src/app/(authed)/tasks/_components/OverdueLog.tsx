@@ -2,6 +2,7 @@
 
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import type { ActivityRow } from "@/lib/tasks/detail";
+import { formatDurationMinutes } from "@/lib/tasks/sla";
 
 function formatDateTime(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -16,9 +17,7 @@ function formatOverdueBy(dueAt: unknown, resolvedAt: unknown): string | null {
   const resolved = new Date(resolvedAt).getTime();
   if (Number.isNaN(due) || Number.isNaN(resolved) || resolved < due) return null;
   const totalMinutes = Math.round((resolved - due) / 60_000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  return formatDurationMinutes(totalMinutes);
 }
 
 export function OverdueLog({

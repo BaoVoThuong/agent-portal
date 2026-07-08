@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SLA_MINUTES,
+  formatDurationMinutes,
   effectiveSlaMinutes,
   formatElapsedSince,
   formatSlaRemaining,
@@ -108,6 +109,11 @@ describe("formatElapsedSince", () => {
     const now = new Date("2026-07-05T00:10:00.000Z");
     expect(formatElapsedSince(since, now)).toBe("10m");
   });
+  it("formats elapsed durations over 24h as days and hours", () => {
+    const since = "2026-07-05T00:00:00.000Z";
+    const now = new Date("2026-07-18T00:46:00.000Z");
+    expect(formatElapsedSince(since, now)).toBe("13d 0h");
+  });
 });
 
 describe("formatSlaRemaining", () => {
@@ -125,5 +131,18 @@ describe("formatSlaRemaining", () => {
     const deadline = new Date("2026-07-05T00:10:00.000Z");
     const now = new Date("2026-07-05T00:00:00.000Z");
     expect(formatSlaRemaining(deadline, now)).toBe("10m left");
+  });
+  it("formats overdue durations over 24h as days and hours", () => {
+    const deadline = new Date("2026-07-05T00:00:00.000Z");
+    const now = new Date("2026-07-08T19:03:00.000Z");
+    expect(formatSlaRemaining(deadline, now)).toBe("Overdue by 3d 19h");
+  });
+});
+
+describe("formatDurationMinutes", () => {
+  it("switches from hours/minutes to days/hours at 24h", () => {
+    expect(formatDurationMinutes(23 * 60 + 59)).toBe("23h 59m");
+    expect(formatDurationMinutes(24 * 60)).toBe("1d 0h");
+    expect(formatDurationMinutes(24 * 60 + 75)).toBe("1d 1h");
   });
 });

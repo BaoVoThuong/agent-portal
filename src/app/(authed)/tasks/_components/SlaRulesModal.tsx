@@ -9,7 +9,11 @@ import {
   type TaskPriority,
   type TaskSlaRule,
 } from "@/lib/tasks/types";
-import { DEFAULT_SLA_MINUTES, resolveSlaMinutes } from "@/lib/tasks/sla";
+import {
+  DEFAULT_SLA_MINUTES,
+  formatDurationMinutes,
+  resolveSlaMinutes,
+} from "@/lib/tasks/sla";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
 const PRIORITY_LABEL: Record<TaskPriority, string> = {
@@ -24,11 +28,7 @@ const HOUR_OPTIONS = Array.from({ length: 169 }, (_, i) => i); // 0-168h (1 week
 const MINUTE_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 
 function formatDuration(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours === 0) return `${mins}m`;
-  if (mins === 0) return `${hours}h`;
-  return `${hours}h ${mins}m`;
+  return formatDurationMinutes(minutes);
 }
 
 export function SlaRulesModal({
