@@ -60,18 +60,21 @@ export function TaskCard({
           </h3>
         </div>
 
-        <span
-          className="relative shrink-0"
-          title={assigneeTitle || undefined}
-          aria-label={assigneeTitle ? `Assignee: ${assigneeTitle}` : undefined}
-        >
-          <Initials email={primaryAssigneeEmail} label={primaryAssigneeLabel} />
-          {task.assignees.length > 1 ? (
-            <span className="absolute -bottom-1 -right-1 rounded-full bg-[#f4f5f7] px-1 text-[9px] font-bold leading-4 text-[#44546f] ring-1 ring-white">
-              +{task.assignees.length - 1}
-            </span>
-          ) : null}
-        </span>
+        <div className="flex shrink-0 items-start gap-1.5">
+          <PriorityMarker priority={task.priority} />
+          <span
+            className="relative shrink-0"
+            title={assigneeTitle || undefined}
+            aria-label={assigneeTitle ? `Assignee: ${assigneeTitle}` : undefined}
+          >
+            <Initials email={primaryAssigneeEmail} label={primaryAssigneeLabel} />
+            {task.assignees.length > 1 ? (
+              <span className="absolute -bottom-1 -right-1 rounded-full bg-[#f4f5f7] px-1 text-[9px] font-bold leading-4 text-[#44546f] ring-1 ring-white">
+                +{task.assignees.length - 1}
+              </span>
+            ) : null}
+          </span>
+        </div>
       </div>
 
       <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5">
@@ -101,7 +104,6 @@ export function TaskCard({
           }
         />
         <WasOverdueBadge task={task} />
-        <PriorityChip priority={task.priority} />
       </div>
 
       {isOverdue && onUnlockOverdue ? (
@@ -253,17 +255,16 @@ function WasOverdueBadge({ task }: { task: TaskRow }) {
   );
 }
 
-function PriorityChip({ priority }: { priority: TaskRow["priority"] }) {
+function PriorityMarker({ priority }: { priority: TaskRow["priority"] }) {
   const meta = PRIORITY_META[priority];
 
   return (
     <span
-      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold"
-      style={{ backgroundColor: meta.softBg, color: meta.color }}
+      className="flex h-6 w-6 shrink-0 items-center justify-center"
       title={`${meta.label} priority`}
+      aria-label={`${meta.label} priority`}
     >
-      <PriorityIcon priority={priority} className="h-3.5 w-3.5" />
-      {meta.label}
+      <PriorityIcon priority={priority} className="h-4 w-4" />
     </span>
   );
 }
