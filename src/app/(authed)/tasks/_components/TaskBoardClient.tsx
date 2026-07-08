@@ -346,9 +346,11 @@ export function TaskBoardClient({
   //  - Agent (customer agent_email): manager-only.
   //  - Assignee: manager-only, and not on Backlog (everything there is unassigned).
   //  - Status: List only (Board columns already are statuses; Backlog is all backlog).
+  //  - Category: hidden for plain CS users.
   const showAgentFilter = isManager;
   const showAssigneeFilter = isManager && view !== "backlog";
   const showStatusFilter = view === "list";
+  const showCategoryFilter = !shouldLimitPlainCsTasks;
 
   const visibleTasks = useMemo(
     () =>
@@ -357,7 +359,7 @@ export function TaskBoardClient({
         agent: showAgentFilter ? agentFilter : [],
         assignee: showAssigneeFilter ? assigneeFilter : [],
         quick: presets,
-        category: categoryFilter,
+        category: showCategoryFilter ? categoryFilter : [],
         status: showStatusFilter ? statusFilter : [],
         dateFrom: dateRange.from,
         dateTo: dateRange.to,
@@ -394,6 +396,7 @@ export function TaskBoardClient({
       showAgentFilter,
       showAssigneeFilter,
       showStatusFilter,
+      showCategoryFilter,
       currentEmail,
       categoryById,
       agentLabelByEmail,
@@ -773,6 +776,7 @@ export function TaskBoardClient({
           showAgent={showAgentFilter}
           showAssignee={showAssigneeFilter}
           showStatus={showStatusFilter}
+          showCategory={showCategoryFilter}
           showTeamTasksToggle={shouldLimitPlainCsTasks}
           teamTasksEnabled={showTeamTasks}
           onTeamTasksEnabledChange={setShowTeamTasks}

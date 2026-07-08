@@ -80,6 +80,7 @@ export function TaskToolbar({
   showAgent,
   showAssignee,
   showStatus,
+  showCategory,
   showTeamTasksToggle = false,
   teamTasksEnabled = false,
   onTeamTasksEnabledChange,
@@ -114,6 +115,7 @@ export function TaskToolbar({
   showAgent: boolean;
   showAssignee: boolean;
   showStatus: boolean;
+  showCategory: boolean;
   showTeamTasksToggle?: boolean;
   teamTasksEnabled?: boolean;
   onTeamTasksEnabledChange?: (enabled: boolean) => void;
@@ -148,7 +150,7 @@ export function TaskToolbar({
     (showAssignee && assigneeFilter.length > 0) ||
     (showTeamTasksToggle && teamTasksEnabled) ||
     presets.length > 0 ||
-    category.length > 0 ||
+    (showCategory && category.length > 0) ||
     (showStatus && status.length > 0) ||
     dateFrom !== defaultDateRange.from ||
     dateTo !== defaultDateRange.to;
@@ -278,17 +280,19 @@ export function TaskToolbar({
           );
         })}
 
-        <TaskSelect
-          multi
-          values={category}
-          options={categoryOptions}
-          placeholder="Category"
-          allValue=""
-          summaryLabel="categories"
-          className="w-max min-w-[11rem]"
-          buttonClassName="h-9 border-[#dfe1e6] shadow-none"
-          onValuesChange={onCategory}
-        />
+        {showCategory ? (
+          <TaskSelect
+            multi
+            values={category}
+            options={categoryOptions}
+            placeholder="Category"
+            allValue=""
+            summaryLabel="categories"
+            className="w-max min-w-[11rem]"
+            buttonClassName="h-9 border-[#dfe1e6] shadow-none"
+            onValuesChange={onCategory}
+          />
+        ) : null}
 
         <DateRangeFilter
           from={dateFrom}
