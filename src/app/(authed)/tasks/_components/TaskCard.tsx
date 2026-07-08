@@ -1,5 +1,5 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import { AlertTriangle, CalendarDays, CheckCircle2, Circle, RotateCcw, UserRound } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, RotateCcw, UserRound } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
 import { Initials, PriorityIcon, SlaTimer } from "./board-ui";
 
@@ -31,6 +31,9 @@ export function TaskCard({
   onReopenRequest?: (id: string) => void;
 }) {
   const isTerminal = task.status === "done" || task.status === "cancel";
+  const assigneeLabels = task.assignees.map(
+    (email) => assigneeLabelByEmail?.get(email) ?? email
+  );
   return (
     <div
       role="button"
@@ -54,32 +57,7 @@ export function TaskCard({
             {task.title}
           </h3>
 
-          {task.assignees.length > 0 ? (
-            <div className="mt-2 space-y-0.5">
-              {task.assignees.map((email) => {
-                const label = assigneeLabelByEmail?.get(email) ?? email;
-
-                return (
-                  <div
-                    key={email}
-                    className="flex min-h-5 min-w-0 items-center gap-1.5 text-xs leading-5 text-[#626f86]"
-                    title={label}
-                  >
-                    <UserRound className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
-                    <span className="min-w-0 truncate">{label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-
-          <div
-            className="mt-2 flex min-h-5 min-w-0 items-center gap-1.5 text-xs leading-5 text-[#6b778c]"
-            title={`Created ${formatCreatedDate(task.created_at)}`}
-          >
-            <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
-            <span className="min-w-0 truncate">{formatCreatedDate(task.created_at)}</span>
-          </div>
+          <AssigneeSummary labels={assigneeLabels} />
         </div>
 
         <span className="shrink-0">
@@ -88,12 +66,6 @@ export function TaskCard({
       </div>
 
       <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5">
-        <ClosedStatusBadge task={task} />
-        <DoneReviewBadge
-          task={task}
-          canReviewDone={canReviewDone}
-          onReviewDone={onReviewDone}
-        />
         {category ? (
           <CategoryBadge category={category} />
         ) : (
@@ -101,17 +73,23 @@ export function TaskCard({
             General
           </span>
         )}
+        <ClosedStatusBadge task={task} />
+        <DoneReviewBadge
+          task={task}
+          canReviewDone={canReviewDone}
+          onReviewDone={onReviewDone}
+        />
         <SlaTimer
           deadline={slaDeadline}
           now={now}
           elapsedSinceIso={
-            task.overdue_count > 0 && task.status === "in_progress"
+            task.overdue_count > 0 && task.status === "in_progress" && !isOverdue
               ? task.in_progress_at
               : null
           }
         />
         <WasOverdueBadge task={task} />
-        <PriorityAlert priority={task.priority} />
+        {!isTerminal ? <PriorityAlert priority={task.priority} /> : null}
       </div>
 
       {isOverdue && onUnlockOverdue ? (
@@ -146,6 +124,27 @@ export function TaskCard({
           <RotateCcw className="h-3.5 w-3.5" />
           Reopen
         </button>
+      ) : null}
+    </div>
+  );
+}
+
+function AssigneeSummary({ labels }: { labels: string[] }) {
+  if (labels.length === 0) return null;
+  const [primary, ...rest] = labels;
+  const title = labels.join(", ");
+
+  return (
+    <div
+      className="mt-2 flex min-h-5 min-w-0 items-center gap-1.5 text-xs leading-5 text-[#626f86]"
+      title={title}
+    >
+      <UserRound className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
+      <span className="min-w-0 truncate">{primary}</span>
+      {rest.length > 0 ? (
+        <span className="shrink-0 rounded bg-[#f4f5f7] px-1.5 py-0.5 text-[10px] font-bold text-[#6b778c]">
+          +{rest.length}
+        </span>
       ) : null}
     </div>
   );
@@ -226,17 +225,6 @@ function DoneReviewBadge({
       {label}
     </button>
   );
-}
-
-function formatCreatedDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
 }
 
 function CategoryBadge({ category }: { category: TaskCategory }) {
