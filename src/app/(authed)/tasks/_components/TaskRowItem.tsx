@@ -85,7 +85,7 @@ export function TaskRowItem({
         if (openOnDoubleClick) onOpen(task.id);
       }}
       className={`flex items-center gap-3 px-4 py-2.5 transition hover:bg-[#f7f8f9] ${
-        isOverdue ? "border-l-4 border-[#de350b] bg-[#ffebe6]" : "bg-white"
+        isOverdue ? "border-l-4 border-[#f97316] bg-[#fff7ed]" : "bg-white"
       }`}
     >
       {dragHandle}

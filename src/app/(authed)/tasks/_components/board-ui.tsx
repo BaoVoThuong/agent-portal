@@ -125,7 +125,7 @@ export function SlaTimer({
   return (
     <span
       className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold ${
-        overdue ? "bg-[#ffebe6] text-[#bf2600]" : "bg-[#f4f5f7] text-[#44546f]"
+        overdue ? "bg-[#ffedd5] text-[#c2410c]" : "bg-[#f4f5f7] text-[#44546f]"
       }`}
     >
       <Clock className="h-3.5 w-3.5" />

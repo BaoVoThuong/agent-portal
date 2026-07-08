@@ -43,10 +43,10 @@ export function TaskCard({
       }}
       className={`block w-full rounded p-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] ${
         isOverdue
-          ? "border-2 border-[#de350b] bg-[#ffebe6] hover:border-[#bf2600]"
+          ? "border border-l-4 border-[#fed7aa] bg-[#fffaf5] hover:border-[#fb923c]"
           : "border border-l-4 border-[#dfe1e6] bg-white hover:border-[#c1c7d0]"
       }`}
-      style={isOverdue ? undefined : { borderLeftColor: STATUS_ACCENT[task.status] }}
+      style={{ borderLeftColor: isOverdue ? "#f97316" : STATUS_ACCENT[task.status] }}
     >
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -123,7 +123,7 @@ export function TaskCard({
             event.stopPropagation();
             onUnlockOverdue(task.id);
           }}
-          className="mt-2.5 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded bg-[#de350b] text-[11px] font-bold text-white transition hover:bg-[#bf2600]"
+          className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-[#fdba74] bg-[#fff7ed] text-[11px] font-bold text-[#c2410c] transition hover:border-[#fb923c] hover:bg-[#ffedd5]"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
           Enter reason to unlock

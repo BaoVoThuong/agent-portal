@@ -15,6 +15,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { AlertTriangle } from "lucide-react";
 import {
   SortableContext,
   arrayMove,
@@ -184,25 +185,33 @@ function Column({
   return (
     <section
       ref={setNodeRef}
-      className={`flex min-w-0 flex-1 flex-col rounded bg-[#f4f5f7] p-1.5 transition-colors ${
+      className={`flex min-w-0 flex-1 flex-col rounded border p-1.5 transition-colors ${
+        isOverdueColumn
+          ? "border-[#fed7aa] bg-[#fff7ed]"
+          : "border-transparent bg-[#f4f5f7]"
+      } ${
         isOver && !isOverdueColumn ? "bg-[#deebff]" : ""
       }`}
     >
       <div className="flex h-9 items-center px-1">
-        <span
-          className={`text-xs font-bold uppercase ${
-            isOverdueColumn ? "text-[#bf2600]" : "text-[#6b778c]"
-          }`}
-        >
-          {BOARD_COLUMN_LABEL[column]}
-        </span>
-        <span
-          className={`ml-1 text-xs font-bold ${
-            isOverdueColumn ? "text-[#bf2600]" : "text-[#6b778c]"
-          }`}
-        >
-          {tasks.length}
-        </span>
+        {isOverdueColumn ? (
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-[#fdba74] bg-white px-2 py-1 text-[11px] font-bold uppercase text-[#c2410c] shadow-[0_1px_2px_rgba(9,30,66,0.08)]">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{BOARD_COLUMN_LABEL[column]}</span>
+            <span className="rounded-full bg-[#ffedd5] px-1.5 py-0.5 text-[10px] leading-none text-[#9a3412]">
+              {tasks.length}
+            </span>
+          </span>
+        ) : (
+          <>
+            <span className="text-xs font-bold uppercase text-[#6b778c]">
+              {BOARD_COLUMN_LABEL[column]}
+            </span>
+            <span className="ml-1 text-xs font-bold text-[#6b778c]">
+              {tasks.length}
+            </span>
+          </>
+        )}
       </div>
       <div
         className="min-h-[12rem] flex-1 overflow-y-auto rounded px-0.5 pb-1"
