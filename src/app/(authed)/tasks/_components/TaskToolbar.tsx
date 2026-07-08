@@ -53,6 +53,9 @@ const PRESETS: { key: QuickFilter; label: string; managerOnly?: boolean }[] = [
   { key: "mine", label: "My tasks", managerOnly: true },
 ];
 
+const FILTER_SELECT_BUTTON_CLASS =
+  "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+
 export function TaskToolbar({
   view,
   onViewChange,
@@ -195,7 +198,7 @@ export function TaskToolbar({
             allValue={ALL_AGENTS}
             summaryLabel="agents"
             className="w-max min-w-[9rem]"
-            buttonClassName="h-9 border-[#dfe1e6] shadow-none"
+            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
             onValuesChange={onAgentFilter}
           />
         ) : null}
@@ -209,22 +212,8 @@ export function TaskToolbar({
             allValue=""
             summaryLabel="assignees"
             className="w-max min-w-[11rem]"
-            buttonClassName="h-9 border-[#dfe1e6] shadow-none"
+            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
             onValuesChange={onAssigneeFilter}
-          />
-        ) : null}
-
-        {showStatus ? (
-          <TaskSelect
-            multi
-            values={status}
-            options={statusOptions}
-            placeholder="Status"
-            allValue=""
-            summaryLabel="statuses"
-            className="w-max min-w-[10rem]"
-            buttonClassName="h-9 border-[#dfe1e6] shadow-none"
-            onValuesChange={(values) => onStatus(values as TaskStatus[])}
           />
         ) : null}
 
@@ -261,6 +250,20 @@ export function TaskToolbar({
           </div>
         ) : null}
 
+        {showStatus ? (
+          <TaskSelect
+            multi
+            values={status}
+            options={statusOptions}
+            placeholder="Status"
+            allValue=""
+            summaryLabel="statuses"
+            className="w-max min-w-[8.75rem]"
+            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+            onValuesChange={(values) => onStatus(values as TaskStatus[])}
+          />
+        ) : null}
+
         {presetOptions.map((p) => {
           const active = presets.includes(p.key);
           return (
@@ -289,7 +292,7 @@ export function TaskToolbar({
             allValue=""
             summaryLabel="categories"
             className="w-max min-w-[11rem]"
-            buttonClassName="h-9 border-[#dfe1e6] shadow-none"
+            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
             onValuesChange={onCategory}
           />
         ) : null}
@@ -458,7 +461,7 @@ function DateRangeFilter({
       <button
         type="button"
         onClick={toggleRangePicker}
-        className="dashboard-filter-button h-9 min-w-[13.75rem] !rounded-lg !px-3 !text-sm !font-medium !shadow-[0_1px_2px_rgba(9,30,66,0.06)]"
+        className={`dashboard-filter-button min-w-[13.75rem] ${FILTER_SELECT_BUTTON_CLASS}`}
         aria-expanded={isOpen}
       >
         <span className="flex min-w-0 items-center gap-2">
