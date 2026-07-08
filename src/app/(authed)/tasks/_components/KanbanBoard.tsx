@@ -25,6 +25,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   BOARD_COLUMN_LABEL,
+  KANBAN_COLUMNS,
   type BoardColumn,
   type TaskRow,
   type TaskStatus,
@@ -38,9 +39,6 @@ import { TaskCard } from "./TaskCard";
 function byPosition(tasks: TaskRow[]): TaskRow[] {
   return [...tasks].sort((a, b) => a.position - b.position);
 }
-
-const ACTIVE_COLUMNS = ["todo", "in_progress", "waiting", "overdue"] satisfies BoardColumn[];
-const CLOSED_COLUMNS = ["done", "cancel"] satisfies BoardColumn[];
 
 // The board column a draggable id currently belongs to. Column drop zones use
 // the id `col:<column>`; cards use their task id. "overdue" is a computed
@@ -63,6 +61,12 @@ function endIndexOfStatus(items: TaskRow[], status: TaskStatus): number {
     if (task.status === status) lastIndex = index;
   });
   return lastIndex === -1 ? items.length : lastIndex + 1;
+}
+
+function statusForDropColumn(column: BoardColumn): TaskStatus | null {
+  if (column === "overdue") return null;
+  if (column === "closed") return "done";
+  return column;
 }
 
 function isColumnId(id: unknown): boolean {
@@ -155,7 +159,6 @@ function SortableCard({
 function Column({
   column,
   tasks,
-  compact = false,
   onOpen,
   canMoveTask,
   categoryById,
@@ -170,7 +173,6 @@ function Column({
 }: {
   column: BoardColumn;
   tasks: TaskRow[];
-  compact?: boolean;
   onOpen: (id: string) => void;
   canMoveTask: (task: TaskRow) => boolean;
   canReviewDoneTask: (task: TaskRow) => boolean;
@@ -185,23 +187,16 @@ function Column({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${column}` });
   const isOverdueColumn = column === "overdue";
-  const isTerminalColumn = column === "done" || column === "cancel";
-  const shellClass = compact
-    ? "flex min-h-[10rem] min-w-0 flex-1 flex-col rounded border border-[#dfe1e6] bg-white p-1 transition-colors"
-    : "flex min-w-0 flex-1 flex-col rounded border border-transparent bg-[#f4f5f7] p-1.5 transition-colors";
-  const headerClass = compact ? "flex h-8 items-center px-1" : "flex h-9 items-center px-1";
-  const bodyClass = compact
-    ? "min-h-[7rem] flex-1 overflow-y-auto rounded px-0.5 pb-1"
-    : "min-h-[12rem] flex-1 overflow-y-auto rounded px-0.5 pb-1";
+  const isTerminalColumn = column === "closed";
 
   return (
     <section
       ref={setNodeRef}
-      className={`${shellClass} ${
+      className={`flex min-w-0 flex-1 flex-col rounded border border-transparent bg-[#f4f5f7] p-1.5 transition-colors ${
         isOver && !isOverdueColumn ? "bg-[#deebff]" : ""
       }`}
     >
-      <div className={headerClass}>
+      <div className="flex h-9 items-center px-1">
         {isOverdueColumn ? (
           <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-bold uppercase text-[#c2410c]">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -221,7 +216,7 @@ function Column({
           </>
         )}
       </div>
-      <div className={bodyClass}>
+      <div className="min-h-[12rem] flex-1 overflow-y-auto rounded px-0.5 pb-1">
         <SortableContext
           items={tasks.map((t) => t.id)}
           strategy={verticalListSortingStrategy}
@@ -299,6 +294,7 @@ export function KanbanBoard({
   const columnOf = (task: TaskRow): BoardColumn => {
     if (task.status === "in_progress" && isOverdueTask(task)) return "overdue";
     if (task.status === "backlog") return "todo";
+    if (task.status === "done" || task.status === "cancel") return "closed";
     return task.status;
   };
 
@@ -315,12 +311,11 @@ export function KanbanBoard({
     ? items.find((task) => task.id === activeId) ?? null
     : null;
 
-  const renderColumn = (column: BoardColumn, compact = false) => (
+  const renderColumn = (column: BoardColumn) => (
     <Column
       key={column}
       column={column}
       tasks={columnTasks(column)}
-      compact={compact}
       onOpen={onOpen}
       canMoveTask={canMoveTask}
       canReviewDoneTask={canReviewDoneTask}
@@ -384,15 +379,17 @@ export function KanbanBoard({
 
       const next = [...current];
       const [moved] = next.splice(activeIndex, 1);
-      const movedUpdated: TaskRow = { ...moved, status: overContainer };
+      const nextStatus = statusForDropColumn(overContainer);
+      if (!nextStatus) return current;
+      const movedUpdated: TaskRow = { ...moved, status: nextStatus };
 
       let insertIndex: number;
       if (overId.startsWith("col:")) {
-        insertIndex = endIndexOfStatus(next, overContainer);
+        insertIndex = endIndexOfStatus(next, nextStatus);
       } else {
         const overIndex = next.findIndex((task) => task.id === overId);
         insertIndex =
-          overIndex === -1 ? endIndexOfStatus(next, overContainer) : overIndex;
+          overIndex === -1 ? endIndexOfStatus(next, nextStatus) : overIndex;
       }
 
       next.splice(insertIndex, 0, movedUpdated);
@@ -462,23 +459,8 @@ export function KanbanBoard({
         setDragItems(null);
       }}
     >
-      <div className="grid min-h-0 flex-1 grid-cols-[repeat(4,minmax(14rem,1fr))_minmax(13.5rem,0.78fr)] gap-4 overflow-x-auto px-6 pb-6">
-        {ACTIVE_COLUMNS.map((column) => renderColumn(column))}
-
-        <aside className="flex min-w-0 flex-col rounded border border-[#dfe1e6] bg-[#f7f8f9] p-1.5">
-          <div className="flex h-9 items-center justify-between px-1">
-            <span className="text-xs font-bold uppercase text-[#6b778c]">Closed</span>
-            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-[#6b778c]">
-              {CLOSED_COLUMNS.reduce(
-                (count, column) => count + columnTasks(column).length,
-                0
-              )}
-            </span>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-col gap-2">
-            {CLOSED_COLUMNS.map((column) => renderColumn(column, true))}
-          </div>
-        </aside>
+      <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(14rem,1fr))] gap-4 overflow-x-auto px-6 pb-6">
+        {KANBAN_COLUMNS.map((column) => renderColumn(column))}
       </div>
 
       <DragOverlay dropAnimation={{ duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" }}>

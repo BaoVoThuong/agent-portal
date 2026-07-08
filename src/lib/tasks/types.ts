@@ -31,15 +31,13 @@ export type BoardColumn =
   | "in_progress"
   | "waiting"
   | "overdue"
-  | "done"
-  | "cancel";
+  | "closed";
 export const KANBAN_COLUMNS: BoardColumn[] = [
   "todo",
   "in_progress",
   "waiting",
   "overdue",
-  "done",
-  "cancel",
+  "closed",
 ];
 
 export type TaskRow = {
@@ -97,6 +95,5 @@ export const BOARD_COLUMN_LABEL: Record<BoardColumn, string> = {
   in_progress: "In Progress",
   waiting: "Waiting",
   overdue: "Overdue",
-  done: "Done",
-  cancel: "Cancel",
+  closed: "Closed",
 };

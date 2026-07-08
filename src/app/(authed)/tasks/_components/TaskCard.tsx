@@ -88,6 +88,7 @@ export function TaskCard({
       </div>
 
       <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5">
+        <ClosedStatusBadge task={task} />
         <DoneReviewBadge
           task={task}
           canReviewDone={canReviewDone}
@@ -147,6 +148,21 @@ export function TaskCard({
         </button>
       ) : null}
     </div>
+  );
+}
+
+function ClosedStatusBadge({ task }: { task: TaskRow }) {
+  if (task.status !== "done" && task.status !== "cancel") return null;
+
+  const cancelled = task.status === "cancel";
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[11px] font-bold uppercase ${
+        cancelled ? "bg-[#ffebe6] text-[#bf2600]" : "bg-[#e3fcef] text-[#006644]"
+      }`}
+    >
+      {cancelled ? "Cancelled" : "Done"}
+    </span>
   );
 }
 
