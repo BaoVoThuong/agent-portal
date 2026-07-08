@@ -184,19 +184,6 @@ export function TaskToolbar({
           ))}
         </div>
 
-        <label className="relative block h-10 min-w-[18rem] flex-1 md:min-w-[28rem]">
-          <span className="sr-only">Search tasks</span>
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#44546f]" />
-          <input
-            value={query}
-            onChange={(event) => onQuery(event.target.value)}
-            placeholder="Search"
-            className="h-full w-full rounded border-2 border-transparent bg-[#f4f5f7] pl-10 pr-3 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#44546f] hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white"
-          />
-        </label>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
         {showAgent ? (
           <TaskSelect
             multi
@@ -272,6 +259,25 @@ export function TaskToolbar({
           </div>
         ) : null}
 
+        {presetOptions.map((p) => {
+          const active = presets.includes(p.key);
+          return (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => togglePreset(p.key)}
+              aria-pressed={active}
+              className={`inline-flex h-9 items-center rounded-lg border px-3 text-sm font-semibold transition ${
+                active
+                  ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
+                  : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
+              }`}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+
         <TaskSelect
           multi
           values={category}
@@ -306,28 +312,16 @@ export function TaskToolbar({
         </span>
       </div>
 
-      {presetOptions.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {presetOptions.map((p) => {
-            const active = presets.includes(p.key);
-            return (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => togglePreset(p.key)}
-                aria-pressed={active}
-                className={`inline-flex h-7 items-center rounded-full border px-3 text-xs font-semibold transition ${
-                  active
-                    ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
-                    : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
-                }`}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+      <label className="relative block h-10 w-full">
+        <span className="sr-only">Search tasks</span>
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#44546f]" />
+        <input
+          value={query}
+          onChange={(event) => onQuery(event.target.value)}
+          placeholder="Search"
+          className="h-full w-full rounded border-2 border-transparent bg-[#f4f5f7] pl-10 pr-3 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#44546f] hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white"
+        />
+      </label>
     </div>
   );
 }
