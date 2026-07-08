@@ -48,12 +48,9 @@ export type AgentStat = {
   urgent: number;
 };
 
-// One-click smart views. Each maps to a `matchesQuick` rule; multiple combine (AND).
+// One-click manager-only view. It maps to a `matchesQuick` rule.
 const PRESETS: { key: QuickFilter; label: string; managerOnly?: boolean }[] = [
   { key: "mine", label: "My tasks", managerOnly: true },
-  { key: "overdue", label: "Overdue" },
-  { key: "highPriority", label: "High priority" },
-  { key: "recentlyUpdated", label: "Recently updated" },
 ];
 
 export function TaskToolbar({
@@ -309,26 +306,28 @@ export function TaskToolbar({
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {presetOptions.map((p) => {
-          const active = presets.includes(p.key);
-          return (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => togglePreset(p.key)}
-              aria-pressed={active}
-              className={`inline-flex h-7 items-center rounded-full border px-3 text-xs font-semibold transition ${
-                active
-                  ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
-                  : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
-              }`}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-      </div>
+      {presetOptions.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {presetOptions.map((p) => {
+            const active = presets.includes(p.key);
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => togglePreset(p.key)}
+                aria-pressed={active}
+                className={`inline-flex h-7 items-center rounded-full border px-3 text-xs font-semibold transition ${
+                  active
+                    ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
+                    : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
+                }`}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
