@@ -92,6 +92,16 @@ export function PriorityDot({ priority }: { priority: TaskPriority }) {
   );
 }
 
+export function NewAssignedBadge({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex h-5 shrink-0 items-center rounded border border-[#85b8ff] bg-[#e9f2ff] px-1.5 text-[10px] font-bold uppercase leading-none text-[#0c66e4] ${className}`}
+    >
+      New
+    </span>
+  );
+}
+
 export function StageElapsedBadge({
   label,
   sinceIso,

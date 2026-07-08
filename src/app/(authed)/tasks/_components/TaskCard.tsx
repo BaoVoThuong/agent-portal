@@ -1,7 +1,14 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
 import { AlertTriangle, CheckCircle2, Circle, RotateCcw } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
-import { Initials, PRIORITY_META, PriorityIcon, SlaTimer, StageElapsedBadge } from "./board-ui";
+import {
+  Initials,
+  NewAssignedBadge,
+  PRIORITY_META,
+  PriorityIcon,
+  SlaTimer,
+  StageElapsedBadge,
+} from "./board-ui";
 
 export function TaskCard({
   task,
@@ -13,6 +20,7 @@ export function TaskCard({
   slaDeadline = null,
   isOverdue = false,
   now = new Date(),
+  isNewAssigned = false,
   onUnlockOverdue,
   onReopenRequest,
 }: {
@@ -25,6 +33,7 @@ export function TaskCard({
   slaDeadline?: Date | null;
   isOverdue?: boolean;
   now?: Date;
+  isNewAssigned?: boolean;
   onUnlockOverdue?: (id: string) => void;
   onReopenRequest?: (id: string) => void;
 }) {
@@ -58,6 +67,7 @@ export function TaskCard({
           <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-[#172b4d]">
             {task.title}
           </h3>
+          {isNewAssigned ? <NewAssignedBadge className="mt-1" /> : null}
         </div>
 
         <div className="flex shrink-0 items-start gap-1.5">

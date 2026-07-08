@@ -11,7 +11,7 @@ export async function GET() {
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
-  const [{ data, error }, unreadRes] = await Promise.all([
+  const [{ data, error }, unreadRes, unreadAssignedRes] = await Promise.all([
     supabase
       .from("task_notifications")
       .select("id,task_id,type,actor_email,comment_id,is_read,created_at")
@@ -23,10 +23,19 @@ export async function GET() {
       .select("id", { count: "exact", head: true })
       .eq("recipient_email", email)
       .eq("is_read", false),
+    supabase
+      .from("task_notifications")
+      .select("task_id")
+      .eq("recipient_email", email)
+      .eq("type", "assigned")
+      .eq("is_read", false),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (unreadRes.error) {
     return NextResponse.json({ error: unreadRes.error.message }, { status: 500 });
+  }
+  if (unreadAssignedRes.error) {
+    return NextResponse.json({ error: unreadAssignedRes.error.message }, { status: 500 });
   }
 
   const base = (data ?? []) as {
@@ -83,5 +92,15 @@ export async function GET() {
     typeof unreadRes.count === "number"
       ? unreadRes.count
       : notifications.filter((n) => !n.is_read).length;
-  return NextResponse.json({ notifications, unread, topic: notifTopic(email) });
+  const unreadAssignedTaskIds = [
+    ...new Set(
+      ((unreadAssignedRes.data ?? []) as { task_id: string }[]).map((n) => n.task_id)
+    ),
+  ];
+  return NextResponse.json({
+    notifications,
+    unread,
+    unreadAssignedTaskIds,
+    topic: notifTopic(email),
+  });
 }

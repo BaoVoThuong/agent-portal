@@ -21,6 +21,7 @@ export function TaskListView({
   onReviewDone,
   onAssigneeChange,
   overdueIds,
+  newAssignedTaskIds,
   onReopenRequest,
 }: {
   tasks: TaskRow[];
@@ -36,6 +37,7 @@ export function TaskListView({
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
   overdueIds: Set<string>;
+  newAssignedTaskIds: Set<string>;
   onReopenRequest: (id: string) => void;
 }) {
   function isAgentOwnerOrAssistantOf(agentEmail: string | null): boolean {
@@ -126,6 +128,7 @@ export function TaskListView({
                   onAssigneeChange={onAssigneeChange}
                   openOnDoubleClick
                   isOverdue={overdueIds.has(task.id)}
+                  isNewAssigned={newAssignedTaskIds.has(task.id)}
                   onReopenRequest={() => onReopenRequest(task.id)}
                 />
               </li>

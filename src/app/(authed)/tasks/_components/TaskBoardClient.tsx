@@ -86,6 +86,9 @@ export function TaskBoardClient({
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<TaskStatus[]>([]);
   const [showTeamTasks, setShowTeamTasks] = useState(false);
+  const [newAssignedTaskIds, setNewAssignedTaskIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const initialDateRangeDefault = useMemo(
     () => getFallbackTaskDateRangeDefault(),
     []
@@ -148,6 +151,51 @@ export function TaskBoardClient({
     return () => window.removeEventListener("popstate", onHistoryNavigation);
   }, []);
 
+  const loadUnreadAssignedTaskIds = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks/notifications");
+      if (!res.ok) return;
+      const data = (await res.json()) as { unreadAssignedTaskIds?: unknown };
+      const ids = Array.isArray(data.unreadAssignedTaskIds)
+        ? data.unreadAssignedTaskIds.filter((id): id is string => typeof id === "string")
+        : [];
+      setNewAssignedTaskIds(new Set(ids));
+    } catch {
+      // Notification state is a visual hint only; the next task/notification
+      // refresh will repair it.
+    }
+  }, []);
+
+  const markAssignedNotificationRead = useCallback(async (taskId: string) => {
+    await fetch("/api/tasks/notifications/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskId, type: "assigned" }),
+    }).catch(() => {});
+  }, []);
+
+  const markNewAssignedTaskSeen = useCallback((taskId: string) => {
+    if (!newAssignedTaskIds.has(taskId)) return;
+    setNewAssignedTaskIds((current) => {
+      if (!current.has(taskId)) return current;
+      const next = new Set(current);
+      next.delete(taskId);
+      return next;
+    });
+    void markAssignedNotificationRead(taskId);
+  }, [markAssignedNotificationRead, newAssignedTaskIds]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadUnreadAssignedTaskIds(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadUnreadAssignedTaskIds]);
+
+  useEffect(() => {
+    if (!openId || !newAssignedTaskIds.has(openId)) return;
+    const timer = window.setTimeout(() => markNewAssignedTaskSeen(openId), 0);
+    return () => window.clearTimeout(timer);
+  }, [markNewAssignedTaskSeen, newAssignedTaskIds, openId]);
+
   // Live board: refetch the role-filtered list when the server pings that tasks
   // changed, plus once on (re)connect to catch anything missed while offline.
   // No polling — the reconnect refetch is the self-heal path.
@@ -161,10 +209,11 @@ export function TaskBoardClient({
       // landed while this was in flight — this response is stale, drop it.
       if (tasksVersionRef.current !== requestVersion) return;
       setTasks(data.tasks as TaskRow[]);
+      void loadUnreadAssignedTaskIds();
     } catch {
       // ignore; the next ping or reconnect retries
     }
-  }, []);
+  }, [loadUnreadAssignedTaskIds]);
 
   useEffect(() => {
     const sb = getBrowserSupabase();
@@ -415,6 +464,7 @@ export function TaskBoardClient({
   const openTask = tasks.find((t) => t.id === openId) ?? null;
 
   function openTaskById(id: string) {
+    markNewAssignedTaskSeen(id);
     setOpenId(id);
     writeTaskDeepLink(null);
   }
@@ -804,6 +854,7 @@ export function TaskBoardClient({
           onReviewDone={reviewDoneTask}
           categories={categories}
           assigneeLabelByEmail={assigneeLabelByEmail}
+          newAssignedTaskIds={newAssignedTaskIds}
           rules={slaRules}
           now={now}
           onUnlockOverdue={setUnlockingTaskId}
@@ -826,6 +877,7 @@ export function TaskBoardClient({
           onReviewDone={reviewDoneTask}
           onAssigneeChange={changeAssignee}
           overdueIds={overdueIds}
+          newAssignedTaskIds={newAssignedTaskIds}
           onReopenRequest={setReopeningTaskId}
         />
       )}

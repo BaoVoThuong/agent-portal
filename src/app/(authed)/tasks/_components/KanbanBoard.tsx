@@ -103,6 +103,7 @@ function SortableCard({
   onOpen,
   slaDeadline,
   isOverdue,
+  isNewAssigned,
   now,
   onUnlockOverdue,
   onReopenRequest,
@@ -116,6 +117,7 @@ function SortableCard({
   onOpen: (id: string) => void;
   slaDeadline: Date | null;
   isOverdue: boolean;
+  isNewAssigned: boolean;
   now: Date;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
@@ -145,6 +147,7 @@ function SortableCard({
         onOpen={onOpen}
         slaDeadline={slaDeadline}
         isOverdue={isOverdue}
+        isNewAssigned={isNewAssigned}
         now={now}
         onUnlockOverdue={onUnlockOverdue}
         onReopenRequest={onReopenRequest}
@@ -163,6 +166,7 @@ function Column({
   canReviewDoneTask,
   onReviewDone,
   slaDeadlineFor,
+  newAssignedTaskIds,
   now,
   onUnlockOverdue,
   onReopenRequest,
@@ -176,6 +180,7 @@ function Column({
   categoryById: Map<string, TaskCategory>;
   assigneeLabelByEmail: Map<string, string>;
   slaDeadlineFor: (task: TaskRow) => Date | null;
+  newAssignedTaskIds: Set<string>;
   now: Date;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
@@ -228,6 +233,7 @@ function Column({
               onOpen={onOpen}
               slaDeadline={slaDeadlineFor(t)}
               isOverdue={isOverdueColumn}
+              isNewAssigned={newAssignedTaskIds.has(t.id)}
               now={now}
               onUnlockOverdue={onUnlockOverdue}
               onReopenRequest={onReopenRequest}
@@ -248,6 +254,7 @@ export function KanbanBoard({
   onReviewDone,
   categories,
   assigneeLabelByEmail,
+  newAssignedTaskIds,
   rules,
   now,
   onUnlockOverdue,
@@ -261,6 +268,7 @@ export function KanbanBoard({
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   categories: TaskCategory[];
   assigneeLabelByEmail: Map<string, string>;
+  newAssignedTaskIds: Set<string>;
   rules: TaskSlaRule[];
   now: Date;
   onUnlockOverdue: (id: string) => void;
@@ -311,6 +319,7 @@ export function KanbanBoard({
       categoryById={categoryById}
       assigneeLabelByEmail={assigneeLabelByEmail}
       slaDeadlineFor={slaDeadlineFor}
+      newAssignedTaskIds={newAssignedTaskIds}
       now={now}
       onUnlockOverdue={onUnlockOverdue}
       onReopenRequest={onReopenRequest}
@@ -465,6 +474,7 @@ export function KanbanBoard({
               onReviewDone={onReviewDone}
               onOpen={() => {}}
               slaDeadline={slaDeadlineFor(activeTask)}
+              isNewAssigned={newAssignedTaskIds.has(activeTask.id)}
               now={now}
             />
           </div>

@@ -16,7 +16,7 @@ import {
 } from "@/lib/tasks/types";
 import { taskKey } from "@/lib/tasks/sorting";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
-import { AvatarStack, PriorityIcon, PRIORITY_META } from "./board-ui";
+import { AvatarStack, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
 import { TaskAssigneePicker } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
@@ -55,6 +55,7 @@ export function TaskRowItem({
   dragHandle,
   openOnDoubleClick = false,
   isOverdue = false,
+  isNewAssigned = false,
   onReopenRequest,
 }: {
   task: TaskRow;
@@ -71,6 +72,7 @@ export function TaskRowItem({
   dragHandle?: ReactNode;
   openOnDoubleClick?: boolean;
   isOverdue?: boolean;
+  isNewAssigned?: boolean;
   onReopenRequest?: () => void;
 }) {
   const assigneeLabelByEmail = new Map(
@@ -102,6 +104,7 @@ export function TaskRowItem({
         title={task.title}
       >
         <span className="truncate">{task.title}</span>
+        {isNewAssigned ? <NewAssignedBadge /> : null}
         {(task.status === "done" || task.status === "cancel") && task.overdue_count > 0 ? (
           <span
             className="shrink-0"
