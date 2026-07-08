@@ -60,7 +60,11 @@ export function TaskCard({
           </h3>
         </div>
 
-        <span className="relative shrink-0" title={assigneeTitle || undefined}>
+        <span
+          className="relative shrink-0"
+          title={assigneeTitle || undefined}
+          aria-label={assigneeTitle ? `Assignee: ${assigneeTitle}` : undefined}
+        >
           <Initials email={primaryAssigneeEmail} label={primaryAssigneeLabel} />
           {task.assignees.length > 1 ? (
             <span className="absolute -bottom-1 -right-1 rounded-full bg-[#f4f5f7] px-1 text-[9px] font-bold leading-4 text-[#44546f] ring-1 ring-white">
