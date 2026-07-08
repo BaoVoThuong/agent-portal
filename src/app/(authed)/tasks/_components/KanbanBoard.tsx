@@ -459,7 +459,7 @@ export function KanbanBoard({
         setDragItems(null);
       }}
     >
-      <div className="grid min-h-0 flex-1 grid-cols-[repeat(5,minmax(14rem,1fr))] gap-4 overflow-x-auto px-6 pb-6">
+      <div className="grid min-h-0 flex-1 grid-cols-5 gap-3 px-4 pb-6 xl:px-6">
         {KANBAN_COLUMNS.map((column) => renderColumn(column))}
       </div>
 

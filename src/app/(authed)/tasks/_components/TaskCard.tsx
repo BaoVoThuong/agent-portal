@@ -41,21 +41,21 @@ export function TaskCard({
         event.preventDefault();
         onOpen(task.id);
       }}
-      className={`block w-full rounded p-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] ${
+      className={`block w-full rounded p-3 text-left shadow-[0_1px_2px_rgba(9,30,66,0.16)] transition hover:shadow-[0_2px_8px_rgba(9,30,66,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] ${
         isOverdue
           ? "border border-l-4 border-[#fed7aa] bg-white hover:border-[#fb923c]"
           : "border border-l-4 border-[#dfe1e6] bg-white hover:border-[#c1c7d0]"
       }`}
       style={{ borderLeftColor: isOverdue ? "#f97316" : STATUS_ACCENT[task.status] }}
     >
-      <div className="flex min-w-0 items-start gap-3">
+      <div className="flex min-w-0 items-start gap-2.5">
         <div className="min-w-0 flex-1">
-          <h3 className="line-clamp-2 text-[15px] font-semibold leading-5 text-[#172b4d]">
+          <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-[#172b4d]">
             {task.title}
           </h3>
 
           {task.assignees.length > 0 ? (
-            <div className="mt-2 space-y-1">
+            <div className="mt-2 space-y-0.5">
               {task.assignees.map((email) => {
                 const label = assigneeLabelByEmail?.get(email) ?? email;
 
