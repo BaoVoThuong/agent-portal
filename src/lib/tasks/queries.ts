@@ -56,21 +56,26 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   if (!workerScope) return tasks;
 
   const participantIdSet = new Set(workerScope.participantIds);
-  return tasks.filter((task) => {
-    const effectiveAssigneeEmail = task.assignees[0] ?? task.assignee_email;
-    return canViewTask(actor, { assignee_email: effectiveAssigneeEmail }, {
-      isAssignee:
-        task.assignees.includes(actor.email) ||
-        task.assignee_email === actor.email,
-      isAgentMember: Boolean(
-        task.agent_email && workerScope.agents.includes(task.agent_email)
-      ),
-      isAgentOwner: Boolean(
-        task.agent_email &&
-          (task.agent_email === actor.email ||
-            workerScope.assistantAgents.includes(task.agent_email))
-      ),
-      isParticipant: participantIdSet.has(task.id),
+  return tasks
+    .map((task) => ({
+      ...task,
+      viewer_is_participant: participantIdSet.has(task.id),
+    }))
+    .filter((task) => {
+      const effectiveAssigneeEmail = task.assignees[0] ?? task.assignee_email;
+      return canViewTask(actor, { assignee_email: effectiveAssigneeEmail }, {
+        isAssignee:
+          task.assignees.includes(actor.email) ||
+          task.assignee_email === actor.email,
+        isAgentMember: Boolean(
+          task.agent_email && workerScope.agents.includes(task.agent_email)
+        ),
+        isAgentOwner: Boolean(
+          task.agent_email &&
+            (task.agent_email === actor.email ||
+              workerScope.assistantAgents.includes(task.agent_email))
+        ),
+        isParticipant: task.viewer_is_participant,
+      });
     });
-  });
 }

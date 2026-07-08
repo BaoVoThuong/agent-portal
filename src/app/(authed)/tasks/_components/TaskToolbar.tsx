@@ -81,6 +81,9 @@ export function TaskToolbar({
   showAgent,
   showAssignee,
   showStatus,
+  showTeamTasksToggle = false,
+  teamTasksEnabled = false,
+  onTeamTasksEnabledChange,
   categories,
   resultCount,
   totalCount,
@@ -112,6 +115,9 @@ export function TaskToolbar({
   showAgent: boolean;
   showAssignee: boolean;
   showStatus: boolean;
+  showTeamTasksToggle?: boolean;
+  teamTasksEnabled?: boolean;
+  onTeamTasksEnabledChange?: (enabled: boolean) => void;
   categories: TaskCategory[];
   resultCount: number;
   totalCount: number;
@@ -141,6 +147,7 @@ export function TaskToolbar({
     query.trim() !== "" ||
     (showAgent && agentFilter.length > 0) ||
     (showAssignee && assigneeFilter.length > 0) ||
+    (showTeamTasksToggle && teamTasksEnabled) ||
     presets.length > 0 ||
     category.length > 0 ||
     (showStatus && status.length > 0) ||
@@ -231,6 +238,21 @@ export function TaskToolbar({
             buttonClassName="h-9 border-[#dfe1e6] shadow-none"
             onValuesChange={(values) => onStatus(values as TaskStatus[])}
           />
+        ) : null}
+
+        {showTeamTasksToggle ? (
+          <button
+            type="button"
+            onClick={() => onTeamTasksEnabledChange?.(!teamTasksEnabled)}
+            aria-pressed={teamTasksEnabled}
+            className={`h-9 rounded-lg border px-3 text-sm font-semibold transition ${
+              teamTasksEnabled
+                ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
+                : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
+            }`}
+          >
+            Team tasks
+          </button>
         ) : null}
 
         <TaskSelect

@@ -83,6 +83,7 @@ export function TaskBoardClient({
   const [presets, setPresets] = useState<QuickFilter[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<TaskStatus[]>([]);
+  const [showTeamTasks, setShowTeamTasks] = useState(false);
   const initialDateRangeDefault = useMemo(
     () => getFallbackTaskDateRangeDefault(),
     []
@@ -324,6 +325,22 @@ export function TaskBoardClient({
     return ids;
   }, [tasks, slaRules, now]);
 
+  const isMyOwnAgentAccount = agents.some((agent) => agent.email === currentEmail);
+  const manageableAgentEmails = isMyOwnAgentAccount
+    ? [...new Set([currentEmail, ...myAssistantAgents])]
+    : myAssistantAgents;
+  const canManageOwnAgentGroup = manageableAgentEmails.length > 0;
+  const shouldLimitPlainCsTasks = !isManager && !canManageOwnAgentGroup;
+  const scopedTasks = useMemo(() => {
+    if (!shouldLimitPlainCsTasks || showTeamTasks) return tasks;
+
+    return tasks.filter(
+      (task) =>
+        task.assignees.includes(currentEmail) ||
+        task.viewer_is_participant === true
+    );
+  }, [currentEmail, shouldLimitPlainCsTasks, showTeamTasks, tasks]);
+
   // Which filters make sense for the current view + role. Hidden filters are also
   // forced inert here so a stale value can't silently filter a view that hides it.
   //  - Agent (customer agent_email): manager-only.
@@ -335,7 +352,7 @@ export function TaskBoardClient({
 
   const visibleTasks = useMemo(
     () =>
-      filterTasks(tasks, {
+      filterTasks(scopedTasks, {
         query,
         agent: showAgentFilter ? agentFilter : [],
         assignee: showAssigneeFilter ? assigneeFilter : [],
@@ -366,7 +383,7 @@ export function TaskBoardClient({
         },
       }),
     [
-      tasks,
+      scopedTasks,
       query,
       agentFilter,
       assigneeFilter,
@@ -405,7 +422,17 @@ export function TaskBoardClient({
   }
 
   function replaceTask(updated: TaskRow) {
-    updateTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    updateTasks((prev) =>
+      prev.map((task) =>
+        task.id === updated.id
+          ? {
+              ...updated,
+              viewer_is_participant:
+                updated.viewer_is_participant ?? task.viewer_is_participant,
+            }
+          : task
+      )
+    );
   }
 
   // "Agent owner" rights extend to a promoted Assistant of that agent —
@@ -648,6 +675,7 @@ export function TaskBoardClient({
     setPresets([]);
     setCategoryFilter([]);
     setStatusFilter([]);
+    setShowTeamTasks(false);
     setDateRange(defaultDateRange);
   }
 
@@ -664,11 +692,6 @@ export function TaskBoardClient({
       isAgentOwnerOrAssistantOf(openTask.agent_email) ||
       openTask.reporter_email === currentEmail);
   const canDeleteOpen = openTask !== null && canDeleteOpenTask(openTask);
-  const isMyOwnAgentAccount = agents.some((agent) => agent.email === currentEmail);
-  const manageableAgentEmails = isMyOwnAgentAccount
-    ? [...new Set([currentEmail, ...myAssistantAgents])]
-    : myAssistantAgents;
-  const canManageOwnAgentGroup = manageableAgentEmails.length > 0;
   const canCreateTasks = isManager || canManageOwnAgentGroup;
 
   return (
@@ -750,6 +773,9 @@ export function TaskBoardClient({
           showAgent={showAgentFilter}
           showAssignee={showAssigneeFilter}
           showStatus={showStatusFilter}
+          showTeamTasksToggle={shouldLimitPlainCsTasks}
+          teamTasksEnabled={showTeamTasks}
+          onTeamTasksEnabledChange={setShowTeamTasks}
           categories={categories}
           resultCount={visibleTasks.length}
           totalCount={tasks.length}
