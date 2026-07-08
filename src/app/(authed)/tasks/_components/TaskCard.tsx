@@ -1,7 +1,7 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
 import { AlertTriangle, CheckCircle2, Circle, RotateCcw } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
-import { Initials, PriorityIcon, SlaTimer, StageElapsedBadge } from "./board-ui";
+import { Initials, PRIORITY_META, PriorityIcon, SlaTimer, StageElapsedBadge } from "./board-ui";
 
 export function TaskCard({
   task,
@@ -97,7 +97,7 @@ export function TaskCard({
           }
         />
         <WasOverdueBadge task={task} />
-        {!isTerminal ? <PriorityAlert priority={task.priority} /> : null}
+        <PriorityChip priority={task.priority} />
       </div>
 
       {isOverdue && onUnlockOverdue ? (
@@ -249,15 +249,17 @@ function WasOverdueBadge({ task }: { task: TaskRow }) {
   );
 }
 
-function PriorityAlert({ priority }: { priority: TaskRow["priority"] }) {
-  if (priority !== "urgent" && priority !== "high") return null;
-
-  const label = priority === "urgent" ? "Urgent" : "High";
+function PriorityChip({ priority }: { priority: TaskRow["priority"] }) {
+  const meta = PRIORITY_META[priority];
 
   return (
-    <span className="inline-flex items-center gap-1 rounded bg-[#ffebe6] px-1.5 py-0.5 text-[11px] font-bold text-[#de350b]">
+    <span
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold"
+      style={{ backgroundColor: meta.softBg, color: meta.color }}
+      title={`${meta.label} priority`}
+    >
       <PriorityIcon priority={priority} className="h-3.5 w-3.5" />
-      {label}
+      {meta.label}
     </span>
   );
 }
