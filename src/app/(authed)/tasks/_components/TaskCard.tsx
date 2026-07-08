@@ -1,5 +1,5 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import { AlertTriangle, CheckCircle2, Circle, RotateCcw, UserRound } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, RotateCcw } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
 import { Initials, PriorityIcon, SlaTimer, StageElapsedBadge } from "./board-ui";
 
@@ -29,13 +29,13 @@ export function TaskCard({
   onReopenRequest?: (id: string) => void;
 }) {
   const isTerminal = task.status === "done" || task.status === "cancel";
-  const assigneeLabels = task.assignees.map(
-    (email) => assigneeLabelByEmail?.get(email) ?? email
-  );
   const primaryAssigneeEmail = task.assignees[0] ?? null;
   const primaryAssigneeLabel = primaryAssigneeEmail
     ? assigneeLabelByEmail?.get(primaryAssigneeEmail) ?? primaryAssigneeEmail
     : null;
+  const assigneeTitle = task.assignees
+    .map((email) => assigneeLabelByEmail?.get(email) ?? email)
+    .join(", ");
   return (
     <div
       role="button"
@@ -58,12 +58,15 @@ export function TaskCard({
           <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-[#172b4d]">
             {task.title}
           </h3>
-
-          <AssigneeSummary labels={assigneeLabels} />
         </div>
 
-        <span className="shrink-0">
+        <span className="relative shrink-0" title={assigneeTitle || undefined}>
           <Initials email={primaryAssigneeEmail} label={primaryAssigneeLabel} />
+          {task.assignees.length > 1 ? (
+            <span className="absolute -bottom-1 -right-1 rounded-full bg-[#f4f5f7] px-1 text-[9px] font-bold leading-4 text-[#44546f] ring-1 ring-white">
+              +{task.assignees.length - 1}
+            </span>
+          ) : null}
         </span>
       </div>
 
@@ -129,27 +132,6 @@ export function TaskCard({
           <RotateCcw className="h-3.5 w-3.5" />
           Reopen
         </button>
-      ) : null}
-    </div>
-  );
-}
-
-function AssigneeSummary({ labels }: { labels: string[] }) {
-  if (labels.length === 0) return null;
-  const [primary, ...rest] = labels;
-  const title = labels.join(", ");
-
-  return (
-    <div
-      className="mt-2 flex min-h-5 min-w-0 items-center gap-1.5 text-xs leading-5 text-[#626f86]"
-      title={title}
-    >
-      <UserRound className="h-3.5 w-3.5 shrink-0 text-[#7a869a]" />
-      <span className="min-w-0 truncate">{primary}</span>
-      {rest.length > 0 ? (
-        <span className="shrink-0 rounded bg-[#f4f5f7] px-1.5 py-0.5 text-[10px] font-bold text-[#6b778c]">
-          +{rest.length}
-        </span>
       ) : null}
     </div>
   );
