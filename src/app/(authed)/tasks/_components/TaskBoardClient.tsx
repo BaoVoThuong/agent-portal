@@ -387,6 +387,22 @@ export function TaskBoardClient({
     : myAssistantAgents;
   const canManageOwnAgentGroup = manageableAgentEmails.length > 0;
   const shouldLimitPlainCsTasks = !isManager && !canManageOwnAgentGroup;
+  const displayNewAssignedTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!shouldLimitPlainCsTasks) return ids;
+
+    for (const task of tasks) {
+      if (
+        task.status === "todo" &&
+        task.assignees.includes(currentEmail) &&
+        newAssignedTaskIds.has(task.id)
+      ) {
+        ids.add(task.id);
+      }
+    }
+
+    return ids;
+  }, [currentEmail, newAssignedTaskIds, shouldLimitPlainCsTasks, tasks]);
   const scopedTasks = useMemo(() => {
     if (!shouldLimitPlainCsTasks || showTeamTasks) return tasks;
 
@@ -854,7 +870,7 @@ export function TaskBoardClient({
           onReviewDone={reviewDoneTask}
           categories={categories}
           assigneeLabelByEmail={assigneeLabelByEmail}
-          newAssignedTaskIds={newAssignedTaskIds}
+          newAssignedTaskIds={displayNewAssignedTaskIds}
           rules={slaRules}
           now={now}
           onUnlockOverdue={setUnlockingTaskId}
@@ -877,7 +893,7 @@ export function TaskBoardClient({
           onReviewDone={reviewDoneTask}
           onAssigneeChange={changeAssignee}
           overdueIds={overdueIds}
-          newAssignedTaskIds={newAssignedTaskIds}
+          newAssignedTaskIds={displayNewAssignedTaskIds}
           onReopenRequest={setReopeningTaskId}
         />
       )}
