@@ -7,6 +7,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
+  UserRound,
+  UsersRound,
 } from "lucide-react";
 import {
   STATUS_LABEL,
@@ -241,18 +243,36 @@ export function TaskToolbar({
         ) : null}
 
         {showTeamTasksToggle ? (
-          <button
-            type="button"
-            onClick={() => onTeamTasksEnabledChange?.(!teamTasksEnabled)}
-            aria-pressed={teamTasksEnabled}
-            className={`h-9 rounded-lg border px-3 text-sm font-semibold transition ${
-              teamTasksEnabled
-                ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
-                : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
-            }`}
-          >
-            Group tasks
-          </button>
+          <div className="inline-flex h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] p-0.5">
+            <button
+              type="button"
+              onClick={() => onTeamTasksEnabledChange?.(false)}
+              aria-pressed={!teamTasksEnabled}
+              title="Show my tasks"
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition ${
+                !teamTasksEnabled
+                  ? "bg-white text-[#0c66e4] shadow-sm"
+                  : "text-[#42526e] hover:text-[#172b4d]"
+              }`}
+            >
+              <UserRound className="h-4 w-4" />
+              My tasks
+            </button>
+            <button
+              type="button"
+              onClick={() => onTeamTasksEnabledChange?.(true)}
+              aria-pressed={teamTasksEnabled}
+              title="Show group tasks"
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition ${
+                teamTasksEnabled
+                  ? "bg-white text-[#0c66e4] shadow-sm"
+                  : "text-[#42526e] hover:text-[#172b4d]"
+              }`}
+            >
+              <UsersRound className="h-4 w-4" />
+              Group tasks
+            </button>
+          </div>
         ) : null}
 
         <TaskSelect
