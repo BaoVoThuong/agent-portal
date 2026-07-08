@@ -185,17 +185,13 @@ function Column({
   return (
     <section
       ref={setNodeRef}
-      className={`flex min-w-0 flex-1 flex-col rounded border p-1.5 transition-colors ${
-        isOverdueColumn
-          ? "border-[#fed7aa] bg-[#fff7ed]"
-          : "border-transparent bg-[#f4f5f7]"
-      } ${
+      className={`flex min-w-0 flex-1 flex-col rounded border border-transparent bg-[#f4f5f7] p-1.5 transition-colors ${
         isOver && !isOverdueColumn ? "bg-[#deebff]" : ""
       }`}
     >
       <div className="flex h-9 items-center px-1">
         {isOverdueColumn ? (
-          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-[#fdba74] bg-white px-2 py-1 text-[11px] font-bold uppercase text-[#c2410c] shadow-[0_1px_2px_rgba(9,30,66,0.08)]">
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-bold uppercase text-[#c2410c]">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">{BOARD_COLUMN_LABEL[column]}</span>
             <span className="rounded-full bg-[#ffedd5] px-1.5 py-0.5 text-[10px] leading-none text-[#9a3412]">
