@@ -72,6 +72,7 @@ export async function POST(req: Request, { params }: Ctx) {
     .update({
       in_progress_at: nowIso,
       overdue_flagged_at: null,
+      overdue_reminded_at: null,
       sla_minutes: nextSlaMinutes,
       overdue_count: nextOverdueCount,
       updated_at: nowIso,

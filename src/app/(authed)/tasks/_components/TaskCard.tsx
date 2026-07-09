@@ -46,6 +46,7 @@ export function TaskCard({
     .map((email) => assigneeLabelByEmail?.get(email) ?? email)
     .join(", ");
   const todoStartedAt = task.assignee_started_at ?? task.created_at;
+  const waitingStartedAt = task.waiting_started_at ?? task.updated_at;
   return (
     <div
       role="button"
@@ -104,6 +105,9 @@ export function TaskCard({
         />
         {task.status === "todo" ? (
           <StageElapsedBadge label="To do" sinceIso={todoStartedAt} now={now} />
+        ) : null}
+        {task.status === "waiting" ? (
+          <StageElapsedBadge label="Waiting" sinceIso={waitingStartedAt} now={now} />
         ) : null}
         <SlaTimer
           deadline={slaDeadline}

@@ -268,6 +268,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
       resolved.patch.assignee_email = nextAssignees[0] ?? null;
       if (reconciled.status) {
         resolved.patch.status = reconciled.status;
+        if (r.task.status === "waiting" && reconciled.status !== "waiting") {
+          resolved.patch.waiting_reminded_at = null;
+        }
       }
     }
   }

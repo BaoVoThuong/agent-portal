@@ -14,6 +14,7 @@ import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/tasks/types";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchAgentsForCs, fetchCsForAgent, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
+import { resolveSlaMinutes } from "@/lib/tasks/sla";
 
 export const dynamic = "force-dynamic";
 
@@ -41,10 +42,10 @@ export async function POST(request: Request) {
   const title = typeof body?.title === "string" ? body.title.trim() : "";
   if (!title) return NextResponse.json({ error: "Title is required." }, { status: 400 });
 
-  const priority =
+  const priority: (typeof TASK_PRIORITIES)[number] =
     typeof body?.priority === "string" &&
     (TASK_PRIORITIES as readonly string[]).includes(body.priority)
-      ? body.priority
+      ? (body.priority as (typeof TASK_PRIORITIES)[number])
       : "medium";
   const agentEmail =
     typeof body?.agent_email === "string" && body.agent_email.trim() !== ""
@@ -134,6 +135,17 @@ export async function POST(request: Request) {
     .limit(1)
     .maybeSingle();
   const position = midpoint((last as { position: number } | null)?.position ?? null, null);
+  const nowIso = new Date().toISOString();
+  const startingInProgress = assignment.status === "in_progress";
+  const startingWaiting = assignment.status === "waiting";
+  const startingClosed = assignment.status === "done" || assignment.status === "cancel";
+  const { data: rulesData, error: rulesError } = startingInProgress
+    ? await supabase.from("task_sla_rules").select("priority,category_id,duration_minutes")
+    : { data: null, error: null };
+  if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
+  const slaMinutes = startingInProgress
+    ? resolveSlaMinutes(priority, categoryId, rulesData ?? [])
+    : null;
 
   const { data, error } = await supabase
     .from("tasks")
@@ -151,6 +163,11 @@ export async function POST(request: Request) {
       reporter_email: email,
       category_id: categoryId,
       position,
+      ...(startingInProgress
+        ? { in_progress_at: nowIso, overdue_flagged_at: null, sla_minutes: slaMinutes }
+        : {}),
+      ...(startingWaiting ? { waiting_started_at: nowIso, waiting_reminded_at: null } : {}),
+      ...(startingClosed ? { closed_at: nowIso } : {}),
     })
     .select("*")
     .single();

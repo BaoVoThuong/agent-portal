@@ -13,7 +13,13 @@ import { playNotificationChime, primeNotificationSound } from "@/lib/tasks/sound
 type Notif = {
   id: string;
   task_id: string;
-  type: "assigned" | "mentioned" | "commented" | "overdue" | "overdue_reminder";
+  type:
+    | "assigned"
+    | "mentioned"
+    | "commented"
+    | "overdue"
+    | "overdue_reminder"
+    | "waiting_reminder";
   actor_email: string;
   actor_name: string | null;
   task_title: string | null;
@@ -71,13 +77,19 @@ function actionText(n: Notif): string {
       return "Task just went overdue";
     case "overdue_reminder":
       return "Task is still overdue — reminder";
+    case "waiting_reminder":
+      return "Task is still waiting for follow-up";
   }
 }
 
 // System-triggered (cron) notifications aren't "from" anyone — actionText is
 // already a complete sentence for these, so skip the actor-name prefix.
 function isSystemNotif(n: Notif): boolean {
-  return n.type === "overdue" || n.type === "overdue_reminder";
+  return (
+    n.type === "overdue" ||
+    n.type === "overdue_reminder" ||
+    n.type === "waiting_reminder"
+  );
 }
 
 function notificationHeading(n: Notif): string {

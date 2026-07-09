@@ -1034,8 +1034,20 @@ function buildOptimisticTaskPatch(
   const optimistic = { ...patch };
 
   if (typeof optimistic.status === "string") {
+    const nowIso = new Date().toISOString();
     optimistic.done_reviewed_by_email = null;
     optimistic.done_reviewed_at = null;
+    if (optimistic.status === "waiting") {
+      optimistic.waiting_started_at = nowIso;
+      optimistic.waiting_reminded_at = null;
+    } else {
+      optimistic.waiting_reminded_at = null;
+    }
+    if (optimistic.status === "done" || optimistic.status === "cancel") {
+      optimistic.closed_at = nowIso;
+    } else {
+      optimistic.closed_at = null;
+    }
   }
 
   if (typeof optimistic.done_reviewed === "boolean") {

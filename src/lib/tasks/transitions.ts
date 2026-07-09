@@ -110,6 +110,7 @@ export function resolveTaskPatch(
   const nextStatus = (r.status as TaskRow["status"]) ?? current.status;
   const statusChanged = r.status !== undefined && nextStatus !== current.status;
   const isTerminalReopen = current.status === "done" || current.status === "cancel";
+  const nowIso = opts?.nowIso ?? new Date().toISOString();
 
   if (nextStatus === "backlog" && nextAssignee !== null) {
     return { ok: false, error: "Unassign the task before moving it to backlog." };
@@ -153,7 +154,7 @@ export function resolveTaskPatch(
   // toggling status, which defeats using overdue as a KPI signal. Reopening
   // from Done/Cancel is handled entirely by the /reopen endpoint above.
   if (statusChanged && nextStatus === "in_progress" && !current.in_progress_at) {
-    patch.in_progress_at = opts?.nowIso ?? new Date().toISOString();
+    patch.in_progress_at = nowIso;
     patch.overdue_flagged_at = null;
     // Snapshot the SLA duration in effect right now (including a
     // priority/category change arriving in this same patch) and lock it in —
@@ -169,6 +170,21 @@ export function resolveTaskPatch(
     }
   }
 
+  if (statusChanged && nextStatus === "waiting") {
+    patch.waiting_started_at = nowIso;
+    patch.waiting_reminded_at = null;
+  } else if (statusChanged && current.status === "waiting") {
+    patch.waiting_reminded_at = null;
+  }
+
+  if (statusChanged && (nextStatus === "done" || nextStatus === "cancel")) {
+    patch.closed_at = nowIso;
+  } else if (statusChanged && current.status === "done") {
+    patch.closed_at = null;
+  } else if (statusChanged && current.status === "cancel") {
+    patch.closed_at = null;
+  }
+
   if (r.done_reviewed !== undefined) {
     if (typeof r.done_reviewed !== "boolean") {
       return { ok: false, error: "Invalid QC review value." };
@@ -180,9 +196,7 @@ export function resolveTaskPatch(
       return { ok: false, error: "Only done tasks can be QC checked." };
     }
     patch.done_reviewed_by_email = r.done_reviewed ? actor.email : null;
-    patch.done_reviewed_at = r.done_reviewed
-      ? opts.nowIso ?? new Date().toISOString()
-      : null;
+    patch.done_reviewed_at = r.done_reviewed ? nowIso : null;
   }
 
   if (Object.keys(patch).length === 0)

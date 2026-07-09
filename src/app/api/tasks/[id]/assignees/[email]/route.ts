@@ -91,7 +91,12 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     assignee_email: legacyAssignee,
     updated_at: new Date().toISOString(),
   };
-  if (next.status !== ctx.task.status) taskPatch.status = next.status;
+  if (next.status !== ctx.task.status) {
+    taskPatch.status = next.status;
+    if (ctx.task.status === "waiting" && next.status !== "waiting") {
+      taskPatch.waiting_reminded_at = null;
+    }
+  }
 
   const { error: updateError } = await ctx.supabase
     .from("tasks")

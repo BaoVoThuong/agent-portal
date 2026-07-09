@@ -1333,6 +1333,24 @@ alter table tasks add column if not exists sla_minutes integer;
 -- since a task with prior overdue history shouldn't look like a clean slate.
 alter table tasks add column if not exists overdue_count integer not null default 0;
 
+-- Stage timestamps used for operational clocks and reminders. Assignment time
+-- lives in task_assignees.created_at; these columns cover the stages that are
+-- owned by the task row itself.
+alter table tasks add column if not exists waiting_started_at timestamptz;
+alter table tasks add column if not exists waiting_reminded_at timestamptz;
+alter table tasks add column if not exists overdue_reminded_at timestamptz;
+alter table tasks add column if not exists closed_at timestamptz;
+
+update tasks
+set waiting_started_at = coalesce(updated_at, created_at)
+where status = 'waiting'
+  and waiting_started_at is null;
+
+update tasks
+set closed_at = coalesce(updated_at, created_at)
+where status in ('done', 'cancel')
+  and closed_at is null;
+
 alter table tasks drop column if exists waiting_reason;
 
 do $$
@@ -1467,6 +1485,28 @@ create table if not exists task_notifications (
 
 create index if not exists task_notifications_recipient_idx
   on task_notifications (recipient_email, is_read, created_at desc);
+
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint where conname = 'task_notifications_type_check'
+  ) then
+    alter table task_notifications drop constraint task_notifications_type_check;
+  end if;
+
+  alter table task_notifications
+  add constraint task_notifications_type_check
+  check (
+    type in (
+      'assigned',
+      'mentioned',
+      'commented',
+      'overdue',
+      'overdue_reminder',
+      'waiting_reminder'
+    )
+  );
+end $$;
 
 -- People who can see a task without being its assignee (e.g. @mentioned in a
 -- comment, or explicitly added). Used to widen task visibility for collaboration.

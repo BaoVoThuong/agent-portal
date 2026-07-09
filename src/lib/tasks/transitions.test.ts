@@ -157,6 +157,42 @@ describe("resolveTaskPatch", () => {
     });
   });
 
+  it("stamps waiting_started_at and clears waiting reminder when entering Waiting", () => {
+    const r = resolveTaskPatch(
+      manager,
+      assigned,
+      { status: "waiting" },
+      { nowIso: "2026-07-05T02:00:00.000Z" }
+    );
+    expect(r).toEqual({
+      ok: true,
+      patch: {
+        status: "waiting",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+        waiting_started_at: "2026-07-05T02:00:00.000Z",
+        waiting_reminded_at: null,
+      },
+    });
+  });
+
+  it("clears waiting reminder when leaving Waiting", () => {
+    const waiting = {
+      ...assigned,
+      status: "waiting" as const,
+    };
+    const r = resolveTaskPatch(manager, waiting, { status: "todo" });
+    expect(r).toEqual({
+      ok: true,
+      patch: {
+        status: "todo",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+        waiting_reminded_at: null,
+      },
+    });
+  });
+
   it("snapshots sla_minutes on first start from the CURRENT priority/category (anti-gaming: editing priority later can't silently move an already-overdue deadline)", () => {
     const rules = [
       { priority: "urgent" as const, category_id: null, duration_minutes: 60 },
@@ -235,26 +271,38 @@ describe("resolveTaskPatch", () => {
   });
 
   it("accepts cancel as a terminal task status", () => {
-    const r = resolveTaskPatch(manager, assigned, { status: "cancel" });
+    const r = resolveTaskPatch(
+      manager,
+      assigned,
+      { status: "cancel" },
+      { nowIso: "2026-07-05T03:00:00.000Z" }
+    );
     expect(r).toEqual({
       ok: true,
       patch: {
         status: "cancel",
         done_reviewed_by_email: null,
         done_reviewed_at: null,
+        closed_at: "2026-07-05T03:00:00.000Z",
       },
     });
   });
 
   it("resets QC review whenever status changes", () => {
     const started = { ...assigned, in_progress_at: "2026-06-01T00:00:00.000Z" };
-    const r = resolveTaskPatch(manager, started, { status: "done" });
+    const r = resolveTaskPatch(
+      manager,
+      started,
+      { status: "done" },
+      { nowIso: "2026-07-05T04:00:00.000Z" }
+    );
     expect(r).toEqual({
       ok: true,
       patch: {
         status: "done",
         done_reviewed_by_email: null,
         done_reviewed_at: null,
+        closed_at: "2026-07-05T04:00:00.000Z",
       },
     });
   });

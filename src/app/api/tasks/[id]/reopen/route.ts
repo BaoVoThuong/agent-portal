@@ -68,9 +68,12 @@ export async function POST(req: Request, { params }: Ctx) {
       status: "in_progress",
       in_progress_at: nowIso,
       overdue_flagged_at: null,
+      overdue_reminded_at: null,
+      waiting_reminded_at: null,
       sla_minutes: nextSlaMinutes,
       done_reviewed_by_email: null,
       done_reviewed_at: null,
+      closed_at: null,
       updated_at: nowIso,
     })
     .eq("id", id)

@@ -7,6 +7,8 @@ import { insertNotifications } from "@/lib/tasks/notifications";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
+const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const WAITING_REMINDER_AFTER_MS = 24 * 60 * 60 * 1000;
 
 // Proactive overdue detection: the board itself only computes "is this task
 // overdue" on demand (no cron needed for the UI), but that means an assignee
@@ -27,6 +29,12 @@ function checkAuthorization(request: Request): "ok" | "misconfigured" | "unautho
   return ok ? "ok" : "unauthorized";
 }
 
+function reminderDue(lastReminderIso: string | null | undefined, now: Date): boolean {
+  if (!lastReminderIso) return true;
+  const lastReminderTime = new Date(lastReminderIso).getTime();
+  return Number.isNaN(lastReminderTime) || now.getTime() - lastReminderTime >= REMINDER_INTERVAL_MS;
+}
+
 export async function GET(request: Request) {
   const authResult = checkAuthorization(request);
   if (authResult === "misconfigured") {
@@ -37,13 +45,16 @@ export async function GET(request: Request) {
   }
 
   const supabase = getSupabaseAdmin();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const waitingCutoffIso = new Date(now.getTime() - WAITING_REMINDER_AFTER_MS).toISOString();
+
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
     .select(
-      "id,status,priority,category_id,in_progress_at,overdue_flagged_at,sla_minutes,overdue_count"
+      "id,status,priority,category_id,in_progress_at,overdue_flagged_at,overdue_reminded_at,sla_minutes,overdue_count"
     )
     .eq("status", "in_progress")
-    .is("overdue_flagged_at", null)
     .is("archived_at", null)
     .not("in_progress_at", "is", null);
   if (tasksError) return NextResponse.json({ error: tasksError.message }, { status: 500 });
@@ -56,48 +67,64 @@ export async function GET(request: Request) {
     | "category_id"
     | "in_progress_at"
     | "overdue_flagged_at"
+    | "overdue_reminded_at"
     | "sla_minutes"
     | "overdue_count"
   >[];
 
-  if (tasks.length === 0) {
-    return NextResponse.json({ checked: 0, flagged: 0 });
+  let rules: TaskSlaRule[] = [];
+  if (tasks.length > 0) {
+    const { data: rulesData, error: rulesError } = await supabase
+      .from("task_sla_rules")
+      .select("priority,category_id,duration_minutes");
+    if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
+    rules = (rulesData ?? []) as TaskSlaRule[];
   }
 
-  const { data: rulesData, error: rulesError } = await supabase
-    .from("task_sla_rules")
-    .select("priority,category_id,duration_minutes");
-  if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
-  const rules = (rulesData ?? []) as TaskSlaRule[];
+  const newlyOverdue = tasks.filter(
+    (task) => !task.overdue_flagged_at && isTaskOverdue(task, rules, now)
+  );
 
-  const now = new Date();
-  const newlyOverdue = tasks.filter((task) => isTaskOverdue(task, rules, now));
+  // Already-flagged overdue tasks get a reminder at most once per 24h.
+  const stillOverdue = tasks.filter(
+    (task) =>
+      Boolean(task.overdue_flagged_at) &&
+      reminderDue(task.overdue_reminded_at, now)
+  );
 
-  // Tasks already flagged overdue from a previous run — still unresolved,
-  // so send a repeat reminder. Runs once/day (see vercel.json), which is
-  // exactly the "remind again after 24h" cadence asked for.
-  const { data: stillOverdueRows, error: stillOverdueError } = await supabase
+  const { data: waitingRows, error: waitingError } = await supabase
     .from("tasks")
-    .select("id")
-    .eq("status", "in_progress")
-    .not("overdue_flagged_at", "is", null)
-    .is("archived_at", null);
-  if (stillOverdueError) {
-    return NextResponse.json({ error: stillOverdueError.message }, { status: 500 });
-  }
-  const stillOverdue = (stillOverdueRows ?? []) as { id: string }[];
+    .select("id,waiting_started_at,waiting_reminded_at")
+    .eq("status", "waiting")
+    .is("archived_at", null)
+    .not("waiting_started_at", "is", null)
+    .lte("waiting_started_at", waitingCutoffIso);
+  if (waitingError) return NextResponse.json({ error: waitingError.message }, { status: 500 });
+  const waitingReminderTasks = (
+    (waitingRows ?? []) as Pick<
+      TaskRow,
+      "id" | "waiting_started_at" | "waiting_reminded_at"
+    >[]
+  ).filter(
+    (task) =>
+      reminderDue(task.waiting_reminded_at, now)
+  );
 
   if (newlyOverdue.length > 0) {
-    const nowIso = now.toISOString();
     await Promise.all(
       newlyOverdue.map(async (task) => {
         const minutes = effectiveSlaMinutes(task, rules);
         const dueAt = slaDeadline(task.in_progress_at as string, minutes);
-        await supabase
+        const { error: updateError } = await supabase
           .from("tasks")
-          .update({ overdue_flagged_at: nowIso, overdue_count: task.overdue_count + 1 })
+          .update({
+            overdue_flagged_at: nowIso,
+            overdue_reminded_at: nowIso,
+            overdue_count: task.overdue_count + 1,
+          })
           .eq("id", task.id)
           .is("overdue_flagged_at", null);
+        if (updateError) throw new Error(updateError.message);
         await supabase.from("task_activity").insert({
           task_id: task.id,
           actor_email: "system",
@@ -130,6 +157,35 @@ export async function GET(request: Request) {
             actor_email: "system",
           }))
         );
+        const { error: updateError } = await supabase
+          .from("tasks")
+          .update({ overdue_reminded_at: nowIso })
+          .eq("id", task.id)
+          .eq("status", "in_progress")
+          .not("overdue_flagged_at", "is", null);
+        if (updateError) throw new Error(updateError.message);
+      })
+    );
+  }
+
+  if (waitingReminderTasks.length > 0) {
+    await Promise.all(
+      waitingReminderTasks.map(async (task) => {
+        const assignees = await fetchTaskAssigneeEmails(task.id, supabase);
+        await insertNotifications(
+          assignees.map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "waiting_reminder",
+            actor_email: "system",
+          }))
+        );
+        const { error: updateError } = await supabase
+          .from("tasks")
+          .update({ waiting_reminded_at: nowIso })
+          .eq("id", task.id)
+          .eq("status", "waiting");
+        if (updateError) throw new Error(updateError.message);
       })
     );
   }
@@ -138,5 +194,6 @@ export async function GET(request: Request) {
     checked: tasks.length,
     flagged: newlyOverdue.length,
     reminded: stillOverdue.length,
+    waitingReminded: waitingReminderTasks.length,
   });
 }
