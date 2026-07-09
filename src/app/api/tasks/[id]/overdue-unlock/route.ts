@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
+import { resolveOverdueEvent, restartInProgressHistory } from "@/lib/tasks/history";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { effectiveSlaMinutes, isTaskOverdue, resolveSlaMinutes, slaDeadline } from "@/lib/tasks/sla";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
@@ -84,6 +85,22 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
+  await resolveOverdueEvent(supabase, {
+    task,
+    dueAt: dueAt.toISOString(),
+    resolvedAt: nowIso,
+    actorEmail: actor.email,
+    reason,
+    slaMinutes: minutes,
+  });
+  await restartInProgressHistory(supabase, {
+    task,
+    actorEmail: actor.email,
+    nowIso,
+    slaMinutes: nextSlaMinutes,
+    source: "overdue_unlock",
+  });
+
   await supabase.from("task_activity").insert({
     task_id: id,
     actor_email: actor.email,
@@ -92,6 +109,9 @@ export async function POST(req: Request, { params }: Ctx) {
       reason,
       due_at: dueAt.toISOString(),
       resolved_at: nowIso,
+      previous_started_at: task.in_progress_at,
+      previous_sla_minutes: minutes,
+      next_sla_minutes: nextSlaMinutes,
     },
   });
 

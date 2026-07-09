@@ -11,6 +11,7 @@ import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
+import { recordStageTransition, syncAssignmentCycles } from "@/lib/tasks/history";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -26,16 +27,13 @@ async function loadContext(id: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")
-    .select("id,status,agent_email,assignee_email")
+    .select("*")
     .eq("id", id)
     .maybeSingle();
   if (error) return { error: error.message, status: 500 };
   if (!data) return { error: "Not found", status: 404 };
 
-  const task = data as unknown as Pick<
-    TaskRow,
-    "id" | "status" | "agent_email" | "assignee_email"
-  >;
+  const task = data as unknown as TaskRow;
   const isAgentOwner = actor.isManager
     ? false
     : await isAgentOwnerOrAssistant(task.agent_email, actor.email);
@@ -70,6 +68,7 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     { status: ctx.task.status, assignees: current },
     { remove: email }
   );
+  const nowIso = new Date().toISOString();
 
   const { error: deleteError } = await ctx.supabase
     .from("task_assignees")
@@ -89,7 +88,7 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const legacyAssignee = next.assignees[0] ?? null;
   const taskPatch: Record<string, unknown> = {
     assignee_email: legacyAssignee,
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso,
   };
   if (next.status !== ctx.task.status) {
     taskPatch.status = next.status;
@@ -114,6 +113,21 @@ export async function DELETE(_req: Request, { params }: Ctx) {
       meta: { removed: email, to: legacyAssignee },
     });
   }
+
+  await recordStageTransition(ctx.supabase, {
+    task: ctx.task,
+    patch: taskPatch,
+    actorEmail: ctx.actor.email,
+    nowIso,
+  });
+  await syncAssignmentCycles(ctx.supabase, {
+    taskId: id,
+    beforeEmails: current,
+    afterEmails: next.assignees,
+    actorEmail: ctx.actor.email,
+    nowIso,
+    source: "unassign",
+  });
 
   const { data: taskData, error: taskError } = await ctx.supabase
     .from("tasks")

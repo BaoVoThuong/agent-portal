@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
+import { recordStageTransition } from "@/lib/tasks/history";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
@@ -62,26 +63,34 @@ export async function POST(req: Request, { params }: Ctx) {
   const nextSlaMinutes = resolveSlaMinutes(task.priority, task.category_id, rulesData ?? []);
 
   const nowIso = new Date().toISOString();
+  const patch = {
+    status: "in_progress",
+    in_progress_at: nowIso,
+    overdue_flagged_at: null,
+    overdue_reminded_at: null,
+    waiting_reminded_at: null,
+    sla_minutes: nextSlaMinutes,
+    done_reviewed_by_email: null,
+    done_reviewed_at: null,
+    closed_at: null,
+    updated_at: nowIso,
+  };
   const { data: updated, error: updateError } = await supabase
     .from("tasks")
-    .update({
-      status: "in_progress",
-      in_progress_at: nowIso,
-      overdue_flagged_at: null,
-      overdue_reminded_at: null,
-      waiting_reminded_at: null,
-      sla_minutes: nextSlaMinutes,
-      done_reviewed_by_email: null,
-      done_reviewed_at: null,
-      closed_at: null,
-      updated_at: nowIso,
-    })
+    .update(patch)
     .eq("id", id)
     .select("*")
     .single();
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+
+  await recordStageTransition(supabase, {
+    task,
+    patch,
+    actorEmail: actor.email,
+    nowIso,
+  });
 
   await supabase.from("task_activity").insert({
     task_id: id,

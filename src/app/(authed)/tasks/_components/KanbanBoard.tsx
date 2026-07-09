@@ -104,6 +104,7 @@ function SortableCard({
   slaDeadline,
   isOverdue,
   isNewAssigned,
+  useAssigneeTodoClock,
   now,
   onUnlockOverdue,
   onReopenRequest,
@@ -118,6 +119,7 @@ function SortableCard({
   slaDeadline: Date | null;
   isOverdue: boolean;
   isNewAssigned: boolean;
+  useAssigneeTodoClock: boolean;
   now: Date;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
@@ -148,6 +150,7 @@ function SortableCard({
         slaDeadline={slaDeadline}
         isOverdue={isOverdue}
         isNewAssigned={isNewAssigned}
+        useAssigneeTodoClock={useAssigneeTodoClock}
         now={now}
         onUnlockOverdue={onUnlockOverdue}
         onReopenRequest={onReopenRequest}
@@ -167,6 +170,7 @@ function Column({
   onReviewDone,
   slaDeadlineFor,
   newAssignedTaskIds,
+  useAssigneeTodoClock,
   now,
   onUnlockOverdue,
   onReopenRequest,
@@ -181,6 +185,7 @@ function Column({
   assigneeLabelByEmail: Map<string, string>;
   slaDeadlineFor: (task: TaskRow) => Date | null;
   newAssignedTaskIds: Set<string>;
+  useAssigneeTodoClock: boolean;
   now: Date;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
@@ -234,6 +239,7 @@ function Column({
               slaDeadline={slaDeadlineFor(t)}
               isOverdue={isOverdueColumn}
               isNewAssigned={newAssignedTaskIds.has(t.id)}
+              useAssigneeTodoClock={useAssigneeTodoClock}
               now={now}
               onUnlockOverdue={onUnlockOverdue}
               onReopenRequest={onReopenRequest}
@@ -255,6 +261,7 @@ export function KanbanBoard({
   categories,
   assigneeLabelByEmail,
   newAssignedTaskIds,
+  useAssigneeTodoClock = false,
   rules,
   now,
   onUnlockOverdue,
@@ -269,6 +276,7 @@ export function KanbanBoard({
   categories: TaskCategory[];
   assigneeLabelByEmail: Map<string, string>;
   newAssignedTaskIds: Set<string>;
+  useAssigneeTodoClock?: boolean;
   rules: TaskSlaRule[];
   now: Date;
   onUnlockOverdue: (id: string) => void;
@@ -320,6 +328,7 @@ export function KanbanBoard({
       assigneeLabelByEmail={assigneeLabelByEmail}
       slaDeadlineFor={slaDeadlineFor}
       newAssignedTaskIds={newAssignedTaskIds}
+      useAssigneeTodoClock={useAssigneeTodoClock}
       now={now}
       onUnlockOverdue={onUnlockOverdue}
       onReopenRequest={onReopenRequest}
@@ -475,6 +484,7 @@ export function KanbanBoard({
               onOpen={() => {}}
               slaDeadline={slaDeadlineFor(activeTask)}
               isNewAssigned={newAssignedTaskIds.has(activeTask.id)}
+              useAssigneeTodoClock={useAssigneeTodoClock}
               now={now}
             />
           </div>

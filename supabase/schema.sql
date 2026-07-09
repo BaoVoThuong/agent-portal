@@ -1336,10 +1336,16 @@ alter table tasks add column if not exists overdue_count integer not null defaul
 -- Stage timestamps used for operational clocks and reminders. Assignment time
 -- lives in task_assignees.created_at; these columns cover the stages that are
 -- owned by the task row itself.
+alter table tasks add column if not exists todo_started_at timestamptz;
 alter table tasks add column if not exists waiting_started_at timestamptz;
 alter table tasks add column if not exists waiting_reminded_at timestamptz;
 alter table tasks add column if not exists overdue_reminded_at timestamptz;
 alter table tasks add column if not exists closed_at timestamptz;
+
+update tasks
+set todo_started_at = coalesce(updated_at, created_at)
+where status = 'todo'
+  and todo_started_at is null;
 
 update tasks
 set waiting_started_at = coalesce(updated_at, created_at)
@@ -1390,6 +1396,120 @@ create index if not exists tasks_status_position_idx on tasks (status, position)
 create index if not exists tasks_done_review_idx on tasks (status, done_reviewed_at);
 create index if not exists tasks_category_idx on tasks (category_id);
 create index if not exists tasks_archived_idx on tasks (archived_at);
+
+create table if not exists task_stage_cycles (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks(id) on delete cascade,
+  stage text not null check (stage in ('backlog','todo','in_progress','waiting','done','cancel')),
+  started_at timestamptz not null,
+  ended_at timestamptz,
+  duration_seconds integer,
+  started_by_email text,
+  ended_by_email text,
+  from_status text,
+  to_status text,
+  sla_minutes integer,
+  due_at timestamptz,
+  meta jsonb,
+  created_at timestamptz not null default now(),
+  check (ended_at is null or ended_at >= started_at),
+  check (duration_seconds is null or duration_seconds >= 0)
+);
+
+create index if not exists task_stage_cycles_task_idx
+  on task_stage_cycles (task_id, started_at desc);
+
+drop index if exists task_stage_cycles_open_idx;
+create unique index task_stage_cycles_open_idx
+  on task_stage_cycles (task_id)
+  where ended_at is null;
+
+insert into task_stage_cycles (
+  task_id,
+  stage,
+  started_at,
+  started_by_email,
+  sla_minutes,
+  due_at,
+  meta
+)
+select
+  t.id,
+  t.status,
+  case
+    when t.status = 'todo' then coalesce(t.todo_started_at, t.updated_at, t.created_at)
+    when t.status = 'in_progress' then coalesce(t.in_progress_at, t.updated_at, t.created_at)
+    when t.status = 'waiting' then coalesce(t.waiting_started_at, t.updated_at, t.created_at)
+    when t.status in ('done', 'cancel') then coalesce(t.closed_at, t.updated_at, t.created_at)
+    else t.created_at
+  end,
+  t.reporter_email,
+  case when t.status = 'in_progress' then t.sla_minutes else null end,
+  case
+    when t.status = 'in_progress' and t.in_progress_at is not null and t.sla_minutes is not null
+      then t.in_progress_at + make_interval(mins => t.sla_minutes)
+    else null
+  end,
+  jsonb_build_object('source', 'backfill')
+from tasks t
+where not exists (
+  select 1 from task_stage_cycles c
+  where c.task_id = t.id and c.ended_at is null
+);
+
+create table if not exists task_overdue_events (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks(id) on delete cascade,
+  stage_cycle_id uuid references task_stage_cycles(id) on delete set null,
+  due_at timestamptz not null,
+  overdue_at timestamptz not null,
+  resolved_at timestamptz,
+  overdue_seconds integer,
+  resolved_by_email text,
+  reason text,
+  sla_minutes integer,
+  created_at timestamptz not null default now(),
+  check (resolved_at is null or resolved_at >= overdue_at),
+  check (overdue_seconds is null or overdue_seconds >= 0)
+);
+
+create index if not exists task_overdue_events_task_idx
+  on task_overdue_events (task_id, overdue_at desc);
+
+create unique index if not exists task_overdue_events_open_idx
+  on task_overdue_events (task_id)
+  where resolved_at is null;
+
+insert into task_overdue_events (
+  task_id,
+  stage_cycle_id,
+  due_at,
+  overdue_at,
+  sla_minutes
+)
+select
+  t.id,
+  (
+    select c.id
+    from task_stage_cycles c
+    where c.task_id = t.id
+      and c.stage = 'in_progress'
+      and c.ended_at is null
+    order by c.started_at desc
+    limit 1
+  ),
+  t.in_progress_at + make_interval(mins => t.sla_minutes),
+  t.overdue_flagged_at,
+  t.sla_minutes
+from tasks t
+where t.status = 'in_progress'
+  and t.in_progress_at is not null
+  and t.sla_minutes is not null
+  and t.overdue_flagged_at is not null
+  and not exists (
+    select 1 from task_overdue_events e
+    where e.task_id = t.id and e.resolved_at is null
+  );
 
 -- SLA time budget per priority, optionally overridden per category.
 -- category_id = null means "default for this priority, any/no category".
@@ -1540,6 +1660,45 @@ select id, assignee_email from tasks
 where assignee_email is not null
 on conflict (task_id, email) do nothing;
 
+create table if not exists task_assignment_cycles (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks(id) on delete cascade,
+  email text not null,
+  assigned_at timestamptz not null,
+  unassigned_at timestamptz,
+  assigned_by_email text,
+  unassigned_by_email text,
+  source text,
+  created_at timestamptz not null default now(),
+  check (unassigned_at is null or unassigned_at >= assigned_at)
+);
+
+create index if not exists task_assignment_cycles_task_idx
+  on task_assignment_cycles (task_id, email, assigned_at desc);
+
+create unique index if not exists task_assignment_cycles_open_idx
+  on task_assignment_cycles (task_id, email)
+  where unassigned_at is null;
+
+insert into task_assignment_cycles (
+  task_id,
+  email,
+  assigned_at,
+  source
+)
+select
+  ta.task_id,
+  ta.email,
+  ta.created_at,
+  'backfill'
+from task_assignees ta
+where not exists (
+  select 1 from task_assignment_cycles c
+  where c.task_id = ta.task_id
+    and c.email = ta.email
+    and c.unassigned_at is null
+);
+
 -- People selected as task agents/team owners. This is independent of the
 -- legacy portal_account.role value.
 create table if not exists task_agents (
@@ -1602,7 +1761,10 @@ declare
     'task_assignees',
     'task_agents',
     'agent_members',
-    'task_sla_rules'
+    'task_sla_rules',
+    'task_stage_cycles',
+    'task_overdue_events',
+    'task_assignment_cycles'
   ];
 begin
   foreach table_name in array protected_tables loop

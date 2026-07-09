@@ -148,14 +148,17 @@ export function resolveTaskPatch(
     patch.done_reviewed_by_email = null;
     patch.done_reviewed_at = null;
   }
-  // Stamp the SLA clock only on the very first start. Bouncing through To Do
-  // and back does NOT restart it: otherwise the assignee (who is allowed to
-  // change status) could reset their own overdue clock for free just by
-  // toggling status, which defeats using overdue as a KPI signal. Reopening
-  // from Done/Cancel is handled entirely by the /reopen endpoint above.
-  if (statusChanged && nextStatus === "in_progress" && !current.in_progress_at) {
+  if (statusChanged && nextStatus === "todo") {
+    patch.todo_started_at = nowIso;
+  }
+
+  // Every entry into In Progress starts a new SLA cycle. The previous cycle is
+  // preserved by task_stage_cycles/task_overdue_events before this current
+  // clock is overwritten.
+  if (statusChanged && nextStatus === "in_progress") {
     patch.in_progress_at = nowIso;
     patch.overdue_flagged_at = null;
+    patch.overdue_reminded_at = null;
     // Snapshot the SLA duration in effect right now (including a
     // priority/category change arriving in this same patch) and lock it in —
     // see the sla_minutes column comment in schema.sql for why this can't
@@ -168,6 +171,9 @@ export function resolveTaskPatch(
           : (current.category_id ?? null);
       patch.sla_minutes = resolveSlaMinutes(nextPriority, nextCategoryId, opts.rules);
     }
+  } else if (statusChanged && current.status === "in_progress") {
+    patch.overdue_flagged_at = null;
+    patch.overdue_reminded_at = null;
   }
 
   if (statusChanged && nextStatus === "waiting") {

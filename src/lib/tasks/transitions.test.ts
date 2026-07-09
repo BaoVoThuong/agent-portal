@@ -113,6 +113,7 @@ describe("resolveTaskPatch", () => {
         done_reviewed_at: null,
         in_progress_at: "2026-07-05T00:00:00.000Z",
         overdue_flagged_at: null,
+        overdue_reminded_at: null,
       },
     });
   });
@@ -135,7 +136,7 @@ describe("resolveTaskPatch", () => {
     expect(resolveTaskPatch(manager, done, { status: "cancel" }).ok).toBe(false);
   });
 
-  it("does NOT restart the clock bouncing through To Do (anti-gaming: assignee can't free-reset overdue)", () => {
+  it("restarts the in-progress SLA clock every time a task enters In Progress", () => {
     const alreadyStarted = {
       status: "todo" as const,
       assignee_email: "cs@x.com",
@@ -153,6 +154,9 @@ describe("resolveTaskPatch", () => {
         status: "in_progress",
         done_reviewed_by_email: null,
         done_reviewed_at: null,
+        in_progress_at: "2026-07-05T01:00:00.000Z",
+        overdue_flagged_at: null,
+        overdue_reminded_at: null,
       },
     });
   });
@@ -188,6 +192,7 @@ describe("resolveTaskPatch", () => {
         status: "todo",
         done_reviewed_by_email: null,
         done_reviewed_at: null,
+        todo_started_at: expect.any(String),
         waiting_reminded_at: null,
       },
     });
@@ -212,6 +217,7 @@ describe("resolveTaskPatch", () => {
         done_reviewed_at: null,
         in_progress_at: "2026-07-05T00:00:00.000Z",
         overdue_flagged_at: null,
+        overdue_reminded_at: null,
         sla_minutes: 60,
       },
     });

@@ -12,6 +12,7 @@ import { fetchCsForAgent, isAgentOwnerOrAssistant } from "@/lib/tasks/membership
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
+import { recordStageTransition, syncAssignmentCycles } from "@/lib/tasks/history";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -27,16 +28,13 @@ async function loadContext(id: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")
-    .select("id,status,agent_email,assignee_email")
+    .select("*")
     .eq("id", id)
     .maybeSingle();
   if (error) return { error: error.message, status: 500 };
   if (!data) return { error: "Not found", status: 404 };
 
-  const task = data as unknown as Pick<
-    TaskRow,
-    "id" | "status" | "agent_email" | "assignee_email"
-  >;
+  const task = data as unknown as TaskRow;
   const isAgentOwner = actor.isManager
     ? false
     : await isAgentOwnerOrAssistant(task.agent_email, actor.email);
@@ -80,31 +78,38 @@ export async function POST(req: Request, { params }: Ctx) {
         ? [ctx.task.assignee_email]
         : [];
   const alreadyAssigned = current.includes(email);
+  const hasJunctionAssignment = currentFromJunction.includes(email);
   const next = resolveAssigneeChange(
     { status: ctx.task.status, assignees: current },
     { add: email }
   );
+  const nowIso = new Date().toISOString();
 
-  const { error: upsertError } = await ctx.supabase
-    .from("task_assignees")
-    .upsert({ task_id: id, email }, { onConflict: "task_id,email" });
-  if (upsertError) {
-    if (isTaskAssigneesMissingError(upsertError)) {
-      return NextResponse.json(
-        { error: "task_assignees table is not migrated yet." },
-        { status: 503 }
-      );
+  if (!hasJunctionAssignment) {
+    const { error: upsertError } = await ctx.supabase
+      .from("task_assignees")
+      .upsert({ task_id: id, email, created_at: nowIso }, { onConflict: "task_id,email" });
+    if (upsertError) {
+      if (isTaskAssigneesMissingError(upsertError)) {
+        return NextResponse.json(
+          { error: "task_assignees table is not migrated yet." },
+          { status: 503 }
+        );
+      }
+      return NextResponse.json({ error: upsertError.message }, { status: 500 });
     }
-    return NextResponse.json({ error: upsertError.message }, { status: 500 });
   }
 
   const legacyAssignee = next.assignees[0] ?? null;
   const taskPatch: Record<string, unknown> = {
     assignee_email: legacyAssignee,
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso,
   };
   if (next.status !== ctx.task.status) {
     taskPatch.status = next.status;
+    if (next.status === "todo") {
+      taskPatch.todo_started_at = nowIso;
+    }
     if (ctx.task.status === "waiting" && next.status !== "waiting") {
       taskPatch.waiting_reminded_at = null;
     }
@@ -137,6 +142,21 @@ export async function POST(req: Request, { params }: Ctx) {
       ]);
     }
   }
+
+  await recordStageTransition(ctx.supabase, {
+    task: ctx.task,
+    patch: taskPatch,
+    actorEmail: ctx.actor.email,
+    nowIso,
+  });
+  await syncAssignmentCycles(ctx.supabase, {
+    taskId: id,
+    beforeEmails: current,
+    afterEmails: next.assignees,
+    actorEmail: ctx.actor.email,
+    nowIso,
+    source: "assign",
+  });
 
   const { data: taskData, error: taskError } = await ctx.supabase
     .from("tasks")

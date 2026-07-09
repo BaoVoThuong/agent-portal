@@ -11,7 +11,7 @@ import {
   canViewTask,
 } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
-import { isTaskOverdue } from "@/lib/tasks/sla";
+import { effectiveSlaMinutes, isTaskOverdue, slaDeadline } from "@/lib/tasks/sla";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
@@ -25,6 +25,11 @@ import {
   isTaskAssigneesMissingError,
   isTaskAssignee,
 } from "@/lib/tasks/assignees";
+import {
+  recordStageTransition,
+  resolveOverdueEvent,
+  syncAssignmentCycles,
+} from "@/lib/tasks/history";
 
 export const dynamic = "force-dynamic";
 
@@ -142,6 +147,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
   }
 
   const currentAssignees = await fetchTaskAssigneeEmails(id, r.supabase);
+  const beforeAssigneesForHistory =
+    currentAssignees.length > 0
+      ? currentAssignees
+      : r.task.assignee_email
+        ? [r.task.assignee_email]
+        : [];
+  let nextAssigneesForHistory = beforeAssigneesForHistory;
   const currentForPatch = {
     status: r.task.status,
     assignee_email: currentAssignees[0] ?? r.task.assignee_email,
@@ -150,15 +162,21 @@ export async function PATCH(req: Request, { params }: Ctx) {
     category_id: r.task.category_id,
   };
   const reassigning = bodyRecord.assignee_email !== undefined;
+  const nowIso = new Date().toISOString();
 
   // Needed to snapshot sla_minutes on a first start into in_progress, and to
   // check whether a task was overdue at the moment it's marked Done directly
   // (skipping /overdue-unlock) so overdue_count still gets credited.
   let slaRules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[] = [];
-  const enteringInProgress = bodyRecord.status === "in_progress" && !r.task.in_progress_at;
-  const enteringDoneFromInProgress =
-    bodyRecord.status === "done" && r.task.status === "in_progress";
-  if (enteringInProgress || enteringDoneFromInProgress) {
+  const requestedStatus =
+    typeof bodyRecord.status === "string" ? bodyRecord.status : null;
+  const enteringInProgress =
+    requestedStatus === "in_progress" && r.task.status !== "in_progress";
+  const leavingInProgress =
+    requestedStatus !== null &&
+    requestedStatus !== "in_progress" &&
+    r.task.status === "in_progress";
+  if (enteringInProgress || leavingInProgress) {
     const { data: rulesData, error: rulesError } = await r.supabase
       .from("task_sla_rules")
       .select("priority,category_id,duration_minutes");
@@ -211,18 +229,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
     canAssign: mayAssign,
     canReviewDone,
     rules: slaRules,
+    nowIso,
   });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
-
-  // A task can go straight from In Progress (currently overdue) to Done
-  // without ever touching /overdue-unlock — completing it isn't the same as
-  // continuing to work on it. Still credit overdue_count so it doesn't only
-  // get counted when someone happens to unlock first, and a "was overdue"
-  // note can show on the Done card. Skipped if the cron already counted this
-  // occurrence (overdue_flagged_at set).
-  if (enteringDoneFromInProgress && !r.task.overdue_flagged_at && isTaskOverdue(r.task, slaRules)) {
-    resolved.patch.overdue_count = r.task.overdue_count + 1;
-  }
 
   // A non-manager (agent owner/Assistant) can freely pick any assignee, but
   // only within their own agent's team — same bound the create-task flow and
@@ -256,6 +265,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const reconciled = reconcileAssigneesForNewAgent(currentAssignees, newTeam);
     if (reconciled.assignees !== null) {
       const nextAssignees = reconciled.assignees;
+      nextAssigneesForHistory = nextAssignees;
       const staleAssignees = currentAssignees.filter((e) => !nextAssignees.includes(e));
       const { error: pruneError } = await r.supabase
         .from("task_assignees")
@@ -281,6 +291,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const assigneeActuallyChanged =
       nextAssignee !== currentPrimaryAssignee || currentAssignees.length > 1;
     if (assigneeActuallyChanged) {
+      nextAssigneesForHistory = nextAssignee ? [nextAssignee] : [];
       const { error: deleteAssigneesError } = await r.supabase
         .from("task_assignees")
         .delete()
@@ -291,7 +302,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       if (nextAssignee) {
         const { error: insertAssigneeError } = await r.supabase
           .from("task_assignees")
-          .insert({ task_id: id, email: nextAssignee });
+          .insert({ task_id: id, email: nextAssignee, created_at: nowIso });
         if (insertAssigneeError && !isTaskAssigneesMissingError(insertAssigneeError)) {
           return NextResponse.json({ error: insertAssigneeError.message }, { status: 500 });
         }
@@ -299,13 +310,65 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
   }
 
+  const finalStatus =
+    typeof resolved.patch.status === "string"
+      ? resolved.patch.status
+      : r.task.status;
+  const finalLeavingInProgress =
+    finalStatus !== "in_progress" && r.task.status === "in_progress";
+  if (finalLeavingInProgress && slaRules.length === 0) {
+    const { data: rulesData, error: rulesError } = await r.supabase
+      .from("task_sla_rules")
+      .select("priority,category_id,duration_minutes");
+    if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
+    slaRules = rulesData ?? [];
+  }
+
+  // A task can leave In Progress while currently overdue without ever touching
+  // /overdue-unlock — completing/cancelling/reassigning isn't the same as
+  // continuing to work on it. Still credit overdue_count so it doesn't only
+  // get counted when someone happens to unlock first, and a "was overdue"
+  // note can show on the Closed card. Skipped if the cron already counted this
+  // occurrence (overdue_flagged_at set).
+  const leavingOverdueInProgress =
+    finalLeavingInProgress && isTaskOverdue(r.task, slaRules);
+  if (leavingOverdueInProgress && !r.task.overdue_flagged_at) {
+    resolved.patch.overdue_count = r.task.overdue_count + 1;
+  }
+
   const { data, error } = await r.supabase
     .from("tasks")
-    .update({ ...resolved.patch, updated_at: new Date().toISOString() })
+    .update({ ...resolved.patch, updated_at: nowIso })
     .eq("id", id)
     .select("*")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (leavingOverdueInProgress) {
+    const minutes = effectiveSlaMinutes(r.task, slaRules);
+    await resolveOverdueEvent(r.supabase, {
+      task: r.task,
+      dueAt: slaDeadline(r.task.in_progress_at as string, minutes).toISOString(),
+      resolvedAt: nowIso,
+      actorEmail: r.actor.email,
+      reason: `Status changed to ${resolved.patch.status}`,
+      slaMinutes: minutes,
+    });
+  }
+  await recordStageTransition(r.supabase, {
+    task: r.task,
+    patch: resolved.patch,
+    actorEmail: r.actor.email,
+    nowIso,
+  });
+  await syncAssignmentCycles(r.supabase, {
+    taskId: id,
+    beforeEmails: beforeAssigneesForHistory,
+    afterEmails: nextAssigneesForHistory,
+    actorEmail: r.actor.email,
+    nowIso,
+    source: "patch",
+  });
 
   const entries = buildActivityEntries(
     {

@@ -88,10 +88,7 @@ export function formatDurationMinutes(totalMinutes: number): string {
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
-// A task that has ever gone overdue (overdue_count > 0) shows this instead
-// of a fresh countdown once reopened/unlocked — a "time left" framing would
-// look like a clean slate, which is misleading for a task already flagged as
-// high-risk. Plain elapsed time since the current in_progress_at instead.
+// Plain elapsed time for stage clocks such as To Do and Waiting.
 export function formatElapsedSince(sinceIso: string, now: Date = new Date()): string {
   const totalMinutes = Math.max(
     0,

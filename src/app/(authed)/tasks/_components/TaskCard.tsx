@@ -21,6 +21,7 @@ export function TaskCard({
   isOverdue = false,
   now = new Date(),
   isNewAssigned = false,
+  useAssigneeTodoClock = false,
   onUnlockOverdue,
   onReopenRequest,
 }: {
@@ -34,6 +35,7 @@ export function TaskCard({
   isOverdue?: boolean;
   now?: Date;
   isNewAssigned?: boolean;
+  useAssigneeTodoClock?: boolean;
   onUnlockOverdue?: (id: string) => void;
   onReopenRequest?: (id: string) => void;
 }) {
@@ -45,7 +47,9 @@ export function TaskCard({
   const assigneeTitle = task.assignees
     .map((email) => assigneeLabelByEmail?.get(email) ?? email)
     .join(", ");
-  const todoStartedAt = task.assignee_started_at ?? task.created_at;
+  const todoStartedAt = useAssigneeTodoClock
+    ? laterIso(task.todo_started_at, task.assignee_started_at) ?? task.created_at
+    : task.todo_started_at ?? task.created_at;
   const waitingStartedAt = task.waiting_started_at ?? task.updated_at;
   return (
     <div
@@ -112,11 +116,8 @@ export function TaskCard({
         <SlaTimer
           deadline={slaDeadline}
           now={now}
-          elapsedSinceIso={
-            task.overdue_count > 0 && task.status === "in_progress" && !isOverdue
-              ? task.in_progress_at
-              : null
-          }
+          inProgressAt={task.in_progress_at}
+          hasOverdueHistory={task.overdue_count > 0}
         />
         <WasOverdueBadge task={task} />
       </div>
@@ -156,6 +157,12 @@ export function TaskCard({
       ) : null}
     </div>
   );
+}
+
+function laterIso(first?: string | null, second?: string | null): string | null {
+  if (!first) return second ?? null;
+  if (!second) return first;
+  return new Date(second).getTime() > new Date(first).getTime() ? second : first;
 }
 
 function ClosedStatusBadge({ task }: { task: TaskRow }) {

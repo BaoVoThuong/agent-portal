@@ -10,11 +10,12 @@ import {
 import { attachAssigneesToTasks, isTaskAssigneesMissingError } from "@/lib/tasks/assignees";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
-import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/tasks/types";
+import { TASK_PRIORITIES, TASK_STATUSES, type TaskRow } from "@/lib/tasks/types";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchAgentsForCs, fetchCsForAgent, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
+import { recordInitialTaskHistory } from "@/lib/tasks/history";
 
 export const dynamic = "force-dynamic";
 
@@ -136,6 +137,7 @@ export async function POST(request: Request) {
     .maybeSingle();
   const position = midpoint((last as { position: number } | null)?.position ?? null, null);
   const nowIso = new Date().toISOString();
+  const startingTodo = assignment.status === "todo";
   const startingInProgress = assignment.status === "in_progress";
   const startingWaiting = assignment.status === "waiting";
   const startingClosed = assignment.status === "done" || assignment.status === "cancel";
@@ -163,6 +165,7 @@ export async function POST(request: Request) {
       reporter_email: email,
       category_id: categoryId,
       position,
+      ...(startingTodo ? { todo_started_at: nowIso } : {}),
       ...(startingInProgress
         ? { in_progress_at: nowIso, overdue_flagged_at: null, sla_minutes: slaMinutes }
         : {}),
@@ -180,6 +183,7 @@ export async function POST(request: Request) {
       assignedEmails.map((assigneeEmail) => ({
         task_id: taskId,
         email: assigneeEmail,
+        created_at: nowIso,
       }))
     );
     if (assigneeError && !isTaskAssigneesMissingError(assigneeError)) {
@@ -193,6 +197,14 @@ export async function POST(request: Request) {
     type: "created",
     meta: assignedEmails.length > 0 ? { to: assignedEmails } : null,
   });
+
+  await recordInitialTaskHistory(
+    supabase,
+    data as TaskRow,
+    email,
+    assignedEmails,
+    nowIso
+  );
 
   const assignedRecipients = assignedEmails.filter(
     (assigneeEmail) => assigneeEmail !== email

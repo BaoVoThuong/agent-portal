@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { effectiveSlaMinutes, isTaskOverdue, slaDeadline } from "@/lib/tasks/sla";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchTaskAssigneeEmails } from "@/lib/tasks/assignees";
+import { openOverdueEvent } from "@/lib/tasks/history";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 
@@ -125,6 +126,12 @@ export async function GET(request: Request) {
           .eq("id", task.id)
           .is("overdue_flagged_at", null);
         if (updateError) throw new Error(updateError.message);
+        await openOverdueEvent(supabase, {
+          taskId: task.id,
+          dueAt: dueAt.toISOString(),
+          overdueAt: nowIso,
+          slaMinutes: minutes,
+        });
         await supabase.from("task_activity").insert({
           task_id: task.id,
           actor_email: "system",

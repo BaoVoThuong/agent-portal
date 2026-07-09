@@ -662,16 +662,22 @@ export function TaskBoardClient({
     const nextAssignees = assigned
       ? [...new Set([...before.assignees, email])]
       : before.assignees.filter((assignee) => assignee !== email);
+    const nextStatus =
+      nextAssignees.length === 0
+        ? "backlog"
+        : before.status === "backlog"
+          ? "todo"
+          : before.status;
+    const nowIso = new Date().toISOString();
     const optimistic: TaskRow = {
       ...before,
       assignees: nextAssignees,
       assignee_email: nextAssignees[0] ?? null,
-      status:
-        nextAssignees.length === 0
-          ? "backlog"
-          : before.status === "backlog"
-            ? "todo"
-            : before.status,
+      status: nextStatus,
+      todo_started_at:
+        before.status === "backlog" && nextStatus === "todo"
+          ? nowIso
+          : before.todo_started_at,
     };
     updateTasks((cur) => cur.map((task) => (task.id === id ? optimistic : task)));
 
@@ -871,6 +877,7 @@ export function TaskBoardClient({
           categories={categories}
           assigneeLabelByEmail={assigneeLabelByEmail}
           newAssignedTaskIds={displayNewAssignedTaskIds}
+          useAssigneeTodoClock={shouldLimitPlainCsTasks && !showTeamTasks}
           rules={slaRules}
           now={now}
           onUnlockOverdue={setUnlockingTaskId}
@@ -1037,6 +1044,17 @@ function buildOptimisticTaskPatch(
     const nowIso = new Date().toISOString();
     optimistic.done_reviewed_by_email = null;
     optimistic.done_reviewed_at = null;
+    if (optimistic.status === "todo") {
+      optimistic.todo_started_at = nowIso;
+    }
+    if (optimistic.status === "in_progress") {
+      optimistic.in_progress_at = nowIso;
+      optimistic.overdue_flagged_at = null;
+      optimistic.overdue_reminded_at = null;
+    } else {
+      optimistic.overdue_flagged_at = null;
+      optimistic.overdue_reminded_at = null;
+    }
     if (optimistic.status === "waiting") {
       optimistic.waiting_started_at = nowIso;
       optimistic.waiting_reminded_at = null;

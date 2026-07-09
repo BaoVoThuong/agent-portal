@@ -119,36 +119,41 @@ export function StageElapsedBadge({
   );
 }
 
-// Countdown while running, red "Overdue by …" once past deadline. `null`
-// deadline means the task isn't in_progress (no timer to show).
+// Countdown while running, "Overdue by …" once past deadline. `null` deadline
+// means the task isn't in_progress (no timer to show).
+//
+// A task with prior overdue history (overdue_count > 0) skips the "X left"
+// countdown on its next run — that framing implies a clean slate, which is
+// misleading for a task that has already blown its SLA before. It shows
+// plain elapsed time instead, until it's actually overdue again — at which
+// point "Overdue by X" already reads as elapsed, so no special-casing is
+// needed there.
 export function SlaTimer({
   deadline,
   now,
-  elapsedSinceIso,
+  inProgressAt,
+  hasOverdueHistory = false,
 }: {
   deadline: Date | null;
   now: Date;
-  /**
-   * Set when the task has prior overdue history (overdue_count > 0). A fresh
-   * "time left" countdown would look like a clean slate for a task already
-   * flagged as high-risk, so show plain elapsed time instead — no deadline
-   * framing.
-   */
-  elapsedSinceIso?: string | null;
+  inProgressAt?: string | null;
+  hasOverdueHistory?: boolean;
 }) {
-  if (elapsedSinceIso) {
+  if (!deadline) return null;
+  const overdue = now.getTime() >= deadline.getTime();
+
+  if (hasOverdueHistory && !overdue && inProgressAt) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded bg-[#fff0b3] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]"
-        title="This task has prior overdue history — showing elapsed time, not a fresh countdown."
+        title="This task went overdue before — showing elapsed time instead of a fresh countdown."
       >
         <Clock className="h-3.5 w-3.5" />
-        In progress {formatElapsedSince(elapsedSinceIso, now)}
+        In progress {formatElapsedSince(inProgressAt, now)}
       </span>
     );
   }
-  if (!deadline) return null;
-  const overdue = now.getTime() >= deadline.getTime();
+
   return (
     <span
       className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold ${
