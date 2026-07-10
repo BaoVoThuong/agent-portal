@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { effectiveSlaMinutes, isTaskOverdue, slaDeadline } from "@/lib/tasks/sla";
+import { currentStintDueAt, effectiveSlaMinutes, isTaskOverdue } from "@/lib/tasks/sla";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchTaskAssigneeEmails } from "@/lib/tasks/assignees";
 import { openOverdueEvent } from "@/lib/tasks/history";
@@ -18,8 +18,9 @@ const WAITING_REMINDER_AFTER_MS = 24 * 60 * 60 * 1000;
 // stamps `overdue_flagged_at` + logs a `went_overdue` activity entry the
 // moment it first detects a breach — independent of anyone looking at the
 // board, so it can't be dodged by acting fast. `overdue_flagged_at` is
-// cleared whenever the SLA clock restarts (see transitions.ts /
-// overdue-unlock / reopen), so this naturally re-arms each cycle.
+// cleared whenever the overdue run is reopened or the SLA clock restarts
+// (see transitions.ts / overdue-unlock / reopen), so this naturally re-arms
+// each cycle.
 function checkAuthorization(request: Request): "ok" | "misconfigured" | "unauthorized" {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return "misconfigured";
@@ -53,7 +54,7 @@ export async function GET(request: Request) {
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
     .select(
-      "id,status,priority,category_id,in_progress_at,overdue_flagged_at,overdue_reminded_at,sla_minutes,overdue_count"
+      "id,status,priority,category_id,in_progress_at,in_progress_seconds,overdue_flagged_at,overdue_reminded_at,sla_minutes,overdue_count"
     )
     .eq("status", "in_progress")
     .is("archived_at", null)
@@ -67,6 +68,7 @@ export async function GET(request: Request) {
     | "priority"
     | "category_id"
     | "in_progress_at"
+    | "in_progress_seconds"
     | "overdue_flagged_at"
     | "overdue_reminded_at"
     | "sla_minutes"
@@ -114,8 +116,7 @@ export async function GET(request: Request) {
   if (newlyOverdue.length > 0) {
     await Promise.all(
       newlyOverdue.map(async (task) => {
-        const minutes = effectiveSlaMinutes(task, rules);
-        const dueAt = slaDeadline(task.in_progress_at as string, minutes);
+        const dueAt = currentStintDueAt(task, rules) ?? now;
         const { error: updateError } = await supabase
           .from("tasks")
           .update({
@@ -130,7 +131,7 @@ export async function GET(request: Request) {
           taskId: task.id,
           dueAt: dueAt.toISOString(),
           overdueAt: nowIso,
-          slaMinutes: minutes,
+          slaMinutes: effectiveSlaMinutes(task, rules),
         });
         await supabase.from("task_activity").insert({
           task_id: task.id,

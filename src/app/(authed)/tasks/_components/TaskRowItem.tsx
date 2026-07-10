@@ -56,6 +56,7 @@ export function TaskRowItem({
   openOnDoubleClick = false,
   isOverdue = false,
   isNewAssigned = false,
+  onUnlockOverdueRequest,
   onReopenRequest,
 }: {
   task: TaskRow;
@@ -73,6 +74,7 @@ export function TaskRowItem({
   openOnDoubleClick?: boolean;
   isOverdue?: boolean;
   isNewAssigned?: boolean;
+  onUnlockOverdueRequest?: () => void;
   onReopenRequest?: () => void;
 }) {
   const assigneeLabelByEmail = new Map(
@@ -143,6 +145,7 @@ export function TaskRowItem({
         canEdit={canEdit}
         isOverdue={isOverdue}
         onChange={(status) => onPatch(task.id, { status })}
+        onUnlockOverdueRequest={onUnlockOverdueRequest}
         onReopenRequest={onReopenRequest}
       />
 
@@ -236,6 +239,7 @@ function StatusPill({
   canEdit,
   isOverdue = false,
   onChange,
+  onUnlockOverdueRequest,
   onReopenRequest,
 }: {
   status: TaskStatus;
@@ -243,6 +247,7 @@ function StatusPill({
   canEdit: boolean;
   isOverdue?: boolean;
   onChange: (status: TaskStatus) => void;
+  onUnlockOverdueRequest?: () => void;
   onReopenRequest?: () => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
@@ -256,7 +261,9 @@ function StatusPill({
   // So we never offer 'backlog' here, and we lock the pill while a task is
   // unassigned — that avoids emitting a patch the server rejects (the invariant
   // "non-backlog task must have an assignee" / "unassign before backlog").
-  const interactive = canEdit && assigned && !isTerminal;
+  const canReopenOverdue =
+    canEdit && assigned && isOverdue && Boolean(onUnlockOverdueRequest);
+  const interactive = canEdit && assigned && !isTerminal && !isOverdue;
   const canReopen = canEdit && isTerminal && Boolean(onReopenRequest);
   const options = TASK_STATUSES.filter((s) => s !== "backlog");
 
@@ -266,13 +273,28 @@ function StatusPill({
       style={{ backgroundColor: meta.bg, color: meta.fg }}
     >
       {label}
-      {interactive || canReopen ? <ChevronDown className="h-3 w-3" /> : null}
+      {interactive || canReopen || canReopenOverdue ? (
+        <ChevronDown className="h-3 w-3" />
+      ) : null}
     </span>
   );
 
-  // Done/Cancel can't go back to In Progress via this dropdown — that
-  // restarts the SLA clock and needs a reason, so clicking the pill opens
-  // the Reopen dialog directly instead of a status list.
+  if (canReopenOverdue) {
+    return (
+      <span className={`${LIST_COL.status} shrink-0`}>
+        <button
+          type="button"
+          onClick={onUnlockOverdueRequest}
+          title="Reopen (reason required)"
+        >
+          {pill}
+        </button>
+      </span>
+    );
+  }
+
+  // Done/Cancel go back to To Do through the reason-gated Reopen action, so
+  // clicking the pill opens the dialog directly instead of a status list.
   if (canReopen) {
     return (
       <span className={`${LIST_COL.status} shrink-0`}>

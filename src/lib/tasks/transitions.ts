@@ -28,6 +28,14 @@ export type TaskPatchInput = {
 type Current = Pick<TaskRow, "status" | "assignee_email" | "in_progress_at"> & {
   priority?: TaskRow["priority"];
   category_id?: TaskRow["category_id"];
+  // Stage clock state — needed to bank the leaving stage's seconds and to
+  // lock the SLA budget only on the first-ever In Progress entry.
+  todo_started_at?: string | null;
+  waiting_started_at?: string | null;
+  todo_seconds?: number | null;
+  in_progress_seconds?: number | null;
+  waiting_seconds?: number | null;
+  sla_minutes?: number | null;
 };
 type Result =
   | { ok: true; patch: Record<string, unknown> }
@@ -35,6 +43,13 @@ type Result =
 
 function isEnum<T extends readonly string[]>(v: unknown, allowed: T): v is T[number] {
   return typeof v === "string" && (allowed as readonly string[]).includes(v);
+}
+
+function elapsedSeconds(startIso: string, endIso: string): number {
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  return Math.max(0, Math.round((end - start) / 1000));
 }
 
 export function resolveTaskPatch(
@@ -131,11 +146,14 @@ export function resolveTaskPatch(
     };
   }
   // Overdue only ever applies to a task that has been In Progress — skipping
-  // straight from To Do/Backlog to Done means in_progress_at never gets
-  // stamped, so the task can never be flagged overdue no matter how long it
-  // actually sat unworked. Cancel is left unrestricted: cancelling something
-  // that was never started isn't a completed-work claim, nothing to measure.
-  if (statusChanged && nextStatus === "done" && !current.in_progress_at) {
+  // straight from To Do/Backlog to Done means the SLA meter (in_progress
+  // seconds) never runs, so the task could never be overdue no matter how
+  // long it actually sat unworked. Allow Done only once it has spent (or is
+  // spending) time In Progress. Cancel is left unrestricted: cancelling
+  // something that was never started isn't a completed-work claim.
+  const hasBeenInProgress =
+    Boolean(current.in_progress_at) || (current.in_progress_seconds ?? 0) > 0;
+  if (statusChanged && nextStatus === "done" && !hasBeenInProgress) {
     return {
       ok: false,
       error: "Move the task to In Progress before marking it Done.",
@@ -148,22 +166,41 @@ export function resolveTaskPatch(
     patch.done_reviewed_by_email = null;
     patch.done_reviewed_at = null;
   }
+
+  // --- Stage clocks: bank the leaving stage's seconds, then open the new one.
+  // Each stage's cumulative time lives in *_seconds; *_started_at marks only
+  // the current open stint and is cleared on leave. This is what makes the
+  // clocks consistent — nothing resets to 0 on re-entry. The SLA is measured
+  // off in_progress_seconds, so bouncing In Progress can't reset it.
+  if (statusChanged) {
+    if (current.status === "todo" && current.todo_started_at) {
+      patch.todo_seconds =
+        (current.todo_seconds ?? 0) + elapsedSeconds(current.todo_started_at, nowIso);
+      patch.todo_started_at = null;
+    } else if (current.status === "in_progress" && current.in_progress_at) {
+      patch.in_progress_seconds =
+        (current.in_progress_seconds ?? 0) + elapsedSeconds(current.in_progress_at, nowIso);
+      patch.in_progress_at = null;
+    } else if (current.status === "waiting" && current.waiting_started_at) {
+      patch.waiting_seconds =
+        (current.waiting_seconds ?? 0) + elapsedSeconds(current.waiting_started_at, nowIso);
+      patch.waiting_started_at = null;
+    }
+  }
+
   if (statusChanged && nextStatus === "todo") {
     patch.todo_started_at = nowIso;
   }
 
-  // Every entry into In Progress starts a new SLA cycle. The previous cycle is
-  // preserved by task_stage_cycles/task_overdue_events before this current
-  // clock is overwritten.
   if (statusChanged && nextStatus === "in_progress") {
     patch.in_progress_at = nowIso;
-    patch.overdue_flagged_at = null;
-    patch.overdue_reminded_at = null;
-    // Snapshot the SLA duration in effect right now (including a
-    // priority/category change arriving in this same patch) and lock it in —
-    // see the sla_minutes column comment in schema.sql for why this can't
-    // just be recomputed live from the task's current fields later.
-    if (opts?.rules && current.priority !== undefined) {
+    // Lock the SLA budget on the FIRST-ever In Progress entry only. Re-entries
+    // keep the original budget so the consumption meter is continuous and
+    // editing priority later can't move an in-flight task's deadline. NOTE:
+    // overdue_flagged_at / overdue_count are deliberately NOT cleared here —
+    // once a task has burned its budget it stays overdue, so re-entering shows
+    // "Overdue by …" (count-up) instead of a misleading fresh countdown.
+    if (current.sla_minutes == null && opts?.rules && current.priority !== undefined) {
       const nextPriority = (patch.priority as TaskRow["priority"] | undefined) ?? current.priority;
       const nextCategoryId =
         "category_id" in patch
@@ -171,9 +208,6 @@ export function resolveTaskPatch(
           : (current.category_id ?? null);
       patch.sla_minutes = resolveSlaMinutes(nextPriority, nextCategoryId, opts.rules);
     }
-  } else if (statusChanged && current.status === "in_progress") {
-    patch.overdue_flagged_at = null;
-    patch.overdue_reminded_at = null;
   }
 
   if (statusChanged && nextStatus === "waiting") {
@@ -185,9 +219,7 @@ export function resolveTaskPatch(
 
   if (statusChanged && (nextStatus === "done" || nextStatus === "cancel")) {
     patch.closed_at = nowIso;
-  } else if (statusChanged && current.status === "done") {
-    patch.closed_at = null;
-  } else if (statusChanged && current.status === "cancel") {
+  } else if (statusChanged && (current.status === "done" || current.status === "cancel")) {
     patch.closed_at = null;
   }
 

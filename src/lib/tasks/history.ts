@@ -217,28 +217,6 @@ export async function recordStageTransition(
   });
 }
 
-export async function restartInProgressHistory(
-  supabase: SupabaseClient,
-  params: {
-    task: TaskTimingRow;
-    actorEmail: string;
-    nowIso: string;
-    slaMinutes: number;
-    source: string;
-  }
-): Promise<void> {
-  await closeStageCycle(supabase, params.task, params.nowIso, params.actorEmail, "in_progress");
-  await startStageCycle(supabase, {
-    taskId: params.task.id,
-    stage: "in_progress",
-    startedAt: params.nowIso,
-    actorEmail: params.actorEmail,
-    fromStatus: params.task.status,
-    slaMinutes: params.slaMinutes,
-    meta: { source: params.source },
-  });
-}
-
 export async function syncAssignmentCycles(
   supabase: SupabaseClient,
   params: {

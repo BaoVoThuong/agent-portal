@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SLA_MINUTES,
-  formatDurationMinutes,
+  currentStintDueAt,
   effectiveSlaMinutes,
-  formatElapsedSince,
+  formatDurationMinutes,
+  formatDurationSeconds,
   formatSlaRemaining,
+  inProgressConsumedSeconds,
   isTaskOverdue,
   resolveSlaMinutes,
   slaDeadline,
+  slaRemainingSeconds,
+  stageElapsedSeconds,
 } from "@/lib/tasks/sla";
 
 const rules = [
@@ -31,118 +35,190 @@ describe("resolveSlaMinutes", () => {
 
 describe("effectiveSlaMinutes", () => {
   it("prefers the locked-in snapshot over recomputing from current priority/category", () => {
-    // Task's priority now says "low" (1440m), but it started as "urgent" and
-    // locked in 60m — that snapshot must win, otherwise editing priority
-    // after the fact silently un-overdues it.
+    // Priority now says "low" (1440m), but it started as "urgent" and locked
+    // 60m — the snapshot must win, else editing priority later would move the
+    // budget on a task already burning it.
     expect(
-      effectiveSlaMinutes(
-        { priority: "low", category_id: null, sla_minutes: 60 },
-        rules
-      )
+      effectiveSlaMinutes({ priority: "low", category_id: null, sla_minutes: 60 }, rules)
     ).toBe(60);
   });
   it("falls back to live resolution when there is no snapshot yet", () => {
     expect(
-      effectiveSlaMinutes(
-        { priority: "urgent", category_id: null, sla_minutes: null },
-        rules
-      )
+      effectiveSlaMinutes({ priority: "urgent", category_id: null, sla_minutes: null }, rules)
     ).toBe(60);
   });
 });
 
-describe("isTaskOverdue with a locked-in sla_minutes snapshot", () => {
-  it("stays overdue even if priority is edited down afterwards (anti-gaming)", () => {
-    const startedUrgent = {
-      status: "in_progress" as const,
-      in_progress_at: "2026-07-05T00:00:00.000Z",
-      priority: "low" as const, // edited down after the fact
-      category_id: null,
-      sla_minutes: 60, // locked in while it was still "urgent"
-    };
-    const now = new Date("2026-07-05T02:00:00.000Z");
-    expect(isTaskOverdue(startedUrgent, rules, now)).toBe(true);
+describe("inProgressConsumedSeconds", () => {
+  const now = new Date("2026-07-05T02:00:00.000Z");
+  it("adds the current open stint to the banked accumulator while In Progress", () => {
+    expect(
+      inProgressConsumedSeconds(
+        { status: "in_progress", in_progress_at: "2026-07-05T01:30:00.000Z", in_progress_seconds: 600 },
+        now
+      )
+    ).toBe(600 + 30 * 60);
+  });
+  it("returns only the banked accumulator when not currently In Progress", () => {
+    expect(
+      inProgressConsumedSeconds(
+        { status: "todo", in_progress_at: null, in_progress_seconds: 900 },
+        now
+      )
+    ).toBe(900);
+  });
+  it("treats a missing accumulator as 0", () => {
+    expect(
+      inProgressConsumedSeconds(
+        { status: "in_progress", in_progress_at: "2026-07-05T01:30:00.000Z", in_progress_seconds: null },
+        now
+      )
+    ).toBe(30 * 60);
   });
 });
 
-describe("slaDeadline", () => {
-  it("adds minutes to in_progress_at", () => {
-    const deadline = slaDeadline("2026-07-05T00:00:00.000Z", 90);
-    expect(deadline.toISOString()).toBe("2026-07-05T01:30:00.000Z");
-  });
-});
-
-describe("isTaskOverdue", () => {
+describe("slaRemainingSeconds", () => {
   const base = {
     status: "in_progress" as const,
     in_progress_at: "2026-07-05T00:00:00.000Z",
     priority: "urgent" as const,
     category_id: null,
+    sla_minutes: 60,
+    in_progress_seconds: 0,
   };
-  it("not overdue before the deadline", () => {
-    const now = new Date("2026-07-05T00:59:00.000Z");
-    expect(isTaskOverdue(base, rules, now)).toBe(false);
+  it("positive while under budget", () => {
+    const now = new Date("2026-07-05T00:45:00.000Z");
+    expect(slaRemainingSeconds(base, rules, now)).toBe(15 * 60);
   });
-  it("overdue exactly at the deadline (boundary counts as overdue)", () => {
-    const now = new Date("2026-07-05T01:00:00.000Z");
-    expect(isTaskOverdue(base, rules, now)).toBe(true);
+  it("negative once the budget is burned (counts up as overdue)", () => {
+    const now = new Date("2026-07-05T01:30:00.000Z");
+    expect(slaRemainingSeconds(base, rules, now)).toBe(-30 * 60);
   });
-  it("overdue after the deadline", () => {
-    const now = new Date("2026-07-05T02:00:00.000Z");
-    expect(isTaskOverdue(base, rules, now)).toBe(true);
+  it("counts prior stints against the budget (bounce cannot reset it)", () => {
+    // 50 minutes already banked from earlier stints; only 10 left before breach.
+    const now = new Date("2026-07-05T00:05:00.000Z");
+    expect(
+      slaRemainingSeconds({ ...base, in_progress_seconds: 50 * 60 }, rules, now)
+    ).toBe(5 * 60);
   });
-  it("never overdue outside in_progress", () => {
+});
+
+describe("isTaskOverdue (consumption-based)", () => {
+  const base = {
+    status: "in_progress" as const,
+    in_progress_at: "2026-07-05T00:00:00.000Z",
+    priority: "urgent" as const,
+    category_id: null,
+    sla_minutes: 60,
+    in_progress_seconds: 0,
+  };
+  it("not overdue before the budget is used up", () => {
+    expect(isTaskOverdue(base, rules, new Date("2026-07-05T00:59:00.000Z"))).toBe(false);
+  });
+  it("overdue exactly at the budget boundary", () => {
+    expect(isTaskOverdue(base, rules, new Date("2026-07-05T01:00:00.000Z"))).toBe(true);
+  });
+  it("overdue immediately when prior stints already exhausted the budget (repeat offender)", () => {
+    // Already burned the full 60m in earlier stints; the moment it's In
+    // Progress again it's overdue — a fresh countdown would be a clean-slate lie.
+    const justResumed = { ...base, in_progress_seconds: 60 * 60 };
+    expect(isTaskOverdue(justResumed, rules, new Date("2026-07-05T00:00:01.000Z"))).toBe(true);
+  });
+  it("never overdue outside In Progress", () => {
     const now = new Date("2026-07-05T05:00:00.000Z");
-    expect(isTaskOverdue({ ...base, status: "done" }, rules, now)).toBe(false);
+    expect(isTaskOverdue({ ...base, status: "todo", in_progress_at: null }, rules, now)).toBe(false);
     expect(isTaskOverdue({ ...base, in_progress_at: null }, rules, now)).toBe(false);
   });
 });
 
-describe("formatElapsedSince", () => {
-  it("formats elapsed hours and minutes", () => {
-    const since = "2026-07-05T00:00:00.000Z";
-    const now = new Date("2026-07-05T02:15:00.000Z");
-    expect(formatElapsedSince(since, now)).toBe("2h 15m");
+describe("currentStintDueAt", () => {
+  it("is in_progress_at + full budget when no prior stint was banked", () => {
+    const due = currentStintDueAt(
+      {
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        priority: "urgent",
+        category_id: null,
+        sla_minutes: 60,
+        in_progress_seconds: 0,
+      },
+      rules
+    );
+    expect(due?.toISOString()).toBe("2026-07-05T01:00:00.000Z");
   });
-  it("formats sub-hour elapsed without the hour segment", () => {
-    const since = "2026-07-05T00:00:00.000Z";
-    const now = new Date("2026-07-05T00:10:00.000Z");
-    expect(formatElapsedSince(since, now)).toBe("10m");
+  it("accounts for budget already burned in earlier stints", () => {
+    const due = currentStintDueAt(
+      {
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        priority: "urgent",
+        category_id: null,
+        sla_minutes: 60,
+        in_progress_seconds: 50 * 60, // only 10 minutes of budget left
+      },
+      rules
+    );
+    expect(due?.toISOString()).toBe("2026-07-05T00:10:00.000Z");
   });
-  it("formats elapsed durations over 24h as days and hours", () => {
-    const since = "2026-07-05T00:00:00.000Z";
-    const now = new Date("2026-07-18T00:46:00.000Z");
-    expect(formatElapsedSince(since, now)).toBe("13d 0h");
+  it("clamps to in_progress_at when the budget is already fully burned", () => {
+    const due = currentStintDueAt(
+      {
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        priority: "urgent",
+        category_id: null,
+        sla_minutes: 60,
+        in_progress_seconds: 90 * 60,
+      },
+      rules
+    );
+    expect(due?.toISOString()).toBe("2026-07-05T00:00:00.000Z");
   });
 });
 
-describe("formatSlaRemaining", () => {
+describe("stageElapsedSeconds", () => {
+  const now = new Date("2026-07-05T01:00:00.000Z");
+  it("adds the open stint to the accumulator while in the stage", () => {
+    expect(stageElapsedSeconds(600, "2026-07-05T00:30:00.000Z", now)).toBe(600 + 30 * 60);
+  });
+  it("returns only the accumulator when the stage is not active (started_at null)", () => {
+    expect(stageElapsedSeconds(1234, null, now)).toBe(1234);
+  });
+  it("handles a null accumulator", () => {
+    expect(stageElapsedSeconds(null, "2026-07-05T00:30:00.000Z", now)).toBe(30 * 60);
+  });
+});
+
+describe("slaDeadline", () => {
+  it("adds minutes to a start time", () => {
+    expect(slaDeadline("2026-07-05T00:00:00.000Z", 90).toISOString()).toBe(
+      "2026-07-05T01:30:00.000Z"
+    );
+  });
+});
+
+describe("formatSlaRemaining (seconds-based)", () => {
   it("formats time left", () => {
-    const deadline = new Date("2026-07-05T02:15:00.000Z");
-    const now = new Date("2026-07-05T00:00:00.000Z");
-    expect(formatSlaRemaining(deadline, now)).toBe("2h 15m left");
+    expect(formatSlaRemaining(2 * 3600 + 15 * 60)).toBe("2h 15m left");
   });
   it("formats overdue with the same shape, flipped", () => {
-    const deadline = new Date("2026-07-05T00:00:00.000Z");
-    const now = new Date("2026-07-05T00:45:00.000Z");
-    expect(formatSlaRemaining(deadline, now)).toBe("Overdue by 45m");
+    expect(formatSlaRemaining(-45 * 60)).toBe("Overdue by 45m");
   });
-  it("formats sub-hour remaining without the hour segment", () => {
-    const deadline = new Date("2026-07-05T00:10:00.000Z");
-    const now = new Date("2026-07-05T00:00:00.000Z");
-    expect(formatSlaRemaining(deadline, now)).toBe("10m left");
-  });
-  it("formats overdue durations over 24h as days and hours", () => {
-    const deadline = new Date("2026-07-05T00:00:00.000Z");
-    const now = new Date("2026-07-08T19:03:00.000Z");
-    expect(formatSlaRemaining(deadline, now)).toBe("Overdue by 3d 19h");
+  it("treats exactly zero as overdue", () => {
+    expect(formatSlaRemaining(0)).toBe("Overdue by 1m");
   });
 });
 
-describe("formatDurationMinutes", () => {
-  it("switches from hours/minutes to days/hours at 24h", () => {
-    expect(formatDurationMinutes(23 * 60 + 59)).toBe("23h 59m");
-    expect(formatDurationMinutes(24 * 60)).toBe("1d 0h");
-    expect(formatDurationMinutes(24 * 60 + 75)).toBe("1d 1h");
+describe("formatDurationMinutes / formatDurationSeconds", () => {
+  it("sub-hour without the hour segment", () => {
+    expect(formatDurationMinutes(10)).toBe("10m");
+  });
+  it("hours and minutes", () => {
+    expect(formatDurationMinutes(135)).toBe("2h 15m");
+  });
+  it("days for long durations", () => {
+    expect(formatDurationMinutes(48 * 60 + 3 * 60)).toBe("2d 3h");
+  });
+  it("seconds variant rounds to minutes", () => {
+    expect(formatDurationSeconds(2 * 3600 + 15 * 60)).toBe("2h 15m");
+    expect(formatDurationSeconds(20)).toBe("0m");
+    expect(formatDurationSeconds(59)).toBe("1m");
   });
 });

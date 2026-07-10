@@ -6,14 +6,13 @@ import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import { recordStageTransition } from "@/lib/tasks/history";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Reopening a Done/Cancel task restarts the SLA clock, so it always needs a
+// Reopening a Done/Cancel task sends it back to To Do, so it always needs a
 // reason — same permission bar as changing status generally (manager,
 // assignee, or agent owner), instead of a silent kanban drag.
 export async function POST(req: Request, { params }: Ctx) {
@@ -54,22 +53,17 @@ export async function POST(req: Request, { params }: Ctx) {
     );
   }
 
-  const { data: rulesData, error: rulesError } = await supabase
-    .from("task_sla_rules")
-    .select("priority,category_id,duration_minutes");
-  if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
-  // Re-snapshot at the current priority/category — locks in the SLA for the
-  // new run the same way a first start does (see sla_minutes in schema.sql).
-  const nextSlaMinutes = resolveSlaMinutes(task.priority, task.category_id, rulesData ?? []);
-
   const nowIso = new Date().toISOString();
+  // Reopen a Done/Cancelled task back to To Do. The SLA budget and the time
+  // already spent In Progress are PRESERVED (not reset): if the task had
+  // already burned its budget it shows the "Overdue" tag + count-up the moment
+  // it's worked again, instead of a misleading clean-slate countdown. Done and
+  // Cancel aren't timed stages, so there's no In Progress stint to bank here —
+  // it was banked when the task was completed.
   const patch = {
-    status: "in_progress",
-    in_progress_at: nowIso,
-    overdue_flagged_at: null,
-    overdue_reminded_at: null,
-    waiting_reminded_at: null,
-    sla_minutes: nextSlaMinutes,
+    status: "todo",
+    todo_started_at: nowIso,
+    in_progress_at: null,
     done_reviewed_by_email: null,
     done_reviewed_at: null,
     closed_at: null,

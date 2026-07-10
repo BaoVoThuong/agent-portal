@@ -574,7 +574,7 @@ export function TaskBoardClient({
       if (!confirmed) return;
       requestPatch = { ...patch, [TEAM_STATUS_CONFIRMED_KEY]: true };
     }
-    const optimisticPatch = buildOptimisticTaskPatch(patch, currentEmail);
+    const optimisticPatch = buildOptimisticTaskPatch(patch, currentEmail, before);
     updateTasks((cur) =>
       cur.map((t) => (t.id === id ? ({ ...t, ...optimisticPatch } as TaskRow) : t))
     );
@@ -616,12 +616,12 @@ export function TaskBoardClient({
         body: JSON.stringify({ reason }),
       });
     } catch {
-      setError("Connection lost — could not unlock the task.");
+      setError("Connection lost — could not reopen the task.");
       return false;
     }
     if (!res.ok) {
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
-      setError(data?.error ?? "Could not unlock the task.");
+      setError(data?.error ?? "Could not reopen the task.");
       return false;
     }
     const data = await res.json();
@@ -901,6 +901,7 @@ export function TaskBoardClient({
           onAssigneeChange={changeAssignee}
           overdueIds={overdueIds}
           newAssignedTaskIds={displayNewAssignedTaskIds}
+          onUnlockOverdue={setUnlockingTaskId}
           onReopenRequest={setReopeningTaskId}
         />
       )}
@@ -990,10 +991,10 @@ export function TaskBoardClient({
 
       <ReasonModal
         open={unlockingTaskId !== null}
-        title="Task overdue"
-        description="Enter a reason to unlock this task from Overdue and move it back to In Progress."
+        title="Reopen overdue task"
+        description="Enter a reason to move this overdue task back to To Do."
         placeholder="Reason for the delay..."
-        submitLabel="Unlock"
+        submitLabel="Reopen"
         accentColor="#de350b"
         onClose={() => setUnlockingTaskId(null)}
         onSubmit={submitOverdueUnlock}
@@ -1002,7 +1003,7 @@ export function TaskBoardClient({
       <ReasonModal
         open={reopeningTaskId !== null}
         title="Reopen task"
-        description="This task is Done/Cancelled. Enter a reason to move it back to In Progress."
+        description="This task is Done/Cancelled. Enter a reason to move it back to To Do."
         placeholder="Reason for reopening..."
         submitLabel="Reopen"
         accentColor="#0c66e4"
@@ -1034,36 +1035,55 @@ function formatAgentLabel(agent: TaskAgent) {
   return agent.name?.trim() || agent.email;
 }
 
+function optimisticElapsedSeconds(startIso: string | null | undefined, nowIso: string): number {
+  if (!startIso) return 0;
+  return Math.max(0, Math.round((new Date(nowIso).getTime() - new Date(startIso).getTime()) / 1000));
+}
+
 function buildOptimisticTaskPatch(
   patch: Record<string, unknown>,
-  currentEmail: string
+  currentEmail: string,
+  before?: TaskRow | null
 ): Record<string, unknown> {
   const optimistic = { ...patch };
 
-  if (typeof optimistic.status === "string") {
+  // Mirror transitions.ts so the card doesn't flicker before the server
+  // responds: bank the leaving stage's seconds into its accumulator (never
+  // reset to 0), clear its start, then open the new stage. Overdue markers are
+  // deliberately NOT cleared — a repeat offender keeps its Overdue tag.
+  if (typeof optimistic.status === "string" && before && optimistic.status !== before.status) {
     const nowIso = new Date().toISOString();
     optimistic.done_reviewed_by_email = null;
     optimistic.done_reviewed_at = null;
+
+    if (before.status === "todo" && before.todo_started_at) {
+      optimistic.todo_seconds =
+        (before.todo_seconds ?? 0) + optimisticElapsedSeconds(before.todo_started_at, nowIso);
+      optimistic.todo_started_at = null;
+    } else if (before.status === "in_progress" && before.in_progress_at) {
+      optimistic.in_progress_seconds =
+        (before.in_progress_seconds ?? 0) +
+        optimisticElapsedSeconds(before.in_progress_at, nowIso);
+      optimistic.in_progress_at = null;
+    } else if (before.status === "waiting" && before.waiting_started_at) {
+      optimistic.waiting_seconds =
+        (before.waiting_seconds ?? 0) +
+        optimisticElapsedSeconds(before.waiting_started_at, nowIso);
+      optimistic.waiting_started_at = null;
+    }
+
     if (optimistic.status === "todo") {
       optimistic.todo_started_at = nowIso;
-    }
-    if (optimistic.status === "in_progress") {
+    } else if (optimistic.status === "in_progress") {
       optimistic.in_progress_at = nowIso;
-      optimistic.overdue_flagged_at = null;
-      optimistic.overdue_reminded_at = null;
-    } else {
-      optimistic.overdue_flagged_at = null;
-      optimistic.overdue_reminded_at = null;
-    }
-    if (optimistic.status === "waiting") {
+    } else if (optimistic.status === "waiting") {
       optimistic.waiting_started_at = nowIso;
       optimistic.waiting_reminded_at = null;
-    } else {
-      optimistic.waiting_reminded_at = null;
     }
+
     if (optimistic.status === "done" || optimistic.status === "cancel") {
       optimistic.closed_at = nowIso;
-    } else {
+    } else if (before.status === "done" || before.status === "cancel") {
       optimistic.closed_at = null;
     }
   }

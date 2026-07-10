@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { Loader2, X } from "lucide-react";
 
-// Generic "type a reason to proceed" dialog — used both for unlocking an
-// overdue task and for reopening a Done/Cancel task. Both actions restart
-// the SLA clock, so both require a reason for the audit trail.
+// Generic "type a reason to proceed" dialog — used both for reopening an
+// overdue task and for reopening a Done/Cancel task. Both actions are audited
+// because they return closed/blocked work back to To Do.
 export function ReasonModal({
   open,
   title,

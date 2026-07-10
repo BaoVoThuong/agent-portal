@@ -62,6 +62,9 @@ export type TaskRow = {
   overdue_reminded_at: string | null;
   sla_minutes: number | null;
   overdue_count: number;
+  todo_seconds: number;
+  in_progress_seconds: number;
+  waiting_seconds: number;
   done_reviewed_by_email: string | null;
   done_reviewed_at: string | null;
   closed_at: string | null;

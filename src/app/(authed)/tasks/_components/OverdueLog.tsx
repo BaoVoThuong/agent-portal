@@ -63,7 +63,7 @@ export function OverdueLog({
               )}
               {isReopen
                 ? `Reopened by ${actorLabel}${fromStatus ? ` (from ${fromStatus})` : ""}`
-                : `Overdue resolved by ${actorLabel}`}
+                : `Overdue reopened by ${actorLabel}`}
             </div>
             <dl className="mt-1.5 space-y-0.5 text-xs leading-5 text-[#6b778c]">
               {dueLabel ? (
@@ -74,7 +74,7 @@ export function OverdueLog({
               ) : null}
               <div>
                 <dt className="inline font-semibold text-[#42526e]">
-                  {isReopen ? "Reopened at:" : "Resolved at:"}
+                  Reopened at:
                 </dt>{" "}
                 <dd className="inline">{resolvedLabel ?? "—"}</dd>
               </div>

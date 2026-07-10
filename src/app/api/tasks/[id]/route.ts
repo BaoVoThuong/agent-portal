@@ -11,7 +11,7 @@ import {
   canViewTask,
 } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
-import { effectiveSlaMinutes, isTaskOverdue, slaDeadline } from "@/lib/tasks/sla";
+import { currentStintDueAt, effectiveSlaMinutes, isTaskOverdue } from "@/lib/tasks/sla";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
@@ -160,6 +160,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
     in_progress_at: r.task.in_progress_at,
     priority: r.task.priority,
     category_id: r.task.category_id,
+    todo_started_at: r.task.todo_started_at,
+    waiting_started_at: r.task.waiting_started_at,
+    todo_seconds: r.task.todo_seconds,
+    in_progress_seconds: r.task.in_progress_seconds,
+    waiting_seconds: r.task.waiting_seconds,
+    sla_minutes: r.task.sla_minutes,
   };
   const reassigning = bodyRecord.assignee_email !== undefined;
   const nowIso = new Date().toISOString();
@@ -326,14 +332,15 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
   // A task can leave In Progress while currently overdue without ever touching
   // /overdue-unlock — completing/cancelling/reassigning isn't the same as
-  // continuing to work on it. Still credit overdue_count so it doesn't only
-  // get counted when someone happens to unlock first, and a "was overdue"
-  // note can show on the Closed card. Skipped if the cron already counted this
-  // occurrence (overdue_flagged_at set).
+  // continuing to work on it. Credit overdue_count (KPI) + stamp the permanent
+  // overdue marker the FIRST time it's observed over budget, so it's counted
+  // once regardless of whether the cron caught it first, and the "Overdue" tag
+  // sticks on the card. transitions.ts already banked the In Progress seconds.
   const leavingOverdueInProgress =
     finalLeavingInProgress && isTaskOverdue(r.task, slaRules);
   if (leavingOverdueInProgress && !r.task.overdue_flagged_at) {
     resolved.patch.overdue_count = r.task.overdue_count + 1;
+    resolved.patch.overdue_flagged_at = nowIso;
   }
 
   const { data, error } = await r.supabase
@@ -348,7 +355,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     const minutes = effectiveSlaMinutes(r.task, slaRules);
     await resolveOverdueEvent(r.supabase, {
       task: r.task,
-      dueAt: slaDeadline(r.task.in_progress_at as string, minutes).toISOString(),
+      dueAt: (currentStintDueAt(r.task, slaRules) ?? new Date(nowIso)).toISOString(),
       resolvedAt: nowIso,
       actorEmail: r.actor.email,
       reason: `Status changed to ${resolved.patch.status}`,

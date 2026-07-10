@@ -1306,15 +1306,15 @@ alter table tasks add column if not exists in_progress_at timestamptz;
 
 -- Set the first time a cron detection pass (see /api/cron/check-overdue)
 -- notices the task has crossed its SLA deadline; cleared whenever
--- in_progress_at restarts (fresh start or Done/Cancel reopen) or the task is
--- unlocked. This is what makes "this task went overdue" a permanent,
+-- the task leaves/reopens from its overdue run. This is what makes
+-- "this task went overdue" a permanent,
 -- tamper-resistant fact in the activity log instead of something that
 -- disappears the instant someone bounces the status back and forth — needed
 -- now that overdue counts feed into KPI.
 alter table tasks add column if not exists overdue_flagged_at timestamptz;
 
 -- SLA minutes resolved and locked in the moment in_progress_at is (re)stamped
--- (first start, overdue-unlock, or reopen) — NOT recomputed from the task's
+-- (each start into In Progress) — NOT recomputed from the task's
 -- current priority/category afterwards. Without this, an agent owner or the
 -- task's reporter (both allowed to edit priority/category) could silently
 -- lower the priority on an already-overdue task and make it stop counting as
@@ -1325,22 +1325,39 @@ alter table tasks add column if not exists overdue_flagged_at timestamptz;
 alter table tasks add column if not exists sla_minutes integer;
 
 -- Permanent tally of how many times this task has gone overdue — unlike
--- overdue_flagged_at (cleared on every unlock/reopen so it can re-arm), this
+-- overdue_flagged_at (cleared on every overdue/closed reopen so it can re-arm), this
 -- never resets, including once the task reaches Done/Cancel. Powers: (1) a
 -- "was overdue" badge on completed tasks, since the live overdue check goes
--- blank the moment status leaves in_progress; (2) switching a reopened
--- task's SLA display from a fresh countdown to a plain elapsed-time counter,
--- since a task with prior overdue history shouldn't look like a clean slate.
+-- blank the moment status leaves in_progress; (2) a "was overdue" badge after
+-- a task is reopened back to To Do.
 alter table tasks add column if not exists overdue_count integer not null default 0;
 
 -- Stage timestamps used for operational clocks and reminders. Assignment time
 -- lives in task_assignees.created_at; these columns cover the stages that are
--- owned by the task row itself.
+-- owned by the task row itself. A `*_started_at` is non-null ONLY while the
+-- task is currently in that stage (marks the current stint's start); it's
+-- cleared when the task leaves the stage.
 alter table tasks add column if not exists todo_started_at timestamptz;
 alter table tasks add column if not exists waiting_started_at timestamptz;
 alter table tasks add column if not exists waiting_reminded_at timestamptz;
 alter table tasks add column if not exists overdue_reminded_at timestamptz;
 alter table tasks add column if not exists closed_at timestamptz;
+
+-- Cumulative time (seconds) a task has spent in each stage across ALL visits,
+-- banked when the task leaves that stage. Display time in a stage = the
+-- accumulator + (now - *_started_at) while currently in it. This is what makes
+-- the stage clocks consistent: bouncing To Do -> In Progress -> To Do keeps
+-- counting instead of resetting to 0.
+--
+-- in_progress_seconds is also the SLA meter: a task is overdue when
+-- in_progress_seconds + current-stint elapsed >= sla_minutes*60. Because the
+-- accumulator never decreases, the SLA can't be reset by leaving and
+-- re-entering In Progress (the old anti-gaming hole), and a task that has
+-- already burned its budget shows "Overdue by …" the moment it's worked again
+-- instead of a fresh countdown.
+alter table tasks add column if not exists todo_seconds integer not null default 0;
+alter table tasks add column if not exists in_progress_seconds integer not null default 0;
+alter table tasks add column if not exists waiting_seconds integer not null default 0;
 
 update tasks
 set todo_started_at = coalesce(updated_at, created_at)
@@ -1456,6 +1473,27 @@ where not exists (
   select 1 from task_stage_cycles c
   where c.task_id = t.id and c.ended_at is null
 );
+
+-- Backfill the stage-time accumulators from any CLOSED cycles already on
+-- record. Pre-existing rows only have their current (open) stint, so their
+-- accumulators start at 0 and the current stint is measured live from
+-- *_started_at — the best we can do without historical cycle data. Going
+-- forward every closed stint banks its seconds here. Idempotent: recomputes
+-- from the immutable closed-cycle durations, so re-running schema.sql can't
+-- double-count.
+update tasks t set
+  todo_seconds = coalesce((
+    select sum(c.duration_seconds) from task_stage_cycles c
+    where c.task_id = t.id and c.stage = 'todo' and c.ended_at is not null
+  ), 0),
+  in_progress_seconds = coalesce((
+    select sum(c.duration_seconds) from task_stage_cycles c
+    where c.task_id = t.id and c.stage = 'in_progress' and c.ended_at is not null
+  ), 0),
+  waiting_seconds = coalesce((
+    select sum(c.duration_seconds) from task_stage_cycles c
+    where c.task_id = t.id and c.stage = 'waiting' and c.ended_at is not null
+  ), 0);
 
 create table if not exists task_overdue_events (
   id uuid primary key default gen_random_uuid(),
@@ -1719,7 +1757,7 @@ create index if not exists agent_members_cs_idx on agent_members (cs_email);
 create index if not exists agent_members_agent_idx on agent_members (agent_email);
 
 -- A CS member promoted to "Assistant" for that agent gets the same rights as
--- the agent owner on that agent's tasks (edit content, unlock overdue,
+-- the agent owner on that agent's tasks (edit content, reopen overdue,
 -- reopen, QC review, assign, delete) — a deputy, not just a worker.
 alter table agent_members add column if not exists is_assistant boolean not null default false;
 

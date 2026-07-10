@@ -1,6 +1,7 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
 import { AlertTriangle, CheckCircle2, Circle, RotateCcw } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
+import { stageElapsedSeconds } from "@/lib/tasks/sla";
 import {
   Initials,
   NewAssignedBadge,
@@ -10,6 +11,11 @@ import {
   StageElapsedBadge,
 } from "./board-ui";
 
+function elapsedSecondsSince(sinceIso: string | null | undefined, now: Date): number {
+  if (!sinceIso) return 0;
+  return Math.max(0, Math.round((now.getTime() - new Date(sinceIso).getTime()) / 1000));
+}
+
 export function TaskCard({
   task,
   category,
@@ -17,7 +23,7 @@ export function TaskCard({
   canReviewDone = false,
   onReviewDone,
   onOpen,
-  slaDeadline = null,
+  slaRemainingSeconds = null,
   isOverdue = false,
   now = new Date(),
   isNewAssigned = false,
@@ -31,7 +37,7 @@ export function TaskCard({
   canReviewDone?: boolean;
   onReviewDone?: (id: string, reviewed: boolean) => void;
   onOpen: (id: string) => void;
-  slaDeadline?: Date | null;
+  slaRemainingSeconds?: number | null;
   isOverdue?: boolean;
   now?: Date;
   isNewAssigned?: boolean;
@@ -47,10 +53,17 @@ export function TaskCard({
   const assigneeTitle = task.assignees
     .map((email) => assigneeLabelByEmail?.get(email) ?? email)
     .join(", ");
-  const todoStartedAt = useAssigneeTodoClock
-    ? laterIso(task.todo_started_at, task.assignee_started_at) ?? task.created_at
-    : task.todo_started_at ?? task.created_at;
-  const waitingStartedAt = task.waiting_started_at ?? task.updated_at;
+  // Cumulative time in the current stage (accumulator + live open stint), so
+  // the clock keeps counting across re-entries instead of resetting. For the
+  // per-CS "since assigned to me" view we count from the assignment instead.
+  const todoElapsedSeconds = useAssigneeTodoClock
+    ? elapsedSecondsSince(task.assignee_started_at ?? task.todo_started_at ?? task.created_at, now)
+    : stageElapsedSeconds(task.todo_seconds, task.todo_started_at, now);
+  const waitingElapsedSeconds = stageElapsedSeconds(
+    task.waiting_seconds,
+    task.waiting_started_at,
+    now
+  );
   return (
     <div
       role="button"
@@ -108,18 +121,13 @@ export function TaskCard({
           onReviewDone={onReviewDone}
         />
         {task.status === "todo" ? (
-          <StageElapsedBadge label="To do" sinceIso={todoStartedAt} now={now} />
+          <StageElapsedBadge label="To do" seconds={todoElapsedSeconds} />
         ) : null}
         {task.status === "waiting" ? (
-          <StageElapsedBadge label="Waiting" sinceIso={waitingStartedAt} now={now} />
+          <StageElapsedBadge label="Waiting" seconds={waitingElapsedSeconds} />
         ) : null}
-        <SlaTimer
-          deadline={slaDeadline}
-          now={now}
-          inProgressAt={task.in_progress_at}
-          hasOverdueHistory={task.overdue_count > 0}
-        />
-        <WasOverdueBadge task={task} />
+        <SlaTimer remainingSeconds={slaRemainingSeconds} />
+        <WasOverdueBadge task={task} isOverdue={isOverdue} />
       </div>
 
       {isOverdue && onUnlockOverdue ? (
@@ -135,7 +143,7 @@ export function TaskCard({
           className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-[#fdba74] bg-[#fff7ed] text-[11px] font-bold text-[#c2410c] transition hover:border-[#fb923c] hover:bg-[#ffedd5]"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
-          Enter reason to unlock
+          Reopen
         </button>
       ) : null}
 
@@ -157,12 +165,6 @@ export function TaskCard({
       ) : null}
     </div>
   );
-}
-
-function laterIso(first?: string | null, second?: string | null): string | null {
-  if (!first) return second ?? null;
-  if (!second) return first;
-  return new Date(second).getTime() > new Date(first).getTime() ? second : first;
 }
 
 function ClosedStatusBadge({ task }: { task: TaskRow }) {
@@ -258,21 +260,29 @@ function CategoryBadge({ category }: { category: TaskCategory }) {
   );
 }
 
-// Permanent marker for Done/Cancel cards that were overdue at some point —
-// the live overdue check goes blank the moment status leaves in_progress, so
-// without this a task that dodged its SLA for days would look completely
-// clean once finished.
-function WasOverdueBadge({ task }: { task: TaskRow }) {
-  if (task.status !== "done" && task.status !== "cancel") return null;
+// Permanent "Overdue" tag for a task that has burned its SLA budget but isn't
+// in the live-overdue red state right now (e.g. sent back to To Do / Waiting,
+// or completed). The live overdue check only fires while In Progress, so
+// without this a task that blew its SLA would look completely clean the moment
+// it's moved. The overdue COUNT stays in the DB for KPI but is deliberately
+// not shown here — just the tag (per product decision).
+function WasOverdueBadge({
+  task,
+  isOverdue,
+}: {
+  task: TaskRow;
+  isOverdue: boolean;
+}) {
+  if (isOverdue) return null;
   if (task.overdue_count <= 0) return null;
 
   return (
     <span
       className="inline-flex items-center gap-1 rounded bg-[#fff0b3] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]"
-      title="This task went overdue at least once before it was closed."
+      title="This task has gone over its SLA."
     >
       <AlertTriangle className="h-3.5 w-3.5" />
-      Was overdue{task.overdue_count > 1 ? ` ${task.overdue_count}x` : ""}
+      Overdue
     </span>
   );
 }

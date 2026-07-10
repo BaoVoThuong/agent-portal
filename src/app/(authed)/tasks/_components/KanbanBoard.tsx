@@ -32,7 +32,7 @@ import {
   type TaskCategory,
   type TaskSlaRule,
 } from "@/lib/tasks/types";
-import { effectiveSlaMinutes, isTaskOverdue, slaDeadline } from "@/lib/tasks/sla";
+import { isTaskOverdue, slaRemainingSeconds } from "@/lib/tasks/sla";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TaskCard } from "./TaskCard";
 
@@ -101,7 +101,7 @@ function SortableCard({
   onReviewDone,
   canMove,
   onOpen,
-  slaDeadline,
+  slaRemainingSeconds,
   isOverdue,
   isNewAssigned,
   useAssigneeTodoClock,
@@ -116,7 +116,7 @@ function SortableCard({
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   canMove: boolean;
   onOpen: (id: string) => void;
-  slaDeadline: Date | null;
+  slaRemainingSeconds: number | null;
   isOverdue: boolean;
   isNewAssigned: boolean;
   useAssigneeTodoClock: boolean;
@@ -147,7 +147,7 @@ function SortableCard({
         canReviewDone={canReviewDone}
         onReviewDone={onReviewDone}
         onOpen={onOpen}
-        slaDeadline={slaDeadline}
+        slaRemainingSeconds={slaRemainingSeconds}
         isOverdue={isOverdue}
         isNewAssigned={isNewAssigned}
         useAssigneeTodoClock={useAssigneeTodoClock}
@@ -168,7 +168,7 @@ function Column({
   assigneeLabelByEmail,
   canReviewDoneTask,
   onReviewDone,
-  slaDeadlineFor,
+  slaRemainingFor,
   newAssignedTaskIds,
   useAssigneeTodoClock,
   now,
@@ -183,7 +183,7 @@ function Column({
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   categoryById: Map<string, TaskCategory>;
   assigneeLabelByEmail: Map<string, string>;
-  slaDeadlineFor: (task: TaskRow) => Date | null;
+  slaRemainingFor: (task: TaskRow) => number | null;
   newAssignedTaskIds: Set<string>;
   useAssigneeTodoClock: boolean;
   now: Date;
@@ -236,7 +236,7 @@ function Column({
               onReviewDone={onReviewDone}
               canMove={!isOverdueColumn && !isTerminalColumn && canMoveTask(t)}
               onOpen={onOpen}
-              slaDeadline={slaDeadlineFor(t)}
+              slaRemainingSeconds={slaRemainingFor(t)}
               isOverdue={isOverdueColumn}
               isNewAssigned={newAssignedTaskIds.has(t.id)}
               useAssigneeTodoClock={useAssigneeTodoClock}
@@ -288,10 +288,9 @@ export function KanbanBoard({
   const categoryById = new Map(categories.map((category) => [category.id, category]));
 
   const isOverdueTask = (task: TaskRow) => isTaskOverdue(task, rules, now);
-  const slaDeadlineFor = (task: TaskRow): Date | null => {
+  const slaRemainingFor = (task: TaskRow): number | null => {
     if (task.status !== "in_progress" || !task.in_progress_at) return null;
-    const minutes = effectiveSlaMinutes(task, rules);
-    return slaDeadline(task.in_progress_at, minutes);
+    return slaRemainingSeconds(task, rules, now);
   };
   // Kanban never receives backlog tasks (Backlog is a separate view), but
   // TaskStatus includes it — narrow it away so the fallback return type-checks.
@@ -326,7 +325,7 @@ export function KanbanBoard({
       onReviewDone={onReviewDone}
       categoryById={categoryById}
       assigneeLabelByEmail={assigneeLabelByEmail}
-      slaDeadlineFor={slaDeadlineFor}
+      slaRemainingFor={slaRemainingFor}
       newAssignedTaskIds={newAssignedTaskIds}
       useAssigneeTodoClock={useAssigneeTodoClock}
       now={now}
@@ -335,7 +334,7 @@ export function KanbanBoard({
     />
   );
 
-  // Done/Cancel cards can't be dragged straight back to In Progress — that
+  // Done/Cancel cards can't be dragged straight back to To Do — that
   // has to go through the reason-gated Reopen action (see the Reopen button
   // on the card), same lock treatment as the Overdue column.
   function canDragTask(task: TaskRow): boolean {
@@ -482,7 +481,8 @@ export function KanbanBoard({
               canReviewDone={false}
               onReviewDone={onReviewDone}
               onOpen={() => {}}
-              slaDeadline={slaDeadlineFor(activeTask)}
+              slaRemainingSeconds={slaRemainingFor(activeTask)}
+              isOverdue={isOverdueTask(activeTask)}
               isNewAssigned={newAssignedTaskIds.has(activeTask.id)}
               useAssigneeTodoClock={useAssigneeTodoClock}
               now={now}

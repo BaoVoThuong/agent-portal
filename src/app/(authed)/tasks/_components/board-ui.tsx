@@ -8,7 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { TaskPriority } from "@/lib/tasks/types";
-import { formatElapsedSince, formatSlaRemaining } from "@/lib/tasks/sla";
+import { formatDurationSeconds, formatSlaRemaining } from "@/lib/tasks/sla";
 
 export const PRIORITY_META: Record<
   TaskPriority,
@@ -102,57 +102,34 @@ export function NewAssignedBadge({ className = "" }: { className?: string }) {
   );
 }
 
+// Cumulative time in a stage (To Do / Waiting). `seconds` is the accumulator
+// plus the current open stint, precomputed by the caller with the live `now`,
+// so it keeps counting across re-entries instead of resetting.
 export function StageElapsedBadge({
   label,
-  sinceIso,
-  now,
+  seconds,
 }: {
   label: string;
-  sinceIso: string;
-  now: Date;
+  seconds: number;
 }) {
   return (
     <span className="inline-flex items-center gap-1 rounded bg-[#f4f5f7] px-1.5 py-0.5 text-[11px] font-bold text-[#44546f]">
       <Clock className="h-3.5 w-3.5" />
-      {label} {formatElapsedSince(sinceIso, now)}
+      {label} {formatDurationSeconds(seconds)}
     </span>
   );
 }
 
-// Countdown while running, "Overdue by …" once past deadline. `null` deadline
-// means the task isn't in_progress (no timer to show).
-//
-// A task with prior overdue history (overdue_count > 0) skips the "X left"
-// countdown on its next run — that framing implies a clean slate, which is
-// misleading for a task that has already blown its SLA before. It shows
-// plain elapsed time instead, until it's actually overdue again — at which
-// point "Overdue by X" already reads as elapsed, so no special-casing is
-// needed there.
+// Consumption-based SLA: `remainingSeconds` = budget − time spent In Progress
+// (across all stints). Positive → "X left" countdown; <= 0 → "Overdue by X"
+// counting up. `null` means the task isn't In Progress (no timer to show).
 export function SlaTimer({
-  deadline,
-  now,
-  inProgressAt,
-  hasOverdueHistory = false,
+  remainingSeconds,
 }: {
-  deadline: Date | null;
-  now: Date;
-  inProgressAt?: string | null;
-  hasOverdueHistory?: boolean;
+  remainingSeconds: number | null;
 }) {
-  if (!deadline) return null;
-  const overdue = now.getTime() >= deadline.getTime();
-
-  if (hasOverdueHistory && !overdue && inProgressAt) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 rounded bg-[#fff0b3] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]"
-        title="This task went overdue before — showing elapsed time instead of a fresh countdown."
-      >
-        <Clock className="h-3.5 w-3.5" />
-        In progress {formatElapsedSince(inProgressAt, now)}
-      </span>
-    );
-  }
+  if (remainingSeconds === null) return null;
+  const overdue = remainingSeconds <= 0;
 
   return (
     <span
@@ -161,7 +138,7 @@ export function SlaTimer({
       }`}
     >
       <Clock className="h-3.5 w-3.5" />
-      {formatSlaRemaining(deadline, now)}
+      {formatSlaRemaining(remainingSeconds)}
     </span>
   );
 }

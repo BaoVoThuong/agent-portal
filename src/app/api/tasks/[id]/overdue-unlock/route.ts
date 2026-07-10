@@ -3,9 +3,14 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
-import { resolveOverdueEvent, restartInProgressHistory } from "@/lib/tasks/history";
+import { recordStageTransition, resolveOverdueEvent } from "@/lib/tasks/history";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
-import { effectiveSlaMinutes, isTaskOverdue, resolveSlaMinutes, slaDeadline } from "@/lib/tasks/sla";
+import {
+  currentStintDueAt,
+  effectiveSlaMinutes,
+  inProgressConsumedSeconds,
+  isTaskOverdue,
+} from "@/lib/tasks/sla";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -56,28 +61,36 @@ export async function POST(req: Request, { params }: Ctx) {
 
   // task.in_progress_at is non-null here (isTaskOverdue only returns true when set).
   const minutes = effectiveSlaMinutes(task, rules);
-  const dueAt = slaDeadline(task.in_progress_at as string, minutes);
   const nowIso = new Date().toISOString();
-  // Re-snapshot at the current priority/category — locks in the SLA for the
-  // new run the same way a first start does (see sla_minutes in schema.sql).
-  const nextSlaMinutes = resolveSlaMinutes(task.priority, task.category_id, rules);
-  // Only bump the permanent tally if the cron hasn't already counted this
-  // occurrence (overdue_flagged_at unset means the person noticed and
-  // unlocked it before the daily cron ran).
-  const nextOverdueCount = task.overdue_flagged_at
-    ? task.overdue_count
-    : task.overdue_count + 1;
+  const dueAt = currentStintDueAt(task, rules) ?? new Date(nowIso);
+  // Only bump the permanent tally if this overdue occurrence wasn't already
+  // counted (overdue_flagged_at unset means the person noticed and reopened it
+  // before the daily cron ran).
+  const alreadyCounted = Boolean(task.overdue_flagged_at);
+  // Reopen sends the task back to To Do, but the SLA budget and the In Progress
+  // time already burned are PRESERVED (not reset): the same work continues, so
+  // the meter must keep counting. When it's dragged back to In Progress it's
+  // already over budget and shows the "Overdue" tag + count-up immediately —
+  // no misleading fresh countdown, no way to wipe the delay by reopening.
+  const patch = {
+    status: "todo",
+    todo_started_at: nowIso,
+    in_progress_at: null,
+    // Bank the In Progress stint just ended so the time isn't lost.
+    in_progress_seconds: inProgressConsumedSeconds(task, new Date(nowIso)),
+    // Keep the permanent overdue marker (and set it now if the cron hadn't yet).
+    overdue_flagged_at: task.overdue_flagged_at ?? nowIso,
+    overdue_count: alreadyCounted ? task.overdue_count : task.overdue_count + 1,
+    // NOTE: sla_minutes (budget) is intentionally left untouched — never reset.
+    done_reviewed_by_email: null,
+    done_reviewed_at: null,
+    closed_at: null,
+    updated_at: nowIso,
+  };
 
   const { data: updated, error: updateError } = await supabase
     .from("tasks")
-    .update({
-      in_progress_at: nowIso,
-      overdue_flagged_at: null,
-      overdue_reminded_at: null,
-      sla_minutes: nextSlaMinutes,
-      overdue_count: nextOverdueCount,
-      updated_at: nowIso,
-    })
+    .update(patch)
     .eq("id", id)
     .select("*")
     .single();
@@ -93,12 +106,11 @@ export async function POST(req: Request, { params }: Ctx) {
     reason,
     slaMinutes: minutes,
   });
-  await restartInProgressHistory(supabase, {
+  await recordStageTransition(supabase, {
     task,
     actorEmail: actor.email,
+    patch,
     nowIso,
-    slaMinutes: nextSlaMinutes,
-    source: "overdue_unlock",
   });
 
   await supabase.from("task_activity").insert({
@@ -111,7 +123,7 @@ export async function POST(req: Request, { params }: Ctx) {
       resolved_at: nowIso,
       previous_started_at: task.in_progress_at,
       previous_sla_minutes: minutes,
-      next_sla_minutes: nextSlaMinutes,
+      to_status: "todo",
     },
   });
 
