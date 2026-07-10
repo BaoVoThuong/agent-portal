@@ -6,7 +6,14 @@ import {
   type SyntheticEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Circle } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Circle,
+  RotateCcw,
+} from "lucide-react";
 import {
   STATUS_LABEL,
   TASK_STATUSES,
@@ -107,6 +114,15 @@ export function TaskRowItem({
       >
         <span className="truncate">{task.title}</span>
         {isNewAssigned ? <NewAssignedBadge /> : null}
+        {task.reopened_at ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded bg-[#deebff] px-1.5 py-0.5 text-[11px] font-bold text-[#0055cc]"
+            title="This task was reopened."
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reopened
+          </span>
+        ) : null}
         {(task.status === "done" || task.status === "cancel") && task.overdue_count > 0 ? (
           <span
             className="shrink-0"

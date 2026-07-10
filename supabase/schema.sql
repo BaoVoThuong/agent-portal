@@ -1341,6 +1341,7 @@ alter table tasks add column if not exists todo_started_at timestamptz;
 alter table tasks add column if not exists waiting_started_at timestamptz;
 alter table tasks add column if not exists waiting_reminded_at timestamptz;
 alter table tasks add column if not exists overdue_reminded_at timestamptz;
+alter table tasks add column if not exists reopened_at timestamptz;
 alter table tasks add column if not exists closed_at timestamptz;
 
 -- Cumulative time (seconds) a task has spent in each stage across ALL visits,

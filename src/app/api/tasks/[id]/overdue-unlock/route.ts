@@ -85,6 +85,7 @@ export async function POST(req: Request, { params }: Ctx) {
     done_reviewed_by_email: null,
     done_reviewed_at: null,
     closed_at: null,
+    reopened_at: nowIso,
     updated_at: nowIso,
   };
 

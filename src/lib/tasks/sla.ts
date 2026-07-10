@@ -92,6 +92,32 @@ export function slaRemainingSeconds(
   return budgetSeconds - inProgressConsumedSeconds(task, now);
 }
 
+// Whether the task has burned its whole SLA budget right now. Drives the timer
+// sign (countdown vs count-up). NOT the same as "overdue": a task that was
+// already over budget from earlier stints (reopened, being reworked) is over
+// budget but no longer overdue — see isTaskOverdue.
+export function isOverBudget(
+  task: Pick<TaskRow, "status" | "in_progress_at" | "priority" | "category_id"> & {
+    sla_minutes?: number | null;
+    in_progress_seconds?: number | null;
+  },
+  rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[],
+  now: Date = new Date()
+): boolean {
+  if (task.status !== "in_progress" || !task.in_progress_at) return false;
+  return slaRemainingSeconds(task, rules, now) <= 0;
+}
+
+// "Overdue" = the task crossed its SLA budget DURING the current In Progress
+// stint and hasn't been reopened yet (the time banked from earlier stints
+// hadn't already used up the budget). This is the active overdue state: the
+// Overdue column, the Reopen-with-reason gate, cron notifications, KPI credit.
+//
+// After a reopen — the task goes to To Do (which banks the whole over-budget
+// stint), then is worked again — it is NO LONGER overdue: its banked In
+// Progress time alone already meets the budget, so it just counts up in the
+// In Progress column with a permanent "Was overdue" tag and never returns to
+// the Overdue column. The incident stays recorded in overdue_count for KPI.
 export function isTaskOverdue(
   task: Pick<
     TaskRow,
@@ -100,8 +126,27 @@ export function isTaskOverdue(
   rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[],
   now: Date = new Date()
 ): boolean {
-  if (task.status !== "in_progress" || !task.in_progress_at) return false;
-  return slaRemainingSeconds(task, rules, now) <= 0;
+  if (!isOverBudget(task, rules, now)) return false;
+  const budgetSeconds = effectiveSlaMinutes(
+    { priority: task.priority, category_id: task.category_id, sla_minutes: task.sla_minutes ?? null },
+    rules
+  ) * 60;
+  return (task.in_progress_seconds ?? 0) < budgetSeconds;
+}
+
+// A task that has already been through the overdue flow (over budget, but the
+// banked time alone meets the budget → it was reopened and is being reworked).
+// It shows a count-up "In progress" clock + a "Was overdue" tag instead of the
+// Overdue column.
+export function wasOverdueReworking(
+  task: Pick<TaskRow, "status" | "in_progress_at" | "priority" | "category_id"> & {
+    sla_minutes?: number | null;
+    in_progress_seconds?: number | null;
+  },
+  rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[],
+  now: Date = new Date()
+): boolean {
+  return isOverBudget(task, rules, now) && !isTaskOverdue(task, rules, now);
 }
 
 // The wall-clock instant the current In Progress stint will cross (or already

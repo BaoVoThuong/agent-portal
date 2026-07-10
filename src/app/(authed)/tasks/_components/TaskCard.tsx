@@ -64,6 +64,20 @@ export function TaskCard({
     task.waiting_started_at,
     now
   );
+  const inProgressElapsedSeconds = stageElapsedSeconds(
+    task.in_progress_seconds,
+    task.in_progress_at,
+    now
+  );
+  // Three In Progress display states:
+  //  - fresh breach (isOverdue): handled by the Overdue column — red "Overdue by X".
+  //  - reworked after a reopen (over budget but not overdue): count up "In progress X".
+  //  - normal (under budget): countdown "X left".
+  const isReworkingOverBudget =
+    task.status === "in_progress" &&
+    !isOverdue &&
+    slaRemainingSeconds !== null &&
+    slaRemainingSeconds <= 0;
   return (
     <div
       role="button"
@@ -120,13 +134,18 @@ export function TaskCard({
           canReviewDone={canReviewDone}
           onReviewDone={onReviewDone}
         />
+        <ReopenedBadge task={task} />
         {task.status === "todo" ? (
           <StageElapsedBadge label="To do" seconds={todoElapsedSeconds} />
         ) : null}
         {task.status === "waiting" ? (
           <StageElapsedBadge label="Waiting" seconds={waitingElapsedSeconds} />
         ) : null}
-        <SlaTimer remainingSeconds={slaRemainingSeconds} />
+        {isReworkingOverBudget ? (
+          <StageElapsedBadge label="In progress" seconds={inProgressElapsedSeconds} />
+        ) : (
+          <SlaTimer remainingSeconds={slaRemainingSeconds} />
+        )}
         <WasOverdueBadge task={task} isOverdue={isOverdue} />
       </div>
 
@@ -279,10 +298,24 @@ function WasOverdueBadge({
   return (
     <span
       className="inline-flex items-center gap-1 rounded bg-[#fff0b3] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]"
-      title="This task has gone over its SLA."
+      title="This task went over its SLA at least once."
     >
       <AlertTriangle className="h-3.5 w-3.5" />
-      Overdue
+      Was overdue
+    </span>
+  );
+}
+
+function ReopenedBadge({ task }: { task: TaskRow }) {
+  if (!task.reopened_at) return null;
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded bg-[#deebff] px-1.5 py-0.5 text-[11px] font-bold text-[#0055cc]"
+      title="This task was reopened."
+    >
+      <RotateCcw className="h-3.5 w-3.5" />
+      Reopened
     </span>
   );
 }

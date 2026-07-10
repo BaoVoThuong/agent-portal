@@ -88,10 +88,14 @@ export async function GET(request: Request) {
     (task) => !task.overdue_flagged_at && isTaskOverdue(task, rules, now)
   );
 
-  // Already-flagged overdue tasks get a reminder at most once per 24h.
+  // Reminders go out only while the task is ACTIVELY overdue (fresh breach,
+  // still in the Overdue column). A task that was reopened and is being
+  // reworked keeps its overdue marker for KPI but is no longer overdue, so it
+  // must not keep nagging. At most one reminder per 24h.
   const stillOverdue = tasks.filter(
     (task) =>
       Boolean(task.overdue_flagged_at) &&
+      isTaskOverdue(task, rules, now) &&
       reminderDue(task.overdue_reminded_at, now)
   );
 

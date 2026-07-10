@@ -7,11 +7,13 @@ import {
   formatDurationSeconds,
   formatSlaRemaining,
   inProgressConsumedSeconds,
+  isOverBudget,
   isTaskOverdue,
   resolveSlaMinutes,
   slaDeadline,
   slaRemainingSeconds,
   stageElapsedSeconds,
+  wasOverdueReworking,
 } from "@/lib/tasks/sla";
 
 const rules = [
@@ -115,19 +117,27 @@ describe("isTaskOverdue (consumption-based)", () => {
   it("not overdue before the budget is used up", () => {
     expect(isTaskOverdue(base, rules, new Date("2026-07-05T00:59:00.000Z"))).toBe(false);
   });
-  it("overdue exactly at the budget boundary", () => {
+  it("overdue exactly at the budget boundary (fresh breach in the current stint)", () => {
     expect(isTaskOverdue(base, rules, new Date("2026-07-05T01:00:00.000Z"))).toBe(true);
   });
-  it("overdue immediately when prior stints already exhausted the budget (repeat offender)", () => {
-    // Already burned the full 60m in earlier stints; the moment it's In
-    // Progress again it's overdue — a fresh countdown would be a clean-slate lie.
-    const justResumed = { ...base, in_progress_seconds: 60 * 60 };
-    expect(isTaskOverdue(justResumed, rules, new Date("2026-07-05T00:00:01.000Z"))).toBe(true);
+  it("NOT overdue when prior stints already exhausted the budget (reopened / reworking)", () => {
+    // Already burned the full 60m in earlier stints (it was reopened). Working
+    // it again is over budget but NOT the active overdue state — it counts up
+    // with a "Was overdue" tag and never returns to the Overdue column.
+    const reworking = { ...base, in_progress_seconds: 60 * 60 };
+    const now = new Date("2026-07-05T00:10:00.000Z");
+    expect(isTaskOverdue(reworking, rules, now)).toBe(false);
+    expect(isOverBudget(reworking, rules, now)).toBe(true);
+    expect(wasOverdueReworking(reworking, rules, now)).toBe(true);
   });
   it("never overdue outside In Progress", () => {
     const now = new Date("2026-07-05T05:00:00.000Z");
     expect(isTaskOverdue({ ...base, status: "todo", in_progress_at: null }, rules, now)).toBe(false);
     expect(isTaskOverdue({ ...base, in_progress_at: null }, rules, now)).toBe(false);
+  });
+  it("wasOverdueReworking is false while still under budget or freshly overdue", () => {
+    expect(wasOverdueReworking(base, rules, new Date("2026-07-05T00:30:00.000Z"))).toBe(false); // under budget
+    expect(wasOverdueReworking(base, rules, new Date("2026-07-05T01:30:00.000Z"))).toBe(false); // fresh breach → still "overdue", not reworking
   });
 });
 

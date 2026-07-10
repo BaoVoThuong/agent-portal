@@ -105,14 +105,13 @@ export function TaskBoardClient({
   );
   const [error, setError] = useState<string | null>(null);
   const missingOpenRefetchId = useRef<string | null>(null);
-  // Bumped by every write to `tasks` (a direct mutation response, or a full
-  // refetch). `refetchTasks` is a full-list GET racing against direct
-  // mutations (assign/patch/etc.) and other refetches — without this guard,
-  // an older, slower-to-resolve refetch can land AFTER a newer direct
-  // mutation and clobber it with stale data (symptom: assignee flashes back
-  // to unassigned for ~1s before correcting itself). Any response whose
-  // captured version no longer matches the latest is stale and discarded.
-  const tasksVersionRef = useRef(0);
+  // Full-list refetches race with direct mutations (drag status PATCH,
+  // assign, reopen, delete). Keep separate clocks so a realtime/refetch
+  // response that started from an older snapshot cannot overwrite an
+  // optimistic local move and cause the card to flash back for a second.
+  const tasksWriteVersionRef = useRef(0);
+  const tasksRefetchRequestRef = useRef(0);
+  const pendingTaskMutationsRef = useRef(new Map<string, number>());
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -200,14 +199,18 @@ export function TaskBoardClient({
   // changed, plus once on (re)connect to catch anything missed while offline.
   // No polling — the reconnect refetch is the self-heal path.
   const refetchTasks = useCallback(async () => {
-    const requestVersion = ++tasksVersionRef.current;
+    const requestId = ++tasksRefetchRequestRef.current;
+    const writeVersionAtStart = tasksWriteVersionRef.current;
     try {
       const res = await fetch("/api/tasks");
       if (!res.ok) return;
       const data = await res.json();
-      // Something newer (another refetch or a direct mutation) already
-      // landed while this was in flight — this response is stale, drop it.
-      if (tasksVersionRef.current !== requestVersion) return;
+      // A newer refetch, a local write, or an in-flight direct mutation means
+      // this full-list payload may be older than what the user just did.
+      if (tasksRefetchRequestRef.current !== requestId) return;
+      if (tasksWriteVersionRef.current !== writeVersionAtStart) return;
+      if (pendingTaskMutationsRef.current.size > 0) return;
+      tasksWriteVersionRef.current += 1;
       setTasks(data.tasks as TaskRow[]);
       void loadUnreadAssignedTaskIds();
     } catch {
@@ -489,11 +492,23 @@ export function TaskBoardClient({
     writeTaskDeepLink(null);
   }
 
-  // Every write to `tasks` — optimistic or confirmed — goes through this so
-  // a stale in-flight refetch can never clobber a more-recent one (see
-  // tasksVersionRef above).
+  function beginTaskMutation(id: string) {
+    const current = pendingTaskMutationsRef.current.get(id) ?? 0;
+    pendingTaskMutationsRef.current.set(id, current + 1);
+    return () => {
+      const next = (pendingTaskMutationsRef.current.get(id) ?? 1) - 1;
+      if (next > 0) {
+        pendingTaskMutationsRef.current.set(id, next);
+      } else {
+        pendingTaskMutationsRef.current.delete(id);
+      }
+    };
+  }
+
+  // Every write to `tasks` — optimistic or confirmed — goes through this so a
+  // stale in-flight refetch can never clobber a more-recent one.
   function updateTasks(updater: (prev: TaskRow[]) => TaskRow[]) {
-    tasksVersionRef.current += 1;
+    tasksWriteVersionRef.current += 1;
     setTasks(updater);
   }
 
@@ -574,6 +589,7 @@ export function TaskBoardClient({
       if (!confirmed) return;
       requestPatch = { ...patch, [TEAM_STATUS_CONFIRMED_KEY]: true };
     }
+    const finishPendingMutation = beginTaskMutation(id);
     const optimisticPatch = buildOptimisticTaskPatch(patch, currentEmail, before);
     updateTasks((cur) =>
       cur.map((t) => (t.id === id ? ({ ...t, ...optimisticPatch } as TaskRow) : t))
@@ -587,11 +603,13 @@ export function TaskBoardClient({
         body: JSON.stringify(requestPatch),
       });
     } catch {
+      finishPendingMutation();
       revert();
       setError("Mất kết nối — không lưu được thay đổi.");
       return;
     }
     if (!res.ok) {
+      finishPendingMutation();
       revert();
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       setError(data?.error ?? "Không cập nhật được task.");
@@ -599,6 +617,7 @@ export function TaskBoardClient({
     }
     const data = await res.json();
     replaceTask(data.task as TaskRow);
+    finishPendingMutation();
   }
 
   function moveTask(id: string, change: { status: TaskStatus; position: number }) {
@@ -608,6 +627,7 @@ export function TaskBoardClient({
   async function submitOverdueUnlock(reason: string): Promise<boolean> {
     const id = unlockingTaskId;
     if (!id) return false;
+    const finishPendingMutation = beginTaskMutation(id);
     let res: Response;
     try {
       res = await fetch(`/api/tasks/${id}/overdue-unlock`, {
@@ -616,16 +636,19 @@ export function TaskBoardClient({
         body: JSON.stringify({ reason }),
       });
     } catch {
+      finishPendingMutation();
       setError("Connection lost — could not reopen the task.");
       return false;
     }
     if (!res.ok) {
+      finishPendingMutation();
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       setError(data?.error ?? "Could not reopen the task.");
       return false;
     }
     const data = await res.json();
     replaceTask(data.task as TaskRow);
+    finishPendingMutation();
     setUnlockingTaskId(null);
     return true;
   }
@@ -633,6 +656,7 @@ export function TaskBoardClient({
   async function submitReopen(reason: string): Promise<boolean> {
     const id = reopeningTaskId;
     if (!id) return false;
+    const finishPendingMutation = beginTaskMutation(id);
     let res: Response;
     try {
       res = await fetch(`/api/tasks/${id}/reopen`, {
@@ -641,16 +665,19 @@ export function TaskBoardClient({
         body: JSON.stringify({ reason }),
       });
     } catch {
+      finishPendingMutation();
       setError("Connection lost — could not reopen the task.");
       return false;
     }
     if (!res.ok) {
+      finishPendingMutation();
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       setError(data?.error ?? "Could not reopen the task.");
       return false;
     }
     const data = await res.json();
     replaceTask(data.task as TaskRow);
+    finishPendingMutation();
     setReopeningTaskId(null);
     return true;
   }
@@ -658,6 +685,7 @@ export function TaskBoardClient({
   async function changeAssignee(id: string, email: string, assigned: boolean) {
     const before = tasks.find((t) => t.id === id) ?? null;
     if (!before) return;
+    const finishPendingMutation = beginTaskMutation(id);
 
     const nextAssignees = assigned
       ? [...new Set([...before.assignees, email])]
@@ -694,12 +722,14 @@ export function TaskBoardClient({
         }
       );
     } catch {
+      finishPendingMutation();
       updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
       setError("Mất kết nối — không cập nhật được assignee.");
       return;
     }
 
     if (!res.ok) {
+      finishPendingMutation();
       updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       setError(data?.error ?? "Không cập nhật được assignee.");
@@ -708,6 +738,7 @@ export function TaskBoardClient({
 
     const data = await res.json();
     replaceTask(data.task as TaskRow);
+    finishPendingMutation();
   }
 
   async function createTask(payload: NewTaskPayload) {
@@ -733,21 +764,26 @@ export function TaskBoardClient({
 
   async function deleteTask(id: string) {
     const prev = tasks;
+    const finishPendingMutation = beginTaskMutation(id);
     updateTasks((cur) => cur.filter((t) => t.id !== id));
     setOpenId(null);
     let res: Response;
     try {
       res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
     } catch {
+      finishPendingMutation();
       updateTasks(() => prev);
       setError("Mất kết nối — không xoá được task.");
       return;
     }
     if (!res.ok) {
+      finishPendingMutation();
       updateTasks(() => prev);
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       setError(data?.error ?? "Không xoá được task.");
+      return;
     }
+    finishPendingMutation();
   }
 
   function clearAllFilters() {
