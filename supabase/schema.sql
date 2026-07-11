@@ -1343,6 +1343,19 @@ alter table tasks add column if not exists overdue_unlocked_at timestamptz;
 alter table tasks add column if not exists reopened_at timestamptz;
 alter table tasks add column if not exists closed_at timestamptz;
 
+-- Bumped on every meaningful action (status change, comment, assignment,
+-- edit). Powers the "stale task" reminder and the card-ordering "recent
+-- activity" tier. Backfilled from updated_at for existing rows.
+alter table tasks add column if not exists last_activity_at timestamptz;
+update tasks set last_activity_at = coalesce(updated_at, created_at)
+where last_activity_at is null;
+
+-- Anti-duplicate markers for the new cron reminders (mirror the existing
+-- overdue_reminded_at / waiting_reminded_at). Cleared when the relevant clock
+-- restarts so the reminder can re-arm.
+alter table tasks add column if not exists due_soon_notified_at timestamptz;
+alter table tasks add column if not exists stale_reminded_at timestamptz;
+
 -- Cumulative time (seconds) a task has spent in each stage across ALL visits,
 -- banked when the task leaves that stage. Display time in a stage = the
 -- accumulator + (now - *_started_at) while currently in it. This is what makes
@@ -1585,6 +1598,20 @@ begin
   end loop;
 end $$;
 
+-- Global reminder thresholds (one row). Managed in the SLA Times modal.
+create table if not exists task_reminder_settings (
+  id boolean primary key default true check (id),
+  due_soon_minutes integer not null default 15 check (due_soon_minutes > 0),
+  overdue_reminder_hours integer not null default 24 check (overdue_reminder_hours > 0),
+  waiting_hours integer not null default 24 check (waiting_hours > 0),
+  stale_hours integer not null default 48 check (stale_hours > 0),
+  updated_at timestamptz not null default now()
+);
+
+insert into task_reminder_settings (id)
+values (true)
+on conflict (id) do nothing;
+
 create table if not exists task_comments (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references tasks(id) on delete cascade,
@@ -1796,6 +1823,7 @@ declare
     'task_agents',
     'agent_members',
     'task_sla_rules',
+    'task_reminder_settings',
     'task_stage_cycles',
     'task_overdue_events',
     'task_assignment_cycles'
