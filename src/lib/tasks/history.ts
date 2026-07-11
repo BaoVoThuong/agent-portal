@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { slaDeadline } from "./sla";
+import { hasEnteredWaiting, slaDeadline } from "./sla";
 import type { TaskRow, TaskStatus } from "./types";
 
 type TaskTimingRow = Pick<
@@ -9,12 +9,23 @@ type TaskTimingRow = Pick<
   | "todo_started_at"
   | "in_progress_at"
   | "waiting_started_at"
+  | "waiting_seconds"
   | "closed_at"
   | "sla_minutes"
+  | "overdue_count"
   | "created_at"
   | "updated_at"
   | "overdue_flagged_at"
 >;
+
+// Whether an In Progress stint of `task` runs under an ACTIVE SLA — same rule
+// as sla.ts isSlaActiveInProgress (first run, before any Waiting, before the
+// one overdue resolution). Used to decide whether a stage-cycle carries an
+// enforceable deadline; a stint with no active SLA must not record a fake
+// due_at that a downstream dashboard would treat as a missed deadline.
+function stintSlaActive(task: TaskTimingRow): boolean {
+  return (task.overdue_count ?? 0) === 0 && !hasEnteredWaiting(task);
+}
 
 type OpenStageCycle = { id: string; started_at: string };
 type OpenOverdueEvent = { id: string; overdue_at: string };
@@ -68,8 +79,19 @@ function stageStartedAtFromPatch(
   return nowIso;
 }
 
-function dueAtFor(stage: TaskStatus, startedAt: string, slaMinutes: number | null): string | null {
-  if (stage !== "in_progress" || typeof slaMinutes !== "number") return null;
+// Exported so it is unit-tested. A stint only has an enforceable SLA deadline
+// when it is In Progress AND the SLA is active for it. Otherwise there is no
+// deadline to record, so downstream dashboards can trust
+// task_stage_cycles.due_at as a real "should have been done by".
+export function dueAtForStint(
+  stage: TaskStatus,
+  startedAt: string,
+  slaMinutes: number | null,
+  slaActive: boolean
+): string | null {
+  if (stage !== "in_progress" || !slaActive || typeof slaMinutes !== "number") {
+    return null;
+  }
   return slaDeadline(startedAt, slaMinutes).toISOString();
 }
 
@@ -114,6 +136,7 @@ async function closeStageCycle(
     return;
   }
 
+  const closingSlaActive = task.status === "in_progress" && stintSlaActive(task);
   const { error } = await supabase.from("task_stage_cycles").insert({
     task_id: task.id,
     stage: task.status,
@@ -122,8 +145,8 @@ async function closeStageCycle(
     duration_seconds: durationSeconds(startedAt, endedAt),
     ended_by_email: actorEmail,
     to_status: toStatus,
-    sla_minutes: task.status === "in_progress" ? task.sla_minutes : null,
-    due_at: dueAtFor(task.status, startedAt, task.sla_minutes),
+    sla_minutes: closingSlaActive ? task.sla_minutes : null,
+    due_at: dueAtForStint(task.status, startedAt, task.sla_minutes, closingSlaActive),
     meta: { source: "fallback-close" },
   });
   if (error && !isUniqueViolation(error)) throw new Error(error.message);
@@ -138,17 +161,19 @@ async function startStageCycle(
     actorEmail: string;
     fromStatus: TaskStatus | null;
     slaMinutes?: number | null;
+    slaActive?: boolean;
     meta?: Record<string, unknown> | null;
   }
 ): Promise<void> {
+  const slaActive = params.stage === "in_progress" && (params.slaActive ?? false);
   const { error } = await supabase.from("task_stage_cycles").insert({
     task_id: params.taskId,
     stage: params.stage,
     started_at: params.startedAt,
     started_by_email: params.actorEmail,
     from_status: params.fromStatus,
-    sla_minutes: params.stage === "in_progress" ? params.slaMinutes ?? null : null,
-    due_at: dueAtFor(params.stage, params.startedAt, params.slaMinutes ?? null),
+    sla_minutes: slaActive ? params.slaMinutes ?? null : null,
+    due_at: dueAtForStint(params.stage, params.startedAt, params.slaMinutes ?? null, slaActive),
     meta: params.meta ?? null,
   });
   if (error && !isUniqueViolation(error)) throw new Error(error.message);
@@ -168,6 +193,8 @@ export async function recordInitialTaskHistory(
     actorEmail,
     fromStatus: null,
     slaMinutes: task.sla_minutes,
+    // A task created directly In Progress is a first run: SLA active.
+    slaActive: task.status === "in_progress" && stintSlaActive(task),
     meta: { source: "create" },
   });
   await syncAssignmentCycles(supabase, {
@@ -214,6 +241,11 @@ export async function recordStageTransition(
       nextStatus === "in_progress"
         ? ((params.patch.sla_minutes as number | undefined) ?? params.task.sla_minutes)
         : null,
+    // The new In Progress stint is SLA-active only if the task hadn't waited
+    // and hadn't already resolved an overdue before this transition. The
+    // pre-transition task state (params.task) carries those markers — entering
+    // In Progress doesn't change them.
+    slaActive: nextStatus === "in_progress" && stintSlaActive(params.task),
   });
 }
 
