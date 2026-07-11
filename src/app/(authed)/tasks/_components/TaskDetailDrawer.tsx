@@ -10,6 +10,7 @@ import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
 import { AttachmentPanel } from "./AttachmentPanel";
 import { OverdueLog } from "./OverdueLog";
+import { StageTimeBreakdown } from "./StageTimeBreakdown";
 import { TaskSelect } from "./TaskSelect";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
 import { AvatarStack } from "./board-ui";
@@ -248,6 +249,7 @@ export function TaskDetailDrawer({
             </main>
 
             <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
+              <StageTimeBreakdown task={task} />
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Priority</span>
