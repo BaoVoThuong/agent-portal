@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Loader2, RotateCcw, X, Clock } from "lucide-react";
 import {
@@ -14,6 +14,10 @@ import {
   formatDurationMinutes,
   resolveSlaMinutes,
 } from "@/lib/tasks/sla";
+import {
+  DEFAULT_REMINDER_SETTINGS,
+  type ReminderSettings,
+} from "@/lib/tasks/reminder-settings";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
 const PRIORITY_LABEL: Record<TaskPriority, string> = {
@@ -26,6 +30,21 @@ const PRIORITY_LABEL: Record<TaskPriority, string> = {
 const DEFAULT_ROW_KEY = "__default__";
 const HOUR_OPTIONS = Array.from({ length: 169 }, (_, i) => i); // 0-168h (1 week)
 const MINUTE_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const REMINDER_ROWS: Array<{
+  key: keyof ReminderSettings;
+  label: string;
+  unit: string;
+}> = [
+  { key: "dueSoonMinutes", label: "Due soon", unit: "min" },
+  { key: "overdueReminderHours", label: "Overdue reminders", unit: "h" },
+  { key: "waitingHours", label: "Waiting reminders", unit: "h" },
+  { key: "staleHours", label: "Stale reminders", unit: "h" },
+];
+
+type ReminderSettingsResponse = {
+  settings?: ReminderSettings;
+  error?: string;
+};
 
 function formatDuration(minutes: number): string {
   return formatDurationMinutes(minutes);
@@ -46,9 +65,50 @@ export function SlaRulesModal({
 }) {
   const [priority, setPriority] = useState<TaskPriority>("urgent");
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [reminderSettings, setReminderSettings] = useState<ReminderSettings>(
+    DEFAULT_REMINDER_SETTINGS
+  );
+  const [loadingReminders, setLoadingReminders] = useState(false);
+  const [savingReminderKey, setSavingReminderKey] = useState<
+    keyof ReminderSettings | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
 
   const rows = [{ id: DEFAULT_ROW_KEY, name: "Default (no category)", color: null }, ...categories];
+
+  useEffect(() => {
+    if (!open) return;
+
+    let ignore = false;
+
+    async function loadReminderSettings() {
+      setLoadingReminders(true);
+      try {
+        const res = await fetch("/api/admin/task-reminder-settings");
+        const data = (await res.json().catch(() => null)) as
+          | ReminderSettingsResponse
+          | null;
+        if (!res.ok || !data?.settings) {
+          throw new Error(data?.error ?? "Could not load reminder settings.");
+        }
+        if (!ignore) setReminderSettings(data.settings);
+      } catch (err) {
+        if (!ignore) {
+          setError(
+            err instanceof Error ? err.message : "Could not load reminder settings."
+          );
+        }
+      } finally {
+        if (!ignore) setLoadingReminders(false);
+      }
+    }
+
+    loadReminderSettings();
+
+    return () => {
+      ignore = true;
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -113,6 +173,41 @@ export function SlaRulesModal({
       setError(err instanceof Error ? err.message : "Could not reset this rule.");
     } finally {
       setSavingKey(null);
+    }
+  }
+
+  async function saveReminderSetting(key: keyof ReminderSettings, value: number) {
+    if (!Number.isFinite(value) || value <= 0) {
+      setError("Reminder values must be greater than 0.");
+      return;
+    }
+
+    const nextSettings = {
+      ...reminderSettings,
+      [key]: Math.round(value),
+    };
+
+    setSavingReminderKey(key);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/task-reminder-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextSettings),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | ReminderSettingsResponse
+        | null;
+      if (!res.ok || !data?.settings) {
+        throw new Error(data?.error ?? "Could not save reminder settings.");
+      }
+      setReminderSettings(data.settings);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not save reminder settings."
+      );
+    } finally {
+      setSavingReminderKey(null);
     }
   }
 
@@ -197,6 +292,29 @@ export function SlaRulesModal({
               System default: {formatDuration(DEFAULT_SLA_MINUTES[priority])}. Categories
               without an override use the &quot;Default&quot; row above.
             </p>
+            <div className="mt-5 border-t border-[#dfe1e6] pt-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <h3 className="text-xs font-bold uppercase text-[#6b778c]">
+                  Reminders
+                </h3>
+                {loadingReminders ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
+                ) : null}
+              </div>
+              <ul className="space-y-1.5">
+                {REMINDER_ROWS.map((row) => (
+                  <ReminderSettingRow
+                    key={`${row.key}:${reminderSettings[row.key]}`}
+                    label={row.label}
+                    value={reminderSettings[row.key]}
+                    unit={row.unit}
+                    saving={savingReminderKey === row.key}
+                    disabled={loadingReminders}
+                    onSave={(value) => saveReminderSetting(row.key, value)}
+                  />
+                ))}
+              </ul>
+            </div>
             {error ? (
               <div className="mt-3 rounded bg-[#ffebe6] px-3 py-2 text-sm font-medium text-[#ae2a19]">
                 {error}
@@ -206,6 +324,67 @@ export function SlaRulesModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function ReminderSettingRow({
+  label,
+  value,
+  unit,
+  saving,
+  disabled,
+  onSave,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  saving: boolean;
+  disabled: boolean;
+  onSave: (value: number) => void;
+}) {
+  function commit(input: HTMLInputElement) {
+    const next = Number(input.value);
+    if (!Number.isFinite(next) || next <= 0) {
+      input.value = String(value);
+      return;
+    }
+
+    const rounded = Math.round(next);
+    input.value = String(rounded);
+    if (rounded !== value) onSave(rounded);
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-3 rounded border border-[#dfe1e6] bg-white px-3 py-2">
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#172b4d]">
+        {label}
+      </span>
+      <label className="flex h-8 w-[6.25rem] shrink-0 items-center rounded border-2 border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] transition focus-within:border-[#0c66e4]">
+        <input
+          type="number"
+          min={1}
+          step={1}
+          defaultValue={value}
+          disabled={disabled || saving}
+          aria-label={label}
+          onBlur={(event) => commit(event.currentTarget)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") {
+              event.currentTarget.value = String(value);
+              event.currentTarget.blur();
+            }
+          }}
+          className="min-w-0 flex-1 bg-transparent outline-none disabled:cursor-not-allowed disabled:text-[#97a0af]"
+        />
+        <span className="ml-1 shrink-0 text-[#6b778c]">{unit}</span>
+      </label>
+      {saving ? (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
+      ) : (
+        <span className="w-4 shrink-0" />
+      )}
+    </li>
   );
 }
 
