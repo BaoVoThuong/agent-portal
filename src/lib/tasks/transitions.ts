@@ -224,6 +224,7 @@ export function resolveTaskPatch(
     patch.overdue_flagged_at = null;
     patch.overdue_reminded_at = null;
     patch.overdue_unlocked_at = null;
+    patch.due_soon_notified_at = null;
     // Lock the SLA budget on the FIRST-ever In Progress entry only. Re-entries
     // keep the original budget so editing priority later can't move work that
     // has already started. After Waiting, In Progress remains plain effort

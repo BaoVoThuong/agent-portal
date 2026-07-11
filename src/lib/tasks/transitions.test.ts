@@ -115,6 +115,7 @@ describe("resolveTaskPatch", () => {
         overdue_flagged_at: null,
         overdue_reminded_at: null,
         overdue_unlocked_at: null,
+        due_soon_notified_at: null,
       },
     });
   });
@@ -163,6 +164,7 @@ describe("resolveTaskPatch", () => {
         overdue_flagged_at: null,
         overdue_reminded_at: null,
         overdue_unlocked_at: null,
+        due_soon_notified_at: null,
       },
     });
   });
@@ -312,6 +314,7 @@ describe("resolveTaskPatch", () => {
         overdue_flagged_at: null,
         overdue_reminded_at: null,
         overdue_unlocked_at: null,
+        due_soon_notified_at: null,
         waiting_reminded_at: null,
       },
     });
@@ -338,6 +341,7 @@ describe("resolveTaskPatch", () => {
         overdue_flagged_at: null,
         overdue_reminded_at: null,
         overdue_unlocked_at: null,
+        due_soon_notified_at: null,
         sla_minutes: 60,
       },
     });

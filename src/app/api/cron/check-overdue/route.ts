@@ -5,11 +5,11 @@ import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchTaskAssigneeEmails } from "@/lib/tasks/assignees";
 import { openOverdueEvent } from "@/lib/tasks/history";
 import { insertNotifications } from "@/lib/tasks/notifications";
+import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
+import { intervalDue, isDueSoon, isStale } from "@/lib/tasks/reminders";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
-const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const WAITING_REMINDER_AFTER_MS = 24 * 60 * 60 * 1000;
 
 // Proactive overdue detection: the board computes "is this task overdue" live,
 // but the audit/reminder trail still needs a durable server-side marker. This
@@ -26,12 +26,6 @@ function checkAuthorization(request: Request): "ok" | "misconfigured" | "unautho
   return ok ? "ok" : "unauthorized";
 }
 
-function reminderDue(lastReminderIso: string | null | undefined, now: Date): boolean {
-  if (!lastReminderIso) return true;
-  const lastReminderTime = new Date(lastReminderIso).getTime();
-  return Number.isNaN(lastReminderTime) || now.getTime() - lastReminderTime >= REMINDER_INTERVAL_MS;
-}
-
 export async function GET(request: Request) {
   const authResult = checkAuthorization(request);
   if (authResult === "misconfigured") {
@@ -44,12 +38,24 @@ export async function GET(request: Request) {
   const supabase = getSupabaseAdmin();
   const now = new Date();
   const nowIso = now.toISOString();
-  const waitingCutoffIso = new Date(now.getTime() - WAITING_REMINDER_AFTER_MS).toISOString();
+  const { data: settingsRow, error: settingsError } = await supabase
+    .from("task_reminder_settings")
+    .select("*")
+    .maybeSingle();
+  if (settingsError) {
+    return NextResponse.json({ error: settingsError.message }, { status: 500 });
+  }
+
+  const settings = resolveReminderSettings(settingsRow);
+  const overdueReminderMs = settings.overdueReminderHours * 3600_000;
+  const waitingReminderMs = settings.waitingHours * 3600_000;
+  const staleReminderMs = settings.staleHours * 3600_000;
+  const waitingCutoffIso = new Date(now.getTime() - waitingReminderMs).toISOString();
 
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
     .select(
-      "id,status,priority,category_id,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,overdue_flagged_at,overdue_reminded_at,sla_minutes,overdue_count"
+      "id,status,priority,category_id,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,overdue_flagged_at,overdue_reminded_at,due_soon_notified_at,sla_minutes,overdue_count"
     )
     .eq("status", "in_progress")
     .is("archived_at", null)
@@ -68,6 +74,7 @@ export async function GET(request: Request) {
     | "waiting_seconds"
     | "overdue_flagged_at"
     | "overdue_reminded_at"
+    | "due_soon_notified_at"
     | "sla_minutes"
     | "overdue_count"
   >[];
@@ -92,7 +99,13 @@ export async function GET(request: Request) {
     (task) =>
       Boolean(task.overdue_flagged_at) &&
       isTaskOverdue(task, rules, now) &&
-      reminderDue(task.overdue_reminded_at, now)
+      intervalDue(task.overdue_reminded_at, overdueReminderMs, now)
+  );
+
+  const dueSoonTasks = tasks.filter(
+    (task) =>
+      !task.due_soon_notified_at &&
+      isDueSoon(task, rules, settings.dueSoonMinutes, now)
   );
 
   const { data: waitingRows, error: waitingError } = await supabase
@@ -110,7 +123,24 @@ export async function GET(request: Request) {
     >[]
   ).filter(
     (task) =>
-      reminderDue(task.waiting_reminded_at, now)
+      intervalDue(task.waiting_reminded_at, waitingReminderMs, now)
+  );
+
+  const { data: staleRows, error: staleError } = await supabase
+    .from("tasks")
+    .select("id,status,last_activity_at,stale_reminded_at")
+    .in("status", ["todo", "in_progress", "waiting"])
+    .is("archived_at", null);
+  if (staleError) return NextResponse.json({ error: staleError.message }, { status: 500 });
+  const staleReminderTasks = (
+    (staleRows ?? []) as Pick<
+      TaskRow,
+      "id" | "status" | "last_activity_at" | "stale_reminded_at"
+    >[]
+  ).filter(
+    (task) =>
+      isStale(task, settings.staleHours, now) &&
+      intervalDue(task.stale_reminded_at, staleReminderMs, now)
   );
 
   if (newlyOverdue.length > 0) {
@@ -198,10 +228,57 @@ export async function GET(request: Request) {
     );
   }
 
+  if (dueSoonTasks.length > 0) {
+    await Promise.all(
+      dueSoonTasks.map(async (task) => {
+        const assignees = await fetchTaskAssigneeEmails(task.id, supabase);
+        await insertNotifications(
+          assignees.map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "due_soon",
+            actor_email: "system",
+          }))
+        );
+        const { error: updateError } = await supabase
+          .from("tasks")
+          .update({ due_soon_notified_at: nowIso })
+          .eq("id", task.id)
+          .eq("status", "in_progress")
+          .is("due_soon_notified_at", null);
+        if (updateError) throw new Error(updateError.message);
+      })
+    );
+  }
+
+  if (staleReminderTasks.length > 0) {
+    await Promise.all(
+      staleReminderTasks.map(async (task) => {
+        const assignees = await fetchTaskAssigneeEmails(task.id, supabase);
+        await insertNotifications(
+          assignees.map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "stale",
+            actor_email: "system",
+          }))
+        );
+        const { error: updateError } = await supabase
+          .from("tasks")
+          .update({ stale_reminded_at: nowIso })
+          .eq("id", task.id)
+          .in("status", ["todo", "in_progress", "waiting"]);
+        if (updateError) throw new Error(updateError.message);
+      })
+    );
+  }
+
   return NextResponse.json({
     checked: tasks.length,
     flagged: newlyOverdue.length,
     reminded: stillOverdue.length,
     waitingReminded: waitingReminderTasks.length,
+    dueSoon: dueSoonTasks.length,
+    stale: staleReminderTasks.length,
   });
 }
