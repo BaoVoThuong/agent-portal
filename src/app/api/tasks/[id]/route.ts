@@ -351,32 +351,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  if (leavingOverdueInProgress) {
-    const minutes = effectiveSlaMinutes(r.task, slaRules);
-    await resolveOverdueEvent(r.supabase, {
-      task: r.task,
-      dueAt: (currentStintDueAt(r.task, slaRules) ?? new Date(nowIso)).toISOString(),
-      resolvedAt: nowIso,
-      actorEmail: r.actor.email,
-      reason: `Status changed to ${resolved.patch.status}`,
-      slaMinutes: minutes,
-    });
-  }
-  await recordStageTransition(r.supabase, {
-    task: r.task,
-    patch: resolved.patch,
-    actorEmail: r.actor.email,
-    nowIso,
-  });
-  await syncAssignmentCycles(r.supabase, {
-    taskId: id,
-    beforeEmails: beforeAssigneesForHistory,
-    afterEmails: nextAssigneesForHistory,
-    actorEmail: r.actor.email,
-    nowIso,
-    source: "patch",
-  });
-
+  // Everything below writes audit/history tables that don't depend on each
+  // other's results — running them concurrently (instead of one after another)
+  // meaningfully shortens the response time, which matters here: a slow
+  // response widens the window where a realtime-triggered refetch on the
+  // client can race the confirm and flash stale data (see updateTasks/
+  // refetchTasks in TaskBoardClient.tsx for the client-side half of this).
   const entries = buildActivityEntries(
     {
       status: r.task.status,
@@ -386,28 +366,51 @@ export async function PATCH(req: Request, { params }: Ctx) {
     },
     resolved.patch
   );
-  if (entries.length > 0) {
-    await r.supabase.from("task_activity").insert(
-      entries.map((e) => ({
-        task_id: id,
-        actor_email: r.actor.email,
-        type: e.type,
-        meta: e.meta,
-      }))
-    );
-  }
-
-  // Notify a newly assigned person (not when assigning to self).
   const newAssignee = resolved.patch.assignee_email as string | null | undefined;
-  if (
-    newAssignee &&
-    newAssignee !== r.task.assignee_email &&
-    newAssignee !== r.actor.email
-  ) {
-    await insertNotifications([
-      { recipient_email: newAssignee, task_id: id, type: "assigned", actor_email: r.actor.email },
-    ]);
-  }
+  const notifyNewAssignee =
+    newAssignee && newAssignee !== r.task.assignee_email && newAssignee !== r.actor.email;
+
+  await Promise.all([
+    leavingOverdueInProgress
+      ? resolveOverdueEvent(r.supabase, {
+          task: r.task,
+          dueAt: (currentStintDueAt(r.task, slaRules) ?? new Date(nowIso)).toISOString(),
+          resolvedAt: nowIso,
+          actorEmail: r.actor.email,
+          reason: `Status changed to ${resolved.patch.status}`,
+          slaMinutes: effectiveSlaMinutes(r.task, slaRules),
+        })
+      : null,
+    recordStageTransition(r.supabase, {
+      task: r.task,
+      patch: resolved.patch,
+      actorEmail: r.actor.email,
+      nowIso,
+    }),
+    syncAssignmentCycles(r.supabase, {
+      taskId: id,
+      beforeEmails: beforeAssigneesForHistory,
+      afterEmails: nextAssigneesForHistory,
+      actorEmail: r.actor.email,
+      nowIso,
+      source: "patch",
+    }),
+    entries.length > 0
+      ? r.supabase.from("task_activity").insert(
+          entries.map((e) => ({
+            task_id: id,
+            actor_email: r.actor.email,
+            type: e.type,
+            meta: e.meta,
+          }))
+        )
+      : null,
+    notifyNewAssignee
+      ? insertNotifications([
+          { recipient_email: newAssignee, task_id: id, type: "assigned", actor_email: r.actor.email },
+        ])
+      : null,
+  ]);
 
   await broadcastTasksChanged();
   await broadcastTaskRoom(id);

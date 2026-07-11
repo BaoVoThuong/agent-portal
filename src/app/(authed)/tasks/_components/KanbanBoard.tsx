@@ -15,7 +15,6 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { AlertTriangle } from "lucide-react";
 import {
   SortableContext,
   arrayMove,
@@ -32,7 +31,7 @@ import {
   type TaskCategory,
   type TaskSlaRule,
 } from "@/lib/tasks/types";
-import { isTaskOverdue, slaRemainingSeconds } from "@/lib/tasks/sla";
+import { isSlaActiveInProgress, isTaskOverdue, slaRemainingSeconds } from "@/lib/tasks/sla";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TaskCard } from "./TaskCard";
 
@@ -41,9 +40,7 @@ function byPosition(tasks: TaskRow[]): TaskRow[] {
 }
 
 // The board column a draggable id currently belongs to. Column drop zones use
-// the id `col:<column>`; cards use their task id. "overdue" is a computed
-// bucket, never a real status, so it can never be the resolved container for
-// a card that's actually being moved (see the drag handlers below).
+// the id `col:<column>`; cards use their task id.
 function findContainer(
   id: string,
   items: TaskRow[],
@@ -63,10 +60,21 @@ function endIndexOfStatus(items: TaskRow[], status: TaskStatus): number {
   return lastIndex === -1 ? items.length : lastIndex + 1;
 }
 
-function statusForDropColumn(column: BoardColumn): TaskStatus | null {
-  if (column === "overdue") return null;
-  if (column === "closed") return "done";
+function statusForDropColumn(column: BoardColumn): TaskStatus {
   return column;
+}
+
+function hasBeenInProgress(task: TaskRow): boolean {
+  return (
+    task.status === "in_progress" ||
+    Boolean(task.in_progress_at) ||
+    task.in_progress_seconds > 0
+  );
+}
+
+function canDropTaskInColumn(task: TaskRow, column: BoardColumn): boolean {
+  const nextStatus = statusForDropColumn(column);
+  return !(nextStatus === "todo" && task.status !== "todo" && hasBeenInProgress(task));
 }
 
 function isColumnId(id: unknown): boolean {
@@ -168,10 +176,12 @@ function Column({
   assigneeLabelByEmail,
   canReviewDoneTask,
   onReviewDone,
+  isOverdueTask,
   slaRemainingFor,
   newAssignedTaskIds,
   useAssigneeTodoClock,
   now,
+  activeId,
   onUnlockOverdue,
   onReopenRequest,
 }: {
@@ -181,45 +191,34 @@ function Column({
   canMoveTask: (task: TaskRow) => boolean;
   canReviewDoneTask: (task: TaskRow) => boolean;
   onReviewDone: (taskId: string, reviewed: boolean) => void;
+  isOverdueTask: (task: TaskRow) => boolean;
   categoryById: Map<string, TaskCategory>;
   assigneeLabelByEmail: Map<string, string>;
   slaRemainingFor: (task: TaskRow) => number | null;
   newAssignedTaskIds: Set<string>;
   useAssigneeTodoClock: boolean;
   now: Date;
+  activeId: string | null;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${column}` });
-  const isOverdueColumn = column === "overdue";
-  const isTerminalColumn = column === "closed";
+  const isTerminalColumn = column === "done" || column === "cancel";
 
   return (
     <section
       ref={setNodeRef}
       className={`flex min-w-0 flex-1 flex-col rounded border border-transparent bg-[#f4f5f7] p-1.5 transition-colors ${
-        isOver && !isOverdueColumn ? "bg-[#deebff]" : ""
+        isOver ? "bg-[#deebff]" : ""
       }`}
     >
       <div className="flex h-9 items-center px-1">
-        {isOverdueColumn ? (
-          <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-bold uppercase text-[#c2410c]">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{BOARD_COLUMN_LABEL[column]}</span>
-            <span className="rounded-full bg-[#ffedd5] px-1.5 py-0.5 text-[10px] leading-none text-[#9a3412]">
-              {tasks.length}
-            </span>
-          </span>
-        ) : (
-          <>
-            <span className="text-xs font-bold uppercase text-[#6b778c]">
-              {BOARD_COLUMN_LABEL[column]}
-            </span>
-            <span className="ml-1 text-xs font-bold text-[#6b778c]">
-              {tasks.length}
-            </span>
-          </>
-        )}
+        <span className="text-xs font-bold uppercase text-[#6b778c]">
+          {BOARD_COLUMN_LABEL[column]}
+        </span>
+        <span className="ml-1 text-xs font-bold text-[#6b778c]">
+          {tasks.length}
+        </span>
       </div>
       <div className="min-h-[12rem] flex-1 overflow-y-auto rounded px-0.5 pb-1">
         <SortableContext
@@ -234,10 +233,17 @@ function Column({
               assigneeLabelByEmail={assigneeLabelByEmail}
               canReviewDone={canReviewDoneTask(t)}
               onReviewDone={onReviewDone}
-              canMove={!isOverdueColumn && !isTerminalColumn && canMoveTask(t)}
+              // Once a card is dropped into Done/Cancel it should stop being
+              // draggable. While it is actively being dragged into that column,
+              // keep sortable enabled so dnd-kit can finish the drop cleanly.
+              canMove={
+                (activeId === t.id || !isTerminalColumn) &&
+                !isOverdueTask(t) &&
+                canMoveTask(t)
+              }
               onOpen={onOpen}
               slaRemainingSeconds={slaRemainingFor(t)}
-              isOverdue={isOverdueColumn}
+              isOverdue={isOverdueTask(t)}
               isNewAssigned={newAssignedTaskIds.has(t.id)}
               useAssigneeTodoClock={useAssigneeTodoClock}
               now={now}
@@ -287,17 +293,18 @@ export function KanbanBoard({
   );
   const categoryById = new Map(categories.map((category) => [category.id, category]));
 
+  // A task can only actively be overdue once (see sla.ts): resolving it
+  // (Enter reason) always sends it to To Do, so the moment it's resolved it
+  // structurally leaves this check too — no separate "locked" flag needed.
   const isOverdueTask = (task: TaskRow) => isTaskOverdue(task, rules, now);
   const slaRemainingFor = (task: TaskRow): number | null => {
-    if (task.status !== "in_progress" || !task.in_progress_at) return null;
+    if (!isSlaActiveInProgress(task)) return null;
     return slaRemainingSeconds(task, rules, now);
   };
   // Kanban never receives backlog tasks (Backlog is a separate view), but
   // TaskStatus includes it — narrow it away so the fallback return type-checks.
   const columnOf = (task: TaskRow): BoardColumn => {
-    if (task.status === "in_progress" && isOverdueTask(task)) return "overdue";
     if (task.status === "backlog") return "todo";
-    if (task.status === "done" || task.status === "cancel") return "closed";
     return task.status;
   };
 
@@ -323,20 +330,22 @@ export function KanbanBoard({
       canMoveTask={canMoveTask}
       canReviewDoneTask={canReviewDoneTask}
       onReviewDone={onReviewDone}
+      isOverdueTask={isOverdueTask}
       categoryById={categoryById}
       assigneeLabelByEmail={assigneeLabelByEmail}
       slaRemainingFor={slaRemainingFor}
       newAssignedTaskIds={newAssignedTaskIds}
       useAssigneeTodoClock={useAssigneeTodoClock}
       now={now}
+      activeId={activeId}
       onUnlockOverdue={onUnlockOverdue}
       onReopenRequest={onReopenRequest}
     />
   );
 
-  // Done/Cancel cards can't be dragged straight back to To Do — that
-  // has to go through the reason-gated Reopen action (see the Reopen button
-  // on the card), same lock treatment as the Overdue column.
+  // Done/Cancel cards go through the reason-gated Reopen action. Overdue
+  // cards are locked (must "Enter reason") until resolved, which sends them
+  // to To Do — so a task can never be dragged while overdue.
   function canDragTask(task: TaskRow): boolean {
     return (
       canMoveTask(task) &&
@@ -356,7 +365,6 @@ export function KanbanBoard({
 
   // Live cross-column move: when the dragged card hovers a different column,
   // splice it into that column immediately so the board reflows under the cursor.
-  // "Overdue" is a computed bucket, not a real status — dropping there is a no-op.
   function handleDragOver(event: DragOverEvent) {
     const { active, over } = event;
     if (!over) return;
@@ -369,14 +377,10 @@ export function KanbanBoard({
       const current = prev ?? sortedTasks;
       const activeContainer = findContainer(activeId, current, columnOf);
       const overContainer = findContainer(overId, current, columnOf);
-      if (
-        !activeContainer ||
-        !overContainer ||
-        activeContainer === overContainer ||
-        overContainer === "overdue"
-      ) {
+      if (!activeContainer || !overContainer || activeContainer === overContainer) {
         return current;
       }
+      if (!canDropTaskInColumn(original, overContainer)) return current;
 
       const activeIndex = current.findIndex((task) => task.id === activeId);
       if (activeIndex === -1) return current;
@@ -384,7 +388,6 @@ export function KanbanBoard({
       const next = [...current];
       const [moved] = next.splice(activeIndex, 1);
       const nextStatus = statusForDropColumn(overContainer);
-      if (!nextStatus) return current;
       const movedUpdated: TaskRow = { ...moved, status: nextStatus };
 
       let insertIndex: number;
@@ -431,6 +434,7 @@ export function KanbanBoard({
 
     const moving = working.find((task) => task.id === activeId);
     if (!moving) return;
+    if (!canDropTaskInColumn(original, columnOf(moving))) return;
 
     // New position = midpoint of the neighbours in the destination column.
     const column = working.filter((task) => task.status === moving.status);

@@ -15,30 +15,18 @@ export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
 // Columns shown on the Kanban (Backlog is a separate view, not a Kanban column).
-export const KANBAN_STATUSES: TaskStatus[] = [
+export const KANBAN_STATUSES = [
   "todo",
   "in_progress",
   "waiting",
   "done",
   "cancel",
-];
+] as const satisfies readonly TaskStatus[];
 
-// "Overdue" isn't a stored status — it's an in_progress task past its SLA
-// deadline (see lib/tasks/sla.ts). The board still renders it as its own
-// column, so this is the UI-level column list, separate from TaskStatus.
-export type BoardColumn =
-  | "todo"
-  | "in_progress"
-  | "waiting"
-  | "overdue"
-  | "closed";
-export const KANBAN_COLUMNS: BoardColumn[] = [
-  "todo",
-  "in_progress",
-  "waiting",
-  "overdue",
-  "closed",
-];
+// "Overdue" isn't a stored status or a column — it's an SLA state of an
+// In Progress task. The board keeps the card in the In Progress column.
+export type BoardColumn = (typeof KANBAN_STATUSES)[number];
+export const KANBAN_COLUMNS: BoardColumn[] = [...KANBAN_STATUSES];
 
 export type TaskRow = {
   id: string;
@@ -60,6 +48,7 @@ export type TaskRow = {
   waiting_started_at: string | null;
   waiting_reminded_at: string | null;
   overdue_reminded_at: string | null;
+  overdue_unlocked_at: string | null;
   reopened_at: string | null;
   sla_minutes: number | null;
   overdue_count: number;
@@ -104,6 +93,6 @@ export const BOARD_COLUMN_LABEL: Record<BoardColumn, string> = {
   todo: "To Do",
   in_progress: "In Progress",
   waiting: "Waiting",
-  overdue: "Overdue",
-  closed: "Closed",
+  done: "Done",
+  cancel: "Cancel",
 };

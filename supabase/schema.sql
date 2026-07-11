@@ -1324,12 +1324,10 @@ alter table tasks add column if not exists overdue_flagged_at timestamptz;
 -- resolution for those.
 alter table tasks add column if not exists sla_minutes integer;
 
--- Permanent tally of how many times this task has gone overdue — unlike
--- overdue_flagged_at (cleared on every overdue/closed reopen so it can re-arm), this
--- never resets, including once the task reaches Done/Cancel. Powers: (1) a
--- "was overdue" badge on completed tasks, since the live overdue check goes
--- blank the moment status leaves in_progress; (2) a "was overdue" badge after
--- a task is reopened back to To Do.
+-- Permanent tally of how many times this task has gone overdue. Unlike
+-- overdue_flagged_at, this never resets, including once the task reaches
+-- Done/Cancel. Powers historical "was overdue" indicators once the live
+-- In Progress overdue state no longer applies.
 alter table tasks add column if not exists overdue_count integer not null default 0;
 
 -- Stage timestamps used for operational clocks and reminders. Assignment time
@@ -1341,21 +1339,18 @@ alter table tasks add column if not exists todo_started_at timestamptz;
 alter table tasks add column if not exists waiting_started_at timestamptz;
 alter table tasks add column if not exists waiting_reminded_at timestamptz;
 alter table tasks add column if not exists overdue_reminded_at timestamptz;
+alter table tasks add column if not exists overdue_unlocked_at timestamptz;
 alter table tasks add column if not exists reopened_at timestamptz;
 alter table tasks add column if not exists closed_at timestamptz;
 
 -- Cumulative time (seconds) a task has spent in each stage across ALL visits,
 -- banked when the task leaves that stage. Display time in a stage = the
 -- accumulator + (now - *_started_at) while currently in it. This is what makes
--- the stage clocks consistent: bouncing To Do -> In Progress -> To Do keeps
--- counting instead of resetting to 0.
+-- the stage clocks consistent across every allowed stage transition.
 --
--- in_progress_seconds is also the SLA meter: a task is overdue when
--- in_progress_seconds + current-stint elapsed >= sla_minutes*60. Because the
--- accumulator never decreases, the SLA can't be reset by leaving and
--- re-entering In Progress (the old anti-gaming hole), and a task that has
--- already burned its budget shows "Overdue by …" the moment it's worked again
--- instead of a fresh countdown.
+-- in_progress_seconds is historical/KPI time only. Active SLA overdue uses
+-- the current in_progress_at stint before any Waiting. Once a task has entered
+-- Waiting, later In Progress time is plain effort tracking without active SLA.
 alter table tasks add column if not exists todo_seconds integer not null default 0;
 alter table tasks add column if not exists in_progress_seconds integer not null default 0;
 alter table tasks add column if not exists waiting_seconds integer not null default 0;

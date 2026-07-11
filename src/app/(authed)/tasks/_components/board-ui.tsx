@@ -120,9 +120,9 @@ export function StageElapsedBadge({
   );
 }
 
-// Consumption-based SLA: `remainingSeconds` = budget − time spent In Progress
-// (across all stints). Positive → "X left" countdown; <= 0 → "Overdue by X"
-// counting up. `null` means the task isn't In Progress (no timer to show).
+// Active SLA timer: `remainingSeconds` = budget - current In Progress stint.
+// Positive -> "X left" countdown; <= 0 -> "Overdue by X" counting up.
+// `null` means no active SLA timer (outside In Progress, or after Waiting).
 export function SlaTimer({
   remainingSeconds,
 }: {

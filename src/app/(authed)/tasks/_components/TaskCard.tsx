@@ -1,6 +1,10 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
 import { AlertTriangle, CheckCircle2, Circle, RotateCcw } from "lucide-react";
-import type { PointerEvent as ReactPointerEvent, SyntheticEvent } from "react";
+import type {
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+  SyntheticEvent,
+} from "react";
 import { stageElapsedSeconds } from "@/lib/tasks/sla";
 import {
   Initials,
@@ -69,15 +73,6 @@ export function TaskCard({
     task.in_progress_at,
     now
   );
-  // Three In Progress display states:
-  //  - fresh breach (isOverdue): handled by the Overdue column — red "Overdue by X".
-  //  - reworked after a reopen (over budget but not overdue): count up "In progress X".
-  //  - normal (under budget): countdown "X left".
-  const isReworkingOverBudget =
-    task.status === "in_progress" &&
-    !isOverdue &&
-    slaRemainingSeconds !== null &&
-    slaRemainingSeconds <= 0;
   return (
     <div
       role="button"
@@ -104,6 +99,7 @@ export function TaskCard({
         </div>
 
         <div className="flex shrink-0 items-start gap-1.5">
+          <TaskStateIndicators task={task} isOverdue={isOverdue} />
           <PriorityMarker priority={task.priority} />
           <span
             className="relative shrink-0"
@@ -128,25 +124,21 @@ export function TaskCard({
             General
           </span>
         )}
-        <ClosedStatusBadge task={task} />
         <DoneReviewBadge
           task={task}
           canReviewDone={canReviewDone}
           onReviewDone={onReviewDone}
         />
-        <ReopenedBadge task={task} />
         {task.status === "todo" ? (
           <StageElapsedBadge label="To do" seconds={todoElapsedSeconds} />
         ) : null}
         {task.status === "waiting" ? (
           <StageElapsedBadge label="Waiting" seconds={waitingElapsedSeconds} />
         ) : null}
-        {isReworkingOverBudget ? (
+        {task.status === "in_progress" && slaRemainingSeconds === null ? (
           <StageElapsedBadge label="In progress" seconds={inProgressElapsedSeconds} />
-        ) : (
-          <SlaTimer remainingSeconds={slaRemainingSeconds} />
-        )}
-        <WasOverdueBadge task={task} isOverdue={isOverdue} />
+        ) : null}
+        <SlaTimer remainingSeconds={slaRemainingSeconds} />
       </div>
 
       {isOverdue && onUnlockOverdue ? (
@@ -162,7 +154,7 @@ export function TaskCard({
           className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded border border-[#fdba74] bg-[#fff7ed] text-[11px] font-bold text-[#c2410c] transition hover:border-[#fb923c] hover:bg-[#ffedd5]"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
-          Reopen
+          Enter reason
         </button>
       ) : null}
 
@@ -183,21 +175,6 @@ export function TaskCard({
         </button>
       ) : null}
     </div>
-  );
-}
-
-function ClosedStatusBadge({ task }: { task: TaskRow }) {
-  if (task.status !== "done" && task.status !== "cancel") return null;
-
-  const cancelled = task.status === "cancel";
-  return (
-    <span
-      className={`rounded px-1.5 py-0.5 text-[11px] font-bold uppercase ${
-        cancelled ? "bg-[#ffebe6] text-[#bf2600]" : "bg-[#e3fcef] text-[#006644]"
-      }`}
-    >
-      {cancelled ? "Cancelled" : "Done"}
-    </span>
   );
 }
 
@@ -279,43 +256,68 @@ function CategoryBadge({ category }: { category: TaskCategory }) {
   );
 }
 
-// Permanent "Overdue" tag for a task that has burned its SLA budget but isn't
-// in the live-overdue red state right now (e.g. sent back to To Do / Waiting,
-// or completed). The live overdue check only fires while In Progress, so
-// without this a task that blew its SLA would look completely clean the moment
-// it's moved. The overdue COUNT stays in the DB for KPI but is deliberately
-// not shown here — just the tag (per product decision).
-function WasOverdueBadge({
+// Compact state icons keep operational flags visible without crowding the card
+// metadata row. Live overdue wins over historical "was overdue" so the same
+// alert isn't shown twice.
+function TaskStateIndicators({
   task,
   isOverdue,
 }: {
   task: TaskRow;
   isOverdue: boolean;
 }) {
-  if (isOverdue) return null;
-  if (task.overdue_count <= 0) return null;
+  const wasOverdue = !isOverdue && task.overdue_count > 0;
+  if (!isOverdue && !wasOverdue && !task.reopened_at) return null;
 
   return (
-    <span
-      className="inline-flex items-center gap-1 rounded bg-[#fff0b3] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]"
-      title="This task went over its SLA at least once."
-    >
-      <AlertTriangle className="h-3.5 w-3.5" />
-      Was overdue
+    <span className="flex shrink-0 items-center gap-1" aria-label="Task flags">
+      {isOverdue ? (
+        <StateIcon
+          tone="danger"
+          title="Overdue: this task is over its SLA."
+          icon={<AlertTriangle className="h-3 w-3" />}
+        />
+      ) : null}
+      {wasOverdue ? (
+        <StateIcon
+          tone="warning"
+          title="Was overdue: this task went over its SLA at least once."
+          icon={<AlertTriangle className="h-3 w-3" />}
+        />
+      ) : null}
+      {task.reopened_at ? (
+        <StateIcon
+          tone="info"
+          title="Reopened: this task was reopened."
+          icon={<RotateCcw className="h-3 w-3" />}
+        />
+      ) : null}
     </span>
   );
 }
 
-function ReopenedBadge({ task }: { task: TaskRow }) {
-  if (!task.reopened_at) return null;
+function StateIcon({
+  icon,
+  title,
+  tone,
+}: {
+  icon: ReactNode;
+  title: string;
+  tone: "danger" | "warning" | "info";
+}) {
+  const className = {
+    danger: "border-[#ffbdad] bg-[#ffebe6] text-[#bf2600]",
+    warning: "border-[#f8e6a0] bg-[#fff7d6] text-[#7f5f01]",
+    info: "border-[#b3d4ff] bg-[#deebff] text-[#0055cc]",
+  }[tone];
 
   return (
     <span
-      className="inline-flex items-center gap-1 rounded bg-[#deebff] px-1.5 py-0.5 text-[11px] font-bold text-[#0055cc]"
-      title="This task was reopened."
+      className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${className}`}
+      title={title}
+      aria-label={title}
     >
-      <RotateCcw className="h-3.5 w-3.5" />
-      Reopened
+      {icon}
     </span>
   );
 }

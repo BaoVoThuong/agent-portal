@@ -114,23 +114,7 @@ export function TaskRowItem({
       >
         <span className="truncate">{task.title}</span>
         {isNewAssigned ? <NewAssignedBadge /> : null}
-        {task.reopened_at ? (
-          <span
-            className="inline-flex shrink-0 items-center gap-1 rounded bg-[#deebff] px-1.5 py-0.5 text-[11px] font-bold text-[#0055cc]"
-            title="This task was reopened."
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Reopened
-          </span>
-        ) : null}
-        {(task.status === "done" || task.status === "cancel") && task.overdue_count > 0 ? (
-          <span
-            className="shrink-0"
-            title={`Was overdue ${task.overdue_count}x before closing`}
-          >
-            <AlertTriangle className="h-3.5 w-3.5 text-[#7f5f01]" />
-          </span>
-        ) : null}
+        <TaskRowFlags task={task} isOverdue={isOverdue} />
       </button>
 
       <span className={`hidden ${LIST_COL.category} shrink-0 truncate sm:block`}>
@@ -159,7 +143,12 @@ export function TaskRowItem({
         status={task.status}
         assigned={task.assignees.length > 0}
         canEdit={canEdit}
-        isOverdue={isOverdue}
+        hasBeenInProgress={
+          task.status === "in_progress" ||
+          Boolean(task.in_progress_at) ||
+          task.in_progress_seconds > 0
+        }
+        isOverdueLocked={isOverdue}
         onChange={(status) => onPatch(task.id, { status })}
         onUnlockOverdueRequest={onUnlockOverdueRequest}
         onReopenRequest={onReopenRequest}
@@ -185,6 +174,69 @@ export function TaskRowItem({
         />
       </span>
     </div>
+  );
+}
+
+function TaskRowFlags({
+  task,
+  isOverdue,
+}: {
+  task: TaskRow;
+  isOverdue: boolean;
+}) {
+  const wasOverdue = !isOverdue && task.overdue_count > 0;
+  if (!isOverdue && !wasOverdue && !task.reopened_at) return null;
+
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1" aria-label="Task flags">
+      {isOverdue ? (
+        <RowFlagIcon
+          title="Overdue: this task is over its SLA."
+          tone="danger"
+          icon={<AlertTriangle className="h-3 w-3" />}
+        />
+      ) : null}
+      {wasOverdue ? (
+        <RowFlagIcon
+          title={`Was overdue: this task went over its SLA ${task.overdue_count}x.`}
+          tone="warning"
+          icon={<AlertTriangle className="h-3 w-3" />}
+        />
+      ) : null}
+      {task.reopened_at ? (
+        <RowFlagIcon
+          title="Reopened: this task was reopened."
+          tone="info"
+          icon={<RotateCcw className="h-3 w-3" />}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+function RowFlagIcon({
+  icon,
+  title,
+  tone,
+}: {
+  icon: ReactNode;
+  title: string;
+  tone: "danger" | "warning" | "info";
+}) {
+  const className = {
+    danger: "border-[#ffbdad] bg-[#ffebe6] text-[#bf2600]",
+    warning: "border-[#f8e6a0] bg-[#fff7d6] text-[#7f5f01]",
+    info: "border-[#b3d4ff] bg-[#deebff] text-[#0055cc]",
+  }[tone];
+
+  return (
+    <span
+      className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${className}`}
+      title={title}
+      aria-label={title}
+    >
+      {icon}
+    </span>
   );
 }
 
@@ -253,7 +305,8 @@ function StatusPill({
   status,
   assigned,
   canEdit,
-  isOverdue = false,
+  isOverdueLocked = false,
+  hasBeenInProgress = false,
   onChange,
   onUnlockOverdueRequest,
   onReopenRequest,
@@ -261,15 +314,16 @@ function StatusPill({
   status: TaskStatus;
   assigned: boolean;
   canEdit: boolean;
-  isOverdue?: boolean;
+  isOverdueLocked?: boolean;
+  hasBeenInProgress?: boolean;
   onChange: (status: TaskStatus) => void;
   onUnlockOverdueRequest?: () => void;
   onReopenRequest?: () => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
-  const meta = isOverdue ? { bg: "#ffebe6", fg: "#bf2600" } : STATUS_PILL[status];
-  const label = isOverdue ? "Overdue" : STATUS_LABEL[status];
+  const meta = STATUS_PILL[status];
+  const label = STATUS_LABEL[status];
   const isTerminal = status === "done" || status === "cancel";
 
   // Backlog membership is governed by assignment (the avatar menu), not this
@@ -277,11 +331,15 @@ function StatusPill({
   // So we never offer 'backlog' here, and we lock the pill while a task is
   // unassigned — that avoids emitting a patch the server rejects (the invariant
   // "non-backlog task must have an assignee" / "unassign before backlog").
-  const canReopenOverdue =
-    canEdit && assigned && isOverdue && Boolean(onUnlockOverdueRequest);
-  const interactive = canEdit && assigned && !isTerminal && !isOverdue;
+  const canUnlockOverdue =
+    canEdit && assigned && isOverdueLocked && Boolean(onUnlockOverdueRequest);
+  const interactive = canEdit && assigned && !isTerminal && !isOverdueLocked;
   const canReopen = canEdit && isTerminal && Boolean(onReopenRequest);
-  const options = TASK_STATUSES.filter((s) => s !== "backlog");
+  const options = TASK_STATUSES.filter(
+    (s) =>
+      s !== "backlog" &&
+      !(s === "todo" && hasBeenInProgress && status !== "todo")
+  );
 
   const pill = (
     <span
@@ -289,19 +347,19 @@ function StatusPill({
       style={{ backgroundColor: meta.bg, color: meta.fg }}
     >
       {label}
-      {interactive || canReopen || canReopenOverdue ? (
+      {interactive || canReopen || canUnlockOverdue ? (
         <ChevronDown className="h-3 w-3" />
       ) : null}
     </span>
   );
 
-  if (canReopenOverdue) {
+  if (canUnlockOverdue) {
     return (
       <span className={`${LIST_COL.status} shrink-0`}>
         <button
           type="button"
           onClick={onUnlockOverdueRequest}
-          title="Reopen (reason required)"
+          title="Enter a reason to unlock this overdue task"
         >
           {pill}
         </button>
@@ -309,7 +367,7 @@ function StatusPill({
     );
   }
 
-  // Done/Cancel go back to To Do through the reason-gated Reopen action, so
+  // Done/Cancel go back to In Progress through the reason-gated Reopen action, so
   // clicking the pill opens the dialog directly instead of a status list.
   if (canReopen) {
     return (

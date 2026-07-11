@@ -117,7 +117,10 @@ export function TaskDetailDrawer({
   const fubHref = formatExternalLink(fubLink);
   const overdueLog =
     detail?.activity.filter(
-      (a) => a.type === "overdue_resolved" || a.type === "task_reopened"
+      (a) =>
+        a.type === "overdue_resolved" ||
+        a.type === "overdue_unlocked" ||
+        a.type === "task_reopened"
     ) ?? [];
   const canReopen = canChangeStatus && (task.status === "done" || task.status === "cancel");
 

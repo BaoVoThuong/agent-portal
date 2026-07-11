@@ -12,9 +12,10 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Reopening a Done/Cancel task sends it back to To Do, so it always needs a
-// reason — same permission bar as changing status generally (manager,
-// assignee, or agent owner), instead of a silent kanban drag.
+// Reopening a Done/Cancel task sends it back to To Do — same destination and
+// reason requirement as resolving an overdue task (see /overdue-unlock) — so
+// it always needs a reason, same permission bar as changing status generally
+// (manager, assignee, or agent owner), instead of a silent kanban drag.
 export async function POST(req: Request, { params }: Ctx) {
   const { id } = await params;
   const session = await auth();
@@ -54,16 +55,14 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   const nowIso = new Date().toISOString();
-  // Reopen a Done/Cancelled task back to To Do. The SLA budget and the time
-  // already spent In Progress are PRESERVED (not reset): if the task had
-  // already burned its budget it shows the "Overdue" tag + count-up the moment
-  // it's worked again, instead of a misleading clean-slate countdown. Done and
-  // Cancel aren't timed stages, so there's no In Progress stint to bank here —
-  // it was banked when the task was completed.
+  // Reopen a Done/Cancelled task back to To Do — not In Progress. The task's
+  // SLA budget and any time already banked In Progress are preserved, never
+  // reset (see sla.ts / overdue-unlock for the matching logic on that path).
   const patch = {
     status: "todo",
     todo_started_at: nowIso,
     in_progress_at: null,
+    waiting_started_at: null,
     done_reviewed_by_email: null,
     done_reviewed_at: null,
     closed_at: null,
@@ -80,19 +79,20 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  await recordStageTransition(supabase, {
-    task,
-    patch,
-    actorEmail: actor.email,
-    nowIso,
-  });
-
-  await supabase.from("task_activity").insert({
-    task_id: id,
-    actor_email: actor.email,
-    type: "task_reopened",
-    meta: { reason, from_status: task.status },
-  });
+  await Promise.all([
+    recordStageTransition(supabase, {
+      task,
+      patch,
+      actorEmail: actor.email,
+      nowIso,
+    }),
+    supabase.from("task_activity").insert({
+      task_id: id,
+      actor_email: actor.email,
+      type: "task_reopened",
+      meta: { reason, from_status: task.status, to_status: "todo" },
+    }),
+  ]);
 
   await broadcastTasksChanged();
   await broadcastTaskRoom(id);

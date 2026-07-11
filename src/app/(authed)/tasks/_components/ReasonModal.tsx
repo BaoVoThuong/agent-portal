@@ -5,7 +5,7 @@ import { Loader2, X } from "lucide-react";
 
 // Generic "type a reason to proceed" dialog — used both for reopening an
 // overdue task and for reopening a Done/Cancel task. Both actions are audited
-// because they return closed/blocked work back to To Do.
+// because they return closed/blocked work back to active work.
 export function ReasonModal({
   open,
   title,

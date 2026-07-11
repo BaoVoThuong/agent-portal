@@ -112,6 +112,14 @@ export function TaskBoardClient({
   const tasksWriteVersionRef = useRef(0);
   const tasksRefetchRequestRef = useRef(0);
   const pendingTaskMutationsRef = useRef(new Map<string, number>());
+  // Per-task safety net on top of the version/pending guards above: even if a
+  // background refetch's response somehow reflects a slightly-behind snapshot
+  // (a race the in-flight/version checks don't fully rule out — e.g. a
+  // realtime broadcast arriving before this tab's own PATCH response), a task
+  // that was written to locally within the last few seconds keeps its LOCAL
+  // value instead of being overwritten by that refetch. This is what stops a
+  // just-moved card from flashing back to its old column for ~1s.
+  const recentTaskWritesRef = useRef(new Map<string, number>());
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -211,7 +219,7 @@ export function TaskBoardClient({
       if (tasksWriteVersionRef.current !== writeVersionAtStart) return;
       if (pendingTaskMutationsRef.current.size > 0) return;
       tasksWriteVersionRef.current += 1;
-      setTasks(data.tasks as TaskRow[]);
+      setTasks((prev) => mergeRefetchedTasks(prev, data.tasks as TaskRow[], recentTaskWritesRef));
       void loadUnreadAssignedTaskIds();
     } catch {
       // ignore; the next ping or reconnect retries
@@ -484,6 +492,13 @@ export function TaskBoardClient({
 
   function openTaskById(id: string) {
     markNewAssignedTaskSeen(id);
+    const task = tasks.find((t) => t.id === id) ?? null;
+    if (task && overdueIds.has(id)) {
+      setOpenId(null);
+      setUnlockingTaskId(id);
+      writeTaskDeepLink(null);
+      return;
+    }
     setOpenId(id);
     writeTaskDeepLink(null);
   }
@@ -506,10 +521,25 @@ export function TaskBoardClient({
   }
 
   // Every write to `tasks` — optimistic or confirmed — goes through this so a
-  // stale in-flight refetch can never clobber a more-recent one.
+  // stale in-flight refetch can never clobber a more-recent one. It also
+  // stamps recentTaskWritesRef for every task that actually changed, which
+  // refetchTasks uses to protect against the narrower race the version/pending
+  // checks alone don't fully close (see the comment on that ref above).
   function updateTasks(updater: (prev: TaskRow[]) => TaskRow[]) {
     tasksWriteVersionRef.current += 1;
-    setTasks(updater);
+    setTasks((prev) => {
+      const next = updater(prev);
+      if (next !== prev) {
+        const prevById = new Map(prev.map((t) => [t.id, t]));
+        const now = Date.now();
+        for (const task of next) {
+          if (prevById.get(task.id) !== task) {
+            recentTaskWritesRef.current.set(task.id, now);
+          }
+        }
+      }
+      return next;
+    });
   }
 
   function replaceTask(updated: TaskRow) {
@@ -637,13 +667,13 @@ export function TaskBoardClient({
       });
     } catch {
       finishPendingMutation();
-      setError("Connection lost — could not reopen the task.");
+      setError("Connection lost — could not unlock the overdue task.");
       return false;
     }
     if (!res.ok) {
       finishPendingMutation();
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
-      setError(data?.error ?? "Could not reopen the task.");
+      setError(data?.error ?? "Could not unlock the overdue task.");
       return false;
     }
     const data = await res.json();
@@ -1027,10 +1057,10 @@ export function TaskBoardClient({
 
       <ReasonModal
         open={unlockingTaskId !== null}
-        title="Reopen overdue task"
-        description="Enter a reason to move this overdue task back to To Do."
+        title="Unlock overdue task"
+        description="Enter a reason to keep working this overdue task in In Progress."
         placeholder="Reason for the delay..."
-        submitLabel="Reopen"
+        submitLabel="Unlock"
         accentColor="#de350b"
         onClose={() => setUnlockingTaskId(null)}
         onSubmit={submitOverdueUnlock}
@@ -1039,7 +1069,7 @@ export function TaskBoardClient({
       <ReasonModal
         open={reopeningTaskId !== null}
         title="Reopen task"
-        description="This task is Done/Cancelled. Enter a reason to move it back to To Do."
+        description="This task is Done/Cancelled. Enter a reason to move it back to In Progress."
         placeholder="Reason for reopening..."
         submitLabel="Reopen"
         accentColor="#0c66e4"
@@ -1076,6 +1106,34 @@ function optimisticElapsedSeconds(startIso: string | null | undefined, nowIso: s
   return Math.max(0, Math.round((new Date(nowIso).getTime() - new Date(startIso).getTime()) / 1000));
 }
 
+// How long a task stays "protected" from a background refetch after any local
+// write to it. Generous on purpose: it only matters while genuinely racing a
+// slow request, and being a bit too long just means a rare late-arriving
+// server correction is delayed slightly rather than a card flashing.
+const RECENT_WRITE_COOLDOWN_MS = 3000;
+
+// Applies a fresh full-list fetch, but for any task written to locally within
+// the cooldown window, keeps the CURRENT local version instead of the fetched
+// one. Prunes expired entries out of `recentWrites` as it goes so the map
+// doesn't grow unbounded over a long session.
+function mergeRefetchedTasks(
+  prev: TaskRow[],
+  fetched: TaskRow[],
+  recentWrites: { current: Map<string, number> }
+): TaskRow[] {
+  const now = Date.now();
+  for (const [id, writtenAt] of recentWrites.current) {
+    if (now - writtenAt >= RECENT_WRITE_COOLDOWN_MS) recentWrites.current.delete(id);
+  }
+  if (recentWrites.current.size === 0) return fetched;
+
+  const prevById = new Map(prev.map((t) => [t.id, t]));
+  return fetched.map((task) => {
+    if (!recentWrites.current.has(task.id)) return task;
+    return prevById.get(task.id) ?? task;
+  });
+}
+
 function buildOptimisticTaskPatch(
   patch: Record<string, unknown>,
   currentEmail: string,
@@ -1084,11 +1142,12 @@ function buildOptimisticTaskPatch(
   const optimistic = { ...patch };
 
   // Mirror transitions.ts so the card doesn't flicker before the server
-  // responds: bank the leaving stage's seconds into its accumulator (never
-  // reset to 0), clear its start, then open the new stage. Overdue markers are
-  // deliberately NOT cleared — a repeat offender keeps its Overdue tag.
+  // responds: bank the leaving stage's seconds into its accumulator for
+  // history/KPI, clear its start, then open the new stage. Entering In Progress
+  // clears stale active-overdue markers; SLA itself is disabled after Waiting.
   if (typeof optimistic.status === "string" && before && optimistic.status !== before.status) {
     const nowIso = new Date().toISOString();
+    optimistic.updated_at = nowIso;
     optimistic.done_reviewed_by_email = null;
     optimistic.done_reviewed_at = null;
 
@@ -1112,6 +1171,9 @@ function buildOptimisticTaskPatch(
       optimistic.todo_started_at = nowIso;
     } else if (optimistic.status === "in_progress") {
       optimistic.in_progress_at = nowIso;
+      optimistic.overdue_flagged_at = null;
+      optimistic.overdue_reminded_at = null;
+      optimistic.overdue_unlocked_at = null;
     } else if (optimistic.status === "waiting") {
       optimistic.waiting_started_at = nowIso;
       optimistic.waiting_reminded_at = null;

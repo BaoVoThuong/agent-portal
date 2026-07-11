@@ -11,16 +11,11 @@ export const dynamic = "force-dynamic";
 const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const WAITING_REMINDER_AFTER_MS = 24 * 60 * 60 * 1000;
 
-// Proactive overdue detection: the board itself only computes "is this task
-// overdue" on demand (no cron needed for the UI), but that means an assignee
-// who bounces status right before a breach can keep a task from ever
-// visibly going overdue. This runs on a schedule (see vercel.json) and
-// stamps `overdue_flagged_at` + logs a `went_overdue` activity entry the
-// moment it first detects a breach — independent of anyone looking at the
-// board, so it can't be dodged by acting fast. `overdue_flagged_at` is
-// cleared whenever the overdue run is reopened or the SLA clock restarts
-// (see transitions.ts / overdue-unlock / reopen), so this naturally re-arms
-// each cycle.
+// Proactive overdue detection: the board computes "is this task overdue" live,
+// but the audit/reminder trail still needs a durable server-side marker. This
+// runs on a schedule (see vercel.json) and stamps `overdue_flagged_at` + logs a
+// `went_overdue` activity entry the moment it first detects a breach,
+// independent of anyone looking at the board.
 function checkAuthorization(request: Request): "ok" | "misconfigured" | "unauthorized" {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return "misconfigured";
@@ -54,7 +49,7 @@ export async function GET(request: Request) {
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
     .select(
-      "id,status,priority,category_id,in_progress_at,in_progress_seconds,overdue_flagged_at,overdue_reminded_at,sla_minutes,overdue_count"
+      "id,status,priority,category_id,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,overdue_flagged_at,overdue_reminded_at,sla_minutes,overdue_count"
     )
     .eq("status", "in_progress")
     .is("archived_at", null)
@@ -69,6 +64,8 @@ export async function GET(request: Request) {
     | "category_id"
     | "in_progress_at"
     | "in_progress_seconds"
+    | "waiting_started_at"
+    | "waiting_seconds"
     | "overdue_flagged_at"
     | "overdue_reminded_at"
     | "sla_minutes"
@@ -88,10 +85,9 @@ export async function GET(request: Request) {
     (task) => !task.overdue_flagged_at && isTaskOverdue(task, rules, now)
   );
 
-  // Reminders go out only while the task is ACTIVELY overdue (fresh breach,
-  // still in the Overdue column). A task that was reopened and is being
-  // reworked keeps its overdue marker for KPI but is no longer overdue, so it
-  // must not keep nagging. At most one reminder per 24h.
+  // Reminders go out only while the task is actively overdue in In Progress.
+  // The UI may already be unlocked after a reason is entered, but the task is
+  // still over SLA until it leaves In Progress. At most one reminder per 24h.
   const stillOverdue = tasks.filter(
     (task) =>
       Boolean(task.overdue_flagged_at) &&

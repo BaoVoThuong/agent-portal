@@ -37,12 +37,14 @@ export function OverdueLog({
         const meta = (entry.meta ?? {}) as Record<string, unknown>;
         const reason = typeof meta.reason === "string" ? meta.reason : null;
         const dueLabel = formatDateTime(meta.due_at);
-        const resolvedLabel = formatDateTime(meta.resolved_at ?? entry.created_at);
-        const overdueBy = formatOverdueBy(meta.due_at, meta.resolved_at);
+        const actionAt = meta.unlocked_at ?? meta.resolved_at ?? entry.created_at;
+        const resolvedLabel = formatDateTime(actionAt);
+        const overdueBy = formatOverdueBy(meta.due_at, actionAt);
         const fromStatus = typeof meta.from_status === "string" ? meta.from_status : null;
         const actorLabel =
           personLabelByEmail?.get(entry.actor_email) ?? entry.actor_email;
         const isReopen = entry.type === "task_reopened";
+        const isUnlock = entry.type === "overdue_unlocked";
 
         return (
           <li
@@ -63,7 +65,9 @@ export function OverdueLog({
               )}
               {isReopen
                 ? `Reopened by ${actorLabel}${fromStatus ? ` (from ${fromStatus})` : ""}`
-                : `Overdue reopened by ${actorLabel}`}
+                : isUnlock
+                  ? `Overdue unlocked by ${actorLabel}`
+                  : `Overdue resolved by ${actorLabel}`}
             </div>
             <dl className="mt-1.5 space-y-0.5 text-xs leading-5 text-[#6b778c]">
               {dueLabel ? (
@@ -74,7 +78,7 @@ export function OverdueLog({
               ) : null}
               <div>
                 <dt className="inline font-semibold text-[#42526e]">
-                  Reopened at:
+                  {isReopen ? "Reopened at:" : isUnlock ? "Unlocked at:" : "Resolved at:"}
                 </dt>{" "}
                 <dd className="inline">{resolvedLabel ?? "—"}</dd>
               </div>

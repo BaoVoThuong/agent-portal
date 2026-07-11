@@ -145,14 +145,25 @@ export function resolveTaskPatch(
       error: "Reopening a Done/Cancelled task needs a reason — use the Reopen action.",
     };
   }
-  // Overdue only ever applies to a task that has been In Progress — skipping
-  // straight from To Do/Backlog to Done means the SLA meter (in_progress
-  // seconds) never runs, so the task could never be overdue no matter how
-  // long it actually sat unworked. Allow Done only once it has spent (or is
-  // spending) time In Progress. Cancel is left unrestricted: cancelling
+  // Overdue only ever applies to a task that has active In Progress work —
+  // skipping straight from To Do/Backlog to Done means no SLA window ever ran,
+  // so the task could never be overdue no matter how long it actually sat
+  // unworked. Allow Done only once it has spent (or is spending) time In
+  // Progress. Cancel is left unrestricted: cancelling
   // something that was never started isn't a completed-work claim.
   const hasBeenInProgress =
     Boolean(current.in_progress_at) || (current.in_progress_seconds ?? 0) > 0;
+  if (
+    statusChanged &&
+    nextStatus === "todo" &&
+    current.status !== "todo" &&
+    hasBeenInProgress
+  ) {
+    return {
+      ok: false,
+      error: "A task that has started cannot move back to To Do.",
+    };
+  }
   if (statusChanged && nextStatus === "done" && !hasBeenInProgress) {
     return {
       ok: false,
@@ -170,8 +181,8 @@ export function resolveTaskPatch(
   // --- Stage clocks: bank the leaving stage's seconds, then open the new one.
   // Each stage's cumulative time lives in *_seconds; *_started_at marks only
   // the current open stint and is cleared on leave. This is what makes the
-  // clocks consistent — nothing resets to 0 on re-entry. The SLA is measured
-  // off in_progress_seconds, so bouncing In Progress can't reset it.
+  // clocks consistent for history/KPI. Active SLA overdue is measured from the
+  // current In Progress stint only until the task first enters Waiting.
   if (statusChanged) {
     if (current.status === "todo" && current.todo_started_at) {
       patch.todo_seconds =
@@ -194,12 +205,13 @@ export function resolveTaskPatch(
 
   if (statusChanged && nextStatus === "in_progress") {
     patch.in_progress_at = nowIso;
+    patch.overdue_flagged_at = null;
+    patch.overdue_reminded_at = null;
+    patch.overdue_unlocked_at = null;
     // Lock the SLA budget on the FIRST-ever In Progress entry only. Re-entries
-    // keep the original budget so the consumption meter is continuous and
-    // editing priority later can't move an in-flight task's deadline. NOTE:
-    // overdue_flagged_at / overdue_count are deliberately NOT cleared here —
-    // once a task has burned its budget it stays overdue, so re-entering shows
-    // "Overdue by …" (count-up) instead of a misleading fresh countdown.
+    // keep the original budget so editing priority later can't move work that
+    // has already started. After Waiting, In Progress remains plain effort
+    // tracking and does not open another active SLA window.
     if (current.sla_minutes == null && opts?.rules && current.priority !== undefined) {
       const nextPriority = (patch.priority as TaskRow["priority"] | undefined) ?? current.priority;
       const nextCategoryId =

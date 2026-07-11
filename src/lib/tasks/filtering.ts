@@ -163,10 +163,14 @@ function matchesDateWindow(
 
   const isTerminal = task.status === "done" || task.status === "cancel";
   if (isTerminal) {
-    // No dedicated "closed at" column, so approximate with updated_at —
-    // still shows a task closed inside the window even if it was created
-    // before it.
-    return dateKeyInRange(getLocalDateKey(task.updated_at), dateFrom, dateTo);
+    // Terminal tasks belong to the period they were closed, not the period
+    // they were created. Fall back to updated_at for older rows before
+    // closed_at existed.
+    return dateKeyInRange(
+      getLocalDateKey(task.closed_at ?? task.updated_at),
+      dateFrom,
+      dateTo
+    );
   }
 
   // Active tasks always carry over once created before the window start.

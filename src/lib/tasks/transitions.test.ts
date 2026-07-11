@@ -112,6 +112,9 @@ describe("resolveTaskPatch", () => {
         done_reviewed_by_email: null,
         done_reviewed_at: null,
         in_progress_at: "2026-07-05T00:00:00.000Z",
+        overdue_flagged_at: null,
+        overdue_reminded_at: null,
+        overdue_unlocked_at: null,
       },
     });
   });
@@ -157,11 +160,14 @@ describe("resolveTaskPatch", () => {
         todo_seconds: 600 + 3600, // banked prior + this stint
         todo_started_at: null, // stint closed
         in_progress_at: "2026-07-05T01:00:00.000Z",
+        overdue_flagged_at: null,
+        overdue_reminded_at: null,
+        overdue_unlocked_at: null,
       },
     });
   });
 
-  it("does NOT re-snapshot the SLA budget or clear the overdue flag on re-entry (repeat offender stays overdue, budget stable)", () => {
+  it("does NOT re-snapshot the SLA budget, but re-arms overdue flags on re-entry", () => {
     const rules = [
       { priority: "urgent" as const, category_id: null, duration_minutes: 60 },
       { priority: "low" as const, category_id: null, duration_minutes: 1440 },
@@ -185,8 +191,9 @@ describe("resolveTaskPatch", () => {
     const patch = (r as { ok: true; patch: Record<string, unknown> }).patch;
     expect(patch.in_progress_at).toBe("2026-07-05T01:00:00.000Z");
     expect(patch.sla_minutes).toBeUndefined(); // budget NOT re-snapshotted
-    expect(patch.overdue_flagged_at).toBeUndefined(); // NOT cleared
-    expect(patch.overdue_reminded_at).toBeUndefined();
+    expect(patch.overdue_flagged_at).toBeNull();
+    expect(patch.overdue_reminded_at).toBeNull();
+    expect(patch.overdue_unlocked_at).toBeNull();
   });
 
   it("banks In Progress seconds when leaving In Progress (time is never lost)", () => {
@@ -207,6 +214,38 @@ describe("resolveTaskPatch", () => {
     expect(patch.in_progress_seconds).toBe(120 + 30 * 60);
     expect(patch.in_progress_at).toBeNull();
     expect(patch.waiting_started_at).toBe("2026-07-05T00:30:00.000Z");
+  });
+
+  it("rejects moving a task back to To Do after it has entered In Progress", () => {
+    const fromInProgress = resolveTaskPatch(
+      manager,
+      {
+        status: "in_progress" as const,
+        assignee_email: "cs@x.com",
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        in_progress_seconds: 0,
+      },
+      { status: "todo" }
+    );
+    expect(fromInProgress).toEqual({
+      ok: false,
+      error: "A task that has started cannot move back to To Do.",
+    });
+
+    const fromWaiting = resolveTaskPatch(
+      manager,
+      {
+        status: "waiting" as const,
+        assignee_email: "cs@x.com",
+        in_progress_at: null,
+        in_progress_seconds: 3600,
+      },
+      { status: "todo" }
+    );
+    expect(fromWaiting).toEqual({
+      ok: false,
+      error: "A task that has started cannot move back to To Do.",
+    });
   });
 
   it("stamps waiting_started_at and clears waiting reminder when entering Waiting", () => {
@@ -264,6 +303,9 @@ describe("resolveTaskPatch", () => {
         done_reviewed_by_email: null,
         done_reviewed_at: null,
         in_progress_at: "2026-07-05T00:00:00.000Z",
+        overdue_flagged_at: null,
+        overdue_reminded_at: null,
+        overdue_unlocked_at: null,
         sla_minutes: 60,
       },
     });

@@ -27,6 +27,7 @@ function task(p: Partial<TaskRow>): TaskRow {
     waiting_started_at: null,
     waiting_reminded_at: null,
     overdue_reminded_at: null,
+    overdue_unlocked_at: null,
     reopened_at: null,
     sla_minutes: null,
     overdue_count: 0,
@@ -258,19 +259,22 @@ describe("filterTasks", () => {
         id: "old-done-closed-in-range",
         status: "done",
         created_at: "2026-03-01T12:00:00Z",
-        updated_at: "2026-04-15T12:00:00Z",
+        updated_at: "2026-03-15T12:00:00Z",
+        closed_at: "2026-04-15T12:00:00Z",
       }),
       task({
         id: "old-cancel-closed-in-range",
         status: "cancel",
         created_at: "2026-03-01T12:00:00Z",
-        updated_at: "2026-04-20T12:00:00Z",
+        updated_at: "2026-03-20T12:00:00Z",
+        closed_at: "2026-04-20T12:00:00Z",
       }),
       task({
         id: "old-done-closed-before-range",
         status: "done",
         created_at: "2026-02-01T12:00:00Z",
-        updated_at: "2026-03-15T12:00:00Z",
+        updated_at: "2026-04-15T12:00:00Z",
+        closed_at: "2026-03-15T12:00:00Z",
       }),
     ];
 
@@ -281,5 +285,25 @@ describe("filterTasks", () => {
         dateTo: "2026-04-30",
       }).map((t) => t.id)
     ).toEqual(["old-done-closed-in-range", "old-cancel-closed-in-range"]);
+  });
+
+  it("falls back to updated_at for terminal rows without closed_at", () => {
+    const rows = [
+      task({
+        id: "legacy-cancel-updated-in-range",
+        status: "cancel",
+        created_at: "2026-03-01T12:00:00Z",
+        updated_at: "2026-04-20T12:00:00Z",
+        closed_at: null,
+      }),
+    ];
+
+    expect(
+      filterTasks(rows, {
+        ...base,
+        dateFrom: "2026-04-01",
+        dateTo: "2026-04-30",
+      }).map((t) => t.id)
+    ).toEqual(["legacy-cancel-updated-in-range"]);
   });
 });
