@@ -2,10 +2,15 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
-import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
+import {
+  attachAssigneesToTasks,
+  fetchTaskAssigneeEmails,
+  isTaskAssignee,
+} from "@/lib/tasks/assignees";
 import { recordStageTransition } from "@/lib/tasks/history";
 import { touchLastActivity } from "@/lib/tasks/last-activity";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -80,6 +85,9 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
+  const assignees = await fetchTaskAssigneeEmails(id, supabase);
+  const reopenedRecipients = assignees.filter((assignee) => assignee !== actor.email);
+
   await Promise.all([
     recordStageTransition(supabase, {
       task,
@@ -94,6 +102,14 @@ export async function POST(req: Request, { params }: Ctx) {
       type: "task_reopened",
       meta: { reason, from_status: task.status, to_status: "todo" },
     }),
+    insertNotifications(
+      reopenedRecipients.map((recipient) => ({
+        recipient_email: recipient,
+        task_id: id,
+        type: "reopened",
+        actor_email: actor.email,
+      }))
+    ),
   ]);
 
   await broadcastTasksChanged();

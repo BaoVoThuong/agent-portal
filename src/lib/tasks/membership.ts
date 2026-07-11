@@ -45,3 +45,22 @@ export async function isAgentOwnerOrAssistant(
     .maybeSingle();
   return !error && Boolean(data);
 }
+
+export async function fetchAgentOwnerAndAssistantEmails(
+  agentEmail: string | null
+): Promise<string[]> {
+  if (!agentEmail) return [];
+  const { data, error } = await getSupabaseAdmin()
+    .from("agent_members")
+    .select("cs_email")
+    .eq("agent_email", agentEmail)
+    .eq("is_assistant", true);
+  if (error) return [agentEmail];
+
+  return [
+    ...new Set([
+      agentEmail,
+      ...(data ?? []).map((row) => (row as { cs_email: string }).cs_email),
+    ]),
+  ];
+}

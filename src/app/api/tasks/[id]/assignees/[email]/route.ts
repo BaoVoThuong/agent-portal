@@ -9,6 +9,7 @@ import {
 } from "@/lib/tasks/assignees";
 import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
 import { recordStageTransition, syncAssignmentCycles } from "@/lib/tasks/history";
@@ -113,6 +114,16 @@ export async function DELETE(_req: Request, { params }: Ctx) {
       type: "assigned",
       meta: { removed: email, to: legacyAssignee },
     });
+    if (email !== ctx.actor.email) {
+      await insertNotifications([
+        {
+          recipient_email: email,
+          task_id: id,
+          type: "unassigned",
+          actor_email: ctx.actor.email,
+        },
+      ]);
+    }
   }
 
   await recordStageTransition(ctx.supabase, {

@@ -1684,7 +1684,12 @@ begin
       'commented',
       'overdue',
       'overdue_reminder',
-      'waiting_reminder'
+      'waiting_reminder',
+      'unassigned',
+      'reopened',
+      'qc_needed',
+      'due_soon',
+      'stale'
     )
   );
 end $$;

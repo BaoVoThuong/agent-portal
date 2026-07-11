@@ -16,7 +16,12 @@ import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { fetchAgentsForCs, fetchCsForAgent, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import {
+  fetchAgentOwnerAndAssistantEmails,
+  fetchAgentsForCs,
+  fetchCsForAgent,
+  isAgentOwnerOrAssistant,
+} from "@/lib/tasks/membership";
 import { reconcileAssigneesForNewAgent } from "@/lib/tasks/assignees-set";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
@@ -370,6 +375,17 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const newAssignee = resolved.patch.assignee_email as string | null | undefined;
   const notifyNewAssignee =
     newAssignee && newAssignee !== r.task.assignee_email && newAssignee !== r.actor.email;
+  const shouldNotifyQcNeeded =
+    resolved.patch.status === "done" && r.task.status !== "done";
+  const qcAgentEmail =
+    typeof resolved.patch.agent_email === "string"
+      ? resolved.patch.agent_email
+      : r.task.agent_email;
+  const qcRecipients = shouldNotifyQcNeeded
+    ? (await fetchAgentOwnerAndAssistantEmails(qcAgentEmail)).filter(
+        (recipient) => recipient !== r.actor.email
+      )
+    : [];
 
   await Promise.all([
     leavingOverdueInProgress
@@ -411,6 +427,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
       ? insertNotifications([
           { recipient_email: newAssignee, task_id: id, type: "assigned", actor_email: r.actor.email },
         ])
+      : null,
+    qcRecipients.length > 0
+      ? insertNotifications(
+          qcRecipients.map((recipient) => ({
+            recipient_email: recipient,
+            task_id: id,
+            type: "qc_needed",
+            actor_email: r.actor.email,
+          }))
+        )
       : null,
   ]);
 
