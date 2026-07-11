@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { sortTasks, taskKey } from "@/lib/tasks/sorting";
+import {
+  rankTasks,
+  RECENT_ACTIVITY_WINDOW_MS,
+  sortTasks,
+  taskKey,
+} from "@/lib/tasks/sorting";
 import type { TaskRow } from "@/lib/tasks/types";
 
 function task(p: Partial<TaskRow>): TaskRow {
@@ -102,5 +107,106 @@ describe("sortTasks", () => {
   it("taskKey is stable for the same id", () => {
     expect(taskKey("abc")).toBe(taskKey("abc"));
     expect(taskKey("abc")).toMatch(/^TASK-\d+$/);
+  });
+});
+
+describe("rankTasks", () => {
+  const now = new Date("2026-07-05T12:00:00.000Z");
+  const rules = [
+    {
+      id: "r",
+      priority: "urgent" as const,
+      category_id: null,
+      duration_minutes: 60,
+    },
+  ];
+
+  it("overdue tasks come first, most-overdue on top", () => {
+    const mild = task({
+      id: "mild",
+      status: "in_progress",
+      priority: "low",
+      in_progress_at: "2026-07-05T10:30:00.000Z",
+      sla_minutes: 60,
+      in_progress_seconds: 0,
+      overdue_count: 0,
+    });
+    const severe = task({
+      id: "severe",
+      status: "in_progress",
+      priority: "low",
+      in_progress_at: "2026-07-05T09:00:00.000Z",
+      sla_minutes: 60,
+      in_progress_seconds: 0,
+      overdue_count: 0,
+    });
+    const fresh = task({
+      id: "fresh",
+      status: "in_progress",
+      priority: "urgent",
+      in_progress_at: "2026-07-05T11:55:00.000Z",
+      sla_minutes: 60,
+      in_progress_seconds: 0,
+      overdue_count: 0,
+      last_activity_at: "2026-07-05T11:55:00.000Z",
+    });
+
+    expect(rankTasks([fresh, mild, severe], rules, now).map((t) => t.id)).toEqual([
+      "severe",
+      "mild",
+      "fresh",
+    ]);
+  });
+
+  it("recently-active beats an untouched higher priority", () => {
+    const urgentOld = task({
+      id: "urgentOld",
+      status: "todo",
+      priority: "urgent",
+      last_activity_at: "2026-07-01T00:00:00.000Z",
+      created_at: "2026-07-01T00:00:00.000Z",
+    });
+    const lowRecent = task({
+      id: "lowRecent",
+      status: "todo",
+      priority: "low",
+      last_activity_at: "2026-07-05T11:50:00.000Z",
+      created_at: "2026-07-04T00:00:00.000Z",
+    });
+
+    expect(rankTasks([urgentOld, lowRecent], rules, now).map((t) => t.id)).toEqual([
+      "lowRecent",
+      "urgentOld",
+    ]);
+  });
+
+  it("outside the recent window, priority orders the backlog; older first within a priority", () => {
+    const old = new Date(now.getTime() - RECENT_ACTIVITY_WINDOW_MS - 1000).toISOString();
+    const high = task({
+      id: "high",
+      status: "todo",
+      priority: "high",
+      last_activity_at: old,
+    });
+    const lowA = task({
+      id: "lowA",
+      status: "todo",
+      priority: "low",
+      last_activity_at: old,
+      created_at: "2026-07-01T00:00:00.000Z",
+    });
+    const lowB = task({
+      id: "lowB",
+      status: "todo",
+      priority: "low",
+      last_activity_at: old,
+      created_at: "2026-07-02T00:00:00.000Z",
+    });
+
+    expect(rankTasks([lowB, lowA, high], rules, now).map((t) => t.id)).toEqual([
+      "high",
+      "lowA",
+      "lowB",
+    ]);
   });
 });

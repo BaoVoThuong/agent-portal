@@ -1,4 +1,11 @@
-import type { TaskPriority, TaskRow, TaskStatus } from "./types";
+import { isTaskOverdue, slaRemainingSeconds } from "./sla";
+import {
+  TASK_PRIORITIES,
+  type TaskPriority,
+  type TaskRow,
+  type TaskSlaRule,
+  type TaskStatus,
+} from "./types";
 
 export type SortKey =
   | "title"
@@ -26,6 +33,14 @@ const STATUS_RANK: Record<TaskStatus, number> = {
   done: 4,
   cancel: 5,
 };
+const ATTENTION_PRIORITY_RANK = Object.fromEntries(
+  TASK_PRIORITIES.map((priority, index) => [
+    priority,
+    TASK_PRIORITIES.length - 1 - index,
+  ])
+) as Record<TaskPriority, number>;
+
+export const RECENT_ACTIVITY_WINDOW_MS = 24 * 3600_000;
 
 // Deterministic display key, matching the one shown on cards.
 export function taskKey(id: string): string {
@@ -81,4 +96,60 @@ export function sortTasks(
     if (av > bv) return 1 * factor;
     return 0;
   });
+}
+
+function timestamp(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const value = new Date(iso).getTime();
+  return Number.isNaN(value) ? 0 : value;
+}
+
+function rankTuple(
+  task: TaskRow,
+  rules: TaskSlaRule[],
+  now: Date
+): [number, number, number] {
+  if (isTaskOverdue(task, rules, now)) {
+    return [0, slaRemainingSeconds(task, rules, now), 0];
+  }
+
+  const lastActivityMs = timestamp(task.last_activity_at);
+  if (
+    lastActivityMs > 0 &&
+    now.getTime() - lastActivityMs <= RECENT_ACTIVITY_WINDOW_MS
+  ) {
+    return [1, -lastActivityMs, 0];
+  }
+
+  return [
+    2,
+    ATTENTION_PRIORITY_RANK[task.priority],
+    timestamp(task.created_at),
+  ];
+}
+
+export function compareTaskRank(
+  a: TaskRow,
+  b: TaskRow,
+  rules: TaskSlaRule[],
+  now: Date
+): number {
+  const aRank = rankTuple(a, rules, now);
+  const bRank = rankTuple(b, rules, now);
+
+  for (let index = 0; index < aRank.length; index += 1) {
+    if (aRank[index] !== bRank[index]) return aRank[index] - bRank[index];
+  }
+
+  if (a.id < b.id) return -1;
+  if (a.id > b.id) return 1;
+  return 0;
+}
+
+export function rankTasks(
+  tasks: TaskRow[],
+  rules: TaskSlaRule[],
+  now: Date
+): TaskRow[] {
+  return [...tasks].sort((a, b) => compareTaskRank(a, b, rules, now));
 }
