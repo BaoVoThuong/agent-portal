@@ -33,11 +33,13 @@ import {
 } from "@/lib/tasks/types";
 import { isSlaActiveInProgress, isTaskOverdue, slaRemainingSeconds } from "@/lib/tasks/sla";
 import { midpoint } from "@/lib/tasks/ordering";
+import { rankTasks } from "@/lib/tasks/sorting";
 import { TaskCard } from "./TaskCard";
 
-function byPosition(tasks: TaskRow[]): TaskRow[] {
-  return [...tasks].sort((a, b) => a.position - b.position);
-}
+type ManualOrderState = {
+  tasksRef: TaskRow[] | null;
+  order: Record<string, string[]>;
+};
 
 // The board column a draggable id currently belongs to. Column drop zones use
 // the id `col:<column>`; cards use their task id.
@@ -64,6 +66,13 @@ function statusForDropColumn(column: BoardColumn): TaskStatus {
   return column;
 }
 
+// Kanban never receives backlog tasks (Backlog is a separate view), but
+// TaskStatus includes it — narrow it away so the fallback return type-checks.
+function columnOf(task: TaskRow): BoardColumn {
+  if (task.status === "backlog") return "todo";
+  return task.status;
+}
+
 function hasBeenInProgress(task: TaskRow): boolean {
   return (
     task.status === "in_progress" ||
@@ -79,6 +88,53 @@ function canDropTaskInColumn(task: TaskRow, column: BoardColumn): boolean {
 
 function isColumnId(id: unknown): boolean {
   return String(id).startsWith("col:");
+}
+
+function applyManualOrder(
+  rankedTasks: TaskRow[],
+  manualOrder: Record<string, string[]>
+): TaskRow[] {
+  return KANBAN_COLUMNS.flatMap((column) => {
+    const inColumn = rankedTasks.filter((task) => columnOf(task) === column);
+    const manual = manualOrder[column];
+    if (!manual?.length) return inColumn;
+
+    const taskById = new Map(inColumn.map((task) => [task.id, task]));
+    const manualSet = new Set(manual);
+    const manualTasks = manual
+      .map((id) => taskById.get(id))
+      .filter((task): task is TaskRow => Boolean(task));
+
+    return [
+      ...manualTasks,
+      ...inColumn.filter((task) => !manualSet.has(task.id)),
+    ];
+  });
+}
+
+function moveTaskPreview(
+  items: TaskRow[],
+  activeId: string,
+  overId: string,
+  nextStatus: TaskStatus
+): TaskRow[] {
+  const activeIndex = items.findIndex((task) => task.id === activeId);
+  if (activeIndex === -1) return items;
+
+  const next = [...items];
+  const [moved] = next.splice(activeIndex, 1);
+  const movedUpdated: TaskRow = { ...moved, status: nextStatus };
+
+  let insertIndex: number;
+  if (overId.startsWith("col:")) {
+    insertIndex = endIndexOfStatus(next, nextStatus);
+  } else {
+    const overIndex = next.findIndex((task) => task.id === overId);
+    insertIndex = overIndex === -1 ? endIndexOfStatus(next, nextStatus) : overIndex;
+  }
+
+  next.splice(insertIndex, 0, movedUpdated);
+  return next;
 }
 
 const kanbanCollisionDetection: CollisionDetection = (args) => {
@@ -301,18 +357,24 @@ export function KanbanBoard({
     if (!isSlaActiveInProgress(task)) return null;
     return slaRemainingSeconds(task, rules, now);
   };
-  // Kanban never receives backlog tasks (Backlog is a separate view), but
-  // TaskStatus includes it — narrow it away so the fallback return type-checks.
-  const columnOf = (task: TaskRow): BoardColumn => {
-    if (task.status === "backlog") return "todo";
-    return task.status;
-  };
 
-  const sortedTasks = useMemo(() => byPosition(tasks), [tasks]);
+  const rankedTasks = useMemo(
+    () => rankTasks(tasks, rules, now),
+    [tasks, rules, now]
+  );
+  const [manualOrderState, setManualOrderState] = useState<ManualOrderState>({
+    tasksRef: null,
+    order: {},
+  });
+  const orderedTasks = useMemo(() => {
+    const manualOrder =
+      manualOrderState.tasksRef === tasks ? manualOrderState.order : {};
+    return applyManualOrder(rankedTasks, manualOrder);
+  }, [manualOrderState, rankedTasks, tasks]);
   // Local ordered mirror used only while dragging so the board can reflow live.
   const [dragItems, setDragItems] = useState<TaskRow[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const items = dragItems ?? sortedTasks;
+  const items = dragItems ?? orderedTasks;
 
   const columnTasks = (column: BoardColumn) =>
     items.filter((task) => columnOf(task) === column);
@@ -357,9 +419,9 @@ export function KanbanBoard({
 
   function handleDragStart(event: DragStartEvent) {
     const id = String(event.active.id);
-    const task = sortedTasks.find((item) => item.id === id);
+    const task = orderedTasks.find((item) => item.id === id);
     if (!task || !canDragTask(task)) return;
-    setDragItems(sortedTasks);
+    setDragItems(orderedTasks);
     setActiveId(id);
   }
 
@@ -374,7 +436,7 @@ export function KanbanBoard({
     if (!original || !canDragTask(original)) return;
 
     setDragItems((prev) => {
-      const current = prev ?? sortedTasks;
+      const current = prev ?? orderedTasks;
       const activeContainer = findContainer(activeId, current, columnOf);
       const overContainer = findContainer(overId, current, columnOf);
       if (!activeContainer || !overContainer || activeContainer === overContainer) {
@@ -382,25 +444,8 @@ export function KanbanBoard({
       }
       if (!canDropTaskInColumn(original, overContainer)) return current;
 
-      const activeIndex = current.findIndex((task) => task.id === activeId);
-      if (activeIndex === -1) return current;
-
-      const next = [...current];
-      const [moved] = next.splice(activeIndex, 1);
       const nextStatus = statusForDropColumn(overContainer);
-      const movedUpdated: TaskRow = { ...moved, status: nextStatus };
-
-      let insertIndex: number;
-      if (overId.startsWith("col:")) {
-        insertIndex = endIndexOfStatus(next, nextStatus);
-      } else {
-        const overIndex = next.findIndex((task) => task.id === overId);
-        insertIndex =
-          overIndex === -1 ? endIndexOfStatus(next, nextStatus) : overIndex;
-      }
-
-      next.splice(insertIndex, 0, movedUpdated);
-      return next;
+      return moveTaskPreview(current, activeId, overId, nextStatus);
     });
   }
 
@@ -415,26 +460,39 @@ export function KanbanBoard({
     const original = tasks.find((task) => task.id === activeId);
     if (!original || !canDragTask(original)) return;
 
-    // Same-column reorder commits here (cross-column already happened on hover).
-    let working = items;
-    const activeContainer = findContainer(activeId, items, columnOf);
     const overContainer = findContainer(overId, items, columnOf);
-    if (
-      activeContainer &&
-      overContainer &&
-      activeContainer === overContainer &&
-      !overId.startsWith("col:")
-    ) {
-      const activeIndex = items.findIndex((task) => task.id === activeId);
-      const overIndex = items.findIndex((task) => task.id === overId);
+    if (!overContainer) return;
+
+    const originalColumn = columnOf(original);
+    if (overContainer === originalColumn) {
+      if (overId.startsWith("col:")) return;
+
+      const columnItems = items.filter((task) => columnOf(task) === originalColumn);
+      const activeIndex = columnItems.findIndex((task) => task.id === activeId);
+      const overIndex = columnItems.findIndex((task) => task.id === overId);
       if (activeIndex !== -1 && overIndex !== -1 && activeIndex !== overIndex) {
-        working = arrayMove(items, activeIndex, overIndex);
+        const nextColumnItems = arrayMove(columnItems, activeIndex, overIndex);
+        setManualOrderState((current) => ({
+          tasksRef: tasks,
+          order: {
+            ...(current.tasksRef === tasks ? current.order : {}),
+            [originalColumn]: nextColumnItems.map((task) => task.id),
+          },
+        }));
       }
+      return;
     }
+
+    const nextStatus = statusForDropColumn(overContainer);
+    if (!canDropTaskInColumn(original, overContainer)) return;
+
+    const working =
+      original.status === nextStatus
+        ? items
+        : moveTaskPreview(items, activeId, overId, nextStatus);
 
     const moving = working.find((task) => task.id === activeId);
     if (!moving) return;
-    if (!canDropTaskInColumn(original, columnOf(moving))) return;
 
     // New position = midpoint of the neighbours in the destination column.
     const column = working.filter((task) => task.status === moving.status);
