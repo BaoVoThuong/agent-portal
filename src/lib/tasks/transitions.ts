@@ -52,6 +52,19 @@ function elapsedSeconds(startIso: string, endIso: string): number {
   return Math.max(0, Math.round((end - start) / 1000));
 }
 
+function bankWaitingSeconds(
+  currentSeconds: number | null | undefined,
+  startedAt: string | null | undefined,
+  nowIso: string
+): number {
+  const base = currentSeconds ?? 0;
+  const elapsed = startedAt ? elapsedSeconds(startedAt, nowIso) : 0;
+  // Besides elapsed time, this is also the durable marker that the task has
+  // entered Waiting at least once. Keep it > 0 even for legacy/null starts or
+  // immediate Waiting -> In Progress moves.
+  return Math.max(1, base + elapsed);
+}
+
 export function resolveTaskPatch(
   actor: TaskActor,
   current: Current,
@@ -192,9 +205,12 @@ export function resolveTaskPatch(
       patch.in_progress_seconds =
         (current.in_progress_seconds ?? 0) + elapsedSeconds(current.in_progress_at, nowIso);
       patch.in_progress_at = null;
-    } else if (current.status === "waiting" && current.waiting_started_at) {
-      patch.waiting_seconds =
-        (current.waiting_seconds ?? 0) + elapsedSeconds(current.waiting_started_at, nowIso);
+    } else if (current.status === "waiting") {
+      patch.waiting_seconds = bankWaitingSeconds(
+        current.waiting_seconds,
+        current.waiting_started_at,
+        nowIso
+      );
       patch.waiting_started_at = null;
     }
   }

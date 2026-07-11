@@ -97,6 +97,24 @@ describe("isSlaActiveInProgress", () => {
       })
     ).toBe(false);
   });
+  it("inactive after the task has entered Waiting", () => {
+    expect(
+      isSlaActiveInProgress({
+        status: "in_progress",
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        overdue_count: 0,
+        waiting_seconds: 1,
+      })
+    ).toBe(false);
+    expect(
+      isSlaActiveInProgress({
+        status: "in_progress",
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        overdue_count: 0,
+        waiting_started_at: "2026-07-04T00:00:00.000Z",
+      })
+    ).toBe(false);
+  });
   it("inactive outside In Progress", () => {
     expect(
       isSlaActiveInProgress({ status: "todo", in_progress_at: null, overdue_count: 0 })
@@ -121,9 +139,9 @@ describe("slaRemainingSeconds", () => {
     const now = new Date("2026-07-05T01:30:00.000Z");
     expect(slaRemainingSeconds(base, rules, now)).toBe(-30 * 60);
   });
-  it("counts prior stints against the budget — bouncing through Waiting cannot grant a free fresh budget", () => {
-    // 50 minutes already banked from an earlier stint (e.g. before a Waiting
-    // bounce); only 10 minutes of budget remain in THIS stint.
+  it("counts prior stints against the budget while the SLA is still active", () => {
+    // 50 minutes already banked from an earlier active stint; only 10 minutes
+    // of budget remain.
     const now = new Date("2026-07-05T00:05:00.000Z");
     expect(
       slaRemainingSeconds({ ...base, in_progress_seconds: 50 * 60 }, rules, now)
@@ -147,12 +165,19 @@ describe("isTaskOverdue", () => {
   it("overdue at the budget boundary on the first-ever run", () => {
     expect(isTaskOverdue(base, rules, new Date("2026-07-05T01:00:00.000Z"))).toBe(true);
   });
-  it("overdue when prior stints (e.g. before a Waiting bounce) already exhausted the budget", () => {
-    // Closes the "flip to Waiting right before the deadline, flip back, get a
-    // fresh 60 minutes" hole — banked time from any earlier stint counts.
+  it("overdue when prior stints already exhausted the budget before any Waiting", () => {
     const overBudgetTask = { ...base, in_progress_seconds: 60 * 60 };
     const now = new Date("2026-07-05T00:00:01.000Z");
     expect(isTaskOverdue(overBudgetTask, rules, now)).toBe(true);
+  });
+  it("not overdue after Waiting; later In Progress is plain count-up effort time", () => {
+    const waitedTask = {
+      ...base,
+      in_progress_seconds: 60 * 60,
+      waiting_seconds: 1,
+    };
+    const now = new Date("2026-07-05T00:00:01.000Z");
+    expect(isTaskOverdue(waitedTask, rules, now)).toBe(false);
   });
   it("NEVER overdue again once overdue_count > 0 — no matter how far over budget", () => {
     // This is the core anti-reset guarantee: once resolved, a task counts up
@@ -207,6 +232,20 @@ describe("currentStintDueAt", () => {
       rules
     );
     expect(due?.toISOString()).toBe("2026-07-05T00:00:00.000Z");
+  });
+  it("has no due_at after Waiting", () => {
+    const due = currentStintDueAt(
+      {
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        priority: "urgent",
+        category_id: null,
+        sla_minutes: 60,
+        in_progress_seconds: 90 * 60,
+        waiting_seconds: 1,
+      },
+      rules
+    );
+    expect(due).toBeNull();
   });
 });
 

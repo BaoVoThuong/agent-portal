@@ -1106,6 +1106,13 @@ function optimisticElapsedSeconds(startIso: string | null | undefined, nowIso: s
   return Math.max(0, Math.round((new Date(nowIso).getTime() - new Date(startIso).getTime()) / 1000));
 }
 
+function optimisticBankWaitingSeconds(before: TaskRow, nowIso: string): number {
+  const elapsed = before.waiting_started_at
+    ? optimisticElapsedSeconds(before.waiting_started_at, nowIso)
+    : 0;
+  return Math.max(1, (before.waiting_seconds ?? 0) + elapsed);
+}
+
 // How long a task stays "protected" from a background refetch after any local
 // write to it. Generous on purpose: it only matters while genuinely racing a
 // slow request, and being a bit too long just means a rare late-arriving
@@ -1160,10 +1167,8 @@ function buildOptimisticTaskPatch(
         (before.in_progress_seconds ?? 0) +
         optimisticElapsedSeconds(before.in_progress_at, nowIso);
       optimistic.in_progress_at = null;
-    } else if (before.status === "waiting" && before.waiting_started_at) {
-      optimistic.waiting_seconds =
-        (before.waiting_seconds ?? 0) +
-        optimisticElapsedSeconds(before.waiting_started_at, nowIso);
+    } else if (before.status === "waiting") {
+      optimistic.waiting_seconds = optimisticBankWaitingSeconds(before, nowIso);
       optimistic.waiting_started_at = null;
     }
 

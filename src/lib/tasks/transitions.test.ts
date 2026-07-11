@@ -279,7 +279,39 @@ describe("resolveTaskPatch", () => {
         status: "todo",
         done_reviewed_by_email: null,
         done_reviewed_at: null,
+        waiting_seconds: 1,
+        waiting_started_at: null,
         todo_started_at: expect.any(String),
+        waiting_reminded_at: null,
+      },
+    });
+  });
+
+  it("leaving Waiting always marks the task as having waited before In Progress", () => {
+    const waiting = {
+      ...assigned,
+      status: "waiting" as const,
+      waiting_started_at: "2026-07-05T02:00:00.000Z",
+      waiting_seconds: 0,
+    };
+    const r = resolveTaskPatch(
+      manager,
+      waiting,
+      { status: "in_progress" },
+      { nowIso: "2026-07-05T02:30:00.000Z" }
+    );
+    expect(r).toEqual({
+      ok: true,
+      patch: {
+        status: "in_progress",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+        waiting_seconds: 30 * 60,
+        waiting_started_at: null,
+        in_progress_at: "2026-07-05T02:30:00.000Z",
+        overdue_flagged_at: null,
+        overdue_reminded_at: null,
+        overdue_unlocked_at: null,
         waiting_reminded_at: null,
       },
     });

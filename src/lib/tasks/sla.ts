@@ -1,13 +1,10 @@
 // Pure SLA resolution + overdue computation. "Overdue" is not a board status:
 // it's an SLA state of an In Progress task, and it can only actively happen
-// ONCE per task. The moment a task's first overdue incident is resolved
-// (reason entered, sent back to To Do), overdue_count becomes > 0 and the
-// task never shows a countdown or re-enters the overdue state again — later
-// In Progress time is just plain effort tracking (count-up), with a
-// permanent "Was overdue" marker. This is what makes overdue_count a stable,
-// once-per-task KPI signal that can't be reset by cycling through Waiting or
-// by repeated reopens. The UI recomputes this live; cron only stamps
-// audit/reminder records.
+// before the task has ever waited on an external blocker. Once a task enters
+// Waiting (or once its first overdue incident is resolved), later In Progress
+// time is just plain effort tracking (count-up), with historical markers like
+// "Was overdue" / "Reopened" when applicable. The UI recomputes this live;
+// cron only stamps audit/reminder records.
 import type { TaskPriority, TaskRow, TaskSlaRule } from "./types";
 
 // Fallback if rules haven't loaded yet — mirrors the DB seed in schema.sql.
@@ -65,11 +62,14 @@ type InProgressMeter = Pick<TaskRow, "status" | "in_progress_at"> & {
   in_progress_seconds?: number | null;
 };
 
+type SlaWindowTask = Pick<TaskRow, "status" | "in_progress_at" | "overdue_count"> & {
+  waiting_started_at?: string | null;
+  waiting_seconds?: number | null;
+};
+
 // Total seconds the task has spent In Progress across ALL stints: the banked
-// accumulator plus the current open stint. This is the SLA budget meter —
-// using the accumulator (not just the current stint) means bouncing through
-// Waiting and back can't give a task a free fresh 60 minutes each time; time
-// already spent counts against the budget no matter how many stints it took.
+// accumulator plus the current open stint. While the SLA is active, this is the
+// budget meter. After Waiting, the same value is plain effort time for display.
 export function inProgressConsumedSeconds(
   task: InProgressMeter,
   now: Date = new Date()
@@ -81,17 +81,21 @@ export function inProgressConsumedSeconds(
   return base;
 }
 
-// A task can only be in the ACTIVE overdue countdown once. overdue_count > 0
-// means its first overdue incident already happened and was resolved — from
-// then on there's no SLA countdown to show or re-trigger, regardless of
-// Waiting visits or how many times it's reopened.
-export function isSlaActiveInProgress(
-  task: Pick<TaskRow, "status" | "in_progress_at" | "overdue_count">
-): boolean {
+export function hasEnteredWaiting(task: {
+  waiting_started_at?: string | null;
+  waiting_seconds?: number | null;
+}): boolean {
+  return Boolean(task.waiting_started_at) || (task.waiting_seconds ?? 0) > 0;
+}
+
+// A task can only be in the ACTIVE SLA countdown before it has ever entered
+// Waiting, and before its first overdue incident has already been resolved.
+export function isSlaActiveInProgress(task: SlaWindowTask): boolean {
   return (
     task.status === "in_progress" &&
     Boolean(task.in_progress_at) &&
-    task.overdue_count === 0
+    task.overdue_count === 0 &&
+    !hasEnteredWaiting(task)
   );
 }
 
@@ -124,8 +128,8 @@ export function slaRemainingSeconds(
 }
 
 // "Overdue" = the task is in its (one-time-only) active SLA window and has
-// burned the whole budget. Once resolved, isSlaActiveInProgress is
-// permanently false for this task, so this can never fire again.
+// burned the whole budget. After Waiting or after the first overdue resolution,
+// isSlaActiveInProgress is false, so this cannot fire again.
 export function isTaskOverdue(
   task: Pick<
     TaskRow,
@@ -133,6 +137,8 @@ export function isTaskOverdue(
   > & {
     sla_minutes?: number | null;
     in_progress_seconds?: number | null;
+    waiting_started_at?: string | null;
+    waiting_seconds?: number | null;
   },
   rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[],
   now: Date = new Date()
@@ -142,17 +148,19 @@ export function isTaskOverdue(
 }
 
 // The wall-clock instant the current In Progress stint will cross (or already
-// crossed) the SLA budget — used only for audit/log records (task_overdue_events,
-// cron due_at). Accounts for budget already banked from earlier stints (e.g. a
-// Waiting bounce before this one), same accounting as slaRemainingSeconds.
+// crossed) the SLA budget — used only while the SLA is active for audit/log
+// records (task_overdue_events, cron due_at).
 export function currentStintDueAt(
   task: Pick<TaskRow, "in_progress_at" | "priority" | "category_id"> & {
     sla_minutes?: number | null;
     in_progress_seconds?: number | null;
+    waiting_started_at?: string | null;
+    waiting_seconds?: number | null;
   },
   rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[]
 ): Date | null {
   if (!task.in_progress_at) return null;
+  if (hasEnteredWaiting(task)) return null;
   const budgetSeconds = effectiveSlaMinutes(
     { priority: task.priority, category_id: task.category_id, sla_minutes: task.sla_minutes ?? null },
     rules
