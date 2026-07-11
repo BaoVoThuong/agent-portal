@@ -19,7 +19,12 @@ type Notif = {
     | "commented"
     | "overdue"
     | "overdue_reminder"
-    | "waiting_reminder";
+    | "waiting_reminder"
+    | "unassigned"
+    | "reopened"
+    | "qc_needed"
+    | "due_soon"
+    | "stale";
   actor_email: string;
   actor_name: string | null;
   task_title: string | null;
@@ -73,12 +78,22 @@ function actionText(n: Notif): string {
       return "tagged you in a comment";
     case "commented":
       return "commented on a task assigned to you";
+    case "unassigned":
+      return "removed you from a task";
+    case "reopened":
+      return "reopened this task";
+    case "qc_needed":
+      return "marked a Done task for QC";
     case "overdue":
       return "Task just went overdue";
     case "overdue_reminder":
       return "Task is still overdue — reminder";
     case "waiting_reminder":
       return "Task is still waiting for follow-up";
+    case "due_soon":
+      return "Task is due soon";
+    case "stale":
+      return "Task has had no activity";
   }
 }
 
@@ -88,7 +103,9 @@ function isSystemNotif(n: Notif): boolean {
   return (
     n.type === "overdue" ||
     n.type === "overdue_reminder" ||
-    n.type === "waiting_reminder"
+    n.type === "waiting_reminder" ||
+    n.type === "due_soon" ||
+    n.type === "stale"
   );
 }
 

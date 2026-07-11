@@ -13,9 +13,13 @@ function describe(a: ActivityRow, personLabel: (email: string) => string): React
     case "status_changed": return <>moved to {to}</>;
     case "reopened": return <>reopened ({to})</>;
     case "assigned": return <>assigned to {to}</>;
+    case "unassigned": return <>removed {to} from the task</>;
     case "priority_changed": return <>set priority {to}</>;
     case "category_changed": return "changed category";
     case "agent_changed": return <>changed agent to {to}</>;
+    case "qc_needed": return "marked a Done task for QC";
+    case "due_soon": return "task is due soon";
+    case "stale": return "task had no activity";
     case "done_reviewed": return "QC checked the completed task";
     case "done_review_cleared": return "cleared the QC check";
     case "comment_added": return "commented";
@@ -65,7 +69,7 @@ function formatActivityValue(
   personLabel: (email: string) => string
 ) {
   if (!value || value === "—") return "—";
-  if (type === "agent_changed" || type === "assigned") {
+  if (type === "agent_changed" || type === "assigned" || type === "unassigned") {
     return (
       <strong className="font-semibold text-[#172b4d]">
         {personLabel(value)}
