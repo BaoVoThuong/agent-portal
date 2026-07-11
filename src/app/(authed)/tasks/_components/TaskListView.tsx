@@ -2,8 +2,13 @@
 
 import { useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
-import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import { sortTasks, type SortDir, type SortKey } from "@/lib/tasks/sorting";
+import type { TaskCategory, TaskRow, TaskSlaRule } from "@/lib/tasks/types";
+import {
+  rankTasks,
+  sortTasks,
+  type SortDir,
+  type SortKey,
+} from "@/lib/tasks/sorting";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { LIST_COL, TaskRowItem } from "./TaskRowItem";
 
@@ -22,6 +27,8 @@ export function TaskListView({
   onAssigneeChange,
   overdueIds,
   newAssignedTaskIds,
+  rules,
+  now,
   onUnlockOverdue,
   onReopenRequest,
 }: {
@@ -39,6 +46,8 @@ export function TaskListView({
   onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
   overdueIds: Set<string>;
   newAssignedTaskIds: Set<string>;
+  rules: TaskSlaRule[];
+  now: Date;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
 }) {
@@ -46,12 +55,15 @@ export function TaskListView({
     if (!agentEmail) return false;
     return agentEmail === currentEmail || myAssistantAgents.includes(agentEmail);
   }
-  const [sortKey, setSortKey] = useState<SortKey>("created");
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const categoryById = new Map(categories.map((c) => [c.id, c]));
   const categoryName = (id: string | null) => categoryById.get(id ?? "")?.name ?? null;
-  const rows = sortTasks(tasks, sortKey, sortDir, categoryName);
+  const rows =
+    sortKey === null
+      ? rankTasks(tasks, rules, now)
+      : sortTasks(tasks, sortKey, sortDir, categoryName);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -155,7 +167,7 @@ function SortTh({
   label: string;
   col: SortKey;
   widthClass: string;
-  sortKey: SortKey;
+  sortKey: SortKey | null;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
 }) {

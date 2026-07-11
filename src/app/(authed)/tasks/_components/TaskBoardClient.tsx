@@ -971,6 +971,8 @@ export function TaskBoardClient({
           onAssigneeChange={changeAssignee}
           overdueIds={overdueIds}
           newAssignedTaskIds={displayNewAssignedTaskIds}
+          rules={slaRules}
+          now={now}
           onUnlockOverdue={setUnlockingTaskId}
           onReopenRequest={setReopeningTaskId}
         />
