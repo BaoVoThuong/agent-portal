@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import { recordStageTransition, resolveOverdueEvent } from "@/lib/tasks/history";
+import { touchLastActivity } from "@/lib/tasks/last-activity";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import {
   currentStintDueAt,
@@ -114,6 +115,7 @@ export async function POST(req: Request, { params }: Ctx) {
       actorEmail: actor.email,
       nowIso,
     }),
+    touchLastActivity(supabase, id, nowIso),
     supabase.from("task_activity").insert({
       task_id: id,
       actor_email: actor.email,

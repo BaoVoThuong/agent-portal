@@ -30,6 +30,7 @@ import {
   resolveOverdueEvent,
   syncAssignmentCycles,
 } from "@/lib/tasks/history";
+import { touchLastActivity } from "@/lib/tasks/last-activity";
 
 export const dynamic = "force-dynamic";
 
@@ -395,6 +396,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       nowIso,
       source: "patch",
     }),
+    touchLastActivity(r.supabase, id, nowIso),
     entries.length > 0
       ? r.supabase.from("task_activity").insert(
           entries.map((e) => ({

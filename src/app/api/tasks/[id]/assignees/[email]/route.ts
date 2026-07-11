@@ -12,6 +12,7 @@ import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
 import { recordStageTransition, syncAssignmentCycles } from "@/lib/tasks/history";
+import { touchLastActivity } from "@/lib/tasks/last-activity";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -128,6 +129,7 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     nowIso,
     source: "unassign",
   });
+  await touchLastActivity(ctx.supabase, id, nowIso);
 
   const { data: taskData, error: taskError } = await ctx.supabase
     .from("tasks")

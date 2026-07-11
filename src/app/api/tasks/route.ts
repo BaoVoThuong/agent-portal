@@ -165,6 +165,8 @@ export async function POST(request: Request) {
       reporter_email: email,
       category_id: categoryId,
       position,
+      last_activity_at: nowIso,
+      stale_reminded_at: null,
       ...(startingTodo ? { todo_started_at: nowIso } : {}),
       ...(startingInProgress
         ? { in_progress_at: nowIso, overdue_flagged_at: null, sla_minutes: slaMinutes }

@@ -15,7 +15,8 @@ import {
   isTaskParticipant,
 } from "@/lib/tasks/participants";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
-import { broadcastTaskRoom } from "@/lib/tasks/realtime";
+import { touchLastActivity } from "@/lib/tasks/last-activity";
+import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { signTaskFile } from "@/lib/tasks/storage";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -133,6 +134,7 @@ export async function POST(req: Request, { params }: Ctx) {
   const hasAttachments = body?.hasAttachments === true;
   if (!text && !hasAttachments)
     return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
+  const nowIso = new Date().toISOString();
 
   // Validate parent: must be a top-level comment on THIS task (one-level threading).
   let parentId: string | null = null;
@@ -199,6 +201,8 @@ export async function POST(req: Request, { params }: Ctx) {
     }))
   );
 
+  await touchLastActivity(r.supabase, id, nowIso);
+  await broadcastTasksChanged();
   await broadcastTaskRoom(id);
   return NextResponse.json({ comment });
 }
