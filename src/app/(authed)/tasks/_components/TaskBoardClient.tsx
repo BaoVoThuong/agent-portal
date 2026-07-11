@@ -427,11 +427,14 @@ export function TaskBoardClient({
   // Which filters make sense for the current view + role. Hidden filters are also
   // forced inert here so a stale value can't silently filter a view that hides it.
   //  - Agent (customer agent_email): manager-only.
-  //  - Assignee: manager-only, and not on Backlog (everything there is unassigned).
+  //  - Assignee: manager filter, or plain-CS Group tasks filter; never on Backlog.
   //  - Status: List only (Board columns already are statuses; Backlog is all backlog).
   //  - Category: hidden for plain CS users.
   const showAgentFilter = isManager;
   const showAssigneeFilter = isManager && view !== "backlog";
+  const showInlineAssigneeFilter =
+    shouldLimitPlainCsTasks && showTeamTasks && view !== "backlog";
+  const enableAssigneeFilter = showAssigneeFilter || showInlineAssigneeFilter;
   const showStatusFilter = view === "list";
   const showCategoryFilter = !shouldLimitPlainCsTasks;
 
@@ -440,7 +443,7 @@ export function TaskBoardClient({
       filterTasks(scopedTasks, {
         query,
         agent: showAgentFilter ? agentFilter : [],
-        assignee: showAssigneeFilter ? assigneeFilter : [],
+        assignee: enableAssigneeFilter ? assigneeFilter : [],
         quick: presets,
         category: showCategoryFilter ? categoryFilter : [],
         status: showStatusFilter ? statusFilter : [],
@@ -477,7 +480,7 @@ export function TaskBoardClient({
       statusFilter,
       dateRange,
       showAgentFilter,
-      showAssigneeFilter,
+      enableAssigneeFilter,
       showStatusFilter,
       showCategoryFilter,
       currentEmail,
@@ -920,6 +923,7 @@ export function TaskBoardClient({
           onDefaultDateRange={saveDefaultDateRange}
           showAgent={showAgentFilter}
           showAssignee={showAssigneeFilter}
+          showInlineAssignee={showInlineAssigneeFilter}
           showStatus={showStatusFilter}
           showCategory={showCategoryFilter}
           showTeamTasksToggle={shouldLimitPlainCsTasks}

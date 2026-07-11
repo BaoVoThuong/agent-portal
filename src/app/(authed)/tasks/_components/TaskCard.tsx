@@ -98,8 +98,7 @@ export function TaskCard({
           {isNewAssigned ? <NewAssignedBadge className="mt-1" /> : null}
         </div>
 
-        <div className="flex shrink-0 items-start gap-1.5">
-          <TaskStateIndicators task={task} isOverdue={isOverdue} />
+        <div className="relative flex shrink-0 items-start gap-1.5">
           <PriorityMarker priority={task.priority} />
           <span
             className="relative shrink-0"
@@ -113,6 +112,7 @@ export function TaskCard({
               </span>
             ) : null}
           </span>
+          <TaskStateIndicators task={task} isOverdue={isOverdue} />
         </div>
       </div>
 
@@ -256,9 +256,9 @@ function CategoryBadge({ category }: { category: TaskCategory }) {
   );
 }
 
-// Compact state icons keep operational flags visible without crowding the card
-// metadata row. Live overdue wins over historical "was overdue" so the same
-// alert isn't shown twice.
+// Compact state icons keep operational flags visible under the avatar without
+// stealing title width. Live overdue wins over historical "was overdue" so the
+// same alert isn't shown twice.
 function TaskStateIndicators({
   task,
   isOverdue,
@@ -270,26 +270,29 @@ function TaskStateIndicators({
   if (!isOverdue && !wasOverdue && !task.reopened_at) return null;
 
   return (
-    <span className="flex shrink-0 items-center gap-1" aria-label="Task flags">
+    <span
+      className="absolute right-0 top-7 z-10 flex -space-x-1"
+      aria-label="Task flags"
+    >
       {isOverdue ? (
         <StateIcon
           tone="danger"
           title="Overdue: this task is over its SLA."
-          icon={<AlertTriangle className="h-3 w-3" />}
+          icon={<AlertTriangle className="h-2.5 w-2.5" />}
         />
       ) : null}
       {wasOverdue ? (
         <StateIcon
           tone="warning"
           title="Was overdue: this task went over its SLA at least once."
-          icon={<AlertTriangle className="h-3 w-3" />}
+          icon={<AlertTriangle className="h-2.5 w-2.5" />}
         />
       ) : null}
       {task.reopened_at ? (
         <StateIcon
           tone="info"
           title="Reopened: this task was reopened."
-          icon={<RotateCcw className="h-3 w-3" />}
+          icon={<RotateCcw className="h-2.5 w-2.5" />}
         />
       ) : null}
     </span>
@@ -313,7 +316,7 @@ function StateIcon({
 
   return (
     <span
-      className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${className}`}
+      className={`relative inline-flex h-4 w-4 items-center justify-center rounded-full border ring-1 ring-white ${className}`}
       title={title}
       aria-label={title}
     >

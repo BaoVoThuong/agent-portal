@@ -82,6 +82,7 @@ export function TaskToolbar({
   onDefaultDateRange,
   showAgent,
   showAssignee,
+  showInlineAssignee,
   showStatus,
   showCategory,
   showTeamTasksToggle = false,
@@ -117,6 +118,7 @@ export function TaskToolbar({
   onDefaultDateRange: (value: TaskDateRangeDefault) => void;
   showAgent: boolean;
   showAssignee: boolean;
+  showInlineAssignee?: boolean;
   showStatus: boolean;
   showCategory: boolean;
   showTeamTasksToggle?: boolean;
@@ -140,17 +142,18 @@ export function TaskToolbar({
     ...TASK_STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
   ];
   const assigneeOptions = [
-    { value: "", label: "Assignee" },
+    { value: "", label: "All Assignees" },
     { value: NO_ASSIGNEE, label: "Unassigned" },
     ...assignees.map((a) => ({ value: a.email, label: a.name ?? a.email })),
   ];
 
   const presetOptions = PRESETS.filter((p) => !p.managerOnly || isManager);
+  const hasVisibleAssigneeFilter = showAssignee || showInlineAssignee;
 
   const hasActiveFilters =
     query.trim() !== "" ||
     (showAgent && agentFilter.length > 0) ||
-    (showAssignee && assigneeFilter.length > 0) ||
+    (hasVisibleAssigneeFilter && assigneeFilter.length > 0) ||
     (showTeamTasksToggle && teamTasksEnabled) ||
     presets.length > 0 ||
     (showCategory && category.length > 0) ||
@@ -208,7 +211,7 @@ export function TaskToolbar({
             multi
             values={assigneeFilter}
             options={assigneeOptions}
-            placeholder="Assignee"
+            placeholder="All Assignees"
             allValue=""
             summaryLabel="assignees"
             className="w-max min-w-[11rem]"
@@ -248,6 +251,20 @@ export function TaskToolbar({
               Group tasks
             </button>
           </div>
+        ) : null}
+
+        {showInlineAssignee ? (
+          <TaskSelect
+            multi
+            values={assigneeFilter}
+            options={assigneeOptions}
+            placeholder="All Assignees"
+            allValue=""
+            summaryLabel="assignees"
+            className="w-max min-w-[11rem]"
+            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+            onValuesChange={onAssigneeFilter}
+          />
         ) : null}
 
         {showStatus ? (

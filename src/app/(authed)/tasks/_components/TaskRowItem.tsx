@@ -112,7 +112,7 @@ export function TaskRowItem({
         className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]"
         title={task.title}
       >
-        <span className="truncate">{task.title}</span>
+        <span className="min-w-0 flex-1 truncate">{task.title}</span>
         {isNewAssigned ? <NewAssignedBadge /> : null}
         <TaskRowFlags task={task} isOverdue={isOverdue} />
       </button>
