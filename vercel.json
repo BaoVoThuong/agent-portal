@@ -3,10 +3,6 @@
     {
       "path": "/api/cron/sync-data",
       "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/check-overdue",
-      "schedule": "0 * * * *"
     }
   ]
 }

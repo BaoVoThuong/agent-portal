@@ -1,0 +1,16 @@
+name: Task reminders cron
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit the overdue/reminder cron endpoint
+        run: |
+          curl -fsS -X GET \
+            -H "Authorization: Bearer ${{ secrets.TASK_CRON_SECRET }}" \
+            "${{ secrets.TASK_CRON_URL }}"
