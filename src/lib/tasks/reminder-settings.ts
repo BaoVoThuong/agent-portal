@@ -1,5 +1,6 @@
 export type ReminderSettings = {
   dueSoonMinutes: number;
+  todoHours: number;
   overdueReminderHours: number;
   waitingHours: number;
   staleHours: number;
@@ -7,6 +8,7 @@ export type ReminderSettings = {
 
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   dueSoonMinutes: 15,
+  todoHours: 24,
   overdueReminderHours: 24,
   waitingHours: 24,
   staleHours: 48,
@@ -26,6 +28,7 @@ export function resolveReminderSettings(row: unknown): ReminderSettings {
       r.due_soon_minutes,
       DEFAULT_REMINDER_SETTINGS.dueSoonMinutes
     ),
+    todoHours: posInt(r.todo_hours, DEFAULT_REMINDER_SETTINGS.todoHours),
     overdueReminderHours: posInt(
       r.overdue_reminder_hours,
       DEFAULT_REMINDER_SETTINGS.overdueReminderHours

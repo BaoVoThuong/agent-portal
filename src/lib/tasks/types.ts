@@ -43,6 +43,7 @@ export type TaskRow = {
   viewer_is_participant?: boolean;
   reporter_email: string;
   todo_started_at: string | null;
+  todo_reminded_at: string | null;
   in_progress_at: string | null;
   overdue_flagged_at: string | null;
   waiting_started_at: string | null;

@@ -47,9 +47,11 @@ export async function GET(request: Request) {
   }
 
   const settings = resolveReminderSettings(settingsRow);
+  const todoReminderMs = settings.todoHours * 3600_000;
   const overdueReminderMs = settings.overdueReminderHours * 3600_000;
   const waitingReminderMs = settings.waitingHours * 3600_000;
   const staleReminderMs = settings.staleHours * 3600_000;
+  const todoCutoffIso = new Date(now.getTime() - todoReminderMs).toISOString();
   const waitingCutoffIso = new Date(now.getTime() - waitingReminderMs).toISOString();
 
   const { data: taskRows, error: tasksError } = await supabase
@@ -106,6 +108,24 @@ export async function GET(request: Request) {
     (task) =>
       !task.due_soon_notified_at &&
       isDueSoon(task, rules, settings.dueSoonMinutes, now)
+  );
+
+  const { data: todoRows, error: todoError } = await supabase
+    .from("tasks")
+    .select("id,todo_started_at,todo_reminded_at")
+    .eq("status", "todo")
+    .is("archived_at", null)
+    .not("todo_started_at", "is", null)
+    .lte("todo_started_at", todoCutoffIso);
+  if (todoError) return NextResponse.json({ error: todoError.message }, { status: 500 });
+  const todoReminderTasks = (
+    (todoRows ?? []) as Pick<
+      TaskRow,
+      "id" | "todo_started_at" | "todo_reminded_at"
+    >[]
+  ).filter(
+    (task) =>
+      intervalDue(task.todo_reminded_at, todoReminderMs, now)
   );
 
   const { data: waitingRows, error: waitingError } = await supabase
@@ -228,6 +248,28 @@ export async function GET(request: Request) {
     );
   }
 
+  if (todoReminderTasks.length > 0) {
+    await Promise.all(
+      todoReminderTasks.map(async (task) => {
+        const assignees = await fetchTaskAssigneeEmails(task.id, supabase);
+        await insertNotifications(
+          assignees.map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "todo_reminder",
+            actor_email: "system",
+          }))
+        );
+        const { error: updateError } = await supabase
+          .from("tasks")
+          .update({ todo_reminded_at: nowIso })
+          .eq("id", task.id)
+          .eq("status", "todo");
+        if (updateError) throw new Error(updateError.message);
+      })
+    );
+  }
+
   if (dueSoonTasks.length > 0) {
     await Promise.all(
       dueSoonTasks.map(async (task) => {
@@ -277,6 +319,7 @@ export async function GET(request: Request) {
     checked: tasks.length,
     flagged: newlyOverdue.length,
     reminded: stillOverdue.length,
+    todoReminded: todoReminderTasks.length,
     waitingReminded: waitingReminderTasks.length,
     dueSoon: dueSoonTasks.length,
     stale: staleReminderTasks.length,

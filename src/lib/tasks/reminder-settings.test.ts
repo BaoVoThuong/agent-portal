@@ -13,12 +13,14 @@ describe("resolveReminderSettings", () => {
     expect(
       resolveReminderSettings({
         due_soon_minutes: 10,
+        todo_hours: 8,
         overdue_reminder_hours: 12,
         waiting_hours: 6,
         stale_hours: 72,
       })
     ).toEqual({
       dueSoonMinutes: 10,
+      todoHours: 8,
       overdueReminderHours: 12,
       waitingHours: 6,
       staleHours: 72,

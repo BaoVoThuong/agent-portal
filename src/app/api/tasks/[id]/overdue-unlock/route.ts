@@ -78,6 +78,7 @@ export async function POST(req: Request, { params }: Ctx) {
   const patch = {
     status: "todo",
     todo_started_at: nowIso,
+    todo_reminded_at: null,
     in_progress_at: null,
     // Bank the In Progress stint that just ended — time already spent is
     // never lost, it carries into the next stint's starting total.

@@ -36,6 +36,7 @@ const REMINDER_ROWS: Array<{
   unit: string;
 }> = [
   { key: "dueSoonMinutes", label: "Due soon", unit: "min" },
+  { key: "todoHours", label: "To Do reminders", unit: "h" },
   { key: "overdueReminderHours", label: "Overdue reminders", unit: "h" },
   { key: "waitingHours", label: "Waiting reminders", unit: "h" },
   { key: "staleHours", label: "Stale reminders", unit: "h" },
@@ -45,6 +46,8 @@ type ReminderSettingsResponse = {
   settings?: ReminderSettings;
   error?: string;
 };
+
+type SettingsView = "priority" | "reminders";
 
 function formatDuration(minutes: number): string {
   return formatDurationMinutes(minutes);
@@ -63,6 +66,7 @@ export function SlaRulesModal({
   onRulesChange: (rules: TaskSlaRule[]) => void;
   onClose: () => void;
 }) {
+  const [view, setView] = useState<SettingsView>("priority");
   const [priority, setPriority] = useState<TaskPriority>("urgent");
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [reminderSettings, setReminderSettings] = useState<ReminderSettings>(
@@ -250,12 +254,15 @@ export function SlaRulesModal({
               Priority
             </span>
             {TASK_PRIORITIES.map((p) => {
-              const active = p === priority;
+              const active = view === "priority" && p === priority;
               return (
                 <button
                   key={p}
                   type="button"
-                  onClick={() => setPriority(p)}
+                  onClick={() => {
+                    setView("priority");
+                    setPriority(p);
+                  }}
                   className={`mb-1 flex items-center justify-between rounded border px-3 py-2 text-left text-sm font-semibold transition ${
                     active
                       ? "border-[#85b8ff] bg-[#e9f2ff] text-[#0c66e4]"
@@ -267,54 +274,74 @@ export function SlaRulesModal({
                 </button>
               );
             })}
+
+            <div className="mt-4 border-t border-[#dfe1e6] pt-3">
+              <button
+                type="button"
+                onClick={() => setView("reminders")}
+                className={`flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm font-semibold transition ${
+                  view === "reminders"
+                    ? "border-[#85b8ff] bg-[#e9f2ff] text-[#0c66e4]"
+                    : "border-transparent text-[#172b4d] hover:bg-white"
+                }`}
+              >
+                Reminder Setup
+                {view === "reminders" ? <Check className="h-4 w-4" /> : null}
+              </button>
+            </div>
           </section>
 
           <section className="flex min-h-0 flex-col overflow-y-auto p-4">
-            <ul className="space-y-1.5">
-              {rows.map((row) => {
-                const categoryId = row.id === DEFAULT_ROW_KEY ? null : row.id;
-                const key = `${priority}:${row.id}`;
-                const saving = savingKey === key;
-                return (
-                  <SlaRuleRow
-                    key={key}
-                    label={row.name}
-                    minutes={minutesFor(categoryId)}
-                    showReset={row.id !== DEFAULT_ROW_KEY && hasOverride(categoryId)}
-                    saving={saving}
-                    onSave={(totalMinutes) => save(categoryId, totalMinutes, key)}
-                    onReset={() => reset(categoryId, key)}
-                  />
-                );
-              })}
-            </ul>
-            <p className="mt-3 text-xs text-[#97a0af]">
-              System default: {formatDuration(DEFAULT_SLA_MINUTES[priority])}. Categories
-              without an override use the &quot;Default&quot; row above.
-            </p>
-            <div className="mt-5 border-t border-[#dfe1e6] pt-4">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <h3 className="text-xs font-bold uppercase text-[#6b778c]">
-                  Reminders
-                </h3>
-                {loadingReminders ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
-                ) : null}
-              </div>
+            {view === "priority" ? (
+              <>
               <ul className="space-y-1.5">
-                {REMINDER_ROWS.map((row) => (
-                  <ReminderSettingRow
-                    key={`${row.key}:${reminderSettings[row.key]}`}
-                    label={row.label}
-                    value={reminderSettings[row.key]}
-                    unit={row.unit}
-                    saving={savingReminderKey === row.key}
-                    disabled={loadingReminders}
-                    onSave={(value) => saveReminderSetting(row.key, value)}
-                  />
-                ))}
+                {rows.map((row) => {
+                  const categoryId = row.id === DEFAULT_ROW_KEY ? null : row.id;
+                  const key = `${priority}:${row.id}`;
+                  const saving = savingKey === key;
+                  return (
+                    <SlaRuleRow
+                      key={key}
+                      label={row.name}
+                      minutes={minutesFor(categoryId)}
+                      showReset={row.id !== DEFAULT_ROW_KEY && hasOverride(categoryId)}
+                      saving={saving}
+                      onSave={(totalMinutes) => save(categoryId, totalMinutes, key)}
+                      onReset={() => reset(categoryId, key)}
+                    />
+                  );
+                })}
               </ul>
-            </div>
+              <p className="mt-3 text-xs text-[#97a0af]">
+                System default: {formatDuration(DEFAULT_SLA_MINUTES[priority])}. Categories
+                without an override use the &quot;Default&quot; row above.
+              </p>
+              </>
+            ) : (
+              <>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="text-xs font-bold uppercase text-[#6b778c]">
+                    Reminder Setup
+                  </h3>
+                  {loadingReminders ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
+                  ) : null}
+                </div>
+                <ul className="space-y-1.5">
+                  {REMINDER_ROWS.map((row) => (
+                    <ReminderSettingRow
+                      key={`${row.key}:${reminderSettings[row.key]}`}
+                      label={row.label}
+                      value={reminderSettings[row.key]}
+                      unit={row.unit}
+                      saving={savingReminderKey === row.key}
+                      disabled={loadingReminders}
+                      onSave={(value) => saveReminderSetting(row.key, value)}
+                    />
+                  ))}
+                </ul>
+              </>
+            )}
             {error ? (
               <div className="mt-3 rounded bg-[#ffebe6] px-3 py-2 text-sm font-medium text-[#ae2a19]">
                 {error}

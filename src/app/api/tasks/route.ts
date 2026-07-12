@@ -167,7 +167,7 @@ export async function POST(request: Request) {
       position,
       last_activity_at: nowIso,
       stale_reminded_at: null,
-      ...(startingTodo ? { todo_started_at: nowIso } : {}),
+      ...(startingTodo ? { todo_started_at: nowIso, todo_reminded_at: null } : {}),
       ...(startingInProgress
         ? { in_progress_at: nowIso, overdue_flagged_at: null, sla_minutes: slaMinutes }
         : {}),

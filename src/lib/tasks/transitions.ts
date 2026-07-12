@@ -217,6 +217,7 @@ export function resolveTaskPatch(
 
   if (statusChanged && nextStatus === "todo") {
     patch.todo_started_at = nowIso;
+    patch.todo_reminded_at = null;
   }
 
   if (statusChanged && nextStatus === "in_progress") {

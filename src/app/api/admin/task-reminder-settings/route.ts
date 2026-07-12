@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 type ReminderSettingsBody = Partial<ReminderSettings> & {
   due_soon_minutes?: unknown;
+  todo_hours?: unknown;
   overdue_reminder_hours?: unknown;
   waiting_hours?: unknown;
   stale_hours?: unknown;
@@ -27,6 +28,7 @@ function parseSettingsBody(body: ReminderSettingsBody | null): ReminderSettings 
 
   const settings = {
     dueSoonMinutes: positiveInt(body.dueSoonMinutes ?? body.due_soon_minutes),
+    todoHours: positiveInt(body.todoHours ?? body.todo_hours),
     overdueReminderHours: positiveInt(
       body.overdueReminderHours ?? body.overdue_reminder_hours
     ),
@@ -36,6 +38,7 @@ function parseSettingsBody(body: ReminderSettingsBody | null): ReminderSettings 
 
   if (
     settings.dueSoonMinutes === null ||
+    settings.todoHours === null ||
     settings.overdueReminderHours === null ||
     settings.waitingHours === null ||
     settings.staleHours === null
@@ -60,7 +63,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("task_reminder_settings")
     .select(
-      "due_soon_minutes,overdue_reminder_hours,waiting_hours,stale_hours,updated_at"
+      "due_soon_minutes,todo_hours,overdue_reminder_hours,waiting_hours,stale_hours,updated_at"
     )
     .eq("id", true)
     .maybeSingle();
@@ -93,6 +96,7 @@ export async function PUT(req: Request) {
       {
         id: true,
         due_soon_minutes: settings.dueSoonMinutes,
+        todo_hours: settings.todoHours,
         overdue_reminder_hours: settings.overdueReminderHours,
         waiting_hours: settings.waitingHours,
         stale_hours: settings.staleHours,
@@ -101,7 +105,7 @@ export async function PUT(req: Request) {
       { onConflict: "id" }
     )
     .select(
-      "due_soon_minutes,overdue_reminder_hours,waiting_hours,stale_hours,updated_at"
+      "due_soon_minutes,todo_hours,overdue_reminder_hours,waiting_hours,stale_hours,updated_at"
     )
     .single();
 

@@ -18,6 +18,7 @@ type Notif = {
     | "mentioned"
     | "commented"
     | "overdue"
+    | "todo_reminder"
     | "overdue_reminder"
     | "waiting_reminder"
     | "unassigned"
@@ -86,6 +87,8 @@ function actionText(n: Notif): string {
       return "marked a Done task for QC";
     case "overdue":
       return "Task just went overdue";
+    case "todo_reminder":
+      return "Task is still in To Do";
     case "overdue_reminder":
       return "Task is still overdue — reminder";
     case "waiting_reminder":
@@ -102,6 +105,7 @@ function actionText(n: Notif): string {
 function isSystemNotif(n: Notif): boolean {
   return (
     n.type === "overdue" ||
+    n.type === "todo_reminder" ||
     n.type === "overdue_reminder" ||
     n.type === "waiting_reminder" ||
     n.type === "due_soon" ||

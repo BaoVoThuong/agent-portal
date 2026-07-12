@@ -110,6 +110,7 @@ export async function POST(req: Request, { params }: Ctx) {
     taskPatch.status = next.status;
     if (next.status === "todo") {
       taskPatch.todo_started_at = nowIso;
+      taskPatch.todo_reminded_at = null;
     }
     if (ctx.task.status === "waiting" && next.status !== "waiting") {
       taskPatch.waiting_reminded_at = null;

@@ -1336,6 +1336,7 @@ alter table tasks add column if not exists overdue_count integer not null defaul
 -- task is currently in that stage (marks the current stint's start); it's
 -- cleared when the task leaves the stage.
 alter table tasks add column if not exists todo_started_at timestamptz;
+alter table tasks add column if not exists todo_reminded_at timestamptz;
 alter table tasks add column if not exists waiting_started_at timestamptz;
 alter table tasks add column if not exists waiting_reminded_at timestamptz;
 alter table tasks add column if not exists overdue_reminded_at timestamptz;
@@ -1351,8 +1352,8 @@ update tasks set last_activity_at = coalesce(updated_at, created_at)
 where last_activity_at is null;
 
 -- Anti-duplicate markers for the new cron reminders (mirror the existing
--- overdue_reminded_at / waiting_reminded_at). Cleared when the relevant clock
--- restarts so the reminder can re-arm.
+-- overdue_reminded_at / todo_reminded_at / waiting_reminded_at). Cleared when
+-- the relevant clock restarts so the reminder can re-arm.
 alter table tasks add column if not exists due_soon_notified_at timestamptz;
 alter table tasks add column if not exists stale_reminded_at timestamptz;
 
@@ -1602,11 +1603,15 @@ end $$;
 create table if not exists task_reminder_settings (
   id boolean primary key default true check (id),
   due_soon_minutes integer not null default 15 check (due_soon_minutes > 0),
+  todo_hours integer not null default 24 check (todo_hours > 0),
   overdue_reminder_hours integer not null default 24 check (overdue_reminder_hours > 0),
   waiting_hours integer not null default 24 check (waiting_hours > 0),
   stale_hours integer not null default 48 check (stale_hours > 0),
   updated_at timestamptz not null default now()
 );
+
+alter table task_reminder_settings
+add column if not exists todo_hours integer not null default 24 check (todo_hours > 0);
 
 insert into task_reminder_settings (id)
 values (true)
@@ -1683,6 +1688,7 @@ begin
       'mentioned',
       'commented',
       'overdue',
+      'todo_reminder',
       'overdue_reminder',
       'waiting_reminder',
       'unassigned',

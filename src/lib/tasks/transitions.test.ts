@@ -284,6 +284,7 @@ describe("resolveTaskPatch", () => {
         waiting_seconds: 1,
         waiting_started_at: null,
         todo_started_at: expect.any(String),
+        todo_reminded_at: null,
         waiting_reminded_at: null,
       },
     });
