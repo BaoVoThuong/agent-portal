@@ -14,11 +14,15 @@ import {
   canReviewDoneTask,
   canViewTask,
   resolveCreateAssignment,
+  resolveTaskCapabilities,
 } from "@/lib/tasks/access";
 
 const manager = buildTaskActor(["task.manage"], "mgr@x.com");
+const admin = buildTaskActor(["task.manage"], "admin@x.com");
 const cs = buildTaskActor(["task.work"], "cs@x.com");
+const none = buildTaskActor([], "no@x.com");
 const outsider = buildTaskActor(["settings.access"], "out@x.com");
+const task = { assignee_email: "cs@x.com" };
 
 describe("buildTaskActor", () => {
   it("flags manager and worker from permissions", () => {
@@ -91,23 +95,30 @@ describe("per-task view/mutate scope", () => {
   });
   it("CS can view (not mutate) a task they participate in", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isParticipant: true })).toBe(true);
-    // participation grants view only — status changes still need assignment or agent-team membership
+    // participation grants view only — status changes still need assignment or agent ownership
     expect(canChangeTaskStatus(cs, { assignee_email: "other@x.com" })).toBe(false);
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
   });
-  it("CS agent-team member can change status without content edit", () => {
+  it("CS agent-team member can view without content edit or status control", () => {
     expect(
-      canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })
+      canViewTask(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })
     ).toBe(true);
+    expect(
+      canChangeTaskStatus(
+        cs,
+        { assignee_email: "other@x.com" },
+        { isAgentMember: true } as never
+      )
+    ).toBe(false);
     expect(canMutateTask(cs, { assignee_email: "other@x.com" })).toBe(false);
   });
-  it("task agent owner can view and QC-check their own agent tasks", () => {
+  it("task agent owner can view and QC-check through the resolved owner flag", () => {
     expect(
       canViewTask(cs, { assignee_email: "other@x.com" }, { isAgentOwner: true })
     ).toBe(true);
-    expect(canReviewDoneTask(cs, { agent_email: "cs@x.com" })).toBe(true);
-    expect(canReviewDoneTask(cs, { agent_email: "other@x.com" })).toBe(false);
-    expect(canReviewDoneTask(manager, { agent_email: "other@x.com" })).toBe(true);
+    expect(canReviewDoneTask(cs, { isAgentOwner: true })).toBe(true);
+    expect(canReviewDoneTask(cs, {})).toBe(false);
+    expect(canReviewDoneTask(manager, {})).toBe(true);
   });
 });
 
@@ -191,8 +202,12 @@ describe("canViewTask with flags", () => {
   it("agent member (not assignee) can view", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })).toBe(true);
     expect(
-      canChangeTaskStatus(cs, { assignee_email: "other@x.com" }, { isAgentMember: true })
-    ).toBe(true);
+      canChangeTaskStatus(
+        cs,
+        { assignee_email: "other@x.com" },
+        { isAgentMember: true } as never
+      )
+    ).toBe(false);
   });
   it("agent member cannot view an unassigned team task", () => {
     expect(canViewTask(cs, { assignee_email: null }, { isAgentMember: true })).toBe(false);
@@ -228,5 +243,78 @@ describe("canDeleteTask with isAgentOwner flag", () => {
     expect(canDeleteTask(cs, true)).toBe(true);
     expect(canDeleteTask(cs, false)).toBe(false);
     expect(canDeleteTask(cs)).toBe(false);
+  });
+});
+
+describe("canChangeTaskStatus (team members can no longer move teammates)", () => {
+  it("assignee or agent owner can; a plain team member cannot", () => {
+    expect(canChangeTaskStatus(cs, task, { isAssignee: true })).toBe(true);
+    expect(canChangeTaskStatus(cs, task, { isAgentOwner: true })).toBe(true);
+    expect(canChangeTaskStatus(cs, task, { isAgentMember: true } as never)).toBe(false);
+    expect(canChangeTaskStatus(admin, task, {})).toBe(true);
+  });
+});
+
+describe("canReviewDoneTask (assistant/owner allowed via flag)", () => {
+  it("admin and agent-owner/assistant can; plain CS cannot", () => {
+    expect(canReviewDoneTask(admin, {})).toBe(true);
+    expect(canReviewDoneTask(cs, { isAgentOwner: true })).toBe(true);
+    expect(canReviewDoneTask(cs, {})).toBe(false);
+  });
+});
+
+describe("resolveTaskCapabilities", () => {
+  it("admin gets everything", () => {
+    expect(resolveTaskCapabilities(admin, task, {})).toEqual({
+      canView: true,
+      canEditContent: true,
+      canChangeStatus: true,
+      canAssign: true,
+      canDelete: true,
+      canReviewQC: true,
+      canReopen: true,
+    });
+  });
+
+  it("agent-level gets everything on the task", () => {
+    const c = resolveTaskCapabilities(cs, task, { isAgentOwner: true });
+    expect(c).toEqual({
+      canView: true,
+      canEditContent: true,
+      canChangeStatus: true,
+      canAssign: true,
+      canDelete: true,
+      canReviewQC: true,
+      canReopen: true,
+    });
+  });
+
+  it("CS assignee: view + status + reopen only", () => {
+    const c = resolveTaskCapabilities(cs, task, { isAssignee: true });
+    expect(c.canView).toBe(true);
+    expect(c.canChangeStatus).toBe(true);
+    expect(c.canReopen).toBe(true);
+    expect(c.canEditContent).toBe(false);
+    expect(c.canAssign).toBe(false);
+    expect(c.canDelete).toBe(false);
+    expect(c.canReviewQC).toBe(false);
+  });
+
+  it("CS team member (not assignee): can view but not change status", () => {
+    const c = resolveTaskCapabilities(
+      cs,
+      { assignee_email: "other@x.com" },
+      { isAgentMember: true }
+    );
+    expect(c.canView).toBe(true);
+    expect(c.canChangeStatus).toBe(false);
+  });
+
+  it("no board permission: nothing", () => {
+    const c = resolveTaskCapabilities(none, task, {
+      isAgentOwner: true,
+      isAssignee: true,
+    });
+    expect(Object.values(c).every((v) => v === false)).toBe(true);
   });
 });

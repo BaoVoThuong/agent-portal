@@ -73,11 +73,11 @@ export function canViewTask(
 
 export function canReviewDoneTask(
   actor: TaskActor,
-  task: Pick<TaskRow, "agent_email">
+  flags: { isAgentOwner?: boolean } = {}
 ): boolean {
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return Boolean(task.agent_email && task.agent_email === actor.email);
+  return Boolean(flags.isAgentOwner);
 }
 
 // Assign/reassign: manager or the task's agent owner (agent themself, or a
@@ -105,31 +105,73 @@ export function canMutateTask(
 }
 
 // Status transitions (kanban move, position), overdue-unlock, and reopening
-// a Done/Cancel task: manager, the agent owner/Assistant, CS on that agent's
-// team, or whoever is actually assigned the work.
+// a Done/Cancel task: manager, the agent owner/Assistant, or whoever is
+// actually assigned the work.
 export function canChangeTaskStatus(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">,
   flags: {
     isAssignee?: boolean;
-    isAgentMember?: boolean;
     isAgentOwner?: boolean;
   } = {}
 ): boolean {
   void task;
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return (
-    Boolean(flags.isAssignee) ||
-    Boolean(flags.isAgentMember) ||
-    Boolean(flags.isAgentOwner)
-  );
+  return Boolean(flags.isAssignee) || Boolean(flags.isAgentOwner);
 }
 
 export function canDeleteTask(actor: TaskActor, isAgentOwner = false): boolean {
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
   return isAgentOwner;
+}
+
+export type TaskMembershipFlags = {
+  isAssignee?: boolean;
+  isAgentOwner?: boolean;
+  isAgentMember?: boolean;
+  isReporter?: boolean;
+  isParticipant?: boolean;
+};
+
+export type TaskCapabilities = {
+  canView: boolean;
+  canEditContent: boolean;
+  canChangeStatus: boolean;
+  canAssign: boolean;
+  canDelete: boolean;
+  canReviewQC: boolean;
+  canReopen: boolean;
+};
+
+// Single source of truth: server routes and the client both call this with the
+// same resolved membership flags, so capabilities cannot drift between layers.
+export function resolveTaskCapabilities(
+  actor: TaskActor,
+  task: Pick<TaskRow, "assignee_email">,
+  flags: TaskMembershipFlags = {}
+): TaskCapabilities {
+  const canView = canViewTask(actor, task, flags);
+  const changeStatus = canChangeTaskStatus(actor, task, {
+    isAssignee: flags.isAssignee,
+    isAgentOwner: flags.isAgentOwner,
+  });
+
+  return {
+    canView,
+    canEditContent: canMutateTask(actor, task, {
+      isAgentOwner: flags.isAgentOwner,
+      isReporter: flags.isReporter,
+    }),
+    canChangeStatus: changeStatus,
+    canAssign: canAssignToTask(actor, Boolean(flags.isAgentOwner)),
+    canDelete: canDeleteTask(actor, Boolean(flags.isAgentOwner)),
+    canReviewQC: canReviewDoneTask(actor, {
+      isAgentOwner: flags.isAgentOwner,
+    }),
+    canReopen: changeStatus,
+  };
 }
 
 export type CreateAssignmentInput = {
