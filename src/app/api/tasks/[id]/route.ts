@@ -41,11 +41,9 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const TEAM_STATUS_CONFIRMED_KEY = "team_status_confirmed";
 const STATUS_PATCH_KEYS = new Set([
   "status",
   "position",
-  TEAM_STATUS_CONFIRMED_KEY,
 ]);
 const REVIEW_PATCH_KEYS = new Set(["done_reviewed"]);
 
@@ -205,7 +203,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
     isAgentOwner: access.isAgentOwner,
     isReporter: access.isReporter,
   });
-  const canReviewDone = canReviewDoneTask(r.actor, r.task);
+  const canReviewDone = canReviewDoneTask(r.actor, {
+    isAgentOwner: access.isAgentOwner,
+  });
   let resolvedBody: unknown = body;
   if (!canMutate) {
     const statusOnly = isStatusOnlyPatch(bodyRecord);
@@ -214,25 +214,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
       statusOnly &&
       canChangeTaskStatus(r.actor, r.task, {
         isAssignee: access.isAssignee,
-        isAgentMember: access.isAgentMember,
         isAgentOwner: access.isAgentOwner,
       });
     const canPatchReview = reviewOnly && canReviewDone;
     if (!canPatchStatus && !canPatchReview) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
-    const needsTeamStatusConfirm =
-      statusOnly &&
-      typeof bodyRecord.status === "string" &&
-      bodyRecord.status !== r.task.status &&
-      access.isAgentMember &&
-      !access.isAssignee &&
-      !access.isAgentOwner;
-    if (needsTeamStatusConfirm && bodyRecord[TEAM_STATUS_CONFIRMED_KEY] !== true) {
-      return NextResponse.json(
-        { error: "Confirm before changing a teammate's task status." },
-        { status: 400 }
-      );
     }
     resolvedBody = bodyRecord;
   }
