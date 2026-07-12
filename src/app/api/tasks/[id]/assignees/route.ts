@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canAssignToTask } from "@/lib/tasks/access";
+import { buildTaskActor, isTaskViewAdmin, canAssignToTask } from "@/lib/tasks/access";
 import {
   attachAssigneesToTasks,
   fetchTaskAssigneeEmails,
@@ -25,7 +25,9 @@ async function loadContext(id: string) {
   const actorEmail = session?.user?.email;
   if (!actorEmail) return { error: "Unauthorized" as const, status: 401 };
 
-  const actor = buildTaskActor(session.user.permissions, actorEmail);
+  const actor = buildTaskActor(session.user.permissions, actorEmail, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")

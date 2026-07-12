@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
+import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
 import { loadTaskDetail } from "@/lib/tasks/detail";
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
@@ -18,7 +18,9 @@ export async function GET(_req: Request, { params }: Ctx) {
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
   const supabase = getSupabaseAdmin();
   const { data: task, error } = await supabase
     .from("tasks")

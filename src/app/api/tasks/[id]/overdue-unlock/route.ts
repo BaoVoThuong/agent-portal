@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
+import { buildTaskActor, isTaskViewAdmin, canChangeTaskStatus } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import { recordStageTransition, resolveOverdueEvent } from "@/lib/tasks/history";
 import { touchLastActivity } from "@/lib/tasks/last-activity";
@@ -34,7 +34,9 @@ export async function POST(req: Request, { params }: Ctx) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
 
   const body = await req.json().catch(() => null);
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";

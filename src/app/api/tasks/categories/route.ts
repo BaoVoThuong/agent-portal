@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canAccessBoard, canManageCategories } from "@/lib/tasks/access";
+import { buildTaskActor, isTaskViewAdmin, canAccessBoard, canManageCategories } from "@/lib/tasks/access";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,9 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
   if (!canAccessBoard(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -28,7 +30,9 @@ export async function POST(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
   if (!canManageCategories(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

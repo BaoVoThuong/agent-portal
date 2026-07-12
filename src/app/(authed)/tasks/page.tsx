@@ -1,6 +1,6 @@
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { buildTaskActor } from "@/lib/tasks/access";
+import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import {
   fetchTaskAgentCandidates,
@@ -15,10 +15,6 @@ import {
 import { TaskBoardClient } from "./_components/TaskBoardClient";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { TaskCategory } from "@/lib/tasks/types";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +24,9 @@ export default async function TasksPage() {
     PERMISSIONS.TASK_WORK,
   ]);
   const email = session.user.email ?? "";
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
 
   const tasks = await fetchTasksForActor(actor);
   const assignees = await fetchTaskAssignees();
@@ -64,8 +62,7 @@ export default async function TasksPage() {
     .order("name", { ascending: true });
   const categories = (categoryRows ?? []) as TaskCategory[];
   const boardTitle = getTaskBoardTitle({
-    legacyRole: session.user.role ?? null,
-    roleNames: session.user.roles ?? [],
+    isAdmin: isTaskViewAdmin(session.user),
     isTaskAgent: agents.some((agent) => agent.email === email),
     isAssistant: myAssistantAgents.length > 0,
   });
@@ -90,21 +87,14 @@ export default async function TasksPage() {
 }
 
 function getTaskBoardTitle({
-  legacyRole,
-  roleNames,
+  isAdmin,
   isTaskAgent,
   isAssistant,
 }: {
-  legacyRole: string | null;
-  roleNames: string[];
+  isAdmin: boolean;
   isTaskAgent: boolean;
   isAssistant: boolean;
 }) {
-  const isAdmin =
-    legacyRole === "admin" ||
-    roleNames.includes(SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
-    roleNames.includes(LEGACY_SUPER_ADMIN_ROLE_NAME);
-
   if (isAdmin) return "Admin Task Board";
   if (isTaskAgent) return "Agent Task Board";
   if (isAssistant) return "Assistant Task Board";

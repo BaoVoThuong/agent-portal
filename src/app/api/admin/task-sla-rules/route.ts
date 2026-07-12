@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canAccessBoard } from "@/lib/tasks/access";
+import { buildTaskActor, isTaskViewAdmin, canAccessBoard } from "@/lib/tasks/access";
 import { TASK_PRIORITIES } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,9 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
   if (!canAccessBoard(actor)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
@@ -28,7 +30,9 @@ export async function POST(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
   if (!actor.isManager) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
@@ -93,7 +97,9 @@ export async function DELETE(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
   if (!actor.isManager) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }

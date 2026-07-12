@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   buildTaskActor,
+  isTaskViewAdmin,
   canAccessBoard,
   canCreateTaskWithScope,
   resolveCreateAssignment,
@@ -23,7 +24,9 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
   if (!canAccessBoard(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -35,7 +38,9 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email);
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
   if (!canAccessBoard(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
