@@ -3,12 +3,9 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   buildTaskActor,
-  canAssignToTask,
-  canChangeTaskStatus,
   canDeleteTask,
-  canMutateTask,
-  canReviewDoneTask,
-  canViewTask,
+  resolveTaskCapabilities,
+  type TaskCapabilities,
 } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import { currentStintDueAt, effectiveSlaMinutes, isTaskOverdue } from "@/lib/tasks/sla";
@@ -45,18 +42,43 @@ const STATUS_PATCH_KEYS = new Set([
   "status",
   "position",
 ]);
-const REVIEW_PATCH_KEYS = new Set(["done_reviewed"]);
+const CONTENT_PATCH_KEYS = new Set([
+  "title",
+  "description",
+  "fub_link",
+  "priority",
+  "category_id",
+  "agent_email",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";
 }
 
-function isStatusOnlyPatch(body: Record<string, unknown>): boolean {
-  return Object.keys(body).every((key) => STATUS_PATCH_KEYS.has(key));
+function hasAnyPatchKey(
+  body: Record<string, unknown>,
+  keys: ReadonlySet<string>
+): boolean {
+  return Object.keys(body).some((key) => keys.has(key));
 }
 
-function isReviewOnlyPatch(body: Record<string, unknown>): boolean {
-  return Object.keys(body).every((key) => REVIEW_PATCH_KEYS.has(key));
+function patchCapabilityError(
+  body: Record<string, unknown>,
+  capabilities: TaskCapabilities
+): string | null {
+  if (hasAnyPatchKey(body, CONTENT_PATCH_KEYS) && !capabilities.canEditContent) {
+    return "You cannot edit this task.";
+  }
+  if (body.assignee_email !== undefined && !capabilities.canAssign) {
+    return "You cannot assign this task.";
+  }
+  if (hasAnyPatchKey(body, STATUS_PATCH_KEYS) && !capabilities.canChangeStatus) {
+    return "You cannot change this task's status.";
+  }
+  if (body.done_reviewed !== undefined && !capabilities.canReviewQC) {
+    return "You cannot QC check this task.";
+  }
+  return null;
 }
 
 async function resolveTaskAccess(
@@ -72,8 +94,9 @@ async function resolveTaskAccess(
   isReporter: boolean;
 }> {
   if (actor.isManager) {
+    const capabilities = resolveTaskCapabilities(actor, task, {});
     return {
-      canView: true,
+      canView: capabilities.canView,
       isAgentMember: false,
       isAgentOwner: false,
       isAssignee: false,
@@ -89,13 +112,15 @@ async function resolveTaskAccess(
   ]);
   const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
   const isReporter = task.reporter_email === actor.email;
+  const capabilities = resolveTaskCapabilities(actor, task, {
+    isParticipant,
+    isAgentMember,
+    isAgentOwner,
+    isAssignee,
+    isReporter,
+  });
   return {
-    canView: canViewTask(actor, task, {
-      isParticipant,
-      isAgentMember,
-      isAgentOwner,
-      isAssignee,
-    }),
+    canView: capabilities.canView,
     isAgentMember,
     isAgentOwner,
     isAssignee,
@@ -194,38 +219,21 @@ export async function PATCH(req: Request, { params }: Ctx) {
     slaRules = rulesData ?? [];
   }
 
-  const mayAssign = canAssignToTask(r.actor, access.isAgentOwner);
-  if (reassigning && !mayAssign) {
-    return NextResponse.json({ error: "You cannot assign this task." }, { status: 403 });
-  }
-
-  const canMutate = canMutateTask(r.actor, r.task, {
+  const capabilities = resolveTaskCapabilities(r.actor, currentForPatch, {
+    isAssignee: access.isAssignee,
     isAgentOwner: access.isAgentOwner,
     isReporter: access.isReporter,
+    isAgentMember: access.isAgentMember,
+    isParticipant: access.isParticipant,
   });
-  const canReviewDone = canReviewDoneTask(r.actor, {
-    isAgentOwner: access.isAgentOwner,
-  });
-  let resolvedBody: unknown = body;
-  if (!canMutate) {
-    const statusOnly = isStatusOnlyPatch(bodyRecord);
-    const reviewOnly = isReviewOnlyPatch(bodyRecord);
-    const canPatchStatus =
-      statusOnly &&
-      canChangeTaskStatus(r.actor, r.task, {
-        isAssignee: access.isAssignee,
-        isAgentOwner: access.isAgentOwner,
-      });
-    const canPatchReview = reviewOnly && canReviewDone;
-    if (!canPatchStatus && !canPatchReview) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
-    resolvedBody = bodyRecord;
+  const capabilityError = patchCapabilityError(bodyRecord, capabilities);
+  if (capabilityError) {
+    return NextResponse.json({ error: capabilityError }, { status: 403 });
   }
 
-  const resolved = resolveTaskPatch(r.actor, currentForPatch, resolvedBody, {
-    canAssign: mayAssign,
-    canReviewDone,
+  const resolved = resolveTaskPatch(r.actor, currentForPatch, bodyRecord, {
+    canAssign: capabilities.canAssign,
+    canReviewDone: capabilities.canReviewQC,
     rules: slaRules,
     nowIso,
   });

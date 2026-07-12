@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
+import { resolveTaskCapabilities } from "@/lib/tasks/access";
 import { Clock, Plus, Tag, UsersRound } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskSlaRule, TaskStatus } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
@@ -35,7 +36,6 @@ import { ReasonModal } from "./ReasonModal";
 // Countdown/overdue labels only need to refresh every so often, not on every
 // render — 30s keeps the board close to live without a timer per card.
 const SLA_TICK_MS = 30_000;
-const TEAM_STATUS_CONFIRMED_KEY = "team_status_confirmed";
 
 export function TaskBoardClient({
   initialTasks,
@@ -572,35 +572,18 @@ export function TaskBoardClient({
     );
   }
 
-  function canChangeStatusTask(task: TaskRow): boolean {
-    return (
-      isManager ||
-      task.assignees.includes(currentEmail) ||
-      isAgentTeamMemberOf(task.agent_email) ||
-      isAgentOwnerOrAssistantOf(task.agent_email)
+  function capabilitiesFor(task: TaskRow) {
+    return resolveTaskCapabilities(
+      { email: currentEmail, isManager, isWorker: true },
+      { assignee_email: task.assignees[0] ?? task.assignee_email },
+      {
+        isAssignee: task.assignees.includes(currentEmail),
+        isAgentOwner: isAgentOwnerOrAssistantOf(task.agent_email),
+        isAgentMember: isAgentTeamMemberOf(task.agent_email),
+        isReporter: task.reporter_email === currentEmail,
+        isParticipant: Boolean(task.viewer_is_participant),
+      }
     );
-  }
-
-  function needsTeamStatusConfirm(
-    task: TaskRow,
-    patch: Record<string, unknown>
-  ) {
-    return (
-      !isManager &&
-      typeof patch.status === "string" &&
-      patch.status !== task.status &&
-      !task.assignees.includes(currentEmail) &&
-      !isAgentOwnerOrAssistantOf(task.agent_email) &&
-      isAgentTeamMemberOf(task.agent_email)
-    );
-  }
-
-  function canReviewDoneTask(task: TaskRow): boolean {
-    return task.status === "done" && (isManager || isAgentOwnerOrAssistantOf(task.agent_email));
-  }
-
-  function canDeleteOpenTask(task: TaskRow): boolean {
-    return isManager || isAgentOwnerOrAssistantOf(task.agent_email);
   }
 
   function reviewDoneTask(id: string, reviewed: boolean) {
@@ -614,14 +597,6 @@ export function TaskBoardClient({
     const revert = () => {
       if (before) updateTasks((cur) => cur.map((t) => (t.id === id ? before : t)));
     };
-    let requestPatch = patch;
-    if (before && needsTeamStatusConfirm(before, patch)) {
-      const confirmed = window.confirm(
-        "This task is assigned to someone in your team. Change its status?"
-      );
-      if (!confirmed) return;
-      requestPatch = { ...patch, [TEAM_STATUS_CONFIRMED_KEY]: true };
-    }
     const finishPendingMutation = beginTaskMutation(id);
     const optimisticPatch = buildOptimisticTaskPatch(patch, currentEmail, before);
     updateTasks((cur) =>
@@ -633,7 +608,7 @@ export function TaskBoardClient({
       res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestPatch),
+        body: JSON.stringify(patch),
       });
     } catch {
       finishPendingMutation();
@@ -835,14 +810,10 @@ export function TaskBoardClient({
     writeTaskDateRangeDefault(nextDefault);
   }
 
-  const canAssignOpen =
-    openTask !== null && (isManager || isAgentOwnerOrAssistantOf(openTask.agent_email));
-  const canEditOpen =
-    openTask !== null &&
-    (isManager ||
-      isAgentOwnerOrAssistantOf(openTask.agent_email) ||
-      openTask.reporter_email === currentEmail);
-  const canDeleteOpen = openTask !== null && canDeleteOpenTask(openTask);
+  const openTaskCapabilities = openTask ? capabilitiesFor(openTask) : null;
+  const canAssignOpen = Boolean(openTaskCapabilities?.canAssign);
+  const canEditOpen = Boolean(openTaskCapabilities?.canEditContent);
+  const canDeleteOpen = Boolean(openTaskCapabilities?.canDelete);
   const canCreateTasks = isManager || canManageOwnAgentGroup;
 
   return (
@@ -941,8 +912,10 @@ export function TaskBoardClient({
           tasks={visibleTasks}
           onOpen={openTaskById}
           onMove={moveTask}
-          canMoveTask={canChangeStatusTask}
-          canReviewDoneTask={canReviewDoneTask}
+          canMoveTask={(task) => capabilitiesFor(task).canChangeStatus}
+          canReviewDoneTask={(task) =>
+            task.status === "done" && capabilitiesFor(task).canReviewQC
+          }
           onReviewDone={reviewDoneTask}
           categories={categories}
           assigneeLabelByEmail={assigneeLabelByEmail}
@@ -966,7 +939,6 @@ export function TaskBoardClient({
           currentEmail={currentEmail}
           onOpen={openTaskById}
           onPatch={patchTask}
-          canReviewDoneTask={canReviewDoneTask}
           onReviewDone={reviewDoneTask}
           onAssigneeChange={changeAssignee}
           overdueIds={overdueIds}
@@ -1017,7 +989,7 @@ export function TaskBoardClient({
           canEdit={canEditOpen}
           canAssign={canAssignOpen}
           canDelete={canDeleteOpen}
-          canChangeStatus={openTask !== null && canChangeStatusTask(openTask)}
+          canChangeStatus={Boolean(openTaskCapabilities?.canChangeStatus)}
           onReopenRequest={() => setReopeningTaskId(openTask.id)}
           assignees={assignees}
           agentMembersByAgent={agentMembersByAgent}
@@ -1025,7 +997,7 @@ export function TaskBoardClient({
           mentionMembers={mentionMembers}
           categories={categories}
           currentEmail={currentEmail}
-          canReviewDone={canReviewDoneTask(openTask)}
+          canReviewDone={openTask.status === "done" && Boolean(openTaskCapabilities?.canReviewQC)}
           onClose={closeTask}
           onPatch={(patch) => patchTask(openTask.id, patch)}
           onReviewDone={(reviewed) => reviewDoneTask(openTask.id, reviewed)}

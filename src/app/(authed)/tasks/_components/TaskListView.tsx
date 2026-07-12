@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskSlaRule } from "@/lib/tasks/types";
+import { resolveTaskCapabilities } from "@/lib/tasks/access";
 import {
   rankTasks,
   sortTasks,
@@ -22,7 +23,6 @@ export function TaskListView({
   currentEmail,
   onOpen,
   onPatch,
-  canReviewDoneTask,
   onReviewDone,
   onAssigneeChange,
   overdueIds,
@@ -41,7 +41,6 @@ export function TaskListView({
   currentEmail: string;
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
-  canReviewDoneTask: (task: TaskRow) => boolean;
   onReviewDone: (taskId: string, reviewed: boolean) => void;
   onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
   overdueIds: Set<string>;
@@ -54,6 +53,24 @@ export function TaskListView({
   function isAgentOwnerOrAssistantOf(agentEmail: string | null): boolean {
     if (!agentEmail) return false;
     return agentEmail === currentEmail || myAssistantAgents.includes(agentEmail);
+  }
+  function isAgentTeamMemberOf(agentEmail: string | null): boolean {
+    return Boolean(
+      agentEmail && (agentMembersByAgent[agentEmail] ?? []).includes(currentEmail)
+    );
+  }
+  function capabilitiesFor(task: TaskRow) {
+    return resolveTaskCapabilities(
+      { email: currentEmail, isManager, isWorker: true },
+      { assignee_email: task.assignees[0] ?? task.assignee_email },
+      {
+        isAssignee: task.assignees.includes(currentEmail),
+        isAgentOwner: isAgentOwnerOrAssistantOf(task.agent_email),
+        isAgentMember: isAgentTeamMemberOf(task.agent_email),
+        isReporter: task.reporter_email === currentEmail,
+        isParticipant: Boolean(task.viewer_is_participant),
+      }
+    );
   }
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -122,32 +139,31 @@ export function TaskListView({
             />
           </div>
           <ul className="divide-y divide-[#ebecf0]">
-            {rows.map((task) => (
-              <li key={task.id}>
-                <TaskRowItem
-                  task={task}
-                  category={categoryById.get(task.category_id ?? "") ?? null}
-                  assignees={assignees}
-                  agentMembersByAgent={agentMembersByAgent}
-                  canEdit={
-                    isManager ||
-                    task.assignees.includes(currentEmail) ||
-                    isAgentOwnerOrAssistantOf(task.agent_email)
-                  }
-                  canAssign={isManager || isAgentOwnerOrAssistantOf(task.agent_email)}
-                  onOpen={onOpen}
-                  onPatch={onPatch}
-                  canReviewDone={canReviewDoneTask(task)}
-                  onReviewDone={(reviewed) => onReviewDone(task.id, reviewed)}
-                  onAssigneeChange={onAssigneeChange}
-                  openOnDoubleClick
-                  isOverdue={overdueIds.has(task.id)}
-                  isNewAssigned={newAssignedTaskIds.has(task.id)}
-                  onUnlockOverdueRequest={() => onUnlockOverdue(task.id)}
-                  onReopenRequest={() => onReopenRequest(task.id)}
-                />
-              </li>
-            ))}
+            {rows.map((task) => {
+              const capabilities = capabilitiesFor(task);
+              return (
+                <li key={task.id}>
+                  <TaskRowItem
+                    task={task}
+                    category={categoryById.get(task.category_id ?? "") ?? null}
+                    assignees={assignees}
+                    agentMembersByAgent={agentMembersByAgent}
+                    canChangeStatus={capabilities.canChangeStatus}
+                    canAssign={capabilities.canAssign}
+                    onOpen={onOpen}
+                    onPatch={onPatch}
+                    canReviewDone={task.status === "done" && capabilities.canReviewQC}
+                    onReviewDone={(reviewed) => onReviewDone(task.id, reviewed)}
+                    onAssigneeChange={onAssigneeChange}
+                    openOnDoubleClick
+                    isOverdue={overdueIds.has(task.id)}
+                    isNewAssigned={newAssignedTaskIds.has(task.id)}
+                    onUnlockOverdueRequest={() => onUnlockOverdue(task.id)}
+                    onReopenRequest={() => onReopenRequest(task.id)}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

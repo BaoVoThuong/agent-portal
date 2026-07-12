@@ -177,7 +177,7 @@ function BacklogSortableRow({
         category={category}
         assignees={assignees}
         agentMembersByAgent={agentMembersByAgent}
-        canEdit
+        canChangeStatus
         canAssign
         canReviewDone={false}
         onOpen={onOpen}

@@ -52,7 +52,7 @@ export function TaskRowItem({
   category,
   assignees,
   agentMembersByAgent,
-  canEdit,
+  canChangeStatus,
   canAssign,
   canReviewDone,
   onOpen,
@@ -70,7 +70,7 @@ export function TaskRowItem({
   category: TaskCategory | null;
   assignees: TaskAssignee[];
   agentMembersByAgent: Record<string, string[]>;
-  canEdit: boolean;
+  canChangeStatus: boolean;
   canAssign: boolean;
   canReviewDone: boolean;
   onOpen: (id: string) => void;
@@ -142,7 +142,7 @@ export function TaskRowItem({
       <StatusPill
         status={task.status}
         assigned={task.assignees.length > 0}
-        canEdit={canEdit}
+        canChangeStatus={canChangeStatus}
         hasBeenInProgress={
           task.status === "in_progress" ||
           Boolean(task.in_progress_at) ||
@@ -304,7 +304,7 @@ function DoneReviewPill({
 function StatusPill({
   status,
   assigned,
-  canEdit,
+  canChangeStatus,
   isOverdueLocked = false,
   hasBeenInProgress = false,
   onChange,
@@ -313,7 +313,7 @@ function StatusPill({
 }: {
   status: TaskStatus;
   assigned: boolean;
-  canEdit: boolean;
+  canChangeStatus: boolean;
   isOverdueLocked?: boolean;
   hasBeenInProgress?: boolean;
   onChange: (status: TaskStatus) => void;
@@ -332,9 +332,9 @@ function StatusPill({
   // unassigned — that avoids emitting a patch the server rejects (the invariant
   // "non-backlog task must have an assignee" / "unassign before backlog").
   const canUnlockOverdue =
-    canEdit && assigned && isOverdueLocked && Boolean(onUnlockOverdueRequest);
-  const interactive = canEdit && assigned && !isTerminal && !isOverdueLocked;
-  const canReopen = canEdit && isTerminal && Boolean(onReopenRequest);
+    canChangeStatus && assigned && isOverdueLocked && Boolean(onUnlockOverdueRequest);
+  const interactive = canChangeStatus && assigned && !isTerminal && !isOverdueLocked;
+  const canReopen = canChangeStatus && isTerminal && Boolean(onReopenRequest);
   const options = TASK_STATUSES.filter(
     (s) =>
       s !== "backlog" &&
@@ -384,7 +384,7 @@ function StatusPill({
       <span
         className={`${LIST_COL.status} shrink-0`}
         title={
-          canEdit && !assigned
+          canChangeStatus && !assigned
             ? "Assign someone (avatar) to move it out of backlog"
             : undefined
         }

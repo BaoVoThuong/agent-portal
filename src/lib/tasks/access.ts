@@ -1,6 +1,7 @@
 // The ONLY place task-board permission/scope decisions are made. Pure functions
-// (no I/O) so they are fully unit-tested. API routes call these; the client
-// never decides permissions. Identity is by email (no account id in session).
+// (no I/O) so they are fully unit-tested. API routes enforce these decisions,
+// and the client uses the same resolver to render matching controls. Identity
+// is by email (no account id in session).
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import type { TaskActor, TaskRow, TaskStatus } from "./types";
