@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canAccessBoard } from "@/lib/tasks/access";
+import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
 import {
   resolveReminderSettings,
   type ReminderSettings,
@@ -57,7 +57,7 @@ export async function GET() {
   const actor = buildTaskActor(session.user.permissions, email, {
     isAdmin: isTaskViewAdmin(session.user),
   });
-  if (!canAccessBoard(actor)) {
+  if (!actor.isManager) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

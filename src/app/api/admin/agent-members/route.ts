@@ -1,40 +1,28 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { canAny } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import { isTaskViewAdmin } from "@/lib/tasks/access";
 
 export const dynamic = "force-dynamic";
 
-const AGENT_GROUP_PERMISSIONS = [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.TASK_MANAGE];
-
-function hasGlobalAgentGroupAccess(permissions: readonly string[] | undefined): boolean {
-  return canAny(permissions, AGENT_GROUP_PERMISSIONS);
-}
-
-// Global admin, OR the agent themself / one of their promoted Assistants —
-// scoped to managing only THAT agent's own group, not anyone else's.
-async function canManageThisAgentGroup(
-  permissions: readonly string[] | undefined,
-  actorEmail: string,
-  agentEmail: string
-): Promise<boolean> {
-  if (hasGlobalAgentGroupAccess(permissions)) return true;
-  return isAgentOwnerOrAssistant(agentEmail, actorEmail);
+async function requireTaskAdmin() {
+  const session = await auth();
+  const actorEmail = session?.user?.email;
+  if (!actorEmail) return { error: "Unauthorized" as const, status: 401 };
+  if (!isTaskViewAdmin(session.user)) {
+    return { error: "Unauthorized" as const, status: 403 };
+  }
+  return { ok: true as const };
 }
 
 export async function GET(req: Request) {
-  const session = await auth();
-  const actorEmail = session?.user?.email;
-  if (!actorEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const admin = await requireTaskAdmin();
+  if ("error" in admin) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status });
+  }
 
   const agent = new URL(req.url).searchParams.get("agent");
   if (!agent) return NextResponse.json({ members: [] });
-
-  if (!(await canManageThisAgentGroup(session.user.permissions, actorEmail, agent))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { data } = await getSupabaseAdmin()
     .from("agent_members")
@@ -50,9 +38,10 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await auth();
-  const actorEmail = session?.user?.email;
-  if (!actorEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const admin = await requireTaskAdmin();
+  if ("error" in admin) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status });
+  }
 
   const body = await req.json().catch(() => null);
   const agent_email =
@@ -65,10 +54,6 @@ export async function POST(req: Request) {
       { error: "agent_email and cs_email required" },
       { status: 400 }
     );
-  }
-
-  if (!(await canManageThisAgentGroup(session.user.permissions, actorEmail, agent_email))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const sb = getSupabaseAdmin();
@@ -97,18 +82,15 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const session = await auth();
-  const actorEmail = session?.user?.email;
-  if (!actorEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const admin = await requireTaskAdmin();
+  if ("error" in admin) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status });
+  }
 
   const body = await req.json().catch(() => null);
   const agent_email =
     typeof body?.agent_email === "string" ? body.agent_email : "";
   const cs_email = typeof body?.cs_email === "string" ? body.cs_email : "";
-
-  if (!(await canManageThisAgentGroup(session.user.permissions, actorEmail, agent_email))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const { error } = await getSupabaseAdmin()
     .from("agent_members")
