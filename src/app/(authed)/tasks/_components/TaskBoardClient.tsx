@@ -825,7 +825,7 @@ export function TaskBoardClient({
           </h1>
 
           <div className="flex items-center gap-2">
-            {(isManager || canManageOwnAgentGroup) && (
+            {isManager && (
               <button
                 type="button"
                 onClick={() => setManagingAgentGroups(true)}
@@ -1015,7 +1015,7 @@ export function TaskBoardClient({
       />
 
       <AgentGroupsModal
-        open={managingAgentGroups}
+        open={managingAgentGroups && isManager}
         agents={taskAgents}
         candidates={agentCandidates}
         cs={assignees}
