@@ -5,12 +5,29 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
       - name: Hit the overdue/reminder cron endpoint
+        env:
+          TASK_CRON_SECRET: ${{ secrets.TASK_CRON_SECRET }}
+          TASK_CRON_URL: ${{ secrets.TASK_CRON_URL }}
         run: |
-          curl -fsS -X GET \
-            -H "Authorization: Bearer ${{ secrets.TASK_CRON_SECRET }}" \
-            "${{ secrets.TASK_CRON_URL }}"
+          if [ -z "$TASK_CRON_SECRET" ]; then
+            echo "Missing GitHub secret: TASK_CRON_SECRET"
+            exit 1
+          fi
+
+          if [ -z "$TASK_CRON_URL" ]; then
+            echo "Missing GitHub secret: TASK_CRON_URL"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent --retry 2 --max-time 60 \
+            -X GET \
+            -H "Authorization: Bearer $TASK_CRON_SECRET" \
+            "$TASK_CRON_URL"
