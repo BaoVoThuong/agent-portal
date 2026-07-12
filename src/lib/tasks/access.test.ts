@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTaskActor,
+  isTaskViewAdmin,
   canAccessBoard,
   canSeeBacklog,
   canCreateTask,
@@ -17,8 +18,8 @@ import {
   resolveTaskCapabilities,
 } from "@/lib/tasks/access";
 
-const manager = buildTaskActor(["task.manage"], "mgr@x.com");
-const admin = buildTaskActor(["task.manage"], "admin@x.com");
+const manager = buildTaskActor(["task.manage"], "mgr@x.com", { isAdmin: true });
+const admin = buildTaskActor(["task.manage"], "admin@x.com", { isAdmin: true });
 const cs = buildTaskActor(["task.work"], "cs@x.com");
 const none = buildTaskActor([], "no@x.com");
 const outsider = buildTaskActor(["settings.access"], "out@x.com");
@@ -27,10 +28,40 @@ const task = { assignee_email: "cs@x.com" };
 describe("buildTaskActor", () => {
   it("flags manager and worker from permissions", () => {
     expect(manager.isManager).toBe(true);
-    expect(manager.isWorker).toBe(false);
+    expect(manager.isWorker).toBe(true);
     expect(cs.isWorker).toBe(true);
     expect(cs.isManager).toBe(false);
     expect(manager.email).toBe("mgr@x.com");
+  });
+
+  it("admin account with task.manage is a manager", () => {
+    const a = buildTaskActor(["task.manage"], "admin@x.com", { isAdmin: true });
+    expect(a.isManager).toBe(true);
+    expect(a.isWorker).toBe(true);
+  });
+
+  it("agent with legacy task.manage is not a manager but stays a worker", () => {
+    const a = buildTaskActor(["task.manage"], "agent@x.com", { isAdmin: false });
+    expect(a.isManager).toBe(false);
+    expect(a.isWorker).toBe(true);
+  });
+
+  it("plain CS with task.work is a worker only", () => {
+    const a = buildTaskActor(["task.work"], "cs@x.com");
+    expect(a.isManager).toBe(false);
+    expect(a.isWorker).toBe(true);
+  });
+});
+
+describe("isTaskViewAdmin", () => {
+  it("true for legacy admin role or the Admin/Super Admin system role", () => {
+    expect(isTaskViewAdmin({ role: "admin" })).toBe(true);
+    expect(isTaskViewAdmin({ roles: ["Admin"] })).toBe(true);
+    expect(isTaskViewAdmin({ roles: ["Super Admin"] })).toBe(true);
+  });
+
+  it("false for a plain agent", () => {
+    expect(isTaskViewAdmin({ role: "agent", roles: ["Agent"] })).toBe(false);
   });
 });
 

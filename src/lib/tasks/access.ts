@@ -4,16 +4,40 @@
 // is by email (no account id in session).
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import {
+  LEGACY_SUPER_ADMIN_ROLE_NAME,
+  SYSTEM_ROLE_NAMES,
+} from "@/lib/rbac/system-roles";
 import type { TaskActor, TaskRow, TaskStatus } from "./types";
+
+// True admin = the Admin system role (or legacy role "admin"). This is the
+// "sees every task + owns global settings" signal — deliberately NOT the same
+// as holding the task.manage permission, which an agent/assistant may also
+// carry but which must NOT grant an admin-wide view.
+export function isTaskViewAdmin(user: {
+  role?: string | null;
+  roles?: readonly string[];
+}): boolean {
+  const roles = user.roles ?? [];
+  return (
+    user.role === "admin" ||
+    roles.includes(SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
+    roles.includes(LEGACY_SUPER_ADMIN_ROLE_NAME)
+  );
+}
 
 export function buildTaskActor(
   permissions: readonly string[] | undefined,
-  email: string
+  email: string,
+  opts?: { isAdmin?: boolean }
 ): TaskActor {
+  const hasManage = can(permissions, PERMISSIONS.TASK_MANAGE);
   return {
     email,
-    isManager: can(permissions, PERMISSIONS.TASK_MANAGE),
-    isWorker: can(permissions, PERMISSIONS.TASK_WORK),
+    // Admin view requires BOTH the manage permission and the admin role.
+    isManager: hasManage && Boolean(opts?.isAdmin),
+    // A demoted agent/assistant (manage but not admin) keeps board access.
+    isWorker: can(permissions, PERMISSIONS.TASK_WORK) || hasManage,
   };
 }
 

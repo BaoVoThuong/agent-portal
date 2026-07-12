@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import { buildTaskActor } from "@/lib/tasks/access";
 
-const manager = buildTaskActor(["task.manage"], "mgr@x.com");
+const manager = buildTaskActor(["task.manage"], "mgr@x.com", { isAdmin: true });
 const cs = buildTaskActor(["task.work"], "cs@x.com");
 const assigned = {
   status: "todo" as const,
