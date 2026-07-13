@@ -22,6 +22,7 @@ import {
   type TaskStatus,
 } from "@/lib/tasks/types";
 import { taskKey } from "@/lib/tasks/sorting";
+import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { AvatarStack, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
 import { TaskAssigneePicker } from "./TaskAssigneePicker";
@@ -93,6 +94,7 @@ export function TaskRowItem({
 
   return (
     <div
+      onMouseEnter={() => prefetchTaskDetail(task.id)}
       onDoubleClick={() => {
         if (openOnDoubleClick) onOpen(task.id);
       }}

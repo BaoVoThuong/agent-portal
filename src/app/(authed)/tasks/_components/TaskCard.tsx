@@ -6,6 +6,7 @@ import type {
   SyntheticEvent,
 } from "react";
 import { stageElapsedSeconds } from "@/lib/tasks/sla";
+import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
 import {
   Initials,
   NewAssignedBadge,
@@ -78,6 +79,7 @@ export function TaskCard({
       role="button"
       tabIndex={0}
       onClick={() => onOpen(task.id)}
+      onMouseEnter={() => prefetchTaskDetail(task.id)}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();

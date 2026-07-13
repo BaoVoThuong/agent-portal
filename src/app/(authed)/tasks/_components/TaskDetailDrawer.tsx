@@ -6,6 +6,10 @@ import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TaskDetail } from "@/lib/tasks/detail";
+import {
+  getCachedTaskDetail,
+  setCachedTaskDetail,
+} from "@/lib/tasks/detail-cache";
 import { taskKey } from "@/lib/tasks/sorting";
 import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
@@ -23,7 +27,6 @@ const SIDE_SELECT_BUTTON_CLASS =
 const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
 
-const detailCache = new Map<string, TaskDetail>();
 type DetailTab = "comments" | "activity" | "overdue";
 
 export function TaskDetailDrawer({
@@ -73,7 +76,7 @@ export function TaskDetailDrawer({
   const [description, setDescription] = useState(task.description ?? "");
   const [fubLink, setFubLink] = useState(task.fub_link ?? "");
   const [detail, setDetail] = useState<TaskDetail | null>(
-    () => detailCache.get(task.id) ?? null
+    () => getCachedTaskDetail(task.id) ?? null
   );
   const [tab, setTab] = useState<DetailTab>("comments");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -83,7 +86,7 @@ export function TaskDetailDrawer({
       const res = await fetch(`/api/tasks/${task.id}/detail`);
       if (!res.ok) return;
       const data = (await res.json()) as TaskDetail;
-      detailCache.set(task.id, data);
+      setCachedTaskDetail(task.id, data);
       setDetail(data);
     } catch {
       // The next mutation/realtime ping retries.
