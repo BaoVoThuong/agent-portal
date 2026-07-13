@@ -1849,3 +1849,12 @@ begin
     end if;
   end loop;
 end $$;
+
+-- Global task search (trigram substring match on title / comment body / file name).
+create extension if not exists pg_trgm;
+create index if not exists tasks_title_trgm_idx
+  on tasks using gin (title gin_trgm_ops);
+create index if not exists task_comments_body_trgm_idx
+  on task_comments using gin (body gin_trgm_ops);
+create index if not exists task_attachments_file_name_trgm_idx
+  on task_attachments using gin (file_name gin_trgm_ops);
