@@ -33,7 +33,7 @@ import {
 } from "@/lib/tasks/types";
 import { isSlaActiveInProgress, isTaskOverdue, slaRemainingSeconds } from "@/lib/tasks/sla";
 import { midpoint } from "@/lib/tasks/ordering";
-import { rankTasks } from "@/lib/tasks/sorting";
+import { rankTasks, rankTasksForManager } from "@/lib/tasks/sorting";
 import { TaskCard } from "./TaskCard";
 
 type ManualOrderState = {
@@ -326,6 +326,7 @@ export function KanbanBoard({
   useAssigneeTodoClock = false,
   rules,
   now,
+  managerView,
   onUnlockOverdue,
   onReopenRequest,
 }: {
@@ -341,6 +342,7 @@ export function KanbanBoard({
   useAssigneeTodoClock?: boolean;
   rules: TaskSlaRule[];
   now: Date;
+  managerView: boolean;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
 }) {
@@ -359,8 +361,11 @@ export function KanbanBoard({
   };
 
   const rankedTasks = useMemo(
-    () => rankTasks(tasks, rules, now),
-    [tasks, rules, now]
+    () =>
+      managerView
+        ? rankTasksForManager(tasks, rules, now)
+        : rankTasks(tasks, rules, now),
+    [managerView, tasks, rules, now]
   );
   const [manualOrderState, setManualOrderState] = useState<ManualOrderState>({
     tasksRef: null,

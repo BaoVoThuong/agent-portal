@@ -946,6 +946,7 @@ export function TaskBoardClient({
           useAssigneeTodoClock={shouldLimitPlainCsTasks && !showTeamTasks}
           rules={slaRules}
           now={now}
+          managerView={managerView}
           onUnlockOverdue={setUnlockingTaskId}
           onReopenRequest={setReopeningTaskId}
         />
