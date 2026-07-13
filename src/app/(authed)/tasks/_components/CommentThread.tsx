@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
+import { formatEmailAsName } from "@/lib/tasks/people";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import type {
   CommentWithAttachments,
@@ -236,7 +237,8 @@ export function CommentThread({
   }, [taskId, onReload]);
 
   const nameOf = useCallback(
-    (email: string) => members.find((m) => m.email === email)?.name ?? email,
+    (email: string) =>
+      members.find((m) => m.email === email)?.name ?? formatEmailAsName(email),
     [members],
   );
 

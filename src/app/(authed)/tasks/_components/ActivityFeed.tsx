@@ -2,6 +2,7 @@
 
 import { type ReactNode } from "react";
 import type { ActivityRow } from "@/lib/tasks/detail";
+import { formatEmailAsName } from "@/lib/tasks/people";
 
 function describe(a: ActivityRow, personLabel: (email: string) => string): ReactNode {
   const rawTo =
@@ -79,11 +80,3 @@ function formatActivityValue(
   return value.replaceAll("_", " ");
 }
 
-function formatEmailAsName(email: string) {
-  const localPart = email.split("@")[0] ?? email;
-  return localPart
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Circle, ExternalLink, X } from "lucide-react";
 import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
+import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TaskDetail } from "@/lib/tasks/detail";
 import { taskKey } from "@/lib/tasks/sorting";
 import { CommentThread } from "./CommentThread";
@@ -109,19 +110,25 @@ export function TaskDetailDrawer({
   }));
   const personLabelByEmail = new Map<string, string>();
   for (const agent of agents) {
-    personLabelByEmail.set(agent.email, agent.name?.trim() || agent.email);
+    personLabelByEmail.set(
+      agent.email,
+      agent.name?.trim() || formatEmailAsName(agent.email)
+    );
   }
   for (const assignee of assignees) {
     personLabelByEmail.set(
       assignee.email,
-      assignee.name?.trim() || assignee.email
+      assignee.name?.trim() || formatEmailAsName(assignee.email)
     );
   }
   for (const member of mentionMembers) {
-    personLabelByEmail.set(member.email, member.name?.trim() || member.email);
+    personLabelByEmail.set(
+      member.email,
+      member.name?.trim() || formatEmailAsName(member.email)
+    );
   }
   if (!personLabelByEmail.has(currentEmail)) {
-    personLabelByEmail.set(currentEmail, currentEmail);
+    personLabelByEmail.set(currentEmail, formatEmailAsName(currentEmail));
   }
   const fubHref = formatExternalLink(fubLink);
   const overdueLog =
@@ -344,7 +351,11 @@ export function TaskDetailDrawer({
                       <span className="min-w-0 truncate">
                         {task.assignees.length > 0
                           ? task.assignees
-                              .map((email) => personLabelByEmail.get(email) ?? email)
+                              .map(
+                                (email) =>
+                                  personLabelByEmail.get(email) ??
+                                  formatEmailAsName(email)
+                              )
                               .join(", ")
                           : "Unassigned"}
                       </span>
@@ -360,7 +371,7 @@ export function TaskDetailDrawer({
                     reviewerLabel={
                       task.done_reviewed_by_email
                         ? personLabelByEmail.get(task.done_reviewed_by_email) ??
-                          task.done_reviewed_by_email
+                          formatEmailAsName(task.done_reviewed_by_email)
                         : null
                     }
                     onReviewDone={onReviewDone}

@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { dispatchOpenTask } from "@/lib/tasks/client-events";
+import { personLabel } from "@/lib/tasks/people";
 import type {
   CommentHit,
   FileHit,
@@ -33,9 +34,11 @@ type FlatRow = {
 export function SearchPalette({
   open,
   onClose,
+  labelByEmail,
 }: {
   open: boolean;
   onClose: () => void;
+  labelByEmail: Map<string, string>;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResults | null>(null);
@@ -210,12 +213,14 @@ export function SearchPalette({
                 truncated={results.truncated.tasks}
                 activeId={activeId}
                 onChoose={choose}
+                labelByEmail={labelByEmail}
               />
               <CommentGroup
                 items={results.comments}
                 truncated={results.truncated.comments}
                 activeId={activeId}
                 onChoose={choose}
+                labelByEmail={labelByEmail}
               />
               <FileGroup
                 items={results.files}
@@ -236,11 +241,13 @@ function TaskGroup({
   truncated,
   activeId,
   onChoose,
+  labelByEmail,
 }: {
   items: TaskHit[];
   truncated: boolean;
   activeId: string | null;
   onChoose: (row: FlatRow) => void;
+  labelByEmail: Map<string, string>;
 }) {
   if (items.length === 0) return null;
 
@@ -265,7 +272,9 @@ function TaskGroup({
               </span>
               <span className="block truncate text-xs font-medium text-[#6b778c]">
                 {task.key}
-                {task.agent_email ? ` · ${task.agent_email}` : ""}
+                {task.agent_email
+                  ? ` · ${personLabel(task.agent_email, labelByEmail)}`
+                  : ""}
               </span>
             </span>
             <span className="rounded bg-[#f4f5f7] px-2 py-0.5 text-[11px] font-bold uppercase text-[#44546f]">
@@ -283,11 +292,13 @@ function CommentGroup({
   truncated,
   activeId,
   onChoose,
+  labelByEmail,
 }: {
   items: CommentHit[];
   truncated: boolean;
   activeId: string | null;
   onChoose: (row: FlatRow) => void;
+  labelByEmail: Map<string, string>;
 }) {
   if (items.length === 0) return null;
 
@@ -320,7 +331,8 @@ function CommentGroup({
                 <HighlightedSnippet snippet={comment.snippet} />
               </span>
               <span className="block truncate text-[11px] font-medium text-[#7a869a]">
-                {comment.author_email} · {formatSearchDate(comment.created_at)}
+                {personLabel(comment.author_email, labelByEmail)} ·{" "}
+                {formatSearchDate(comment.created_at)}
               </span>
             </span>
           </SearchRow>

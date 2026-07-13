@@ -337,6 +337,17 @@ export function TaskBoardClient({
     [assignees]
   );
 
+  // Names-only map (real account names, no email fallback baked in) so search
+  // rows resolve to a name via personLabel, falling back to a name-ish email.
+  const searchLabelByEmail = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const person of assignees) {
+      const name = person.name?.trim();
+      if (name) map.set(person.email, name);
+    }
+    return map;
+  }, [assignees]);
+
   const mentionMembers = useMemo(() => {
     const byEmail = new Map<string, TaskAssignee>();
     for (const person of assignees) {
@@ -1077,7 +1088,11 @@ export function TaskBoardClient({
         onSubmit={submitReopen}
       />
 
-      <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <SearchPalette
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        labelByEmail={searchLabelByEmail}
+      />
 
       {error && (
         <div
