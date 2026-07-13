@@ -153,3 +153,105 @@ export function rankTasks(
 ): TaskRow[] {
   return [...tasks].sort((a, b) => compareTaskRank(a, b, rules, now));
 }
+
+const OPEN_STATUSES = new Set<TaskStatus>([
+  "backlog",
+  "todo",
+  "in_progress",
+  "waiting",
+]);
+
+function timeInStateMs(task: TaskRow, now: Date): number {
+  const started =
+    task.status === "waiting"
+      ? task.waiting_started_at
+      : task.status === "todo"
+        ? task.todo_started_at
+        : task.status === "in_progress"
+          ? task.in_progress_at
+          : null;
+
+  return started ? Math.max(0, now.getTime() - timestamp(started)) : 0;
+}
+
+function hasAssignee(task: TaskRow): boolean {
+  return task.assignees.length > 0 || Boolean(task.assignee_email);
+}
+
+// Manager/oversight rank: surface work that needs a manager's action first.
+// Bands (0 = top): overdue -> unassigned -> stalled -> done-awaiting-QC ->
+// recently active -> rest -> closed.
+function managerRankTuple(
+  task: TaskRow,
+  rules: TaskSlaRule[],
+  now: Date
+): [number, number, number] {
+  if (isTaskOverdue(task, rules, now)) {
+    return [0, slaRemainingSeconds(task, rules, now), 0];
+  }
+
+  const open = OPEN_STATUSES.has(task.status);
+  if (open && !hasAssignee(task)) {
+    return [1, timestamp(task.created_at), 0];
+  }
+
+  const stalled =
+    task.status === "waiting" ||
+    (task.status === "todo" &&
+      (task.priority === "urgent" || task.priority === "high"));
+  if (stalled) {
+    return [
+      2,
+      ATTENTION_PRIORITY_RANK[task.priority],
+      -timeInStateMs(task, now),
+    ];
+  }
+
+  if (task.status === "done" && !task.done_reviewed_by_email) {
+    return [3, timestamp(task.closed_at), 0];
+  }
+
+  const lastActivityMs = timestamp(task.last_activity_at);
+  if (
+    lastActivityMs > 0 &&
+    now.getTime() - lastActivityMs <= RECENT_ACTIVITY_WINDOW_MS
+  ) {
+    return [4, -lastActivityMs, 0];
+  }
+
+  if (open) {
+    return [
+      5,
+      ATTENTION_PRIORITY_RANK[task.priority],
+      timestamp(task.created_at),
+    ];
+  }
+
+  return [6, -timestamp(task.closed_at), 0];
+}
+
+export function compareManagerRank(
+  a: TaskRow,
+  b: TaskRow,
+  rules: TaskSlaRule[],
+  now: Date
+): number {
+  const aRank = managerRankTuple(a, rules, now);
+  const bRank = managerRankTuple(b, rules, now);
+
+  for (let index = 0; index < aRank.length; index += 1) {
+    if (aRank[index] !== bRank[index]) return aRank[index] - bRank[index];
+  }
+
+  if (a.id < b.id) return -1;
+  if (a.id > b.id) return 1;
+  return 0;
+}
+
+export function rankTasksForManager(
+  tasks: TaskRow[],
+  rules: TaskSlaRule[],
+  now: Date
+): TaskRow[] {
+  return [...tasks].sort((a, b) => compareManagerRank(a, b, rules, now));
+}

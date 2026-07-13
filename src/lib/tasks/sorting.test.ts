@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  rankTasksForManager,
   rankTasks,
   RECENT_ACTIVITY_WINDOW_MS,
   sortTasks,
   taskKey,
 } from "@/lib/tasks/sorting";
-import type { TaskRow } from "@/lib/tasks/types";
+import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 
 function task(p: Partial<TaskRow>): TaskRow {
   return {
@@ -209,5 +210,124 @@ describe("rankTasks", () => {
       "lowA",
       "lowB",
     ]);
+  });
+});
+
+describe("rankTasksForManager", () => {
+  const now = new Date("2026-07-13T12:00:00.000Z");
+  const rules: TaskSlaRule[] = [
+    {
+      id: "urgent-default",
+      priority: "urgent",
+      category_id: null,
+      duration_minutes: 60,
+    },
+  ];
+
+  function managerTask(p: Partial<TaskRow>): TaskRow {
+    return task({
+      agent_email: "agent@x.com",
+      assignee_email: "cs@x.com",
+      assignees: ["cs@x.com"],
+      created_at: "2026-07-13T11:00:00.000Z",
+      updated_at: "2026-07-13T11:00:00.000Z",
+      ...p,
+    });
+  }
+
+  it("overdue on top, then unassigned, then stalled", () => {
+    const overdue = managerTask({
+      id: "overdue",
+      status: "in_progress",
+      priority: "urgent",
+      in_progress_at: "2026-07-13T09:00:00.000Z",
+      sla_minutes: 60,
+    });
+    const unassigned = managerTask({
+      id: "unassigned",
+      status: "backlog",
+      assignee_email: null,
+      assignees: [],
+    });
+    const waiting = managerTask({
+      id: "waiting",
+      status: "waiting",
+      waiting_started_at: "2026-07-13T08:00:00.000Z",
+    });
+
+    expect(
+      rankTasksForManager([waiting, unassigned, overdue], rules, now).map(
+        (row) => row.id
+      )
+    ).toEqual(["overdue", "unassigned", "waiting"]);
+  });
+
+  it("waiting: longest-waiting first", () => {
+    const short = managerTask({
+      id: "short",
+      status: "waiting",
+      waiting_started_at: "2026-07-13T11:30:00.000Z",
+    });
+    const long = managerTask({
+      id: "long",
+      status: "waiting",
+      waiting_started_at: "2026-07-13T06:00:00.000Z",
+    });
+
+    expect(rankTasksForManager([short, long], rules, now).map((row) => row.id)).toEqual([
+      "long",
+      "short",
+    ]);
+  });
+
+  it("stalled todo: urgent before high; low/medium todo drop to rest", () => {
+    const urgent = managerTask({
+      id: "urgent",
+      status: "todo",
+      priority: "urgent",
+      todo_started_at: "2026-07-13T10:00:00.000Z",
+    });
+    const high = managerTask({
+      id: "high",
+      status: "todo",
+      priority: "high",
+      todo_started_at: "2026-07-13T10:00:00.000Z",
+    });
+    const low = managerTask({
+      id: "low",
+      status: "todo",
+      priority: "low",
+      todo_started_at: "2026-07-13T10:00:00.000Z",
+    });
+
+    expect(
+      rankTasksForManager([low, high, urgent], rules, now).map((row) => row.id)
+    ).toEqual(["urgent", "high", "low"]);
+  });
+
+  it("done-awaiting-QC ranks above recently-active, and reviewed/cancel sink to bottom", () => {
+    const qc = managerTask({
+      id: "qc",
+      status: "done",
+      done_reviewed_by_email: null,
+      closed_at: "2026-07-13T10:00:00.000Z",
+    });
+    const recent = managerTask({
+      id: "recent",
+      status: "in_progress",
+      last_activity_at: "2026-07-13T11:59:00.000Z",
+      in_progress_at: "2026-07-13T11:00:00.000Z",
+      sla_minutes: 600,
+    });
+    const closed = managerTask({
+      id: "closed",
+      status: "done",
+      done_reviewed_by_email: "a@x.com",
+      closed_at: "2026-07-13T09:00:00.000Z",
+    });
+
+    expect(
+      rankTasksForManager([closed, recent, qc], rules, now).map((row) => row.id)
+    ).toEqual(["qc", "recent", "closed"]);
   });
 });
