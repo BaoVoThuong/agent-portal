@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
 import { loadTaskDetail } from "@/lib/tasks/detail";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskRow } from "@/lib/tasks/types";
@@ -32,6 +32,9 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const taskScope = task as Pick<TaskRow, "assignee_email" | "agent_email">;
+  const canViewNonCommentDetail =
+    actor.isManager ||
+    (await isAgentOwnerOrAssistant(taskScope.agent_email, actor.email));
   if (!actor.isManager) {
     const [isParticipant, isAssignee, agents] = await Promise.all([
       isTaskParticipant(id, actor.email),
@@ -41,14 +44,11 @@ export async function GET(_req: Request, { params }: Ctx) {
     const isAgentMember = Boolean(
       taskScope.agent_email && agents.includes(taskScope.agent_email)
     );
-    const isAgentOwner = Boolean(
-      taskScope.agent_email && taskScope.agent_email === actor.email
-    );
     if (
       !canViewTask(actor, taskScope, {
         isParticipant,
         isAgentMember,
-        isAgentOwner,
+        isAgentOwner: canViewNonCommentDetail,
         isAssignee,
       })
     ) {
@@ -57,7 +57,13 @@ export async function GET(_req: Request, { params }: Ctx) {
   }
 
   try {
-    return NextResponse.json(await loadTaskDetail(supabase, id));
+    return NextResponse.json(
+      await loadTaskDetail(supabase, id, {
+        includeActivity: canViewNonCommentDetail,
+        includeCommentAttachments: false,
+        includeTaskAttachments: false,
+      })
+    );
   } catch (detailError) {
     return NextResponse.json(
       {

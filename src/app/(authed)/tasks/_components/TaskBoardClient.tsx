@@ -472,6 +472,10 @@ export function TaskBoardClient({
   const showInlineAssigneeFilter =
     shouldLimitPlainCsTasks && showTeamTasks && view !== "backlog";
   const enableAssigneeFilter = showAssigneeFilter || showInlineAssigneeFilter;
+  const effectivePresets = useMemo(
+    () => (isManager ? [] : presets),
+    [isManager, presets]
+  );
   const showStatusFilter = view === "list";
   const showCategoryFilter = !shouldLimitPlainCsTasks;
 
@@ -481,7 +485,7 @@ export function TaskBoardClient({
         query: "",
         agent: showAgentFilter ? agentFilter : [],
         assignee: enableAssigneeFilter ? assigneeFilter : [],
-        quick: presets,
+        quick: effectivePresets,
         category: showCategoryFilter ? categoryFilter : [],
         status: showStatusFilter ? statusFilter : [],
         dateFrom: dateRange.from,
@@ -493,7 +497,7 @@ export function TaskBoardClient({
       scopedTasks,
       agentFilter,
       assigneeFilter,
-      presets,
+      effectivePresets,
       categoryFilter,
       statusFilter,
       dateRange,
@@ -831,6 +835,9 @@ export function TaskBoardClient({
   const canAssignOpen = Boolean(openTaskCapabilities?.canAssign);
   const canEditOpen = Boolean(openTaskCapabilities?.canEditContent);
   const canDeleteOpen = Boolean(openTaskCapabilities?.canDelete);
+  const canViewOpenNonCommentDetail = Boolean(
+    openTask && (isManager || isAgentOwnerOrAssistantOf(openTask.agent_email))
+  );
   const canCreateTasks = isManager || canManageOwnAgentGroup;
 
   return (
@@ -897,7 +904,7 @@ export function TaskBoardClient({
           assignees={filterAssignees}
           assigneeFilter={assigneeFilter}
           onAssigneeFilter={setAssigneeFilter}
-          presets={presets}
+          presets={effectivePresets}
           onPresets={setPresets}
           category={categoryFilter}
           onCategory={setCategoryFilter}
@@ -1016,6 +1023,7 @@ export function TaskBoardClient({
           categories={categories}
           currentEmail={currentEmail}
           canReviewDone={openTask.status === "done" && Boolean(openTaskCapabilities?.canReviewQC)}
+          canViewNonCommentDetail={canViewOpenNonCommentDetail}
           highlightCommentId={openCommentId}
           onClose={closeTask}
           onPatch={(patch) => patchTask(openTask.id, patch)}

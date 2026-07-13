@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { isTaskParticipant } from "@/lib/tasks/participants";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -49,7 +49,12 @@ export async function GET(_req: Request, { params }: Ctx) {
     .eq("id", id)
     .maybeSingle();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!(await canViewResolved(actor, task as Pick<TaskRow, "assignee_email" | "agent_email">, id)))
+  const taskScope = task as Pick<TaskRow, "assignee_email" | "agent_email">;
+  if (!(await canViewResolved(actor, taskScope, id)))
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  const canViewNonCommentDetail =
+    actor.isManager || (await isAgentOwnerOrAssistant(taskScope.agent_email, actor.email));
+  if (!canViewNonCommentDetail)
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const { data, error } = await supabase

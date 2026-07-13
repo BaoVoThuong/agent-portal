@@ -9,25 +9,14 @@ import {
   type ReactNode,
 } from "react";
 import {
-  FileText,
-  ImageIcon,
   MoreHorizontal,
-  Paperclip,
   Send,
-  X,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
-import type {
-  CommentWithAttachments,
-  SignedAttachment,
-} from "@/lib/tasks/detail";
-import {
-  attachmentTooLargeMessage,
-  TASK_ATTACHMENT_MAX_BYTES,
-} from "@/lib/tasks/attachments";
+import type { CommentWithAttachments } from "@/lib/tasks/detail";
 import { taskRoomTopic } from "@/lib/tasks/realtime-topics";
 import { Initials } from "./board-ui";
 import { useAnchoredMenu } from "./use-anchored-menu";
@@ -39,7 +28,6 @@ type Comment = CommentWithAttachments & {
   body: string;
   created_at: string;
   deleted_at: string | null;
-  attachments: SignedAttachment[];
   optimistic?: boolean;
   failed?: boolean;
   error?: string;
@@ -61,15 +49,8 @@ type MentionMenuPosition = {
   left: number;
 };
 
-type ImagePreview = {
-  url: string;
-  fileName: string;
-};
-
 const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
 const MENTION_MENU_WIDTH = 288;
-const isImage = (mime: string | null) =>
-  Boolean(mime && mime.startsWith("image/"));
 
 async function readResponseError(
   response: Response,
@@ -201,21 +182,9 @@ export function CommentThread({
   onReload: () => Promise<void> | void;
 }) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
-  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
   const rootRef = useRef<HTMLElement | null>(null);
-  const optimisticUrlsRef = useRef(new Map<string, string[]>());
   const optimisticCounterRef = useRef(0);
-
-  useEffect(
-    () => () => {
-      for (const urls of optimisticUrlsRef.current.values()) {
-        for (const url of urls) URL.revokeObjectURL(url);
-      }
-      optimisticUrlsRef.current.clear();
-    },
-    [],
-  );
 
   // Live thread: refetch when the task room pings (someone commented/attached).
   useEffect(() => {
@@ -243,29 +212,13 @@ export function CommentThread({
   );
 
   function releaseOptimistic(id: string) {
-    const urls = optimisticUrlsRef.current.get(id) ?? [];
-    for (const url of urls) URL.revokeObjectURL(url);
-    optimisticUrlsRef.current.delete(id);
     setOptimisticComments((current) =>
       current.filter((comment) => comment.id !== id),
     );
   }
 
-  function post(body: string, files: File[], parentId: string | null) {
+  function post(body: string, parentId: string | null) {
     const tempId = `optimistic-${taskId}-${optimisticCounterRef.current++}`;
-    const urls: string[] = [];
-    const attachments = files.map((file, index) => {
-      const url = URL.createObjectURL(file);
-      urls.push(url);
-      return {
-        id: `${tempId}-file-${index}`,
-        file_name: file.name,
-        mime_type: file.type || null,
-        size_bytes: file.size,
-        url,
-      };
-    });
-    optimisticUrlsRef.current.set(tempId, urls);
     setOptimisticComments((current) => [
       ...current,
       {
@@ -275,20 +228,19 @@ export function CommentThread({
         body,
         created_at: new Date().toISOString(),
         deleted_at: null,
-        attachments,
+        attachments: [],
         optimistic: true,
       },
     ]);
     setReplyTo(null);
 
-    void persistComment(tempId, body, files, parentId);
+    void persistComment(tempId, body, parentId);
     return true;
   }
 
   async function persistComment(
     tempId: string,
     body: string,
-    files: File[],
     parentId: string | null,
   ) {
     try {
@@ -298,27 +250,10 @@ export function CommentThread({
         body: JSON.stringify({
           body,
           parentId,
-          hasAttachments: files.length > 0,
         }),
       });
       if (!res.ok) {
         throw new Error(await readResponseError(res, "Failed to create comment."));
-      }
-
-      const { comment } = (await res.json()) as { comment: { id: string } };
-      for (const file of files) {
-        const form = new FormData();
-        form.append("file", file);
-        form.append("comment_id", comment.id);
-        const upload = await fetch(`/api/tasks/${taskId}/attachments`, {
-          method: "POST",
-          body: form,
-        });
-        if (!upload.ok) {
-          throw new Error(
-            await readResponseError(upload, "Failed to upload attachment.")
-          );
-        }
       }
 
       await onReload();
@@ -390,7 +325,7 @@ export function CommentThread({
             currentEmail={currentEmail}
             members={members}
             nameOf={nameOf}
-            onSubmit={(b, f) => post(b, f, null)}
+            onSubmit={(body) => post(body, null)}
             placeholder="Add a comment..."
           />
         </div>
@@ -409,7 +344,6 @@ export function CommentThread({
                   nameOf={nameOf}
                   onDelete={c.optimistic ? releaseOptimistic : remove}
                   onEdit={edit}
-                  onPreviewImage={setImagePreview}
                   onReply={c.optimistic ? undefined : () => setReplyTo(c.id)}
                 />
                 <div className="ml-5 space-y-2 border-l-2 border-[#dfe1e6] pl-4">
@@ -421,7 +355,6 @@ export function CommentThread({
                         nameOf={nameOf}
                         onDelete={rc.optimistic ? releaseOptimistic : remove}
                         onEdit={edit}
-                        onPreviewImage={setImagePreview}
                       />
                     </div>
                   ))}
@@ -432,7 +365,7 @@ export function CommentThread({
                       members={members}
                       nameOf={nameOf}
                       onCancel={() => setReplyTo(null)}
-                      onSubmit={(b, f) => post(b, f, c.id)}
+                      onSubmit={(body) => post(body, c.id)}
                       placeholder="Reply..."
                     />
                   )}
@@ -442,44 +375,6 @@ export function CommentThread({
           </div>
         )}
       </section>
-
-      {imagePreview
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[120] flex items-center justify-center bg-[#091e42]/80 p-4 sm:p-6"
-              onClick={() => setImagePreview(null)}
-            >
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-label={imagePreview.fileName}
-                className="relative flex max-h-full max-w-5xl flex-col overflow-hidden rounded-lg bg-[#0b1220] shadow-2xl"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2 text-white">
-                  <span className="min-w-0 truncate text-sm font-semibold">
-                    {imagePreview.fileName}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setImagePreview(null)}
-                    aria-label="Close preview"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-white/80 transition hover:bg-white/10 hover:text-white"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imagePreview.url}
-                  alt={imagePreview.fileName}
-                  className="max-h-[calc(100vh-8rem)] max-w-full object-contain"
-                />
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
     </>
   );
 }
@@ -511,7 +406,6 @@ function CommentItem({
   nameOf,
   onDelete,
   onEdit,
-  onPreviewImage,
   onReply,
 }: {
   c: Comment;
@@ -519,7 +413,6 @@ function CommentItem({
   nameOf: (email: string) => string;
   onDelete: (id: string) => Promise<void> | void;
   onEdit: (id: string, body: string) => Promise<boolean>;
-  onPreviewImage: (preview: ImagePreview) => void;
   onReply?: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -580,35 +473,6 @@ function CommentItem({
                   <p className="whitespace-pre-wrap">{renderBody(c.body)}</p>
                 ) : null}
               </div>
-
-              {c.attachments.length > 0 && (
-                <div className="mt-1.5 flex flex-wrap gap-2">
-                  {c.attachments.map((a) =>
-                    isImage(a.mime_type) ? (
-                      <button
-                        key={a.id}
-                        type="button"
-                        onClick={() =>
-                          onPreviewImage({
-                            url: a.url,
-                            fileName: a.file_name,
-                          })
-                        }
-                        className="group/image block overflow-hidden rounded border border-[#dfe1e6] bg-[#f7f8f9] text-left transition hover:border-[#85b8ff] focus:border-[#0c66e4] focus:outline-none focus:ring-2 focus:ring-[#85b8ff]"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={a.url}
-                          alt={a.file_name}
-                          className="h-24 w-24 object-cover transition group-hover/image:scale-[1.02]"
-                        />
-                      </button>
-                    ) : (
-                      <AttachmentLink key={a.id} attachment={a} />
-                    ),
-                  )}
-                </div>
-              )}
 
               {c.failed && c.error ? (
                 <p className="mt-1 rounded border border-[#ffbdad] bg-[#ffebe6] px-2 py-1.5 text-xs font-semibold text-[#bf2600]">
@@ -780,12 +644,10 @@ function Composer({
   members: TaskAssignee[];
   nameOf: (email: string) => string;
   onCancel?: () => void;
-  onSubmit: (body: string, files: File[]) => boolean;
+  onSubmit: (body: string) => boolean;
   placeholder: string;
 }) {
   const [text, setText] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [fileError, setFileError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [query, setQuery] = useState<string | null>(null);
@@ -795,7 +657,6 @@ function Composer({
   const taRef = useRef<HTMLTextAreaElement>(null);
   const caretRef = useRef<number | null>(null);
   const activeMentionRef = useRef<ActiveMention | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // Apply a programmatic caret position after a mention insert.
   useEffect(() => {
@@ -875,28 +736,13 @@ function Composer({
     setMentionPosition(null);
   }
 
-  function addFiles(list: FileList | null) {
-    if (!list || list.length === 0) return;
-    const selected = Array.from(list);
-    const accepted = selected.filter((file) => file.size <= TASK_ATTACHMENT_MAX_BYTES);
-    const rejected = selected.find((file) => file.size > TASK_ATTACHMENT_MAX_BYTES);
-
-    setFileError(
-      rejected ? `${rejected.name}: ${attachmentTooLargeMessage()}` : null
-    );
-    if (accepted.length > 0) setFiles((cur) => [...cur, ...accepted]);
-  }
-
   function clearDraft() {
     setText("");
-    setFiles([]);
-    setFileError(null);
     setDraftMentions([]);
     setQuery(null);
     setMentionPosition(null);
     setHi(0);
     activeMentionRef.current = null;
-    if (fileRef.current) fileRef.current.value = "";
   }
 
   function cancel() {
@@ -910,9 +756,9 @@ function Composer({
 
   function submit() {
     const trimmed = text.trim();
-    if (!trimmed && files.length === 0) return;
+    if (!trimmed) return;
 
-    const ok = onSubmit(encodeDraftMentions(trimmed, draftMentions), files);
+    const ok = onSubmit(encodeDraftMentions(trimmed, draftMentions));
     if (ok) {
       clearDraft();
       if (onCancel) {
@@ -983,18 +829,6 @@ function Composer({
             onChange(e.target.value, e.target.selectionStart, e.target)
           }
           onKeyDown={onKeyDown}
-          onPaste={(e) => {
-            if (e.clipboardData.files.length > 0) {
-              e.preventDefault();
-              addFiles(e.clipboardData.files);
-            }
-          }}
-          onDrop={(e) => {
-            if (e.dataTransfer.files.length > 0) {
-              e.preventDefault();
-              addFiles(e.dataTransfer.files);
-            }
-          }}
           placeholder={placeholder}
           rows={3}
           className="block min-h-[5.5rem] w-full resize-y bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none placeholder:text-[#7a869a]"
@@ -1031,59 +865,7 @@ function Composer({
           </div>
         )}
 
-        {fileError ? (
-          <div className="border-t border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
-            {fileError}
-          </div>
-        ) : null}
-
-        {files.length > 0 && (
-          <div className="flex flex-wrap gap-2 border-t border-[#ebecf0] px-3 py-2">
-            {files.map((f, i) => (
-              <span
-                key={`${f.name}-${i}`}
-                className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-[#f7f8f9] px-2 py-1 text-xs font-medium text-[#42526e]"
-              >
-                {f.type.startsWith("image/") ? (
-                  <ImageIcon className="h-3.5 w-3.5 shrink-0 text-[#0c66e4]" />
-                ) : (
-                  <FileText className="h-3.5 w-3.5 shrink-0 text-[#6b778c]" />
-                )}
-                <span className="min-w-0 truncate">{f.name}</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setFiles((cur) => cur.filter((_, idx) => idx !== i))
-                  }
-                  aria-label="Remove file"
-                  className="rounded text-[#6b778c] transition hover:bg-[#ebecf0] hover:text-[#bf2600]"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-3 py-2">
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              addFiles(e.target.files);
-              if (fileRef.current) fileRef.current.value = "";
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            className="inline-flex h-8 items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
-          >
-            <Paperclip className="h-4 w-4" /> Attach
-          </button>
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-end gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-3 py-2">
             <button
               type="button"
               onClick={cancel}
@@ -1094,29 +876,14 @@ function Composer({
             <button
               type="button"
               onClick={submit}
-              disabled={!text.trim() && files.length === 0}
+              disabled={!text.trim()}
               className="inline-flex h-8 items-center gap-1.5 rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send className="h-3.5 w-3.5" /> Send
             </button>
-          </div>
         </div>
       </div>
     </div>
-  );
-}
-
-function AttachmentLink({ attachment }: { attachment: SignedAttachment }) {
-  return (
-    <a
-      href={attachment.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-[#fafbfc] px-2 py-1 text-xs font-medium text-[#0c66e4] transition hover:bg-[#e9f2ff] hover:underline"
-    >
-      <FileText className="h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0 truncate">{attachment.file_name}</span>
-    </a>
   );
 }
 

@@ -71,7 +71,8 @@ export function groupCommentAttachments(
 
 export async function loadComments(
   supabase: SupabaseClient,
-  taskId: string
+  taskId: string,
+  opts: { includeAttachments?: boolean } = {}
 ): Promise<CommentWithAttachments[]> {
   const { data: comments, error: commentsError } = await supabase
     .from("task_comments")
@@ -79,6 +80,14 @@ export async function loadComments(
     .eq("task_id", taskId)
     .order("created_at", { ascending: true });
   if (commentsError) throw new Error(commentsError.message);
+
+  if (opts.includeAttachments === false) {
+    return ((comments ?? []) as unknown as { id: string }[]).map((comment) => ({
+      ...(comment as Record<string, unknown>),
+      id: comment.id,
+      attachments: [],
+    }));
+  }
 
   const { data: attachmentRows, error: attachmentsError } = await supabase
     .from("task_attachments")
@@ -139,12 +148,23 @@ export async function loadTaskAttachments(
 
 export async function loadTaskDetail(
   supabase: SupabaseClient,
-  taskId: string
+  taskId: string,
+  opts: {
+    includeActivity?: boolean;
+    includeCommentAttachments?: boolean;
+    includeTaskAttachments?: boolean;
+  } = {}
 ): Promise<TaskDetail> {
   const [comments, activity, attachments] = await Promise.all([
-    loadComments(supabase, taskId),
-    loadActivity(supabase, taskId),
-    loadTaskAttachments(supabase, taskId),
+    loadComments(supabase, taskId, {
+      includeAttachments: opts.includeCommentAttachments,
+    }),
+    opts.includeActivity === false
+      ? Promise.resolve([])
+      : loadActivity(supabase, taskId),
+    opts.includeTaskAttachments === false
+      ? Promise.resolve([])
+      : loadTaskAttachments(supabase, taskId),
   ]);
 
   return { comments, activity, attachments };

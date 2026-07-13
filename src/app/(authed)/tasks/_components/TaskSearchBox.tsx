@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  FileText,
   Loader2,
   MessageSquareText,
   Search,
@@ -18,7 +17,6 @@ import { dispatchOpenTask } from "@/lib/tasks/client-events";
 import { personLabel } from "@/lib/tasks/people";
 import type {
   CommentHit,
-  FileHit,
   SearchResults,
   SearchSnippet,
   TaskHit,
@@ -111,11 +109,6 @@ export function TaskSearchBox({
         taskId: comment.task_id,
         commentId: comment.comment_id,
       })),
-      ...results.files.map((file) => ({
-        id: fileRowId(file),
-        taskId: file.task_id,
-        commentId: file.comment_id ?? undefined,
-      })),
     ];
   }, [results]);
 
@@ -130,9 +123,7 @@ export function TaskSearchBox({
   const activeId = flat[activeIndex]?.id ?? null;
   const hasResults = Boolean(
     results &&
-      (results.tasks.length > 0 ||
-        results.comments.length > 0 ||
-        results.files.length > 0)
+      (results.tasks.length > 0 || results.comments.length > 0)
   );
   const showDropdown = open && query.trim().length >= 2;
 
@@ -168,7 +159,7 @@ export function TaskSearchBox({
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
-        placeholder="Search tasks, comments, files..."
+        placeholder="Search tasks and comments..."
         className="h-10 w-full rounded border-2 border-transparent bg-[#f4f5f7] pl-10 pr-9 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#44546f] hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white"
       />
       {loading ? (
@@ -180,7 +171,7 @@ export function TaskSearchBox({
           {error ? (
             <EmptyState text="Search is unavailable. Try again." tone="error" />
           ) : !loading && !hasResults ? (
-            <EmptyState text="No matching tasks, comments, or files." />
+            <EmptyState text="No matching tasks or comments." />
           ) : null}
 
           {results ? (
@@ -198,12 +189,6 @@ export function TaskSearchBox({
                 activeId={activeId}
                 onChoose={choose}
                 labelByEmail={labelByEmail}
-              />
-              <FileGroup
-                items={results.files}
-                truncated={results.truncated.files}
-                activeId={activeId}
-                onChoose={choose}
               />
             </div>
           ) : null}
@@ -319,55 +304,6 @@ function CommentGroup({
   );
 }
 
-function FileGroup({
-  items,
-  truncated,
-  activeId,
-  onChoose,
-}: {
-  items: FileHit[];
-  truncated: boolean;
-  activeId: string | null;
-  onChoose: (row: FlatRow) => void;
-}) {
-  if (items.length === 0) return null;
-
-  return (
-    <SearchGroupHeader
-      icon={<FileText className="h-4 w-4" />}
-      label="Files"
-      count={items.length}
-      truncated={truncated}
-    >
-      {items.map((file) => {
-        const id = fileRowId(file);
-        return (
-          <SearchRow
-            key={id}
-            active={id === activeId}
-            onClick={() =>
-              onChoose({
-                id,
-                taskId: file.task_id,
-                commentId: file.comment_id ?? undefined,
-              })
-            }
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-semibold text-[#172b4d]">
-                {file.file_name}
-              </span>
-              <span className="block truncate text-xs font-medium text-[#6b778c]">
-                {file.task_title}
-              </span>
-            </span>
-          </SearchRow>
-        );
-      })}
-    </SearchGroupHeader>
-  );
-}
-
 function SearchGroupHeader({
   icon,
   label,
@@ -467,10 +403,6 @@ function taskRowId(task: TaskHit) {
 
 function commentRowId(comment: CommentHit) {
   return `comment:${comment.comment_id}`;
-}
-
-function fileRowId(file: FileHit) {
-  return `file:${file.attachment_id}`;
 }
 
 function formatSearchDate(value: string) {

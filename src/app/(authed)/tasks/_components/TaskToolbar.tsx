@@ -145,7 +145,9 @@ export function TaskToolbar({
     ...assignees.map((a) => ({ value: a.email, label: a.name ?? a.email })),
   ];
 
-  const presetOptions = PRESETS.filter((p) => !p.managerOnly || isManager);
+  const presetOptions = isManager
+    ? []
+    : PRESETS.filter((p) => !p.managerOnly);
   const hasVisibleAssigneeFilter = showAssignee || showInlineAssignee;
 
   const hasActiveFilters =

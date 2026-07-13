@@ -9,7 +9,6 @@ import type { TaskDetail } from "@/lib/tasks/detail";
 import { taskKey } from "@/lib/tasks/sorting";
 import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
-import { AttachmentPanel } from "./AttachmentPanel";
 import { OverdueLog } from "./OverdueLog";
 import { StageTimeBreakdown } from "./StageTimeBreakdown";
 import { TaskSelect } from "./TaskSelect";
@@ -25,7 +24,7 @@ const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
 
 const detailCache = new Map<string, TaskDetail>();
-type DetailTab = "comments" | "activity" | "attachments" | "overdue";
+type DetailTab = "comments" | "activity" | "overdue";
 
 export function TaskDetailDrawer({
   task,
@@ -40,6 +39,7 @@ export function TaskDetailDrawer({
   categories,
   currentEmail,
   canReviewDone,
+  canViewNonCommentDetail,
   highlightCommentId,
   onClose,
   onPatch,
@@ -60,6 +60,7 @@ export function TaskDetailDrawer({
   categories: TaskCategory[];
   currentEmail: string;
   canReviewDone: boolean;
+  canViewNonCommentDetail: boolean;
   highlightCommentId?: string | null;
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
@@ -99,6 +100,12 @@ export function TaskDetailDrawer({
     const timer = window.setTimeout(() => setTab("comments"), 0);
     return () => window.clearTimeout(timer);
   }, [highlightCommentId]);
+
+  useEffect(() => {
+    if (canViewNonCommentDetail || tab === "comments") return;
+    const timer = window.setTimeout(() => setTab("comments"), 0);
+    return () => window.clearTimeout(timer);
+  }, [canViewNonCommentDetail, tab]);
 
   const categoryOptions = categories.map((category) => ({
     value: category.id,
@@ -208,21 +215,20 @@ export function TaskDetailDrawer({
                     active={tab === "comments"}
                     onClick={() => setTab("comments")}
                   />
-                  <DetailTabButton
-                    label={`Activity (${detail?.activity.length ?? 0})`}
-                    active={tab === "activity"}
-                    onClick={() => setTab("activity")}
-                  />
-                  <DetailTabButton
-                    label={`Attachments (${detail?.attachments.length ?? 0})`}
-                    active={tab === "attachments"}
-                    onClick={() => setTab("attachments")}
-                  />
-                  <DetailTabButton
-                    label={`Overdue (${overdueLog.length})`}
-                    active={tab === "overdue"}
-                    onClick={() => setTab("overdue")}
-                  />
+                  {canViewNonCommentDetail ? (
+                    <>
+                      <DetailTabButton
+                        label={`Activity (${detail?.activity.length ?? 0})`}
+                        active={tab === "activity"}
+                        onClick={() => setTab("activity")}
+                      />
+                      <DetailTabButton
+                        label={`Overdue (${overdueLog.length})`}
+                        active={tab === "overdue"}
+                        onClick={() => setTab("overdue")}
+                      />
+                    </>
+                  ) : null}
                 </div>
 
                 {detail === null ? (
@@ -239,21 +245,13 @@ export function TaskDetailDrawer({
                         onReload={reload}
                       />
                     )}
-                    {tab === "activity" && (
+                    {tab === "activity" && canViewNonCommentDetail && (
                       <ActivityFeed
                         activity={detail.activity}
                         personLabelByEmail={personLabelByEmail}
                       />
                     )}
-                    {tab === "attachments" && (
-                      <AttachmentPanel
-                        attachments={detail.attachments}
-                        taskId={task.id}
-                        canEdit={canEdit}
-                        onReload={reload}
-                      />
-                    )}
-                    {tab === "overdue" && (
+                    {tab === "overdue" && canViewNonCommentDetail && (
                       <OverdueLog
                         entries={overdueLog}
                         personLabelByEmail={personLabelByEmail}

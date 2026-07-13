@@ -17,7 +17,6 @@ import {
 import { fetchAgentsForCs } from "@/lib/tasks/membership";
 import { touchLastActivity } from "@/lib/tasks/last-activity";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { signTaskFile } from "@/lib/tasks/storage";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -87,39 +86,9 @@ export async function GET(_req: Request, { params }: Ctx) {
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Attachments that belong to a comment (task-level ones stay in AttachmentPanel).
-  const { data: attData } = await r.supabase
-    .from("task_attachments")
-    .select("id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at")
-    .eq("task_id", id)
-    .not("comment_id", "is", null)
-    .order("created_at", { ascending: true });
-
-  const signed = await Promise.all(
-    (attData ?? []).map(async (a) => {
-      const row = a as {
-        id: string; comment_id: string; file_name: string;
-        mime_type: string | null; size_bytes: number | null; storage_path: string;
-      };
-      return {
-        comment_id: row.comment_id,
-        att: {
-          id: row.id, file_name: row.file_name, mime_type: row.mime_type,
-          size_bytes: row.size_bytes, url: await signTaskFile(row.storage_path),
-        },
-      };
-    })
-  );
-  const byComment = new Map<string, { id: string; file_name: string; mime_type: string | null; size_bytes: number | null; url: string }[]>();
-  for (const { comment_id, att } of signed) {
-    const list = byComment.get(comment_id) ?? [];
-    list.push(att);
-    byComment.set(comment_id, list);
-  }
-
   const comments = (data ?? []).map((c) => {
     const row = c as { id: string };
-    return { ...(c as object), attachments: byComment.get(row.id) ?? [] };
+    return { ...(c as object), id: row.id, attachments: [] };
   });
   return NextResponse.json({ comments });
 }
@@ -133,8 +102,7 @@ export async function POST(req: Request, { params }: Ctx) {
 
   const body = await req.json().catch(() => null);
   const text = typeof body?.body === "string" ? body.body.trim() : "";
-  const hasAttachments = body?.hasAttachments === true;
-  if (!text && !hasAttachments)
+  if (!text)
     return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
   const nowIso = new Date().toISOString();
 
