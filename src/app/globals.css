@@ -255,3 +255,21 @@ body {
 .dashboard-filter-input:disabled {
   opacity: 0.6;
 }
+
+.comment-flash {
+  border-radius: 0.375rem;
+  animation: comment-flash-pulse 2s ease-out;
+}
+
+@keyframes comment-flash-pulse {
+  0%,
+  70% {
+    background: #fff7d6;
+    box-shadow: 0 0 0 3px rgba(245, 205, 71, 0.35);
+  }
+
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 0 rgba(245, 205, 71, 0);
+  }
+}

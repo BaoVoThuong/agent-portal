@@ -66,10 +66,14 @@ export function TaskBoardClient({
 }) {
   const searchParams = useSearchParams();
   const deepLinkId = searchParams.get("task");
+  const deepLinkCommentId = searchParams.get("comment");
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
   const [taskAgents, setTaskAgents] = useState<TaskAgent[]>(agents);
   const [view, setView] = useState<BoardView>("board");
   const [openId, setOpenId] = useState<string | null>(() => deepLinkId);
+  const [openCommentId, setOpenCommentId] = useState<string | null>(
+    () => deepLinkCommentId
+  );
   const [creating, setCreating] = useState(false);
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
   const [managingCategories, setManagingCategories] = useState(false);
@@ -140,10 +144,18 @@ export function TaskBoardClient({
 
   useEffect(() => {
     const onOpenTask = (event: Event) => {
-      const taskId = (event as CustomEvent<{ taskId?: unknown }>).detail?.taskId;
+      const detail = (
+        event as CustomEvent<{ taskId?: unknown; commentId?: unknown }>
+      ).detail;
+      const taskId = detail?.taskId;
       if (typeof taskId !== "string" || taskId.length === 0) return;
+      const commentId =
+        typeof detail?.commentId === "string" && detail.commentId.length > 0
+          ? detail.commentId
+          : null;
       setOpenId(taskId);
-      writeTaskDeepLink(taskId, "push");
+      setOpenCommentId(commentId);
+      writeTaskDeepLink(taskId, "push", commentId);
     };
     window.addEventListener(OPEN_TASK_EVENT, onOpenTask);
     return () => window.removeEventListener(OPEN_TASK_EVENT, onOpenTask);
@@ -151,8 +163,10 @@ export function TaskBoardClient({
 
   useEffect(() => {
     const onHistoryNavigation = () => {
-      const taskId = new URL(window.location.href).searchParams.get("task");
+      const params = new URL(window.location.href).searchParams;
+      const taskId = params.get("task");
       setOpenId(taskId);
+      setOpenCommentId(params.get("comment"));
     };
     window.addEventListener("popstate", onHistoryNavigation);
     return () => window.removeEventListener("popstate", onHistoryNavigation);
@@ -521,15 +535,18 @@ export function TaskBoardClient({
     const task = tasks.find((t) => t.id === id) ?? null;
     if (task && overdueIds.has(id)) {
       setOpenId(null);
+      setOpenCommentId(null);
       setUnlockingTaskId(id);
       writeTaskDeepLink(null);
       return;
     }
     setOpenId(id);
+    setOpenCommentId(null);
     writeTaskDeepLink(null);
   }
   function closeTask() {
     setOpenId(null);
+    setOpenCommentId(null);
     writeTaskDeepLink(null);
   }
 
@@ -1023,6 +1040,7 @@ export function TaskBoardClient({
           categories={categories}
           currentEmail={currentEmail}
           canReviewDone={openTask.status === "done" && Boolean(openTaskCapabilities?.canReviewQC)}
+          highlightCommentId={openCommentId}
           onClose={closeTask}
           onPatch={(patch) => patchTask(openTask.id, patch)}
           onReviewDone={(reviewed) => reviewDoneTask(openTask.id, reviewed)}

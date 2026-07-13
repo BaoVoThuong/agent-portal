@@ -39,6 +39,7 @@ export function TaskDetailDrawer({
   categories,
   currentEmail,
   canReviewDone,
+  highlightCommentId,
   onClose,
   onPatch,
   onReviewDone,
@@ -58,6 +59,7 @@ export function TaskDetailDrawer({
   categories: TaskCategory[];
   currentEmail: string;
   canReviewDone: boolean;
+  highlightCommentId?: string | null;
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
   onReviewDone: (reviewed: boolean) => void;
@@ -90,6 +92,12 @@ export function TaskDetailDrawer({
     const timer = setTimeout(() => void reload(), 0);
     return () => clearTimeout(timer);
   }, [reload]);
+
+  useEffect(() => {
+    if (!highlightCommentId) return;
+    const timer = window.setTimeout(() => setTab("comments"), 0);
+    return () => window.clearTimeout(timer);
+  }, [highlightCommentId]);
 
   const categoryOptions = categories.map((category) => ({
     value: category.id,
@@ -220,6 +228,7 @@ export function TaskDetailDrawer({
                         currentEmail={currentEmail}
                         members={mentionMembers}
                         comments={detail.comments}
+                        highlightCommentId={highlightCommentId}
                         onReload={reload}
                       />
                     )}

@@ -189,17 +189,20 @@ export function CommentThread({
   currentEmail,
   members,
   comments,
+  highlightCommentId,
   onReload,
 }: {
   taskId: string;
   currentEmail: string;
   members: TaskAssignee[];
   comments: CommentWithAttachments[];
+  highlightCommentId?: string | null;
   onReload: () => Promise<void> | void;
 }) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
+  const rootRef = useRef<HTMLElement | null>(null);
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
   const optimisticCounterRef = useRef(0);
 
@@ -358,10 +361,28 @@ export function CommentThread({
   const topLevel = rows
     .filter((c) => c.parent_id === null)
     .sort((a, b) => timestampOf(a) - timestampOf(b));
+  const rowSignature = rows.map((comment) => comment.id).join("|");
+
+  useEffect(() => {
+    if (!highlightCommentId) return;
+
+    const element = rootRef.current?.querySelector(
+      `[data-comment-id="${highlightCommentId}"]`
+    );
+    if (!(element instanceof HTMLElement)) return;
+
+    element.scrollIntoView({ block: "center", behavior: "smooth" });
+    element.classList.add("comment-flash");
+    const timer = window.setTimeout(
+      () => element.classList.remove("comment-flash"),
+      2000
+    );
+    return () => window.clearTimeout(timer);
+  }, [highlightCommentId, rowSignature]);
 
   return (
     <>
-      <section className="space-y-3">
+      <section ref={rootRef} className="space-y-3">
         <div className="border-b border-[#dfe1e6] pb-3">
           <Composer
             currentEmail={currentEmail}
@@ -379,7 +400,7 @@ export function CommentThread({
         ) : (
           <div className="space-y-2.5">
             {topLevel.map((c) => (
-              <div key={c.id} className="space-y-2">
+              <div key={c.id} data-comment-id={c.id} className="space-y-2">
                 <CommentItem
                   c={c}
                   currentEmail={currentEmail}
@@ -391,15 +412,16 @@ export function CommentThread({
                 />
                 <div className="ml-5 space-y-2 border-l-2 border-[#dfe1e6] pl-4">
                   {repliesOf(c.id).map((rc) => (
-                    <CommentItem
-                      key={rc.id}
-                      c={rc}
-                      currentEmail={currentEmail}
-                      nameOf={nameOf}
-                      onDelete={rc.optimistic ? releaseOptimistic : remove}
-                      onEdit={edit}
-                      onPreviewImage={setImagePreview}
-                    />
+                    <div key={rc.id} data-comment-id={rc.id}>
+                      <CommentItem
+                        c={rc}
+                        currentEmail={currentEmail}
+                        nameOf={nameOf}
+                        onDelete={rc.optimistic ? releaseOptimistic : remove}
+                        onEdit={edit}
+                        onPreviewImage={setImagePreview}
+                      />
+                    </div>
                   ))}
                   {replyTo === c.id && (
                     <Composer
