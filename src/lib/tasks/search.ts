@@ -168,7 +168,18 @@ export async function runTaskSearch(
   const supabase = getSupabaseAdmin();
   const pattern = `%${escapeIlike(query)}%`;
 
-  const [titleRows, commentRows, fileRows] = await Promise.all([
+  // Scope membership depends only on actor.email (not on the search rows) — run
+  // it in PARALLEL with the ILIKE queries instead of in a later wave.
+  const membershipPromise = actor.isManager
+    ? Promise.resolve(null)
+    : Promise.all([
+        fetchAgentsForCs(actor.email),
+        fetchAssistantAgentsForCs(actor.email),
+        fetchAssignedTaskIdsForEmail(actor.email, supabase),
+        fetchParticipantTaskIds(actor.email),
+      ]);
+
+  const [titleRows, commentRows, fileRows, membership] = await Promise.all([
     supabase
       .from("tasks")
       .select("id,title,agent_email,assignee_email,status,archived_at")
@@ -187,6 +198,7 @@ export async function runTaskSearch(
       .select("id,task_id,comment_id,file_name")
       .ilike("file_name", pattern)
       .limit(CANDIDATE_LIMIT + 1),
+    membershipPromise,
   ]);
 
   if (titleRows.error) throw new Error(titleRows.error.message);
@@ -212,48 +224,44 @@ export async function runTaskSearch(
       ...files.map((file) => file.task_id),
     ]),
   ];
-  const metaById = new Map<string, TaskMetaRow>();
-  if (taskIds.length > 0) {
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("id,title,agent_email,assignee_email,status,archived_at")
-      .in("id", taskIds)
-      .is("archived_at", null);
-    if (error) throw new Error(error.message);
 
-    for (const row of (data ?? []) as unknown as TaskMetaRow[]) {
-      metaById.set(row.id, row);
-    }
+  // Final wave — task meta + (non-managers) the assignees of the hit tasks,
+  // both of which need taskIds. Membership is already resolved above.
+  const [metaRes, assigneeRes] = await Promise.all([
+    taskIds.length > 0
+      ? supabase
+          .from("tasks")
+          .select("id,title,agent_email,assignee_email,status,archived_at")
+          .in("id", taskIds)
+          .is("archived_at", null)
+      : null,
+    membership && taskIds.length > 0
+      ? supabase
+          .from("task_assignees")
+          .select("task_id,email")
+          .in("task_id", taskIds)
+      : null,
+  ]);
+  if (metaRes?.error) throw new Error(metaRes.error.message);
+  if (assigneeRes?.error) throw new Error(assigneeRes.error.message);
+
+  const metaById = new Map<string, TaskMetaRow>();
+  for (const row of (metaRes?.data ?? []) as unknown as TaskMetaRow[]) {
+    metaById.set(row.id, row);
   }
 
   let scope: VisibilityScope | null = null;
-  if (!actor.isManager) {
-    const [agents, assistantAgents, assignedIds, participantIds] =
-      await Promise.all([
-        fetchAgentsForCs(actor.email),
-        fetchAssistantAgentsForCs(actor.email),
-        fetchAssignedTaskIdsForEmail(actor.email, supabase),
-        fetchParticipantTaskIds(actor.email),
-      ]);
+  if (membership) {
+    const [agents, assistantAgents, assignedIds, participantIds] = membership;
     const assigneeByTask = new Map<string, string[]>();
-
-    if (taskIds.length > 0) {
-      const { data, error } = await supabase
-        .from("task_assignees")
-        .select("task_id,email")
-        .in("task_id", taskIds);
-      if (error) throw new Error(error.message);
-
-      for (const row of (data ?? []) as unknown as {
-        task_id: string;
-        email: string;
-      }[]) {
-        const emails = assigneeByTask.get(row.task_id) ?? [];
-        emails.push(row.email);
-        assigneeByTask.set(row.task_id, emails);
-      }
+    for (const row of (assigneeRes?.data ?? []) as unknown as {
+      task_id: string;
+      email: string;
+    }[]) {
+      const emails = assigneeByTask.get(row.task_id) ?? [];
+      emails.push(row.email);
+      assigneeByTask.set(row.task_id, emails);
     }
-
     scope = {
       agents,
       assistantAgents,

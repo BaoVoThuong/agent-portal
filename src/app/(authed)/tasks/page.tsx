@@ -28,14 +28,35 @@ export default async function TasksPage() {
     isAdmin: isTaskViewAdmin(session.user),
   });
 
-  const tasks = await fetchTasksForActor(actor);
-  const assignees = await fetchTaskAssignees();
-  const agents = await fetchTaskAgents();
-  const agentCandidates = await fetchTaskAgentCandidates();
-  const myAgents = actor.isManager
-    ? agents.map((a) => a.email)
-    : await fetchAgentsForCs(email);
-  const myAssistantAgents = actor.isManager ? [] : await fetchAssistantAgentsForCs(email);
+  // Wave 1 — every independent fetch in parallel (was ~7 sequential awaits).
+  const [
+    tasks,
+    assignees,
+    agents,
+    agentCandidates,
+    csAgents,
+    myAssistantAgents,
+    categories,
+  ] = await Promise.all([
+    fetchTasksForActor(actor),
+    fetchTaskAssignees(),
+    fetchTaskAgents(),
+    fetchTaskAgentCandidates(),
+    actor.isManager ? Promise.resolve<string[]>([]) : fetchAgentsForCs(email),
+    actor.isManager
+      ? Promise.resolve<string[]>([])
+      : fetchAssistantAgentsForCs(email),
+    getSupabaseAdmin()
+      .from("task_categories")
+      .select("id,name,color")
+      .eq("is_active", true)
+      .order("position", { ascending: true })
+      .order("name", { ascending: true })
+      .then((r) => (r.data ?? []) as TaskCategory[]),
+  ]);
+  const myAgents = actor.isManager ? agents.map((a) => a.email) : csAgents;
+
+  // Wave 2 — depends on wave 1 (agents + tasks + myAgents).
   const agentEmailsForMembers = [
     ...new Set(
       [
@@ -53,14 +74,6 @@ export default async function TasksPage() {
       ])
     )
   );
-
-  const { data: categoryRows } = await getSupabaseAdmin()
-    .from("task_categories")
-    .select("id,name,color")
-    .eq("is_active", true)
-    .order("position", { ascending: true })
-    .order("name", { ascending: true });
-  const categories = (categoryRows ?? []) as TaskCategory[];
   const boardTitle = getTaskBoardTitle({
     isAdmin: isTaskViewAdmin(session.user),
     isTaskAgent: agents.some((agent) => agent.email === email),

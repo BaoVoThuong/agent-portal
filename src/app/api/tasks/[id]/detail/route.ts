@@ -32,15 +32,29 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const taskScope = task as Pick<TaskRow, "assignee_email" | "agent_email">;
-  const canViewNonCommentDetail =
-    actor.isManager ||
-    (await isAgentOwnerOrAssistant(taskScope.agent_email, actor.email));
-  if (!actor.isManager) {
-    const [isParticipant, isAssignee, agents] = await Promise.all([
-      isTaskParticipant(id, actor.email),
-      isTaskAssignee(id, actor.email, supabase),
-      fetchAgentsForCs(actor.email),
-    ]);
+  const detailOpts = {
+    includeActivity: true,
+    includeCommentAttachments: false,
+    includeTaskAttachments: false,
+  } as const;
+
+  try {
+    if (actor.isManager) {
+      return NextResponse.json(await loadTaskDetail(supabase, id, detailOpts));
+    }
+
+    // Non-manager: scope checks and the detail load run together (one wave).
+    // The response is gated on canViewTask; activity is owner/assistant-only, so
+    // it's stripped for non-owners after the fact. Behaviour is identical to the
+    // old sequential version — just parallelized.
+    const [isAgentOwner, isParticipant, isAssignee, agents, detail] =
+      await Promise.all([
+        isAgentOwnerOrAssistant(taskScope.agent_email, actor.email),
+        isTaskParticipant(id, actor.email),
+        isTaskAssignee(id, actor.email, supabase),
+        fetchAgentsForCs(actor.email),
+        loadTaskDetail(supabase, id, detailOpts),
+      ]);
     const isAgentMember = Boolean(
       taskScope.agent_email && agents.includes(taskScope.agent_email)
     );
@@ -48,21 +62,14 @@ export async function GET(_req: Request, { params }: Ctx) {
       !canViewTask(actor, taskScope, {
         isParticipant,
         isAgentMember,
-        isAgentOwner: canViewNonCommentDetail,
+        isAgentOwner,
         isAssignee,
       })
     ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
-  }
-
-  try {
     return NextResponse.json(
-      await loadTaskDetail(supabase, id, {
-        includeActivity: canViewNonCommentDetail,
-        includeCommentAttachments: false,
-        includeTaskAttachments: false,
-      })
+      isAgentOwner ? detail : { ...detail, activity: [] }
     );
   } catch (detailError) {
     return NextResponse.json(
