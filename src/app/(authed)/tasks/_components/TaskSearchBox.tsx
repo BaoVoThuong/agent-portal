@@ -13,7 +13,6 @@ import {
   MessageSquareText,
   Search,
   SquareCheckBig,
-  X,
 } from "lucide-react";
 import { dispatchOpenTask } from "@/lib/tasks/client-events";
 import { personLabel } from "@/lib/tasks/people";
@@ -31,45 +30,23 @@ type FlatRow = {
   commentId?: string;
 };
 
-export function SearchPalette({
-  open,
-  onClose,
+export function TaskSearchBox({
   labelByEmail,
 }: {
-  open: boolean;
-  onClose: () => void;
   labelByEmail: Map<string, string>;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!open) {
-      abortRef.current?.abort();
-      abortRef.current = null;
-      const timer = window.setTimeout(() => {
-        setQuery("");
-        setResults(null);
-        setActive(0);
-        setError(false);
-        setLoading(false);
-      }, 0);
-      return () => window.clearTimeout(timer);
-    }
-
-    const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const trimmedQuery = query.trim();
-    if (trimmedQuery.length < 2) {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
       abortRef.current?.abort();
       const timer = window.setTimeout(() => {
         setResults(null);
@@ -78,17 +55,15 @@ export function SearchPalette({
       }, 0);
       return () => window.clearTimeout(timer);
     }
-
     const controller = new AbortController();
     abortRef.current?.abort();
     abortRef.current = controller;
-
     const timer = window.setTimeout(async () => {
       setLoading(true);
       setError(false);
       try {
         const response = await fetch(
-          `/api/tasks/search?q=${encodeURIComponent(trimmedQuery)}`,
+          `/api/tasks/search?q=${encodeURIComponent(trimmed)}`,
           { signal: controller.signal }
         );
         if (!response.ok) throw new Error("Search failed.");
@@ -107,7 +82,22 @@ export function SearchPalette({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [open, query]);
+  }, [query]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !rootRef.current?.contains(event.target)
+      ) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [open]);
 
   const flat = useMemo<FlatRow[]>(() => {
     if (!results) return [];
@@ -131,12 +121,12 @@ export function SearchPalette({
 
   function choose(row: FlatRow) {
     dispatchOpenTask(row.taskId, row.commentId);
-    onClose();
+    setOpen(false);
+    setQuery("");
   }
 
-  if (!open) return null;
-
-  const activeIndex = Math.min(active, Math.max(0, flat.length - 1));
+  const maxActiveIndex = Math.max(0, flat.length - 1);
+  const activeIndex = Math.min(active, maxActiveIndex);
   const activeId = flat[activeIndex]?.id ?? null;
   const hasResults = Boolean(
     results &&
@@ -144,63 +134,50 @@ export function SearchPalette({
         results.comments.length > 0 ||
         results.files.length > 0)
   );
+  const showDropdown = open && query.trim().length >= 2;
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-start justify-center bg-[#091e42]/35 px-4 pt-[12vh]"
-      onClick={onClose}
+      ref={rootRef}
+      className="relative w-full"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setActive((current) => Math.min(current + 1, maxActiveIndex));
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setActive((current) => Math.max(current - 1, 0));
+        }
+        if (event.key === "Enter" && flat[activeIndex]) {
+          event.preventDefault();
+          choose(flat[activeIndex]);
+        }
+      }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Search tasks"
-        className="w-[min(42rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-[#dfe1e6] bg-white shadow-[0_18px_48px_rgba(9,30,66,0.28)]"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            setActive((current) => Math.min(current + 1, flat.length - 1));
-          }
-          if (event.key === "ArrowUp") {
-            event.preventDefault();
-            setActive((current) => Math.max(current - 1, 0));
-          }
-          if (event.key === "Enter" && flat[activeIndex]) {
-            event.preventDefault();
-            choose(flat[activeIndex]);
-          }
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#44546f]" />
+      <input
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setActive(0);
+          setOpen(true);
         }}
-      >
-        <div className="flex h-12 items-center gap-3 border-b border-[#dfe1e6] px-4">
-          <Search className="h-5 w-5 shrink-0 text-[#44546f]" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setActive(0);
-            }}
-            placeholder="Search tasks, comments, files..."
-            className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold text-[#172b4d] outline-none placeholder:text-[#7a869a]"
-          />
-          {loading ? (
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
-          ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close search"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#6b778c] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        onFocus={() => setOpen(true)}
+        placeholder="Search tasks, comments, files..."
+        className="h-10 w-full rounded border-2 border-transparent bg-[#f4f5f7] pl-10 pr-9 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#44546f] hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white"
+      />
+      {loading ? (
+        <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[#0c66e4]" />
+      ) : null}
 
-        <div className="max-h-[62vh] overflow-y-auto p-2">
-          {query.trim().length < 2 ? (
-            <EmptyState text="Type at least 2 characters to search." />
-          ) : error ? (
+      {showDropdown ? (
+        <div className="absolute left-0 right-0 top-full z-[120] mt-1 max-h-[60vh] overflow-y-auto rounded-lg border border-[#dfe1e6] bg-white p-2 shadow-[0_12px_32px_rgba(9,30,66,0.2)]">
+          {error ? (
             <EmptyState text="Search is unavailable. Try again." tone="error" />
           ) : !loading && !hasResults ? (
             <EmptyState text="No matching tasks, comments, or files." />
@@ -231,7 +208,7 @@ export function SearchPalette({
             </div>
           ) : null}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

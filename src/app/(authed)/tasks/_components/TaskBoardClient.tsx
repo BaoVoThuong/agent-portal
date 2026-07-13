@@ -32,7 +32,6 @@ import { CategoryManager } from "./CategoryManager";
 import { AgentGroupsModal } from "./AgentGroupsModal";
 import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
-import { SearchPalette } from "./SearchPalette";
 
 // Countdown/overdue labels only need to refresh every so often, not on every
 // render — 30s keeps the board close to live without a timer per card.
@@ -84,7 +83,6 @@ export function TaskBoardClient({
   const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
   const [reopeningTaskId, setReopeningTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date(initialNowIso));
-  const [searchOpen, setSearchOpen] = useState(false);
   const [agentFilter, setAgentFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
   const [presets, setPresets] = useState<QuickFilter[]>([]);
@@ -171,18 +169,6 @@ export function TaskBoardClient({
     };
     window.addEventListener("popstate", onHistoryNavigation);
     return () => window.removeEventListener("popstate", onHistoryNavigation);
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   const loadUnreadAssignedTaskIds = useCallback(async () => {
@@ -904,7 +890,7 @@ export function TaskBoardClient({
           onViewChange={setView}
           isManager={isManager}
           showBacklog={isManager || canManageOwnAgentGroup}
-          onOpenSearch={() => setSearchOpen(true)}
+          labelByEmail={searchLabelByEmail}
           agentStats={scopedAgentStats}
           agentFilter={agentFilter}
           onAgentFilter={setAgentFilter}
@@ -1086,12 +1072,6 @@ export function TaskBoardClient({
         accentColor="#0c66e4"
         onClose={() => setReopeningTaskId(null)}
         onSubmit={submitReopen}
-      />
-
-      <SearchPalette
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        labelByEmail={searchLabelByEmail}
       />
 
       {error && (

@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Search,
   UserRound,
   UsersRound,
 } from "lucide-react";
@@ -19,6 +18,7 @@ import {
 import { ALL_AGENTS, NO_ASSIGNEE, type QuickFilter } from "@/lib/tasks/filtering";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { TaskSelect } from "./TaskSelect";
+import { TaskSearchBox } from "./TaskSearchBox";
 
 export type BoardView = "board" | "list" | "backlog";
 
@@ -61,7 +61,7 @@ export function TaskToolbar({
   onViewChange,
   isManager,
   showBacklog,
-  onOpenSearch,
+  labelByEmail,
   agentStats,
   agentFilter,
   onAgentFilter,
@@ -96,7 +96,7 @@ export function TaskToolbar({
   onViewChange: (view: BoardView) => void;
   isManager: boolean;
   showBacklog: boolean;
-  onOpenSearch: () => void;
+  labelByEmail: Map<string, string>;
   agentStats: AgentStat[];
   agentFilter: string[];
   onAgentFilter: (agent: string[]) => void;
@@ -333,17 +333,7 @@ export function TaskToolbar({
         </span>
       </div>
 
-      <button
-        type="button"
-        onClick={onOpenSearch}
-        className="flex h-10 w-full items-center gap-3 rounded border-2 border-transparent bg-[#f4f5f7] px-3 text-left text-sm font-medium text-[#44546f] transition hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white focus:outline-none"
-      >
-        <Search className="h-5 w-5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">Search tasks, comments, files</span>
-        <kbd className="hidden rounded border border-[#c1c7d0] bg-white px-1.5 py-0.5 text-[11px] font-bold text-[#626f86] shadow-sm sm:inline">
-          ⌘K
-        </kbd>
-      </button>
+      <TaskSearchBox labelByEmail={labelByEmail} />
     </div>
   );
 }
