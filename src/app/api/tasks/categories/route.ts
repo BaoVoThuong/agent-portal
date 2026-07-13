@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canManageCategories } from "@/lib/tasks/access";
+import {
+  buildTaskActor,
+  canAccessBoard,
+  isTaskViewAdmin,
+  canManageCategories,
+} from "@/lib/tasks/access";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +17,9 @@ export async function GET() {
   const actor = buildTaskActor(session.user.permissions, email, {
     isAdmin: isTaskViewAdmin(session.user),
   });
-  if (!actor.isManager)
+  // Reads are for anyone on the board — category labels/filter render for all
+  // roles. Only writes (POST below / PATCH+DELETE in [id]) are admin-only.
+  if (!canAccessBoard(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();

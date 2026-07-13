@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
+import { buildTaskActor, canAccessBoard, isTaskViewAdmin } from "@/lib/tasks/access";
 import { TASK_PRIORITIES } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,10 @@ export async function GET() {
   const actor = buildTaskActor(session.user.permissions, email, {
     isAdmin: isTaskViewAdmin(session.user),
   });
-  if (!actor.isManager) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  // Reads are for anyone on the task board — the client needs SLA rules to
+  // render overdue/countdown for CS + agents. Only writes below are admin-only.
+  if (!canAccessBoard(actor)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const supabase = getSupabaseAdmin();
