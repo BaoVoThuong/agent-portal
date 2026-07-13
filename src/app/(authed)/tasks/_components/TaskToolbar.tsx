@@ -61,8 +61,7 @@ export function TaskToolbar({
   onViewChange,
   isManager,
   showBacklog,
-  query,
-  onQuery,
+  onOpenSearch,
   agentStats,
   agentFilter,
   onAgentFilter,
@@ -97,8 +96,7 @@ export function TaskToolbar({
   onViewChange: (view: BoardView) => void;
   isManager: boolean;
   showBacklog: boolean;
-  query: string;
-  onQuery: (value: string) => void;
+  onOpenSearch: () => void;
   agentStats: AgentStat[];
   agentFilter: string[];
   onAgentFilter: (agent: string[]) => void;
@@ -151,7 +149,6 @@ export function TaskToolbar({
   const hasVisibleAssigneeFilter = showAssignee || showInlineAssignee;
 
   const hasActiveFilters =
-    query.trim() !== "" ||
     (showAgent && agentFilter.length > 0) ||
     (hasVisibleAssigneeFilter && assigneeFilter.length > 0) ||
     (showTeamTasksToggle && teamTasksEnabled) ||
@@ -336,16 +333,17 @@ export function TaskToolbar({
         </span>
       </div>
 
-      <label className="relative block h-10 w-full">
-        <span className="sr-only">Search tasks</span>
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#44546f]" />
-        <input
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-          placeholder="Search"
-          className="h-full w-full rounded border-2 border-transparent bg-[#f4f5f7] pl-10 pr-3 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#44546f] hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white"
-        />
-      </label>
+      <button
+        type="button"
+        onClick={onOpenSearch}
+        className="flex h-10 w-full items-center gap-3 rounded border-2 border-transparent bg-[#f4f5f7] px-3 text-left text-sm font-medium text-[#44546f] transition hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white focus:outline-none"
+      >
+        <Search className="h-5 w-5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">Search tasks, comments, files</span>
+        <kbd className="hidden rounded border border-[#c1c7d0] bg-white px-1.5 py-0.5 text-[11px] font-bold text-[#626f86] shadow-sm sm:inline">
+          ⌘K
+        </kbd>
+      </button>
     </div>
   );
 }

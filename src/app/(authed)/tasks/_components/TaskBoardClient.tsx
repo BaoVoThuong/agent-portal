@@ -32,6 +32,7 @@ import { CategoryManager } from "./CategoryManager";
 import { AgentGroupsModal } from "./AgentGroupsModal";
 import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
+import { SearchPalette } from "./SearchPalette";
 
 // Countdown/overdue labels only need to refresh every so often, not on every
 // render — 30s keeps the board close to live without a timer per card.
@@ -83,7 +84,7 @@ export function TaskBoardClient({
   const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
   const [reopeningTaskId, setReopeningTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date(initialNowIso));
-  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [agentFilter, setAgentFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
   const [presets, setPresets] = useState<QuickFilter[]>([]);
@@ -170,6 +171,18 @@ export function TaskBoardClient({
     };
     window.addEventListener("popstate", onHistoryNavigation);
     return () => window.removeEventListener("popstate", onHistoryNavigation);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   const loadUnreadAssignedTaskIds = useCallback(async () => {
@@ -300,11 +313,6 @@ export function TaskBoardClient({
     };
   }, []);
 
-  const categoryById = useMemo(
-    () => new Map(categories.map((category) => [category.id, category])),
-    [categories]
-  );
-
   const agentChoices = useMemo(() => {
     const byEmail = new Map<string, TaskAgent>();
     for (const agent of taskAgents) byEmail.set(agent.email, agent);
@@ -317,11 +325,6 @@ export function TaskBoardClient({
       formatAgentLabel(a).localeCompare(formatAgentLabel(b))
     );
   }, [taskAgents, tasks]);
-
-  const agentLabelByEmail = useMemo(
-    () => new Map(agentChoices.map((agent) => [agent.email, formatAgentLabel(agent)])),
-    [agentChoices]
-  );
 
   const assigneeLabelByEmail = useMemo(
     () =>
@@ -478,7 +481,7 @@ export function TaskBoardClient({
   const visibleTasks = useMemo(
     () =>
       filterTasks(scopedTasks, {
-        query,
+        query: "",
         agent: showAgentFilter ? agentFilter : [],
         assignee: enableAssigneeFilter ? assigneeFilter : [],
         quick: presets,
@@ -488,28 +491,9 @@ export function TaskBoardClient({
         dateTo: dateRange.to,
         currentEmail,
         overdueIds,
-        searchText: (task) => {
-          const category = task.category_id ? categoryById.get(task.category_id) : null;
-          return [
-            task.title,
-            task.description,
-            task.fub_link,
-            task.agent_email,
-            task.agent_email ? agentLabelByEmail.get(task.agent_email) : null,
-            ...task.assignees.map(
-              (email) => assigneeLabelByEmail.get(email) ?? email
-            ),
-            task.reporter_email,
-            category?.name,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase();
-        },
       }),
     [
       scopedTasks,
-      query,
       agentFilter,
       assigneeFilter,
       presets,
@@ -521,9 +505,6 @@ export function TaskBoardClient({
       showStatusFilter,
       showCategoryFilter,
       currentEmail,
-      categoryById,
-      agentLabelByEmail,
-      assigneeLabelByEmail,
       overdueIds,
     ]
   );
@@ -835,7 +816,6 @@ export function TaskBoardClient({
   }
 
   function clearAllFilters() {
-    setQuery("");
     setAgentFilter([]);
     setAssigneeFilter([]);
     setPresets([]);
@@ -913,8 +893,7 @@ export function TaskBoardClient({
           onViewChange={setView}
           isManager={isManager}
           showBacklog={isManager || canManageOwnAgentGroup}
-          query={query}
-          onQuery={setQuery}
+          onOpenSearch={() => setSearchOpen(true)}
           agentStats={scopedAgentStats}
           agentFilter={agentFilter}
           onAgentFilter={setAgentFilter}
@@ -1097,6 +1076,8 @@ export function TaskBoardClient({
         onClose={() => setReopeningTaskId(null)}
         onSubmit={submitReopen}
       />
+
+      <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       {error && (
         <div
