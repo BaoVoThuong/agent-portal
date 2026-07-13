@@ -8,7 +8,7 @@ import {
   isTaskAssigneesMissingError,
 } from "@/lib/tasks/assignees";
 import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
-import { fetchCsForAgent, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
@@ -61,18 +61,8 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "email is required." }, { status: 400 });
   }
 
-  // Same bound as the create-task flow and the UI picker: a non-manager can
-  // assign freely, but only within their own agent's team.
-  if (!ctx.actor.isManager && email !== ctx.task.agent_email) {
-    const teamEmails = new Set(await fetchCsForAgent(ctx.task.agent_email ?? ""));
-    if (!teamEmails.has(email)) {
-      return NextResponse.json(
-        { error: "Assignee must be part of this agent's team." },
-        { status: 400 }
-      );
-    }
-  }
-
+  // Anyone with assign rights on this task (manager or the agent owner/assistant)
+  // can now assign it to ANY account — no longer restricted to the agent's team.
   const currentFromJunction = await fetchTaskAssigneeEmails(id, ctx.supabase);
   const current =
     currentFromJunction.length > 0

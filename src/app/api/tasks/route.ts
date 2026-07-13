@@ -13,7 +13,7 @@ import { fetchTasksForActor } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskRow } from "@/lib/tasks/types";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { fetchAgentsForCs, fetchCsForAgent, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import { recordInitialTaskHistory } from "@/lib/tasks/history";
@@ -103,21 +103,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: assignment.error }, { status: 400 });
   const elevated = actor.isManager || hasAgentScope;
   const assignedEmails = elevated ? requestedAssignees : [email];
-  if (elevated && assignedEmails.length > 0 && !actor.isManager) {
-    // Free choice is still bounded to the agent's own team, same restriction
-    // the assignee picker UI enforces — reject anything outside it rather
-    // than silently dropping/ignoring an out-of-scope pick.
-    const teamEmails = new Set(await fetchCsForAgent(agentEmail));
-    const outOfScope = assignedEmails.filter(
-      (assigneeEmail) => assigneeEmail !== agentEmail && !teamEmails.has(assigneeEmail)
-    );
-    if (outOfScope.length > 0) {
-      return NextResponse.json(
-        { error: "Assignee must be part of this agent's team." },
-        { status: 400 }
-      );
-    }
-  }
   const fubLink =
     typeof body?.fub_link === "string" && body.fub_link.trim() !== ""
       ? body.fub_link.trim()

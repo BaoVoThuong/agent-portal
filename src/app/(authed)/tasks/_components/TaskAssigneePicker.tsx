@@ -90,8 +90,6 @@ export function TaskAssigneeDropdown({
 export function TaskAssigneePicker({
   assignees,
   selectedEmails,
-  agentEmail = null,
-  agentMembersByAgent = {},
   onToggle,
   className = "",
   listClassName = "max-h-52",
@@ -115,17 +113,9 @@ export function TaskAssigneePicker({
   const selectedPeople = selectedEmails.map(
     (email) => peopleByEmail.get(email) ?? { email, name: null }
   );
-  const agentMemberSet = useMemo(() => {
-    if (!agentEmail) return null;
-    return new Set(agentMembersByAgent[agentEmail] ?? []);
-  }, [agentEmail, agentMembersByAgent]);
-  const scopedAssignees = useMemo(() => {
-    if (!agentMemberSet) return assignees;
-    return assignees.filter((assignee) => agentMemberSet.has(assignee.email));
-  }, [agentMemberSet, assignees]);
   const normalizedQuery = query.trim().toLowerCase();
   const people = useMemo(() => {
-    return [...scopedAssignees]
+    return [...assignees]
       .sort((a, b) => {
         const aSelected = selected.has(a.email);
         const bSelected = selected.has(b.email);
@@ -138,10 +128,8 @@ export function TaskAssigneePicker({
         const label = `${assignee.name ?? ""} ${assignee.email}`.toLowerCase();
         return label.includes(normalizedQuery);
       });
-  }, [normalizedQuery, scopedAssignees, selected]);
-  const emptyMessage = agentEmail
-    ? "No CS in this agent."
-    : "No matches.";
+  }, [normalizedQuery, assignees, selected]);
+  const emptyMessage = "No matches.";
 
   return (
     <div className={`overflow-hidden rounded-lg border-2 border-[#dfe1e6] bg-white ${className}`}>
@@ -150,18 +138,12 @@ export function TaskAssigneePicker({
           <div className="space-y-1">
             {selectedPeople.map((assignee) => {
               const label = assignee.name?.trim() || assignee.email;
-              const outOfScope =
-                agentMemberSet !== null && !agentMemberSet.has(assignee.email);
               return (
                 <button
                   key={assignee.email}
                   type="button"
                   onClick={() => onToggle(assignee.email, false)}
-                  className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition ${
-                    outOfScope
-                      ? "bg-[#fff7d6] text-[#5f3811] hover:bg-[#fff0b3]"
-                      : "bg-[#e9f2ff] text-[#0c66e4] hover:bg-[#deebff]"
-                  }`}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition bg-[#e9f2ff] text-[#0c66e4] hover:bg-[#deebff]"
                 >
                   <Initials email={assignee.email} label={label} />
                   <span className="min-w-0 flex-1 truncate font-semibold">{label}</span>
@@ -183,7 +165,7 @@ export function TaskAssigneePicker({
           value={query}
           autoFocus={autoFocus}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder={agentEmail ? "Search agent CS" : "Search CS"}
+          placeholder="Search CS"
           className="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#172b4d] outline-none placeholder:text-[#97a0af]"
         />
       </label>
