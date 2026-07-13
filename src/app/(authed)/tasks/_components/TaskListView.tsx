@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
 import {
+  rankTasksForManager,
   rankTasks,
   sortTasks,
   type SortDir,
@@ -29,6 +30,7 @@ export function TaskListView({
   newAssignedTaskIds,
   rules,
   now,
+  managerView,
   onUnlockOverdue,
   onReopenRequest,
 }: {
@@ -47,6 +49,7 @@ export function TaskListView({
   newAssignedTaskIds: Set<string>;
   rules: TaskSlaRule[];
   now: Date;
+  managerView: boolean;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
 }) {
@@ -79,7 +82,9 @@ export function TaskListView({
   const categoryName = (id: string | null) => categoryById.get(id ?? "")?.name ?? null;
   const rows =
     sortKey === null
-      ? rankTasks(tasks, rules, now)
+      ? managerView
+        ? rankTasksForManager(tasks, rules, now)
+        : rankTasks(tasks, rules, now)
       : sortTasks(tasks, sortKey, sortDir, categoryName);
 
   function toggleSort(key: SortKey) {

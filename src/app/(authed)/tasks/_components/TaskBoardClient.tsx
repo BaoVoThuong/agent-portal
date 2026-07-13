@@ -424,14 +424,37 @@ export function TaskBoardClient({
     );
   }, [currentEmail, shouldLimitPlainCsTasks, showTeamTasks, tasks]);
 
+  // Non-admins only fetch their own scope, so derive the Agent/Assignee filter
+  // options from the tasks they can see. This scopes the dropdowns to their own
+  // agents + team and never exposes the full company lists.
+  const isAgentOrAssistant = !isManager && canManageOwnAgentGroup;
+  // Agent/admin get the oversight order; plain CS keep the work-queue order.
+  const managerView = isManager || isAgentOrAssistant;
+  const scopedAgentStats = useMemo(() => {
+    if (isManager) return agentStats;
+    const inScope = new Set(tasks.map((task) => task.agent_email ?? NO_AGENT));
+    return agentStats.filter((stat) => inScope.has(stat.key));
+  }, [isManager, agentStats, tasks]);
+  const filterAssignees = useMemo(() => {
+    if (isManager) return assignees;
+    const inScope = new Set<string>();
+    for (const task of tasks) {
+      for (const email of task.assignees) inScope.add(email);
+    }
+    return assignees.filter((assignee) => inScope.has(assignee.email));
+  }, [isManager, assignees, tasks]);
+
   // Which filters make sense for the current view + role. Hidden filters are also
   // forced inert here so a stale value can't silently filter a view that hides it.
-  //  - Agent (customer agent_email): manager-only.
-  //  - Assignee: manager filter, or plain-CS Group tasks filter; never on Backlog.
+  //  - Agent (customer agent_email): admin, or an agent/assistant covering >1 agent.
+  //  - Assignee: admin + agent/assistant (scoped to their team), or plain-CS Group
+  //    tasks filter; never on Backlog.
   //  - Status: List only (Board columns already are statuses; Backlog is all backlog).
   //  - Category: hidden for plain CS users.
-  const showAgentFilter = isManager;
-  const showAssigneeFilter = isManager && view !== "backlog";
+  const showAgentFilter =
+    isManager || (isAgentOrAssistant && scopedAgentStats.length > 1);
+  const showAssigneeFilter =
+    (isManager || isAgentOrAssistant) && view !== "backlog";
   const showInlineAssigneeFilter =
     shouldLimitPlainCsTasks && showTeamTasks && view !== "backlog";
   const enableAssigneeFilter = showAssigneeFilter || showInlineAssigneeFilter;
@@ -875,10 +898,10 @@ export function TaskBoardClient({
           showBacklog={isManager || canManageOwnAgentGroup}
           query={query}
           onQuery={setQuery}
-          agentStats={agentStats}
+          agentStats={scopedAgentStats}
           agentFilter={agentFilter}
           onAgentFilter={setAgentFilter}
-          assignees={assignees}
+          assignees={filterAssignees}
           assigneeFilter={assigneeFilter}
           onAssigneeFilter={setAssigneeFilter}
           presets={presets}
@@ -945,6 +968,7 @@ export function TaskBoardClient({
           newAssignedTaskIds={displayNewAssignedTaskIds}
           rules={slaRules}
           now={now}
+          managerView={managerView}
           onUnlockOverdue={setUnlockingTaskId}
           onReopenRequest={setReopeningTaskId}
         />
