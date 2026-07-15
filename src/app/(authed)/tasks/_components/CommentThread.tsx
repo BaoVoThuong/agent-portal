@@ -33,6 +33,13 @@ type Comment = CommentWithAttachments & {
   error?: string;
 };
 
+type CommentEdit = {
+  id: string;
+  previous_body: string;
+  edited_by: string;
+  edited_at: string;
+};
+
 type DraftMention = {
   label: string;
   email: string;
@@ -340,6 +347,7 @@ export function CommentThread({
               <div key={c.id} data-comment-id={c.id} className="space-y-2">
                 <CommentItem
                   c={c}
+                  taskId={taskId}
                   currentEmail={currentEmail}
                   nameOf={nameOf}
                   onDelete={c.optimistic ? releaseOptimistic : remove}
@@ -351,6 +359,7 @@ export function CommentThread({
                     <div key={rc.id} data-comment-id={rc.id}>
                       <CommentItem
                         c={rc}
+                        taskId={taskId}
                         currentEmail={currentEmail}
                         nameOf={nameOf}
                         onDelete={rc.optimistic ? releaseOptimistic : remove}
@@ -402,6 +411,7 @@ function renderBody(body: string): ReactNode[] {
 
 function CommentItem({
   c,
+  taskId,
   currentEmail,
   nameOf,
   onDelete,
@@ -409,6 +419,7 @@ function CommentItem({
   onReply,
 }: {
   c: Comment;
+  taskId: string;
   currentEmail: string;
   nameOf: (email: string) => string;
   onDelete: (id: string) => Promise<void> | void;
@@ -428,6 +439,20 @@ function CommentItem({
     !c.optimistic &&
     typeof editedAt === "string" &&
     new Date(editedAt).getTime() > new Date(c.created_at).getTime() + 1000;
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [edits, setEdits] = useState<CommentEdit[] | null>(null);
+  async function toggleHistory() {
+    const next = !historyOpen;
+    setHistoryOpen(next);
+    if (next && edits === null) {
+      try {
+        const res = await fetch(`/api/tasks/${taskId}/comments/${c.id}/edits`);
+        setEdits(res.ok ? ((await res.json()).edits ?? []) : []);
+      } catch {
+        setEdits([]);
+      }
+    }
+  }
 
   if (c.deleted_at) {
     return (
@@ -456,9 +481,13 @@ function CommentItem({
               {formatCommentTime(c.created_at)}
             </span>
             {wasEdited ? (
-              <span className="text-xs font-medium text-[#97a0af]">
+              <button
+                type="button"
+                onClick={toggleHistory}
+                className="text-xs font-medium text-[#97a0af] transition hover:text-[#0c66e4] hover:underline"
+              >
                 (edited)
-              </span>
+              </button>
             ) : null}
             {c.failed ? (
               <span
@@ -483,6 +512,31 @@ function CommentItem({
                   <p className="whitespace-pre-wrap">{renderBody(c.body)}</p>
                 ) : null}
               </div>
+
+              {historyOpen ? (
+                <div className="mt-1.5 space-y-1.5 rounded-lg border border-[#dfe1e6] bg-[#f7f8f9] p-2 text-xs">
+                  <div className="font-bold uppercase tracking-wide text-[#6b778c]">
+                    Edit history
+                  </div>
+                  {edits === null ? (
+                    <div className="text-[#97a0af]">Loading…</div>
+                  ) : edits.length === 0 ? (
+                    <div className="text-[#97a0af]">No previous versions.</div>
+                  ) : (
+                    edits.map((e) => (
+                      <div key={e.id} className="rounded bg-white p-1.5">
+                        <p className="whitespace-pre-wrap break-words text-[#42526e]">
+                          {e.previous_body}
+                        </p>
+                        <div className="mt-0.5 text-[10px] text-[#97a0af]">
+                          {nameOf(e.edited_by)} ·{" "}
+                          {new Date(e.edited_at).toLocaleString()}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : null}
 
               {c.failed && c.error ? (
                 <p className="mt-1 rounded border border-[#ffbdad] bg-[#ffebe6] px-2 py-1.5 text-xs font-semibold text-[#bf2600]">

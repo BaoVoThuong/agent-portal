@@ -49,14 +49,19 @@ async function loadAuthorContext(id: string, cid: string) {
   // 2. Load comment (id, author_email, task_id)
   const { data: comment, error: cErr } = await supabase
     .from("task_comments")
-    .select("id,author_email,task_id")
+    .select("id,author_email,task_id,body")
     .eq("id", cid)
     .maybeSingle();
   if (cErr) return { error: cErr.message, status: 500 };
   if (!comment) return { error: "Not found", status: 404 };
 
   // 3. Comment must belong to the route task
-  const cmnt = comment as { id: string; author_email: string; task_id: string };
+  const cmnt = comment as {
+    id: string;
+    author_email: string;
+    task_id: string;
+    body: string;
+  };
   if (cmnt.task_id !== id) return { error: "Not found", status: 404 };
 
   // 4. Actor must be able to view the task
@@ -79,7 +84,7 @@ async function loadAuthorContext(id: string, cid: string) {
   // 5. Actor must be the comment author
   if (cmnt.author_email !== email) return { error: "Forbidden", status: 403 };
 
-  return { supabase, email };
+  return { supabase, email, currentBody: cmnt.body };
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -92,6 +97,15 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const text = typeof body?.body === "string" ? body.body.trim() : "";
   if (!text)
     return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
+
+  // Snapshot the pre-edit body so the edit history is auditable.
+  if (ctx.currentBody && ctx.currentBody !== text) {
+    await ctx.supabase.from("task_comment_edits").insert({
+      comment_id: cid,
+      previous_body: ctx.currentBody,
+      edited_by: ctx.email,
+    });
+  }
 
   const { data, error } = await ctx.supabase
     .from("task_comments")

@@ -1634,6 +1634,18 @@ create table if not exists task_comments (
 
 create index if not exists task_comments_task_idx on task_comments (task_id, created_at);
 
+-- Edit history: one row per edit, holding the body BEFORE that edit.
+create table if not exists task_comment_edits (
+  id uuid primary key default gen_random_uuid(),
+  comment_id uuid not null references task_comments(id) on delete cascade,
+  previous_body text not null,
+  edited_by text not null,
+  edited_at timestamptz not null default now()
+);
+
+create index if not exists task_comment_edits_comment_idx
+  on task_comment_edits (comment_id, edited_at desc);
+
 create table if not exists task_attachments (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references tasks(id) on delete cascade,
