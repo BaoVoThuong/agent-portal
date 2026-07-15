@@ -5,7 +5,12 @@ import { buildTaskActor, isTaskViewAdmin, canChangeTaskStatus } from "@/lib/task
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import { recordStageTransition, resolveOverdueEvent } from "@/lib/tasks/history";
 import { touchLastActivity } from "@/lib/tasks/last-activity";
-import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import {
+  fetchAdminEmails,
+  fetchAgentOwnerAndAssistantEmails,
+  isAgentOwnerOrAssistant,
+} from "@/lib/tasks/membership";
+import { insertNotifications } from "@/lib/tasks/notifications";
 import {
   currentStintDueAt,
   effectiveSlaMinutes,
@@ -133,6 +138,26 @@ export async function POST(req: Request, { params }: Ctx) {
       },
     }),
   ]);
+
+  // Notify the agent owner/assistants + all admins that this overdue was
+  // resolved. The reason is in the activity log (deep-link shows it).
+  const [agentRecipients, adminRecipients] = await Promise.all([
+    fetchAgentOwnerAndAssistantEmails(task.agent_email),
+    fetchAdminEmails(),
+  ]);
+  const overdueRecipients = [
+    ...new Set([...agentRecipients, ...adminRecipients]),
+  ].filter((recipient) => recipient !== actor.email);
+  if (overdueRecipients.length > 0) {
+    await insertNotifications(
+      overdueRecipients.map((recipient) => ({
+        recipient_email: recipient,
+        task_id: id,
+        type: "overdue_unlocked",
+        actor_email: actor.email,
+      }))
+    );
+  }
 
   await broadcastTasksChanged();
   await broadcastTaskRoom(id);

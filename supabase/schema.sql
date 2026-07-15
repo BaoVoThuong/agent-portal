@@ -1695,7 +1695,9 @@ begin
       'reopened',
       'qc_needed',
       'due_soon',
-      'stale'
+      'stale',
+      'overdue_unlocked',
+      'qc_stale'
     )
   );
 end $$;

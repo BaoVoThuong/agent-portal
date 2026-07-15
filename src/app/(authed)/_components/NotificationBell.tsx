@@ -25,7 +25,9 @@ type Notif = {
     | "reopened"
     | "qc_needed"
     | "due_soon"
-    | "stale";
+    | "stale"
+    | "overdue_unlocked"
+    | "qc_stale";
   actor_email: string;
   actor_name: string | null;
   task_title: string | null;
@@ -97,6 +99,10 @@ function actionText(n: Notif): string {
       return "Task is due soon";
     case "stale":
       return "Task has had no activity";
+    case "overdue_unlocked":
+      return "resolved this overdue task (reason logged)";
+    case "qc_stale":
+      return "Task still needs QC — reminder";
   }
 }
 
@@ -109,7 +115,8 @@ function isSystemNotif(n: Notif): boolean {
     n.type === "overdue_reminder" ||
     n.type === "waiting_reminder" ||
     n.type === "due_soon" ||
-    n.type === "stale"
+    n.type === "stale" ||
+    n.type === "qc_stale"
   );
 }
 
