@@ -24,6 +24,7 @@ describe("resolveReminderSettings", () => {
       overdueReminderHours: 12,
       waitingHours: 6,
       staleHours: 72,
+      qcHours: 24,
     });
   });
 

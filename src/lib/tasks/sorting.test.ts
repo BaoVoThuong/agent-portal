@@ -31,6 +31,7 @@ function task(p: Partial<TaskRow>): TaskRow {
     overdue_unlocked_at: null,
     due_soon_notified_at: null,
     stale_reminded_at: null,
+    qc_reminded_at: null,
     last_activity_at: null,
     reopened_at: null,
     sla_minutes: null,

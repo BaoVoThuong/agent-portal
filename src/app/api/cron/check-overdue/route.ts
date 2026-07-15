@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { currentStintDueAt, effectiveSlaMinutes, isTaskOverdue } from "@/lib/tasks/sla";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchTaskAssigneeEmails } from "@/lib/tasks/assignees";
+import { fetchAgentOwnerAndAssistantEmails } from "@/lib/tasks/membership";
 import { openOverdueEvent } from "@/lib/tasks/history";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
@@ -51,8 +52,10 @@ export async function GET(request: Request) {
   const overdueReminderMs = settings.overdueReminderHours * 3600_000;
   const waitingReminderMs = settings.waitingHours * 3600_000;
   const staleReminderMs = settings.staleHours * 3600_000;
+  const qcReminderMs = settings.qcHours * 3600_000;
   const todoCutoffIso = new Date(now.getTime() - todoReminderMs).toISOString();
   const waitingCutoffIso = new Date(now.getTime() - waitingReminderMs).toISOString();
+  const qcCutoffIso = new Date(now.getTime() - qcReminderMs).toISOString();
 
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
@@ -162,6 +165,24 @@ export async function GET(request: Request) {
       isStale(task, settings.staleHours, now) &&
       intervalDue(task.stale_reminded_at, staleReminderMs, now)
   );
+
+  // Tasks that have been Done/Cancelled for longer than qcHours without a QC
+  // review yet — nudge the agent owner/assistants (config in SLA settings).
+  const { data: qcRows, error: qcError } = await supabase
+    .from("tasks")
+    .select("id,agent_email,closed_at,qc_reminded_at")
+    .in("status", ["done", "cancel"])
+    .is("done_reviewed_by_email", null)
+    .is("archived_at", null)
+    .not("closed_at", "is", null)
+    .lte("closed_at", qcCutoffIso);
+  if (qcError) return NextResponse.json({ error: qcError.message }, { status: 500 });
+  const qcStaleTasks = (
+    (qcRows ?? []) as Pick<
+      TaskRow,
+      "id" | "agent_email" | "closed_at" | "qc_reminded_at"
+    >[]
+  ).filter((task) => intervalDue(task.qc_reminded_at, qcReminderMs, now));
 
   if (newlyOverdue.length > 0) {
     await Promise.all(
@@ -315,6 +336,31 @@ export async function GET(request: Request) {
     );
   }
 
+  if (qcStaleTasks.length > 0) {
+    await Promise.all(
+      qcStaleTasks.map(async (task) => {
+        const recipients = await fetchAgentOwnerAndAssistantEmails(
+          task.agent_email
+        );
+        await insertNotifications(
+          recipients.map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "qc_stale",
+            actor_email: "system",
+          }))
+        );
+        const { error: updateError } = await supabase
+          .from("tasks")
+          .update({ qc_reminded_at: nowIso })
+          .eq("id", task.id)
+          .in("status", ["done", "cancel"])
+          .is("done_reviewed_by_email", null);
+        if (updateError) throw new Error(updateError.message);
+      })
+    );
+  }
+
   return NextResponse.json({
     checked: tasks.length,
     flagged: newlyOverdue.length,
@@ -323,5 +369,6 @@ export async function GET(request: Request) {
     waitingReminded: waitingReminderTasks.length,
     dueSoon: dueSoonTasks.length,
     stale: staleReminderTasks.length,
+    qcStale: qcStaleTasks.length,
   });
 }

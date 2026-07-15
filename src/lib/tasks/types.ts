@@ -52,6 +52,7 @@ export type TaskRow = {
   overdue_unlocked_at: string | null;
   due_soon_notified_at: string | null;
   stale_reminded_at: string | null;
+  qc_reminded_at: string | null;
   last_activity_at: string | null;
   reopened_at: string | null;
   sla_minutes: number | null;

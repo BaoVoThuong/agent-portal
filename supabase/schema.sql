@@ -1356,6 +1356,7 @@ where last_activity_at is null;
 -- the relevant clock restarts so the reminder can re-arm.
 alter table tasks add column if not exists due_soon_notified_at timestamptz;
 alter table tasks add column if not exists stale_reminded_at timestamptz;
+alter table tasks add column if not exists qc_reminded_at timestamptz;
 
 -- Cumulative time (seconds) a task has spent in each stage across ALL visits,
 -- banked when the task leaves that stage. Display time in a stage = the
@@ -1612,6 +1613,9 @@ create table if not exists task_reminder_settings (
 
 alter table task_reminder_settings
 add column if not exists todo_hours integer not null default 24 check (todo_hours > 0);
+
+alter table task_reminder_settings
+add column if not exists qc_hours integer not null default 24 check (qc_hours > 0);
 
 insert into task_reminder_settings (id)
 values (true)

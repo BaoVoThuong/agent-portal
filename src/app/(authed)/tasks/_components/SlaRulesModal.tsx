@@ -40,6 +40,7 @@ const REMINDER_ROWS: Array<{
   { key: "overdueReminderHours", label: "Overdue reminders", unit: "h" },
   { key: "waitingHours", label: "Waiting reminders", unit: "h" },
   { key: "staleHours", label: "Stale reminders", unit: "h" },
+  { key: "qcHours", label: "QC reminders", unit: "h" },
 ];
 
 type ReminderSettingsResponse = {

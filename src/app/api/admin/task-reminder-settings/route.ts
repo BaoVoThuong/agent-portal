@@ -15,6 +15,7 @@ type ReminderSettingsBody = Partial<ReminderSettings> & {
   overdue_reminder_hours?: unknown;
   waiting_hours?: unknown;
   stale_hours?: unknown;
+  qc_hours?: unknown;
 };
 
 function positiveInt(value: unknown): number | null {
@@ -34,6 +35,7 @@ function parseSettingsBody(body: ReminderSettingsBody | null): ReminderSettings 
     ),
     waitingHours: positiveInt(body.waitingHours ?? body.waiting_hours),
     staleHours: positiveInt(body.staleHours ?? body.stale_hours),
+    qcHours: positiveInt(body.qcHours ?? body.qc_hours),
   };
 
   if (
@@ -41,7 +43,8 @@ function parseSettingsBody(body: ReminderSettingsBody | null): ReminderSettings 
     settings.todoHours === null ||
     settings.overdueReminderHours === null ||
     settings.waitingHours === null ||
-    settings.staleHours === null
+    settings.staleHours === null ||
+    settings.qcHours === null
   ) {
     return null;
   }
@@ -65,7 +68,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("task_reminder_settings")
     .select(
-      "due_soon_minutes,todo_hours,overdue_reminder_hours,waiting_hours,stale_hours,updated_at"
+      "due_soon_minutes,todo_hours,overdue_reminder_hours,waiting_hours,stale_hours,qc_hours,updated_at"
     )
     .eq("id", true)
     .maybeSingle();
@@ -104,12 +107,13 @@ export async function PUT(req: Request) {
         overdue_reminder_hours: settings.overdueReminderHours,
         waiting_hours: settings.waitingHours,
         stale_hours: settings.staleHours,
+        qc_hours: settings.qcHours,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" }
     )
     .select(
-      "due_soon_minutes,todo_hours,overdue_reminder_hours,waiting_hours,stale_hours,updated_at"
+      "due_soon_minutes,todo_hours,overdue_reminder_hours,waiting_hours,stale_hours,qc_hours,updated_at"
     )
     .single();
 

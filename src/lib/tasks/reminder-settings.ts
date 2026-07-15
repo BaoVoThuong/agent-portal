@@ -4,6 +4,7 @@ export type ReminderSettings = {
   overdueReminderHours: number;
   waitingHours: number;
   staleHours: number;
+  qcHours: number;
 };
 
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
@@ -12,6 +13,7 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   overdueReminderHours: 24,
   waitingHours: 24,
   staleHours: 48,
+  qcHours: 24,
 };
 
 function posInt(value: unknown, fallback: number): number {
@@ -38,5 +40,6 @@ export function resolveReminderSettings(row: unknown): ReminderSettings {
       DEFAULT_REMINDER_SETTINGS.waitingHours
     ),
     staleHours: posInt(r.stale_hours, DEFAULT_REMINDER_SETTINGS.staleHours),
+    qcHours: posInt(r.qc_hours, DEFAULT_REMINDER_SETTINGS.qcHours),
   };
 }
