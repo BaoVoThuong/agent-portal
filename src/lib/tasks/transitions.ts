@@ -260,8 +260,11 @@ export function resolveTaskPatch(
     if (!opts?.canReviewDone) {
       return { ok: false, error: "You cannot QC check this task." };
     }
-    if (nextStatus !== "done") {
-      return { ok: false, error: "Only done tasks can be QC checked." };
+    if (nextStatus !== "done" && nextStatus !== "cancel") {
+      return {
+        ok: false,
+        error: "Only done or cancelled tasks can be QC checked.",
+      };
     }
     patch.done_reviewed_by_email = r.done_reviewed ? actor.email : null;
     patch.done_reviewed_at = r.done_reviewed ? nowIso : null;

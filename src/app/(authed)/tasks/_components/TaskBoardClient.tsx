@@ -937,7 +937,8 @@ export function TaskBoardClient({
           onMove={moveTask}
           canMoveTask={(task) => capabilitiesFor(task).canChangeStatus}
           canReviewDoneTask={(task) =>
-            task.status === "done" && capabilitiesFor(task).canReviewQC
+            (task.status === "done" || task.status === "cancel") &&
+            capabilitiesFor(task).canReviewQC
           }
           onReviewDone={reviewDoneTask}
           categories={categories}
@@ -1022,7 +1023,10 @@ export function TaskBoardClient({
           mentionMembers={mentionMembers}
           categories={categories}
           currentEmail={currentEmail}
-          canReviewDone={openTask.status === "done" && Boolean(openTaskCapabilities?.canReviewQC)}
+          canReviewDone={
+            (openTask.status === "done" || openTask.status === "cancel") &&
+            Boolean(openTaskCapabilities?.canReviewQC)
+          }
           canViewNonCommentDetail={canViewOpenNonCommentDetail}
           highlightCommentId={openCommentId}
           onClose={closeTask}

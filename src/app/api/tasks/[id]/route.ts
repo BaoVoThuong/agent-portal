@@ -373,7 +373,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const notifyNewAssignee =
     newAssignee && newAssignee !== r.task.assignee_email && newAssignee !== r.actor.email;
   const shouldNotifyQcNeeded =
-    resolved.patch.status === "done" && r.task.status !== "done";
+    (resolved.patch.status === "done" || resolved.patch.status === "cancel") &&
+    r.task.status !== resolved.patch.status;
   const qcAgentEmail =
     typeof resolved.patch.agent_email === "string"
       ? resolved.patch.agent_email

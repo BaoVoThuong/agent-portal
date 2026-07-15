@@ -138,6 +138,24 @@ describe("resolveTaskPatch", () => {
     expect(resolveTaskPatch(manager, done, { status: "cancel" }).ok).toBe(false);
   });
 
+  it("allows QC review (done_reviewed) on a Done OR a Cancelled task, not an open one", () => {
+    const done = {
+      status: "done" as const,
+      assignee_email: "cs@x.com",
+      in_progress_at: null,
+    };
+    const cancelled = { ...done, status: "cancel" as const };
+    const inProgress = { ...done, status: "in_progress" as const };
+    const opts = { canReviewDone: true };
+    expect(resolveTaskPatch(manager, done, { done_reviewed: true }, opts).ok).toBe(true);
+    expect(
+      resolveTaskPatch(manager, cancelled, { done_reviewed: true }, opts).ok
+    ).toBe(true);
+    expect(
+      resolveTaskPatch(manager, inProgress, { done_reviewed: true }, opts).ok
+    ).toBe(false);
+  });
+
   it("banks To Do seconds and opens a fresh In Progress stint when a task starts", () => {
     const inTodo = {
       status: "todo" as const,

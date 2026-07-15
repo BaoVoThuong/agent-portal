@@ -471,7 +471,8 @@ function DoneReviewPanel({
   onReviewDone: (reviewed: boolean) => void;
 }) {
   const reviewed = Boolean(task.done_reviewed_at);
-  const disabled = task.status !== "done" || !canReviewDone;
+  const disabled =
+    (task.status !== "done" && task.status !== "cancel") || !canReviewDone;
 
   return (
     <div className="rounded-lg border border-[#dfe1e6] bg-white p-3">

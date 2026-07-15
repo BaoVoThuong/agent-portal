@@ -157,7 +157,10 @@ export function TaskListView({
                     canAssign={capabilities.canAssign}
                     onOpen={onOpen}
                     onPatch={onPatch}
-                    canReviewDone={task.status === "done" && capabilities.canReviewQC}
+                    canReviewDone={
+                      (task.status === "done" || task.status === "cancel") &&
+                      capabilities.canReviewQC
+                    }
                     onReviewDone={(reviewed) => onReviewDone(task.id, reviewed)}
                     onAssigneeChange={onAssigneeChange}
                     openOnDoubleClick
