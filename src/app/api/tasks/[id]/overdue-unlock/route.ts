@@ -6,7 +6,6 @@ import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import { recordStageTransition, resolveOverdueEvent } from "@/lib/tasks/history";
 import { touchLastActivity } from "@/lib/tasks/last-activity";
 import {
-  fetchAdminEmails,
   fetchAgentOwnerAndAssistantEmails,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
@@ -139,15 +138,11 @@ export async function POST(req: Request, { params }: Ctx) {
     }),
   ]);
 
-  // Notify the agent owner/assistants + all admins that this overdue was
-  // resolved. The reason is in the activity log (deep-link shows it).
-  const [agentRecipients, adminRecipients] = await Promise.all([
-    fetchAgentOwnerAndAssistantEmails(task.agent_email),
-    fetchAdminEmails(),
-  ]);
-  const overdueRecipients = [
-    ...new Set([...agentRecipients, ...adminRecipients]),
-  ].filter((recipient) => recipient !== actor.email);
+  // Notify the agent owner/assistants that this overdue was resolved. The
+  // reason is in the activity log (deep-link shows it).
+  const overdueRecipients = (
+    await fetchAgentOwnerAndAssistantEmails(task.agent_email)
+  ).filter((recipient) => recipient !== actor.email);
   if (overdueRecipients.length > 0) {
     await insertNotifications(
       overdueRecipients.map((recipient) => ({

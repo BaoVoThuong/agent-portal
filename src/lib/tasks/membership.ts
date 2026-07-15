@@ -64,17 +64,3 @@ export async function fetchAgentOwnerAndAssistantEmails(
     ]),
   ];
 }
-
-// All admin accounts — recipients for oversight notifications (e.g. an overdue
-// resolved with a reason). Role lives on portal_account.
-export async function fetchAdminEmails(): Promise<string[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("portal_account")
-    .select("email")
-    .eq("role", "admin")
-    .eq("is_active", true);
-  if (error) return [];
-  return [
-    ...new Set((data ?? []).map((row) => (row as { email: string }).email)),
-  ];
-}
