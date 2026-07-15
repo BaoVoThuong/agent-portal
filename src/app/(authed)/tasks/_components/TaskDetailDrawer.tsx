@@ -337,6 +337,16 @@ export function TaskDetailDrawer({
                 </div>
 
                 <div className="space-y-1.5">
+                  <span className={LABEL_CLASS}>Created by</span>
+                  <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
+                    {task.reporter_email
+                      ? personLabelByEmail.get(task.reporter_email) ??
+                        formatEmailAsName(task.reporter_email)
+                      : "—"}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Assignees</span>
                   {canAssign ? (
                     <TaskAssigneeDropdown

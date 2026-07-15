@@ -423,6 +423,11 @@ function CommentItem({
   const canDelete =
     c.author_email === currentEmail && (!c.optimistic || c.failed);
   const hasMenu = canEdit || canDelete;
+  const editedAt = (c as { updated_at?: string | null }).updated_at;
+  const wasEdited =
+    !c.optimistic &&
+    typeof editedAt === "string" &&
+    new Date(editedAt).getTime() > new Date(c.created_at).getTime() + 1000;
 
   if (c.deleted_at) {
     return (
@@ -450,6 +455,11 @@ function CommentItem({
             >
               {formatCommentTime(c.created_at)}
             </span>
+            {wasEdited ? (
+              <span className="text-xs font-medium text-[#97a0af]">
+                (edited)
+              </span>
+            ) : null}
             {c.failed ? (
               <span
                 title={c.error}

@@ -51,6 +51,7 @@ export type AgentStat = {
 // One-click manager-only view. It maps to a `matchesQuick` rule.
 const PRESETS: { key: QuickFilter; label: string; managerOnly?: boolean }[] = [
   { key: "mine", label: "My tasks", managerOnly: true },
+  { key: "overdue", label: "Overdue" },
 ];
 
 const FILTER_SELECT_BUTTON_CLASS =
