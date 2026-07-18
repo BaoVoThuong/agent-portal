@@ -1688,6 +1688,9 @@ create table if not exists task_notifications (
 create index if not exists task_notifications_recipient_idx
   on task_notifications (recipient_email, is_read, created_at desc);
 
+-- Optional free-text detail carried by a notification (e.g. the overdue reason).
+alter table task_notifications add column if not exists detail text;
+
 do $$
 begin
   if exists (

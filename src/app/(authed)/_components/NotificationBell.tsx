@@ -32,6 +32,7 @@ type Notif = {
   actor_name: string | null;
   task_title: string | null;
   comment_body: string | null;
+  detail: string | null;
   is_read: boolean;
   created_at: string;
 };
@@ -428,6 +429,15 @@ function NotifContent({ n }: { n: Notif }) {
         >
           <span className="font-semibold text-slate-600">Comment:</span>{" "}
           &quot;{commentPreview(n)}&quot;
+        </p>
+      )}
+      {n.detail && (
+        <p
+          className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500"
+          title={n.detail}
+        >
+          <span className="font-semibold text-slate-600">Reason:</span>{" "}
+          &quot;{n.detail}&quot;
         </p>
       )}
     </>

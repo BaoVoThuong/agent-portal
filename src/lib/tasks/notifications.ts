@@ -51,6 +51,7 @@ export async function insertNotifications(
     type: string;
     actor_email: string;
     comment_id?: string | null;
+    detail?: string | null;
   }[]
 ): Promise<void> {
   if (rows.length === 0) return;
