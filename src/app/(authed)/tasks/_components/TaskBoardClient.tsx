@@ -90,7 +90,11 @@ export function TaskBoardClient({
   const [reopeningTaskId, setReopeningTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date(initialNowIso));
   const [agentFilter, setAgentFilter] = useState<string[]>([]);
-  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>(() => {
+    const ownsAgent = agents.some((agent) => agent.email === currentEmail);
+    const plainCs = !isManager && !ownsAgent && myAssistantAgents.length === 0;
+    return plainCs ? [currentEmail] : [];
+  });
   const [presets, setPresets] = useState<QuickFilter[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<TaskStatus[]>([]);
@@ -435,15 +439,9 @@ export function TaskBoardClient({
 
     return ids;
   }, [currentEmail, newAssignedTaskIds, shouldLimitPlainCsTasks, tasks]);
-  const scopedTasks = useMemo(() => {
-    if (!shouldLimitPlainCsTasks || showTeamTasks) return tasks;
-
-    return tasks.filter(
-      (task) =>
-        task.assignees.includes(currentEmail) ||
-        task.viewer_is_participant === true
-    );
-  }, [currentEmail, shouldLimitPlainCsTasks, showTeamTasks, tasks]);
+  // Plain CS now see ALL their agent's tasks (no My/Group toggle); the assignee
+  // filter (defaulting to themselves) narrows it instead.
+  const scopedTasks = tasks;
 
   // Non-admins only fetch their own scope, so derive the Agent/Assignee filter
   // options from the tasks they can see. This scopes the dropdowns to their own
@@ -476,7 +474,7 @@ export function TaskBoardClient({
   const showAssigneeFilter =
     (isManager || isAgentOrAssistant) && view !== "backlog";
   const showInlineAssigneeFilter =
-    shouldLimitPlainCsTasks && showTeamTasks && view !== "backlog";
+    shouldLimitPlainCsTasks && view !== "backlog";
   const enableAssigneeFilter = showAssigneeFilter || showInlineAssigneeFilter;
   const effectivePresets = useMemo(
     () =>
@@ -934,7 +932,7 @@ export function TaskBoardClient({
           showInlineAssignee={showInlineAssigneeFilter}
           showStatus={showStatusFilter}
           showCategory={showCategoryFilter}
-          showTeamTasksToggle={shouldLimitPlainCsTasks}
+          showTeamTasksToggle={false}
           teamTasksEnabled={showTeamTasks}
           onTeamTasksEnabledChange={setShowTeamTasks}
           categories={categories}
