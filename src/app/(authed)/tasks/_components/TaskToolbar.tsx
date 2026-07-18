@@ -12,7 +12,9 @@ import {
 import {
   STATUS_LABEL,
   TASK_STATUSES,
+  TASK_PRIORITIES,
   type TaskCategory,
+  type TaskPriority,
   type TaskStatus,
 } from "@/lib/tasks/types";
 import { ALL_AGENTS, NO_ASSIGNEE, type QuickFilter } from "@/lib/tasks/filtering";
@@ -75,6 +77,8 @@ export function TaskToolbar({
   onCategory,
   status,
   onStatus,
+  priority,
+  onPriority,
   dateFrom,
   dateTo,
   defaultDateRange,
@@ -110,6 +114,8 @@ export function TaskToolbar({
   onCategory: (value: string[]) => void;
   status: TaskStatus[];
   onStatus: (value: TaskStatus[]) => void;
+  priority: TaskPriority[];
+  onPriority: (value: TaskPriority[]) => void;
   dateFrom: string;
   dateTo: string;
   defaultDateRange: TaskDateRangeValue;
@@ -140,6 +146,13 @@ export function TaskToolbar({
     { value: "", label: "Status" },
     ...TASK_STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
   ];
+  const priorityOptions = [
+    { value: "", label: "Priority" },
+    ...TASK_PRIORITIES.map((p) => ({
+      value: p,
+      label: p.charAt(0).toUpperCase() + p.slice(1),
+    })),
+  ];
   const assigneeOptions = [
     { value: "", label: "All Assignees" },
     { value: NO_ASSIGNEE, label: "Unassigned" },
@@ -158,6 +171,7 @@ export function TaskToolbar({
     presets.length > 0 ||
     (showCategory && category.length > 0) ||
     (showStatus && status.length > 0) ||
+    priority.length > 0 ||
     dateFrom !== defaultDateRange.from ||
     dateTo !== defaultDateRange.to;
 
@@ -280,6 +294,18 @@ export function TaskToolbar({
             onValuesChange={(values) => onStatus(values as TaskStatus[])}
           />
         ) : null}
+
+        <TaskSelect
+          multi
+          values={priority}
+          options={priorityOptions}
+          placeholder="Priority"
+          allValue=""
+          summaryLabel="priorities"
+          className="w-max min-w-[8.75rem]"
+          buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+          onValuesChange={(values) => onPriority(values as TaskPriority[])}
+        />
 
         {presetOptions.map((p) => {
           const active = presets.includes(p.key);

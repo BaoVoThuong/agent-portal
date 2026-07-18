@@ -7,7 +7,13 @@ import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
 import { Clock, Plus, Tag, UsersRound } from "lucide-react";
-import type { TaskCategory, TaskRow, TaskSlaRule, TaskStatus } from "@/lib/tasks/types";
+import type {
+  TaskCategory,
+  TaskPriority,
+  TaskRow,
+  TaskSlaRule,
+  TaskStatus,
+} from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import {
   filterTasks,
@@ -88,6 +94,7 @@ export function TaskBoardClient({
   const [presets, setPresets] = useState<QuickFilter[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<TaskStatus[]>([]);
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
   const [showTeamTasks, setShowTeamTasks] = useState(false);
   const [newAssignedTaskIds, setNewAssignedTaskIds] = useState<Set<string>>(
     () => new Set()
@@ -465,18 +472,19 @@ export function TaskBoardClient({
   //    tasks filter; never on Backlog.
   //  - Status: List only (Board columns already are statuses; Backlog is all backlog).
   //  - Category: hidden for plain CS users.
-  const showAgentFilter =
-    isManager || (isAgentOrAssistant && scopedAgentStats.length > 1);
+  const showAgentFilter = scopedAgentStats.length > 0;
   const showAssigneeFilter =
     (isManager || isAgentOrAssistant) && view !== "backlog";
   const showInlineAssigneeFilter =
     shouldLimitPlainCsTasks && showTeamTasks && view !== "backlog";
   const enableAssigneeFilter = showAssigneeFilter || showInlineAssigneeFilter;
   const effectivePresets = useMemo(
-    () => (isManager ? [] : presets),
+    () =>
+      isManager ? presets.filter((preset) => preset === "overdue") : presets,
     [isManager, presets]
   );
   const showStatusFilter = view === "list";
+  const showPriorityFilter = true;
   const showCategoryFilter = !shouldLimitPlainCsTasks;
 
   const visibleTasks = useMemo(
@@ -488,6 +496,7 @@ export function TaskBoardClient({
         quick: effectivePresets,
         category: showCategoryFilter ? categoryFilter : [],
         status: showStatusFilter ? statusFilter : [],
+        priority: showPriorityFilter ? priorityFilter : [],
         dateFrom: dateRange.from,
         dateTo: dateRange.to,
         currentEmail,
@@ -500,10 +509,12 @@ export function TaskBoardClient({
       effectivePresets,
       categoryFilter,
       statusFilter,
+      priorityFilter,
       dateRange,
       showAgentFilter,
       enableAssigneeFilter,
       showStatusFilter,
+      showPriorityFilter,
       showCategoryFilter,
       currentEmail,
       overdueIds,
@@ -822,6 +833,7 @@ export function TaskBoardClient({
     setPresets([]);
     setCategoryFilter([]);
     setStatusFilter([]);
+    setPriorityFilter([]);
     setShowTeamTasks(false);
     setDateRange(defaultDateRange);
   }
@@ -910,6 +922,8 @@ export function TaskBoardClient({
           onCategory={setCategoryFilter}
           status={statusFilter}
           onStatus={setStatusFilter}
+          priority={priorityFilter}
+          onPriority={setPriorityFilter}
           dateFrom={dateRange.from}
           dateTo={dateRange.to}
           defaultDateRange={defaultDateRange}

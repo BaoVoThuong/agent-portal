@@ -17,7 +17,7 @@ export type FilterCriteria = {
   agent: string | string[];
   assignee?: string | string[];
   quick: QuickFilter[];
-  priority?: "" | TaskPriority;
+  priority?: "" | TaskPriority | TaskPriority[];
   category: string | string[];
   status: "" | TaskStatus | TaskStatus[];
   dateFrom?: string;
@@ -67,7 +67,8 @@ function matchesQuick(
     case "triage":
       return !task.category_id || !task.agent_email;
     case "overdue":
-      return overdueIds?.has(task.id) ?? false;
+      // Currently overdue, OR previously overdue then reopened/resolved.
+      return (overdueIds?.has(task.id) ?? false) || (task.overdue_count ?? 0) > 0;
   }
 }
 
@@ -81,12 +82,14 @@ export function filterTasks(tasks: TaskRow[], c: FilterCriteria): TaskRow[] {
   const assigneeValues = normalizeFilterValues(c.assignee ?? "");
   const categoryValues = normalizeFilterValues(c.category);
   const statusValues = normalizeFilterValues(c.status);
+  const priorityValues = normalizeFilterValues(c.priority);
 
   return tasks.filter((task) => {
     if (!matchesDateWindow(task, dateFrom, dateTo)) return false;
     if (!matchesAgent(task, agentValues)) return false;
     if (!matchesAssignee(task, assigneeValues)) return false;
-    if (c.priority && task.priority !== c.priority) return false;
+    if (priorityValues.length > 0 && !priorityValues.includes(task.priority))
+      return false;
     if (!matchesCategory(task, categoryValues)) return false;
     if (!matchesStatus(task, statusValues)) return false;
     if (query && !searchText(task).includes(query)) return false;
