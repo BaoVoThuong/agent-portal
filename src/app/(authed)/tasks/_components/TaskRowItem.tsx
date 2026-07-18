@@ -251,7 +251,7 @@ function DoneReviewPill({
   canReviewDone: boolean;
   onReviewDone: (reviewed: boolean) => void;
 }) {
-  if (task.status !== "done") {
+  if (task.status !== "done" && task.status !== "cancel") {
     return <span className="text-[11px] font-semibold text-[#97a0af]">—</span>;
   }
 

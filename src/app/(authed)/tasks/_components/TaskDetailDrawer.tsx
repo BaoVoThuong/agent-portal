@@ -493,11 +493,11 @@ function DoneReviewPanel({
             {reviewed ? "QC checked" : "Needs agent/admin QC"}
           </p>
           <p className="mt-0.5 text-xs leading-5 text-[#626f86]">
-            {task.status !== "done"
-              ? "Available after CS moves this task to Done."
+            {task.status !== "done" && task.status !== "cancel"
+              ? "Available after CS moves this task to Done or Cancel."
               : reviewed
                 ? `Checked by ${reviewerLabel ?? "unknown"}${task.done_reviewed_at ? ` on ${formatReviewTime(task.done_reviewed_at)}` : ""}.`
-                : "CS marked this Done. Agent/admin should verify the result."}
+                : "Awaiting agent/admin QC verification."}
           </p>
         </div>
       </div>

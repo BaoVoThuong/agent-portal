@@ -189,7 +189,7 @@ function DoneReviewBadge({
   canReviewDone: boolean;
   onReviewDone?: (id: string, reviewed: boolean) => void;
 }) {
-  if (task.status !== "done") return null;
+  if (task.status !== "done" && task.status !== "cancel") return null;
 
   const reviewed = Boolean(task.done_reviewed_at);
   const label = reviewed ? "QC checked" : "Needs QC";
