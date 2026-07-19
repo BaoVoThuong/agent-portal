@@ -124,6 +124,7 @@ function BacklogHeader() {
     <div className="flex items-center gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
       <span className="w-4 shrink-0" aria-hidden="true" />
       <span className={`${LIST_COL.key} shrink-0 truncate`}>Key</span>
+      <span className={`${LIST_COL.assignee} shrink-0 truncate`}>Assignee</span>
       <span className="min-w-0 flex-1 truncate">Summary</span>
       <span className={`hidden ${LIST_COL.category} shrink-0 truncate sm:block`}>
         Category
@@ -132,12 +133,11 @@ function BacklogHeader() {
       <span className={`flex ${LIST_COL.priority} shrink-0 justify-center`}>
         Priority
       </span>
-      <span className={`${LIST_COL.status} shrink-0 truncate`}>Status</span>
+      <span className={`flex ${LIST_COL.status} shrink-0 justify-center`}>
+        Status
+      </span>
       <span className={`flex ${LIST_COL.review} shrink-0 justify-center`}>
         QC
-      </span>
-      <span className={`flex ${LIST_COL.assignee} shrink-0 justify-center`}>
-        Assignee
       </span>
     </div>
   );

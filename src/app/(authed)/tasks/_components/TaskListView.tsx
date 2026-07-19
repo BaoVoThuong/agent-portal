@@ -108,6 +108,12 @@ export function TaskListView({
         <div className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
           <div className="flex items-center gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
             <SortTh label="Key" col="key" widthClass={`flex ${LIST_COL.key} shrink-0`} {...sp} />
+            <SortTh
+              label="Assignee"
+              col="assignee"
+              widthClass={`flex ${LIST_COL.assignee} shrink-0`}
+              {...sp}
+            />
             <SortTh label="Summary" col="title" widthClass="flex min-w-0 flex-1" {...sp} />
             <SortTh
               label="Category"
@@ -130,18 +136,12 @@ export function TaskListView({
             <SortTh
               label="Status"
               col="status"
-              widthClass={`flex ${LIST_COL.status} shrink-0`}
+              widthClass={`flex ${LIST_COL.status} shrink-0 justify-center`}
               {...sp}
             />
             <span className={`flex ${LIST_COL.review} shrink-0 justify-center`}>
               QC
             </span>
-            <SortTh
-              label="Assignee"
-              col="assignee"
-              widthClass={`flex ${LIST_COL.assignee} shrink-0 justify-center`}
-              {...sp}
-            />
           </div>
           <ul className="divide-y divide-[#ebecf0]">
             {rows.map((task) => {

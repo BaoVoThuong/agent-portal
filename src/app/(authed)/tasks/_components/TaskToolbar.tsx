@@ -22,7 +22,7 @@ import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { TaskSelect } from "./TaskSelect";
 import { TaskSearchBox } from "./TaskSearchBox";
 
-export type BoardView = "board" | "list" | "backlog";
+export type BoardView = "board" | "list" | "backlog" | "overview";
 
 export type TaskDateRangeValue = { from: string; to: string };
 
@@ -159,9 +159,7 @@ export function TaskToolbar({
     ...assignees.map((a) => ({ value: a.email, label: a.name ?? a.email })),
   ];
 
-  const presetOptions = isManager
-    ? []
-    : PRESETS.filter((p) => !p.managerOnly);
+  const presetOptions = PRESETS.filter((p) => !p.managerOnly);
   const hasVisibleAssigneeFilter = showAssignee || showInlineAssignee;
 
   const hasActiveFilters =
@@ -181,15 +179,18 @@ export function TaskToolbar({
     );
 
   const views: { key: BoardView; label: string }[] = [
+    ...(isManager ? [{ key: "overview" as const, label: "Overview" }] : []),
     { key: "board", label: "Board" },
     { key: "list", label: "List" },
     ...(showBacklog ? [{ key: "backlog" as const, label: "Backlog" }] : []),
   ];
 
+  const showTaskFilters = view !== "overview";
+
   return (
-    <div className="mt-6 space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded bg-[#f4f5f7] p-0.5">
+    <div className="mt-6 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
           {views.map((v) => (
             <button
               key={v.key}
@@ -206,163 +207,169 @@ export function TaskToolbar({
           ))}
         </div>
 
-        {showAgent ? (
-          <TaskSelect
-            multi
-            values={agentFilter}
-            options={agentOptions}
-            placeholder="Agent"
-            allValue={ALL_AGENTS}
-            summaryLabel="agents"
-            className="w-max min-w-[9rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={onAgentFilter}
+        {showTaskFilters ? (
+          <DateRangeFilter
+            from={dateFrom}
+            to={dateTo}
+            onChange={onDateRange}
+            onDefaultChange={onDefaultDateRange}
           />
         ) : null}
-
-        {showAssignee ? (
-          <TaskSelect
-            multi
-            values={assigneeFilter}
-            options={assigneeOptions}
-            placeholder="All Assignees"
-            allValue=""
-            summaryLabel="assignees"
-            className="w-max min-w-[11rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={onAssigneeFilter}
-          />
-        ) : null}
-
-        {showTeamTasksToggle ? (
-          <div className="inline-flex h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] p-0.5">
-            <button
-              type="button"
-              onClick={() => onTeamTasksEnabledChange?.(false)}
-              aria-pressed={!teamTasksEnabled}
-              title="Show my tasks"
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition ${
-                !teamTasksEnabled
-                  ? "bg-white text-[#0c66e4] shadow-sm"
-                  : "text-[#42526e] hover:text-[#172b4d]"
-              }`}
-            >
-              <UserRound className="h-4 w-4" />
-              My tasks
-            </button>
-            <button
-              type="button"
-              onClick={() => onTeamTasksEnabledChange?.(true)}
-              aria-pressed={teamTasksEnabled}
-              title="Show group tasks"
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition ${
-                teamTasksEnabled
-                  ? "bg-white text-[#0c66e4] shadow-sm"
-                  : "text-[#42526e] hover:text-[#172b4d]"
-              }`}
-            >
-              <UsersRound className="h-4 w-4" />
-              Group tasks
-            </button>
-          </div>
-        ) : null}
-
-        {showInlineAssignee ? (
-          <TaskSelect
-            multi
-            values={assigneeFilter}
-            options={assigneeOptions}
-            placeholder="All Assignees"
-            allValue=""
-            summaryLabel="assignees"
-            className="w-max min-w-[11rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={onAssigneeFilter}
-          />
-        ) : null}
-
-        {showStatus ? (
-          <TaskSelect
-            multi
-            values={status}
-            options={statusOptions}
-            placeholder="Status"
-            allValue=""
-            summaryLabel="statuses"
-            className="w-max min-w-[8.75rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={(values) => onStatus(values as TaskStatus[])}
-          />
-        ) : null}
-
-        <TaskSelect
-          multi
-          values={priority}
-          options={priorityOptions}
-          placeholder="Priority"
-          allValue=""
-          summaryLabel="priorities"
-          className="w-max min-w-[8.75rem]"
-          buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-          onValuesChange={(values) => onPriority(values as TaskPriority[])}
-        />
-
-        {presetOptions.map((p) => {
-          const active = presets.includes(p.key);
-          return (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => togglePreset(p.key)}
-              aria-pressed={active}
-              className={`inline-flex h-9 items-center rounded-lg border px-3 text-sm font-semibold transition ${
-                active
-                  ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
-                  : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
-              }`}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-
-        {showCategory ? (
-          <TaskSelect
-            multi
-            values={category}
-            options={categoryOptions}
-            placeholder="Category"
-            allValue=""
-            summaryLabel="categories"
-            className="w-max min-w-[11rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={onCategory}
-          />
-        ) : null}
-
-        <DateRangeFilter
-          from={dateFrom}
-          to={dateTo}
-          onChange={onDateRange}
-          onDefaultChange={onDefaultDateRange}
-        />
-
-        {hasActiveFilters ? (
-          <button
-            type="button"
-            onClick={onClearAll}
-            className="text-sm font-medium text-[#0c66e4] transition hover:underline"
-          >
-            Clear all
-          </button>
-        ) : null}
-
-        <span className="ml-auto text-sm font-medium text-[#626f86]">
-          {resultCount} of {totalCount} tasks
-        </span>
       </div>
 
-      <TaskSearchBox labelByEmail={labelByEmail} />
+      {showTaskFilters ? (
+        <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
+          {showAgent ? (
+            <TaskSelect
+              multi
+              values={agentFilter}
+              options={agentOptions}
+              placeholder="Agent"
+              allValue={ALL_AGENTS}
+              summaryLabel="agents"
+              className="w-max min-w-[9rem]"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={onAgentFilter}
+            />
+          ) : null}
+
+          {showAssignee ? (
+            <TaskSelect
+              multi
+              values={assigneeFilter}
+              options={assigneeOptions}
+              placeholder="All Assignees"
+              allValue=""
+              summaryLabel="assignees"
+              className="w-max min-w-[11rem]"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={onAssigneeFilter}
+            />
+          ) : null}
+
+          {showTeamTasksToggle ? (
+            <div className="inline-flex h-9 shrink-0 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] p-0.5">
+              <button
+                type="button"
+                onClick={() => onTeamTasksEnabledChange?.(false)}
+                aria-pressed={!teamTasksEnabled}
+                title="Show my tasks"
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition ${
+                  !teamTasksEnabled
+                    ? "bg-white text-[#0c66e4] shadow-sm"
+                    : "text-[#42526e] hover:text-[#172b4d]"
+                }`}
+              >
+                <UserRound className="h-4 w-4" />
+                My tasks
+              </button>
+              <button
+                type="button"
+                onClick={() => onTeamTasksEnabledChange?.(true)}
+                aria-pressed={teamTasksEnabled}
+                title="Show group tasks"
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition ${
+                  teamTasksEnabled
+                    ? "bg-white text-[#0c66e4] shadow-sm"
+                    : "text-[#42526e] hover:text-[#172b4d]"
+                }`}
+              >
+                <UsersRound className="h-4 w-4" />
+                Group tasks
+              </button>
+            </div>
+          ) : null}
+
+          {showInlineAssignee ? (
+            <TaskSelect
+              multi
+              values={assigneeFilter}
+              options={assigneeOptions}
+              placeholder="All Assignees"
+              allValue=""
+              summaryLabel="assignees"
+              className="w-max min-w-[11rem]"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={onAssigneeFilter}
+            />
+          ) : null}
+
+          {showStatus ? (
+            <TaskSelect
+              multi
+              values={status}
+              options={statusOptions}
+              placeholder="Status"
+              allValue=""
+              summaryLabel="statuses"
+              className="w-max min-w-[8.75rem]"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={(values) => onStatus(values as TaskStatus[])}
+            />
+          ) : null}
+
+          {showCategory ? (
+            <TaskSelect
+              multi
+              values={category}
+              options={categoryOptions}
+              placeholder="Category"
+              allValue=""
+              summaryLabel="categories"
+              className="w-max min-w-[11rem]"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={onCategory}
+            />
+          ) : null}
+
+          <TaskSelect
+            multi
+            values={priority}
+            options={priorityOptions}
+            placeholder="Priority"
+            allValue=""
+            summaryLabel="priorities"
+            className="w-max min-w-[8.75rem]"
+            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+            onValuesChange={(values) => onPriority(values as TaskPriority[])}
+          />
+
+          {presetOptions.map((p) => {
+            const active = presets.includes(p.key);
+            return (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => togglePreset(p.key)}
+                aria-pressed={active}
+                className={`inline-flex h-9 shrink-0 items-center rounded-lg border px-3 text-sm font-semibold transition ${
+                  active
+                    ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
+                    : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
+                }`}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={onClearAll}
+              className="h-9 shrink-0 px-1 text-sm font-medium text-[#0c66e4] transition hover:underline"
+            >
+              Clear all
+            </button>
+          ) : null}
+
+          <span className="ml-auto shrink-0 text-sm font-medium text-[#626f86]">
+            {resultCount} of {totalCount} tasks
+          </span>
+        </div>
+      ) : null}
+
+      {showTaskFilters ? <TaskSearchBox labelByEmail={labelByEmail} /> : null}
     </div>
   );
 }

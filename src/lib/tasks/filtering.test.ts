@@ -153,10 +153,15 @@ describe("filterTasks", () => {
     ).not.toContain("4");
   });
 
-  it("quick: overdue matches the precomputed id set", () => {
+  it("quick: overdue matches current and previously overdue/reopened tasks", () => {
     const rows = [
       task({ id: "1" }),
       task({ id: "2" }),
+      task({
+        id: "3",
+        overdue_count: 1,
+        reopened_at: "2026-06-24T10:00:00Z",
+      }),
     ];
     expect(
       filterTasks(rows, {
@@ -164,10 +169,10 @@ describe("filterTasks", () => {
         quick: ["overdue"],
         overdueIds: new Set(["2"]),
       }).map((t) => t.id)
-    ).toEqual(["2"]);
+    ).toEqual(["2", "3"]);
     expect(
       filterTasks(rows, { ...base, quick: ["overdue"] }).map((t) => t.id)
-    ).toEqual([]);
+    ).toEqual(["3"]);
   });
 
   it("assignee facet matches any assigned member", () => {

@@ -38,6 +38,11 @@ import { CategoryManager } from "./CategoryManager";
 import { AgentGroupsModal } from "./AgentGroupsModal";
 import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
+import { CSWorkloadOverview } from "./CSWorkloadOverview";
+import {
+  optimisticallyAssignOverviewTask,
+} from "@/lib/tasks/overview";
+import type { OverviewSnapshot } from "@/lib/tasks/overview-types";
 
 // Countdown/overdue labels only need to refresh every so often, not on every
 // render — 30s keeps the board close to live without a timer per card.
@@ -75,7 +80,14 @@ export function TaskBoardClient({
   const deepLinkCommentId = searchParams.get("comment");
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
   const [taskAgents, setTaskAgents] = useState<TaskAgent[]>(agents);
-  const [view, setView] = useState<BoardView>("board");
+  const [view, setView] = useState<BoardView>(() => (isManager ? "overview" : "board"));
+  const [overviewSnapshot, setOverviewSnapshot] = useState<OverviewSnapshot | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewRefreshing, setOverviewRefreshing] = useState(false);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [overviewNotice, setOverviewNotice] = useState<string | null>(null);
+  const [assigningOverviewTaskId, setAssigningOverviewTaskId] = useState<string | null>(null);
+  const [selectedOverviewTaskId, setSelectedOverviewTaskId] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(() => deepLinkId);
   const [openCommentId, setOpenCommentId] = useState<string | null>(
     () => deepLinkCommentId
@@ -151,6 +163,12 @@ export function TaskBoardClient({
     const t = setTimeout(() => setError(null), 5000);
     return () => clearTimeout(t);
   }, [error]);
+
+  useEffect(() => {
+    if (!overviewNotice) return;
+    const timer = setTimeout(() => setOverviewNotice(null), 5000);
+    return () => clearTimeout(timer);
+  }, [overviewNotice]);
 
   useEffect(() => {
     const onOpenTask = (event: Event) => {
@@ -250,25 +268,68 @@ export function TaskBoardClient({
     }
   }, [loadUnreadAssignedTaskIds]);
 
+  const loadOverview = useCallback(async (background = false) => {
+    if (!isManager) return;
+    if (background) setOverviewRefreshing(true);
+    else setOverviewLoading(true);
+    try {
+      const response = await fetch("/api/tasks/overview", { cache: "no-store" });
+      const data = (await response.json().catch(() => null)) as
+        | OverviewSnapshot
+        | { error?: string }
+        | null;
+      if (!response.ok) {
+        throw new Error(data && "error" in data ? data.error : "Could not load workload overview.");
+      }
+      setOverviewSnapshot(data as OverviewSnapshot);
+      setOverviewError(null);
+    } catch (loadError) {
+      setOverviewError(
+        loadError instanceof Error ? loadError.message : "Could not load workload overview."
+      );
+    } finally {
+      if (background) setOverviewRefreshing(false);
+      else setOverviewLoading(false);
+    }
+  }, [isManager]);
+
+  useEffect(() => {
+    if (!isManager || view !== "overview" || overviewSnapshot) return;
+    const timer = window.setTimeout(() => void loadOverview(), 0);
+    return () => window.clearTimeout(timer);
+  }, [isManager, loadOverview, overviewSnapshot, view]);
+
+  useEffect(() => {
+    if (!isManager || view !== "overview" || !overviewSnapshot) return;
+    const timer = window.setInterval(() => void loadOverview(true), SLA_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [isManager, loadOverview, overviewSnapshot, view]);
+
   useEffect(() => {
     const sb = getBrowserSupabase();
     if (!sb) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const schedule = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void refetchTasks(), 300);
+      timer = setTimeout(() => {
+        void refetchTasks();
+        if (isManager && view === "overview") void loadOverview(true);
+      }, 300);
     };
     const channel = sb
       .channel(TASKS_TOPIC)
       .on("broadcast", { event: "changed" }, schedule)
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") void refetchTasks();
+        if (status === "SUBSCRIBED") {
+          void refetchTasks();
+          if (isManager && view === "overview") void loadOverview(true);
+        }
       });
     return () => {
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
-  }, [refetchTasks]);
+  }, [isManager, loadOverview, refetchTasks, view]);
 
   useEffect(() => {
     if (!openId) {
@@ -780,6 +841,46 @@ export function TaskBoardClient({
     finishPendingMutation();
   }
 
+  async function assignOverviewTask(
+    taskId: string,
+    email: string,
+    expectedUpdatedAt: string | null
+  ) {
+    if (!overviewSnapshot) return;
+    const before = overviewSnapshot;
+    setAssigningOverviewTaskId(taskId);
+    setOverviewSnapshot((current) =>
+      current ? optimisticallyAssignOverviewTask(current, taskId, email) : current
+    );
+
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, expectedUpdatedAt }),
+      });
+      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        setOverviewSnapshot(before);
+        await loadOverview(true);
+        setOverviewNotice(
+          response.status === 409
+            ? "This task changed while you were reviewing it. The dashboard has been refreshed."
+            : data?.error ?? "Could not assign this task."
+        );
+        return;
+      }
+      setOverviewError(null);
+      await loadOverview(true);
+      setOverviewNotice(`Task assigned to ${email}.`);
+    } catch {
+      setOverviewSnapshot(before);
+      setOverviewError("Connection lost — the assignment was not confirmed.");
+    } finally {
+      setAssigningOverviewTaskId(null);
+    }
+  }
+
   async function createTask(payload: NewTaskPayload) {
     let res: Response;
     try {
@@ -1000,6 +1101,22 @@ export function TaskBoardClient({
           onAssigneeChange={changeAssignee}
           onReorder={(id, position) => patchTask(id, { position })}
           onCreate={createTask}
+        />
+      )}
+
+      {view === "overview" && isManager && (
+        <CSWorkloadOverview
+          snapshot={overviewSnapshot}
+          loading={overviewLoading}
+          refreshing={overviewRefreshing}
+          error={overviewError}
+          notice={overviewNotice}
+          onRefresh={() => void loadOverview(Boolean(overviewSnapshot))}
+          onOpenTask={openTaskById}
+          onAssign={assignOverviewTask}
+          assigningTaskId={assigningOverviewTaskId}
+          selectedTaskId={selectedOverviewTaskId}
+          onSelectTask={setSelectedOverviewTaskId}
         />
       )}
 

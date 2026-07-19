@@ -9,9 +9,7 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Check,
-  CheckCircle2,
   ChevronDown,
-  Circle,
   RotateCcw,
 } from "lucide-react";
 import {
@@ -22,21 +20,22 @@ import {
   type TaskStatus,
 } from "@/lib/tasks/types";
 import { taskKey } from "@/lib/tasks/sorting";
+import { formatEmailAsName } from "@/lib/tasks/people";
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
-import { AvatarStack, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
+import { NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
 import { TaskAssigneePicker } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
 // Shared column widths so the List header and the rows line up exactly.
 export const LIST_COL = {
   key: "w-20",
-  category: "w-52",
-  created: "w-24",
-  priority: "w-16",
+  assignee: "w-36",
+  category: "w-44",
+  created: "w-20",
+  priority: "w-20",
   status: "w-28",
-  review: "w-28",
-  assignee: "w-20",
+  review: "w-12",
 };
 
 const STATUS_PILL: Record<TaskStatus, { bg: string; fg: string }> = {
@@ -108,6 +107,17 @@ export function TaskRowItem({
       >
         {taskKey(task.id)}
       </span>
+      <span className={`${LIST_COL.assignee} shrink-0`}>
+        <AssigneeMenu
+          emails={task.assignees}
+          assignees={assignees}
+          agentEmail={task.agent_email}
+          agentMembersByAgent={agentMembersByAgent}
+          labelByEmail={assigneeLabelByEmail}
+          canAssign={canAssign}
+          onToggle={(email, assigned) => onAssigneeChange(task.id, email, assigned)}
+        />
+      </span>
       <button
         type="button"
         onClick={() => onOpen(task.id)}
@@ -131,7 +141,7 @@ export function TaskRowItem({
       </span>
 
       <span className={`${LIST_COL.created} shrink-0 text-[11px] font-medium text-[#6b778c]`}>
-        {task.created_at.slice(0, 10)}
+        {new Date(task.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}
       </span>
 
       <span
@@ -164,17 +174,6 @@ export function TaskRowItem({
         />
       </span>
 
-      <span className={`flex ${LIST_COL.assignee} shrink-0 justify-center`}>
-        <AssigneeMenu
-          emails={task.assignees}
-          assignees={assignees}
-          agentEmail={task.agent_email}
-          agentMembersByAgent={agentMembersByAgent}
-          labelByEmail={assigneeLabelByEmail}
-          canAssign={canAssign}
-          onToggle={(email, assigned) => onAssigneeChange(task.id, email, assigned)}
-        />
-      </span>
     </div>
   );
 }
@@ -257,14 +256,9 @@ function DoneReviewPill({
 
   const reviewed = Boolean(task.done_reviewed_at);
   const className = reviewed
-    ? "inline-flex h-7 items-center gap-1 rounded bg-[#e3fcef] px-2 text-[11px] font-bold text-[#006644]"
-    : "inline-flex h-7 items-center gap-1 rounded bg-[#fff0b3] px-2 text-[11px] font-bold text-[#7f5f01]";
-  const icon = reviewed ? (
-    <CheckCircle2 className="h-3.5 w-3.5" />
-  ) : (
-    <Circle className="h-3.5 w-3.5" />
-  );
-  const label = reviewed ? "Checked" : "Needs QC";
+    ? "inline-flex h-5 w-5 items-center justify-center rounded border border-[#36b37e] bg-[#e3fcef] text-[#006644]"
+    : "inline-flex h-5 w-5 items-center justify-center rounded border border-[#c1c7d0] bg-white text-transparent";
+  const icon = reviewed ? <Check className="h-3.5 w-3.5" /> : null;
   const stopInteractiveEvent = (event: SyntheticEvent) => {
     event.stopPropagation();
   };
@@ -274,9 +268,8 @@ function DoneReviewPill({
 
   if (!canReviewDone) {
     return (
-      <span className={className} title={reviewed ? "QC checked" : "Waiting for agent/admin QC"}>
+      <span className={className} title={reviewed ? "QC checked" : "Waiting for QC"}>
         {icon}
-        {label}
       </span>
     );
   }
@@ -286,6 +279,8 @@ function DoneReviewPill({
       type="button"
       className={`${className} transition hover:brightness-95`}
       title={reviewed ? "Clear QC check" : "Mark QC checked"}
+      aria-label={reviewed ? "Clear QC check" : "Mark QC checked"}
+      aria-pressed={reviewed}
       data-no-dnd="true"
       onPointerDown={stopDragStart}
       onMouseDown={stopInteractiveEvent}
@@ -298,7 +293,6 @@ function DoneReviewPill({
       }}
     >
       {icon}
-      {label}
     </button>
   );
 }
@@ -354,10 +348,11 @@ function StatusPill({
       ) : null}
     </span>
   );
+  const wrapperClassName = `flex ${LIST_COL.status} shrink-0 justify-center`;
 
   if (canUnlockOverdue) {
     return (
-      <span className={`${LIST_COL.status} shrink-0`}>
+      <span className={wrapperClassName}>
         <button
           type="button"
           onClick={onUnlockOverdueRequest}
@@ -373,7 +368,7 @@ function StatusPill({
   // clicking the pill opens the dialog directly instead of a status list.
   if (canReopen) {
     return (
-      <span className={`${LIST_COL.status} shrink-0`}>
+      <span className={wrapperClassName}>
         <button type="button" onClick={onReopenRequest} title="Reopen (reason required)">
           {pill}
         </button>
@@ -384,7 +379,7 @@ function StatusPill({
   if (!interactive) {
     return (
       <span
-        className={`${LIST_COL.status} shrink-0`}
+        className={wrapperClassName}
         title={
           canChangeStatus && !assigned
             ? "Assign someone (avatar) to move it out of backlog"
@@ -397,7 +392,7 @@ function StatusPill({
   }
 
   return (
-    <span className={`${LIST_COL.status} shrink-0`}>
+    <span className={wrapperClassName}>
       <button ref={triggerRef} type="button" onClick={toggle} aria-expanded={isOpen}>
         {pill}
       </button>
@@ -457,29 +452,33 @@ function AssigneeMenu({
   const { isOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
   const selectedLabel =
     emails.length > 0
-      ? emails.map((email) => labelByEmail.get(email) ?? email).join(", ")
+      ? emails.map((email) => labelByEmail.get(email) ?? formatEmailAsName(email)).join(", ")
       : "Unassigned";
-  const face = <AvatarStack emails={emails} labelByEmail={labelByEmail} />;
+  const compactLabel =
+    emails.length > 1
+      ? `${labelByEmail.get(emails[0]) ?? formatEmailAsName(emails[0])} +${emails.length - 1}`
+      : selectedLabel;
+  const labelClassName = emails.length > 0 ? "text-[#42526e]" : "text-[#97a0af]";
 
   if (!canAssign) {
     return (
-      <span className="shrink-0" title={selectedLabel}>
-        {face}
+      <span className={`block w-full truncate text-xs font-semibold ${labelClassName}`} title={selectedLabel}>
+        {compactLabel}
       </span>
     );
   }
 
   return (
-    <span className="shrink-0">
+    <span className="block min-w-0">
       <button
         ref={triggerRef}
         type="button"
         onClick={toggle}
         aria-expanded={isOpen}
         title={selectedLabel}
-        className="rounded-full transition hover:opacity-80"
+        className={`block w-full truncate rounded text-left text-xs font-semibold transition hover:text-[#0c66e4] ${labelClassName}`}
       >
-        {face}
+        {compactLabel}
       </button>
       {isOpen
         ? createPortal(

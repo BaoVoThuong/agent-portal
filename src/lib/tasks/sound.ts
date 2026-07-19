@@ -1,8 +1,16 @@
-// Short synthesized chime for new task notifications — no binary asset,
-// just two quick oscillator tones. Browsers suspend AudioContext until a
+// Synthesized chime for new task notifications — no binary asset,
+// just a short arpeggio repeated for a clear 5 second ring. Browsers suspend AudioContext until a
 // user gesture; primeNotificationSound() should be called from an early
 // pointerdown/click handler so playback isn't silently dropped later.
 let sharedContext: AudioContext | null = null;
+
+const NOTIFICATION_RING_SECONDS = 5;
+const RING_REPEAT_SECONDS = 0.6;
+const RING_NOTES = [
+  { frequency: 784, offset: 0, duration: 0.1 },
+  { frequency: 988, offset: 0.09, duration: 0.1 },
+  { frequency: 1175, offset: 0.18, duration: 0.18 },
+] as const;
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -37,9 +45,18 @@ export function playNotificationChime(): void {
   if (ctx.state === "suspended") void ctx.resume().catch(() => {});
   if (ctx.state === "closed") return;
   const now = ctx.currentTime;
-  // Three-note ascending arpeggio (G5-B5-D6), triangle wave — softer and
-  // more distinct from the old two-tone sine sweep.
-  playTone(ctx, 784, now, 0.08);
-  playTone(ctx, 988, now + 0.08, 0.08);
-  playTone(ctx, 1175, now + 0.16, 0.14);
+  // Three-note ascending arpeggio (G5-B5-D6), triangle wave, repeated so the
+  // ring is noticeable even when the user is away from the tab.
+  for (let ringOffset = 0; ringOffset < NOTIFICATION_RING_SECONDS; ringOffset += RING_REPEAT_SECONDS) {
+    for (const note of RING_NOTES) {
+      const noteStart = ringOffset + note.offset;
+      if (noteStart >= NOTIFICATION_RING_SECONDS) continue;
+      playTone(
+        ctx,
+        note.frequency,
+        now + noteStart,
+        Math.min(note.duration, NOTIFICATION_RING_SECONDS - noteStart)
+      );
+    }
+  }
 }
