@@ -3,9 +3,17 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { currentStintDueAt, effectiveSlaMinutes, isTaskOverdue } from "@/lib/tasks/sla";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchTaskAssigneeEmails } from "@/lib/tasks/assignees";
-import { fetchAgentOwnerAndAssistantEmails } from "@/lib/tasks/membership";
+import {
+  fetchAdminEmails,
+  fetchAgentOwnerAndAssistantEmails,
+} from "@/lib/tasks/membership";
 import { openOverdueEvent } from "@/lib/tasks/history";
-import { insertNotifications } from "@/lib/tasks/notifications";
+import {
+  insertNotifications,
+  uniqueNotificationRecipients,
+  uniqueNotificationRows,
+  type NotificationInsertInput,
+} from "@/lib/tasks/notifications";
 import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
 import { intervalDue, isDueSoon, isStale } from "@/lib/tasks/reminders";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
@@ -60,7 +68,7 @@ export async function GET(request: Request) {
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
     .select(
-      "id,status,priority,category_id,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,overdue_flagged_at,overdue_reminded_at,due_soon_notified_at,sla_minutes,overdue_count"
+      "id,status,priority,category_id,agent_email,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,overdue_flagged_at,overdue_reminded_at,due_soon_notified_at,sla_minutes,overdue_count"
     )
     .eq("status", "in_progress")
     .is("archived_at", null)
@@ -73,6 +81,7 @@ export async function GET(request: Request) {
     | "status"
     | "priority"
     | "category_id"
+    | "agent_email"
     | "in_progress_at"
     | "in_progress_seconds"
     | "waiting_started_at"
@@ -210,15 +219,35 @@ export async function GET(request: Request) {
           type: "went_overdue",
           meta: { due_at: dueAt.toISOString(), flagged_at: nowIso },
         });
-        const assignees = await fetchTaskAssigneeEmails(task.id, supabase);
-        await insertNotifications(
-          assignees.map((email) => ({
+        const [assignees, agentRecipients, adminRecipients] = await Promise.all([
+          fetchTaskAssigneeEmails(task.id, supabase),
+          task.priority === "urgent" || task.priority === "high"
+            ? fetchAgentOwnerAndAssistantEmails(task.agent_email)
+            : Promise.resolve([]),
+          task.priority === "urgent" || task.priority === "high"
+            ? fetchAdminEmails()
+            : Promise.resolve([]),
+        ]);
+        const escalationRecipients = uniqueNotificationRecipients(
+          [...agentRecipients, ...adminRecipients],
+          assignees
+        );
+        const rows: NotificationInsertInput[] = uniqueNotificationRows([
+          ...assignees.map((email) => ({
             recipient_email: email,
             task_id: task.id,
-            type: "overdue",
+            type: "overdue" as const,
             actor_email: "system",
-          }))
-        );
+          })),
+          ...escalationRecipients.map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "sla_escalated" as const,
+            actor_email: "system",
+            detail: `${task.priority} task breached SLA`,
+          })),
+        ]);
+        await insertNotifications(rows);
       })
     );
     await broadcastTasksChanged();
@@ -294,15 +323,32 @@ export async function GET(request: Request) {
   if (dueSoonTasks.length > 0) {
     await Promise.all(
       dueSoonTasks.map(async (task) => {
-        const assignees = await fetchTaskAssigneeEmails(task.id, supabase);
-        await insertNotifications(
-          assignees.map((email) => ({
+        const [assignees, agentRecipients] = await Promise.all([
+          fetchTaskAssigneeEmails(task.id, supabase),
+          task.priority === "urgent" || task.priority === "high"
+            ? fetchAgentOwnerAndAssistantEmails(task.agent_email)
+            : Promise.resolve([]),
+        ]);
+        const escalationRecipients = uniqueNotificationRecipients(
+          agentRecipients,
+          assignees
+        );
+        const rows: NotificationInsertInput[] = uniqueNotificationRows([
+          ...assignees.map((email) => ({
             recipient_email: email,
             task_id: task.id,
-            type: "due_soon",
+            type: "due_soon" as const,
             actor_email: "system",
-          }))
-        );
+          })),
+          ...escalationRecipients.map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "sla_escalated" as const,
+            actor_email: "system",
+            detail: `${task.priority} task is due soon`,
+          })),
+        ]);
+        await insertNotifications(rows);
         const { error: updateError } = await supabase
           .from("tasks")
           .update({ due_soon_notified_at: nowIso })

@@ -44,6 +44,7 @@ export async function GET() {
     type: string;
     actor_email: string;
     comment_id: string | null;
+    detail: string | null;
     is_read: boolean;
     created_at: string;
   }[];

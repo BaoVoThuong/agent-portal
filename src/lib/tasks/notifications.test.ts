@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resolveCommentRecipients } from "@/lib/tasks/notifications";
+import {
+  resolveCommentRecipients,
+  toNotificationInsertRows,
+  uniqueNotificationRecipients,
+  uniqueNotificationRows,
+} from "@/lib/tasks/notifications";
 
 describe("resolveCommentRecipients", () => {
   it("notifies mentioned users (excluding author)", () => {
@@ -52,5 +57,63 @@ describe("resolveCommentRecipients", () => {
   });
   it("author is the assignee -> no 'commented' self-notify", () => {
     expect(resolveCommentRecipients({ assignee_email: "a@x.com" }, "a@x.com", [])).toEqual([]);
+  });
+});
+
+describe("toNotificationInsertRows", () => {
+  it("persists optional detail text such as an overdue unlock reason", () => {
+    expect(
+      toNotificationInsertRows([
+        {
+          recipient_email: "admin@x.com",
+          task_id: "task-1",
+          type: "overdue_unlocked",
+          actor_email: "cs@x.com",
+          detail: "Waiting on carrier callback",
+        },
+      ])
+    ).toEqual([
+      {
+        recipient_email: "admin@x.com",
+        task_id: "task-1",
+        type: "overdue_unlocked",
+        actor_email: "cs@x.com",
+        comment_id: null,
+        detail: "Waiting on carrier callback",
+      },
+    ]);
+  });
+});
+
+describe("uniqueNotificationRecipients", () => {
+  it("dedupes recipients and removes excluded emails", () => {
+    expect(
+      uniqueNotificationRecipients(
+        ["a@x.com", " b@x.com ", "a@x.com", null, ""],
+        ["b@x.com"]
+      )
+    ).toEqual(["a@x.com"]);
+  });
+});
+
+describe("uniqueNotificationRows", () => {
+  it("dedupes identical notification rows", () => {
+    const rows = uniqueNotificationRows([
+      {
+        recipient_email: "a@x.com",
+        task_id: "task-1",
+        type: "sla_escalated",
+        actor_email: "system",
+        detail: "urgent task breached SLA",
+      },
+      {
+        recipient_email: "a@x.com",
+        task_id: "task-1",
+        type: "sla_escalated",
+        actor_email: "system",
+        detail: "urgent task breached SLA",
+      },
+    ]);
+    expect(rows).toHaveLength(1);
   });
 });

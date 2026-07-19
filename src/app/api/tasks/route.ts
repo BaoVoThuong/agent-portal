@@ -13,8 +13,18 @@ import { fetchTasksForActor } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskRow } from "@/lib/tasks/types";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
-import { insertNotifications } from "@/lib/tasks/notifications";
+import {
+  fetchAdminEmails,
+  fetchAgentOwnerAndAssistantEmails,
+  fetchAgentsForCs,
+  isAgentOwnerOrAssistant,
+} from "@/lib/tasks/membership";
+import {
+  insertNotifications,
+  uniqueNotificationRecipients,
+  uniqueNotificationRows,
+  type NotificationInsertInput,
+} from "@/lib/tasks/notifications";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import { recordInitialTaskHistory } from "@/lib/tasks/history";
 
@@ -201,14 +211,35 @@ export async function POST(request: Request) {
   const assignedRecipients = assignedEmails.filter(
     (assigneeEmail) => assigneeEmail !== email
   );
-  await insertNotifications(
-    assignedRecipients.map((assigneeEmail) => ({
+  const backlogNeedsAttention =
+    assignedEmails.length === 0 &&
+    assignment.status === "backlog" &&
+    (priority === "urgent" || priority === "high");
+  const backlogAttentionRecipients = backlogNeedsAttention
+    ? uniqueNotificationRecipients(
+        [
+          ...(await fetchAgentOwnerAndAssistantEmails(agentEmail)),
+          ...(await fetchAdminEmails()),
+        ],
+        [email]
+      )
+    : [];
+  const notificationRows: NotificationInsertInput[] = uniqueNotificationRows([
+    ...assignedRecipients.map((assigneeEmail) => ({
       recipient_email: assigneeEmail,
       task_id: taskId,
-      type: "assigned",
+      type: "assigned" as const,
       actor_email: email,
-    }))
-  );
+    })),
+    ...backlogAttentionRecipients.map((recipient) => ({
+      recipient_email: recipient,
+      task_id: taskId,
+      type: "backlog_attention" as const,
+      actor_email: email,
+      detail: `${priority} backlog task needs assignment`,
+    })),
+  ]);
+  await insertNotifications(notificationRows);
 
   const [task] = await attachAssigneesToTasks(
     [data as { id: string; assignee_email: string | null }],

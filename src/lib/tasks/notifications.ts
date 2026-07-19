@@ -1,7 +1,39 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { broadcastNotif } from "./realtime";
 
+export const TASK_NOTIFICATION_TYPES = [
+  "assigned",
+  "mentioned",
+  "commented",
+  "overdue",
+  "todo_reminder",
+  "overdue_reminder",
+  "waiting_reminder",
+  "unassigned",
+  "reopened",
+  "qc_needed",
+  "due_soon",
+  "stale",
+  "overdue_unlocked",
+  "qc_stale",
+  "sla_escalated",
+  "qc_reviewed",
+  "cancelled",
+  "attachment_added",
+  "backlog_attention",
+] as const;
+
+export type TaskNotificationType = (typeof TASK_NOTIFICATION_TYPES)[number];
+
 export type CommentNotification = { email: string; type: "mentioned" | "commented" };
+export type NotificationInsertInput = {
+  recipient_email: string;
+  task_id: string;
+  type: TaskNotificationType;
+  actor_email: string;
+  comment_id?: string | null;
+  detail?: string | null;
+};
 
 // Who to notify for a new comment: mentioned users (minus the author), plus the
 // task's assignees as 'commented' (unless they are the author or already mentioned).
@@ -45,28 +77,66 @@ export function resolveCommentRecipients(
 }
 
 export async function insertNotifications(
-  rows: {
-    recipient_email: string;
-    task_id: string;
-    type: string;
-    actor_email: string;
-    comment_id?: string | null;
-    detail?: string | null;
-  }[]
+  rows: NotificationInsertInput[]
 ): Promise<void> {
   if (rows.length === 0) return;
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.from("task_notifications").insert(
-    rows.map((r) => ({
-      recipient_email: r.recipient_email,
-      task_id: r.task_id,
-      type: r.type,
-      actor_email: r.actor_email,
-      comment_id: r.comment_id ?? null,
-    }))
+    toNotificationInsertRows(rows)
   );
   if (error) throw new Error(error.message);
 
   // Realtime "ping" so recipients' open tabs toast instantly (content stays in DB).
   await broadcastNotif(rows.map((r) => r.recipient_email));
+}
+
+export function toNotificationInsertRows(
+  rows: NotificationInsertInput[]
+) {
+  return rows.map((r) => ({
+    recipient_email: r.recipient_email,
+    task_id: r.task_id,
+    type: r.type,
+    actor_email: r.actor_email,
+    comment_id: r.comment_id ?? null,
+    detail: r.detail ?? null,
+  }));
+}
+
+export function uniqueNotificationRecipients(
+  emails: (string | null | undefined)[],
+  excluded: (string | null | undefined)[] = []
+): string[] {
+  const excludedSet = new Set(
+    excluded.map((email) => email?.trim()).filter((email): email is string => Boolean(email))
+  );
+  return [
+    ...new Set(
+      emails
+        .map((email) => email?.trim())
+        .filter((email): email is string => {
+          if (!email) return false;
+          return !excludedSet.has(email);
+        })
+    ),
+  ];
+}
+
+export function uniqueNotificationRows(
+  rows: NotificationInsertInput[]
+): NotificationInsertInput[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = [
+      row.recipient_email,
+      row.task_id,
+      row.type,
+      row.actor_email,
+      row.comment_id ?? "",
+      row.detail ?? "",
+    ].join("\0");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

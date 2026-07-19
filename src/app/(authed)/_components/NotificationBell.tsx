@@ -27,7 +27,12 @@ type Notif = {
     | "due_soon"
     | "stale"
     | "overdue_unlocked"
-    | "qc_stale";
+    | "qc_stale"
+    | "sla_escalated"
+    | "qc_reviewed"
+    | "cancelled"
+    | "attachment_added"
+    | "backlog_attention";
   actor_email: string;
   actor_name: string | null;
   task_title: string | null;
@@ -87,7 +92,15 @@ function actionText(n: Notif): string {
     case "reopened":
       return "reopened this task";
     case "qc_needed":
-      return "marked a Done task for QC";
+      return "marked a closed task for QC";
+    case "qc_reviewed":
+      return "QC checked this task";
+    case "cancelled":
+      return "cancelled this task";
+    case "attachment_added":
+      return "added an attachment";
+    case "backlog_attention":
+      return "created an urgent/high backlog task";
     case "overdue":
       return "Task just went overdue";
     case "todo_reminder":
@@ -104,6 +117,8 @@ function actionText(n: Notif): string {
       return "resolved this overdue task (reason logged)";
     case "qc_stale":
       return "Task still needs QC — reminder";
+    case "sla_escalated":
+      return "SLA needs attention";
   }
 }
 
@@ -117,8 +132,16 @@ function isSystemNotif(n: Notif): boolean {
     n.type === "waiting_reminder" ||
     n.type === "due_soon" ||
     n.type === "stale" ||
-    n.type === "qc_stale"
+    n.type === "qc_stale" ||
+    n.type === "sla_escalated"
   );
+}
+
+function detailLabel(n: Notif): string {
+  if (n.type === "overdue_unlocked") return "Reason";
+  if (n.type === "attachment_added") return "File";
+  if (n.type === "sla_escalated") return "SLA";
+  return "Detail";
 }
 
 function notificationHeading(n: Notif): string {
@@ -436,7 +459,7 @@ function NotifContent({ n }: { n: Notif }) {
           className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500"
           title={n.detail}
         >
-          <span className="font-semibold text-slate-600">Reason:</span>{" "}
+          <span className="font-semibold text-slate-600">{detailLabel(n)}:</span>{" "}
           &quot;{n.detail}&quot;
         </p>
       )}

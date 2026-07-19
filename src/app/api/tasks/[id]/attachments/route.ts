@@ -2,11 +2,19 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask, canMutateTask } from "@/lib/tasks/access";
-import { isTaskAssignee } from "@/lib/tasks/assignees";
+import { fetchTaskAssigneeEmails, isTaskAssignee } from "@/lib/tasks/assignees";
 import { buildStoragePath, uploadTaskFile, signTaskFile } from "@/lib/tasks/storage";
 import { isTaskParticipant } from "@/lib/tasks/participants";
-import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import {
+  fetchAgentOwnerAndAssistantEmails,
+  fetchAgentsForCs,
+  isAgentOwnerOrAssistant,
+} from "@/lib/tasks/membership";
 import { broadcastTaskRoom } from "@/lib/tasks/realtime";
+import {
+  insertNotifications,
+  uniqueNotificationRecipients,
+} from "@/lib/tasks/notifications";
 import type { TaskRow } from "@/lib/tasks/types";
 import {
   attachmentTooLargeMessage,
@@ -182,6 +190,23 @@ export async function POST(req: Request, { params }: Ctx) {
       type: "attachment_added",
       meta: { file_name: file.name },
     });
+    const [assignees, agentRecipients] = await Promise.all([
+      fetchTaskAssigneeEmails(id, r.supabase),
+      fetchAgentOwnerAndAssistantEmails(r.task.agent_email),
+    ]);
+    const recipients = uniqueNotificationRecipients(
+      [...assignees, r.task.reporter_email, ...agentRecipients],
+      [r.actor.email]
+    );
+    await insertNotifications(
+      recipients.map((recipient) => ({
+        recipient_email: recipient,
+        task_id: id,
+        type: "attachment_added",
+        actor_email: r.actor.email,
+        detail: file.name,
+      }))
+    );
   }
 
   return NextResponse.json({

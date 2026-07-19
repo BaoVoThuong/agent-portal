@@ -1674,6 +1674,38 @@ create index if not exists task_activity_task_idx on task_activity (task_id, cre
 delete from task_activity
 where type = 'due_changed';
 
+do $$
+begin
+  if exists (
+    select 1 from pg_constraint where conname = 'task_activity_type_check'
+  ) then
+    alter table task_activity drop constraint task_activity_type_check;
+  end if;
+
+  alter table task_activity
+  add constraint task_activity_type_check
+  check (
+    type in (
+      'created',
+      'assigned',
+      'unassigned',
+      'status_changed',
+      'reopened',
+      'task_reopened',
+      'priority_changed',
+      'category_changed',
+      'agent_changed',
+      'done_reviewed',
+      'done_review_cleared',
+      'edited',
+      'comment_added',
+      'attachment_added',
+      'went_overdue',
+      'overdue_unlocked'
+    )
+  ) not valid;
+end $$;
+
 create table if not exists task_notifications (
   id uuid primary key default gen_random_uuid(),
   recipient_email text not null,
@@ -1716,7 +1748,12 @@ begin
       'due_soon',
       'stale',
       'overdue_unlocked',
-      'qc_stale'
+      'qc_stale',
+      'sla_escalated',
+      'qc_reviewed',
+      'cancelled',
+      'attachment_added',
+      'backlog_attention'
     )
   );
 end $$;

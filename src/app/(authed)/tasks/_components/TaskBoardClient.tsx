@@ -686,8 +686,12 @@ export function TaskBoardClient({
     // Snapshot only the affected task so a failed update reverts just this card,
     // never clobbering other concurrent optimistic moves.
     const before = tasks.find((t) => t.id === id) ?? null;
+    if (!before) {
+      setError("Task is no longer available. Refresh and try again.");
+      return;
+    }
     const revert = () => {
-      if (before) updateTasks((cur) => cur.map((t) => (t.id === id ? before : t)));
+      updateTasks((cur) => cur.map((t) => (t.id === id ? before : t)));
     };
     const finishPendingMutation = beginTaskMutation(id);
     const optimisticPatch = buildOptimisticTaskPatch(patch, currentEmail, before);
@@ -700,7 +704,7 @@ export function TaskBoardClient({
       res = await fetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+        body: JSON.stringify({ ...patch, expected_updated_at: before.updated_at }),
       });
     } catch {
       finishPendingMutation();

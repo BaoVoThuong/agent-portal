@@ -24,6 +24,165 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
+type SupabaseAdminClient = ReturnType<typeof getSupabaseAdmin>;
+type CountProbeResult = PromiseLike<{
+  count: number | null;
+  error: { message: string } | null;
+}>;
+
+function quotePostgrestValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+async function findEmailReference(
+  supabase: SupabaseAdminClient,
+  email: string
+): Promise<string | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const quotedEmail = quotePostgrestValue(normalizedEmail);
+  const probes: { label: string; run: () => CountProbeResult }[] = [
+    {
+      label: "tasks",
+      run: () =>
+        supabase
+          .from("tasks")
+          .select("id", { count: "exact", head: true })
+          .or(
+            [
+              `assignee_email.eq.${quotedEmail}`,
+              `agent_email.eq.${quotedEmail}`,
+              `reporter_email.eq.${quotedEmail}`,
+              `done_reviewed_by_email.eq.${quotedEmail}`,
+            ].join(",")
+          ),
+    },
+    {
+      label: "task assignees",
+      run: () =>
+        supabase
+          .from("task_assignees")
+          .select("task_id", { count: "exact", head: true })
+          .eq("email", normalizedEmail),
+    },
+    {
+      label: "task participants",
+      run: () =>
+        supabase
+          .from("task_participants")
+          .select("task_id", { count: "exact", head: true })
+          .eq("email", normalizedEmail),
+    },
+    {
+      label: "task comments",
+      run: () =>
+        supabase
+          .from("task_comments")
+          .select("id", { count: "exact", head: true })
+          .eq("author_email", normalizedEmail),
+    },
+    {
+      label: "task activity",
+      run: () =>
+        supabase
+          .from("task_activity")
+          .select("id", { count: "exact", head: true })
+          .eq("actor_email", normalizedEmail),
+    },
+    {
+      label: "task stage history",
+      run: () =>
+        supabase
+          .from("task_stage_cycles")
+          .select("id", { count: "exact", head: true })
+          .or(
+            [
+              `started_by_email.eq.${quotedEmail}`,
+              `ended_by_email.eq.${quotedEmail}`,
+            ].join(",")
+          ),
+    },
+    {
+      label: "task assignment history",
+      run: () =>
+        supabase
+          .from("task_assignment_cycles")
+          .select("id", { count: "exact", head: true })
+          .or(
+            [
+              `email.eq.${quotedEmail}`,
+              `assigned_by_email.eq.${quotedEmail}`,
+              `unassigned_by_email.eq.${quotedEmail}`,
+            ].join(",")
+          ),
+    },
+    {
+      label: "task overdue history",
+      run: () =>
+        supabase
+          .from("task_overdue_events")
+          .select("id", { count: "exact", head: true })
+          .eq("resolved_by_email", normalizedEmail),
+    },
+    {
+      label: "task notifications",
+      run: () =>
+        supabase
+          .from("task_notifications")
+          .select("id", { count: "exact", head: true })
+          .or(
+            [
+              `recipient_email.eq.${quotedEmail}`,
+              `actor_email.eq.${quotedEmail}`,
+            ].join(",")
+          ),
+    },
+    {
+      label: "task agents",
+      run: () =>
+        supabase
+          .from("task_agents")
+          .select("email", { count: "exact", head: true })
+          .eq("email", normalizedEmail),
+    },
+    {
+      label: "agent groups",
+      run: () =>
+        supabase
+          .from("agent_members")
+          .select("agent_email", { count: "exact", head: true })
+          .or(
+            [
+              `agent_email.eq.${quotedEmail}`,
+              `cs_email.eq.${quotedEmail}`,
+            ].join(",")
+          ),
+    },
+    {
+      label: "health registration entries",
+      run: () =>
+        supabase
+          .from("health_entries")
+          .select("id", { count: "exact", head: true })
+          .eq("agent_email", normalizedEmail),
+    },
+    {
+      label: "P&C registration entries",
+      run: () =>
+        supabase
+          .from("pc_entries")
+          .select("id", { count: "exact", head: true })
+          .eq("agent_email", normalizedEmail),
+    },
+  ];
+
+  for (const probe of probes) {
+    const { count, error } = await probe.run();
+    if (error) throw new Error(error.message);
+    if ((count ?? 0) > 0) return probe.label;
+  }
+  return null;
+}
+
 export async function PATCH(req: Request, context: RouteContext) {
   try {
     const session = await auth();
@@ -119,6 +278,18 @@ export async function PATCH(req: Request, context: RouteContext) {
         if (existingUser) {
           return NextResponse.json(
             { error: "An account with this email already exists." },
+            { status: 409 }
+          );
+        }
+
+        const reference = await findEmailReference(supabase, targetUser.email);
+        if (reference) {
+          return NextResponse.json(
+            {
+              error:
+                `This account is linked to ${reference}. ` +
+                "Deactivate it or create a new account instead of changing the email.",
+            },
             { status: 409 }
           );
         }
@@ -356,6 +527,18 @@ export async function DELETE(_req: Request, context: RouteContext) {
       return NextResponse.json(
         { error: "At least one active Admin account is required." },
         { status: 400 }
+      );
+    }
+
+    const reference = await findEmailReference(supabase, targetUser.email);
+    if (reference) {
+      return NextResponse.json(
+        {
+          error:
+            `This account is linked to ${reference}. ` +
+            "Deactivate the account instead of deleting it.",
+        },
+        { status: 409 }
       );
     }
 

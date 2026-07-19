@@ -12,7 +12,12 @@ import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import { currentStintDueAt, effectiveSlaMinutes, isTaskOverdue } from "@/lib/tasks/sla";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
-import { insertNotifications } from "@/lib/tasks/notifications";
+import {
+  insertNotifications,
+  uniqueNotificationRecipients,
+  uniqueNotificationRows,
+  type NotificationInsertInput,
+} from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import {
   fetchAgentOwnerAndAssistantEmails,
@@ -172,6 +177,23 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!bodyRecord) {
     return NextResponse.json({ error: "Invalid body." }, { status: 400 });
   }
+  const expectedUpdatedAt =
+    typeof bodyRecord.expected_updated_at === "string" &&
+    bodyRecord.expected_updated_at.trim() !== ""
+      ? bodyRecord.expected_updated_at.trim()
+      : null;
+  if (!expectedUpdatedAt) {
+    return NextResponse.json(
+      { error: "expected_updated_at is required." },
+      { status: 400 }
+    );
+  }
+  if (expectedUpdatedAt !== r.task.updated_at) {
+    return NextResponse.json(
+      { error: "Task was updated by someone else. Refresh and try again." },
+      { status: 409 }
+    );
+  }
 
   const access = await resolveTaskAccess(r.actor, r.task, id);
   if (!access.canView) {
@@ -201,6 +223,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   };
   const reassigning = bodyRecord.assignee_email !== undefined;
   const nowIso = new Date().toISOString();
+  let replaceAssigneesWith: string[] | null = null;
+  let assigneesToPruneForAgentChange: string[] = [];
 
   // Needed to snapshot sla_minutes on a first start into in_progress, and to
   // check whether a task was overdue at the moment it's marked Done directly
@@ -275,15 +299,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
     if (reconciled.assignees !== null) {
       const nextAssignees = reconciled.assignees;
       nextAssigneesForHistory = nextAssignees;
-      const staleAssignees = currentAssignees.filter((e) => !nextAssignees.includes(e));
-      const { error: pruneError } = await r.supabase
-        .from("task_assignees")
-        .delete()
-        .eq("task_id", id)
-        .in("email", staleAssignees);
-      if (pruneError && !isTaskAssigneesMissingError(pruneError)) {
-        return NextResponse.json({ error: pruneError.message }, { status: 500 });
-      }
+      assigneesToPruneForAgentChange = currentAssignees.filter(
+        (e) => !nextAssignees.includes(e)
+      );
       resolved.patch.assignee_email = nextAssignees[0] ?? null;
       if (reconciled.status) {
         resolved.patch.status = reconciled.status;
@@ -301,21 +319,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
       nextAssignee !== currentPrimaryAssignee || currentAssignees.length > 1;
     if (assigneeActuallyChanged) {
       nextAssigneesForHistory = nextAssignee ? [nextAssignee] : [];
-      const { error: deleteAssigneesError } = await r.supabase
-        .from("task_assignees")
-        .delete()
-        .eq("task_id", id);
-      if (deleteAssigneesError && !isTaskAssigneesMissingError(deleteAssigneesError)) {
-        return NextResponse.json({ error: deleteAssigneesError.message }, { status: 500 });
-      }
-      if (nextAssignee) {
-        const { error: insertAssigneeError } = await r.supabase
-          .from("task_assignees")
-          .insert({ task_id: id, email: nextAssignee, created_at: nowIso });
-        if (insertAssigneeError && !isTaskAssigneesMissingError(insertAssigneeError)) {
-          return NextResponse.json({ error: insertAssigneeError.message }, { status: 500 });
-        }
-      }
+      replaceAssigneesWith = nextAssignee ? [nextAssignee] : [];
     }
   }
 
@@ -350,9 +354,45 @@ export async function PATCH(req: Request, { params }: Ctx) {
     .from("tasks")
     .update({ ...resolved.patch, updated_at: nowIso })
     .eq("id", id)
+    .eq("updated_at", expectedUpdatedAt)
     .select("*")
-    .single();
+    .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) {
+    return NextResponse.json(
+      { error: "Task was updated by someone else. Refresh and try again." },
+      { status: 409 }
+    );
+  }
+
+  if (replaceAssigneesWith) {
+    const { error: deleteAssigneesError } = await r.supabase
+      .from("task_assignees")
+      .delete()
+      .eq("task_id", id);
+    if (deleteAssigneesError && !isTaskAssigneesMissingError(deleteAssigneesError)) {
+      return NextResponse.json({ error: deleteAssigneesError.message }, { status: 500 });
+    }
+    if (replaceAssigneesWith.length > 0) {
+      const { error: insertAssigneeError } = await r.supabase
+        .from("task_assignees")
+        .insert(
+          replaceAssigneesWith.map((email) => ({ task_id: id, email, created_at: nowIso }))
+        );
+      if (insertAssigneeError && !isTaskAssigneesMissingError(insertAssigneeError)) {
+        return NextResponse.json({ error: insertAssigneeError.message }, { status: 500 });
+      }
+    }
+  } else if (assigneesToPruneForAgentChange.length > 0) {
+    const { error: pruneError } = await r.supabase
+      .from("task_assignees")
+      .delete()
+      .eq("task_id", id)
+      .in("email", assigneesToPruneForAgentChange);
+    if (pruneError && !isTaskAssigneesMissingError(pruneError)) {
+      return NextResponse.json({ error: pruneError.message }, { status: 500 });
+    }
+  }
 
   // Everything below writes audit/history tables that don't depend on each
   // other's results — running them concurrently (instead of one after another)
@@ -369,9 +409,24 @@ export async function PATCH(req: Request, { params }: Ctx) {
     },
     resolved.patch
   );
-  const newAssignee = resolved.patch.assignee_email as string | null | undefined;
-  const notifyNewAssignee =
-    newAssignee && newAssignee !== r.task.assignee_email && newAssignee !== r.actor.email;
+  const assignmentChanged =
+    replaceAssigneesWith !== null || assigneesToPruneForAgentChange.length > 0;
+  const newlyAssignedRecipients = assignmentChanged
+    ? uniqueNotificationRecipients(
+        nextAssigneesForHistory.filter(
+          (email) => !beforeAssigneesForHistory.includes(email)
+        ),
+        [r.actor.email]
+      )
+    : [];
+  const unassignedRecipients = assignmentChanged
+    ? uniqueNotificationRecipients(
+        beforeAssigneesForHistory.filter(
+          (email) => !nextAssigneesForHistory.includes(email)
+        ),
+        [r.actor.email]
+      )
+    : [];
   const shouldNotifyQcNeeded =
     (resolved.patch.status === "done" || resolved.patch.status === "cancel") &&
     r.task.status !== resolved.patch.status;
@@ -384,6 +439,52 @@ export async function PATCH(req: Request, { params }: Ctx) {
         (recipient) => recipient !== r.actor.email
       )
     : [];
+  const qcReviewedRecipients =
+    resolved.patch.done_reviewed_at && !r.task.done_reviewed_at
+      ? uniqueNotificationRecipients(
+          [...nextAssigneesForHistory, r.task.reporter_email],
+          [r.actor.email]
+        )
+      : [];
+  const cancelledRecipients =
+    resolved.patch.status === "cancel" && r.task.status !== "cancel"
+      ? uniqueNotificationRecipients(
+          [...nextAssigneesForHistory, r.task.reporter_email],
+          [r.actor.email, ...qcRecipients]
+        )
+      : [];
+  const notificationRows: NotificationInsertInput[] = uniqueNotificationRows([
+    ...newlyAssignedRecipients.map((recipient) => ({
+      recipient_email: recipient,
+      task_id: id,
+      type: "assigned" as const,
+      actor_email: r.actor.email,
+    })),
+    ...unassignedRecipients.map((recipient) => ({
+      recipient_email: recipient,
+      task_id: id,
+      type: "unassigned" as const,
+      actor_email: r.actor.email,
+    })),
+    ...qcRecipients.map((recipient) => ({
+      recipient_email: recipient,
+      task_id: id,
+      type: "qc_needed" as const,
+      actor_email: r.actor.email,
+    })),
+    ...qcReviewedRecipients.map((recipient) => ({
+      recipient_email: recipient,
+      task_id: id,
+      type: "qc_reviewed" as const,
+      actor_email: r.actor.email,
+    })),
+    ...cancelledRecipients.map((recipient) => ({
+      recipient_email: recipient,
+      task_id: id,
+      type: "cancelled" as const,
+      actor_email: r.actor.email,
+    })),
+  ]);
 
   await Promise.all([
     leavingOverdueInProgress
@@ -421,21 +522,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
           }))
         )
       : null,
-    notifyNewAssignee
-      ? insertNotifications([
-          { recipient_email: newAssignee, task_id: id, type: "assigned", actor_email: r.actor.email },
-        ])
-      : null,
-    qcRecipients.length > 0
-      ? insertNotifications(
-          qcRecipients.map((recipient) => ({
-            recipient_email: recipient,
-            task_id: id,
-            type: "qc_needed",
-            actor_email: r.actor.email,
-          }))
-        )
-      : null,
+    notificationRows.length > 0 ? insertNotifications(notificationRows) : null,
   ]);
 
   await broadcastTasksChanged();
