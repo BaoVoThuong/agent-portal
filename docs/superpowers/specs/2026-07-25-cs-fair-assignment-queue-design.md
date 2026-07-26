@@ -84,6 +84,17 @@ all priorities: [queue_due_at ascending, slaLoad ascending (tie-break only)]
 
 `OverviewSnapshot`/`CsOverviewRow` gains a `queueDueAt: string | null` field so the UI can show it (e.g. "next up in ~2h" or literal rank order) — read from the new table in `fetchTaskOverview` (`src/lib/tasks/overview-data.ts`), joined by email alongside the existing accounts/roles fetch.
 
+## 6.1 UI — a visible queue, not just a single suggestion
+
+Today `CSWorkloadOverview.tsx`'s `RecommendationPanel` only appears once an admin clicks "Recommend" on one specific unassigned task, and only shows a ranked top-5 for *that* task. The user wants ongoing visibility into the rotation itself — who's up next, in what order — independent of any specific task, right in the Overview.
+
+Add a persistent **"Assignment queue"** section (near the Unassigned queue / Recommend area, always visible when viewing Overview):
+
+- One row per active CS, sorted by `queue_due_at` ascending (rank #1 = next up).
+- Each row shows: rank, avatar/name, and a status derived from `queue_due_at` vs now — `"Up now"` (queue_due_at ≤ now, i.e. cooldown already expired) or `"Next in ~Xh"` (queue_due_at in the future), using the same relative-time formatting already used elsewhere in this panel (`formatAge`-style helper).
+- This is a read-only transparency view — it doesn't itself assign anything. The existing per-task "Recommend" button/panel still exists for the actual assign action, now just reading its ranking from the same `queue_due_at` order (§6), so the persistent queue view and the per-task recommendation panel are always consistent with each other — same underlying order, two presentations (the full standing queue vs. "who to pick for this specific task").
+- Reuses `CsOverviewRow` (now carrying `queueDueAt`) — no separate fetch needed; the queue section and the workload table read the same `snapshot.csRows`, just sorted differently for display.
+
 ## 7. What does NOT change
 
 - Permission/scoping rules for *who is allowed* to be assigned to a task (`canAssignToTask`, agent-owner/assistant checks) — unaffected. The queue only changes *ranking order among eligible candidates*, never eligibility.
