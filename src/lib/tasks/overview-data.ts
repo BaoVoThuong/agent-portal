@@ -19,7 +19,7 @@ function normalizeEmail(email: string): string {
 export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnapshot> {
   const supabase = getSupabaseAdmin();
   const recentDoneSince = new Date(now.getTime() - 7 * 24 * 3600_000).toISOString();
-  const [accountsResult, rolesResult, rolePermissionsResult, userRolesResult, agentsResult, membersResult, categoryResult, activeTaskResult, recentDoneResult, rulesResult, reminderResult] =
+  const [accountsResult, rolesResult, rolePermissionsResult, userRolesResult, agentsResult, membersResult, rotationResult, categoryResult, activeTaskResult, recentDoneResult, rulesResult, reminderResult] =
     await Promise.all([
       supabase
         .from("portal_account")
@@ -32,6 +32,7 @@ export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnaps
       supabase.from("user_roles").select("user_id,role_id"),
       supabase.from("task_agents").select("email"),
       supabase.from("agent_members").select("cs_email,is_assistant"),
+      supabase.from("task_assignment_rotation").select("email,queue_due_at"),
       supabase
         .from("task_categories")
         .select("id,name,color")
@@ -58,6 +59,7 @@ export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnaps
     userRolesResult.error,
     agentsResult.error,
     membersResult.error,
+    rotationResult.error,
     categoryResult.error,
     activeTaskResult.error,
     recentDoneResult.error,
@@ -115,6 +117,11 @@ export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnaps
       .filter((row) => activeAdminRoleIds.has(row.role_id))
       .map((row) => row.user_id)
   );
+  const rotationByEmail = new Map(
+    ((rotationResult.data ?? []) as Array<{ email: string; queue_due_at: string }>).map(
+      (row) => [normalizeEmail(row.email), row.queue_due_at]
+    )
+  );
 
   const normalizedAccounts: OverviewAccount[] = accounts.map((account) => ({
     email: normalizeEmail(account.email),
@@ -122,6 +129,7 @@ export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnaps
     isActive: account.is_active,
     canWork: workUserIds.has(account.id),
     isAdmin: account.role === "admin" || adminUserIds.has(account.id),
+    queueDueAt: rotationByEmail.get(normalizeEmail(account.email)) ?? null,
   }));
   const categories = (categoryResult.data ?? []) as OverviewCategory[];
 

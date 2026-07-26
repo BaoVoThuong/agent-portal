@@ -5,8 +5,12 @@ import type { OverviewAccount, OverviewTaskInput } from "./overview-types";
 
 const now = new Date("2026-07-18T12:00:00.000Z");
 
-function account(email: string, name = email): OverviewAccount {
-  return { email, name, isActive: true, canWork: true, isAdmin: false };
+function account(
+  email: string,
+  name = email,
+  queueDueAt: string | null = null
+): OverviewAccount {
+  return { email, name, isActive: true, canWork: true, isAdmin: false, queueDueAt };
 }
 
 function task(overrides: Partial<OverviewTaskInput> = {}): OverviewTaskInput {
@@ -103,6 +107,22 @@ describe("aggregateOverview", () => {
     expect(snapshot.kpis.openTaskCount).toBe(0);
     expect(snapshot.kpis.unassignedTaskCount).toBe(1);
     expect(snapshot.csRows.find((row) => row.email === "bob@example.com")?.status).toBe("free");
+  });
+
+  it("carries assignment queue timestamps onto CS rows", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [
+          account("alice@example.com", "Alice", "2026-07-18T13:00:00.000Z"),
+          account("bob@example.com", "Bob", null),
+        ],
+      })
+    );
+
+    expect(snapshot.csRows.find((row) => row.email === "alice@example.com")?.queueDueAt).toBe(
+      "2026-07-18T13:00:00.000Z"
+    );
+    expect(snapshot.csRows.find((row) => row.email === "bob@example.com")?.queueDueAt).toBeNull();
   });
 
   it("adds category display data to unassigned tasks", () => {
@@ -237,9 +257,13 @@ describe("aggregateOverview", () => {
 });
 
 describe("rankRecommendation", () => {
-  it("avoids a high-pressure CS for urgent work and uses load for low work", () => {
+  it("ranks by assignment queue before current workload pressure", () => {
     const snapshot = aggregateOverview(
       input({
+        accounts: [
+          account("alice@example.com", "Alice", "2026-07-18T13:00:00.000Z"),
+          account("bob@example.com", "Bob", "2026-07-18T11:00:00.000Z"),
+        ],
         tasks: [
           task({ id: "pressure-1", priority: "urgent", assignee_email: "alice@example.com" }),
           task({ id: "pressure-2", priority: "urgent", assignee_email: "alice@example.com" }),
@@ -260,14 +284,40 @@ describe("rankRecommendation", () => {
       ageSeconds: 0,
       effectiveSlaMinutes: 60,
     };
-    const low = { ...urgent, id: "new-low", priority: "low" as const, effectiveSlaMinutes: 20 };
 
     const urgentRanking = rankRecommendation(urgent, snapshot.csRows);
-    const lowRanking = rankRecommendation(low, snapshot.csRows);
 
     expect(urgentRanking[0].email).toBe("bob@example.com");
-    expect(lowRanking[0].email).toBe("bob@example.com");
-    expect(urgentRanking[0].why).toContain("in progress");
+    expect(urgentRanking[0].queueDueAt).toBe("2026-07-18T11:00:00.000Z");
+  });
+
+  it("uses SLA load only as the tie-breaker for equal queue positions", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [
+          account("alice@example.com", "Alice", "2026-07-18T11:00:00.000Z"),
+          account("bob@example.com", "Bob", "2026-07-18T11:00:00.000Z"),
+        ],
+        tasks: [
+          task({ id: "load", priority: "medium", assignee_email: "alice@example.com", sla_minutes: 300 }),
+        ],
+      })
+    );
+    const taskToAssign = {
+      id: "new-low",
+      title: "New low",
+      agentEmail: null,
+      categoryId: null,
+      categoryName: null,
+      categoryColor: null,
+      priority: "low" as const,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      ageSeconds: 0,
+      effectiveSlaMinutes: 20,
+    };
+
+    expect(rankRecommendation(taskToAssign, snapshot.csRows)[0].email).toBe("bob@example.com");
   });
 
   it("uses projected status at the workload thresholds", () => {

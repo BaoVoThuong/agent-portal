@@ -27,6 +27,7 @@ export type OverviewAccount = {
   isActive: boolean;
   canWork: boolean;
   isAdmin: boolean;
+  queueDueAt: string | null;
 };
 
 export type OverviewCategory = {
@@ -96,6 +97,7 @@ export type CsOverviewRow = {
   lastTaskActivityAt: string | null;
   done24h: number;
   done7d: number;
+  queueDueAt: string | null;
   status: OverviewStatus;
   tasks: OverviewTaskSummary[];
 };
@@ -166,6 +168,7 @@ export type RecommendationCandidate = {
   projectedPriorityPressure: number;
   inProgressCount: number;
   urgentHighCount: number;
+  queueDueAt: string | null;
   riskFlags: OverviewRiskFlag[];
   why: string;
 };

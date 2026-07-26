@@ -118,6 +118,19 @@ function formatShortDate(value: string): string {
   return new Date(value).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function queueDueTime(value: string | null): number {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatQueueStatus(queueDueAt: string | null, generatedAt: string): string {
+  const due = queueDueTime(queueDueAt);
+  const now = new Date(generatedAt).getTime();
+  if (!Number.isFinite(now) || due <= now) return "Up now";
+  return `Next in ~${formatMinutes(Math.ceil((due - now) / 60_000))}`;
+}
+
 function priorityColor(priority: string): string {
   if (priority === "urgent") return "#dc2626";
   if (priority === "high") return "#ea580c";
@@ -571,7 +584,7 @@ function RecommendationPanel({
         <div>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#0c66e4]">Assignment support</div>
           <h3 className="mt-1 text-sm font-bold text-[#172b4d]">Who has room for &quot;{task.title}&quot;?</h3>
-          <p className="mt-1 text-xs text-[#667085]">Ranked from the workload dashboard metrics after adding this task as Todo.</p>
+          <p className="mt-1 text-xs text-[#667085]">Ranked by assignment queue order; SLA exposure only breaks ties.</p>
         </div>
         <span className="rounded bg-[#eef6ff] px-2 py-1 text-xs font-bold capitalize text-[#0c66e4]">{task.priority}</span>
       </div>
@@ -599,6 +612,9 @@ function CandidateRow({ candidate, index, onAssign, assigning }: {
         <div className="min-w-0">
           <div className="truncate text-sm font-bold text-[#172b4d]">{personName(candidate.email, candidate.name)}</div>
           <div className="mt-1 text-[11px] text-[#667085]">{candidate.openCount} open | {formatMinutes(candidate.slaLoadMinutes)} SLA exposure | {candidate.inProgressCount} in progress</div>
+          <div className="mt-1 text-[11px] font-semibold text-[#0c66e4]">
+            Queue: {candidate.queueDueAt ? formatShortDate(candidate.queueDueAt) : "first turn"}
+          </div>
           <div className="mt-1 flex items-center gap-1 text-[11px] text-[#475467]"><CircleHelp className="h-3 w-3 text-[#0c66e4]" />{candidate.why}</div>
         </div>
       </div>
@@ -607,6 +623,70 @@ function CandidateRow({ candidate, index, onAssign, assigning }: {
         {assigning ? "Assigning" : "Assign"}
       </button>
     </div>
+  );
+}
+
+function AssignmentQueue({
+  rows,
+  generatedAt,
+}: {
+  rows: CsOverviewRow[];
+  generatedAt: string;
+}) {
+  const queueRows = useMemo(
+    () =>
+      [...rows].sort(
+        (a, b) =>
+          queueDueTime(a.queueDueAt) - queueDueTime(b.queueDueAt) ||
+          a.slaLoadMinutes - b.slaLoadMinutes ||
+          a.email.localeCompare(b.email)
+      ),
+    [rows]
+  );
+
+  return (
+    <section className="border border-[#dbe2eb] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6eaf0] px-4 py-4 sm:px-5">
+        <div>
+          <h3 className="text-sm font-bold text-[#172b4d]">Assignment queue</h3>
+          <p className="mt-1 text-xs text-[#667085]">
+            Fair turn order across the company CS pool. Larger assigned tasks push a CS further back.
+          </p>
+        </div>
+        <span className="rounded bg-[#eef6ff] px-2 py-1 text-xs font-bold text-[#0c66e4]">
+          {queueRows.length} CS
+        </span>
+      </div>
+
+      {queueRows.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-[#667085]">No active CS in the queue.</div>
+      ) : (
+        <div className="divide-y divide-[#eef1f5]">
+          {queueRows.map((row, index) => (
+            <div
+              key={row.email}
+              className="grid gap-x-4 gap-y-2 px-4 py-3 sm:grid-cols-[3rem_minmax(12rem,1fr)_9rem_8rem] sm:items-center sm:px-5"
+            >
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#eef6ff] text-xs font-bold text-[#0c66e4]">
+                {index + 1}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold text-[#172b4d]">
+                  {personName(row.email, row.name)}
+                </span>
+                <span className="mt-0.5 block truncate text-[11px] text-[#98a2b3]">{row.email}</span>
+              </span>
+              <span className="whitespace-nowrap text-xs font-bold text-[#475467]">
+                {formatQueueStatus(row.queueDueAt, generatedAt)}
+              </span>
+              <span className="whitespace-nowrap text-xs text-[#667085] sm:text-right">
+                {formatMinutes(row.slaLoadMinutes)} SLA
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -801,6 +881,8 @@ export function CSWorkloadOverview({
             {showExceptions ? <div className="border-t border-violet-200 px-4 py-3 text-xs text-violet-900 sm:px-5">{snapshot.outOfPool.map((item) => <div key={item.email} className="flex justify-between gap-3 py-1"><span>{formatEmailAsName(item.email)}</span><span>{item.taskCount} open task{item.taskCount === 1 ? "" : "s"}</span></div>)}</div> : null}
           </section>
         ) : null}
+
+        <AssignmentQueue rows={snapshot.csRows} generatedAt={snapshot.generatedAt} />
 
         <section className="border border-[#dbe2eb] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6eaf0] px-4 py-4 sm:px-5"><div><h3 className="text-sm font-bold text-[#172b4d]">Unassigned queue</h3><p className="mt-1 text-xs text-[#667085]">Choose a task to add assignment support to the dashboard.</p></div><select value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as typeof unassignedSort)} className="h-9 rounded border border-[#cfd8e5] bg-white px-2 text-xs font-bold text-[#475467] outline-none"><option value="priority">Sort: priority</option><option value="age">Sort: oldest</option><option value="sla">Sort: SLA urgency</option></select></div>

@@ -1829,6 +1829,52 @@ where not exists (
     and c.unassigned_at is null
 );
 
+create table if not exists task_assignment_rotation (
+  email text primary key,
+  queue_due_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists task_assignment_rotation_due_idx
+  on task_assignment_rotation (queue_due_at, email);
+
+create or replace function bump_task_assignment_rotation(
+  p_email text,
+  p_minutes integer,
+  p_now timestamptz default now()
+)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  normalized_email text := lower(trim(p_email));
+  minutes integer := greatest(0, coalesce(p_minutes, 0));
+  next_due_at timestamptz;
+begin
+  if normalized_email is null or normalized_email = '' then
+    raise exception 'ROTATION_EMAIL_REQUIRED';
+  end if;
+
+  insert into task_assignment_rotation as rotation (
+    email,
+    queue_due_at,
+    updated_at
+  ) values (
+    normalized_email,
+    p_now + make_interval(mins => minutes),
+    p_now
+  )
+  on conflict (email) do update
+  set queue_due_at = greatest(rotation.queue_due_at, p_now) + make_interval(mins => minutes),
+      updated_at = p_now
+  returning queue_due_at into next_due_at;
+
+  return next_due_at;
+end;
+$$;
+
 -- People selected as task agents/team owners. This is independent of the
 -- legacy portal_account.role value.
 create table if not exists task_agents (
@@ -1871,6 +1917,7 @@ declare
   target_task tasks%rowtype;
   normalized_cs_email text := lower(trim(p_cs_email));
   now_iso timestamptz := now();
+  rotation_minutes integer;
 begin
   if not exists (
     select 1
@@ -1968,6 +2015,36 @@ begin
     jsonb_build_object('to', normalized_cs_email, 'source', 'overview')
   );
 
+  select coalesce(
+    target_task.sla_minutes,
+    (
+      select rule.duration_minutes
+      from task_sla_rules rule
+      where rule.priority = target_task.priority
+        and rule.category_id = target_task.category_id
+      limit 1
+    ),
+    (
+      select rule.duration_minutes
+      from task_sla_rules rule
+      where rule.priority = target_task.priority
+        and rule.category_id is null
+      limit 1
+    ),
+    case target_task.priority
+      when 'urgent' then 60
+      when 'high' then 240
+      when 'medium' then 480
+      else 1440
+    end
+  ) into rotation_minutes;
+
+  perform bump_task_assignment_rotation(
+    normalized_cs_email,
+    rotation_minutes,
+    now_iso
+  );
+
   return jsonb_build_object(
     'task_id', p_task_id,
     'email', normalized_cs_email,
@@ -1980,6 +2057,346 @@ $$;
 insert into task_agents (email)
 select distinct agent_email from agent_members
 on conflict (email) do nothing;
+
+-- Health Enrollment module. Kept separate from CS task tables to avoid
+-- polymorphic collaboration-table risk during task go-live.
+create table if not exists enrollment_option_sets (
+  id uuid primary key default gen_random_uuid(),
+  program text not null default 'aca'
+    check (program in ('aca', 'medicare')),
+  key text not null
+    check (key in ('stage', 'carrier', 'platform', 'consent', 'payment_status', 'aca_status')),
+  label text not null,
+  is_stage boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Program split: option sets are scoped per program (ACA vs Medicare), so each
+-- program configures its own Stage/Carrier/etc. Migrate an existing single-program
+-- table: add the column, drop the old key-only unique, enforce uniqueness per program.
+alter table enrollment_option_sets
+  add column if not exists program text not null default 'aca';
+alter table enrollment_option_sets
+  drop constraint if exists enrollment_option_sets_key_key;
+alter table enrollment_option_sets
+  drop constraint if exists enrollment_option_sets_program_check;
+alter table enrollment_option_sets
+  add constraint enrollment_option_sets_program_check
+  check (program in ('aca', 'medicare'));
+create unique index if not exists enrollment_option_sets_program_key_idx
+  on enrollment_option_sets (program, key);
+
+create table if not exists enrollment_options (
+  id uuid primary key default gen_random_uuid(),
+  set_id uuid not null references enrollment_option_sets(id) on delete restrict,
+  label text not null,
+  color text,
+  position integer not null default 0,
+  is_terminal boolean not null default false,
+  triggers_qc boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  archived_at timestamptz
+);
+
+create unique index if not exists enrollment_options_active_label_key
+  on enrollment_options (set_id, lower(label))
+  where archived_at is null;
+
+create index if not exists enrollment_options_set_position_idx
+  on enrollment_options (set_id, archived_at, position, label);
+
+create table if not exists enrollment_records (
+  id uuid primary key default gen_random_uuid(),
+  program text not null default 'aca'
+    check (program in ('aca', 'medicare')),
+  client_name text,
+  fub_link text,
+  due_date date,
+  stage_id uuid references enrollment_options(id) on delete restrict,
+  carrier_id uuid references enrollment_options(id) on delete restrict,
+  platform_id uuid references enrollment_options(id) on delete restrict,
+  consent_id uuid references enrollment_options(id) on delete restrict,
+  payment_status_id uuid references enrollment_options(id) on delete restrict,
+  aca_status_id uuid references enrollment_options(id) on delete restrict,
+  pcp_2025 text,
+  pcp_2026 text,
+  caller_email text,
+  responsible_enroll_email text,
+  qc_checked_by_email text,
+  qc_checked_at timestamptz,
+  due_soon_notified_at timestamptz,
+  overdue_notified_at timestamptz,
+  overdue_reminded_at timestamptz,
+  qc_stale_notified_at timestamptz,
+  closed_at timestamptz,
+  created_by_email text not null,
+  created_at timestamptz not null default now(),
+  updated_by_email text,
+  updated_at timestamptz not null default now(),
+  archived_at timestamptz
+);
+
+create index if not exists enrollment_records_stage_idx
+  on enrollment_records (stage_id, archived_at, updated_at desc);
+create index if not exists enrollment_records_due_idx
+  on enrollment_records (due_date, archived_at, closed_at);
+create index if not exists enrollment_records_caller_idx
+  on enrollment_records (caller_email, archived_at);
+create index if not exists enrollment_records_responsible_idx
+  on enrollment_records (responsible_enroll_email, archived_at);
+create index if not exists enrollment_records_updated_idx
+  on enrollment_records (archived_at, updated_at desc);
+
+-- Program split for records: backfill existing rows as ACA, scope list queries.
+alter table enrollment_records
+  add column if not exists program text not null default 'aca';
+alter table enrollment_records
+  drop constraint if exists enrollment_records_program_check;
+alter table enrollment_records
+  add constraint enrollment_records_program_check
+  check (program in ('aca', 'medicare'));
+create index if not exists enrollment_records_program_updated_idx
+  on enrollment_records (program, archived_at, updated_at desc);
+
+alter table enrollment_records
+add column if not exists qc_stale_notified_at timestamptz;
+
+create index if not exists enrollment_records_qc_idx
+  on enrollment_records (stage_id, closed_at, qc_checked_at, qc_stale_notified_at)
+  where archived_at is null;
+
+create table if not exists enrollment_stage_history (
+  id uuid primary key default gen_random_uuid(),
+  record_id uuid not null references enrollment_records(id) on delete cascade,
+  from_option_id uuid references enrollment_options(id) on delete set null,
+  to_option_id uuid references enrollment_options(id) on delete set null,
+  changed_by_email text not null,
+  changed_at timestamptz not null default now()
+);
+
+create index if not exists enrollment_stage_history_record_idx
+  on enrollment_stage_history (record_id, changed_at desc);
+
+create table if not exists enrollment_comments (
+  id uuid primary key default gen_random_uuid(),
+  record_id uuid not null references enrollment_records(id) on delete cascade,
+  parent_id uuid references enrollment_comments(id) on delete cascade,
+  author_email text not null,
+  body text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+create index if not exists enrollment_comments_record_idx
+  on enrollment_comments (record_id, created_at);
+
+create table if not exists enrollment_comment_edits (
+  id uuid primary key default gen_random_uuid(),
+  comment_id uuid not null references enrollment_comments(id) on delete cascade,
+  previous_body text not null,
+  edited_by text not null,
+  edited_at timestamptz not null default now()
+);
+
+create index if not exists enrollment_comment_edits_comment_idx
+  on enrollment_comment_edits (comment_id, edited_at desc);
+
+create table if not exists enrollment_activity (
+  id uuid primary key default gen_random_uuid(),
+  record_id uuid not null references enrollment_records(id) on delete cascade,
+  actor_email text not null,
+  type text not null check (
+    type in (
+      'created',
+      'edited',
+      'field_changed',
+      'stage_changed',
+      'people_changed',
+      'comment_added',
+      'attachment_added',
+      'qc_needed',
+      'qc_reviewed',
+      'qc_review_cleared',
+      'reopened',
+      'archived',
+      'due_soon',
+      'went_overdue'
+    )
+  ),
+  meta jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists enrollment_activity_record_idx
+  on enrollment_activity (record_id, created_at desc);
+
+create table if not exists enrollment_attachments (
+  id uuid primary key default gen_random_uuid(),
+  record_id uuid not null references enrollment_records(id) on delete cascade,
+  comment_id uuid references enrollment_comments(id) on delete cascade,
+  storage_path text not null,
+  file_name text not null,
+  mime_type text,
+  size_bytes bigint,
+  uploaded_by text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists enrollment_attachments_record_idx
+  on enrollment_attachments (record_id, created_at);
+create index if not exists enrollment_attachments_comment_idx
+  on enrollment_attachments (comment_id);
+
+create table if not exists enrollment_notifications (
+  id uuid primary key default gen_random_uuid(),
+  recipient_email text not null,
+  record_id uuid not null references enrollment_records(id) on delete cascade,
+  type text not null check (
+    type in (
+      'assigned',
+      'mentioned',
+      'commented',
+      'due_soon',
+      'overdue',
+      'overdue_reminder',
+      'qc_needed',
+      'qc_stale',
+      'reopened',
+      'stage_changed',
+      'qc_reviewed',
+      'attachment_added'
+    )
+  ),
+  actor_email text not null,
+  comment_id uuid references enrollment_comments(id) on delete set null,
+  detail text,
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists enrollment_notifications_recipient_idx
+  on enrollment_notifications (recipient_email, is_read, created_at desc);
+
+insert into enrollment_option_sets (program, key, label, is_stage)
+values
+  ('aca', 'stage', 'Stage', true),
+  ('aca', 'carrier', 'Carrier', false),
+  ('aca', 'platform', 'Platform', false),
+  ('aca', 'consent', 'Consent', false),
+  ('aca', 'payment_status', 'Payment Status', false),
+  ('aca', 'aca_status', 'ACA Status', false),
+  ('medicare', 'stage', 'Stage', true),
+  ('medicare', 'carrier', 'Carrier', false),
+  ('medicare', 'platform', 'Platform', false),
+  ('medicare', 'consent', 'Consent', false),
+  ('medicare', 'payment_status', 'Payment Status', false),
+  ('medicare', 'aca_status', 'ACA Status', false)
+on conflict (program, key) do update
+set label = excluded.label,
+    is_stage = excluded.is_stage,
+    updated_at = now();
+
+with option_seed(set_key, label, color, position, is_terminal, triggers_qc) as (
+  values
+    ('stage', '1-Need quote', '#6B778C', 10, false, false),
+    ('stage', '2-Quoted', '#0C66E4', 20, false, false),
+    ('stage', '3-Waiting for Confirmation', '#F5A524', 30, false, false),
+    ('stage', '4-Need documents', '#FFAB00', 40, false, false),
+    ('stage', '5-Ready to enroll', '#36B37E', 50, false, false),
+    ('stage', '6-Enrolled', '#00A3BF', 60, false, false),
+    ('stage', '7-1st payment done', '#6554C0', 70, false, false),
+    ('stage', '8-Need assign PCP', '#FF7452', 80, false, false),
+    ('stage', '9-Assigned PCP/Get ID Card', '#00875A', 90, false, false),
+    ('stage', '10-DONE', '#00875A', 100, true, true),
+    ('stage', '11-Terminated', '#C9372C', 110, true, false),
+    ('stage', 'Need call to renewal', '#8F7EE7', 120, false, false),
+    ('stage', 'Can''t Contact', '#C9372C', 130, false, false),
+    ('stage', 'Can not get ID card', '#FF7452', 140, false, false),
+    ('carrier', 'Oscar HMO', '#0C66E4', 10, false, false),
+    ('carrier', 'Oscar EPO', '#0C66E4', 20, false, false),
+    ('carrier', 'CHC 019', '#00875A', 30, false, false),
+    ('carrier', 'CHC Select', '#00875A', 40, false, false),
+    ('carrier', 'CHC Premier', '#00875A', 50, false, false),
+    ('carrier', 'Ambetter EPO', '#FF7452', 60, false, false),
+    ('carrier', 'Ambetter HMO', '#FF7452', 70, false, false),
+    ('carrier', 'UHC', '#0052CC', 80, false, false),
+    ('carrier', 'UHC Sanitas', '#0052CC', 90, false, false),
+    ('carrier', 'BCBS Advantage', '#0747A6', 100, false, false),
+    ('carrier', 'BCBS Myblue', '#0747A6', 110, false, false),
+    ('carrier', 'BCBS', '#0747A6', 120, false, false),
+    ('carrier', 'Kaiser', '#BF2600', 130, false, false),
+    ('carrier', 'Christus', '#6554C0', 140, false, false),
+    ('carrier', 'Molina', '#00A3BF', 150, false, false),
+    ('carrier', 'Community First', '#36B37E', 160, false, false),
+    ('carrier', 'Wellpoint', '#FFAB00', 170, false, false),
+    ('carrier', 'Sentara', '#8F7EE7', 180, false, false),
+    ('carrier', 'BSW', '#253858', 190, false, false),
+    ('carrier', 'Providence', '#4C9AFF', 200, false, false),
+    ('carrier', 'Other', '#97A0AF', 210, false, false),
+    ('platform', 'MyMFG', '#0C66E4', 10, false, false),
+    ('platform', 'HSP', '#00875A', 20, false, false),
+    ('platform', 'Other', '#97A0AF', 30, false, false),
+    ('consent', 'Yes', '#00875A', 10, false, false),
+    ('consent', 'Not Yet', '#FFAB00', 20, false, false),
+    ('payment_status', 'Auto pay', '#00875A', 10, false, false),
+    ('payment_status', '$0', '#36B37E', 20, false, false),
+    ('payment_status', 'Selfpay', '#FFAB00', 30, false, false),
+    ('payment_status', 'Need make manually', '#FF7452', 40, false, false),
+    ('payment_status', 'Need auto pay', '#FF7452', 50, false, false),
+    ('aca_status', 'Need to create ACA account', '#FF7452', 10, false, false),
+    ('aca_status', 'Created - Waiting for verify', '#FFAB00', 20, false, false),
+    ('aca_status', 'Created - Need information to verify', '#F5A524', 30, false, false),
+    ('aca_status', 'ACA account done', '#00875A', 40, false, false)
+)
+insert into enrollment_options (
+  set_id, label, color, position, is_terminal, triggers_qc
+)
+select sets.id, seed.label, seed.color, seed.position, seed.is_terminal, seed.triggers_qc
+from option_seed seed
+join enrollment_option_sets sets on sets.key = seed.set_key and sets.program = 'aca'
+where not exists (
+  select 1
+  from enrollment_options existing
+  where existing.set_id = sets.id
+    and lower(existing.label) = lower(seed.label)
+    and existing.archived_at is null
+);
+
+-- Medicare seed — grounded in the real Slack List (7-record crawl at
+-- ann_strambler_medicare_2026_crawler/medicare_list_raw.csv). Medicare has no
+-- Payment/Consent/Platform/AC concepts in that data (those stay empty option
+-- sets for this program; the UI hides those fields for Medicare records), so
+-- only Stage and Carrier are seeded. The sample only evidenced two Stage
+-- values ("10 - DONE" and "E- ID Card Unavailable") across 7 rows — far too
+-- thin to infer a full pipeline the way the 200-row ACA sample allowed, so
+-- this is a deliberately minimal starter (plus one neutral "New" entry stage)
+-- for admins to extend via Option Sets, same as any other option set.
+with medicare_option_seed(set_key, label, color, position, is_terminal, triggers_qc) as (
+  values
+    ('stage', 'New', '#6B778C', 10, false, false),
+    ('stage', 'E- ID Card Unavailable', '#FF7452', 20, false, false),
+    ('stage', '10 - DONE', '#00875A', 30, true, true),
+    ('carrier', 'Healthspring/Cigna', '#0C66E4', 10, false, false),
+    ('carrier', 'Devoted', '#36B37E', 20, false, false),
+    ('carrier', 'UHC', '#0052CC', 30, false, false),
+    ('carrier', 'Humana', '#6554C0', 40, false, false)
+)
+insert into enrollment_options (
+  set_id, label, color, position, is_terminal, triggers_qc
+)
+select mset.id, seed.label, seed.color, seed.position, seed.is_terminal, seed.triggers_qc
+from medicare_option_seed seed
+join enrollment_option_sets mset on mset.program = 'medicare' and mset.key = seed.set_key
+where not exists (
+  select 1
+  from enrollment_options existing
+  where existing.set_id = mset.id
+    and lower(existing.label) = lower(seed.label)
+    and existing.archived_at is null
+);
 
 -- Defense-in-depth: enable RLS on every table. The app talks to Supabase only
 -- through the service-role key, which bypasses RLS, so behavior is unchanged.
@@ -2018,7 +2435,17 @@ declare
     'task_reminder_settings',
     'task_stage_cycles',
     'task_overdue_events',
-    'task_assignment_cycles'
+    'task_assignment_cycles',
+    'task_assignment_rotation',
+    'enrollment_option_sets',
+    'enrollment_options',
+    'enrollment_records',
+    'enrollment_stage_history',
+    'enrollment_comments',
+    'enrollment_comment_edits',
+    'enrollment_activity',
+    'enrollment_attachments',
+    'enrollment_notifications'
   ];
 begin
   foreach table_name in array protected_tables loop
@@ -2039,3 +2466,9 @@ create index if not exists task_comments_body_trgm_idx
   on task_comments using gin (body gin_trgm_ops);
 create index if not exists task_attachments_file_name_trgm_idx
   on task_attachments using gin (file_name gin_trgm_ops);
+create index if not exists enrollment_records_client_name_trgm_idx
+  on enrollment_records using gin (client_name gin_trgm_ops);
+create index if not exists enrollment_comments_body_trgm_idx
+  on enrollment_comments using gin (body gin_trgm_ops);
+create index if not exists enrollment_attachments_file_name_trgm_idx
+  on enrollment_attachments using gin (file_name gin_trgm_ops);

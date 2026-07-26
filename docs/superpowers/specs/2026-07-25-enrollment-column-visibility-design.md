@@ -49,7 +49,7 @@ const visibleColumns = useMemo(
 
 ## 7. UI
 
-- New "Columns" button in `EnrollmentToolbar` (~line 727, next to the existing `Overdue` toggle button, before the `ml-auto` record count). Icon: `Columns3` or `SlidersHorizontal` from `lucide-react` (already a project dependency).
+- "Columns" button in `EnrollmentToolbar`'s top row, next to the Due Date range filter (both stay visible regardless of how the filter-chips row below wraps) — not next to the `Overdue` toggle as originally sketched; the as-built placement groups it with the other always-visible toolbar controls instead. Icon: `Columns3` or `SlidersHorizontal` from `lucide-react` (already a project dependency).
 - Click opens a small popover/dropdown (reuse the existing popover pattern used by `TaskSelect` multi-select filters in the same file, for visual consistency) listing every toggleable column for the current program, each with a checkbox reflecting `!hiddenKeys.has(key)`. Toggling a checkbox calls `toggleColumn(key)` immediately — no "Apply" button, no confirmation.
 - Sticky columns are not listed (nothing to toggle).
 - Switching tabs (ACA ↔ Medicare) re-reads the other program's own `hiddenKeys` — the two programs' visibility choices are independent, matching the two separate localStorage keys.

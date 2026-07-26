@@ -175,6 +175,8 @@ function decodeStoredMentions(body: string): {
 
 export function CommentThread({
   taskId,
+  apiBase = "/api/tasks",
+  roomTopic,
   currentEmail,
   members,
   comments,
@@ -182,6 +184,8 @@ export function CommentThread({
   onReload,
 }: {
   taskId: string;
+  apiBase?: string;
+  roomTopic?: string;
   currentEmail: string;
   members: TaskAssignee[];
   comments: CommentWithAttachments[];
@@ -203,14 +207,14 @@ export function CommentThread({
       timer = setTimeout(() => void onReload(), 300);
     };
     const channel = sb
-      .channel(taskRoomTopic(taskId))
+      .channel(roomTopic ?? taskRoomTopic(taskId))
       .on("broadcast", { event: "changed" }, schedule)
       .subscribe();
     return () => {
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
-  }, [taskId, onReload]);
+  }, [roomTopic, taskId, onReload]);
 
   const nameOf = useCallback(
     (email: string) =>
@@ -251,7 +255,7 @@ export function CommentThread({
     parentId: string | null,
   ) {
     try {
-      const res = await fetch(`/api/tasks/${taskId}/comments`, {
+      const res = await fetch(`${apiBase}/${taskId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -278,14 +282,14 @@ export function CommentThread({
   }
 
   async function remove(id: string) {
-    const res = await fetch(`/api/tasks/${taskId}/comments/${id}`, {
+    const res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
       method: "DELETE",
     });
     if (res.ok) await onReload();
   }
 
   async function edit(id: string, body: string) {
-    const res = await fetch(`/api/tasks/${taskId}/comments/${id}`, {
+    const res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ body }),
@@ -348,6 +352,7 @@ export function CommentThread({
                 <CommentItem
                   c={c}
                   taskId={taskId}
+                  apiBase={apiBase}
                   currentEmail={currentEmail}
                   nameOf={nameOf}
                   onDelete={c.optimistic ? releaseOptimistic : remove}
@@ -360,6 +365,7 @@ export function CommentThread({
                       <CommentItem
                         c={rc}
                         taskId={taskId}
+                        apiBase={apiBase}
                         currentEmail={currentEmail}
                         nameOf={nameOf}
                         onDelete={rc.optimistic ? releaseOptimistic : remove}
@@ -412,6 +418,7 @@ function renderBody(body: string): ReactNode[] {
 function CommentItem({
   c,
   taskId,
+  apiBase,
   currentEmail,
   nameOf,
   onDelete,
@@ -420,6 +427,7 @@ function CommentItem({
 }: {
   c: Comment;
   taskId: string;
+  apiBase: string;
   currentEmail: string;
   nameOf: (email: string) => string;
   onDelete: (id: string) => Promise<void> | void;
@@ -446,7 +454,7 @@ function CommentItem({
     setHistoryOpen(next);
     if (next && edits === null) {
       try {
-        const res = await fetch(`/api/tasks/${taskId}/comments/${c.id}/edits`);
+        const res = await fetch(`${apiBase}/${taskId}/comments/${c.id}/edits`);
         setEdits(res.ok ? ((await res.json()).edits ?? []) : []);
       } catch {
         setEdits([]);

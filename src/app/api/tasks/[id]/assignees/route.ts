@@ -14,6 +14,7 @@ import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
 import { recordStageTransition, syncAssignmentCycles } from "@/lib/tasks/history";
 import { touchLastActivity } from "@/lib/tasks/last-activity";
+import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -118,6 +119,26 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   if (!alreadyAssigned) {
+    const { data: rulesData, error: rulesError } = await ctx.supabase
+      .from("task_sla_rules")
+      .select("priority,category_id,duration_minutes");
+    if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
+
+    try {
+      await bumpAssignmentRotation(
+        ctx.supabase,
+        email,
+        ctx.task,
+        rulesData ?? [],
+        new Date(nowIso)
+      );
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Could not update assignment queue." },
+        { status: 500 }
+      );
+    }
+
     await ctx.supabase.from("task_activity").insert({
       task_id: id,
       actor_email: ctx.actor.email,

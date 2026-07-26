@@ -6,13 +6,17 @@ import { usePathname } from "next/navigation";
 import { Bell, X } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { taskKey } from "@/lib/tasks/sorting";
+import { enrollmentKey } from "@/lib/enrollment/helpers";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { dispatchOpenTask } from "@/lib/tasks/client-events";
+import { dispatchOpenEnrollment } from "@/lib/enrollment/client-events";
 import { playNotificationChime, primeNotificationSound } from "@/lib/tasks/sound";
 
 type Notif = {
   id: string;
   task_id: string;
+  entity_type?: "task" | "enrollment";
+  entity_id?: string;
   type:
     | "assigned"
     | "mentioned"
@@ -32,7 +36,8 @@ type Notif = {
     | "qc_reviewed"
     | "cancelled"
     | "attachment_added"
-    | "backlog_attention";
+    | "backlog_attention"
+    | "stage_changed";
   actor_email: string;
   actor_name: string | null;
   task_title: string | null;
@@ -79,30 +84,63 @@ function commentPreview(n: Notif): string | null {
   return cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned;
 }
 
+function entityKind(n: Notif): "task" | "enrollment" {
+  return n.entity_type === "enrollment" ? "enrollment" : "task";
+}
+
+function entityId(n: Notif): string {
+  return n.entity_id ?? n.task_id;
+}
+
+function entityKey(n: Notif): string {
+  return entityKind(n) === "enrollment" ? enrollmentKey(entityId(n)) : taskKey(entityId(n));
+}
+
+function entityLabel(n: Notif): string {
+  return entityKind(n) === "enrollment" ? "Enrollment" : "Task";
+}
+
+function notificationHref(n: Notif): string {
+  return entityKind(n) === "enrollment"
+    ? `/enrollment?record=${entityId(n)}`
+    : `/tasks?task=${entityId(n)}`;
+}
+
 function actionText(n: Notif): string {
+  const kind = entityKind(n);
   switch (n.type) {
     case "assigned":
-      return "assigned you to a task";
+      return kind === "enrollment"
+        ? "assigned you to an enrollment record"
+        : "assigned you to a task";
     case "mentioned":
       return "tagged you in a comment";
     case "commented":
-      return "commented on a task assigned to you";
+      return kind === "enrollment"
+        ? "commented on an enrollment record"
+        : "commented on a task assigned to you";
     case "unassigned":
       return "removed you from a task";
     case "reopened":
-      return "reopened this task";
+      return kind === "enrollment" ? "reopened this enrollment record" : "reopened this task";
     case "qc_needed":
-      return "marked a closed task for QC";
+      return kind === "enrollment"
+        ? "marked an enrollment record for QC"
+        : "marked a closed task for QC";
     case "qc_reviewed":
-      return "QC checked this task";
+      return kind === "enrollment" ? "QC checked this enrollment record" : "QC checked this task";
     case "cancelled":
       return "cancelled this task";
     case "attachment_added":
       return "added an attachment";
     case "backlog_attention":
       return "created an urgent/high backlog task";
+    case "stage_changed":
+      return "moved this enrollment record";
     case "overdue":
-      return "Task just went overdue";
+      return kind === "enrollment"
+        ? "Enrollment due date is overdue"
+        : "Task just went overdue";
     case "todo_reminder":
       return "Task is still in To Do";
     case "overdue_reminder":
@@ -110,13 +148,15 @@ function actionText(n: Notif): string {
     case "waiting_reminder":
       return "Task is still waiting for follow-up";
     case "due_soon":
-      return "Task is due soon";
+      return kind === "enrollment" ? "Enrollment is due soon" : "Task is due soon";
     case "stale":
       return "Task has had no activity";
     case "overdue_unlocked":
       return "resolved this overdue task (reason logged)";
     case "qc_stale":
-      return "Task still needs QC — reminder";
+      return kind === "enrollment"
+        ? "Enrollment still needs QC — reminder"
+        : "Task still needs QC — reminder";
     case "sla_escalated":
       return "SLA needs attention";
   }
@@ -150,7 +190,9 @@ function notificationHeading(n: Notif): string {
 
 function nativeNotificationBody(n: Notif): string {
   return [
-    n.task_title ? `Task: ${n.task_title}` : `Task: ${taskKey(n.task_id)}`,
+    n.task_title
+      ? `${entityLabel(n)}: ${n.task_title}`
+      : `${entityLabel(n)}: ${entityKey(n)}`,
     commentPreview(n) ? `Comment: "${commentPreview(n)}"` : null,
   ]
     .filter(Boolean)
@@ -208,7 +250,7 @@ export function NotificationBell() {
           "Notification" in window &&
           Notification.permission === "granted"
         ) {
-          new Notification(`${taskKey(n.task_id)} · ${notificationHeading(n)}`, {
+          new Notification(`${entityKey(n)} · ${notificationHeading(n)}`, {
             body: nativeNotificationBody(n),
           });
         }
@@ -312,9 +354,13 @@ export function NotificationBell() {
     setOpen(false);
     dismissToast(n.id);
     if (!n.is_read) void markRead([n.id]);
-    if (pathname === "/tasks") {
+    if (entityKind(n) === "task" && pathname === "/tasks") {
       event?.preventDefault();
-      dispatchOpenTask(n.task_id);
+      dispatchOpenTask(entityId(n));
+    }
+    if (entityKind(n) === "enrollment" && pathname === "/enrollment") {
+      event?.preventDefault();
+      dispatchOpenEnrollment(entityId(n));
     }
   }
 
@@ -362,7 +408,7 @@ export function NotificationBell() {
                 items.map((n) => (
                   <Link
                     key={n.id}
-                    href={`/tasks?task=${n.task_id}`}
+                    href={notificationHref(n)}
                     onClick={(event) => handleOpenNotification(n, event)}
                     className={`block px-3 py-2.5 hover:bg-slate-50 ${
                       n.is_read ? "" : "bg-blue-50/40"
@@ -383,7 +429,7 @@ export function NotificationBell() {
           {toasts.map((n) => (
             <Link
               key={n.id}
-              href={`/tasks?task=${n.task_id}`}
+              href={notificationHref(n)}
               onClick={(event) => handleOpenNotification(n, event)}
               className="notif-toast block rounded-xl border border-slate-200 bg-white p-3 shadow-[0_10px_30px_rgba(9,30,66,0.18)] hover:border-[#c1c7d0]"
             >
@@ -420,7 +466,7 @@ function NotifContent({ n }: { n: Notif }) {
     <>
       <div className="flex items-center gap-2">
         <span className="font-mono text-[11px] font-bold text-[#0c66e4]">
-          {taskKey(n.task_id)}
+          {entityKey(n)}
         </span>
         {!n.is_read && <span className="h-1.5 w-1.5 rounded-full bg-[#0c66e4]" />}
         <span className="ml-auto text-[10px] text-slate-400">
@@ -442,7 +488,8 @@ function NotifContent({ n }: { n: Notif }) {
       </p>
       {n.task_title && (
         <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500" title={n.task_title}>
-          <span className="font-semibold text-slate-600">Task:</span> {n.task_title}
+          <span className="font-semibold text-slate-600">{entityLabel(n)}:</span>{" "}
+          {n.task_title}
         </p>
       )}
       {commentPreview(n) && (

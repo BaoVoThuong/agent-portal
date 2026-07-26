@@ -11,11 +11,13 @@ import {
 export function AttachmentPanel({
   attachments,
   taskId,
+  apiBase = "/api/tasks",
   canEdit,
   onReload,
 }: {
   attachments: SignedAttachment[];
   taskId: string;
+  apiBase?: string;
   canEdit: boolean;
   onReload: () => Promise<void> | void;
 }) {
@@ -35,7 +37,10 @@ export function AttachmentPanel({
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`/api/tasks/${taskId}/attachments`, { method: "POST", body: form });
+      const res = await fetch(`${apiBase}/${taskId}/attachments`, {
+        method: "POST",
+        body: form,
+      });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as
           | { error?: string }
@@ -57,7 +62,9 @@ export function AttachmentPanel({
   }
 
   async function remove(aid: string) {
-    const res = await fetch(`/api/tasks/${taskId}/attachments/${aid}`, { method: "DELETE" });
+    const res = await fetch(`${apiBase}/${taskId}/attachments/${aid}`, {
+      method: "DELETE",
+    });
     if (res.ok) await onReload();
   }
 

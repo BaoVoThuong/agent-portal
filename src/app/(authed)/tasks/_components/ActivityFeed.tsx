@@ -12,17 +12,21 @@ function describe(a: ActivityRow, personLabel: (email: string) => string): React
   switch (a.type) {
     case "created": return "created the task";
     case "status_changed": return <>moved to {to}</>;
+    case "stage_changed": return <>moved stage to {to}</>;
     case "reopened": return <>reopened ({to})</>;
     case "assigned": return <>assigned to {to}</>;
     case "unassigned": return <>removed {to} from the task</>;
     case "priority_changed": return <>set priority {to}</>;
     case "category_changed": return "changed category";
+    case "field_changed": return "updated fields";
+    case "people_changed": return "updated people";
     case "agent_changed": return <>changed agent to {to}</>;
     case "qc_needed": return "marked a Done task for QC";
     case "due_soon": return "task is due soon";
     case "stale": return "task had no activity";
     case "done_reviewed": return "QC checked the completed task";
     case "done_review_cleared": return "cleared the QC check";
+    case "qc_review_cleared": return "cleared the QC check";
     case "comment_added": return "commented";
     case "edited": return "edited the task";
     case "archived": return "archived the task";
@@ -79,4 +83,3 @@ function formatActivityValue(
   }
   return value.replaceAll("_", " ");
 }
-

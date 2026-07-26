@@ -27,6 +27,7 @@ import {
 } from "@/lib/tasks/notifications";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import { recordInitialTaskHistory } from "@/lib/tasks/history";
+import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
 
 export const dynamic = "force-dynamic";
 
@@ -141,7 +142,8 @@ export async function POST(request: Request) {
   const startingInProgress = assignment.status === "in_progress";
   const startingWaiting = assignment.status === "waiting";
   const startingClosed = assignment.status === "done" || assignment.status === "cancel";
-  const { data: rulesData, error: rulesError } = startingInProgress
+  const shouldLoadSlaRules = startingInProgress || assignedEmails.length > 0;
+  const { data: rulesData, error: rulesError } = shouldLoadSlaRules
     ? await supabase.from("task_sla_rules").select("priority,category_id,duration_minutes")
     : { data: null, error: null };
   if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
@@ -190,6 +192,30 @@ export async function POST(request: Request) {
     );
     if (assigneeError && !isTaskAssigneesMissingError(assigneeError)) {
       return NextResponse.json({ error: assigneeError.message }, { status: 500 });
+    }
+
+    try {
+      await Promise.all(
+        assignedEmails.map((assigneeEmail) =>
+          bumpAssignmentRotation(
+            supabase,
+            assigneeEmail,
+            data as TaskRow,
+            rulesData ?? [],
+            new Date(nowIso)
+          )
+        )
+      );
+    } catch (rotationError) {
+      return NextResponse.json(
+        {
+          error:
+            rotationError instanceof Error
+              ? rotationError.message
+              : "Could not update assignment queue.",
+        },
+        { status: 500 }
+      );
     }
   }
 

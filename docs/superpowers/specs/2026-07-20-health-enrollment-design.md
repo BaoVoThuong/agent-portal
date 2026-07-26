@@ -11,6 +11,15 @@
 
 A new **Health Enrollment** module (`/enrollment`) that mirrors the Health Customer Service collaboration experience (comments, mentions, attachments, activity, notifications, realtime, QC, search) but replaces the kanban board with a **Slack-Lists-style table**, because the pipeline has ~14 stages that would overflow a horizontal board. All dropdown fields are **admin-configurable option sets** (like Categories in CS). CS / Agent / Admin share the same access in v1; role permissions come later.
 
+### 1.1 Two programs, one module
+
+The module hosts **two structurally identical enrollment programs** as separate tabs:
+
+- **Health ACA Enroll** — the ACA pipeline described throughout this spec (seeded from the real Slack data).
+- **Medicare Enroll** — an identical structure (same tables, same columns, same collaboration + QC + due behavior), but its **own** option sets (Medicare has different stages, carriers, plans).
+
+They share one schema, one set of components, and one set of API routes, discriminated by a `program` value (`aca` | `medicare`). Everything below applies to **both** programs unless a section says otherwise; the only per-program difference is the **content of the option sets** and which records/config each tab shows.
+
 ## 2. Non-goals (v1)
 
 - Role-based permission differences (everyone with board access sees & edits the same).
@@ -34,6 +43,7 @@ Enrollment gets its **own tables** for records **and** collaboration (comments, 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid pk | |
+| `program` | text | `aca` \| `medicare` — which tab owns the record; every list/filter/notify query is scoped by it |
 | `client_name` | text | nullable (some rows blank in source) |
 | `fub_link` | text | Follow-Up-Boss URL |
 | `due_date` | date | drives due-soon / overdue |
@@ -66,9 +76,12 @@ All option FKs are `on delete restrict` (an option in use cannot be hard-deleted
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid pk | |
-| `key` | text unique | `stage` \| `carrier` \| `platform` \| `consent` \| `payment_status` \| `aca_status` |
+| `program` | text | `aca` \| `medicare` — option sets are per-program, so each tab configures its own |
+| `key` | text | `stage` \| `carrier` \| `platform` \| `consent` \| `payment_status` \| `aca_status`; unique **per program** (`unique(program, key)`) |
 | `label` | text | display name ("Stage", "Carrier"…) |
 | `is_stage` | boolean | the `stage` set is special: ordered pipeline + terminal flags |
+
+> Because option sets are program-scoped, ACA and Medicare each get their own Stage/Carrier/etc. lists — an admin editing Medicare stages never touches ACA. The `aca_status` set is ACA-specific; Medicare may leave it empty or the admin can repurpose it (its column stays nullable).
 
 `enrollment_options`:
 
@@ -83,7 +96,7 @@ All option FKs are `on delete restrict` (an option in use cannot be hard-deleted
 | `triggers_qc` | boolean | stage-set only: `10-DONE` = true |
 | `archived_at` | timestamptz | hide from pickers, keep referential integrity |
 
-**Seed data** (from real Slack list):
+**Seed data — ACA program** (from the real Slack list):
 
 - **Stage** (ordered): `1-Need quote`, `2-Quoted`, `3-Waiting for Confirmation`, `4-Need documents`, `5-Ready to enroll`, `6-Enrolled`, `7-1st payment done`, `8-Need assign PCP`, `9-Assigned PCP/Get ID Card`, `10-DONE` *(terminal, triggers QC)*, `11-Terminated` *(terminal)*, plus off-pipeline: `Need call to renewal`, `Can't Contact`, `Can not get ID card`. Colors approximated from the Slack pills.
 - **Carrier**: Oscar HMO, Oscar EPO, CHC 019, CHC Select, CHC Premier, Ambetter EPO, Ambetter HMO, UHC, UHC Sanitas, BCBS Advantage, BCBS Myblue, BCBS, Kaiser, Christus, Molina, Community First, Wellpoint, Sentara, BSW, Providence, + "Other".
@@ -91,6 +104,8 @@ All option FKs are `on delete restrict` (an option in use cannot be hard-deleted
 - **Consent**: Yes, Not Yet.
 - **Payment status**: Auto pay, $0, Selfpay, Need make manually, Need auto pay.
 - **ACA status**: Need to create ACA account, Created - Waiting for verify, Created - Need information to verify, ACA account done.
+
+**Seed data — Medicare program:** we don't yet have real Medicare stage/carrier lists. To make the tab usable on day one, seed Medicare's option sets by **cloning the ACA sets as an editable starting template** (same keys, same UI), then let an admin rename/reorder/replace them to the real Medicare pipeline. No records are cloned — only the config scaffolding. *(Open item: if the real Medicare stages are known before build, seed those directly instead — see §11.)*
 
 ### 4.3 History / audit
 
@@ -115,7 +130,8 @@ This powers time-in-stage, stage aging, throughput, and bottleneck analytics (th
 
 ## 5. Primary view — Slack-Lists-style table
 
-- Horizontal-scrolling table; every configurable field is a **colored pill** editable **inline** (click → dropdown of that option set's active options).
+- **Two top-level tabs: `Health ACA Enroll` and `Medicare Enroll`.** Each tab is the same table, scoped to its `program`; switching tabs swaps records, the option-set config, and the filters' option lists. The active tab is reflected in the URL (e.g. `/enrollment/aca`, `/enrollment/medicare`) so links and refreshes land on the right program.
+- Horizontal-scrolling table; every configurable field is a **colored pill** editable **inline** (click → dropdown of that program's active options).
 - Columns (default order): Client Name, Stage, Caller, Responsible Enroll, Payment status, Carrier, ACA status, Consent, Platform, PCP 2025, PCP 2026, Due Date, FUB Link, Comments count.
 - Column header sort; default sort by `updated_at` desc (with due-soon surfaced).
 - Filters row (reusing the CS filter pattern): Stage, Caller, Responsible Enroll, Carrier, Payment, ACA, Consent, Platform, Overdue toggle, date range, + free-text search across client name and comments. Match count shown. "Clear all".

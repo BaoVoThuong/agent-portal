@@ -26,6 +26,7 @@ import {
   type RecommendationCandidate,
   type UnassignedOverviewTask,
 } from "./overview-types";
+import { computeAssignmentQueueDueAt } from "./rotation";
 
 export const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {
   urgent: 4,
@@ -79,6 +80,7 @@ type PersonAccumulator = {
   lastTaskActivityAt: string | null;
   done24h: number;
   done7d: number;
+  queueDueAt: string | null;
 };
 
 function emptyStageCounts(): OverviewStageCounts {
@@ -180,10 +182,6 @@ function deriveOpenTask(
   };
 }
 
-function statusLevel(status: "free" | "ok" | "busy" | "overloaded"): number {
-  return { free: 0, ok: 1, busy: 2, overloaded: 3 }[status];
-}
-
 function levelStatus(level: number): "free" | "ok" | "busy" | "overloaded" {
   if (level >= 3) return "overloaded";
   if (level >= 2) return "busy";
@@ -235,6 +233,7 @@ function createAccumulator(account: OverviewAccount): PersonAccumulator {
     lastTaskActivityAt: null,
     done24h: 0,
     done7d: 0,
+    queueDueAt: account.queueDueAt,
   };
 }
 
@@ -286,6 +285,7 @@ function rowFromAccumulator(accumulator: PersonAccumulator, thresholds: Overview
     lastTaskActivityAt: accumulator.lastTaskActivityAt,
     done24h: accumulator.done24h,
     done7d: accumulator.done7d,
+    queueDueAt: accumulator.queueDueAt,
     status: resolveOverviewStatus(
       accumulator.tasks.length,
       accumulator.slaLoadMinutes,
@@ -489,6 +489,7 @@ function explainCandidate(
   projectedPressure: number
 ): string {
   const parts: string[] = [];
+  parts.push(row.queueDueAt ? "queue cooldown tracked" : "new to queue");
   if (row.riskFlags.length === 0) parts.push("no risk flags");
   else parts.push(`${row.riskFlags.length} risk flag${row.riskFlags.length === 1 ? "" : "s"}`);
   if (task.priority === "urgent" || task.priority === "high") {
@@ -523,28 +524,18 @@ export function rankRecommendation(
       inProgressCount: row.stageCounts.in_progress,
       urgentHighCount: row.urgentHighCount,
       riskFlags: row.riskFlags,
+      queueDueAt: row.queueDueAt,
       why: explainCandidate(row, task, projectedLoad, projectedPressure),
     };
     return candidate;
   });
 
-  const statusRank = (status: string) => statusLevel(status as "free" | "ok" | "busy" | "overloaded");
+  const queueRank = (value: string | null) => timestamp(value) ?? 0;
   return candidates.sort((a, b) => {
-    const urgent = task.priority === "urgent" || task.priority === "high";
-    const keys = urgent
-      ? [
-          statusRank(a.projectedStatus) - statusRank(b.projectedStatus),
-          a.inProgressCount - b.inProgressCount,
-          a.projectedPriorityPressure - b.projectedPriorityPressure,
-          a.projectedSlaLoadMinutes - b.projectedSlaLoadMinutes,
-          a.projectedOpenCount - b.projectedOpenCount,
-        ]
-      : [
-          statusRank(a.projectedStatus) - statusRank(b.projectedStatus),
-          a.projectedSlaLoadMinutes - b.projectedSlaLoadMinutes,
-          a.projectedOpenCount - b.projectedOpenCount,
-          a.projectedPriorityPressure - b.projectedPriorityPressure,
-        ];
+    const keys = [
+      queueRank(a.queueDueAt) - queueRank(b.queueDueAt),
+      a.slaLoadMinutes - b.slaLoadMinutes,
+    ];
     for (const key of keys) if (key !== 0) return key;
     return a.email.localeCompare(b.email);
   });
@@ -570,6 +561,11 @@ export function optimisticallyAssignOverviewTask(
     const nextLoad = current.slaLoadMinutes + task.effectiveSlaMinutes;
     const nextPressure = current.priorityPressure + PRIORITY_WEIGHTS[task.priority];
     const nextFlags = [...current.riskFlags];
+    const queueDueAt = computeAssignmentQueueDueAt(
+      current.queueDueAt,
+      task.effectiveSlaMinutes,
+      new Date(snapshot.generatedAt)
+    ).toISOString();
     const oldestOpenCreatedAt =
       !current.oldestOpenCreatedAt || task.createdAt < current.oldestOpenCreatedAt
         ? task.createdAt
@@ -589,6 +585,7 @@ export function optimisticallyAssignOverviewTask(
         (task.priority === "urgent" || task.priority === "high" ? 1 : 0),
       oldestOpenCreatedAt,
       oldestOpenAgeSeconds,
+      queueDueAt,
       status: resolveOverviewStatus(
         current.openCount + 1,
         nextLoad,
