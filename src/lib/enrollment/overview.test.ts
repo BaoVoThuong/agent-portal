@@ -149,19 +149,24 @@ describe("aggregateEnrollmentOverview", () => {
     expect(snapshot.rows[0].openCount).toBe(0);
   });
 
-  it("builds one work-mix bucket per stage that has open records, in stage position order", () => {
-    const stage1 = stageOption({ id: "s1", position: 10, label: "1-Need quote" });
+  it("builds one work-mix bucket per stage that has open records, in natural label order", () => {
+    const stage1 = stageOption({ id: "s1", position: 90, label: "1-Need quote" });
     const stage2 = stageOption({ id: "s2", position: 20, label: "2-Quoted" });
+    const stage10 = stageOption({ id: "s10", position: 10, label: "10-DONE" });
     const snapshot = aggregateEnrollmentOverview({
       now,
       program: "aca",
       accounts: [account("cs@x.com")],
-      stageOptions: [stage2, stage1], // deliberately out of order
-      records: [record({ id: "r1", stage_id: "s2" }), record({ id: "r2", stage_id: "s1" })],
+      stageOptions: [stage10, stage2, stage1], // deliberately out of order by position and input order
+      records: [
+        record({ id: "r1", stage_id: "s2" }),
+        record({ id: "r2", stage_id: "s1" }),
+        record({ id: "r10", stage_id: "s10" }),
+      ],
       thresholds,
       qcStaleHours: 48,
     });
-    expect(snapshot.workMix.stages.map((s) => s.stageId)).toEqual(["s1", "s2"]);
+    expect(snapshot.workMix.stages.map((s) => s.stageId)).toEqual(["s1", "s2", "s10"]);
   });
 
   it("excludes archived records from every computation", () => {

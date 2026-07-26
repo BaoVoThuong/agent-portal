@@ -11,7 +11,8 @@ import {
   type SortDir,
   type SortKey,
 } from "@/lib/tasks/sorting";
-import type { TaskAssignee } from "@/lib/tasks/assignees";
+import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
+import { formatEmailAsName } from "@/lib/tasks/people";
 import { LIST_COL, TaskRowItem } from "./TaskRowItem";
 import type {
   TaskListColumn,
@@ -22,6 +23,7 @@ export function TaskListView({
   tasks,
   categories,
   assignees,
+  agents,
   isManager,
   myAssistantAgents,
   agentMembersByAgent,
@@ -42,6 +44,7 @@ export function TaskListView({
   tasks: TaskRow[];
   categories: TaskCategory[];
   assignees: TaskAssignee[];
+  agents: TaskAgent[];
   isManager: boolean;
   myAssistantAgents: string[];
   agentMembersByAgent: Record<string, string[]>;
@@ -86,6 +89,13 @@ export function TaskListView({
 
   const categoryById = new Map(categories.map((c) => [c.id, c]));
   const categoryName = (id: string | null) => categoryById.get(id ?? "")?.name ?? null;
+  const labelByEmail = new Map<string, string>();
+  for (const person of [...agents, ...assignees]) {
+    labelByEmail.set(person.email, person.name?.trim() || formatEmailAsName(person.email));
+  }
+  if (!labelByEmail.has(currentEmail)) {
+    labelByEmail.set(currentEmail, formatEmailAsName(currentEmail));
+  }
   const rows =
     sortKey === null
       ? managerView
@@ -115,54 +125,67 @@ export function TaskListView({
         </div>
       ) : (
         <div className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
-          <div className="flex items-center gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-            {visibleColumns.map((column) =>
-              column.sortKey ? (
-                <SortTh
-                  key={column.key}
-                  label={column.label}
-                  col={column.sortKey}
-                  widthClass={headerWidthClass(column)}
-                  {...sp}
-                />
-              ) : (
-                <span key={column.key} className={headerWidthClass(column)}>
-                  {column.label}
-                </span>
-              )
-            )}
+          <div className="overflow-x-auto">
+            <div className="min-w-max">
+              <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
+                {visibleColumns.map((column) =>
+                  column.sortKey ? (
+                    <SortTh
+                      key={column.key}
+                      label={column.label}
+                      col={column.sortKey}
+                      widthClass={headerWidthClass(column)}
+                      {...sp}
+                    />
+                  ) : (
+                    <span
+                      key={column.key}
+                      className={`${headerWidthClass(column)} items-center px-3 py-2`}
+                    >
+                      {column.label}
+                    </span>
+                  )
+                )}
+              </div>
+              <ul className="divide-y divide-[#ebecf0]">
+                {rows.map((task) => {
+                  const capabilities = capabilitiesFor(task);
+                  return (
+                    <li key={task.id}>
+                      <TaskRowItem
+                        task={task}
+                        category={categoryById.get(task.category_id ?? "") ?? null}
+                        categories={categories}
+                        assignees={assignees}
+                        agents={agents}
+                        labelByEmail={labelByEmail}
+                        agentMembersByAgent={agentMembersByAgent}
+                        canChangeStatus={capabilities.canChangeStatus}
+                        canAssign={capabilities.canAssign}
+                        canEditContent={capabilities.canEditContent}
+                        onOpen={onOpen}
+                        onPatch={onPatch}
+                        canReviewDone={
+                          (task.status === "done" || task.status === "cancel") &&
+                          capabilities.canReviewQC
+                        }
+                        onReviewDone={(reviewed) => onReviewDone(task.id, reviewed)}
+                        onAssigneeChange={onAssigneeChange}
+                        openOnDoubleClick
+                        isOverdue={overdueIds.has(task.id)}
+                        isNewAssigned={newAssignedTaskIds.has(task.id)}
+                        onUnlockOverdueRequest={() => onUnlockOverdue(task.id)}
+                        onReopenRequest={() => onReopenRequest(task.id)}
+                        visibleColumnKeys={visibleColumnKeys}
+                        rules={rules}
+                        now={now}
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           </div>
-          <ul className="divide-y divide-[#ebecf0]">
-            {rows.map((task) => {
-              const capabilities = capabilitiesFor(task);
-              return (
-                <li key={task.id}>
-                  <TaskRowItem
-                    task={task}
-                    category={categoryById.get(task.category_id ?? "") ?? null}
-                    assignees={assignees}
-                    agentMembersByAgent={agentMembersByAgent}
-                    canChangeStatus={capabilities.canChangeStatus}
-                    canAssign={capabilities.canAssign}
-                    onOpen={onOpen}
-                    onPatch={onPatch}
-                    canReviewDone={
-                      (task.status === "done" || task.status === "cancel") &&
-                      capabilities.canReviewQC
-                    }
-                    onReviewDone={(reviewed) => onReviewDone(task.id, reviewed)}
-                    onAssigneeChange={onAssigneeChange}
-                    openOnDoubleClick
-                    isOverdue={overdueIds.has(task.id)}
-                    isNewAssigned={newAssignedTaskIds.has(task.id)}
-                    onUnlockOverdueRequest={() => onUnlockOverdue(task.id)}
-                    onReopenRequest={() => onReopenRequest(task.id)}
-                    visibleColumnKeys={visibleColumnKeys}
-                  />
-                </li>
-              );
-            })}
-          </ul>
         </div>
       )}
     </div>
@@ -172,19 +195,87 @@ export function TaskListView({
 function headerWidthClass(column: TaskListColumn): string {
   switch (column.key) {
     case "key":
-      return `flex ${LIST_COL.key} shrink-0`;
+      return `sticky left-0 z-[30] flex ${LIST_COL.key} shrink-0 border-r border-[#dfe1e6] bg-[#fafbfc]`;
+    case "id":
+      return `flex ${LIST_COL.id} shrink-0`;
     case "assignee":
       return `flex ${LIST_COL.assignee} shrink-0`;
+    case "primaryAssignee":
+      return `flex ${LIST_COL.primaryAssignee} shrink-0`;
+    case "assignedAt":
+      return `flex ${LIST_COL.assignedAt} shrink-0`;
+    case "agent":
+      return `flex ${LIST_COL.agent} shrink-0`;
     case "summary":
-      return "flex min-w-0 flex-1";
+      return `sticky left-[100px] z-[30] flex ${LIST_COL.summary} shrink-0 border-r border-[#dfe1e6] bg-[#fafbfc]`;
+    case "description":
+      return `flex ${LIST_COL.description} shrink-0`;
     case "category":
-      return `hidden ${LIST_COL.category} shrink-0 sm:flex`;
+      return `flex ${LIST_COL.category} shrink-0`;
+    case "reporter":
+      return `flex ${LIST_COL.reporter} shrink-0`;
     case "created":
       return `flex ${LIST_COL.created} shrink-0`;
+    case "updated":
+      return `flex ${LIST_COL.updated} shrink-0`;
+    case "activity":
+      return `flex ${LIST_COL.activity} shrink-0`;
+    case "activityBy":
+      return `flex ${LIST_COL.activityBy} shrink-0`;
+    case "comments":
+      return `flex ${LIST_COL.comments} shrink-0 justify-center`;
+    case "attachments":
+      return `flex ${LIST_COL.attachments} shrink-0 justify-center`;
+    case "fub":
+      return `flex ${LIST_COL.fub} shrink-0 justify-center`;
+    case "sla":
+      return `flex ${LIST_COL.sla} shrink-0`;
+    case "slaRemaining":
+      return `flex ${LIST_COL.slaRemaining} shrink-0`;
+    case "overdueCount":
+      return `flex ${LIST_COL.overdueCount} shrink-0 justify-center`;
+    case "todoTime":
+      return `flex ${LIST_COL.todoTime} shrink-0`;
+    case "progressTime":
+      return `flex ${LIST_COL.progressTime} shrink-0`;
+    case "waitingTime":
+      return `flex ${LIST_COL.waitingTime} shrink-0`;
+    case "todoStarted":
+      return `flex ${LIST_COL.todoStarted} shrink-0`;
+    case "progressStarted":
+      return `flex ${LIST_COL.progressStarted} shrink-0`;
+    case "waitingStarted":
+      return `flex ${LIST_COL.waitingStarted} shrink-0`;
+    case "dueSoonNotified":
+      return `flex ${LIST_COL.dueSoonNotified} shrink-0`;
+    case "todoReminded":
+      return `flex ${LIST_COL.todoReminded} shrink-0`;
+    case "waitingReminded":
+      return `flex ${LIST_COL.waitingReminded} shrink-0`;
+    case "overdueFlagged":
+      return `flex ${LIST_COL.overdueFlagged} shrink-0`;
+    case "overdueReminded":
+      return `flex ${LIST_COL.overdueReminded} shrink-0`;
+    case "overdueUnlocked":
+      return `flex ${LIST_COL.overdueUnlocked} shrink-0`;
+    case "staleReminded":
+      return `flex ${LIST_COL.staleReminded} shrink-0`;
+    case "qcReminded":
+      return `flex ${LIST_COL.qcReminded} shrink-0`;
+    case "reopened":
+      return `flex ${LIST_COL.reopened} shrink-0`;
+    case "closed":
+      return `flex ${LIST_COL.closed} shrink-0`;
+    case "reviewedBy":
+      return `flex ${LIST_COL.reviewedBy} shrink-0`;
+    case "reviewedAt":
+      return `flex ${LIST_COL.reviewedAt} shrink-0`;
+    case "position":
+      return `flex ${LIST_COL.position} shrink-0 justify-center`;
     case "priority":
-      return `flex ${LIST_COL.priority} shrink-0 justify-center`;
+      return `flex ${LIST_COL.priority} shrink-0`;
     case "status":
-      return `flex ${LIST_COL.status} shrink-0 justify-center`;
+      return `flex ${LIST_COL.status} shrink-0`;
     case "review":
       return `flex ${LIST_COL.review} shrink-0 justify-center`;
   }
@@ -211,11 +302,11 @@ function SortTh({
     <button
       type="button"
       onClick={() => onSort(col)}
-      className={`items-center gap-1 uppercase transition ${widthClass} ${
+      className={`items-center gap-1 whitespace-nowrap px-3 py-2 uppercase transition ${widthClass} ${
         active ? "text-[#0c66e4]" : "hover:text-[#172b4d]"
       }`}
     >
-      <span className="truncate">{label}</span>
+      <span className="shrink-0">{label}</span>
       {active ? (
         sortDir === "asc" ? (
           <ArrowUp className="h-3 w-3 shrink-0" />

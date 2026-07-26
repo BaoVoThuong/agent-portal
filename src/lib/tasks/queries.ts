@@ -6,7 +6,7 @@ import { fetchParticipantTaskIds } from "./participants";
 import type { TaskActor, TaskRow } from "./types";
 
 export const TASK_COLUMNS =
-  "id,title,description,fub_link,status,priority,category_id,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
+  "id,title,description,fub_link,status,priority,category_id,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,qc_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
 
 export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   const supabase = getSupabaseAdmin();
@@ -54,10 +54,10 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
     { currentEmail: actor.email }
   );
 
-  if (!workerScope) return tasks;
+  if (!workerScope) return attachTaskListMetadata(tasks, supabase);
 
   const participantIdSet = new Set(workerScope.participantIds);
-  return tasks
+  const visibleTasks = tasks
     .map((task) => ({
       ...task,
       viewer_is_participant: participantIdSet.has(task.id),
@@ -79,4 +79,70 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
         isParticipant: task.viewer_is_participant,
       });
     });
+
+  return attachTaskListMetadata(visibleTasks, supabase);
+}
+
+type TaskActivityListRow = {
+  task_id: string;
+  actor_email: string;
+  created_at: string;
+};
+
+async function attachTaskListMetadata(
+  tasks: TaskRow[],
+  supabase = getSupabaseAdmin()
+): Promise<TaskRow[]> {
+  if (tasks.length === 0) return tasks;
+
+  const ids = tasks.map((task) => task.id);
+  const [activityResult, commentsResult, attachmentsResult] = await Promise.all([
+    supabase
+      .from("task_activity")
+      .select("task_id,actor_email,created_at")
+      .in("task_id", ids)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("task_comments")
+      .select("task_id")
+      .in("task_id", ids)
+      .is("deleted_at", null),
+    supabase
+      .from("task_attachments")
+      .select("task_id")
+      .in("task_id", ids),
+  ]);
+
+  if (activityResult.error) throw new Error(activityResult.error.message);
+  if (commentsResult.error) throw new Error(commentsResult.error.message);
+  if (attachmentsResult.error) throw new Error(attachmentsResult.error.message);
+
+  const lastActivityByTask = new Map<string, string>();
+  for (const row of (activityResult.data ?? []) as unknown as TaskActivityListRow[]) {
+    if (!lastActivityByTask.has(row.task_id)) {
+      lastActivityByTask.set(row.task_id, row.actor_email);
+    }
+  }
+
+  const commentCountByTask = countRowsByTask(
+    (commentsResult.data ?? []) as Array<{ task_id: string }>
+  );
+  const attachmentCountByTask = countRowsByTask(
+    (attachmentsResult.data ?? []) as Array<{ task_id: string }>
+  );
+
+  return tasks.map((task) => ({
+    ...task,
+    last_activity_by_email: lastActivityByTask.get(task.id) ?? null,
+    comment_count: commentCountByTask.get(task.id) ?? 0,
+    attachment_count: attachmentCountByTask.get(task.id) ?? 0,
+  }));
+}
+
+function countRowsByTask(rows: Array<{ task_id: string }>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    counts.set(row.task_id, (counts.get(row.task_id) ?? 0) + 1);
+  }
+  return counts;
 }

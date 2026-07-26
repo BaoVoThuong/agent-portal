@@ -42,6 +42,9 @@ export type TaskRow = {
   assignee_started_at?: string | null;
   viewer_is_participant?: boolean;
   reporter_email: string;
+  last_activity_by_email?: string | null;
+  comment_count?: number;
+  attachment_count?: number;
   todo_started_at: string | null;
   todo_reminded_at: string | null;
   in_progress_at: string | null;

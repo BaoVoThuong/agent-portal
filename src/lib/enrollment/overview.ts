@@ -1,4 +1,5 @@
 import { enrollmentIsDueSoon, enrollmentIsOverdue } from "./helpers";
+import { sortEnrollmentOptionsByLabel } from "./options";
 import type { EnrollmentOption, EnrollmentProgram } from "./types";
 import {
   ENROLLMENT_OVERVIEW_RISK_FLAGS,
@@ -93,7 +94,7 @@ export function aggregateEnrollmentOverview(
 ): EnrollmentOverviewSnapshot {
   const { now, program, accounts, stageOptions, records, thresholds, qcStaleHours } = input;
   const stageById = new Map(stageOptions.map((option) => [option.id, option]));
-  const sortedStages = [...stageOptions].sort((a, b) => a.position - b.position);
+  const sortedStages = sortEnrollmentOptionsByLabel(stageOptions);
 
   const derived = records
     .filter((record) => !record.archived_at)

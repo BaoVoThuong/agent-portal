@@ -30,8 +30,10 @@ type FlatRow = {
 
 export function TaskSearchBox({
   labelByEmail,
+  className = "w-full",
 }: {
   labelByEmail: Map<string, string>;
+  className?: string;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResults | null>(null);
@@ -130,7 +132,7 @@ export function TaskSearchBox({
   return (
     <div
       ref={rootRef}
-      className="relative w-full"
+      className={`relative ${className}`}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           setOpen(false);

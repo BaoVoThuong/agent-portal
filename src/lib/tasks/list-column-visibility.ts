@@ -3,17 +3,19 @@ export interface TaskListColumnVisibilityStorage {
   setItem(key: string, value: string): void;
 }
 
-const TASK_LIST_COLUMNS_STORAGE_KEY = "tasks.list.columns";
+const TASK_LIST_COLUMNS_STORAGE_KEY = "tasks.list.columns.v2";
 
 export function readHiddenTaskListColumns(
   storage: TaskListColumnVisibilityStorage | undefined,
   validKeys: ReadonlySet<string>,
-  lockedKeys: ReadonlySet<string>
+  lockedKeys: ReadonlySet<string>,
+  defaultHiddenKeys: ReadonlySet<string> = new Set()
 ): Set<string> {
-  if (!storage) return new Set();
+  if (!storage) return new Set(defaultHiddenKeys);
 
   try {
     const raw = storage.getItem(TASK_LIST_COLUMNS_STORAGE_KEY);
+    if (raw === null) return new Set(defaultHiddenKeys);
     const parsed = raw ? (JSON.parse(raw) as unknown) : [];
     if (!Array.isArray(parsed)) return new Set();
 

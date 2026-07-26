@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { Trash2, X } from "lucide-react";
+import { TASK_CATEGORY_COLORS } from "@/lib/tasks/category-colors";
 
 type Category = { id: string; name: string; color: string | null };
-const CATEGORY_COLORS = ["#ffab00", "#ff7452", "#00b8d9", "#6554c0", "#36b37e"];
 
 export function CategoryManager({
   open,
@@ -17,7 +17,7 @@ export function CategoryManager({
 }) {
   const [items, setItems] = useState<Category[]>([]);
   const [name, setName] = useState("");
-  const [color, setColor] = useState(CATEGORY_COLORS[0]);
+  const [color, setColor] = useState<string>(TASK_CATEGORY_COLORS[0]);
 
   async function load() {
     const res = await fetch("/api/tasks/categories");
@@ -51,7 +51,7 @@ export function CategoryManager({
     });
     if (res.ok) {
       setName("");
-      setColor(CATEGORY_COLORS[0]);
+      setColor(TASK_CATEGORY_COLORS[0]);
       await load();
       onChanged();
     }
@@ -101,7 +101,7 @@ export function CategoryManager({
             className="w-full rounded border-2 border-[#dfe1e6] px-3 py-2 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#6b778c] focus:border-[#0c66e4]"
           />
           <div className="flex items-center gap-2">
-            {CATEGORY_COLORS.map((option) => (
+            {TASK_CATEGORY_COLORS.map((option) => (
               <button
                 key={option}
                 type="button"

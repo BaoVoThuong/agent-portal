@@ -14,6 +14,7 @@ import {
   formatDurationMinutes,
   resolveSlaMinutes,
 } from "@/lib/tasks/sla";
+import { taskCategoryPalette } from "@/lib/tasks/category-colors";
 import {
   DEFAULT_REMINDER_SETTINGS,
   type ReminderSettings,
@@ -304,6 +305,7 @@ export function SlaRulesModal({
                     <SlaRuleRow
                       key={key}
                       label={row.name}
+                      color={row.color}
                       minutes={minutesFor(categoryId)}
                       showReset={row.id !== DEFAULT_ROW_KEY && hasOverride(categoryId)}
                       saving={saving}
@@ -418,6 +420,7 @@ function ReminderSettingRow({
 
 function SlaRuleRow({
   label,
+  color,
   minutes,
   showReset,
   saving,
@@ -425,6 +428,7 @@ function SlaRuleRow({
   onReset,
 }: {
   label: string;
+  color: string | null;
   minutes: number;
   showReset: boolean;
   saving: boolean;
@@ -433,6 +437,9 @@ function SlaRuleRow({
 }) {
   const [hours, setHours] = useState(Math.floor(minutes / 60));
   const [mins, setMins] = useState(minutes % 60);
+  const palette = color
+    ? taskCategoryPalette({ id: label, name: label, color })
+    : null;
 
   function commit(nextHours: number, nextMins: number) {
     setHours(nextHours);
@@ -442,8 +449,16 @@ function SlaRuleRow({
 
   return (
     <li className="flex items-center justify-between gap-3 rounded border border-[#dfe1e6] bg-white px-3 py-2">
-      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#172b4d]">
-        {label}
+      <span className="flex min-w-0 flex-1 items-center gap-2 truncate text-sm font-semibold text-[#172b4d]">
+        {palette ? (
+          <span
+            className="h-3 w-3 shrink-0 rounded-sm"
+            style={{ backgroundColor: palette.background }}
+          />
+        ) : null}
+        <span className="min-w-0 truncate">
+          {label}
+        </span>
       </span>
       <div className="flex shrink-0 items-center gap-1.5">
         <DurationDropdown

@@ -77,7 +77,7 @@ export type EnrollmentOverviewAttentionBar = {
   affectedPeopleCount: number;
 };
 
-// One bucket per stage that has >=1 open record, ordered by stage position.
+// One bucket per stage that has >=1 open record, ordered by stage label.
 // A literal stage x risk-tone matrix (like CS's fixed 5-status table) isn't a
 // good fit here because ACA alone has 14 configurable stages — a histogram
 // with risk-tone shading scales to however many stages are actually in use.

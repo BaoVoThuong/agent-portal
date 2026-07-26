@@ -27,7 +27,6 @@ import {
 } from "@/lib/tasks/list-column-visibility";
 import { isTaskOverdue } from "@/lib/tasks/sla";
 import { KanbanBoard } from "./KanbanBoard";
-import { BacklogBoard } from "./BacklogBoard";
 import { TaskListView } from "./TaskListView";
 import {
   TaskToolbar,
@@ -47,6 +46,7 @@ import { CSWorkloadOverview } from "./CSWorkloadOverview";
 import {
   TASK_LIST_COLUMNS,
   TASK_LIST_COLUMN_KEYS,
+  TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
   TASK_LIST_LOCKED_COLUMN_KEYS,
   visibleTaskListColumns,
   type TaskListColumnKey,
@@ -129,7 +129,7 @@ export function TaskBoardClient({
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
   const [hiddenTaskListColumnKeys, setHiddenTaskListColumnKeys] = useState<
     Set<TaskListColumnKey>
-  >(() => new Set());
+  >(() => new Set(TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS));
   const [showTeamTasks, setShowTeamTasks] = useState(false);
   const [newAssignedTaskIds, setNewAssignedTaskIds] = useState<Set<string>>(
     () => new Set()
@@ -175,7 +175,8 @@ export function TaskBoardClient({
         readHiddenTaskListColumns(
           browserStorage(),
           TASK_LIST_COLUMN_KEYS,
-          TASK_LIST_LOCKED_COLUMN_KEYS
+          TASK_LIST_LOCKED_COLUMN_KEYS,
+          TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS
         ) as Set<TaskListColumnKey>
       );
     }, 0);
@@ -644,6 +645,18 @@ export function TaskBoardClient({
       overdueIds,
     ]
   );
+  const backlogTasks = useMemo(
+    () => visibleTasks.filter((task) => task.status === "backlog"),
+    [visibleTasks]
+  );
+  const backlogTotalCount = useMemo(
+    () => scopedTasks.filter((task) => task.status === "backlog").length,
+    [scopedTasks]
+  );
+  const displayedResultCount =
+    view === "backlog" ? backlogTasks.length : visibleTasks.length;
+  const displayedTotalCount =
+    view === "backlog" ? backlogTotalCount : tasks.length;
 
   const openTask = tasks.find((t) => t.id === openId) ?? null;
 
@@ -1033,19 +1046,24 @@ export function TaskBoardClient({
   const canCreateTasks = isManager || canManageOwnAgentGroup;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white text-[#172b4d]">
-      <div className="shrink-0 px-6 pb-5 pt-6">
+    <div className="flex h-full min-h-0 flex-col bg-[#f7f9fc] text-[#172b4d]">
+      <div className="shrink-0 px-6 pb-5 pt-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <h1 className="text-3xl font-semibold text-[#172b4d]">
-            {boardTitle}
-          </h1>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0c66e4]">
+              Task Management
+            </p>
+            <h1 className="mt-1 text-3xl font-bold tracking-normal text-[#172b4d]">
+              {boardTitle}
+            </h1>
+          </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             {isManager && (
               <button
                 type="button"
                 onClick={() => setManagingAgentGroups(true)}
-                className="inline-flex h-9 items-center gap-2 rounded border border-transparent bg-[#f4f5f7] px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#ebecf0]"
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
               >
                 <UsersRound className="h-4 w-4" />
                 Agent Groups
@@ -1056,7 +1074,7 @@ export function TaskBoardClient({
                 <button
                   type="button"
                   onClick={() => setManagingCategories(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded border border-transparent bg-[#f4f5f7] px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#ebecf0]"
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                 >
                   <Tag className="h-4 w-4" />
                   Categories
@@ -1064,7 +1082,7 @@ export function TaskBoardClient({
                 <button
                   type="button"
                   onClick={() => setManagingSlaRules(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded border border-transparent bg-[#f4f5f7] px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#ebecf0]"
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                 >
                   <Clock className="h-4 w-4" />
                   SLA Times
@@ -1075,7 +1093,7 @@ export function TaskBoardClient({
               <button
                 type="button"
                 onClick={() => setCreating(true)}
-                className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0055cc]"
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
               >
                 <Plus className="h-4 w-4" />
                 New task
@@ -1118,8 +1136,8 @@ export function TaskBoardClient({
           teamTasksEnabled={showTeamTasks}
           onTeamTasksEnabledChange={setShowTeamTasks}
           categories={categories}
-          resultCount={visibleTasks.length}
-          totalCount={tasks.length}
+          resultCount={displayedResultCount}
+          totalCount={displayedTotalCount}
           onClearAll={clearAllFilters}
           listColumns={TASK_LIST_COLUMNS}
           hiddenListColumnKeys={hiddenTaskListColumnKeys}
@@ -1155,6 +1173,7 @@ export function TaskBoardClient({
           tasks={visibleTasks}
           categories={categories}
           assignees={assignees}
+          agents={taskAgents}
           isManager={isManager}
           myAssistantAgents={myAssistantAgents}
           agentMembersByAgent={agentMembersByAgent}
@@ -1175,17 +1194,27 @@ export function TaskBoardClient({
       )}
 
       {view === "backlog" && (isManager || canManageOwnAgentGroup) && (
-        <BacklogBoard
-          tasks={visibleTasks}
+        <TaskListView
+          tasks={backlogTasks}
+          categories={categories}
           assignees={assignees}
           agents={taskAgents}
+          isManager={isManager}
+          myAssistantAgents={myAssistantAgents}
           agentMembersByAgent={agentMembersByAgent}
-          categories={categories}
+          currentEmail={currentEmail}
           onOpen={openTaskById}
           onPatch={patchTask}
+          onReviewDone={reviewDoneTask}
           onAssigneeChange={changeAssignee}
-          onReorder={(id, position) => patchTask(id, { position })}
-          onCreate={createTask}
+          overdueIds={overdueIds}
+          newAssignedTaskIds={displayNewAssignedTaskIds}
+          rules={slaRules}
+          now={now}
+          managerView={managerView}
+          onUnlockOverdue={setUnlockingTaskId}
+          onReopenRequest={setReopeningTaskId}
+          visibleColumns={visibleTaskListColumnConfig}
         />
       )}
 

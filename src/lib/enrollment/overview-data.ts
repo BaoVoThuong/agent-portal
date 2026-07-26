@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
 import { aggregateEnrollmentOverview } from "./overview";
+import { sortEnrollmentOptionsByLabel } from "./options";
 import {
   ENROLLMENT_OVERVIEW_THRESHOLDS,
   type EnrollmentOverviewAccount,
@@ -104,9 +105,11 @@ export async function fetchEnrollmentOverview(
       .select("id,set_id,label,color,position,is_terminal,triggers_qc,archived_at")
       .eq("set_id", stageSet.id)
       .is("archived_at", null)
-      .order("position", { ascending: true });
+      .order("label", { ascending: true });
     if (stageOptionsError) throw new Error(stageOptionsError.message);
-    stageOptions = (stageOptionRows ?? []).map((option) => ({ ...option, set_key: "stage" as const }));
+    stageOptions = sortEnrollmentOptionsByLabel(
+      (stageOptionRows ?? []).map((option) => ({ ...option, set_key: "stage" as const }))
+    );
   }
 
   const records = ((recordsResult.data ?? []) as EnrollmentOverviewRecordInput[]).map((record) => ({

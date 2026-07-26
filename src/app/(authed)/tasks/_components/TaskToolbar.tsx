@@ -201,23 +201,33 @@ export function TaskToolbar({
   const showTaskFilters = view !== "overview";
 
   return (
-    <div className="mt-6 space-y-3">
+    <section className="mt-6 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
-          {views.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              onClick={() => onViewChange(v.key)}
-              className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                view === v.key
-                  ? "bg-white text-[#0c66e4] shadow-sm"
-                  : "text-[#44546f] hover:text-[#172b4d]"
-              }`}
-            >
-              {v.label}
-            </button>
-          ))}
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
+            {views.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                onClick={() => onViewChange(v.key)}
+                aria-current={view === v.key ? "page" : undefined}
+                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  view === v.key
+                    ? "bg-white text-[#0c66e4] shadow-sm"
+                    : "text-[#5e6c84] hover:text-[#172b4d]"
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          {showTaskFilters ? (
+            <TaskSearchBox
+              labelByEmail={labelByEmail}
+              className="min-w-[18rem] flex-1"
+            />
+          ) : null}
         </div>
 
         {showTaskFilters ? (
@@ -366,7 +376,7 @@ export function TaskToolbar({
             );
           })}
 
-          {view === "list" ? (
+          {view === "list" || view === "backlog" ? (
             <TaskListColumnSettingsButton
               columns={listColumns}
               hiddenColumnKeys={hiddenListColumnKeys}
@@ -390,8 +400,7 @@ export function TaskToolbar({
         </div>
       ) : null}
 
-      {showTaskFilters ? <TaskSearchBox labelByEmail={labelByEmail} /> : null}
-    </div>
+    </section>
   );
 }
 
@@ -440,7 +449,7 @@ function TaskListColumnSettingsButton({
             <div
               ref={menuRef}
               style={menuStyle}
-              className="dashboard-filter-menu z-[110] flex w-[min(20rem,calc(100vw-1rem))] flex-col overflow-hidden p-2"
+              className="dashboard-filter-menu z-[110] flex max-h-[calc(100vh-6rem)] w-[min(20rem,calc(100vw-1rem))] flex-col overflow-hidden p-2"
             >
               <div className="border-b border-[#ebecf0] px-2 py-2">
                 <div className="flex items-center gap-2 text-sm font-bold text-[#172b4d]">
@@ -448,7 +457,7 @@ function TaskListColumnSettingsButton({
                   Table settings
                 </div>
                 <div className="mt-1 text-[11px] font-medium text-[#6b778c]">
-                  Choose which list columns are visible.
+                  Choose which table columns are visible.
                 </div>
               </div>
               <div className="min-h-0 flex-1 overflow-auto py-1">

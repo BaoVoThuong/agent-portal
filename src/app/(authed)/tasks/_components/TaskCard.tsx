@@ -6,6 +6,7 @@ import type {
   SyntheticEvent,
 } from "react";
 import { stageElapsedSeconds } from "@/lib/tasks/sla";
+import { taskCategoryPalette } from "@/lib/tasks/category-colors";
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
 import {
   Initials,
@@ -243,7 +244,7 @@ function DoneReviewBadge({
 }
 
 function CategoryBadge({ category }: { category: TaskCategory }) {
-  const palette = categoryPalette(category);
+  const palette = taskCategoryPalette(category);
 
   return (
     <span
@@ -349,36 +350,3 @@ const STATUS_ACCENT: Record<TaskRow["status"], string> = {
   done: "#36b37e",
   cancel: "#5e6c84",
 };
-
-function categoryPalette(category: TaskCategory) {
-  if (category.color && /^#[0-9a-f]{6}$/i.test(category.color)) {
-    return {
-      background: category.color,
-      foreground: readableTextColor(category.color),
-    };
-  }
-
-  const palettes = [
-    { background: "#ffab00", foreground: "#172b4d" },
-    { background: "#ff7452", foreground: "#ffffff" },
-    { background: "#00b8d9", foreground: "#ffffff" },
-    { background: "#6554c0", foreground: "#ffffff" },
-    { background: "#36b37e", foreground: "#ffffff" },
-  ];
-  let hash = 0;
-
-  for (const character of category.id || category.name) {
-    hash = (hash + character.charCodeAt(0)) % palettes.length;
-  }
-
-  return palettes[hash];
-}
-
-function readableTextColor(background: string) {
-  const red = Number.parseInt(background.slice(1, 3), 16);
-  const green = Number.parseInt(background.slice(3, 5), 16);
-  const blue = Number.parseInt(background.slice(5, 7), 16);
-  const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
-
-  return luminance > 0.62 ? "#172b4d" : "#ffffff";
-}

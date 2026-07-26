@@ -45,9 +45,11 @@ import {
   optionLabel,
 } from "@/lib/enrollment/helpers";
 import {
+  compareEnrollmentOptionText,
   emptyEnrollmentOptionsBySet,
   ENROLLMENT_OPTION_LABELS,
   optionById,
+  sortEnrollmentOptionsByLabel,
   type EnrollmentOptionsBySet,
 } from "@/lib/enrollment/options";
 import {
@@ -1126,7 +1128,7 @@ function EnrollmentTable({
       ) : (
         <div className="overflow-x-auto">
           <div style={{ minWidth }}>
-            <div className="flex items-stretch border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+            <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
               {columns.map((column) => (
                 <div
                   key={column.key}
@@ -1136,7 +1138,7 @@ function EnrollmentTable({
                   }}
                   className={`flex shrink-0 items-center px-3 py-2 ${
                     column.align === "center" ? "justify-center" : ""
-                  } ${column.sticky ? "sticky z-[1] border-r border-[#dfe1e6] bg-[#fafbfc]" : ""}`}
+                  } ${column.sticky ? "sticky z-[30] border-r border-[#dfe1e6] bg-[#fafbfc]" : ""}`}
                 >
                   {column.sortable ? (
                     <EnrollmentSortTh
@@ -1206,7 +1208,7 @@ function EnrollmentRowItem({
   return (
     <div
       onDoubleClick={() => onOpen(record.id)}
-      className="group flex items-stretch bg-white transition hover:bg-[#f7f8f9]"
+      className="group flex items-stretch whitespace-nowrap bg-white transition hover:bg-[#f7f8f9]"
     >
       {/* Key — carries the overdue accent so it stays visible while the row is
           scrolled horizontally (this is the leftmost sticky column). */}
@@ -1811,7 +1813,7 @@ function EnrollmentSortTh({
     <button
       type="button"
       onClick={() => onSort(col)}
-      className={`flex w-full min-w-0 items-center gap-1 uppercase transition ${
+      className={`flex w-full min-w-0 items-center gap-1 whitespace-nowrap uppercase transition ${
         active ? "text-[#0c66e4]" : "hover:text-[#172b4d]"
       }`}
     >
@@ -2341,7 +2343,7 @@ function OptionSetManager({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<EnrollmentOption | null>(null);
-  const setOptions = optionsBySet[setKey];
+  const setOptions = sortEnrollmentOptionsByLabel(optionsBySet[setKey]);
 
   async function addOption() {
     setBusy(true);
@@ -2479,8 +2481,7 @@ function OptionSetManager({
                   <tr>
                     <th className="border-b border-r border-[#d8dee8] px-3 py-2 text-left">Label</th>
                     <th className="border-b border-r border-[#d8dee8] px-3 py-2 text-left">Color</th>
-                    <th className="border-b border-r border-[#d8dee8] px-3 py-2 text-left">Position</th>
-                    <th className="border-b border-r border-[#d8dee8] px-3 py-2 text-left">Flags</th>
+                    <th className="border-b border-r border-[#d8dee8] px-3 py-2 text-left">Rules</th>
                     <th className="border-b border-[#d8dee8] px-3 py-2 text-right">Action</th>
                   </tr>
                 </thead>
@@ -2505,16 +2506,6 @@ function OptionSetManager({
                           defaultValue={option.color ?? "#97A0AF"}
                           onBlur={(event) => void patchOption(option.id, { color: event.target.value })}
                           className="h-8 w-full rounded border border-[#d8dee8] bg-white p-1"
-                        />
-                      </td>
-                      <td className="border-b border-r border-[#d8dee8] px-3 py-2">
-                        <input
-                          type="number"
-                          defaultValue={option.position}
-                          onBlur={(event) =>
-                            void patchOption(option.id, { position: Number(event.target.value) })
-                          }
-                          className="h-8 w-24 rounded border border-[#d8dee8] px-2 font-semibold text-[#172b4d] outline-none focus:border-[#0c66e4]"
                         />
                       </td>
                       <td className="border-b border-r border-[#d8dee8] px-3 py-2 text-xs font-semibold text-[#42526e]">
@@ -2902,6 +2893,9 @@ function sortRecords(
     if (av === bv) return b.updated_at.localeCompare(a.updated_at);
     if (av === null) return 1;
     if (bv === null) return -1;
+    if (typeof av === "string" && typeof bv === "string") {
+      return compareEnrollmentOptionText(av, bv) * factor;
+    }
     return av < bv ? -1 * factor : factor;
   });
 }
@@ -2920,7 +2914,7 @@ function sortValue(
     case "client":
       return record.client_name?.toLowerCase() ?? null;
     case "stage":
-      return record.stage_id ? optionsById.get(record.stage_id)?.position ?? null : null;
+      return record.stage_id ? optionsById.get(record.stage_id)?.label ?? null : null;
     case "caller":
       return record.caller_email
         ? personLabel(record.caller_email, peopleByEmail).toLowerCase()
@@ -3034,7 +3028,6 @@ function enrollmentAttentionScore(
   if (!record.responsible_enroll_email) score += 500;
   if (record.program !== "medicare" && !record.caller_email) score += 400;
   if (!record.due_date) score += 300;
-  if (stage && !stage.is_terminal) score += Math.max(0, 200 - stage.position);
   if (record.due_date) {
     const dueDistance = Math.max(
       0,
@@ -3126,6 +3119,9 @@ function groupOptions(options: EnrollmentOption[]): EnrollmentOptionsBySet {
   for (const option of options) {
     if (!option.archived_at) bySet[option.set_key].push(option);
   }
+  for (const key of Object.keys(bySet) as EnrollmentOptionSetKey[]) {
+    bySet[key] = sortEnrollmentOptionsByLabel(bySet[key]);
+  }
   return bySet;
 }
 
@@ -3144,15 +3140,20 @@ function getReopenStage(
   stage: EnrollmentOption | null,
   stages: EnrollmentOption[]
 ): EnrollmentOption | null {
-  const candidates = stages.filter((option) => !option.is_terminal);
+  const orderedStages = sortEnrollmentOptionsByLabel(stages);
+  const candidates = orderedStages.filter((option) => !option.is_terminal);
   if (!stage) return candidates[0] ?? null;
-  return (
-    [...candidates]
-      .sort((a, b) => b.position - a.position)
-      .find((option) => option.position < stage.position) ??
-    candidates[0] ??
-    null
-  );
+
+  const stageIndex = orderedStages.findIndex((option) => option.id === stage.id);
+  if (stageIndex > 0) {
+    const previousOpenStage = orderedStages
+      .slice(0, stageIndex)
+      .reverse()
+      .find((option) => !option.is_terminal);
+    if (previousOpenStage) return previousOpenStage;
+  }
+
+  return candidates[0] ?? null;
 }
 
 function formatExternalLink(value: string): string {

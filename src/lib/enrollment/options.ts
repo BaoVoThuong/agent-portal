@@ -18,6 +18,31 @@ export const ENROLLMENT_OPTION_LABELS: Record<EnrollmentOptionSetKey, string> = 
 
 export type EnrollmentOptionsBySet = Record<EnrollmentOptionSetKey, EnrollmentOption[]>;
 
+const enrollmentOptionLabelCollator = new Intl.Collator("en-US", {
+  numeric: true,
+  sensitivity: "base",
+});
+
+export function compareEnrollmentOptionText(first: string, second: string): number {
+  return enrollmentOptionLabelCollator.compare(first.trim(), second.trim());
+}
+
+export function compareEnrollmentOptionLabels(
+  first: Pick<EnrollmentOption, "id" | "label">,
+  second: Pick<EnrollmentOption, "id" | "label">
+): number {
+  return (
+    compareEnrollmentOptionText(first.label, second.label) ||
+    first.id.localeCompare(second.id)
+  );
+}
+
+export function sortEnrollmentOptionsByLabel(
+  options: EnrollmentOption[]
+): EnrollmentOption[] {
+  return [...options].sort(compareEnrollmentOptionLabels);
+}
+
 export function emptyEnrollmentOptionsBySet(): EnrollmentOptionsBySet {
   return {
     stage: [],
@@ -52,7 +77,6 @@ export async function fetchEnrollmentOptionData(
         .from("enrollment_options")
         .select("id,set_id,label,color,position,is_terminal,triggers_qc,archived_at")
         .in("set_id", setIds)
-        .order("position", { ascending: true })
         .order("label", { ascending: true })
     : { data: [], error: null };
   if (optionsRes.error) throw new Error(optionsRes.error.message);
@@ -67,12 +91,12 @@ export async function fetchEnrollmentOptionData(
     .filter((option): option is EnrollmentOption => Boolean(option));
 
   const optionsBySet = emptyEnrollmentOptionsBySet();
-  for (const option of options) {
+  for (const option of sortEnrollmentOptionsByLabel(options)) {
     if (option.archived_at) continue;
     optionsBySet[option.set_key].push(option);
   }
 
-  return { sets, options, optionsBySet };
+  return { sets, options: sortEnrollmentOptionsByLabel(options), optionsBySet };
 }
 
 export function optionById(options: EnrollmentOption[]): Map<string, EnrollmentOption> {

@@ -9,13 +9,44 @@ import {
 
 export type SortKey =
   | "title"
+  | "description"
   | "status"
   | "priority"
   | "agent"
   | "assignee"
+  | "primaryAssignee"
+  | "assignedAt"
   | "category"
+  | "reporter"
   | "created"
   | "updated"
+  | "lastActivity"
+  | "lastActivityBy"
+  | "comments"
+  | "attachments"
+  | "fub"
+  | "sla"
+  | "overdueCount"
+  | "todoTime"
+  | "progressTime"
+  | "waitingTime"
+  | "todoStarted"
+  | "progressStarted"
+  | "waitingStarted"
+  | "dueSoonNotified"
+  | "todoReminded"
+  | "waitingReminded"
+  | "overdueFlagged"
+  | "overdueReminded"
+  | "overdueUnlocked"
+  | "staleReminded"
+  | "qcReminded"
+  | "reopened"
+  | "closed"
+  | "reviewedBy"
+  | "reviewedAt"
+  | "position"
+  | "id"
   | "key";
 export type SortDir = "asc" | "desc";
 
@@ -60,6 +91,8 @@ function sortValue(
   switch (key) {
     case "title":
       return task.title.toLowerCase();
+    case "description":
+      return task.description?.toLowerCase() ?? null;
     case "status":
       return STATUS_RANK[task.status];
     case "priority":
@@ -68,12 +101,72 @@ function sortValue(
       return task.agent_email?.toLowerCase() ?? null;
     case "assignee":
       return task.assignees[0]?.toLowerCase() ?? null;
+    case "primaryAssignee":
+      return task.assignee_email?.toLowerCase() ?? null;
+    case "assignedAt":
+      return task.assignee_started_at ?? null;
     case "category":
       return categoryName(task.category_id)?.toLowerCase() ?? null;
+    case "reporter":
+      return task.reporter_email.toLowerCase();
     case "created":
       return task.created_at;
     case "updated":
       return task.updated_at;
+    case "lastActivity":
+      return task.last_activity_at ?? null;
+    case "lastActivityBy":
+      return task.last_activity_by_email?.toLowerCase() ?? null;
+    case "comments":
+      return task.comment_count ?? 0;
+    case "attachments":
+      return task.attachment_count ?? 0;
+    case "fub":
+      return task.fub_link ? 1 : 0;
+    case "sla":
+      return task.sla_minutes ?? null;
+    case "overdueCount":
+      return task.overdue_count;
+    case "todoTime":
+      return task.todo_seconds;
+    case "progressTime":
+      return task.in_progress_seconds;
+    case "waitingTime":
+      return task.waiting_seconds;
+    case "todoStarted":
+      return task.todo_started_at;
+    case "progressStarted":
+      return task.in_progress_at;
+    case "waitingStarted":
+      return task.waiting_started_at;
+    case "dueSoonNotified":
+      return task.due_soon_notified_at;
+    case "todoReminded":
+      return task.todo_reminded_at;
+    case "waitingReminded":
+      return task.waiting_reminded_at;
+    case "overdueFlagged":
+      return task.overdue_flagged_at;
+    case "overdueReminded":
+      return task.overdue_reminded_at;
+    case "overdueUnlocked":
+      return task.overdue_unlocked_at;
+    case "staleReminded":
+      return task.stale_reminded_at;
+    case "qcReminded":
+      return task.qc_reminded_at;
+    case "reopened":
+      return task.reopened_at;
+    case "closed":
+      return task.closed_at;
+    case "reviewedBy":
+      return task.done_reviewed_by_email?.toLowerCase() ?? null;
+    case "reviewedAt":
+      return task.done_reviewed_at;
+    case "position":
+      return task.position;
+    case "id":
+      return task.id;
     case "key":
       return taskKey(task.id);
   }
