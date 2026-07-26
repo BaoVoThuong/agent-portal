@@ -3,7 +3,7 @@ export type EnrollmentProgram = (typeof ENROLLMENT_PROGRAMS)[number];
 
 export const ENROLLMENT_PROGRAM_LABELS: Record<EnrollmentProgram, string> = {
   aca: "Health ACA Enroll",
-  medicare: "Medicare Enroll",
+  medicare: "Health Medicare Enrollment",
 };
 
 export function isEnrollmentProgram(value: unknown): value is EnrollmentProgram {

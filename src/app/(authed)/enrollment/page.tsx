@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
@@ -6,6 +7,7 @@ import {
 } from "@/lib/tasks/access";
 import { canManageEnrollmentOptions } from "@/lib/enrollment/access";
 import {
+  fetchEnrollmentRecordById,
   fetchEnrollmentPeople,
   fetchEnrollmentRecords,
 } from "@/lib/enrollment/queries";
@@ -24,6 +26,7 @@ export default async function EnrollmentPage({
   const program = toEnrollmentProgram(
     Array.isArray(params.program) ? params.program[0] : params.program
   );
+  const recordId = Array.isArray(params.record) ? params.record[0] : params.record;
 
   const session = await requireAnyPermission([
     PERMISSIONS.TASK_MANAGE,
@@ -33,6 +36,20 @@ export default async function EnrollmentPage({
   const actor = buildTaskActor(session.user.permissions, email, {
     isAdmin: isTaskViewAdmin(session.user),
   });
+
+  if (recordId) {
+    const linkedRecord = await fetchEnrollmentRecordById(recordId);
+    if (linkedRecord && linkedRecord.program !== program) {
+      const nextParams = new URLSearchParams();
+      for (const [key, value] of Object.entries(params)) {
+        if (typeof value === "string") nextParams.set(key, value);
+        else if (Array.isArray(value) && value[0]) nextParams.set(key, value[0]);
+      }
+      nextParams.set("program", linkedRecord.program);
+      nextParams.set("record", linkedRecord.id);
+      redirect(`/enrollment?${nextParams.toString()}`);
+    }
+  }
 
   const [records, people, optionData] = await Promise.all([
     fetchEnrollmentRecords(program),

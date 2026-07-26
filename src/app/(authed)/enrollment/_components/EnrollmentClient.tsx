@@ -525,22 +525,6 @@ export function EnrollmentClient({
             <h1 className="mt-1 text-3xl font-bold tracking-normal text-[#172b4d]">
               {ENROLLMENT_PROGRAM_LABELS[program]}
             </h1>
-            <nav className="mt-3 inline-flex rounded-lg bg-[#f4f5f7] p-0.5">
-              {ENROLLMENT_PROGRAMS.map((value) => (
-                <a
-                  key={value}
-                  href={`/enrollment?program=${value}`}
-                  aria-current={value === program ? "page" : undefined}
-                  className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${
-                    value === program
-                      ? "bg-white text-[#0c66e4] shadow-sm"
-                      : "text-[#5e6c84] hover:text-[#172b4d]"
-                  }`}
-                >
-                  {ENROLLMENT_PROGRAM_LABELS[value]}
-                </a>
-              ))}
-            </nav>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             {canManageOptions ? (

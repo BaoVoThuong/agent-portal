@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import styles from "./sidebar.module.css";
 import { can, canAny } from "@/lib/rbac/client";
@@ -16,6 +16,8 @@ type MenuItem = {
   href?: string;
   label?: string;
   title?: string;
+  activePath?: string;
+  activeQuery?: Record<string, string>;
   permission?: string;
   anyPermission?: string[];
   children?: MenuItem[];
@@ -103,8 +105,17 @@ const menuData: MenuItem[] = [
         anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
       },
       {
-        href: "/enrollment",
-        label: "Health Enrollment",
+        href: "/enrollment?program=aca",
+        label: "Health ACA Enrollment",
+        activePath: "/enrollment",
+        activeQuery: { program: "aca" },
+        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+      },
+      {
+        href: "/enrollment?program=medicare",
+        label: "Health Medicare Enrollment",
+        activePath: "/enrollment",
+        activeQuery: { program: "medicare" },
         anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
       },
     ],
@@ -137,6 +148,7 @@ export default function Sidebar({
   permissions = [],
 }: SidebarProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({
     "Customer Registration": true,
     "Automation Tool": pathname.startsWith("/automation"),
@@ -165,6 +177,22 @@ export default function Sidebar({
 
   const toggleDropdown = (title: string) => {
     setOpenDropdowns((prev) => ({ ...prev, [title]: !prev[title] }));
+  };
+
+  const isActiveItem = (item: MenuItem) => {
+    if (!item.href) return false;
+    const activePath = item.activePath ?? item.href.split("?")[0];
+    const pathMatches =
+      activePath === "/"
+        ? pathname === "/"
+        : pathname === activePath || pathname.startsWith(`${activePath}/`);
+    if (!pathMatches) return false;
+
+    if (!item.activeQuery) return true;
+    return Object.entries(item.activeQuery).every(([key, value]) => {
+      const current = searchParams.get(key);
+      return current === value || (!current && key === "program" && value === "aca");
+    });
   };
 
   return (
@@ -211,7 +239,7 @@ export default function Sidebar({
                 {isOpen && (
                   <div className="ml-4 mt-1 flex flex-col space-y-1 border-l border-white/10 pl-2">
                     {item.children.map((child) => {
-                      const isActive = pathname === child.href;
+                      const isActive = isActiveItem(child);
                       if (isActive) {
                         return (
                           <span
@@ -240,10 +268,7 @@ export default function Sidebar({
             );
           }
 
-          const active =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const active = isActiveItem(item);
           if (active) {
             return (
               <span

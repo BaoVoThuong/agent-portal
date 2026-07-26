@@ -9,7 +9,6 @@ import { taskKey } from "@/lib/tasks/sorting";
 import { enrollmentKey } from "@/lib/enrollment/helpers";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { dispatchOpenTask } from "@/lib/tasks/client-events";
-import { dispatchOpenEnrollment } from "@/lib/enrollment/client-events";
 import { playNotificationChime, primeNotificationSound } from "@/lib/tasks/sound";
 
 type Notif = {
@@ -357,10 +356,6 @@ export function NotificationBell() {
     if (entityKind(n) === "task" && pathname === "/tasks") {
       event?.preventDefault();
       dispatchOpenTask(entityId(n));
-    }
-    if (entityKind(n) === "enrollment" && pathname === "/enrollment") {
-      event?.preventDefault();
-      dispatchOpenEnrollment(entityId(n));
     }
   }
 
