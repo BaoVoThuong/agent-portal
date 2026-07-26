@@ -20,6 +20,11 @@ import {
   NO_AGENT,
   type QuickFilter,
 } from "@/lib/tasks/filtering";
+import {
+  readHiddenTaskListColumns,
+  toggleHiddenTaskListColumn,
+  writeHiddenTaskListColumns,
+} from "@/lib/tasks/list-column-visibility";
 import { isTaskOverdue } from "@/lib/tasks/sla";
 import { KanbanBoard } from "./KanbanBoard";
 import { BacklogBoard } from "./BacklogBoard";
@@ -40,6 +45,13 @@ import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
 import {
+  TASK_LIST_COLUMNS,
+  TASK_LIST_COLUMN_KEYS,
+  TASK_LIST_LOCKED_COLUMN_KEYS,
+  visibleTaskListColumns,
+  type TaskListColumnKey,
+} from "./task-list-columns";
+import {
   optimisticallyAssignOverviewTask,
 } from "@/lib/tasks/overview";
 import type { OverviewSnapshot } from "@/lib/tasks/overview-types";
@@ -47,6 +59,10 @@ import type { OverviewSnapshot } from "@/lib/tasks/overview-types";
 // Countdown/overdue labels only need to refresh every so often, not on every
 // render — 30s keeps the board close to live without a timer per card.
 const SLA_TICK_MS = 30_000;
+
+function browserStorage() {
+  return typeof window === "undefined" ? undefined : window.localStorage;
+}
 
 export function TaskBoardClient({
   initialTasks,
@@ -111,6 +127,9 @@ export function TaskBoardClient({
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<TaskStatus[]>([]);
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
+  const [hiddenTaskListColumnKeys, setHiddenTaskListColumnKeys] = useState<
+    Set<TaskListColumnKey>
+  >(() => new Set());
   const [showTeamTasks, setShowTeamTasks] = useState(false);
   const [newAssignedTaskIds, setNewAssignedTaskIds] = useState<Set<string>>(
     () => new Set()
@@ -152,6 +171,13 @@ export function TaskBoardClient({
       const storedDefault = readTaskDateRangeDefault();
       setDateRangeDefault(storedDefault);
       setDateRange(resolveTaskDateRangeDefault(storedDefault));
+      setHiddenTaskListColumnKeys(
+        readHiddenTaskListColumns(
+          browserStorage(),
+          TASK_LIST_COLUMN_KEYS,
+          TASK_LIST_LOCKED_COLUMN_KEYS
+        ) as Set<TaskListColumnKey>
+      );
     }, 0);
 
     return () => window.clearTimeout(timer);
@@ -580,6 +606,10 @@ export function TaskBoardClient({
   const showStatusFilter = view === "list";
   const showPriorityFilter = true;
   const showCategoryFilter = !shouldLimitPlainCsTasks;
+  const visibleTaskListColumnConfig = useMemo(
+    () => visibleTaskListColumns(hiddenTaskListColumnKeys),
+    [hiddenTaskListColumnKeys]
+  );
 
   const visibleTasks = useMemo(
     () =>
@@ -976,6 +1006,18 @@ export function TaskBoardClient({
     setDateRange(defaultDateRange);
   }
 
+  function toggleTaskListColumn(key: TaskListColumnKey) {
+    setHiddenTaskListColumnKeys((current) => {
+      const next = toggleHiddenTaskListColumn(
+        current,
+        key,
+        TASK_LIST_LOCKED_COLUMN_KEYS
+      ) as Set<TaskListColumnKey>;
+      writeHiddenTaskListColumns(browserStorage(), next);
+      return next;
+    });
+  }
+
   function saveDefaultDateRange(nextDefault: TaskDateRangeDefault) {
     setDateRangeDefault(nextDefault);
     writeTaskDateRangeDefault(nextDefault);
@@ -1079,6 +1121,9 @@ export function TaskBoardClient({
           resultCount={visibleTasks.length}
           totalCount={tasks.length}
           onClearAll={clearAllFilters}
+          listColumns={TASK_LIST_COLUMNS}
+          hiddenListColumnKeys={hiddenTaskListColumnKeys}
+          onToggleListColumn={toggleTaskListColumn}
         />
       </div>
 
@@ -1125,6 +1170,7 @@ export function TaskBoardClient({
           managerView={managerView}
           onUnlockOverdue={setUnlockingTaskId}
           onReopenRequest={setReopeningTaskId}
+          visibleColumns={visibleTaskListColumnConfig}
         />
       )}
 

@@ -10,6 +10,8 @@ import {
 } from "@/lib/enrollment/options";
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import {
+  ENROLLMENT_OPTION_SET_KEYS,
+  enrollmentOptionSetKeysForProgram,
   toEnrollmentProgram,
   type EnrollmentOptionSetKey,
 } from "@/lib/enrollment/types";
@@ -58,6 +60,13 @@ export async function POST(request: Request) {
   }
 
   const program = toEnrollmentProgram(body?.program);
+  if (!enrollmentOptionSetKeysForProgram(program).includes(setKey)) {
+    return NextResponse.json(
+      { error: "Option set is not available for this enrollment program." },
+      { status: 400 }
+    );
+  }
+
   const supabase = getSupabaseAdmin();
   const { data: setRow, error: setError } = await supabase
     .from("enrollment_option_sets")
@@ -102,7 +111,7 @@ export async function POST(request: Request) {
 }
 
 function isEnrollmentOptionSetKey(value: string): value is EnrollmentOptionSetKey {
-  return value in ENROLLMENT_OPTION_LABELS;
+  return ENROLLMENT_OPTION_SET_KEYS.includes(value as EnrollmentOptionSetKey);
 }
 
 function cleanColor(value: unknown): string | null {

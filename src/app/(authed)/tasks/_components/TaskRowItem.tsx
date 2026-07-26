@@ -26,6 +26,7 @@ import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
 import { TaskAssigneePicker } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
+import type { TaskListColumnKey } from "./task-list-columns";
 
 // Shared column widths so the List header and the rows line up exactly.
 export const LIST_COL = {
@@ -63,6 +64,7 @@ export function TaskRowItem({
   openOnDoubleClick = false,
   isOverdue = false,
   isNewAssigned = false,
+  visibleColumnKeys,
   onUnlockOverdueRequest,
   onReopenRequest,
 }: {
@@ -81,6 +83,7 @@ export function TaskRowItem({
   openOnDoubleClick?: boolean;
   isOverdue?: boolean;
   isNewAssigned?: boolean;
+  visibleColumnKeys?: ReadonlySet<TaskListColumnKey>;
   onUnlockOverdueRequest?: () => void;
   onReopenRequest?: () => void;
 }) {
@@ -90,6 +93,8 @@ export function TaskRowItem({
       assignee.name?.trim() || assignee.email,
     ])
   );
+  const hasColumn = (key: TaskListColumnKey) =>
+    !visibleColumnKeys || visibleColumnKeys.has(key);
 
   return (
     <div
@@ -102,77 +107,93 @@ export function TaskRowItem({
       }`}
     >
       {dragHandle}
-      <span
-        className={`${LIST_COL.key} shrink-0 truncate font-mono text-xs font-bold text-[#97a0af]`}
-      >
-        {taskKey(task.id)}
-      </span>
-      <span className={`${LIST_COL.assignee} shrink-0`}>
-        <AssigneeMenu
-          emails={task.assignees}
-          assignees={assignees}
-          agentEmail={task.agent_email}
-          agentMembersByAgent={agentMembersByAgent}
-          labelByEmail={assigneeLabelByEmail}
-          canAssign={canAssign}
-          onToggle={(email, assigned) => onAssigneeChange(task.id, email, assigned)}
+      {hasColumn("key") ? (
+        <span
+          className={`${LIST_COL.key} shrink-0 truncate font-mono text-xs font-bold text-[#97a0af]`}
+        >
+          {taskKey(task.id)}
+        </span>
+      ) : null}
+      {hasColumn("assignee") ? (
+        <span className={`${LIST_COL.assignee} shrink-0`}>
+          <AssigneeMenu
+            emails={task.assignees}
+            assignees={assignees}
+            agentEmail={task.agent_email}
+            agentMembersByAgent={agentMembersByAgent}
+            labelByEmail={assigneeLabelByEmail}
+            canAssign={canAssign}
+            onToggle={(email, assigned) => onAssigneeChange(task.id, email, assigned)}
+          />
+        </span>
+      ) : null}
+      {hasColumn("summary") ? (
+        <button
+          type="button"
+          onClick={() => onOpen(task.id)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]"
+          title={task.title}
+        >
+          <span className="min-w-0 flex-1 truncate">{task.title}</span>
+          {isNewAssigned ? <NewAssignedBadge /> : null}
+          <TaskRowFlags task={task} isOverdue={isOverdue} />
+        </button>
+      ) : null}
+
+      {hasColumn("category") ? (
+        <span className={`hidden ${LIST_COL.category} shrink-0 truncate sm:block`}>
+          {category ? (
+            <span
+              className="rounded bg-[#ebecf0] px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[#42526e]"
+              title={category.name}
+            >
+              {category.name}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+
+      {hasColumn("created") ? (
+        <span className={`${LIST_COL.created} shrink-0 text-[11px] font-medium text-[#6b778c]`}>
+          {new Date(task.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}
+        </span>
+      ) : null}
+
+      {hasColumn("priority") ? (
+        <span
+          className={`flex ${LIST_COL.priority} shrink-0 justify-center`}
+          title={`${PRIORITY_META[task.priority].label} priority`}
+        >
+          <PriorityIcon priority={task.priority} className="h-4 w-4" />
+        </span>
+      ) : null}
+
+      {hasColumn("status") ? (
+        <StatusPill
+          status={task.status}
+          assigned={task.assignees.length > 0}
+          canChangeStatus={canChangeStatus}
+          hasBeenInProgress={
+            task.status === "in_progress" ||
+            Boolean(task.in_progress_at) ||
+            task.in_progress_seconds > 0
+          }
+          isOverdueLocked={isOverdue}
+          onChange={(status) => onPatch(task.id, { status })}
+          onUnlockOverdueRequest={onUnlockOverdueRequest}
+          onReopenRequest={onReopenRequest}
         />
-      </span>
-      <button
-        type="button"
-        onClick={() => onOpen(task.id)}
-        className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]"
-        title={task.title}
-      >
-        <span className="min-w-0 flex-1 truncate">{task.title}</span>
-        {isNewAssigned ? <NewAssignedBadge /> : null}
-        <TaskRowFlags task={task} isOverdue={isOverdue} />
-      </button>
+      ) : null}
 
-      <span className={`hidden ${LIST_COL.category} shrink-0 truncate sm:block`}>
-        {category ? (
-          <span
-            className="rounded bg-[#ebecf0] px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[#42526e]"
-            title={category.name}
-          >
-            {category.name}
-          </span>
-        ) : null}
-      </span>
-
-      <span className={`${LIST_COL.created} shrink-0 text-[11px] font-medium text-[#6b778c]`}>
-        {new Date(task.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}
-      </span>
-
-      <span
-        className={`flex ${LIST_COL.priority} shrink-0 justify-center`}
-        title={`${PRIORITY_META[task.priority].label} priority`}
-      >
-        <PriorityIcon priority={task.priority} className="h-4 w-4" />
-      </span>
-
-      <StatusPill
-        status={task.status}
-        assigned={task.assignees.length > 0}
-        canChangeStatus={canChangeStatus}
-        hasBeenInProgress={
-          task.status === "in_progress" ||
-          Boolean(task.in_progress_at) ||
-          task.in_progress_seconds > 0
-        }
-        isOverdueLocked={isOverdue}
-        onChange={(status) => onPatch(task.id, { status })}
-        onUnlockOverdueRequest={onUnlockOverdueRequest}
-        onReopenRequest={onReopenRequest}
-      />
-
-      <span className={`flex ${LIST_COL.review} shrink-0 justify-center`}>
-        <DoneReviewPill
-          task={task}
-          canReviewDone={canReviewDone}
-          onReviewDone={onReviewDone}
-        />
-      </span>
+      {hasColumn("review") ? (
+        <span className={`flex ${LIST_COL.review} shrink-0 justify-center`}>
+          <DoneReviewPill
+            task={task}
+            canReviewDone={canReviewDone}
+            onReviewDone={onReviewDone}
+          />
+        </span>
+      ) : null}
 
     </div>
   );

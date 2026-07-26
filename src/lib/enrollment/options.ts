@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { enrollmentOptionSetKeysForProgram } from "./types";
 import type {
   EnrollmentOption,
   EnrollmentOptionSet,
@@ -40,6 +41,7 @@ export async function fetchEnrollmentOptionData(
     .from("enrollment_option_sets")
     .select("id,program,key,label,is_stage,created_at,updated_at")
     .eq("program", program)
+    .in("key", [...enrollmentOptionSetKeysForProgram(program)])
     .order("label", { ascending: true });
   if (setsRes.error) throw new Error(setsRes.error.message);
   const sets = (setsRes.data ?? []) as EnrollmentOptionSet[];

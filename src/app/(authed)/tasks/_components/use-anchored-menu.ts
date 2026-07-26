@@ -23,7 +23,7 @@ export function useAnchoredMenu() {
     if (el) {
       const rect = el.getBoundingClientRect();
       const maxHeight = 300;
-      const estWidth = 240;
+      const estWidth = 320;
       const spaceBelow = window.innerHeight - rect.bottom;
       const flipUp = spaceBelow < maxHeight && rect.top > spaceBelow;
       // Not enough room to grow rightward → anchor the menu's right edge to the

@@ -13,6 +13,10 @@ import {
 } from "@/lib/tasks/sorting";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { LIST_COL, TaskRowItem } from "./TaskRowItem";
+import type {
+  TaskListColumn,
+  TaskListColumnKey,
+} from "./task-list-columns";
 
 export function TaskListView({
   tasks,
@@ -33,6 +37,7 @@ export function TaskListView({
   managerView,
   onUnlockOverdue,
   onReopenRequest,
+  visibleColumns,
 }: {
   tasks: TaskRow[];
   categories: TaskCategory[];
@@ -52,6 +57,7 @@ export function TaskListView({
   managerView: boolean;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
+  visibleColumns: TaskListColumn[];
 }) {
   function isAgentOwnerOrAssistantOf(agentEmail: string | null): boolean {
     if (!agentEmail) return false;
@@ -97,6 +103,9 @@ export function TaskListView({
   }
 
   const sp = { sortKey, sortDir, onSort: toggleSort };
+  const visibleColumnKeys = new Set<TaskListColumnKey>(
+    visibleColumns.map((column) => column.key)
+  );
 
   return (
     <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
@@ -107,41 +116,21 @@ export function TaskListView({
       ) : (
         <div className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
           <div className="flex items-center gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-            <SortTh label="Key" col="key" widthClass={`flex ${LIST_COL.key} shrink-0`} {...sp} />
-            <SortTh
-              label="Assignee"
-              col="assignee"
-              widthClass={`flex ${LIST_COL.assignee} shrink-0`}
-              {...sp}
-            />
-            <SortTh label="Summary" col="title" widthClass="flex min-w-0 flex-1" {...sp} />
-            <SortTh
-              label="Category"
-              col="category"
-              widthClass={`hidden ${LIST_COL.category} shrink-0 sm:flex`}
-              {...sp}
-            />
-            <SortTh
-              label="Created"
-              col="created"
-              widthClass={`flex ${LIST_COL.created} shrink-0`}
-              {...sp}
-            />
-            <SortTh
-              label="Priority"
-              col="priority"
-              widthClass={`flex ${LIST_COL.priority} shrink-0 justify-center`}
-              {...sp}
-            />
-            <SortTh
-              label="Status"
-              col="status"
-              widthClass={`flex ${LIST_COL.status} shrink-0 justify-center`}
-              {...sp}
-            />
-            <span className={`flex ${LIST_COL.review} shrink-0 justify-center`}>
-              QC
-            </span>
+            {visibleColumns.map((column) =>
+              column.sortKey ? (
+                <SortTh
+                  key={column.key}
+                  label={column.label}
+                  col={column.sortKey}
+                  widthClass={headerWidthClass(column)}
+                  {...sp}
+                />
+              ) : (
+                <span key={column.key} className={headerWidthClass(column)}>
+                  {column.label}
+                </span>
+              )
+            )}
           </div>
           <ul className="divide-y divide-[#ebecf0]">
             {rows.map((task) => {
@@ -168,6 +157,7 @@ export function TaskListView({
                     isNewAssigned={newAssignedTaskIds.has(task.id)}
                     onUnlockOverdueRequest={() => onUnlockOverdue(task.id)}
                     onReopenRequest={() => onReopenRequest(task.id)}
+                    visibleColumnKeys={visibleColumnKeys}
                   />
                 </li>
               );
@@ -177,6 +167,27 @@ export function TaskListView({
       )}
     </div>
   );
+}
+
+function headerWidthClass(column: TaskListColumn): string {
+  switch (column.key) {
+    case "key":
+      return `flex ${LIST_COL.key} shrink-0`;
+    case "assignee":
+      return `flex ${LIST_COL.assignee} shrink-0`;
+    case "summary":
+      return "flex min-w-0 flex-1";
+    case "category":
+      return `hidden ${LIST_COL.category} shrink-0 sm:flex`;
+    case "created":
+      return `flex ${LIST_COL.created} shrink-0`;
+    case "priority":
+      return `flex ${LIST_COL.priority} shrink-0 justify-center`;
+    case "status":
+      return `flex ${LIST_COL.status} shrink-0 justify-center`;
+    case "review":
+      return `flex ${LIST_COL.review} shrink-0 justify-center`;
+  }
 }
 
 // A clickable column header that sorts by `col` and shows the active direction.

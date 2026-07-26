@@ -25,6 +25,20 @@ export const ENROLLMENT_OPTION_SET_KEYS = [
 
 export type EnrollmentOptionSetKey = (typeof ENROLLMENT_OPTION_SET_KEYS)[number];
 
+export const ENROLLMENT_OPTION_SET_KEYS_BY_PROGRAM: Record<
+  EnrollmentProgram,
+  readonly EnrollmentOptionSetKey[]
+> = {
+  aca: ENROLLMENT_OPTION_SET_KEYS,
+  medicare: ["stage", "carrier"],
+};
+
+export function enrollmentOptionSetKeysForProgram(
+  program: EnrollmentProgram
+): readonly EnrollmentOptionSetKey[] {
+  return ENROLLMENT_OPTION_SET_KEYS_BY_PROGRAM[program];
+}
+
 export type EnrollmentOptionSet = {
   id: string;
   program: EnrollmentProgram;

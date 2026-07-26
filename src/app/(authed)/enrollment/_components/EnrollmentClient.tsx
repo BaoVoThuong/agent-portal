@@ -18,7 +18,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Circle,
-  Columns3,
   ExternalLink,
   Plus,
   RefreshCw,
@@ -167,7 +166,7 @@ const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
   { key: "payment", label: "Payment status", width: 180, sortable: true },
   { key: "carrier", label: "Carrier", width: 170, sortable: true },
   { key: "aca", label: "AC", width: 280, sortable: true },
-  { key: "consent", label: "Consent", width: 110, sortable: true },
+  { key: "consent", label: "Consent", width: 104, sortable: true, align: "center" },
   { key: "platform", label: "Platform", width: 110, sortable: true },
   { key: "pcp2025", label: "PCP 2025", width: 180, sortable: true },
   { key: "pcp2026", label: "PCP 2026", width: 180, sortable: true },
@@ -711,7 +710,7 @@ function EnrollmentToolbar({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
-            {(["list", "overview"] as const).map((key) => (
+            {(["overview", "list"] as const).map((key) => (
               <button
                 key={key}
                 type="button"
@@ -743,11 +742,6 @@ function EnrollmentToolbar({
 
         {view === "list" ? (
           <div className="flex shrink-0 items-center gap-2">
-            <ColumnVisibilityButton
-              columns={columns}
-              hiddenColumnKeys={hiddenColumnKeys}
-              onToggleColumn={onToggleColumn}
-            />
             <EnrollmentDueRangeFilter
               from={filters.dueFrom}
               to={filters.dueTo}
@@ -850,6 +844,12 @@ function EnrollmentToolbar({
           Overdue
         </ToolbarToggleButton>
 
+        <ColumnVisibilityButton
+          columns={columns}
+          hiddenColumnKeys={hiddenColumnKeys}
+          onToggleColumn={onToggleColumn}
+        />
+
         {hasActiveFilters ? (
           <button
             type="button"
@@ -904,8 +904,7 @@ function ColumnVisibilityButton({
   hiddenColumnKeys: Set<EnrollmentColumnKey>;
   onToggleColumn: (key: EnrollmentColumnKey) => void;
 }) {
-  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
-    useAnchoredMenu();
+  const { isOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
   const toggleableColumns = columns.filter((column) => !column.sticky);
   const hiddenCount = toggleableColumns.filter((column) =>
     hiddenColumnKeys.has(column.key)
@@ -917,19 +916,23 @@ function ColumnVisibilityButton({
         ref={triggerRef}
         type="button"
         onClick={toggle}
-        className={`dashboard-filter-button min-w-[8.75rem] ${FILTER_SELECT_BUTTON_CLASS}`}
+        title="Table settings"
+        aria-label={
+          hiddenCount > 0
+            ? `Table settings, ${hiddenCount} hidden columns`
+            : "Table settings"
+        }
         aria-expanded={isOpen}
+        className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-white text-[#44546f] shadow-[0_1px_3px_rgba(22,35,58,0.12)] transition hover:border-[#b8c5d6] hover:bg-[#f8fafc] hover:text-[#172b4d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#deebff] ${
+          isOpen ? "border-[#0c66e4] text-[#0c66e4]" : "border-[#dfe1e6]"
+        }`}
       >
-        <span className="flex min-w-0 items-center gap-2">
-          <Columns3 className="h-4 w-4 shrink-0 text-[#44546f]" />
-          <span className="truncate font-medium">Columns</span>
-          {hiddenCount > 0 ? (
-            <span className="rounded-full bg-[#deebff] px-1.5 py-0.5 text-[10px] font-bold text-[#0c66e4]">
-              {hiddenCount}
-            </span>
-          ) : null}
-        </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-[#667085]" />
+        <Settings2 className="h-[18px] w-[18px]" />
+        {hiddenCount > 0 ? (
+          <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#deebff] px-1 text-[10px] font-bold leading-none text-[#0c66e4] ring-2 ring-white">
+            {hiddenCount}
+          </span>
+        ) : null}
       </button>
 
       {isOpen
@@ -937,12 +940,18 @@ function ColumnVisibilityButton({
             <div
               ref={menuRef}
               style={menuStyle}
-              className="dashboard-filter-menu z-[110] w-[min(18rem,calc(100vw-1rem))] p-2"
+              className="dashboard-filter-menu z-[110] flex w-[min(20rem,calc(100vw-1rem))] flex-col overflow-hidden p-2"
             >
-              <div className="border-b border-[#ebecf0] px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-                Show columns
+              <div className="border-b border-[#ebecf0] px-2 py-2">
+                <div className="flex items-center gap-2 text-sm font-bold text-[#172b4d]">
+                  <Settings2 className="h-4 w-4 text-[#0c66e4]" />
+                  Table settings
+                </div>
+                <div className="mt-1 text-[11px] font-medium text-[#6b778c]">
+                  Choose which table columns are visible.
+                </div>
               </div>
-              <div className="max-h-72 overflow-auto py-1">
+              <div className="min-h-0 flex-1 overflow-auto py-1">
                 {toggleableColumns.map((column) => {
                   const checked = !hiddenColumnKeys.has(column.key);
                   return (
@@ -961,16 +970,6 @@ function ColumnVisibilityButton({
                   );
                 })}
               </div>
-              <div className="border-t border-[#ebecf0] px-2 py-1.5 text-[11px] font-medium text-[#6b778c]">
-                Key, Client Name, and QC stay visible.
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                className="mt-1 w-full rounded px-2 py-1.5 text-xs font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]"
-              >
-                Done
-              </button>
             </div>,
             document.body
           )
@@ -1315,7 +1314,7 @@ function EnrollmentRowItem({
 
       {/* Consent — ACA only; Yes/Not Yet is a binary field, so it's a tick box. */}
       {has("consent") ? (
-        <div style={{ width: colWidth(columns, "consent") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div style={{ width: colWidth(columns, "consent") }} className="flex shrink-0 items-center justify-center px-2 py-2.5">
           <EnrollmentConsentToggle
             optionId={record.consent_id}
             options={optionsBySet.consent}
@@ -1414,12 +1413,10 @@ function EnrollmentRowItem({
       {/* Created time */}
       {has("createdAt") ? (
         <div style={{ width: colWidth(columns, "createdAt") }} className="flex shrink-0 items-center px-3 py-2.5">
-          <span
+          <RelativeTime
+            value={record.created_at}
             className="truncate text-xs font-medium text-[#6b778c]"
-            title={new Date(record.created_at).toLocaleString()}
-          >
-            {formatRelative(record.created_at)}
-          </span>
+          />
         </div>
       ) : null}
 
@@ -1437,12 +1434,10 @@ function EnrollmentRowItem({
       {/* Last edited time */}
       {has("updated") ? (
         <div style={{ width: colWidth(columns, "updated") }} className="flex shrink-0 items-center px-3 py-2.5">
-          <span
+          <RelativeTime
+            value={record.updated_at}
             className="truncate text-xs font-medium text-[#6b778c]"
-            title={new Date(record.updated_at).toLocaleString()}
-          >
-            {formatRelative(record.updated_at)}
-          </span>
+          />
         </div>
       ) : null}
 
@@ -1490,6 +1485,7 @@ function EnrollmentConsentToggle({
 
   const current = optionId ? options.find((option) => option.id === optionId) ?? null : null;
   const checked = current?.id === yesOption.id;
+  const label = current?.label ?? "Not set";
 
   return (
     <button
@@ -1498,17 +1494,18 @@ function EnrollmentConsentToggle({
         event.stopPropagation();
         onChange(checked ? otherOption.id : yesOption.id);
       }}
-      title={current?.label ?? "Set consent"}
-      className="inline-flex items-center gap-1.5 rounded px-1 py-1 text-xs font-semibold text-[#42526e] transition hover:text-[#172b4d]"
+      aria-label={`Consent: ${label}`}
+      aria-pressed={checked}
+      title={label}
+      className="inline-flex h-7 w-7 items-center justify-center rounded text-[#42526e] transition hover:bg-[#f4f5f7] hover:text-[#172b4d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#deebff]"
     >
       <span
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition ${
+        className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border-2 transition ${
           checked ? "border-[#00875a] bg-[#00875a]" : "border-[#c1c7d0] bg-white"
         }`}
       >
         {checked ? <Check className="h-3 w-3 text-white" /> : null}
       </span>
-      <span className="truncate">{current?.label ?? "Not set"}</span>
     </button>
   );
 }
@@ -2146,10 +2143,10 @@ function EnrollmentDrawer({
 
             <div className="rounded-lg border border-[#dfe1e6] bg-white p-3 text-xs font-semibold text-[#6b778c]">
               <div>Created by {personLabel(record.created_by_email, peopleByEmail)}</div>
-              <div className="mt-1">Created {new Date(record.created_at).toLocaleString()}</div>
+              <div className="mt-1">Created {formatStableDateTime(record.created_at)}</div>
               <div className="mt-1">
                 Updated {record.updated_by_email ? `by ${personLabel(record.updated_by_email, peopleByEmail)} ` : ""}
-                {formatRelative(record.updated_at)}
+                <RelativeTime value={record.updated_at} />
               </div>
             </div>
 
@@ -2396,7 +2393,9 @@ function OptionSetManager({
       <div className="flex h-[calc(100vh-2rem)] max-h-[760px] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
         <header className="shrink-0 flex items-center justify-between border-b border-[#d8dee8] px-5 py-3">
           <div>
-            <h2 className="text-lg font-bold text-[#172b4d]">Enrollment option sets</h2>
+            <h2 className="text-lg font-bold text-[#172b4d]">
+              {program === "medicare" ? "Medicare option sets" : "ACA option sets"}
+            </h2>
             <p className="text-sm font-medium text-[#6b778c]">
               Archive options instead of deleting them from historical records.
             </p>
@@ -3162,9 +3161,34 @@ function formatExternalLink(value: string): string {
   return `https://${trimmed}`;
 }
 
-function formatRelative(value: string): string {
+function RelativeTime({
+  value,
+  className,
+}: {
+  value: string;
+  className?: string;
+}) {
+  const [nowMs, setNowMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    const firstTick = window.setTimeout(() => setNowMs(Date.now()), 0);
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => {
+      window.clearTimeout(firstTick);
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return (
+    <span className={className} title={formatStableDateTime(value)}>
+      {nowMs === null ? formatStableDateTime(value) : formatRelative(value, nowMs)}
+    </span>
+  );
+}
+
+function formatRelative(value: string, nowMs: number): string {
   const date = new Date(value);
-  const diffMs = Date.now() - date.getTime();
+  const diffMs = nowMs - date.getTime();
   const minutes = Math.floor(diffMs / 60000);
   if (!Number.isFinite(minutes) || minutes < 0) return "just now";
   if (minutes < 1) return "just now";
@@ -3173,5 +3197,21 @@ function formatRelative(value: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return date.toLocaleDateString();
+  return formatStableDate(value);
+}
+
+function formatStableDateTime(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "-";
+  return `${formatStableDate(value)} ${String(date.getUTCHours()).padStart(2, "0")}:${String(
+    date.getUTCMinutes()
+  ).padStart(2, "0")} UTC`;
+}
+
+function formatStableDate(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "-";
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    date.getUTCDate()
+  ).padStart(2, "0")}`;
 }

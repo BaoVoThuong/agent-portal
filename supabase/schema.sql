@@ -2304,15 +2304,20 @@ values
   ('aca', 'payment_status', 'Payment Status', false),
   ('aca', 'aca_status', 'ACA Status', false),
   ('medicare', 'stage', 'Stage', true),
-  ('medicare', 'carrier', 'Carrier', false),
-  ('medicare', 'platform', 'Platform', false),
-  ('medicare', 'consent', 'Consent', false),
-  ('medicare', 'payment_status', 'Payment Status', false),
-  ('medicare', 'aca_status', 'ACA Status', false)
+  ('medicare', 'carrier', 'Carrier', false)
 on conflict (program, key) do update
 set label = excluded.label,
     is_stage = excluded.is_stage,
     updated_at = now();
+
+delete from enrollment_option_sets sets
+where sets.program = 'medicare'
+  and sets.key in ('platform', 'consent', 'payment_status', 'aca_status')
+  and not exists (
+    select 1
+    from enrollment_options options
+    where options.set_id = sets.id
+  );
 
 with option_seed(set_key, label, color, position, is_terminal, triggers_qc) as (
   values
@@ -2382,9 +2387,8 @@ where not exists (
 
 -- Medicare seed — grounded in the real Slack List (7-record crawl at
 -- ann_strambler_medicare_2026_crawler/medicare_list_raw.csv). Medicare has no
--- Payment/Consent/Platform/AC concepts in that data (those stay empty option
--- sets for this program; the UI hides those fields for Medicare records), so
--- only Stage and Carrier are seeded. The sample only evidenced two Stage
+-- Payment/Consent/Platform/AC concepts in that data, so only Stage and Carrier
+-- get option sets. The sample only evidenced two Stage
 -- values ("10 - DONE" and "E- ID Card Unavailable") across 7 rows — far too
 -- thin to infer a full pipeline the way the 200-row ACA sample allowed, so
 -- this is a deliberately minimal starter (plus one neutral "New" entry stage)
