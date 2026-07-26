@@ -10,7 +10,7 @@ import type {
 import type { TaskSlaRule } from "./types";
 
 const OVERVIEW_TASK_COLUMNS =
-  "id,title,status,priority,category_id,agent_email,assignee_email,todo_started_at,in_progress_at,waiting_started_at,last_activity_at,sla_minutes,overdue_count,in_progress_seconds,waiting_seconds,closed_at,created_at,updated_at,archived_at";
+  "id,title,status,priority,category_id,agent_email,assignee_email,todo_started_at,in_progress_at,waiting_started_at,last_activity_at,sla_minutes,overdue_count,in_progress_seconds,waiting_seconds,closed_at,done_reviewed_at,created_at,updated_at,archived_at";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -47,8 +47,8 @@ export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnaps
         .from("tasks")
         .select(OVERVIEW_TASK_COLUMNS)
         .is("archived_at", null)
-        .eq("status", "done")
-        .gte("closed_at", recentDoneSince),
+        .in("status", ["done", "cancel"])
+        .or(`closed_at.gte.${recentDoneSince},done_reviewed_at.is.null`),
       supabase.from("task_sla_rules").select("priority,category_id,duration_minutes"),
       supabase.from("task_reminder_settings").select("*").maybeSingle(),
     ]);

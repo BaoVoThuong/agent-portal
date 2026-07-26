@@ -4,6 +4,7 @@ import {
   slaRemainingSeconds,
   isTaskOverdue,
 } from "./sla";
+import { isDueSoon, isStale } from "./reminders";
 import type { TaskPriority, TaskSlaRule, TaskStatus } from "./types";
 import {
   OVERVIEW_RISK_FLAGS,
@@ -14,6 +15,7 @@ import {
   type OverviewKpis,
   type OverviewCategory,
   type OverviewPriorityCounts,
+  type OverviewQcNeededTaskSummary,
   type OverviewRiskFlag,
   type OverviewSnapshot,
   type OverviewStagePriorityMatrix,
@@ -38,11 +40,19 @@ export const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {
 const OPEN_STATUSES = ["todo", "in_progress", "waiting"] as const;
 type OpenStatus = (typeof OPEN_STATUSES)[number];
 
+function isUrgentHighPriority(priority: TaskPriority): boolean {
+  return priority === "urgent" || priority === "high";
+}
+
 const ATTENTION_LABELS: Record<OverviewRiskFlag, string> = {
   overdue: "Overdue in progress",
+  due_soon: "Due soon",
+  previously_overdue: "Previously overdue",
+  unassigned_urgent: "Unassigned urgent/high",
   todo_stuck: "Todo stuck",
   waiting_stuck: "Waiting stuck",
-  unknown_effort: "Unknown effort",
+  stale: "Stale activity",
+  qc_needed: "QC needed",
 };
 
 export type OverviewInput = {
@@ -53,7 +63,12 @@ export type OverviewInput = {
   tasks: OverviewTaskInput[];
   assigneesByTask: Map<string, string[]>;
   rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[];
-  reminderSettings: { todoHours: number; waitingHours: number };
+  reminderSettings: {
+    todoHours: number;
+    waitingHours: number;
+    staleHours: number;
+    dueSoonMinutes: number;
+  };
 };
 
 type DerivedOpenTask = {
@@ -69,6 +84,7 @@ type DerivedOpenTask = {
 type PersonAccumulator = {
   account: OverviewAccount;
   tasks: OverviewTaskSummary[];
+  qcNeededTasks: OverviewQcNeededTaskSummary[];
   stageCounts: OverviewStageCounts;
   priorityCounts: OverviewPriorityCounts;
   slaLoadMinutes: number;
@@ -142,12 +158,19 @@ function deriveOpenTask(
   if (task.status === "in_progress" && active) {
     const remainingSeconds = slaRemainingSeconds(task, rules, now);
     loadMinutes = Math.max(0, remainingSeconds / 60);
-    if (isTaskOverdue(task, rules, now)) addFlag(flags, "overdue");
+    if (isTaskOverdue(task, rules, now)) {
+      addFlag(flags, "overdue");
+    } else if (isDueSoon(task, rules, reminderSettings.dueSoonMinutes, now)) {
+      addFlag(flags, "due_soon");
+    }
   } else if (task.status === "in_progress") {
     unknownEffort = true;
-    addFlag(flags, "unknown_effort");
   } else if (task.status === "waiting") {
     loadMinutes = effective / 3;
+  }
+
+  if (!flags.has("overdue") && task.overdue_count > 0) {
+    addFlag(flags, "previously_overdue");
   }
 
   if (task.status === "todo") {
@@ -157,6 +180,10 @@ function deriveOpenTask(
   if (task.status === "waiting") {
     const age = ageSeconds(task.waiting_started_at ?? task.created_at, now) ?? 0;
     if (age >= reminderSettings.waitingHours * 3600) addFlag(flags, "waiting_stuck");
+  }
+
+  if (isStale(task, reminderSettings.staleHours, now)) {
+    addFlag(flags, "stale");
   }
 
   const summary: OverviewTaskSummary = {
@@ -197,13 +224,22 @@ export function resolveOverviewStatus(
   riskFlags: readonly OverviewRiskFlag[],
   thresholds: OverviewThresholds = OVERVIEW_THRESHOLDS
 ): OverviewSnapshot["csRows"][number]["status"] {
-  if (openCount === 0) return "free";
+  const seriousRisk = riskFlags.some((flag) =>
+    [
+      "overdue",
+      "unassigned_urgent",
+      "todo_stuck",
+      "waiting_stuck",
+      "stale",
+      "qc_needed",
+    ].includes(flag)
+  );
+  const warningRisk = riskFlags.some((flag) =>
+    ["due_soon", "previously_overdue"].includes(flag)
+  );
+  if (openCount === 0) return seriousRisk || warningRisk ? "ok" : "free";
 
-  const riskLevel = riskFlags.some((flag) =>
-    ["overdue", "todo_stuck", "waiting_stuck"].includes(flag)
-  )
-    ? 2
-    : 0;
+  const riskLevel = seriousRisk ? 2 : warningRisk ? 1 : 0;
   const loadLevel =
     slaLoadMinutes >= thresholds.slaOverloadedMinutes
       ? 3
@@ -224,6 +260,7 @@ function createAccumulator(account: OverviewAccount): PersonAccumulator {
   return {
     account,
     tasks: [],
+    qcNeededTasks: [],
     stageCounts: emptyStageCounts(),
     priorityCounts: emptyPriorityCounts(),
     slaLoadMinutes: 0,
@@ -268,6 +305,18 @@ function addOpenTask(
   }
 }
 
+function qcNeededSummary(task: OverviewTaskInput): OverviewQcNeededTaskSummary {
+  return {
+    id: task.id,
+    title: task.title,
+    agentEmail: task.agent_email,
+    status: task.status as Extract<TaskStatus, "done" | "cancel">,
+    priority: task.priority,
+    createdAt: task.created_at,
+    closedAt: task.closed_at,
+  };
+}
+
 function rowFromAccumulator(accumulator: PersonAccumulator, thresholds: OverviewThresholds): CsOverviewRow {
   const riskFlags = [...accumulator.riskFlags].sort(
     (a, b) => OVERVIEW_RISK_FLAGS.indexOf(a) - OVERVIEW_RISK_FLAGS.indexOf(b)
@@ -303,6 +352,14 @@ function rowFromAccumulator(accumulator: PersonAccumulator, thresholds: Overview
       const priority = PRIORITY_WEIGHTS[b.priority] - PRIORITY_WEIGHTS[a.priority];
       return priority || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
     }),
+    qcNeededTasks: [...accumulator.qcNeededTasks].sort((a, b) => {
+      const priority = PRIORITY_WEIGHTS[b.priority] - PRIORITY_WEIGHTS[a.priority];
+      return (
+        priority ||
+        (b.closedAt ?? b.createdAt).localeCompare(a.closedAt ?? a.createdAt) ||
+        a.id.localeCompare(b.id)
+      );
+    }),
   };
 }
 
@@ -325,10 +382,41 @@ function buildOutOfPool(
 }
 
 function buildAttention(
-  tasks: DerivedOpenTask[],
-  poolEmails: Set<string>
+  {
+    tasks,
+    poolEmails,
+    unassignedUrgentTaskIds,
+    qcNeededByEmail,
+  }: {
+    tasks: DerivedOpenTask[];
+    poolEmails: Set<string>;
+    unassignedUrgentTaskIds: Set<string>;
+    qcNeededByEmail: Map<string, Set<string>>;
+  }
 ): OverviewAttentionBar[] {
+  const qcNeededTaskIds = new Set<string>();
+  for (const ids of qcNeededByEmail.values()) {
+    for (const id of ids) qcNeededTaskIds.add(id);
+  }
+
   return OVERVIEW_RISK_FLAGS.map((key) => {
+    if (key === "unassigned_urgent") {
+      return {
+        key,
+        label: ATTENTION_LABELS[key],
+        taskCount: unassignedUrgentTaskIds.size,
+        affectedCsCount: 0,
+      };
+    }
+    if (key === "qc_needed") {
+      return {
+        key,
+        label: ATTENTION_LABELS[key],
+        taskCount: qcNeededTaskIds.size,
+        affectedCsCount: qcNeededByEmail.size,
+      };
+    }
+
     const matching = tasks.filter((task) => task.riskFlags.includes(key));
     const affected = new Set<string>();
     for (const task of matching) {
@@ -364,6 +452,8 @@ export function aggregateOverview(input: OverviewInput): OverviewSnapshot {
   const accumulators = new Map(pool.map((account) => [account.email, createAccumulator(account)]));
   const openDerived: DerivedOpenTask[] = [];
   const unassigned: UnassignedOverviewTask[] = [];
+  const unassignedUrgentTaskIds = new Set<string>();
+  const qcNeededByEmail = new Map<string, Set<string>>();
   const doneByEmail = new Map<string, { done24h: number; done7d: number }>();
   const sevenDaysAgo = input.now.getTime() - 7 * 24 * 3600_000;
   const dayAgo = input.now.getTime() - 24 * 3600_000;
@@ -386,6 +476,9 @@ export function aggregateOverview(input: OverviewInput): OverviewSnapshot {
         ageSeconds: ageSeconds(task.created_at, input.now) ?? 0,
         effectiveSlaMinutes: effectiveSlaMinutes(task, input.rules),
       });
+      if (isUrgentHighPriority(task.priority)) {
+        unassignedUrgentTaskIds.add(task.id);
+      }
       continue;
     }
 
@@ -403,6 +496,24 @@ export function aggregateOverview(input: OverviewInput): OverviewSnapshot {
         if (accumulator) addOpenTask(accumulator, derived, input.now);
       }
       continue;
+    }
+
+    if (
+      (task.status === "done" || task.status === "cancel") &&
+      !task.done_reviewed_at
+    ) {
+      const summary = qcNeededSummary(task);
+      for (const email of assignees) {
+        if (!poolEmails.has(email)) continue;
+        const ids = qcNeededByEmail.get(email) ?? new Set<string>();
+        ids.add(task.id);
+        qcNeededByEmail.set(email, ids);
+        const accumulator = accumulators.get(email);
+        if (accumulator) {
+          accumulator.riskFlags.add("qc_needed");
+          accumulator.qcNeededTasks.push(summary);
+        }
+      }
     }
 
     if (task.status !== "done") continue;
@@ -445,6 +556,10 @@ export function aggregateOverview(input: OverviewInput): OverviewSnapshot {
     }
     if (derived.riskFlags.length > 0) attentionTaskIds.add(derived.task.id);
   }
+  for (const id of unassignedUrgentTaskIds) attentionTaskIds.add(id);
+  for (const ids of qcNeededByEmail.values()) {
+    for (const id of ids) attentionTaskIds.add(id);
+  }
 
   const kpis: OverviewKpis = {
     csPoolCount: csRows.length,
@@ -459,7 +574,12 @@ export function aggregateOverview(input: OverviewInput): OverviewSnapshot {
     generatedAt: input.now.toISOString(),
     thresholds,
     kpis,
-    attention: buildAttention(openDerived, poolEmails),
+    attention: buildAttention({
+      tasks: openDerived,
+      poolEmails,
+      unassignedUrgentTaskIds,
+      qcNeededByEmail,
+    }),
     workMix: { stages, priorities, stagePriority },
     csRows,
     unassigned: unassigned.sort(
@@ -555,6 +675,7 @@ export function optimisticallyAssignOverviewTask(
   if (!task) return snapshot;
   const row = snapshot.csRows.find((item) => item.email === email);
   if (!row) return snapshot;
+  const wasUnassignedUrgent = isUrgentHighPriority(task.priority);
 
   const nextRows = snapshot.csRows.map((current) => {
     if (current.email !== email) return current;
@@ -625,9 +746,18 @@ export function optimisticallyAssignOverviewTask(
       openTaskCount: snapshot.kpis.openTaskCount + 1,
       urgentHighTaskCount:
         snapshot.kpis.urgentHighTaskCount +
-        (task.priority === "urgent" || task.priority === "high" ? 1 : 0),
+        (wasUnassignedUrgent ? 1 : 0),
+      needsAttentionTaskCount: Math.max(
+        0,
+        snapshot.kpis.needsAttentionTaskCount - (wasUnassignedUrgent ? 1 : 0)
+      ),
       unassignedTaskCount: Math.max(0, snapshot.kpis.unassignedTaskCount - 1),
     },
+    attention: snapshot.attention.map((item) =>
+      item.key === "unassigned_urgent" && wasUnassignedUrgent
+        ? { ...item, taskCount: Math.max(0, item.taskCount - 1) }
+        : item
+    ),
     workMix: {
       stages: { ...snapshot.workMix.stages, todo: snapshot.workMix.stages.todo + 1 },
       priorities: {

@@ -5,9 +5,13 @@ export type OverviewStatus = (typeof OVERVIEW_STATUSES)[number];
 
 export const OVERVIEW_RISK_FLAGS = [
   "overdue",
+  "due_soon",
+  "previously_overdue",
+  "unassigned_urgent",
   "todo_stuck",
   "waiting_stuck",
-  "unknown_effort",
+  "stale",
+  "qc_needed",
 ] as const;
 export type OverviewRiskFlag = (typeof OVERVIEW_RISK_FLAGS)[number];
 
@@ -56,6 +60,7 @@ export type OverviewTaskInput = {
   in_progress_seconds: number;
   waiting_seconds: number;
   closed_at: string | null;
+  done_reviewed_at: string | null;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -72,6 +77,16 @@ export type OverviewTaskSummary = {
   effectiveSlaMinutes: number;
   riskFlags: OverviewRiskFlag[];
   unknownEffort: boolean;
+};
+
+export type OverviewQcNeededTaskSummary = {
+  id: string;
+  title: string;
+  agentEmail: string | null;
+  status: Extract<TaskStatus, "done" | "cancel">;
+  priority: TaskPriority;
+  createdAt: string;
+  closedAt: string | null;
 };
 
 export type OverviewOpenStage = Extract<TaskStatus, "todo" | "in_progress" | "waiting">;
@@ -106,6 +121,7 @@ export type CsOverviewRow = {
   queueEnabled: boolean;
   status: OverviewStatus;
   tasks: OverviewTaskSummary[];
+  qcNeededTasks: OverviewQcNeededTaskSummary[];
 };
 
 export type OverviewAttentionBar = {

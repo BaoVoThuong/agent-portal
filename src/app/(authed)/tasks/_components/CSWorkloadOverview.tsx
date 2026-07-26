@@ -48,23 +48,35 @@ const STATUS_TEXT_CLASS: Record<OverviewStatus, string> = {
 
 const RISK_LABEL: Record<OverviewRiskFlag, string> = {
   overdue: "Overdue",
+  due_soon: "Due soon",
+  previously_overdue: "Was overdue",
+  unassigned_urgent: "Unassigned urgent/high",
   todo_stuck: "Todo stuck",
   waiting_stuck: "Waiting stuck",
-  unknown_effort: "Unknown effort",
+  stale: "Stale",
+  qc_needed: "QC needed",
 };
 
 const RISK_HELP: Record<OverviewRiskFlag, string> = {
-  overdue: "In Progress task is past its SLA budget.",
+  overdue: "In Progress task is currently past its SLA budget.",
+  due_soon: "Active In Progress task is close to its SLA deadline.",
+  previously_overdue: "Open task broke SLA before, even if it is not currently overdue.",
+  unassigned_urgent: "Urgent or high-priority backlog task has no assignee.",
   todo_stuck: "Todo task has waited past the Todo reminder threshold.",
   waiting_stuck: "Waiting task has waited past the Waiting reminder threshold.",
-  unknown_effort: "In Progress task has no active SLA timer, so effort is unknown.",
+  stale: "Open task has no recent activity past the stale reminder threshold.",
+  qc_needed: "Done or Cancel task is waiting for QC review.",
 };
 
 const RISK_COLOR: Record<OverviewRiskFlag, string> = {
   overdue: "#dc2626",
+  due_soon: "#f97316",
+  previously_overdue: "#d97706",
+  unassigned_urgent: "#ea580c",
   todo_stuck: "#ea580c",
   waiting_stuck: "#d97706",
-  unknown_effort: "#7c3aed",
+  stale: "#7c3aed",
+  qc_needed: "#0c66e4",
 };
 
 const STATUS_RANK: Record<OverviewStatus, number> = {
@@ -152,6 +164,10 @@ function priorityColor(priority: string): string {
   if (priority === "high") return "#ea580c";
   if (priority === "medium") return "#ca8a04";
   return "#64748b";
+}
+
+function isUrgentHighPriority(priority: string): boolean {
+  return priority === "urgent" || priority === "high";
 }
 
 function colorWithAlpha(hex: string, alpha: number): string {
@@ -279,6 +295,15 @@ function WorkMix({ snapshot }: { snapshot: OverviewSnapshot }) {
   );
 }
 
+function attentionCountLabel(item: OverviewSnapshot["attention"][number]): string {
+  const taskLabel = item.taskCount === 1 ? "task" : "tasks";
+  if (item.key === "unassigned_urgent") {
+    return `${item.taskCount} ${taskLabel} / unassigned`;
+  }
+  const csLabel = item.affectedCsCount === 1 ? "CS" : "CS";
+  return `${item.taskCount} ${taskLabel} / ${item.affectedCsCount} ${csLabel}`;
+}
+
 function AttentionChart({
   snapshot,
   activeRisk,
@@ -315,7 +340,7 @@ function AttentionChart({
               <span className="h-5 overflow-hidden rounded bg-[#f2f4f7]">
                 <span className="block h-full rounded" style={{ width: `${(item.taskCount / max) * 100}%`, backgroundColor: RISK_COLOR[item.key] }} />
               </span>
-              <span className="whitespace-nowrap text-right text-xs text-[#667085]">{item.taskCount} tasks / {item.affectedCsCount} CS</span>
+              <span className="whitespace-nowrap text-right text-xs text-[#667085]">{attentionCountLabel(item)}</span>
             </button>
           );
         })}
@@ -346,7 +371,7 @@ const SLA_BAND_COLOR: Record<SlaBand, string> = {
 function slaBand(row: CsOverviewRow, thresholds: OverviewThresholds): SlaBand {
   if (row.openCount === 0) return "none";
   if (row.riskFlags.includes("overdue")) return "overdue";
-  if (row.riskFlags.includes("unknown_effort")) return "unknown";
+  if (row.tasks.some((task) => task.unknownEffort)) return "unknown";
   if (row.slaLoadMinutes >= thresholds.slaOverloadedMinutes) return "very_high";
   if (row.slaLoadMinutes >= thresholds.slaBusyMinutes) return "high";
   return "within";
@@ -523,6 +548,7 @@ function CsTable({
           {sorted.map((row) => {
             const isExpanded = expanded.has(row.email);
             const selected = selectedEmail === row.email;
+            const hasInspectableTasks = row.tasks.length > 0 || row.qcNeededTasks.length > 0;
             return (
               <Fragment key={row.email}>
                 <tr className={`align-middle transition ${selected ? "bg-[#eff6ff]" : "hover:bg-[#fafbfc]"}`}>
@@ -564,7 +590,7 @@ function CsTable({
                 {isExpanded ? (
                   <tr className="bg-[#fafbfc]">
                     <td colSpan={7} className="border-b border-[#dbe2eb] px-10 py-3">
-                      {row.tasks.length === 0 ? <span className="text-xs text-[#667085]">No open tasks.</span> : (
+                      {!hasInspectableTasks ? <span className="text-xs text-[#667085]">No tasks to inspect.</span> : (
                         <div className="grid gap-2 md:grid-cols-2">
                           {row.tasks.map((task) => (
                             <button key={task.id} type="button" onClick={() => onOpenTask(task.id)} className="flex items-center justify-between gap-3 rounded border border-[#e2e8f0] bg-white px-3 py-2 text-left hover:border-[#93c5fd] hover:bg-[#f8fbff]">
@@ -577,6 +603,20 @@ function CsTable({
                                 </span>
                               </span>
                               <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[#98a2b3]" />
+                            </button>
+                          ))}
+                          {row.qcNeededTasks.map((task) => (
+                            <button key={task.id} type="button" onClick={() => onOpenTask(task.id)} className="flex items-center justify-between gap-3 rounded border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2 text-left hover:border-[#60a5fa] hover:bg-[#dbeafe]">
+                              <span className="min-w-0">
+                                <span className="block truncate text-xs font-semibold text-[#172b4d]">{task.title}</span>
+                                <span className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[#475467]">
+                                  <span className="font-bold text-[#0c66e4]">QC needed</span>
+                                  <span className="capitalize">{task.status}</span>
+                                  <span style={{ color: priorityColor(task.priority) }} className="font-bold">{task.priority}</span>
+                                  <span>{task.closedAt ? `Closed ${formatShortDate(task.closedAt)}` : "No closed date"}</span>
+                                </span>
+                              </span>
+                              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[#0c66e4]" />
                             </button>
                           ))}
                         </div>
@@ -1001,6 +1041,7 @@ export function CSWorkloadOverview({
   const [unassignedSort, setUnassignedSort] = useState<"priority" | "age" | "sla">("priority");
   const [showExceptions, setShowExceptions] = useState(false);
   const tableRef = useRef<HTMLElement>(null);
+  const unassignedRef = useRef<HTMLElement>(null);
 
   const focusTable = useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -1008,18 +1049,29 @@ export function CSWorkloadOverview({
     });
   }, []);
 
+  const focusUnassigned = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      unassignedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
   const selectRisk = useCallback((risk: OverviewRiskFlag | null) => {
     setActiveRisk(risk);
     setSelectedEmail(null);
+    if (risk === "unassigned_urgent") {
+      focusUnassigned();
+      return;
+    }
     focusTable();
-  }, [focusTable]);
+  }, [focusTable, focusUnassigned]);
 
   const filteredRows = useMemo(() => {
     if (!snapshot) return [];
     const query = search.trim().toLowerCase();
+    const rowRisk = activeRisk && activeRisk !== "unassigned_urgent" ? activeRisk : null;
     return snapshot.csRows.filter((row) => {
       const matchesSearch = !query || row.email.toLowerCase().includes(query) || personName(row.email, row.name).toLowerCase().includes(query);
-      const matchesRisk = !activeRisk || row.riskFlags.includes(activeRisk);
+      const matchesRisk = !rowRisk || row.riskFlags.includes(rowRisk);
       const matchesPerson = !selectedEmail || row.email === selectedEmail;
       return matchesSearch && matchesRisk && matchesPerson;
     });
@@ -1027,13 +1079,17 @@ export function CSWorkloadOverview({
 
   const unassigned = useMemo(() => {
     if (!snapshot) return [];
-    return [...snapshot.unassigned].sort((a, b) => {
+    const rows =
+      activeRisk === "unassigned_urgent"
+        ? snapshot.unassigned.filter((task) => isUrgentHighPriority(task.priority))
+        : snapshot.unassigned;
+    return [...rows].sort((a, b) => {
       if (unassignedSort === "age") return b.ageSeconds - a.ageSeconds;
       if (unassignedSort === "sla") return a.effectiveSlaMinutes - b.effectiveSlaMinutes;
       const rank = { urgent: 4, high: 3, medium: 2, low: 1 } as Record<string, number>;
       return rank[b.priority] - rank[a.priority] || b.ageSeconds - a.ageSeconds;
     });
-  }, [snapshot, unassignedSort]);
+  }, [activeRisk, snapshot, unassignedSort]);
 
   const selectedTask = snapshot?.unassigned.find((task) => task.id === selectedTaskId) ?? null;
 
@@ -1066,14 +1122,14 @@ export function CSWorkloadOverview({
             <MetricTile label="CS pool" value={snapshot.kpis.csPoolCount} detail={`${snapshot.kpis.zeroLoadCsCount} with zero load`} tone="accent" />
             <MetricTile label="Open tasks" value={snapshot.kpis.openTaskCount} detail="todo + in progress + waiting" />
             <MetricTile label="Urgent / high" value={snapshot.kpis.urgentHighTaskCount} detail="open priority load" tone={snapshot.kpis.urgentHighTaskCount ? "warning" : "default"} />
-            <MetricTile label="Needs attention" value={snapshot.kpis.needsAttentionTaskCount} detail="risk-flagged open tasks" tone={snapshot.kpis.needsAttentionTaskCount ? "danger" : "default"} />
+            <MetricTile label="Needs attention" value={snapshot.kpis.needsAttentionTaskCount} detail="tasks needing review" tone={snapshot.kpis.needsAttentionTaskCount ? "danger" : "default"} />
             <MetricTile label="Unassigned" value={snapshot.kpis.unassignedTaskCount} detail="backlog tasks" tone={snapshot.kpis.unassignedTaskCount ? "accent" : "default"} />
           </div>
         </section>
 
         <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
           <section className="min-w-0 border border-[#dbe2eb] bg-white p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)] sm:p-5">
-            <div className="mb-4"><h3 className="text-sm font-bold text-[#172b4d]">Attention areas</h3><p className="mt-1 text-xs text-[#667085]">Only open tasks with these risk flags are counted here; regular open work stays in Work mix.</p></div>
+            <div className="mb-4"><h3 className="text-sm font-bold text-[#172b4d]">Attention areas</h3><p className="mt-1 text-xs text-[#667085]">Only tasks that need human review are counted here: SLA risk, stale work, unassigned urgent/high backlog, and QC.</p></div>
             <AttentionChart snapshot={snapshot} activeRisk={activeRisk} onRisk={selectRisk} />
           </section>
           <section className="min-w-0 border border-[#dbe2eb] bg-white p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)] sm:p-5">
@@ -1085,7 +1141,7 @@ export function CSWorkloadOverview({
         <section ref={tableRef} className="border border-[#dbe2eb] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6eaf0] px-4 py-4 sm:px-5">
             <div><h3 className="text-sm font-bold text-[#172b4d]">CS workload</h3><p className="mt-1 text-xs text-[#667085]">{filteredRows.length} of {snapshot.csRows.length} CS shown. Expand a row to inspect tasks.</p></div>
-            <div className="flex w-full items-center gap-2 sm:w-auto"><div className="relative min-w-0 flex-1 sm:w-64"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#98a2b3]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search CS" className="h-9 w-full rounded border border-[#cfd8e5] bg-white pl-9 pr-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4] focus:ring-2 focus:ring-[#dbeafe]" /></div><span className="inline-flex h-9 items-center gap-1 rounded bg-[#f2f4f7] px-2 text-xs text-[#667085]"><SlidersHorizontal className="h-3.5 w-3.5" /> {activeRisk ? RISK_LABEL[activeRisk] : "All"}</span></div>
+            <div className="flex w-full items-center gap-2 sm:w-auto"><div className="relative min-w-0 flex-1 sm:w-64"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#98a2b3]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search CS" className="h-9 w-full rounded border border-[#cfd8e5] bg-white pl-9 pr-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4] focus:ring-2 focus:ring-[#dbeafe]" /></div><span className="inline-flex h-9 items-center gap-1 rounded bg-[#f2f4f7] px-2 text-xs text-[#667085]"><SlidersHorizontal className="h-3.5 w-3.5" /> {activeRisk && activeRisk !== "unassigned_urgent" ? RISK_LABEL[activeRisk] : "All"}</span></div>
           </div>
           <CsTable rows={filteredRows} thresholds={snapshot.thresholds} selectedEmail={selectedEmail} onSelect={(email) => { setSelectedEmail(email); setActiveRisk(null); }} onOpenTask={onOpenTask} />
         </section>
@@ -1103,10 +1159,10 @@ export function CSWorkloadOverview({
           onQueueMemberChange={onQueueMemberChange}
         />
 
-        <section className="border border-[#dbe2eb] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6eaf0] px-4 py-4 sm:px-5"><div><h3 className="text-sm font-bold text-[#172b4d]">Unassigned queue</h3><p className="mt-1 text-xs text-[#667085]">Choose a task to add assignment support to the dashboard.</p></div><select value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as typeof unassignedSort)} className="h-9 rounded border border-[#cfd8e5] bg-white px-2 text-xs font-bold text-[#475467] outline-none"><option value="priority">Sort: priority</option><option value="age">Sort: oldest</option><option value="sla">Sort: SLA urgency</option></select></div>
+        <section ref={unassignedRef} className="border border-[#dbe2eb] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6eaf0] px-4 py-4 sm:px-5"><div><h3 className="text-sm font-bold text-[#172b4d]">Unassigned queue</h3><p className="mt-1 text-xs text-[#667085]">{activeRisk === "unassigned_urgent" ? "Showing urgent/high backlog tasks without an assignee." : "Choose a task to add assignment support to the dashboard."}</p></div><select value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as typeof unassignedSort)} className="h-9 rounded border border-[#cfd8e5] bg-white px-2 text-xs font-bold text-[#475467] outline-none"><option value="priority">Sort: priority</option><option value="age">Sort: oldest</option><option value="sla">Sort: SLA urgency</option></select></div>
           {unassigned.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-[#667085]">No unassigned backlog tasks.</div>
+            <div className="px-4 py-8 text-center text-sm text-[#667085]">{activeRisk === "unassigned_urgent" ? "No urgent/high unassigned backlog tasks." : "No unassigned backlog tasks."}</div>
           ) : (
             <div>
               <div className="hidden gap-x-4 border-b border-[#eef1f5] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.06em] text-[#667085] sm:grid sm:grid-cols-[minmax(12rem,1fr)_8.5rem_11rem_5.5rem_6.5rem_7rem_5.5rem] sm:px-5">

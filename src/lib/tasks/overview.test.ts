@@ -44,6 +44,7 @@ function task(overrides: Partial<OverviewTaskInput> = {}): OverviewTaskInput {
     in_progress_seconds: 0,
     waiting_seconds: 0,
     closed_at: null,
+    done_reviewed_at: null,
     created_at: "2026-07-18T10:00:00.000Z",
     updated_at: "2026-07-18T11:30:00.000Z",
     archived_at: null,
@@ -60,7 +61,12 @@ function input(overrides: Partial<OverviewInput> = {}): OverviewInput {
     tasks: [],
     assigneesByTask: new Map(),
     rules: [],
-    reminderSettings: { todoHours: 24, waitingHours: 24 },
+    reminderSettings: {
+      todoHours: 24,
+      waitingHours: 24,
+      staleHours: 48,
+      dueSoonMinutes: 15,
+    },
     ...overrides,
   };
 }
@@ -198,7 +204,7 @@ describe("aggregateOverview", () => {
     });
   });
 
-  it("uses the waiting fraction, overdue flag, and unknown-effort fallback", () => {
+  it("uses the waiting fraction, overdue flag, and non-attention unknown-effort fallback", () => {
     const snapshot = aggregateOverview(
       input({
         tasks: [
@@ -236,8 +242,11 @@ describe("aggregateOverview", () => {
     const bob = snapshot.csRows.find((row) => row.email === "bob@example.com");
 
     expect(alice?.tasks.find((item) => item.id === "waiting")?.slaLoadMinutes).toBe(40);
-    expect(bob?.riskFlags).toEqual(expect.arrayContaining(["overdue", "unknown_effort"]));
-    expect(bob?.tasks.find((item) => item.id === "unknown")?.slaLoadMinutes).toBe(240);
+    expect(bob?.riskFlags).toEqual(["overdue"]);
+    const unknownTask = bob?.tasks.find((item) => item.id === "unknown");
+    expect(unknownTask?.slaLoadMinutes).toBe(240);
+    expect(unknownTask?.unknownEffort).toBe(true);
+    expect(unknownTask?.riskFlags).toEqual([]);
     expect(snapshot.workMix.stagePriority.waiting.low).toBe(1);
     expect(snapshot.workMix.stagePriority.in_progress_overdue.urgent).toBe(1);
     expect(snapshot.workMix.stagePriority.in_progress.urgent).toBe(0);
@@ -247,7 +256,12 @@ describe("aggregateOverview", () => {
   it("separates todo and in-progress overdue work from normal stage rows", () => {
     const snapshot = aggregateOverview(
       input({
-        reminderSettings: { todoHours: 2, waitingHours: 24 },
+        reminderSettings: {
+          todoHours: 2,
+          waitingHours: 24,
+          staleHours: 48,
+          dueSoonMinutes: 15,
+        },
         tasks: [
           task({
             id: "todo-overdue",
@@ -287,6 +301,155 @@ describe("aggregateOverview", () => {
     expect(snapshot.workMix.stagePriority.in_progress_overdue.high).toBe(1);
     expect(snapshot.workMix.stagePriority.in_progress.high).toBe(0);
     expect(snapshot.workMix.stagePriority.in_progress.low).toBe(1);
+  });
+
+  it("does not flag a healthy in-progress task that passed through Waiting once", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [account("cs@example.com")],
+        tasks: [
+          task({
+            id: "healthy",
+            status: "in_progress",
+            assignee_email: "cs@example.com",
+            in_progress_at: "2026-07-18T11:55:00.000Z",
+            waiting_started_at: "2026-07-18T10:00:00.000Z",
+            waiting_seconds: 3600,
+            overdue_count: 0,
+          }),
+        ],
+      })
+    );
+
+    const row = snapshot.csRows.find((item) => item.email === "cs@example.com");
+    expect(row?.riskFlags).toEqual([]);
+    expect(row?.tasks[0].unknownEffort).toBe(true);
+    expect(snapshot.kpis.needsAttentionTaskCount).toBe(0);
+  });
+
+  it("flags due soon without marking the task overdue", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [account("cs@example.com")],
+        tasks: [
+          task({
+            id: "due-soon",
+            status: "in_progress",
+            priority: "urgent",
+            assignee_email: "cs@example.com",
+            todo_started_at: null,
+            in_progress_at: "2026-07-18T11:10:00.000Z",
+          }),
+        ],
+      })
+    );
+
+    const row = snapshot.csRows.find((item) => item.email === "cs@example.com");
+    expect(row?.riskFlags).toContain("due_soon");
+    expect(row?.riskFlags).not.toContain("overdue");
+    expect(snapshot.attention.find((item) => item.key === "due_soon")?.taskCount).toBe(1);
+  });
+
+  it("flags previously overdue when the task broke SLA before but is not currently breaching", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [account("cs@example.com")],
+        tasks: [
+          task({
+            id: "previously-overdue",
+            status: "in_progress",
+            priority: "medium",
+            assignee_email: "cs@example.com",
+            todo_started_at: null,
+            in_progress_at: "2026-07-18T11:55:00.000Z",
+            overdue_count: 1,
+          }),
+        ],
+      })
+    );
+
+    const row = snapshot.csRows.find((item) => item.email === "cs@example.com");
+    expect(row?.riskFlags).toContain("previously_overdue");
+    expect(row?.riskFlags).not.toContain("overdue");
+  });
+
+  it("flags stale open work using the reminder threshold", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [account("cs@example.com")],
+        reminderSettings: {
+          todoHours: 999,
+          waitingHours: 999,
+          staleHours: 48,
+          dueSoonMinutes: 15,
+        },
+        tasks: [
+          task({
+            id: "stale",
+            status: "todo",
+            assignee_email: "cs@example.com",
+            todo_started_at: "2026-07-18T11:00:00.000Z",
+            last_activity_at: "2026-07-15T11:00:00.000Z",
+          }),
+        ],
+      })
+    );
+
+    const row = snapshot.csRows.find((item) => item.email === "cs@example.com");
+    expect(row?.riskFlags).toContain("stale");
+    expect(snapshot.attention.find((item) => item.key === "stale")?.taskCount).toBe(1);
+  });
+
+  it("tracks urgent or high unassigned backlog work as attention", () => {
+    const snapshot = aggregateOverview(
+      input({
+        tasks: [
+          task({ id: "urgent-backlog", status: "backlog", priority: "urgent", assignee_email: null }),
+          task({ id: "high-backlog", status: "backlog", priority: "high", assignee_email: null }),
+          task({ id: "medium-backlog", status: "backlog", priority: "medium", assignee_email: null }),
+        ],
+      })
+    );
+
+    const attention = snapshot.attention.find((item) => item.key === "unassigned_urgent");
+    expect(snapshot.kpis.unassignedTaskCount).toBe(3);
+    expect(attention?.taskCount).toBe(2);
+    expect(attention?.affectedCsCount).toBe(0);
+    expect(snapshot.kpis.needsAttentionTaskCount).toBe(2);
+  });
+
+  it("tracks done and cancelled tasks that still need QC review", () => {
+    const snapshot = aggregateOverview(
+      input({
+        tasks: [
+          task({
+            id: "done-qc",
+            status: "done",
+            closed_at: "2026-07-18T10:00:00.000Z",
+            done_reviewed_at: null,
+          }),
+          task({
+            id: "cancel-qc",
+            status: "cancel",
+            closed_at: "2026-07-18T09:00:00.000Z",
+            done_reviewed_at: null,
+          }),
+          task({
+            id: "done-reviewed",
+            status: "done",
+            closed_at: "2026-07-18T08:00:00.000Z",
+            done_reviewed_at: "2026-07-18T08:30:00.000Z",
+          }),
+        ],
+      })
+    );
+
+    const row = snapshot.csRows.find((item) => item.email === "alice@example.com");
+    const attention = snapshot.attention.find((item) => item.key === "qc_needed");
+    expect(row?.riskFlags).toContain("qc_needed");
+    expect(row?.qcNeededTasks.map((item) => item.id)).toEqual(["done-qc", "cancel-qc"]);
+    expect(attention?.taskCount).toBe(2);
+    expect(attention?.affectedCsCount).toBe(1);
   });
 
   it("credits done pulse to done only, not cancelled tasks", () => {
