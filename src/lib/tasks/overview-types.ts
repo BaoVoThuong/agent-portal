@@ -24,10 +24,13 @@ export type OverviewThresholds = typeof OVERVIEW_THRESHOLDS;
 export type OverviewAccount = {
   email: string;
   name: string | null;
+  roleLabel: string;
   isActive: boolean;
   canWork: boolean;
   isAdmin: boolean;
   queueDueAt: string | null;
+  queueLastAssignedAt: string | null;
+  queueEnabled: boolean;
 };
 
 export type OverviewCategory = {
@@ -85,6 +88,7 @@ export type OverviewStagePriorityMatrix = Record<OverviewWorkMixStage, OverviewP
 export type CsOverviewRow = {
   email: string;
   name: string | null;
+  roleLabel: string;
   openCount: number;
   stageCounts: OverviewStageCounts;
   priorityCounts: OverviewPriorityCounts;
@@ -98,6 +102,8 @@ export type CsOverviewRow = {
   done24h: number;
   done7d: number;
   queueDueAt: string | null;
+  queueLastAssignedAt: string | null;
+  queueEnabled: boolean;
   status: OverviewStatus;
   tasks: OverviewTaskSummary[];
 };

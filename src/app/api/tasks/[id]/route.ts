@@ -22,10 +22,8 @@ import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import {
   fetchAgentOwnerAndAssistantEmails,
   fetchAgentsForCs,
-  fetchCsForAgent,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
-import { reconcileAssigneesForNewAgent } from "@/lib/tasks/assignees-set";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
   attachAssigneesToTasks,
@@ -224,7 +222,6 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const reassigning = bodyRecord.assignee_email !== undefined;
   const nowIso = new Date().toISOString();
   let replaceAssigneesWith: string[] | null = null;
-  let assigneesToPruneForAgentChange: string[] = [];
 
   // Needed to snapshot sla_minutes on a first start into in_progress, and to
   // check whether a task was overdue at the moment it's marked Done directly
@@ -265,52 +262,6 @@ export async function PATCH(req: Request, { params }: Ctx) {
     nowIso,
   });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
-
-  // A non-manager (agent owner/Assistant) can freely pick any assignee, but
-  // only within their own agent's team — same bound the create-task flow and
-  // the UI picker enforce. Without this, the picker's restriction is
-  // cosmetic: calling the API directly could assign anyone at all.
-  if (reassigning && !r.actor.isManager) {
-    const nextAssignee = resolved.patch.assignee_email as string | null;
-    if (nextAssignee) {
-      const targetAgent =
-        typeof resolved.patch.agent_email === "string"
-          ? resolved.patch.agent_email
-          : r.task.agent_email;
-      const teamEmails = new Set(await fetchCsForAgent(targetAgent ?? ""));
-      if (nextAssignee !== targetAgent && !teamEmails.has(nextAssignee)) {
-        return NextResponse.json(
-          { error: "Assignee must be part of this agent's team." },
-          { status: 400 }
-        );
-      }
-    }
-  }
-
-  // Changing the agent (without also explicitly reassigning in the same
-  // request) prunes any assignees who aren't on the new agent's team.
-  if (
-    !reassigning &&
-    typeof resolved.patch.agent_email === "string" &&
-    resolved.patch.agent_email !== r.task.agent_email
-  ) {
-    const newTeam = await fetchCsForAgent(resolved.patch.agent_email);
-    const reconciled = reconcileAssigneesForNewAgent(currentAssignees, newTeam);
-    if (reconciled.assignees !== null) {
-      const nextAssignees = reconciled.assignees;
-      nextAssigneesForHistory = nextAssignees;
-      assigneesToPruneForAgentChange = currentAssignees.filter(
-        (e) => !nextAssignees.includes(e)
-      );
-      resolved.patch.assignee_email = nextAssignees[0] ?? null;
-      if (reconciled.status) {
-        resolved.patch.status = reconciled.status;
-        if (r.task.status === "waiting" && reconciled.status !== "waiting") {
-          resolved.patch.waiting_reminded_at = null;
-        }
-      }
-    }
-  }
 
   if (reassigning) {
     const nextAssignee = resolved.patch.assignee_email as string | null;
@@ -383,15 +334,6 @@ export async function PATCH(req: Request, { params }: Ctx) {
         return NextResponse.json({ error: insertAssigneeError.message }, { status: 500 });
       }
     }
-  } else if (assigneesToPruneForAgentChange.length > 0) {
-    const { error: pruneError } = await r.supabase
-      .from("task_assignees")
-      .delete()
-      .eq("task_id", id)
-      .in("email", assigneesToPruneForAgentChange);
-    if (pruneError && !isTaskAssigneesMissingError(pruneError)) {
-      return NextResponse.json({ error: pruneError.message }, { status: 500 });
-    }
   }
 
   // Everything below writes audit/history tables that don't depend on each
@@ -409,8 +351,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     },
     resolved.patch
   );
-  const assignmentChanged =
-    replaceAssigneesWith !== null || assigneesToPruneForAgentChange.length > 0;
+  const assignmentChanged = replaceAssigneesWith !== null;
   const newlyAssignedRecipients = assignmentChanged
     ? uniqueNotificationRecipients(
         nextAssigneesForHistory.filter(

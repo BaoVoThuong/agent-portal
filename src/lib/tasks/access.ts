@@ -72,7 +72,7 @@ export function canManageCategories(actor: TaskActor): boolean {
 // Manager: any task. Worker: task access comes from resolved flags.
 // `flags` covers additional ways a worker may gain view access:
 //   isAssignee    – caller already resolved assignment externally
-//   isAgentMember – worker belongs to the task's agent team
+//   isAgentMember – worker assists the task's agent account
 //   isAgentOwner  – worker is the task's customer agent / final QC owner
 //   isParticipant – worker was @mentioned / added as a participant
 export function canViewTask(
@@ -106,9 +106,8 @@ export function canReviewDoneTask(
 }
 
 // Assign/reassign: manager or the task's agent owner (agent themself, or a
-// promoted Assistant — see isAgentOwnerOrAssistant) only. Being a plain
-// member of the agent's support group (Agent Groups) is no longer enough on
-// its own; that list still drives who's shown as an assignee *candidate*.
+// promoted Assistant — see isAgentOwnerOrAssistant) only. CS assignees are a
+// company pool, so Agent Groups does not restrict who can be assigned.
 export function canAssignToTask(actor: TaskActor, isAgentOwner: boolean): boolean {
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
@@ -210,8 +209,8 @@ export type CreateAssignmentResult =
 
 // Enforces the core invariants at creation time:
 //  - A manager, or a worker with agent-scope (owner/Assistant) for the task's
-//    agent, gets free choice — any assignee within that agent's team, or
-//    backlog — same as a manager.
+//    agent, gets free choice from the company CS pool, or backlog — same as a
+//    manager.
 //  - A plain worker cannot create tasks.
 //  - A backlog task must have no assignee; assigning forces status -> 'todo'.
 //  - A non-backlog task must have an assignee.

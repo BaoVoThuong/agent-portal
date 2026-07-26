@@ -7,7 +7,6 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
-  CircleHelp,
   ExternalLink,
   RefreshCw,
   Search,
@@ -52,6 +51,13 @@ const RISK_LABEL: Record<OverviewRiskFlag, string> = {
   todo_stuck: "Todo stuck",
   waiting_stuck: "Waiting stuck",
   unknown_effort: "Unknown effort",
+};
+
+const RISK_HELP: Record<OverviewRiskFlag, string> = {
+  overdue: "In Progress task is past its SLA budget.",
+  todo_stuck: "Todo task has waited past the Todo reminder threshold.",
+  waiting_stuck: "Waiting task has waited past the Waiting reminder threshold.",
+  unknown_effort: "In Progress task has no active SLA timer, so effort is unknown.",
 };
 
 const RISK_COLOR: Record<OverviewRiskFlag, string> = {
@@ -124,11 +130,21 @@ function queueDueTime(value: string | null): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatQueueStatus(queueDueAt: string | null, generatedAt: string): string {
+function formatQueueLastAssigned(value: string | null, generatedAt: string): string {
+  if (!value) return "Never assigned";
+  const assigned = new Date(value).getTime();
+  const generated = new Date(generatedAt).getTime();
+  if (!Number.isFinite(assigned) || !Number.isFinite(generated)) return "Last assign tracked";
+  const elapsedMinutes = Math.max(0, Math.floor((generated - assigned) / 60_000));
+  if (elapsedMinutes < 1) return "Just assigned";
+  return `${formatMinutes(elapsedMinutes)} ago`;
+}
+
+function formatQueueRemaining(queueDueAt: string | null, generatedAt: string): string {
   const due = queueDueTime(queueDueAt);
-  const now = new Date(generatedAt).getTime();
-  if (!Number.isFinite(now) || due <= now) return "Up now";
-  return `Next in ~${formatMinutes(Math.ceil((due - now) / 60_000))}`;
+  const generated = new Date(generatedAt).getTime();
+  if (!Number.isFinite(generated) || due <= generated) return "Ready now";
+  return formatMinutes(Math.ceil((due - generated) / 60_000));
 }
 
 function priorityColor(priority: string): string {
@@ -285,7 +301,17 @@ function AttentionChart({
               className={`grid w-full grid-cols-[minmax(7.5rem,9.5rem)_minmax(6rem,1fr)_max-content] items-center gap-2 rounded px-2 py-2 text-left transition hover:bg-[#f8fafc] ${active ? "bg-[#eff6ff]" : ""}`}
               aria-pressed={active}
             >
-              <span className="truncate whitespace-nowrap text-xs font-semibold text-[#475467]">{item.label}</span>
+              <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-[#475467]">
+                <span className="truncate">{item.label}</span>
+                <span
+                  className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[#cfd8e5] bg-white text-[10px] font-bold leading-none text-[#667085]"
+                  title={RISK_HELP[item.key]}
+                  aria-label={`${item.label}: ${RISK_HELP[item.key]}`}
+                  role="img"
+                >
+                  !
+                </span>
+              </span>
               <span className="h-5 overflow-hidden rounded bg-[#f2f4f7]">
                 <span className="block h-full rounded" style={{ width: `${(item.taskCount / max) * 100}%`, backgroundColor: RISK_COLOR[item.key] }} />
               </span>
@@ -364,17 +390,17 @@ function WorkloadSummary({ row }: { row: CsOverviewRow }) {
 
   return (
     <div className="min-w-0" aria-label={`${row.openCount} open tasks by stage`}>
-      <div className="flex min-w-0 items-baseline gap-2">
+      <div className="flex min-w-0 items-baseline gap-1.5">
         <span className="whitespace-nowrap">
-          <span className="text-lg font-bold leading-none text-[#172b4d]">{row.openCount}</span>
+          <span className="text-base font-bold leading-none text-[#172b4d]">{row.openCount}</span>
           <span className="ml-1 text-xs font-bold uppercase tracking-[0.04em] text-[#98a2b3]">open</span>
         </span>
       </div>
-      <div className="mt-1.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] font-semibold text-[#667085]">
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 overflow-hidden text-[11px] font-semibold leading-tight text-[#667085]">
         {counts.map((item, index) => (
           <Fragment key={item.label}>
             <span className="inline-flex shrink-0 items-baseline gap-1 whitespace-nowrap" title={item.title}>
-              <span className="text-sm font-bold leading-none" style={{ color: item.color }}>{item.value}</span>
+              <span className="text-[13px] font-bold leading-none" style={{ color: item.color }}>{item.value}</span>
               <span>{item.label}</span>
             </span>
             {index < counts.length - 1 ? <span className="shrink-0 text-[#cbd5e1]">/</span> : null}
@@ -397,11 +423,11 @@ function SlaSummary({
   const band = slaBand(row, thresholds);
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="whitespace-nowrap text-xs font-bold" style={{ color: SLA_BAND_COLOR[band] }}>{SLA_BAND_LABEL[band]}</span>
-        <span className="text-sm font-bold text-[#172b4d]">{formatMinutes(row.slaLoadMinutes)}</span>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="whitespace-nowrap text-[11px] font-bold" style={{ color: SLA_BAND_COLOR[band] }}>{SLA_BAND_LABEL[band]}</span>
+        <span className="text-[13px] font-bold leading-none text-[#172b4d]">{formatMinutes(row.slaLoadMinutes)}</span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-[#e9eef5]">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#e9eef5]">
         <div
           className="h-full rounded-full"
           style={{
@@ -410,7 +436,7 @@ function SlaSummary({
           }}
         />
       </div>
-      <div className="mt-1 text-[10px] font-semibold text-[#98a2b3]">
+      <div className="mt-0.5 text-[10px] font-semibold leading-tight text-[#98a2b3]">
         8h / 16h thresholds
       </div>
     </div>
@@ -459,8 +485,8 @@ function CsTable({
     { key: "slaLoadMinutes", label: "SLA" },
   ];
 
-  const headerCellClass = "border-b border-r border-[#dbe2eb] bg-[#f8fafc] px-4 py-3 font-bold last:border-r-0";
-  const bodyCellClass = "border-b border-r border-[#e6eaf0] px-4 py-3 last:border-r-0";
+  const headerCellClass = "border-b border-r border-[#dbe2eb] bg-[#f8fafc] px-3 py-2.5 font-bold last:border-r-0";
+  const bodyCellClass = "border-b border-r border-[#e6eaf0] px-3 py-2 last:border-r-0";
   const centerCellClass = `${bodyCellClass} text-center`;
 
   return (
@@ -477,7 +503,7 @@ function CsTable({
         </colgroup>
         <thead>
           <tr className="text-[11px] uppercase tracking-[0.06em] text-[#667085]">
-            <th className="border-b border-r border-[#dbe2eb] bg-[#f8fafc] px-2 py-3" />
+            <th className="border-b border-r border-[#dbe2eb] bg-[#f8fafc] px-2 py-2.5" />
             {headers.map((header) => (
               <th key={header.key} className={`${headerCellClass} ${header.align === "center" ? "text-center" : ""}`}>
                 <button
@@ -500,7 +526,7 @@ function CsTable({
             return (
               <Fragment key={row.email}>
                 <tr className={`align-middle transition ${selected ? "bg-[#eff6ff]" : "hover:bg-[#fafbfc]"}`}>
-                  <td className="border-b border-r border-[#e6eaf0] px-2 py-3 text-center">
+                  <td className="border-b border-r border-[#e6eaf0] px-2 py-2 text-center">
                     <button
                       type="button"
                       onClick={() => setExpanded((current) => {
@@ -515,9 +541,11 @@ function CsTable({
                     </button>
                   </td>
                   <td className={bodyCellClass}>
-                    <button type="button" onClick={() => onSelect(selected ? null : row.email)} className="block max-w-full text-left">
-                      <div className="truncate text-sm font-bold text-[#172b4d]">{personName(row.email, row.name)}</div>
-                      <div className="mt-0.5 truncate text-[11px] text-[#98a2b3]">{row.email}</div>
+                    <button type="button" onClick={() => onSelect(selected ? null : row.email)} className="block max-w-full text-left leading-tight">
+                      <div className="truncate text-[13px] font-bold text-[#172b4d]">{personName(row.email, row.name)}</div>
+                      <div className="mt-0.5 truncate text-[11px] font-semibold text-[#667085]" title={row.email}>
+                        {row.roleLabel}
+                      </div>
                     </button>
                   </td>
                   <td className={centerCellClass}>
@@ -576,51 +604,161 @@ function RecommendationPanel({
   onAssign: (email: string) => void;
   assigningEmail: string | null;
 }) {
+  const [showOther, setShowOther] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const candidates = useMemo(() => rankRecommendation(task, rows), [rows, task]);
-  const top = candidates.slice(0, 5);
+  const top = candidates.slice(0, 3);
+  const other = candidates.slice(3);
+  const isAssigning = assigningEmail !== null;
+
+  function assignCandidate(email: string) {
+    setPendingEmail(email);
+    onAssign(email);
+  }
+
   return (
-    <div className="border-t border-[#e6eaf0] bg-[#fbfdff] px-4 py-4 sm:px-6">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#0c66e4]">Assignment support</div>
-          <h3 className="mt-1 text-sm font-bold text-[#172b4d]">Who has room for &quot;{task.title}&quot;?</h3>
-          <p className="mt-1 text-xs text-[#667085]">Ranked by assignment queue order; SLA exposure only breaks ties.</p>
-        </div>
-        <span className="rounded bg-[#eef6ff] px-2 py-1 text-xs font-bold capitalize text-[#0c66e4]">{task.priority}</span>
-      </div>
-      {top.length === 0 ? <div className="text-sm text-[#667085]">No eligible CS in the current pool.</div> : (
-        <div className="grid gap-2 lg:grid-cols-2">
-          {top.map((candidate, index) => (
-            <CandidateRow key={candidate.email} candidate={candidate} index={index} onAssign={() => onAssign(candidate.email)} assigning={assigningEmail !== null} />
-          ))}
-        </div>
+    <div className="border-t border-[#e6eaf0] bg-[#fbfdff] px-4 py-2.5 sm:px-5">
+      {top.length === 0 ? (
+        <div className="text-sm text-[#667085]">No CS enabled in the assignment queue.</div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {top.map((candidate, index) => (
+              <CandidateRow
+                key={candidate.email}
+                candidate={candidate}
+                index={index}
+                onAssign={() => assignCandidate(candidate.email)}
+                disabled={isAssigning}
+                loading={isAssigning && pendingEmail === candidate.email}
+              />
+            ))}
+          </div>
+          {other.length > 0 ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setShowOther((value) => !value)}
+                className="inline-flex h-7 items-center gap-1.5 rounded border border-[#cfd8e5] bg-white px-2.5 text-xs font-bold text-[#344054] hover:border-[#0c66e4] hover:text-[#0c66e4]"
+              >
+                {showOther ? "Hide other CS" : `Other CS (${other.length})`}
+                <ChevronDown className={`h-3.5 w-3.5 transition ${showOther ? "rotate-180" : ""}`} />
+              </button>
+              {showOther ? (
+                <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {other.map((candidate, index) => (
+                    <OtherCandidateRow
+                      key={candidate.email}
+                      candidate={candidate}
+                      index={index + top.length}
+                      onAssign={() => assignCandidate(candidate.email)}
+                      disabled={isAssigning}
+                      loading={isAssigning && pendingEmail === candidate.email}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );
 }
 
-function CandidateRow({ candidate, index, onAssign, assigning }: {
+function CandidateRow({ candidate, index, onAssign, disabled, loading }: {
   candidate: RecommendationCandidate;
   index: number;
   onAssign: () => void;
-  assigning: boolean;
+  disabled: boolean;
+  loading: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded border border-[#dbe7f5] bg-white px-3 py-3">
-      <div className="flex min-w-0 items-start gap-3">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef6ff] text-xs font-bold text-[#0c66e4]">{index + 1}</span>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-bold text-[#172b4d]">{personName(candidate.email, candidate.name)}</div>
-          <div className="mt-1 text-[11px] text-[#667085]">{candidate.openCount} open | {formatMinutes(candidate.slaLoadMinutes)} SLA exposure | {candidate.inProgressCount} in progress</div>
-          <div className="mt-1 text-[11px] font-semibold text-[#0c66e4]">
-            Queue: {candidate.queueDueAt ? formatShortDate(candidate.queueDueAt) : "first turn"}
-          </div>
-          <div className="mt-1 flex items-center gap-1 text-[11px] text-[#475467]"><CircleHelp className="h-3 w-3 text-[#0c66e4]" />{candidate.why}</div>
+    <div className="flex w-full min-w-0 items-center gap-2 rounded border border-[#dbe7f5] bg-white px-2.5 py-2 sm:w-auto sm:min-w-[19.5rem] sm:max-w-[24rem]">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef6ff] text-[11px] font-bold text-[#0c66e4]">
+        {index + 1}
+      </span>
+      <div className="min-w-0 flex-1 leading-tight">
+        <div className="truncate text-sm font-bold text-[#172b4d]">
+          {personName(candidate.email, candidate.name)}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-tight text-[#667085]">
+          <span className="font-semibold text-[#0c66e4]">
+            {candidate.queueDueAt ? formatShortDate(candidate.queueDueAt) : "first turn"}
+          </span>
+          <span className="text-[#c1c7d0]">|</span>
+          <span>{candidate.openCount} open</span>
+          <span className="text-[#c1c7d0]">|</span>
+          <span>{formatMinutes(candidate.slaLoadMinutes)} SLA</span>
+          {candidate.riskFlags.length > 0 ? (
+            <>
+              <span className="text-[#c1c7d0]">|</span>
+              <span className="font-semibold text-amber-700">
+                {candidate.riskFlags.length} risk
+              </span>
+            </>
+          ) : null}
         </div>
       </div>
-      <button type="button" onClick={onAssign} disabled={assigning} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded bg-[#0c66e4] px-3 text-xs font-bold text-white hover:bg-[#0055cc] disabled:cursor-wait disabled:opacity-60">
-        {assigning ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
-        {assigning ? "Assigning" : "Assign"}
+      <button
+        type="button"
+        onClick={onAssign}
+        disabled={disabled}
+        aria-label={`Assign to ${personName(candidate.email, candidate.name)}`}
+        className="inline-flex h-7 w-14 shrink-0 items-center justify-center rounded bg-[#0c66e4] text-xs font-bold text-white hover:bg-[#0055cc] disabled:cursor-wait disabled:opacity-60"
+      >
+        {loading ? (
+          <>
+            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            <span className="sr-only">Assigning</span>
+          </>
+        ) : "Assign"}
+      </button>
+    </div>
+  );
+}
+
+function OtherCandidateRow({
+  candidate,
+  index,
+  onAssign,
+  disabled,
+  loading,
+}: {
+  candidate: RecommendationCandidate;
+  index: number;
+  onAssign: () => void;
+  disabled: boolean;
+  loading: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded border border-[#e6eaf0] bg-white px-2.5 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#eef6ff] text-[10px] font-bold text-[#0c66e4]">
+          {index + 1}
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-bold text-[#172b4d]">
+            {personName(candidate.email, candidate.name)}
+          </span>
+          <span className="mt-0.5 block truncate text-[11px] text-[#667085]">
+            {candidate.openCount} open | {formatMinutes(candidate.slaLoadMinutes)} SLA
+          </span>
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onAssign}
+        disabled={disabled}
+        aria-label={`Assign to ${personName(candidate.email, candidate.name)}`}
+        className="inline-flex h-7 w-14 shrink-0 items-center justify-center rounded bg-[#0c66e4] text-xs font-bold text-white hover:bg-[#0055cc] disabled:cursor-wait disabled:opacity-60"
+      >
+        {loading ? (
+          <>
+            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            <span className="sr-only">Assigning</span>
+          </>
+        ) : "Assign"}
       </button>
     </div>
   );
@@ -629,13 +767,17 @@ function CandidateRow({ candidate, index, onAssign, assigning }: {
 function AssignmentQueue({
   rows,
   generatedAt,
+  onQueueMemberChange,
 }: {
   rows: CsOverviewRow[];
   generatedAt: string;
+  onQueueMemberChange: (email: string, enabled: boolean) => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [updatingEmail, setUpdatingEmail] = useState<string | null>(null);
   const queueRows = useMemo(
     () =>
-      [...rows].sort(
+      rows.filter((row) => row.queueEnabled !== false).sort(
         (a, b) =>
           queueDueTime(a.queueDueAt) - queueDueTime(b.queueDueAt) ||
           a.slaLoadMinutes - b.slaLoadMinutes ||
@@ -643,6 +785,24 @@ function AssignmentQueue({
       ),
     [rows]
   );
+  const editableRows = useMemo(
+    () =>
+      [...rows].sort((a, b) =>
+        personName(a.email, a.name).localeCompare(personName(b.email, b.name))
+      ),
+    [rows]
+  );
+
+  async function toggleQueueMember(email: string, enabled: boolean) {
+    setUpdatingEmail(email);
+    try {
+      await onQueueMemberChange(email, enabled);
+    } catch {
+      // Parent owns the visible error banner and reload fallback.
+    } finally {
+      setUpdatingEmail(null);
+    }
+  }
 
   return (
     <section className="border border-[#dbe2eb] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
@@ -653,37 +813,90 @@ function AssignmentQueue({
             Fair turn order across the company CS pool. Larger assigned tasks push a CS further back.
           </p>
         </div>
-        <span className="rounded bg-[#eef6ff] px-2 py-1 text-xs font-bold text-[#0c66e4]">
-          {queueRows.length} CS
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded bg-[#eef6ff] px-2 py-1 text-xs font-bold text-[#0c66e4]">
+            {queueRows.length} CS
+          </span>
+          <button
+            type="button"
+            onClick={() => setEditing((value) => !value)}
+            className="inline-flex h-8 items-center gap-1.5 rounded border border-[#cfd8e5] bg-white px-2.5 text-xs font-bold text-[#344054] hover:border-[#0c66e4] hover:text-[#0c66e4]"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            {editing ? "Done" : "Edit queue"}
+          </button>
+        </div>
       </div>
 
+      {editing ? (
+        <div className="border-b border-[#e6eaf0] bg-[#fbfdff] px-4 py-3 sm:px-5">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {editableRows.map((row) => {
+              const busy = updatingEmail === row.email;
+              return (
+                <label
+                  key={row.email}
+                  className={`flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm font-semibold ${
+                    row.queueEnabled !== false
+                      ? "border-[#b3d4ff] bg-white text-[#172b4d]"
+                      : "border-[#dfe3ea] bg-[#f4f5f7] text-[#667085]"
+                  }`}
+                >
+                  <span className="min-w-0 truncate">{personName(row.email, row.name)}</span>
+                  <input
+                    type="checkbox"
+                    checked={row.queueEnabled !== false}
+                    disabled={busy}
+                    onChange={(event) =>
+                      void toggleQueueMember(row.email, event.target.checked)
+                    }
+                    className="h-4 w-4 shrink-0 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4] disabled:opacity-50"
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {queueRows.length === 0 ? (
-        <div className="px-4 py-8 text-center text-sm text-[#667085]">No active CS in the queue.</div>
+        <div className="px-4 py-8 text-center text-sm text-[#667085]">No CS enabled in the queue.</div>
       ) : (
-        <div className="divide-y divide-[#eef1f5]">
-          {queueRows.map((row, index) => (
-            <div
-              key={row.email}
-              className="grid gap-x-4 gap-y-2 px-4 py-3 sm:grid-cols-[3rem_minmax(12rem,1fr)_9rem_8rem] sm:items-center sm:px-5"
-            >
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#eef6ff] text-xs font-bold text-[#0c66e4]">
-                {index + 1}
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-bold text-[#172b4d]">
-                  {personName(row.email, row.name)}
-                </span>
-                <span className="mt-0.5 block truncate text-[11px] text-[#98a2b3]">{row.email}</span>
-              </span>
-              <span className="whitespace-nowrap text-xs font-bold text-[#475467]">
-                {formatQueueStatus(row.queueDueAt, generatedAt)}
-              </span>
-              <span className="whitespace-nowrap text-xs text-[#667085] sm:text-right">
-                {formatMinutes(row.slaLoadMinutes)} SLA
-              </span>
-            </div>
-          ))}
+        <div className="overflow-x-auto px-4 py-4 sm:px-5">
+          <div className="flex min-w-max gap-3">
+            {queueRows.map((row, index) => (
+              <div
+                key={row.email}
+                className="w-[15.5rem] shrink-0 rounded border border-[#dbe7f5] bg-[#fbfdff] p-3 shadow-[0_1px_1px_rgba(22,35,58,0.03)]"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0c66e4] text-xs font-bold text-white">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold text-[#172b4d]">
+                      {personName(row.email, row.name)}
+                    </span>
+                  </span>
+                </div>
+
+                <div className="mt-3 grid gap-1.5 text-xs">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[#667085]">Last assign</span>
+                    <span className="max-w-[8rem] truncate text-right font-bold text-[#172b4d]">
+                      {formatQueueLastAssigned(row.queueLastAssignedAt, generatedAt)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[#667085]">SLA remaining</span>
+                    <span className="max-w-[8rem] truncate text-right font-bold text-[#0c66e4]">
+                      {formatQueueRemaining(row.queueDueAt, generatedAt)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>
@@ -764,6 +977,7 @@ export function CSWorkloadOverview({
   onRefresh,
   onOpenTask,
   onAssign,
+  onQueueMemberChange,
   assigningTaskId,
   selectedTaskId,
   onSelectTask,
@@ -776,6 +990,7 @@ export function CSWorkloadOverview({
   onRefresh: () => void;
   onOpenTask: (id: string) => void;
   onAssign: (taskId: string, email: string, expectedUpdatedAt: string | null) => void;
+  onQueueMemberChange: (email: string, enabled: boolean) => Promise<void>;
   assigningTaskId: string | null;
   selectedTaskId: string | null;
   onSelectTask: (id: string | null) => void;
@@ -858,7 +1073,7 @@ export function CSWorkloadOverview({
 
         <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
           <section className="min-w-0 border border-[#dbe2eb] bg-white p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)] sm:p-5">
-            <div className="mb-4"><h3 className="text-sm font-bold text-[#172b4d]">Attention areas</h3><p className="mt-1 text-xs text-[#667085]">Select a bar to focus the CS table on the affected people.</p></div>
+            <div className="mb-4"><h3 className="text-sm font-bold text-[#172b4d]">Attention areas</h3><p className="mt-1 text-xs text-[#667085]">Only open tasks with these risk flags are counted here; regular open work stays in Work mix.</p></div>
             <AttentionChart snapshot={snapshot} activeRisk={activeRisk} onRisk={selectRisk} />
           </section>
           <section className="min-w-0 border border-[#dbe2eb] bg-white p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)] sm:p-5">
@@ -882,7 +1097,11 @@ export function CSWorkloadOverview({
           </section>
         ) : null}
 
-        <AssignmentQueue rows={snapshot.csRows} generatedAt={snapshot.generatedAt} />
+        <AssignmentQueue
+          rows={snapshot.csRows}
+          generatedAt={snapshot.generatedAt}
+          onQueueMemberChange={onQueueMemberChange}
+        />
 
         <section className="border border-[#dbe2eb] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6eaf0] px-4 py-4 sm:px-5"><div><h3 className="text-sm font-bold text-[#172b4d]">Unassigned queue</h3><p className="mt-1 text-xs text-[#667085]">Choose a task to add assignment support to the dashboard.</p></div><select value={unassignedSort} onChange={(event) => setUnassignedSort(event.target.value as typeof unassignedSort)} className="h-9 rounded border border-[#cfd8e5] bg-white px-2 text-xs font-bold text-[#475467] outline-none"><option value="priority">Sort: priority</option><option value="age">Sort: oldest</option><option value="sla">Sort: SLA urgency</option></select></div>

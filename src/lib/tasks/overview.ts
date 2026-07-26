@@ -50,7 +50,6 @@ export type OverviewInput = {
   accounts: OverviewAccount[];
   categories: OverviewCategory[];
   taskAgents: string[];
-  assistantEmails: string[];
   tasks: OverviewTaskInput[];
   assigneesByTask: Map<string, string[]>;
   rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[];
@@ -81,6 +80,8 @@ type PersonAccumulator = {
   done24h: number;
   done7d: number;
   queueDueAt: string | null;
+  queueLastAssignedAt: string | null;
+  queueEnabled: boolean;
 };
 
 function emptyStageCounts(): OverviewStageCounts {
@@ -234,6 +235,8 @@ function createAccumulator(account: OverviewAccount): PersonAccumulator {
     done24h: 0,
     done7d: 0,
     queueDueAt: account.queueDueAt,
+    queueLastAssignedAt: account.queueLastAssignedAt,
+    queueEnabled: account.queueEnabled,
   };
 }
 
@@ -272,6 +275,7 @@ function rowFromAccumulator(accumulator: PersonAccumulator, thresholds: Overview
   return {
     email: accumulator.account.email,
     name: accumulator.account.name,
+    roleLabel: accumulator.account.roleLabel,
     openCount: accumulator.tasks.length,
     stageCounts: accumulator.stageCounts,
     priorityCounts: accumulator.priorityCounts,
@@ -286,6 +290,8 @@ function rowFromAccumulator(accumulator: PersonAccumulator, thresholds: Overview
     done24h: accumulator.done24h,
     done7d: accumulator.done7d,
     queueDueAt: accumulator.queueDueAt,
+    queueLastAssignedAt: accumulator.queueLastAssignedAt,
+    queueEnabled: accumulator.queueEnabled,
     status: resolveOverviewStatus(
       accumulator.tasks.length,
       accumulator.slaLoadMinutes,
@@ -351,8 +357,7 @@ export function aggregateOverview(input: OverviewInput): OverviewSnapshot {
       account.isActive &&
       account.canWork &&
       !account.isAdmin &&
-      !input.taskAgents.includes(account.email) &&
-      !input.assistantEmails.includes(account.email)
+      !input.taskAgents.includes(account.email)
   );
   const poolEmails = new Set(pool.map((account) => account.email));
   const categoryById = new Map(input.categories.map((category) => [category.id, category]));
@@ -507,7 +512,7 @@ export function rankRecommendation(
   rows: CsOverviewRow[],
   thresholds: OverviewThresholds = OVERVIEW_THRESHOLDS
 ): RecommendationCandidate[] {
-  const candidates = rows.map((row) => {
+  const candidates = rows.filter((row) => row.queueEnabled !== false).map((row) => {
     const projectedLoad = row.slaLoadMinutes + task.effectiveSlaMinutes;
     const projectedPressure = row.priorityPressure + PRIORITY_WEIGHTS[task.priority];
     const candidate: RecommendationCandidate = {
@@ -566,6 +571,7 @@ export function optimisticallyAssignOverviewTask(
       task.effectiveSlaMinutes,
       new Date(snapshot.generatedAt)
     ).toISOString();
+    const queueLastAssignedAt = snapshot.generatedAt;
     const oldestOpenCreatedAt =
       !current.oldestOpenCreatedAt || task.createdAt < current.oldestOpenCreatedAt
         ? task.createdAt
@@ -586,6 +592,7 @@ export function optimisticallyAssignOverviewTask(
       oldestOpenCreatedAt,
       oldestOpenAgeSeconds,
       queueDueAt,
+      queueLastAssignedAt,
       status: resolveOverviewStatus(
         current.openCount + 1,
         nextLoad,

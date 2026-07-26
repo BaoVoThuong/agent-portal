@@ -27,7 +27,6 @@ export function NewTaskDialog({
   agents,
   agentCandidates,
   myAgents,
-  agentMembersByAgent,
   categories,
   onClose,
   onCreate,
@@ -86,11 +85,6 @@ export function NewTaskDialog({
 
   function changeAgent(nextAgent: string) {
     setAgentEmail(nextAgent);
-    if (!nextAgent) return;
-    const allowed = new Set(agentMembersByAgent[nextAgent] ?? []);
-    setSelectedAssignees((current) =>
-      current.filter((assignee) => allowed.has(assignee))
-    );
   }
 
   if (!open) return null;
@@ -231,7 +225,6 @@ export function NewTaskDialog({
                     assignees={assignees}
                     selectedEmails={selectedAssignees}
                     agentEmail={agentEmail || null}
-                    agentMembersByAgent={agentMembersByAgent}
                     onToggle={toggleAssignee}
                   />
                 ) : (

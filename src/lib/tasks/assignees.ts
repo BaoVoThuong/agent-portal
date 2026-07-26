@@ -1,13 +1,34 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import {
+  LEGACY_SUPER_ADMIN_ROLE_NAME,
+  SYSTEM_ROLE_NAMES,
+} from "@/lib/rbac/system-roles";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type TaskAssignee = { email: string; name: string | null };
+export type TaskPersonRole = {
+  kind: "admin" | "agent" | "assistant" | "cs";
+  label: string;
+};
+export type TaskAssignee = {
+  email: string;
+  name: string | null;
+  roles?: TaskPersonRole[];
+};
 export type TaskAgent = TaskAssignee;
 export type TaskAssigneeRow = { task_id: string; email: string; created_at: string };
 
 type SupabaseErrorLike = { code?: string; message?: string };
 type AttachAssigneeOptions = { currentEmail?: string | null };
+type AccountRoleRow = {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string | null;
+  user_roles?: Array<{
+    roles: { name: string; is_active: boolean } | null;
+  }> | null;
+};
 
 // Active accounts whose role grants task.work or task.manage. Used by the
 // assignee picker (manager only).
@@ -34,14 +55,12 @@ export async function fetchTaskAssignees(): Promise<TaskAssignee[]> {
 
   const { data: accounts, error: accErr } = await supabase
     .from("portal_account")
-    .select("email,name,is_active")
+    .select("id,email,name,is_active,role,user_roles(roles(name,is_active))")
     .in("id", userIds)
     .eq("is_active", true);
   if (accErr) throw new Error(accErr.message);
 
-  return ((accounts ?? []) as unknown as { email: string; name: string | null }[])
-    .map((a) => ({ email: a.email, name: a.name }))
-    .sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
+  return enrichTaskPeopleRoles((accounts ?? []) as unknown as AccountRoleRow[]);
 }
 
 export async function fetchTaskAgents(): Promise<TaskAgent[]> {
@@ -56,27 +75,111 @@ export async function fetchTaskAgents(): Promise<TaskAgent[]> {
 
   const { data: accounts, error } = await supabase
     .from("portal_account")
-    .select("email,name,is_active")
+    .select("id,email,name,is_active,role,user_roles(roles(name,is_active))")
     .in("email", emails)
     .eq("is_active", true);
   if (error) throw new Error(error.message);
 
-  return sortPeople(
-    ((accounts ?? []) as unknown as { email: string; name: string | null }[])
-      .map((account) => ({ email: account.email, name: account.name }))
-  );
+  return enrichTaskPeopleRoles((accounts ?? []) as unknown as AccountRoleRow[]);
 }
 
 export async function fetchTaskAgentCandidates(): Promise<TaskAgent[]> {
   const { data: accounts, error } = await getSupabaseAdmin()
     .from("portal_account")
-    .select("email,name,is_active")
+    .select("id,email,name,is_active,role,user_roles(roles(name,is_active))")
     .eq("is_active", true);
   if (error) throw new Error(error.message);
 
+  return enrichTaskPeopleRoles((accounts ?? []) as unknown as AccountRoleRow[]);
+}
+
+async function enrichTaskPeopleRoles(rows: AccountRoleRow[]): Promise<TaskAssignee[]> {
+  const people = rows.map((account) => ({
+    email: account.email,
+    name: account.name,
+  }));
+  if (people.length === 0) return [];
+
+  const supabase = getSupabaseAdmin();
+  const [agentResult, assistantResult] = await Promise.all([
+    supabase.from("task_agents").select("email"),
+    supabase
+      .from("agent_members")
+      .select("agent_email,cs_email")
+      .eq("is_assistant", true),
+  ]);
+  if (agentResult.error) throw new Error(agentResult.error.message);
+  if (assistantResult.error) throw new Error(assistantResult.error.message);
+
+  const selectedAgentEmails = new Set(
+    (agentResult.data ?? []).map((row) => (row as { email: string }).email)
+  );
+  const assistantRows = (assistantResult.data ?? []) as Array<{
+    agent_email: string;
+    cs_email: string;
+  }>;
+
+  const accountByEmail = new Map(rows.map((account) => [account.email, account]));
+  const nameByEmail = new Map(people.map((person) => [person.email, person.name]));
+  const missingAgentEmails = [
+    ...new Set(
+      assistantRows
+        .map((row) => row.agent_email)
+        .filter((email) => !nameByEmail.has(email))
+    ),
+  ];
+  if (missingAgentEmails.length > 0) {
+    const { data, error } = await supabase
+      .from("portal_account")
+      .select("email,name")
+      .in("email", missingAgentEmails)
+      .eq("is_active", true);
+    if (error) throw new Error(error.message);
+    for (const row of (data ?? []) as Array<{ email: string; name: string | null }>) {
+      nameByEmail.set(row.email, row.name);
+    }
+  }
+
+  const assistantAgentsByEmail = new Map<string, string[]>();
+  for (const row of assistantRows) {
+    const current = assistantAgentsByEmail.get(row.cs_email) ?? [];
+    assistantAgentsByEmail.set(row.cs_email, [...current, row.agent_email]);
+  }
+
   return sortPeople(
-    ((accounts ?? []) as unknown as { email: string; name: string | null }[])
-      .map((account) => ({ email: account.email, name: account.name }))
+    people.map((person) => {
+      const account = accountByEmail.get(person.email);
+      const roles: TaskPersonRole[] = [];
+      if (account && isAdminAccount(account)) {
+        roles.push({ kind: "admin", label: "Admin" });
+      }
+      if (selectedAgentEmails.has(person.email)) {
+        roles.push({ kind: "agent", label: "Agent" });
+      }
+      for (const agentEmail of assistantAgentsByEmail.get(person.email) ?? []) {
+        const agentLabel = nameByEmail.get(agentEmail)?.trim() || agentEmail;
+        roles.push({ kind: "assistant", label: `Assistant to ${agentLabel}` });
+      }
+      if (roles.length === 0) {
+        roles.push({ kind: "cs", label: "Customer Service" });
+      }
+
+      return { ...person, roles };
+    })
+  );
+}
+
+function isAdminAccount(account: AccountRoleRow): boolean {
+  const activeRoleNames = (account.user_roles ?? [])
+    .map((row) => row.roles)
+    .filter((role): role is { name: string; is_active: boolean } =>
+      Boolean(role?.is_active)
+    )
+    .map((role) => role.name);
+  return (
+    account.role === "admin" ||
+    activeRoleNames.includes(SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
+    activeRoleNames.includes(LEGACY_SUPER_ADMIN_ROLE_NAME)
   );
 }
 

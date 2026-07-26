@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Loader2, Plus, Search, Trash2, UsersRound, X } from "lucide-react";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 
-type Person = { email: string; name: string | null };
+type Person = TaskAssignee;
 type Member = { email: string; is_assistant: boolean };
 
 export function AgentGroupsModal({
@@ -141,8 +141,17 @@ export function AgentGroupsModal({
       } | null;
       if (!res.ok || !data?.agent) throw new Error(data?.error ?? "Save failed");
 
-      onAgentsChange(sortPeople([...agents, data.agent]));
-      setSelectedAgent(data.agent.email);
+      const candidateRoles =
+        candidates.find((candidate) => candidate.email === data.agent?.email)?.roles ?? [];
+      const agent = {
+        ...data.agent,
+        roles: [
+          ...candidateRoles.filter((role) => role.kind !== "agent"),
+          { kind: "agent" as const, label: "Agent" },
+        ],
+      };
+      onAgentsChange(sortPeople([...agents, agent]));
+      setSelectedAgent(agent.email);
       setLoadedAgent(null);
       setCandidateQuery("");
       setCandidatePickerOpen(false);
@@ -191,7 +200,7 @@ export function AgentGroupsModal({
     setError(null);
     setMembers((cur) =>
       on
-        ? [...cur.filter((m) => m.email !== csEmail), { email: csEmail, is_assistant: false }]
+        ? [...cur.filter((m) => m.email !== csEmail), { email: csEmail, is_assistant: true }]
         : cur.filter((m) => m.email !== csEmail)
     );
 
@@ -199,41 +208,16 @@ export function AgentGroupsModal({
       const res = await fetch("/api/admin/agent-members", {
         method: on ? "POST" : "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent_email: activeAgent, cs_email: csEmail }),
-      });
-      if (!res.ok) throw new Error("Save failed");
-    } catch {
-      setMembers(before);
-      setError("Could not save this member.");
-    } finally {
-      setSavingEmail(null);
-    }
-  }
-
-  async function toggleAssistant(csEmail: string, isAssistant: boolean) {
-    if (!activeAgent || savingEmail) return;
-
-    const before = members;
-    setSavingEmail(csEmail);
-    setError(null);
-    setMembers((cur) =>
-      cur.map((m) => (m.email === csEmail ? { ...m, is_assistant: isAssistant } : m))
-    );
-
-    try {
-      const res = await fetch("/api/admin/agent-members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           agent_email: activeAgent,
           cs_email: csEmail,
-          is_assistant: isAssistant,
+          is_assistant: true,
         }),
       });
       if (!res.ok) throw new Error("Save failed");
     } catch {
       setMembers(before);
-      setError("Could not update assistant status.");
+      setError("Could not save this member.");
     } finally {
       setSavingEmail(null);
     }
@@ -264,7 +248,7 @@ export function AgentGroupsModal({
                   {visibleAgents.length} agent{visibleAgents.length === 1 ? "" : "s"}
                 </span>
                 <span className="rounded bg-white px-2 py-0.5 shadow-sm">
-                  {members.length} CS selected
+                  {members.length} assistant{members.length === 1 ? "" : "s"}
                 </span>
               </div>
             </div>
@@ -324,6 +308,7 @@ export function AgentGroupsModal({
                                   {candidate.email}
                                 </span>
                               ) : null}
+                              <RoleBadges roles={candidate.roles} />
                             </span>
                             {savingAgent ? (
                               <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
@@ -390,6 +375,7 @@ export function AgentGroupsModal({
                             {agent.email}
                           </span>
                         ) : null}
+                        <RoleBadges roles={agent.roles} />
                       </span>
                       {active ? <Check className="h-4 w-4 shrink-0" /> : null}
                     </button>
@@ -422,7 +408,7 @@ export function AgentGroupsModal({
                   {selectedPerson ? <Initials email={selectedPerson.email} size="lg" /> : null}
                   <div className="min-w-0">
                     <span className="block text-xs font-bold uppercase text-[#6b778c]">
-                      CS Members
+                      Assistants
                     </span>
                     <span className="block truncate text-base font-semibold text-[#172b4d]">
                       {selectedPerson ? personLabel(selectedPerson) : "No agent selected"}
@@ -430,14 +416,14 @@ export function AgentGroupsModal({
                   </div>
                 </div>
                 <span className="rounded bg-[#e9f2ff] px-2.5 py-1 text-xs font-bold text-[#0c66e4]">
-                  {members.length} selected
+                  {members.length} assistant{members.length === 1 ? "" : "s"}
                 </span>
               </div>
               <div className="mt-3">
                 <SearchBox
                   value={csQuery}
                   onChange={setCsQuery}
-                  placeholder="Search CS"
+                  placeholder="Search people"
                 />
               </div>
             </div>
@@ -448,7 +434,7 @@ export function AgentGroupsModal({
               ) : loadingMembers ? (
                 <div className="flex h-full items-center justify-center text-sm font-medium text-[#626f86]">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Loading members
+                  Loading assistants
                 </div>
               ) : (
                 <ul className="grid gap-2 lg:grid-cols-2">
@@ -484,23 +470,15 @@ export function AgentGroupsModal({
                                 {person.email}
                               </span>
                             ) : null}
+                            <RoleBadges roles={person.roles} />
                           </span>
                           {checked ? (
-                            <label
-                              className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-[#42526e]"
+                            <span
+                              className="shrink-0 rounded bg-[#deebff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]"
                               title="Assistant gets the same rights as the agent owner on this agent's tasks"
                             >
-                              <input
-                                type="checkbox"
-                                checked={member?.is_assistant ?? false}
-                                disabled={savingEmail !== null}
-                                onChange={(event) =>
-                                  toggleAssistant(person.email, event.target.checked)
-                                }
-                                className="h-4 w-4 accent-[#0c66e4]"
-                              />
                               Assistant
-                            </label>
+                            </span>
                           ) : null}
                           {saving ? (
                             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#0c66e4]" />
@@ -512,7 +490,7 @@ export function AgentGroupsModal({
                 </ul>
               )}
               {!loadingMembers && filteredCs.length === 0 ? (
-                <EmptyState label="No CS found." />
+                <EmptyState label="No assistant candidates found." />
               ) : null}
             </div>
 
@@ -557,6 +535,29 @@ function EmptyState({ label }: { label: string }) {
       {label}
     </div>
   );
+}
+
+function RoleBadges({ roles }: { roles?: TaskAssignee["roles"] }) {
+  if (!roles || roles.length === 0) return null;
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {roles.map((role) => (
+        <span
+          key={`${role.kind}:${role.label}`}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-bold leading-none ${roleBadgeClass(role.kind)}`}
+        >
+          {role.label}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function roleBadgeClass(kind: NonNullable<TaskAssignee["roles"]>[number]["kind"]): string {
+  if (kind === "admin") return "bg-[#ffebe6] text-[#ae2a19]";
+  if (kind === "agent") return "bg-[#e9f2ff] text-[#0c66e4]";
+  if (kind === "assistant") return "bg-[#e3fcef] text-[#216e4e]";
+  return "bg-[#f2f4f7] text-[#42526e]";
 }
 
 function Initials({ email, size = "sm" }: { email: string; size?: "sm" | "lg" }) {

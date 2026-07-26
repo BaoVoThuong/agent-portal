@@ -27,7 +27,8 @@ export async function GET(req: Request) {
   const { data } = await getSupabaseAdmin()
     .from("agent_members")
     .select("cs_email,is_assistant")
-    .eq("agent_email", agent);
+    .eq("agent_email", agent)
+    .eq("is_assistant", true);
 
   return NextResponse.json({
     members: (data ?? []).map((r) => {
@@ -47,7 +48,7 @@ export async function POST(req: Request) {
   const agent_email =
     typeof body?.agent_email === "string" ? body.agent_email : "";
   const cs_email = typeof body?.cs_email === "string" ? body.cs_email : "";
-  const is_assistant = body?.is_assistant === true;
+  const is_assistant = body?.is_assistant !== false;
 
   if (!agent_email || !cs_email) {
     return NextResponse.json(

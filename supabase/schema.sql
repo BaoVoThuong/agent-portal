@@ -1838,6 +1838,16 @@ create table if not exists task_assignment_rotation (
 create index if not exists task_assignment_rotation_due_idx
   on task_assignment_rotation (queue_due_at, email);
 
+create table if not exists task_assignment_queue_members (
+  email text primary key,
+  is_enabled boolean not null default true,
+  updated_by_email text,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists task_assignment_queue_members_enabled_idx
+  on task_assignment_queue_members (is_enabled, email);
+
 create or replace function bump_task_assignment_rotation(
   p_email text,
   p_minutes integer,
@@ -1882,9 +1892,9 @@ create table if not exists task_agents (
   created_at timestamptz not null default now()
 );
 
--- Which CS staff support which task agent (many-to-many). Admin-managed.
--- Drives task visibility: a CS sees tasks whose agent_email is one of their
--- selected task agents.
+-- Which assistants support which task agent (many-to-many). Admin-managed.
+-- CS assignees are a company pool; this table only grants assistant/agent-owner
+-- task management scope for a specific agent.
 create table if not exists agent_members (
   agent_email text not null,
   cs_email text not null,
@@ -1942,6 +1952,11 @@ begin
         select 1 from agent_members am
         where lower(trim(am.cs_email)) = normalized_cs_email
           and am.is_assistant
+      )
+      and not exists (
+        select 1 from task_assignment_queue_members queue_member
+        where lower(trim(queue_member.email)) = normalized_cs_email
+          and not queue_member.is_enabled
       )
       and not exists (
         select 1
@@ -2437,6 +2452,7 @@ declare
     'task_overdue_events',
     'task_assignment_cycles',
     'task_assignment_rotation',
+    'task_assignment_queue_members',
     'enrollment_option_sets',
     'enrollment_options',
     'enrollment_records',

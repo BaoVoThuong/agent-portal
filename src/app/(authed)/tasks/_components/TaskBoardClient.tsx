@@ -293,6 +293,41 @@ export function TaskBoardClient({
     }
   }, [isManager]);
 
+  const changeAssignmentQueueMember = useCallback(
+    async (email: string, enabled: boolean) => {
+      setOverviewSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              csRows: current.csRows.map((row) =>
+                row.email === email ? { ...row, queueEnabled: enabled } : row
+              ),
+            }
+          : current
+      );
+
+      const response = await fetch("/api/tasks/assignment-queue", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, enabled }),
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      if (!response.ok) {
+        const message = data?.error ?? "Could not update assignment queue.";
+        setOverviewError(message);
+        void loadOverview(true);
+        throw new Error(message);
+      }
+
+      setOverviewNotice(enabled ? "CS added to assignment queue." : "CS removed from assignment queue.");
+      setOverviewError(null);
+      void loadOverview(true);
+    },
+    [loadOverview]
+  );
+
   useEffect(() => {
     if (!isManager || view !== "overview" || overviewSnapshot) return;
     const timer = window.setTimeout(() => void loadOverview(), 0);
@@ -1118,6 +1153,7 @@ export function TaskBoardClient({
           onRefresh={() => void loadOverview(Boolean(overviewSnapshot))}
           onOpenTask={openTaskById}
           onAssign={assignOverviewTask}
+          onQueueMemberChange={changeAssignmentQueueMember}
           assigningTaskId={assigningOverviewTaskId}
           selectedTaskId={selectedOverviewTaskId}
           onSelectTask={setSelectedOverviewTaskId}

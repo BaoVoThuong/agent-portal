@@ -8,9 +8,22 @@ const now = new Date("2026-07-18T12:00:00.000Z");
 function account(
   email: string,
   name = email,
-  queueDueAt: string | null = null
+  queueDueAt: string | null = null,
+  queueLastAssignedAt: string | null = null,
+  queueEnabled = true,
+  roleLabel = "Customer Service"
 ): OverviewAccount {
-  return { email, name, isActive: true, canWork: true, isAdmin: false, queueDueAt };
+  return {
+    email,
+    name,
+    roleLabel,
+    isActive: true,
+    canWork: true,
+    isAdmin: false,
+    queueDueAt,
+    queueLastAssignedAt,
+    queueEnabled,
+  };
 }
 
 function task(overrides: Partial<OverviewTaskInput> = {}): OverviewTaskInput {
@@ -44,7 +57,6 @@ function input(overrides: Partial<OverviewInput> = {}): OverviewInput {
     accounts: [account("alice@example.com"), account("bob@example.com")],
     categories: [],
     taskAgents: [],
-    assistantEmails: [],
     tasks: [],
     assigneesByTask: new Map(),
     rules: [],
@@ -113,7 +125,12 @@ describe("aggregateOverview", () => {
     const snapshot = aggregateOverview(
       input({
         accounts: [
-          account("alice@example.com", "Alice", "2026-07-18T13:00:00.000Z"),
+          account(
+            "alice@example.com",
+            "Alice",
+            "2026-07-18T13:00:00.000Z",
+            "2026-07-18T12:15:00.000Z"
+          ),
           account("bob@example.com", "Bob", null),
         ],
       })
@@ -122,7 +139,46 @@ describe("aggregateOverview", () => {
     expect(snapshot.csRows.find((row) => row.email === "alice@example.com")?.queueDueAt).toBe(
       "2026-07-18T13:00:00.000Z"
     );
+    expect(
+      snapshot.csRows.find((row) => row.email === "alice@example.com")?.queueLastAssignedAt
+    ).toBe("2026-07-18T12:15:00.000Z");
     expect(snapshot.csRows.find((row) => row.email === "bob@example.com")?.queueDueAt).toBeNull();
+    expect(
+      snapshot.csRows.find((row) => row.email === "bob@example.com")?.queueLastAssignedAt
+    ).toBeNull();
+  });
+
+  it("carries role labels onto CS rows", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [
+          account("alice@example.com", "Alice", null, null, true, "Customer Service"),
+          account("bob@example.com", "Bob", null, null, true, "Assistant to An"),
+        ],
+      })
+    );
+
+    expect(snapshot.csRows.find((row) => row.email === "alice@example.com")?.roleLabel).toBe(
+      "Customer Service"
+    );
+    expect(snapshot.csRows.find((row) => row.email === "bob@example.com")?.roleLabel).toBe(
+      "Assistant to An"
+    );
+  });
+
+  it("keeps assistants in the workload pool but excludes agent owners", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [
+          account("agent@example.com", "Agent", null, null, true, "Agent"),
+          account("assistant@example.com", "Assistant", null, null, true, "Assistant to An"),
+        ],
+        taskAgents: ["agent@example.com"],
+      })
+    );
+
+    expect(snapshot.csRows.map((row) => row.email)).toEqual(["assistant@example.com"]);
+    expect(snapshot.csRows[0].roleLabel).toBe("Assistant to An");
   });
 
   it("adds category display data to unassigned tasks", () => {
@@ -318,6 +374,61 @@ describe("rankRecommendation", () => {
     };
 
     expect(rankRecommendation(taskToAssign, snapshot.csRows)[0].email).toBe("bob@example.com");
+  });
+
+  it("excludes queue-disabled CS from assignment recommendations", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [
+          account("alice@example.com", "Alice", "2026-07-18T10:00:00.000Z", null, false),
+          account("bob@example.com", "Bob", "2026-07-18T12:00:00.000Z"),
+        ],
+      })
+    );
+    const taskToAssign = {
+      id: "new-medium",
+      title: "New medium",
+      agentEmail: null,
+      categoryId: null,
+      categoryName: null,
+      categoryColor: null,
+      priority: "medium" as const,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      ageSeconds: 0,
+      effectiveSlaMinutes: 60,
+    };
+
+    expect(snapshot.csRows.find((row) => row.email === "alice@example.com")?.queueEnabled).toBe(false);
+    expect(rankRecommendation(taskToAssign, snapshot.csRows).map((row) => row.email)).toEqual([
+      "bob@example.com",
+    ]);
+  });
+
+  it("keeps CS eligible when an older snapshot lacks queueEnabled", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [
+          account("alice@example.com", "Alice", "2026-07-18T10:00:00.000Z"),
+        ],
+      })
+    );
+    const [row] = snapshot.csRows;
+    const taskToAssign = {
+      id: "new-medium",
+      title: "New medium",
+      agentEmail: null,
+      categoryId: null,
+      categoryName: null,
+      categoryColor: null,
+      priority: "medium" as const,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      ageSeconds: 0,
+      effectiveSlaMinutes: 60,
+    };
+
+    expect(rankRecommendation(taskToAssign, [{ ...row, queueEnabled: undefined as never }])).toHaveLength(1);
   });
 
   it("uses projected status at the workload thresholds", () => {
