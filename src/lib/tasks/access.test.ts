@@ -54,10 +54,12 @@ describe("buildTaskActor", () => {
 });
 
 describe("isTaskViewAdmin", () => {
-  it("true for legacy admin role or the Admin/Super Admin system role", () => {
+  it("true for legacy admin role or admin/task-admin RBAC roles", () => {
     expect(isTaskViewAdmin({ role: "admin" })).toBe(true);
     expect(isTaskViewAdmin({ roles: ["Admin"] })).toBe(true);
     expect(isTaskViewAdmin({ roles: ["Super Admin"] })).toBe(true);
+    expect(isTaskViewAdmin({ roles: ["Admin Health Task"] })).toBe(true);
+    expect(isTaskViewAdmin({ roles: ["Task Admin"] })).toBe(true);
   });
 
   it("false for a plain agent", () => {

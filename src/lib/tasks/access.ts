@@ -10,10 +10,15 @@ import {
 } from "@/lib/rbac/system-roles";
 import type { TaskActor, TaskRow, TaskStatus } from "./types";
 
-// True admin = the Admin system role (or legacy role "admin"). This is the
-// "sees every task + owns global settings" signal — deliberately NOT the same
-// as holding the task.manage permission, which an agent/assistant may also
-// carry but which must NOT grant an admin-wide view.
+const TASK_ADMIN_ROLE_NAMES = new Set([
+  "Admin Health Task",
+  "Task Admin",
+]);
+
+// Task admin = full Admin/Super Admin, legacy admin, or a task-admin RBAC role.
+// Still deliberately NOT the same as holding task.manage alone: an
+// agent/assistant can keep manage-like task permissions without getting the
+// admin-wide queue/dashboard view unless their role is explicitly listed here.
 export function isTaskViewAdmin(user: {
   role?: string | null;
   roles?: readonly string[];
@@ -22,7 +27,8 @@ export function isTaskViewAdmin(user: {
   return (
     user.role === "admin" ||
     roles.includes(SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
-    roles.includes(LEGACY_SUPER_ADMIN_ROLE_NAME)
+    roles.includes(LEGACY_SUPER_ADMIN_ROLE_NAME) ||
+    roles.some((role) => TASK_ADMIN_ROLE_NAMES.has(role))
   );
 }
 
