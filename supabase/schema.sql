@@ -1282,6 +1282,7 @@ create table if not exists tasks (
   position double precision not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  custom_values jsonb not null default '{}'::jsonb,
   archived_at timestamptz,
   constraint tasks_backlog_no_assignee
     check (status <> 'backlog' or assignee_email is null),
@@ -1303,6 +1304,7 @@ alter table tasks
 add column if not exists done_reviewed_at timestamptz;
 
 alter table tasks add column if not exists in_progress_at timestamptz;
+alter table tasks add column if not exists custom_values jsonb not null default '{}'::jsonb;
 
 -- Set the first time a cron detection pass (see /api/cron/check-overdue)
 -- notices the task has crossed its SLA deadline; cleared whenever
@@ -2122,11 +2124,87 @@ create unique index if not exists enrollment_options_active_label_key
 create index if not exists enrollment_options_set_position_idx
   on enrollment_options (set_id, archived_at, position, label);
 
+create table if not exists table_column (
+  id uuid primary key default gen_random_uuid(),
+  scope text not null check (scope in ('cs','aca','medicare')),
+  key text not null,
+  label text not null,
+  type text not null
+    check (type in ('text','number','dropdown','date','checkbox','link','person')),
+  is_system boolean not null default false,
+  position integer not null default 0,
+  hidden_default boolean not null default false,
+  required boolean not null default false,
+  created_by_email text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  archived_at timestamptz,
+  unique (scope, key)
+);
+
+create table if not exists table_column_option (
+  id uuid primary key default gen_random_uuid(),
+  column_id uuid not null references table_column(id) on delete cascade,
+  label text not null,
+  color text,
+  position integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  archived_at timestamptz
+);
+
+create index if not exists table_column_scope_position_idx
+  on table_column (scope, archived_at, position, label);
+create index if not exists table_column_option_column_idx
+  on table_column_option (column_id, archived_at, position, label);
+
+create table if not exists user_table_layout (
+  id uuid primary key default gen_random_uuid(),
+  user_email text not null,
+  scope text not null check (scope in ('cs','aca','medicare')),
+  layout jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now(),
+  unique (user_email, scope)
+);
+
+create table if not exists import_request (
+  id uuid primary key default gen_random_uuid(),
+  scope text not null check (scope in ('cs','aca','medicare')),
+  submitted_by_email text not null,
+  status text not null default 'pending'
+    check (status in ('pending','approved','rejected')),
+  match_column_key text not null,
+  column_mapping jsonb not null default '{}'::jsonb,
+  summary jsonb not null default '{}'::jsonb,
+  reviewed_by_email text,
+  reviewed_at timestamptz,
+  reject_reason text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists import_request_row (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid not null references import_request(id) on delete cascade,
+  action text not null check (action in ('add','update','error')),
+  target_record_id uuid,
+  values jsonb not null default '{}'::jsonb,
+  error_text text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists user_table_layout_user_scope_idx
+  on user_table_layout (user_email, scope);
+create index if not exists import_request_pending_idx
+  on import_request (scope, status);
+create index if not exists import_request_row_req_idx
+  on import_request_row (request_id);
+
 create table if not exists enrollment_records (
   id uuid primary key default gen_random_uuid(),
   program text not null default 'aca'
     check (program in ('aca', 'medicare')),
   client_name text,
+  description text,
   fub_link text,
   due_date date,
   stage_id uuid references enrollment_options(id) on delete restrict,
@@ -2150,6 +2228,7 @@ create table if not exists enrollment_records (
   created_at timestamptz not null default now(),
   updated_by_email text,
   updated_at timestamptz not null default now(),
+  custom_values jsonb not null default '{}'::jsonb,
   archived_at timestamptz
 );
 
@@ -2167,6 +2246,10 @@ create index if not exists enrollment_records_updated_idx
 -- Program split for records: backfill existing rows as ACA, scope list queries.
 alter table enrollment_records
   add column if not exists program text not null default 'aca';
+alter table enrollment_records
+  add column if not exists description text;
+alter table enrollment_records
+  add column if not exists custom_values jsonb not null default '{}'::jsonb;
 alter table enrollment_records
   drop constraint if exists enrollment_records_program_check;
 alter table enrollment_records
@@ -2417,6 +2500,66 @@ where not exists (
     and existing.archived_at is null
 );
 
+with system_column_seed(scope, key, label, type, position, hidden_default) as (
+  values
+    ('cs', 'key', 'Key', 'text', 10, false),
+    ('cs', 'summary', 'Task', 'text', 20, false),
+    ('cs', 'assignee', 'Assignee', 'person', 30, false),
+    ('cs', 'category', 'Category', 'dropdown', 40, false),
+    ('cs', 'status', 'Stage', 'dropdown', 50, false),
+    ('cs', 'priority', 'Priority', 'dropdown', 60, false),
+    ('cs', 'slaRemaining', 'Time Progress', 'text', 70, false),
+    ('cs', 'agent', 'Agent', 'person', 80, false),
+    ('cs', 'reporter', 'Opened by', 'person', 90, false),
+    ('cs', 'created', 'Created date', 'date', 100, false),
+    ('cs', 'activity', 'Last activity', 'date', 110, false),
+    ('cs', 'review', 'QC', 'checkbox', 120, false),
+    ('aca', 'key', 'Key', 'text', 10, false),
+    ('aca', 'client', 'Client Name', 'text', 20, false),
+    ('aca', 'stage', 'Stage', 'dropdown', 30, false),
+    ('aca', 'caller', 'Caller', 'person', 40, false),
+    ('aca', 'responsible', 'Responsible Enroll', 'person', 50, false),
+    ('aca', 'payment', 'Payment status', 'dropdown', 60, false),
+    ('aca', 'carrier', 'Carrier', 'dropdown', 70, false),
+    ('aca', 'aca', 'AC', 'dropdown', 80, false),
+    ('aca', 'consent', 'Consent', 'checkbox', 90, false),
+    ('aca', 'platform', 'Platform', 'dropdown', 100, false),
+    ('aca', 'pcp2025', 'PCP 2025', 'text', 110, false),
+    ('aca', 'pcp2026', 'PCP 2026', 'text', 120, false),
+    ('aca', 'due', 'Due Date', 'date', 130, false),
+    ('aca', 'fub', 'FUB Link', 'link', 140, false),
+    ('aca', 'createdBy', 'Created by', 'person', 150, true),
+    ('aca', 'createdAt', 'Created time', 'date', 160, true),
+    ('aca', 'updatedBy', 'Last edited by', 'person', 170, true),
+    ('aca', 'updated', 'Last edited time', 'date', 180, true),
+    ('aca', 'qc', 'QC', 'checkbox', 190, false),
+    ('medicare', 'key', 'Key', 'text', 10, false),
+    ('medicare', 'client', 'Client Name', 'text', 20, false),
+    ('medicare', 'stage', 'Stage', 'dropdown', 30, false),
+    ('medicare', 'caller', 'Caller', 'person', 40, true),
+    ('medicare', 'responsible', 'Assignee', 'person', 50, false),
+    ('medicare', 'payment', 'Payment status', 'dropdown', 60, true),
+    ('medicare', 'carrier', 'Carrier', 'dropdown', 70, false),
+    ('medicare', 'aca', 'AC', 'dropdown', 80, true),
+    ('medicare', 'consent', 'Consent', 'checkbox', 90, true),
+    ('medicare', 'platform', 'Platform', 'dropdown', 100, true),
+    ('medicare', 'pcp2025', 'PCP', 'text', 110, false),
+    ('medicare', 'pcp2026', 'PCP 2026', 'text', 120, true),
+    ('medicare', 'due', 'Due Date', 'date', 130, false),
+    ('medicare', 'fub', 'FUB Link', 'link', 140, false),
+    ('medicare', 'createdBy', 'Created by', 'person', 150, true),
+    ('medicare', 'createdAt', 'Created time', 'date', 160, true),
+    ('medicare', 'updatedBy', 'Last edited by', 'person', 170, true),
+    ('medicare', 'updated', 'Last edited time', 'date', 180, true),
+    ('medicare', 'qc', 'QC', 'checkbox', 190, false)
+)
+insert into table_column (
+  scope, key, label, type, is_system, position, hidden_default, required
+)
+select scope, key, label, type, true, position, hidden_default, false
+from system_column_seed
+on conflict (scope, key) do nothing;
+
 -- Defense-in-depth: enable RLS on every table. The app talks to Supabase only
 -- through the service-role key, which bypasses RLS, so behavior is unchanged.
 -- With RLS on and no public policies, anon/authenticated keys are denied by
@@ -2459,6 +2602,11 @@ declare
     'task_assignment_queue_members',
     'enrollment_option_sets',
     'enrollment_options',
+    'table_column',
+    'table_column_option',
+    'user_table_layout',
+    'import_request',
+    'import_request_row',
     'enrollment_records',
     'enrollment_stage_history',
     'enrollment_comments',

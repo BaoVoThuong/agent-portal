@@ -18,7 +18,9 @@ import {
   CheckCircle2,
   ChevronDown,
   Circle,
+  Download,
   ExternalLink,
+  FileUp,
   Plus,
   RefreshCw,
   Search,
@@ -70,12 +72,20 @@ import {
 } from "@/lib/enrollment/column-visibility";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName, personLabel } from "@/lib/tasks/people";
+import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
+import { formatCustomValue } from "@/lib/table-config/values";
+import {
+  resolveLayout,
+  serializeLayout,
+  type LayoutEntry,
+} from "@/lib/table-config/layout";
 import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
 import { AttachmentPanel } from "../../tasks/_components/AttachmentPanel";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { Initials } from "../../tasks/_components/board-ui";
+import { HealthTableImportDialog } from "../../_components/HealthTableImportDialog";
 import { EnrollmentOverview } from "./EnrollmentOverview";
 
 type SortKey =
@@ -146,12 +156,13 @@ const LABEL_CLASS =
 // horizontally instead of hiding data. "sticky" columns (Key, Client) stay
 // pinned on the left while the rest scrolls underneath, same as Slack.
 type EnrollmentColumn = {
-  key: SortKey | "fub";
+  key: SortKey | "fub" | (string & {});
   label: string;
   width: number;
   sticky?: boolean;
   sortable?: boolean;
   align?: "center";
+  configColumn?: TableColumn;
 };
 type EnrollmentColumnKey = EnrollmentColumn["key"];
 
@@ -198,14 +209,53 @@ const MEDICARE_COLUMN_LABELS: Partial<Record<EnrollmentColumn["key"], string>> =
   pcp2025: "PCP",
 };
 
-function enrollmentColumnsForProgram(program: EnrollmentProgram): EnrollmentColumn[] {
-  if (program !== "medicare") return ACA_ENROLLMENT_COLUMNS;
-  return ACA_ENROLLMENT_COLUMNS.filter((column) => !MEDICARE_HIDDEN_COLUMNS.has(column.key)).map(
-    (column) =>
-      MEDICARE_COLUMN_LABELS[column.key]
-        ? { ...column, label: MEDICARE_COLUMN_LABELS[column.key]! }
-        : column
-  );
+function enrollmentColumnsForProgram(
+  program: EnrollmentProgram,
+  configuredColumns: TableColumn[] = []
+): EnrollmentColumn[] {
+  const baseColumns =
+    program === "medicare"
+      ? ACA_ENROLLMENT_COLUMNS.filter((column) => !MEDICARE_HIDDEN_COLUMNS.has(column.key)).map(
+          (column) =>
+            MEDICARE_COLUMN_LABELS[column.key]
+              ? { ...column, label: MEDICARE_COLUMN_LABELS[column.key]! }
+              : column
+        )
+      : ACA_ENROLLMENT_COLUMNS;
+
+  if (configuredColumns.length === 0) return baseColumns;
+  const byKey = new Map(baseColumns.map((column) => [column.key, column]));
+  const ordered = configuredColumns
+    .filter((column) =>
+      column.is_system ? byKey.has(column.key as EnrollmentColumnKey) : true
+    )
+    .sort((a, b) => a.position - b.position || a.label.localeCompare(b.label));
+  const next: EnrollmentColumn[] = [];
+  const used = new Set<EnrollmentColumnKey>();
+  for (const configured of ordered) {
+    const key = configured.key as EnrollmentColumnKey;
+    const base = byKey.get(key);
+    if (configured.is_system) {
+      if (!base) continue;
+      next.push({ ...base, label: configured.label, configColumn: configured });
+    } else {
+      next.push({
+        key,
+        label: configured.label,
+        width: configured.type === "checkbox" ? 110 : 180,
+        align: configured.type === "checkbox" ? "center" : undefined,
+        configColumn: configured,
+      });
+    }
+    used.add(key);
+  }
+  for (const column of baseColumns) {
+    if (!used.has(column.key)) next.push(column);
+  }
+  return [
+    ...next.filter((column) => column.key === "key" || column.key === "client"),
+    ...next.filter((column) => column.key !== "key" && column.key !== "client"),
+  ];
 }
 
 const ENROLLMENT_COLUMN_KEYS = new Set(ACA_ENROLLMENT_COLUMNS.map((column) => column.key));
@@ -214,7 +264,10 @@ function browserStorage() {
   return typeof window === "undefined" ? undefined : window.localStorage;
 }
 
-function useHiddenEnrollmentColumns(program: EnrollmentProgram) {
+function useHiddenEnrollmentColumns(
+  program: EnrollmentProgram,
+  columns: readonly EnrollmentColumn[]
+) {
   const [hiddenByProgram, setHiddenByProgram] = useState<
     Record<EnrollmentProgram, Set<EnrollmentColumnKey>>
   >(() =>
@@ -222,9 +275,25 @@ function useHiddenEnrollmentColumns(program: EnrollmentProgram) {
       ENROLLMENT_PROGRAMS.map((value) => [value, new Set<EnrollmentColumnKey>()])
     ) as Record<EnrollmentProgram, Set<EnrollmentColumnKey>>
   );
+  const localStorageHydratedRef = useRef(new Set<EnrollmentProgram>());
   const hiddenKeys = hiddenByProgram[program];
+  const validKeys = useMemo(
+    () => new Set(columns.map((column) => column.key)),
+    [columns]
+  );
+  const defaultHiddenKeys = useMemo(
+    () =>
+      new Set(
+        columns
+          .filter((column) => column.configColumn?.hidden_default)
+          .map((column) => column.key)
+      ),
+    [columns]
+  );
 
   useEffect(() => {
+    if (localStorageHydratedRef.current.has(program)) return;
+    localStorageHydratedRef.current.add(program);
     const timer = window.setTimeout(() => {
       setHiddenByProgram(
         Object.fromEntries(
@@ -233,18 +302,19 @@ function useHiddenEnrollmentColumns(program: EnrollmentProgram) {
             readHiddenColumns(
               browserStorage(),
               value,
-              ENROLLMENT_COLUMN_KEYS
+              validKeys,
+              value === program ? defaultHiddenKeys : new Set()
             ) as Set<EnrollmentColumnKey>,
           ])
         ) as Record<EnrollmentProgram, Set<EnrollmentColumnKey>>
       );
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [defaultHiddenKeys, program, validKeys]);
 
   const toggleColumn = useCallback(
     (key: EnrollmentColumnKey) => {
-      const column = ACA_ENROLLMENT_COLUMNS.find((item) => item.key === key);
+      const column = columns.find((item) => item.key === key);
       setHiddenByProgram((current) => {
         const next = toggleHiddenColumn(
           current[program],
@@ -255,10 +325,18 @@ function useHiddenEnrollmentColumns(program: EnrollmentProgram) {
         return { ...current, [program]: next };
       });
     },
+    [columns, program]
+  );
+
+  const setProgramHiddenKeys = useCallback(
+    (keys: Set<EnrollmentColumnKey>) => {
+      setHiddenByProgram((current) => ({ ...current, [program]: keys }));
+      writeHiddenColumns(browserStorage(), program, keys);
+    },
     [program]
   );
 
-  return [hiddenKeys, toggleColumn] as const;
+  return [hiddenKeys, toggleColumn, setProgramHiddenKeys] as const;
 }
 
 // Left offset of each sticky column = sum of widths of sticky columns before it.
@@ -284,16 +362,22 @@ export function EnrollmentClient({
   people,
   optionSets,
   initialOptions,
+  tableColumns,
+  tableColumnOptions,
   currentEmail,
   canManageOptions,
+  canExportImport,
 }: {
   program: EnrollmentProgram;
   initialRecords: EnrollmentRecordWithStats[];
   people: EnrollmentPerson[];
   optionSets: EnrollmentOptionSet[];
   initialOptions: EnrollmentOption[];
+  tableColumns: TableColumn[];
+  tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   canManageOptions: boolean;
+  canExportImport: boolean;
 }) {
   const [records, setRecords] = useState(initialRecords);
   const [options, setOptions] = useState(initialOptions);
@@ -306,18 +390,91 @@ export function EnrollmentClient({
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [managingOptions, setManagingOptions] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(new Set<string>());
+  const enrollmentLayoutHydratedRef = useRef(false);
 
   const optionsById = useMemo(() => optionById(options), [options]);
   const optionsBySet = useMemo(() => groupOptions(options), [options]);
-  const columns = useMemo(() => enrollmentColumnsForProgram(program), [program]);
-  const [hiddenColumnKeys, toggleColumn] = useHiddenEnrollmentColumns(program);
+  const columns = useMemo(
+    () => enrollmentColumnsForProgram(program, layoutTableColumns),
+    [program, layoutTableColumns]
+  );
+  const [hiddenColumnKeys, toggleColumn, setHiddenColumnKeys] =
+    useHiddenEnrollmentColumns(program, columns);
   const visibleColumns = useMemo(
     () =>
       columns.filter((column) => column.sticky || !hiddenColumnKeys.has(column.key)),
     [columns, hiddenColumnKeys]
   );
+
+  useEffect(() => {
+    let alive = true;
+    enrollmentLayoutHydratedRef.current = false;
+    setLayoutTableColumns(tableColumns);
+    void fetch(`/api/config/layout?scope=${program}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { layout?: unknown } | null) => {
+        if (!alive) return;
+        if (Array.isArray(payload?.layout)) {
+          const resolved = resolveLayout(tableColumns, payload.layout as LayoutEntry[]);
+          setLayoutTableColumns(
+            resolved.map((column, index) => ({
+              ...column,
+              position: (index + 1) * 10,
+              hidden_default: column.hidden,
+            }))
+          );
+          setHiddenColumnKeys(
+            new Set(
+              resolved
+                .filter((column) => column.hidden)
+                .map((column) => column.key as EnrollmentColumnKey)
+            )
+          );
+        } else {
+          setLayoutTableColumns(tableColumns);
+        }
+        enrollmentLayoutHydratedRef.current = true;
+      })
+      .catch(() => {
+        if (!alive) return;
+        setLayoutTableColumns(tableColumns);
+        enrollmentLayoutHydratedRef.current = true;
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [program, setHiddenColumnKeys, tableColumns]);
+
+  useEffect(() => {
+    if (!enrollmentLayoutHydratedRef.current) return;
+    const layout = serializeLayout(
+      layoutTableColumns.map((column) => ({
+        ...column,
+        width: null,
+        hidden: hiddenColumnKeys.has(column.key as EnrollmentColumnKey),
+      }))
+    );
+    const timer = window.setTimeout(() => {
+      void fetch("/api/config/layout", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: program, layout }),
+      }).then(async (response) => {
+        if (response.ok) return;
+        const data = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        setError(data?.error ?? "Không lưu được cấu hình bảng.");
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [hiddenColumnKeys, layoutTableColumns, program]);
+
   // How many live records reference each option — shown in the archive
   // confirm dialog so an admin can see the blast radius before archiving
   // (this is what silently broke the ACA Payment "Auto pay" option earlier).
@@ -567,8 +724,11 @@ export function EnrollmentClient({
           columns={columns}
           hiddenColumnKeys={hiddenColumnKeys}
           onToggleColumn={toggleColumn}
+          canExportImport={canExportImport}
+          onImport={() => setImporting(true)}
           visibleCount={visibleRecords.length}
           totalCount={records.length}
+          visibleRecordIds={visibleRecords.map((record) => record.id)}
         />
 
         {view === "overview" ? (
@@ -587,6 +747,7 @@ export function EnrollmentClient({
             peopleByEmail={peopleByEmail}
             optionsById={optionsById}
             optionsBySet={optionsBySet}
+            tableColumnOptions={tableColumnOptions}
             sort={sort}
             onSort={(key) =>
               setSort((current) =>
@@ -624,7 +785,7 @@ export function EnrollmentClient({
       {creating ? (
         <NewEnrollmentDialog
           program={program}
-          people={people}
+          peopleByEmail={peopleByEmail}
           optionsBySet={optionsBySet}
           currentEmail={currentEmail}
           onClose={() => setCreating(false)}
@@ -645,6 +806,14 @@ export function EnrollmentClient({
           onChanged={reloadOptions}
         />
       ) : null}
+
+      {importing ? (
+        <HealthTableImportDialog
+          scope={program}
+          columns={tableColumns}
+          onClose={() => setImporting(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -660,8 +829,11 @@ function EnrollmentToolbar({
   columns,
   hiddenColumnKeys,
   onToggleColumn,
+  canExportImport,
+  onImport,
   visibleCount,
   totalCount,
+  visibleRecordIds,
 }: {
   program: EnrollmentProgram;
   view: "list" | "overview";
@@ -673,10 +845,20 @@ function EnrollmentToolbar({
   columns: EnrollmentColumn[];
   hiddenColumnKeys: Set<EnrollmentColumnKey>;
   onToggleColumn: (key: EnrollmentColumnKey) => void;
+  canExportImport: boolean;
+  onImport: () => void;
   visibleCount: number;
   totalCount: number;
+  visibleRecordIds: string[];
 }) {
   const isMedicare = program === "medicare";
+  const exportColumnKeys = columns
+    .filter((column) => column.sticky || !hiddenColumnKeys.has(column.key))
+    .map((column) => column.key)
+    .join(",");
+  const exportHref = `/api/enrollment/export?program=${program}&columns=${encodeURIComponent(
+    exportColumnKeys
+  )}&ids=${encodeURIComponent(visibleRecordIds.join(","))}`;
   const hasActiveFilters =
     filters.query.trim() !== "" ||
     filters.stage.length > 0 ||
@@ -835,6 +1017,28 @@ function EnrollmentToolbar({
           hiddenColumnKeys={hiddenColumnKeys}
           onToggleColumn={onToggleColumn}
         />
+
+        {canExportImport ? (
+          <>
+            <a
+              href={exportHref}
+              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+              title="Export visible columns"
+            >
+              <Download className="h-4 w-4" />
+              Export
+            </a>
+            <button
+              type="button"
+              onClick={onImport}
+              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+              title="Import table data"
+            >
+              <FileUp className="h-4 w-4" />
+              Import
+            </button>
+          </>
+        ) : null}
 
         {hasActiveFilters ? (
           <button
@@ -1083,6 +1287,7 @@ function EnrollmentTable({
   peopleByEmail,
   optionsById,
   optionsBySet,
+  tableColumnOptions,
   sort,
   onSort,
   onOpen,
@@ -1093,6 +1298,7 @@ function EnrollmentTable({
   peopleByEmail: Map<string, string>;
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
+  tableColumnOptions: TableColumnOption[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (key: SortKey) => void;
   onOpen: (id: string) => void;
@@ -1147,6 +1353,7 @@ function EnrollmentTable({
                     peopleByEmail={peopleByEmail}
                     optionsById={optionsById}
                     optionsBySet={optionsBySet}
+                    tableColumnOptions={tableColumnOptions}
                     onOpen={onOpen}
                     onPatch={onPatch}
                   />
@@ -1166,6 +1373,7 @@ function EnrollmentRowItem({
   peopleByEmail,
   optionsById,
   optionsBySet,
+  tableColumnOptions,
   onOpen,
   onPatch,
 }: {
@@ -1174,6 +1382,7 @@ function EnrollmentRowItem({
   peopleByEmail: Map<string, string>;
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
+  tableColumnOptions: TableColumnOption[];
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
 }) {
@@ -1181,6 +1390,18 @@ function EnrollmentRowItem({
   const overdue = enrollmentIsOverdue(record);
   const risk = enrollmentRisk(record, stage);
   const has = (key: EnrollmentColumn["key"]) => columns.some((column) => column.key === key);
+  const customColumns = columns.filter(
+    (column) => column.configColumn && !column.configColumn.is_system
+  );
+  const customOptionById = new Map(
+    tableColumnOptions.map((option) => [option.id, option])
+  );
+  const customOptionsByColumnId = new Map<string, TableColumnOption[]>();
+  for (const option of tableColumnOptions) {
+    const list = customOptionsByColumnId.get(option.column_id) ?? [];
+    list.push(option);
+    customOptionsByColumnId.set(option.column_id, list);
+  }
 
   function cellStyle(column: EnrollmentColumn): React.CSSProperties {
     return {
@@ -1427,9 +1648,25 @@ function EnrollmentRowItem({
         </div>
       ) : null}
 
+      {customColumns.map((column) => {
+        const configColumn = column.configColumn;
+        if (!configColumn) return null;
+        return (
+          <EnrollmentCustomValueCell
+            key={column.key}
+            column={configColumn}
+            width={column.width}
+            value={record.custom_values?.[configColumn.key]}
+            peopleByEmail={peopleByEmail}
+            optionById={customOptionById}
+            options={customOptionsByColumnId.get(configColumn.id) ?? []}
+          />
+        );
+      })}
+
       {/* QC — sticky at the far right */}
       <div
-        style={cellStyle(columns[columns.length - 1])}
+        style={cellStyle(columns.find((column) => column.key === "qc") ?? columns[columns.length - 1])}
         className={`sticky z-[1] flex shrink-0 items-center justify-center border-l border-[#dfe1e6] px-2 py-2.5 bg-white group-hover:bg-[#f7f8f9]`}
       >
         <QCCheckButton
@@ -1440,6 +1677,138 @@ function EnrollmentRowItem({
       </div>
     </div>
   );
+}
+
+function EnrollmentCustomValueCell({
+  column,
+  width,
+  value,
+  peopleByEmail,
+  optionById,
+  options,
+}: {
+  column: TableColumn;
+  width: number;
+  value: unknown;
+  peopleByEmail: Map<string, string>;
+  optionById: ReadonlyMap<string, TableColumnOption>;
+  options: readonly TableColumnOption[];
+}) {
+  const empty = value === null || value === undefined || value === "";
+  const style = { width };
+
+  if (column.type === "checkbox") {
+    return (
+      <div
+        style={style}
+        className="flex shrink-0 items-center justify-center px-2 py-2.5"
+        title={formatCustomValue(column.type, value)}
+      >
+        {value ? (
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#00875a] text-white">
+            <Check className="h-3.5 w-3.5" />
+          </span>
+        ) : (
+          <span className="text-xs font-semibold text-[#97a0af]">-</span>
+        )}
+      </div>
+    );
+  }
+
+  if (column.type === "link") {
+    return (
+      <div
+        style={style}
+        className="flex shrink-0 items-center justify-center px-2 py-2.5"
+      >
+        {empty ? (
+          <span className="text-xs font-semibold text-[#97a0af]">-</span>
+        ) : (
+          <a
+            href={formatExternalLink(String(value))}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => event.stopPropagation()}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[#b3d4ff] bg-[#deebff] text-[#0055cc]"
+            title={String(value)}
+            aria-label={`Open ${column.label}`}
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (column.type === "person") {
+    const email = empty ? "" : String(value).toLowerCase();
+    const label = email ? peopleByEmail.get(email) ?? formatEmailAsName(email) : "-";
+    return (
+      <div
+        style={style}
+        className="flex min-w-0 shrink-0 items-center px-3 py-2.5"
+        title={email || "No person"}
+      >
+        {email ? (
+          <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-[#42526e]">
+            <Initials email={email} label={label} />
+            <span className="min-w-0 truncate">{label}</span>
+          </span>
+        ) : (
+          <span className="text-xs font-semibold text-[#97a0af]">-</span>
+        )}
+      </div>
+    );
+  }
+
+  if (column.type === "dropdown") {
+    const option = empty ? null : optionById.get(String(value)) ?? null;
+    const pillStyle = customOptionPillStyle(option);
+    return (
+      <div
+        style={style}
+        className="flex min-w-0 shrink-0 items-center px-3 py-2.5"
+        title={option?.label ?? (empty ? "No value" : String(value))}
+      >
+        {option ? (
+          <span
+            className="inline-flex max-w-full items-center rounded px-2 py-1 text-xs font-medium"
+            style={{ backgroundColor: pillStyle.bg, color: pillStyle.fg }}
+          >
+            <span className="min-w-0 truncate">{option.label}</span>
+          </span>
+        ) : options.length === 0 && empty ? (
+          <span className="text-xs font-semibold text-[#97a0af]">-</span>
+        ) : (
+          <span className="min-w-0 truncate text-xs font-medium text-[#42526e]">
+            {empty ? "-" : String(value)}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  const label = formatCustomValue(column.type, value);
+  return (
+    <div
+      style={style}
+      className="flex min-w-0 shrink-0 items-center px-3 py-2.5 text-xs font-medium text-[#42526e]"
+      title={label || "No value"}
+    >
+      <span className="min-w-0 truncate">{label || "-"}</span>
+    </div>
+  );
+}
+
+function customOptionPillStyle(option: TableColumnOption | null): {
+  bg: string;
+  fg: string;
+} {
+  if (!option?.color) return { bg: "#f4f5f7", fg: "#5e6c84" };
+  return {
+    bg: hexToRgba(option.color, 0.08) ?? "#dfe1e6",
+    fg: option.color,
+  };
 }
 
 // Consent is a two-state field (Yes / Not Yet) so a click-to-toggle checkbox
@@ -1585,10 +1954,21 @@ function EnrollmentPersonMenu({
 }) {
   const { isOpen, toggle, triggerRef, menuRef, menuStyle, setIsOpen } =
     useAnchoredMenu();
-  const options = [...peopleByEmail.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const options = [...peopleByEmail.entries()]
+    .map(([email, name]) => ({ email, name }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
+  const nameCounts = new Map<string, number>();
+  for (const option of options) {
+    const key = personNameKey(option.name);
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
+  }
+  const hasDuplicateName = (name: string) => (nameCounts.get(personNameKey(name)) ?? 0) > 1;
   const selectedLabel = value
     ? peopleByEmail.get(value) ?? formatEmailAsName(value)
     : emptyLabel;
+  const selectedEmail = value && hasDuplicateName(selectedLabel) ? value : null;
+  const title =
+    selectedEmail ? `${selectedLabel} (${selectedEmail})` : selectedLabel;
 
   return (
     <span className="block min-w-0">
@@ -1600,13 +1980,20 @@ function EnrollmentPersonMenu({
           toggle();
         }}
         aria-expanded={isOpen}
-        title={selectedLabel}
+        title={title}
         className="flex w-full min-w-0 items-center"
       >
         {value ? (
           <span className="flex min-w-0 items-center gap-1.5 text-left text-xs font-semibold text-[#42526e] transition hover:text-[#0c66e4]">
             <Initials email={value} label={selectedLabel} />
-            <span className="min-w-0 flex-1 truncate">{selectedLabel}</span>
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="block truncate">{selectedLabel}</span>
+              {selectedEmail ? (
+                <span className="block truncate text-[10px] font-medium text-[#6b778c]">
+                  {selectedEmail}
+                </span>
+              ) : null}
+            </span>
           </span>
         ) : (
           <span className="inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]">
@@ -1640,32 +2027,46 @@ function EnrollmentPersonMenu({
                 {emptyLabel}
                 {!value ? <Check className="h-4 w-4 text-[#0c66e4]" /> : null}
               </button>
-              {options.map(([email, name]) => (
-                <button
-                  key={email}
-                  type="button"
-                  role="option"
-                  aria-selected={email === value}
-                  onClick={() => {
-                    onChange(email);
-                    setIsOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition ${
-                    email === value
-                      ? "bg-[#e9f2ff] text-[#0c66e4]"
-                      : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                  }`}
-                >
-                  <span className="min-w-0 truncate">{name}</span>
-                  {email === value ? <Check className="h-4 w-4 text-[#0c66e4]" /> : null}
-                </button>
-              ))}
+              {options.map(({ email, name }) => {
+                const showEmail = hasDuplicateName(name);
+                return (
+                  <button
+                    key={email}
+                    type="button"
+                    role="option"
+                    aria-selected={email === value}
+                    onClick={() => {
+                      onChange(email);
+                      setIsOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition ${
+                      email === value
+                        ? "bg-[#e9f2ff] text-[#0c66e4]"
+                        : "text-[#172b4d] hover:bg-[#f4f5f7]"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 leading-tight">
+                      <span className="block truncate">{name}</span>
+                      {showEmail ? (
+                        <span className="block truncate text-xs font-medium text-[#6b778c]">
+                          {email}
+                        </span>
+                      ) : null}
+                    </span>
+                    {email === value ? <Check className="h-4 w-4 text-[#0c66e4]" /> : null}
+                  </button>
+                );
+              })}
             </div>,
             document.body
           )
         : null}
     </span>
   );
+}
+
+function personNameKey(name: string) {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function QCCheckButton({
@@ -1747,7 +2148,7 @@ function EnrollmentStagePill({
               ref={menuRef}
               role="listbox"
               style={menuStyle}
-              className="z-[100] overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+              className="z-[100] max-h-64 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
             >
               {stages.map((option) => (
                 <button
@@ -1910,10 +2311,10 @@ function EnrollmentDrawer({
           <div className="grid min-h-full grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px]">
             <main className="min-w-0 space-y-6 p-5 lg:p-7">
               <label className="block space-y-1.5">
-                <span className={LABEL_CLASS}>Client</span>
+                <span className={LABEL_CLASS}>Ticket</span>
                 <EditableInput
                   value={record.client_name ?? ""}
-                  placeholder="Client name"
+                  placeholder="Client or ticket summary"
                   className={`${INPUT_CLASS} h-11 text-base font-semibold`}
                   onSave={(value) => onPatch({ client_name: value })}
                 />
@@ -1942,47 +2343,57 @@ function EnrollmentDrawer({
                 </div>
               </label>
 
-              <section className="space-y-3 border-t border-[#dfe1e6] pt-5">
-              <div className="flex flex-wrap gap-1 rounded bg-[#f4f5f7] p-1">
-                <DrawerTab active={tab === "comments"} onClick={() => setTab("comments")}>
-                  Comments ({detail?.comments.length ?? record.comment_count})
-                </DrawerTab>
-                <DrawerTab active={tab === "activity"} onClick={() => setTab("activity")}>
-                  Activity ({detail?.activity.length ?? 0})
-                </DrawerTab>
-                <DrawerTab active={tab === "files"} onClick={() => setTab("files")}>
-                  Files ({detail?.attachments.length ?? record.attachment_count})
-                </DrawerTab>
-              </div>
+              <label className="block space-y-1.5">
+                <span className={LABEL_CLASS}>Description</span>
+                <EditableTextarea
+                  value={record.description ?? ""}
+                  placeholder="No description"
+                  className={`${INPUT_CLASS} min-h-[120px] resize-y leading-6`}
+                  onSave={(value) => onPatch({ description: value })}
+                />
+              </label>
 
-              {!detail ? (
-                <DetailSkeleton />
-              ) : tab === "comments" ? (
-                <CommentThread
-                  taskId={record.id}
-                  apiBase="/api/enrollment"
-                  roomTopic={enrollmentRoomTopic(record.id)}
-                  currentEmail={currentEmail}
-                  members={mentionMembers}
-                  comments={detail.comments}
-                  onReload={reload}
-                />
-              ) : tab === "activity" ? (
-                <ActivityFeed
-                  activity={detail.activity}
-                  personLabelByEmail={peopleByEmail}
-                />
-              ) : (
-                <AttachmentPanel
-                  attachments={detail.attachments}
-                  taskId={record.id}
-                  apiBase="/api/enrollment"
-                  canEdit
-                  onReload={reload}
-                />
-              )}
-            </section>
-          </main>
+              <section className="space-y-3 border-t border-[#dfe1e6] pt-5">
+                <div className="flex flex-wrap gap-1 rounded bg-[#f4f5f7] p-1">
+                  <DrawerTab active={tab === "comments"} onClick={() => setTab("comments")}>
+                    Comments ({detail?.comments.length ?? record.comment_count})
+                  </DrawerTab>
+                  <DrawerTab active={tab === "activity"} onClick={() => setTab("activity")}>
+                    Activity ({detail?.activity.length ?? 0})
+                  </DrawerTab>
+                  <DrawerTab active={tab === "files"} onClick={() => setTab("files")}>
+                    Files ({detail?.attachments.length ?? record.attachment_count})
+                  </DrawerTab>
+                </div>
+
+                {!detail ? (
+                  <DetailSkeleton />
+                ) : tab === "comments" ? (
+                  <CommentThread
+                    taskId={record.id}
+                    apiBase="/api/enrollment"
+                    roomTopic={enrollmentRoomTopic(record.id)}
+                    currentEmail={currentEmail}
+                    members={mentionMembers}
+                    comments={detail.comments}
+                    onReload={reload}
+                  />
+                ) : tab === "activity" ? (
+                  <ActivityFeed
+                    activity={detail.activity}
+                    personLabelByEmail={peopleByEmail}
+                  />
+                ) : (
+                  <AttachmentPanel
+                    attachments={detail.attachments}
+                    taskId={record.id}
+                    apiBase="/api/enrollment"
+                    canEdit
+                    onReload={reload}
+                  />
+                )}
+              </section>
+            </main>
 
           <aside className="space-y-5 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
             <SidebarSection title="Pipeline">
@@ -2168,22 +2579,24 @@ function EnrollmentDrawer({
 
 function NewEnrollmentDialog({
   program,
-  people,
+  peopleByEmail,
   optionsBySet,
   currentEmail,
   onClose,
   onCreate,
 }: {
   program: EnrollmentProgram;
-  people: EnrollmentPerson[];
+  peopleByEmail: Map<string, string>;
   optionsBySet: EnrollmentOptionsBySet;
   currentEmail: string;
   onClose: () => void;
   onCreate: (payload: Record<string, unknown>) => Promise<void>;
 }) {
   const isMedicare = program === "medicare";
+  const ticketInputRef = useRef<HTMLInputElement | null>(null);
   const [form, setForm] = useState<Record<string, string>>({
     client_name: "",
+    description: "",
     fub_link: "",
     due_date: "",
     stage_id: optionsBySet.stage[0]?.id ?? "",
@@ -2200,8 +2613,12 @@ function NewEnrollmentDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function update(field: string, value: string) {
-    setForm((current) => ({ ...current, [field]: value }));
+  useEffect(() => {
+    ticketInputRef.current?.focus();
+  }, []);
+
+  function update(field: string, value: string | null) {
+    setForm((current) => ({ ...current, [field]: value ?? "" }));
   }
 
   async function submit() {
@@ -2233,9 +2650,14 @@ function NewEnrollmentDialog({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#091e42]/40 p-4">
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-hidden rounded-lg bg-white shadow-2xl">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
         <header className="flex items-center justify-between border-b border-[#d8dee8] px-5 py-3">
-          <h2 className="text-lg font-bold text-[#172b4d]">New enrollment</h2>
+          <div>
+            <h2 className="text-lg font-bold text-[#172b4d]">New enrollment</h2>
+            <p className="text-sm font-medium text-[#6b778c]">
+              Capture the ticket first, then set ownership and enrollment details.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -2245,36 +2667,164 @@ function NewEnrollmentDialog({
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className="max-h-[calc(100vh-10rem)] overflow-y-auto p-5">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <FormInput label="Client name" value={form.client_name} onChange={(value) => update("client_name", value)} />
-            <FormInput label="FUB link" value={form.fub_link} onChange={(value) => update("fub_link", value)} />
-            <FormSelect label="Stage" value={form.stage_id} options={selectOptions(optionsBySet.stage)} onChange={(value) => update("stage_id", value)} />
-            {!isMedicare ? (
-              <FormSelect label="Caller" value={form.caller_email} options={peopleOptions(people)} onChange={(value) => update("caller_email", value)} />
-            ) : null}
-            <FormSelect
-              label={isMedicare ? "Assignee" : "Responsible enroll"}
-              value={form.responsible_enroll_email}
-              options={peopleOptions(people)}
-              onChange={(value) => update("responsible_enroll_email", value)}
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <label className="block space-y-1.5">
+            <span className={LABEL_CLASS}>Ticket</span>
+            <input
+              ref={ticketInputRef}
+              value={form.client_name}
+              onChange={(event) => update("client_name", event.target.value)}
+              placeholder="Client or ticket summary"
+              className={`${INPUT_CLASS} h-11 text-base font-semibold`}
             />
-            <FormInput label="Due date" type="date" value={form.due_date} onChange={(value) => update("due_date", value)} />
-            {!isMedicare ? (
-              <FormSelect label="Payment" value={form.payment_status_id} options={selectOptions(optionsBySet.payment_status)} onChange={(value) => update("payment_status_id", value)} />
-            ) : null}
-            <FormSelect label="Carrier" value={form.carrier_id} options={selectOptions(optionsBySet.carrier)} onChange={(value) => update("carrier_id", value)} />
-            {!isMedicare ? (
-              <>
-                <FormSelect label="ACA" value={form.aca_status_id} options={selectOptions(optionsBySet.aca_status)} onChange={(value) => update("aca_status_id", value)} />
-                <FormSelect label="Consent" value={form.consent_id} options={selectOptions(optionsBySet.consent)} onChange={(value) => update("consent_id", value)} />
-                <FormSelect label="Platform" value={form.platform_id} options={selectOptions(optionsBySet.platform)} onChange={(value) => update("platform_id", value)} />
-              </>
-            ) : null}
-            <FormInput label={isMedicare ? "PCP" : "PCP 2025"} value={form.pcp_2025} onChange={(value) => update("pcp_2025", value)} />
-            {!isMedicare ? (
-              <FormInput label="PCP 2026" value={form.pcp_2026} onChange={(value) => update("pcp_2026", value)} />
-            ) : null}
+          </label>
+
+          <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <main className="min-w-0 space-y-4">
+              <label className="block space-y-1.5">
+                <span className={LABEL_CLASS}>FUB Link</span>
+                <input
+                  value={form.fub_link}
+                  onChange={(event) => update("fub_link", event.target.value)}
+                  placeholder="https://app.followupboss.com/..."
+                  className={`${INPUT_CLASS} h-10 font-semibold`}
+                />
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className={LABEL_CLASS}>Description</span>
+                <textarea
+                  value={form.description}
+                  onChange={(event) => update("description", event.target.value)}
+                  placeholder="Add context, notes, missing items, or next steps..."
+                  rows={10}
+                  className={`${INPUT_CLASS} min-h-[230px] resize-y leading-6`}
+                />
+              </label>
+            </main>
+
+            <aside className="min-w-0 space-y-5 rounded-lg border border-[#dfe1e6] bg-[#f7f8fa] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-[#172b4d]">Properties</h3>
+                  <p className="text-xs font-medium text-[#6b778c]">
+                    Enrollment fields stay on the right for fast scanning.
+                  </p>
+                </div>
+                <span className="shrink-0 rounded bg-[#e9f2ff] px-2 py-1 text-[11px] font-bold text-[#0c66e4]">
+                  {ENROLLMENT_PROGRAM_LABELS[program].replace("Health ", "")}
+                </span>
+              </div>
+
+              <CreatePropertySection title="Pipeline">
+                <CreatePropertyField label="Stage">
+                  <EnrollmentStagePill
+                    stageId={form.stage_id || null}
+                    stages={optionsBySet.stage}
+                    onChange={async (value) => update("stage_id", value)}
+                  />
+                </CreatePropertyField>
+
+                <CreatePropertyInput
+                  label="Due date"
+                  type="date"
+                  value={form.due_date}
+                  onChange={(value) => update("due_date", value)}
+                />
+              </CreatePropertySection>
+
+              <CreatePropertySection title={isMedicare ? "Plan" : "Plan & payment"}>
+                {!isMedicare ? (
+                  <CreatePropertyField label="Payment">
+                    <EnrollmentOptionMenu
+                      optionId={form.payment_status_id || null}
+                      options={optionsBySet.payment_status}
+                      emptyLabel="No payment"
+                      onChange={(value) => update("payment_status_id", value)}
+                    />
+                  </CreatePropertyField>
+                ) : null}
+
+                <CreatePropertyField label="Carrier">
+                  <EnrollmentOptionMenu
+                    optionId={form.carrier_id || null}
+                    options={optionsBySet.carrier}
+                    emptyLabel="No carrier"
+                    onChange={(value) => update("carrier_id", value)}
+                  />
+                </CreatePropertyField>
+
+                {!isMedicare ? (
+                  <>
+                    <CreatePropertyField label="ACA">
+                      <EnrollmentOptionMenu
+                        optionId={form.aca_status_id || null}
+                        options={optionsBySet.aca_status}
+                        emptyLabel="No ACA status"
+                        onChange={(value) => update("aca_status_id", value)}
+                      />
+                    </CreatePropertyField>
+
+                    <CreatePropertyField label="Consent">
+                      <EnrollmentConsentToggle
+                        optionId={form.consent_id || null}
+                        options={optionsBySet.consent}
+                        onChange={(value) => update("consent_id", value)}
+                      />
+                    </CreatePropertyField>
+
+                    <CreatePropertyField label="Platform">
+                      <EnrollmentOptionMenu
+                        optionId={form.platform_id || null}
+                        options={optionsBySet.platform}
+                        emptyLabel="No platform"
+                        onChange={(value) => update("platform_id", value)}
+                      />
+                    </CreatePropertyField>
+                  </>
+                ) : null}
+              </CreatePropertySection>
+
+              <CreatePropertySection title="Ownership">
+                {!isMedicare ? (
+                  <CreatePropertyField label="Caller">
+                    <EnrollmentPersonMenu
+                      value={form.caller_email || null}
+                      peopleByEmail={peopleByEmail}
+                      emptyLabel="No caller"
+                      onChange={(value) => update("caller_email", value)}
+                    />
+                  </CreatePropertyField>
+                ) : null}
+
+                <CreatePropertyField label={isMedicare ? "Assignee" : "Responsible enroll"}>
+                  <EnrollmentPersonMenu
+                    value={form.responsible_enroll_email || null}
+                    peopleByEmail={peopleByEmail}
+                    emptyLabel="Unassigned"
+                    onChange={(value) => update("responsible_enroll_email", value)}
+                  />
+                </CreatePropertyField>
+              </CreatePropertySection>
+
+              <CreatePropertySection title="PCP">
+                <CreatePropertyInput
+                  label={isMedicare ? "PCP" : "PCP 2025"}
+                  value={form.pcp_2025}
+                  placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                  onChange={(value) => update("pcp_2025", value)}
+                />
+
+                {!isMedicare ? (
+                  <CreatePropertyInput
+                    label="PCP 2026"
+                    value={form.pcp_2026}
+                    placeholder="No PCP 2026"
+                    onChange={(value) => update("pcp_2026", value)}
+                  />
+                ) : null}
+              </CreatePropertySection>
+            </aside>
           </div>
           {error ? (
             <div className="mt-4 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-sm font-bold text-[#bf2600]">
@@ -2589,6 +3139,32 @@ function EditableInput({
   );
 }
 
+function EditableTextarea({
+  value,
+  placeholder,
+  className = `${INPUT_CLASS} min-h-[96px] resize-y leading-6`,
+  onSave,
+}: {
+  value: string;
+  placeholder: string;
+  className?: string;
+  onSave: (value: string | null) => Promise<void>;
+}) {
+  return (
+    <textarea
+      key={value}
+      defaultValue={value}
+      placeholder={placeholder}
+      onClick={(event) => event.stopPropagation()}
+      onBlur={(event) => {
+        const next = event.currentTarget.value.trim();
+        if (next !== value.trim()) void onSave(next || null);
+      }}
+      className={className}
+    />
+  );
+}
+
 function EnrollmentQCPanel({
   record,
   stage,
@@ -2723,61 +3299,63 @@ function FieldBlock({
   );
 }
 
-function FormInput({
+function CreatePropertySection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-3 border-t border-[#dfe1e6] pt-4 first:border-t-0 first:pt-0">
+      <h4 className="text-[10.5px] font-bold uppercase tracking-wide text-[#8993a4]">
+        {title}
+      </h4>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function CreatePropertyField({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <span className={LABEL_CLASS}>{label}</span>
+      <div className="flex min-h-10 items-center rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1 text-sm font-semibold text-[#172b4d] transition hover:border-[#c1c7d0] focus-within:border-[#0c66e4] focus-within:ring-2 focus-within:ring-[#deebff]">
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function CreatePropertyInput({
   label,
   value,
   type = "text",
+  placeholder,
   onChange,
 }: {
   label: string;
   value: string;
   type?: string;
+  placeholder?: string;
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="space-y-1.5">
-      <span className="text-xs font-bold uppercase tracking-wide text-[#6b778c]">
-        {label}
-      </span>
+    <CreatePropertyField label={label}>
       <input
         type={type}
         value={value}
+        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
+        className="h-7 w-full min-w-0 bg-transparent px-0 text-sm font-semibold text-[#172b4d] outline-none placeholder:text-[#97a0af]"
       />
-    </label>
-  );
-}
-
-function FormSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="space-y-1.5">
-      <span className="text-xs font-bold uppercase tracking-wide text-[#6b778c]">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
-      >
-        <option value="">None</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    </CreatePropertyField>
   );
 }
 
@@ -2856,6 +3434,7 @@ function filterRecords(
 
     const haystack = [
       record.client_name ?? "",
+      record.description ?? "",
       record.comment_search_text ?? "",
     ]
       .join(" ")

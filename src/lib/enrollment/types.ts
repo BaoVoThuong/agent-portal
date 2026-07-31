@@ -65,6 +65,7 @@ export type EnrollmentRecord = {
   id: string;
   program: EnrollmentProgram;
   client_name: string | null;
+  description: string | null;
   fub_link: string | null;
   due_date: string | null;
   stage_id: string | null;
@@ -75,6 +76,7 @@ export type EnrollmentRecord = {
   aca_status_id: string | null;
   pcp_2025: string | null;
   pcp_2026: string | null;
+  custom_values?: Record<string, unknown>;
   caller_email: string | null;
   responsible_enroll_email: string | null;
   qc_checked_by_email: string | null;

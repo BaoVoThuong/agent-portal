@@ -36,6 +36,7 @@ export type TaskRow = {
   status: TaskStatus;
   priority: TaskPriority;
   category_id: string | null;
+  custom_values?: Record<string, unknown>;
   agent_email: string | null;
   assignees: string[];
   assignee_email: string | null;

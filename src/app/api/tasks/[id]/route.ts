@@ -53,6 +53,7 @@ const CONTENT_PATCH_KEYS = new Set([
   "priority",
   "category_id",
   "agent_email",
+  "custom_values",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,6 +65,22 @@ function hasAnyPatchKey(
   keys: ReadonlySet<string>
 ): boolean {
   return Object.keys(body).some((key) => keys.has(key));
+}
+
+function cleanCustomValues(values: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (!key.trim()) continue;
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      next[key] = value;
+    }
+  }
+  return next;
 }
 
 function patchCapabilityError(
@@ -262,6 +279,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
     nowIso,
   });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+
+  if (isRecord(bodyRecord.custom_values)) {
+    resolved.patch.custom_values = {
+      ...(isRecord(r.task.custom_values) ? r.task.custom_values : {}),
+      ...cleanCustomValues(bodyRecord.custom_values),
+    };
+  }
 
   if (reassigning) {
     const nextAssignee = resolved.patch.assignee_email as string | null;

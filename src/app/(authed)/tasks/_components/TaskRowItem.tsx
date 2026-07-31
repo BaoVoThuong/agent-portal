@@ -38,10 +38,12 @@ import {
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { taskCategoryPalette } from "@/lib/tasks/category-colors";
+import { formatCustomValue } from "@/lib/table-config/values";
+import type { TableColumnOption } from "@/lib/table-config/types";
 import { Initials, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
 import { TaskAssigneePicker } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
-import type { TaskListColumnKey } from "./task-list-columns";
+import type { TaskListColumn, TaskListColumnKey } from "./task-list-columns";
 
 // Shared column widths so the List header and the rows line up exactly.
 export const LIST_COL = {
@@ -87,6 +89,7 @@ export const LIST_COL = {
   priority: "w-[108px]",
   status: "w-[140px]",
   review: "w-12",
+  custom: "w-[180px]",
 };
 
 const DEFAULT_ROW_COLUMN_KEYS = new Set<TaskListColumnKey>([
@@ -130,6 +133,8 @@ export function TaskRowItem({
   isOverdue = false,
   isNewAssigned = false,
   visibleColumnKeys,
+  visibleColumns,
+  tableColumnOptions,
   rules,
   now,
   onUnlockOverdueRequest,
@@ -155,6 +160,8 @@ export function TaskRowItem({
   isOverdue?: boolean;
   isNewAssigned?: boolean;
   visibleColumnKeys?: ReadonlySet<TaskListColumnKey>;
+  visibleColumns?: readonly TaskListColumn[];
+  tableColumnOptions?: readonly TableColumnOption[];
   rules?: TaskSlaRule[];
   now?: Date;
   onUnlockOverdueRequest?: () => void;
@@ -177,6 +184,18 @@ export function TaskRowItem({
     : null;
   const columnStyle = (key: TaskListColumnKey): CSSProperties | undefined =>
     columnOrderByKey ? { order: columnOrderByKey.get(key) ?? 999 } : undefined;
+  const customColumns = (visibleColumns ?? []).filter(
+    (column) => column.configColumn && !column.configColumn.is_system
+  );
+  const customOptionById = new Map(
+    (tableColumnOptions ?? []).map((option) => [option.id, option])
+  );
+  const customOptionsByColumnId = new Map<string, TableColumnOption[]>();
+  for (const option of tableColumnOptions ?? []) {
+    const list = customOptionsByColumnId.get(option.column_id) ?? [];
+    list.push(option);
+    customOptionsByColumnId.set(option.column_id, list);
+  }
   const personLabel = (email: string | null | undefined) =>
     email ? personLabelByEmail.get(email) ?? formatEmailAsName(email) : "—";
   const ruleSet = rules ?? [];
@@ -588,7 +607,138 @@ export function TaskRowItem({
         </span>
       ) : null}
 
+      {customColumns.map((column) => {
+        const configColumn = column.configColumn;
+        if (!configColumn) return null;
+        return (
+          <CustomTaskValueCell
+            key={column.key}
+            column={configColumn}
+            value={task.custom_values?.[configColumn.key]}
+            style={columnStyle(column.key)}
+            optionById={customOptionById}
+            options={customOptionsByColumnId.get(configColumn.id) ?? []}
+            labelByEmail={personLabelByEmail}
+          />
+        );
+      })}
+
     </div>
+  );
+}
+
+function CustomTaskValueCell({
+  column,
+  value,
+  style,
+  optionById,
+  options,
+  labelByEmail,
+}: {
+  column: NonNullable<TaskListColumn["configColumn"]>;
+  value: unknown;
+  style?: CSSProperties;
+  optionById: ReadonlyMap<string, TableColumnOption>;
+  options: readonly TableColumnOption[];
+  labelByEmail: ReadonlyMap<string, string>;
+}) {
+  const empty = value === null || value === undefined || value === "";
+  const commonClass =
+    `${LIST_COL.custom} min-w-0 shrink-0 text-xs font-semibold text-[#42526e]`;
+
+  if (column.type === "checkbox") {
+    return (
+      <span
+        style={style}
+        className={`flex ${LIST_COL.custom} shrink-0 justify-center`}
+        title={formatCustomValue(column.type, value)}
+      >
+        {value ? (
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#00875a] text-white">
+            <Check className="h-3.5 w-3.5" />
+          </span>
+        ) : (
+          <span className="text-[#97a0af]">—</span>
+        )}
+      </span>
+    );
+  }
+
+  if (column.type === "link") {
+    return (
+      <span
+        style={style}
+        className={`flex ${LIST_COL.custom} shrink-0 justify-start`}
+      >
+        {empty ? (
+          <span className="text-[11px] font-semibold text-[#97a0af]">—</span>
+        ) : (
+          <TaskFubLink href={String(value)} empty />
+        )}
+      </span>
+    );
+  }
+
+  if (column.type === "person") {
+    const email = empty ? "" : String(value).toLowerCase();
+    const label = email ? labelByEmail.get(email) ?? formatEmailAsName(email) : "—";
+    return (
+      <span
+        style={style}
+        className={`${LIST_COL.custom} min-w-0 shrink-0 gap-1.5 text-xs font-semibold text-[#42526e]`}
+        title={email || "No person"}
+      >
+        {email ? <Initials email={email} label={label} /> : null}
+        <span className="min-w-0 truncate">{label}</span>
+      </span>
+    );
+  }
+
+  if (column.type === "dropdown") {
+    const option = empty ? null : optionById.get(String(value)) ?? null;
+    const palette = option
+      ? taskCategoryPalette({
+          id: option.id,
+          name: option.label,
+          color: option.color,
+        })
+      : null;
+    return (
+      <span
+        style={style}
+        className={`flex ${LIST_COL.custom} shrink-0 justify-start`}
+        title={option?.label ?? (empty ? "No value" : String(value))}
+      >
+        {option ? (
+          <span
+            className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
+            style={{
+              backgroundColor: palette?.background,
+              color: palette?.foreground,
+            }}
+          >
+            <span className="truncate">{option.label}</span>
+          </span>
+        ) : options.length === 0 && empty ? (
+          <span className="text-[11px] font-semibold text-[#97a0af]">—</span>
+        ) : (
+          <span className="min-w-0 truncate text-xs font-semibold text-[#42526e]">
+            {empty ? "—" : String(value)}
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  const label = formatCustomValue(column.type, value);
+  return (
+    <span
+      style={style}
+      className={commonClass}
+      title={label || "No value"}
+    >
+      <span className="min-w-0 truncate">{label || "—"}</span>
+    </span>
   );
 }
 

@@ -14,6 +14,11 @@ import {
 } from "@/lib/tasks/membership";
 import { TaskBoardClient } from "./_components/TaskBoardClient";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import {
+  fetchTableColumnOptions,
+  fetchTableColumns,
+} from "@/lib/table-config/queries";
+import { canActorExportImport } from "@/lib/table-config/export-access";
 import type { TaskCategory } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +42,9 @@ export default async function TasksPage() {
     csAgents,
     myAssistantAgents,
     categories,
+    tableColumns,
+    tableColumnOptions,
+    canExportImport,
   ] = await Promise.all([
     fetchTasksForActor(actor),
     fetchTaskAssignees(),
@@ -53,6 +61,9 @@ export default async function TasksPage() {
       .order("position", { ascending: true })
       .order("name", { ascending: true })
       .then((r) => (r.data ?? []) as TaskCategory[]),
+    fetchTableColumns("cs"),
+    fetchTableColumnOptions("cs"),
+    canActorExportImport(actor),
   ]);
   const myAgents = actor.isManager ? agents.map((a) => a.email) : csAgents;
 
@@ -95,6 +106,9 @@ export default async function TasksPage() {
       myAssistantAgents={myAssistantAgents}
       agentMembersByAgent={agentMembersByAgent}
       initialCategories={categories}
+      tableColumns={tableColumns}
+      tableColumnOptions={tableColumnOptions}
+      canExportImport={canExportImport}
     />
   );
 }

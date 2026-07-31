@@ -13,6 +13,11 @@ import {
 } from "@/lib/enrollment/queries";
 import { fetchEnrollmentOptionData } from "@/lib/enrollment/options";
 import { toEnrollmentProgram } from "@/lib/enrollment/types";
+import {
+  fetchTableColumnOptions,
+  fetchTableColumns,
+} from "@/lib/table-config/queries";
+import { canActorExportImport } from "@/lib/table-config/export-access";
 import { EnrollmentClient } from "./_components/EnrollmentClient";
 
 export const dynamic = "force-dynamic";
@@ -51,10 +56,20 @@ export default async function EnrollmentPage({
     }
   }
 
-  const [records, people, optionData] = await Promise.all([
+  const [
+    records,
+    people,
+    optionData,
+    tableColumns,
+    tableColumnOptions,
+    canExportImport,
+  ] = await Promise.all([
     fetchEnrollmentRecords(program),
     fetchEnrollmentPeople(),
     fetchEnrollmentOptionData(program),
+    fetchTableColumns(program),
+    fetchTableColumnOptions(program),
+    canActorExportImport(actor),
   ]);
 
   return (
@@ -65,8 +80,11 @@ export default async function EnrollmentPage({
       people={people}
       optionSets={optionData.sets}
       initialOptions={optionData.options}
+      tableColumns={tableColumns}
+      tableColumnOptions={tableColumnOptions}
       currentEmail={email}
       canManageOptions={canManageEnrollmentOptions(actor)}
+      canExportImport={canExportImport}
     />
   );
 }

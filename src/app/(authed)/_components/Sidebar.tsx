@@ -118,6 +118,11 @@ const menuData: MenuItem[] = [
         activeQuery: { program: "medicare" },
         anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
       },
+      {
+        href: "/config",
+        label: "Health Config",
+        permission: PERMISSIONS.TASK_MANAGE,
+      },
     ],
   },
   {
@@ -156,7 +161,9 @@ export default function Sidebar({
       pathname.startsWith("/dashboard") ||
       pathname.startsWith("/sales-dashboard"),
     "Task Management":
-      pathname.startsWith("/tasks") || pathname.startsWith("/enrollment"),
+      pathname.startsWith("/tasks") ||
+      pathname.startsWith("/enrollment") ||
+      pathname.startsWith("/config"),
     Management:
       pathname.startsWith("/account-manager") ||
       pathname.startsWith("/role-manager") ||

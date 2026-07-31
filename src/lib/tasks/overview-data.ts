@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { fetchTaskAssigneeRowsForTaskIds } from "./assignees";
 import { resolveReminderSettings } from "./reminder-settings";
 import { aggregateOverview } from "./overview";
 import type {
@@ -189,15 +190,7 @@ export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnaps
     ...(recentDoneResult.data ?? []),
   ] as unknown as OverviewTaskInput[];
   const taskIds = tasks.map((task) => task.id);
-  const assigneeResult =
-    taskIds.length === 0
-      ? { data: [], error: null }
-      : await supabase
-          .from("task_assignees")
-          .select("task_id,email")
-          .in("task_id", taskIds);
-  if (assigneeResult.error) throw new Error(assigneeResult.error.message);
-  const assigneeRows = assigneeResult.data ?? [];
+  const assigneeRows = (await fetchTaskAssigneeRowsForTaskIds(taskIds, supabase)) ?? [];
   const assigneesByTask = new Map<string, string[]>();
   for (const row of assigneeRows as Array<{ task_id: string; email: string }>) {
     const emails = assigneesByTask.get(row.task_id) ?? [];

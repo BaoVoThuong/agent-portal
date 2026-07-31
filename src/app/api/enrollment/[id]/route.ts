@@ -5,7 +5,10 @@ import {
   ENROLLMENT_OPTION_LABELS,
   fetchEnrollmentOptionData,
 } from "@/lib/enrollment/options";
-import { fetchEnrollmentRecordById } from "@/lib/enrollment/queries";
+import {
+  fetchEnrollmentRecordById,
+  isMissingEnrollmentDescriptionColumn,
+} from "@/lib/enrollment/queries";
 import {
   insertEnrollmentNotifications,
   uniqueEnrollmentNotificationRecipients,
@@ -29,6 +32,7 @@ type Body = Record<string, unknown>;
 
 const TEXT_FIELDS = [
   "client_name",
+  "description",
   "fub_link",
   "pcp_2025",
   "pcp_2026",
@@ -199,6 +203,14 @@ export async function PATCH(request: Request, { params }: Ctx) {
     changedFields.push(qcChecked ? "qc_checked" : "qc_cleared");
   }
 
+  if (isPlainRecord(body.custom_values)) {
+    patch.custom_values = {
+      ...(isPlainRecord(current.custom_values) ? current.custom_values : {}),
+      ...cleanCustomValues(body.custom_values),
+    };
+    changedFields.push("custom_values");
+  }
+
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ record: { ...current, comment_count: 0, attachment_count: 0 } });
   }
@@ -206,13 +218,36 @@ export async function PATCH(request: Request, { params }: Ctx) {
   patch.updated_by_email = actorResult.actor.email;
   patch.updated_at = nowIso;
 
-  const { data: updatedData, error: updateError } = await supabase
+  let descriptionSkipped = false;
+  let updateResult = await supabase
     .from("enrollment_records")
     .update(patch)
     .eq("id", id)
     .eq("updated_at", expectedUpdatedAt)
     .select("*")
     .maybeSingle();
+  if (isMissingEnrollmentDescriptionColumn(updateResult.error) && "description" in patch) {
+    const patchWithoutDescription = { ...patch };
+    delete patchWithoutDescription.description;
+    const hasPersistableField = Object.keys(patchWithoutDescription).some(
+      (key) => key !== "updated_by_email" && key !== "updated_at"
+    );
+    if (!hasPersistableField) {
+      return NextResponse.json(
+        { error: "Database migration missing: enrollment_records.description." },
+        { status: 500 }
+      );
+    }
+    descriptionSkipped = true;
+    updateResult = await supabase
+      .from("enrollment_records")
+      .update(patchWithoutDescription)
+      .eq("id", id)
+      .eq("updated_at", expectedUpdatedAt)
+      .select("*")
+      .maybeSingle();
+  }
+  const { data: updatedData, error: updateError } = updateResult;
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
   if (!updatedData) {
     return NextResponse.json(
@@ -221,7 +256,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
     );
   }
 
-  const updated = updatedData as EnrollmentRecord;
+  const updated = { description: null, ...updatedData } as EnrollmentRecord;
+  const persistedChangedFields = descriptionSkipped
+    ? changedFields.filter((field) => field !== "description")
+    : changedFields;
   const activityRows: {
     record_id: string;
     actor_email: string;
@@ -303,7 +341,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
   }
 
-  if (changedFields.some((field) => field === "caller_email" || field === "responsible_enroll_email")) {
+  if (persistedChangedFields.some((field) => field === "caller_email" || field === "responsible_enroll_email")) {
     activityRows.push({
       record_id: id,
       actor_email: actorResult.actor.email,
@@ -349,7 +387,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
   }
 
-  const genericChangedFields = changedFields.filter(
+  const genericChangedFields = persistedChangedFields.filter(
     (field) =>
       field !== "stage_id" &&
       field !== "caller_email" &&
@@ -429,6 +467,26 @@ function isOptionInSet(
 
 function cleanText(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function cleanCustomValues(values: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (!key.trim()) continue;
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      next[key] = value;
+    }
+  }
+  return next;
 }
 
 function parseDate(value: unknown): { value: string | null; error?: string } {

@@ -6,6 +6,8 @@ import { fetchParticipantTaskIds } from "./participants";
 import type { TaskActor, TaskRow } from "./types";
 
 export const TASK_COLUMNS =
+  "id,title,description,fub_link,status,priority,category_id,custom_values,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,qc_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
+const TASK_COLUMNS_LEGACY =
   "id,title,description,fub_link,status,priority,category_id,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,qc_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
 
 export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
@@ -22,10 +24,11 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   // they participate in (e.g. were @mentioned on).
   let workerScope:
     | {
-        agents: string[];
-        assistantAgents: string[];
-        participantIds: string[];
-      }
+      agents: string[];
+      assistantAgents: string[];
+      assignedIds: string[];
+      participantIds: string[];
+    }
     | null = null;
   if (!actor.isManager) {
     const [agents, assistantAgents, assignedIds, participantIds] = await Promise.all([
@@ -34,7 +37,7 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
       fetchAssignedTaskIdsForEmail(actor.email, supabase),
       fetchParticipantTaskIds(actor.email),
     ]);
-    workerScope = { agents, assistantAgents, participantIds };
+    workerScope = { agents, assistantAgents, assignedIds, participantIds };
     const ors: string[] = [`assignee_email.eq."${actor.email}"`];
     ors.push(`agent_email.eq."${actor.email}"`);
     if (agents.length > 0) ors.push(`agent_email.in.(${agents.map((a) => `"${a}"`).join(",")})`);
@@ -46,10 +49,34 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
         : query.eq("id", "00000000-0000-0000-0000-000000000000");
   }
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  const result = await query;
+  let rows = result.data as unknown[] | null;
+  let queryError = result.error as { code?: string; message?: string } | null;
+  if (isMissingTaskCustomValuesColumn(queryError)) {
+    let fallback = supabase
+      .from("tasks")
+      .select(TASK_COLUMNS_LEGACY)
+      .is("archived_at", null)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
+    if (!actor.isManager) {
+      const scopedOrs = buildWorkerTaskOrs(actor.email, workerScope);
+      fallback =
+        scopedOrs.length > 0
+          ? fallback.or(scopedOrs.join(","))
+          : fallback.eq("id", "00000000-0000-0000-0000-000000000000");
+    }
+    const fallbackResult = await fallback;
+    rows = fallbackResult.data as unknown[] | null;
+    queryError = fallbackResult.error as { code?: string; message?: string } | null;
+  }
+  if (queryError) throw new Error(queryError.message);
   const tasks = await attachAssigneesToTasks(
-    (data ?? []) as unknown as TaskRow[],
+    ((rows ?? []) as unknown as TaskRow[]).map((task) => ({
+      ...task,
+      custom_values: task.custom_values ?? {},
+    })),
     supabase,
     { currentEmail: actor.email }
   );
@@ -88,6 +115,7 @@ type TaskActivityListRow = {
   actor_email: string;
   created_at: string;
 };
+const TASK_METADATA_TASK_ID_CHUNK_SIZE = 50;
 
 async function attachTaskListMetadata(
   tasks: TaskRow[],
@@ -96,40 +124,21 @@ async function attachTaskListMetadata(
   if (tasks.length === 0) return tasks;
 
   const ids = tasks.map((task) => task.id);
-  const [activityResult, commentsResult, attachmentsResult] = await Promise.all([
-    supabase
-      .from("task_activity")
-      .select("task_id,actor_email,created_at")
-      .in("task_id", ids)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("task_comments")
-      .select("task_id")
-      .in("task_id", ids)
-      .is("deleted_at", null),
-    supabase
-      .from("task_attachments")
-      .select("task_id")
-      .in("task_id", ids),
+  const [activityRows, commentRows, attachmentRows] = await Promise.all([
+    fetchTaskActivityRows(ids, supabase),
+    fetchTaskCommentRows(ids, supabase),
+    fetchTaskAttachmentRows(ids, supabase),
   ]);
 
-  if (activityResult.error) throw new Error(activityResult.error.message);
-  if (commentsResult.error) throw new Error(commentsResult.error.message);
-  if (attachmentsResult.error) throw new Error(attachmentsResult.error.message);
-
   const lastActivityByTask = new Map<string, string>();
-  for (const row of (activityResult.data ?? []) as unknown as TaskActivityListRow[]) {
+  for (const row of activityRows) {
     if (!lastActivityByTask.has(row.task_id)) {
       lastActivityByTask.set(row.task_id, row.actor_email);
     }
   }
 
-  const commentCountByTask = countRowsByTask(
-    (commentsResult.data ?? []) as Array<{ task_id: string }>
-  );
-  const attachmentCountByTask = countRowsByTask(
-    (attachmentsResult.data ?? []) as Array<{ task_id: string }>
-  );
+  const commentCountByTask = countRowsByTask(commentRows);
+  const attachmentCountByTask = countRowsByTask(attachmentRows);
 
   return tasks.map((task) => ({
     ...task,
@@ -139,10 +148,108 @@ async function attachTaskListMetadata(
   }));
 }
 
+async function fetchTaskActivityRows(
+  taskIds: string[],
+  supabase = getSupabaseAdmin()
+): Promise<TaskActivityListRow[]> {
+  const rows: TaskActivityListRow[] = [];
+  for (const chunk of chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE)) {
+    const { data, error } = await supabase
+      .from("task_activity")
+      .select("task_id,actor_email,created_at")
+      .in("task_id", chunk)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as unknown as TaskActivityListRow[]));
+  }
+  return rows.sort(
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+}
+
+async function fetchTaskCommentRows(
+  taskIds: string[],
+  supabase = getSupabaseAdmin()
+): Promise<Array<{ task_id: string }>> {
+  const rows: Array<{ task_id: string }> = [];
+  for (const chunk of chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE)) {
+    const { data, error } = await supabase
+      .from("task_comments")
+      .select("task_id")
+      .in("task_id", chunk)
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as Array<{ task_id: string }>));
+  }
+  return rows;
+}
+
+async function fetchTaskAttachmentRows(
+  taskIds: string[],
+  supabase = getSupabaseAdmin()
+): Promise<Array<{ task_id: string }>> {
+  const rows: Array<{ task_id: string }> = [];
+  for (const chunk of chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE)) {
+    const { data, error } = await supabase
+      .from("task_attachments")
+      .select("task_id")
+      .in("task_id", chunk);
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as Array<{ task_id: string }>));
+  }
+  return rows;
+}
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+  const uniqueValues = [...new Set(values.filter(Boolean))];
+  const chunks: T[][] = [];
+  for (let index = 0; index < uniqueValues.length; index += size) {
+    chunks.push(uniqueValues.slice(index, index + size));
+  }
+  return chunks;
+}
+
 function countRowsByTask(rows: Array<{ task_id: string }>): Map<string, number> {
   const counts = new Map<string, number>();
   for (const row of rows) {
     counts.set(row.task_id, (counts.get(row.task_id) ?? 0) + 1);
   }
   return counts;
+}
+
+function buildWorkerTaskOrs(
+  email: string,
+  workerScope:
+    | {
+        agents: string[];
+        assistantAgents: string[];
+        assignedIds: string[];
+        participantIds: string[];
+      }
+    | null
+): string[] {
+  const ors: string[] = [`assignee_email.eq."${email}"`, `agent_email.eq."${email}"`];
+  if (!workerScope) return ors;
+  if (workerScope.agents.length > 0) {
+    ors.push(`agent_email.in.(${workerScope.agents.map((agent) => `"${agent}"`).join(",")})`);
+  }
+  if (workerScope.participantIds.length > 0) {
+    ors.push(`id.in.(${workerScope.participantIds.join(",")})`);
+  }
+  if (workerScope.assignedIds.length > 0) {
+    ors.push(`id.in.(${workerScope.assignedIds.join(",")})`);
+  }
+  return ors;
+}
+
+function isMissingTaskCustomValuesColumn(error: { code?: string; message?: string } | null): boolean {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "42703" ||
+    error?.code === "PGRST204" ||
+    (message.includes("custom_values") &&
+      message.includes("tasks") &&
+      (message.includes("does not exist") || message.includes("schema cache")))
+  );
 }

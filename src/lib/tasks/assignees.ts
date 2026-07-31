@@ -20,6 +20,7 @@ export type TaskAssigneeRow = { task_id: string; email: string; created_at: stri
 
 type SupabaseErrorLike = { code?: string; message?: string };
 type AttachAssigneeOptions = { currentEmail?: string | null };
+const TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE = 50;
 type AccountRoleRow = {
   id: string;
   email: string;
@@ -258,18 +259,11 @@ export async function attachAssigneesToTasks<
   if (tasks.length === 0) return [];
 
   const ids = tasks.map((task) => task.id);
-  const { data, error } = await supabase
-    .from("task_assignees")
-    .select("task_id,email,created_at")
-    .in("task_id", ids)
-    .order("created_at", { ascending: true });
-  if (error) {
-    if (isTaskAssigneesMissingError(error)) return attachLegacyAssignees(tasks);
-    throw new Error(error.message);
-  }
+  const assigneeRows = await fetchTaskAssigneeRowsForTaskIds(ids, supabase);
+  if (!assigneeRows) return attachLegacyAssignees(tasks);
 
   const rowsByTask = new Map<string, TaskAssigneeRow[]>();
-  for (const row of (data ?? []) as unknown as TaskAssigneeRow[]) {
+  for (const row of assigneeRows) {
     const list = rowsByTask.get(row.task_id) ?? [];
     if (!list.some((existing) => existing.email === row.email)) list.push(row);
     rowsByTask.set(row.task_id, list);
@@ -297,6 +291,43 @@ export async function attachAssigneesToTasks<
   });
 }
 
+export async function fetchTaskAssigneeRowsForTaskIds(
+  taskIds: string[],
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<TaskAssigneeRow[] | null> {
+  const ids = [...new Set(taskIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+
+  const rows: TaskAssigneeRow[] = [];
+  for (const chunk of chunkValues(ids, TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE)) {
+    let result:
+      | {
+          data: unknown[] | null;
+          error: SupabaseErrorLike | null;
+        }
+      | null = null;
+    try {
+      result = await supabase
+        .from("task_assignees")
+        .select("task_id,email,created_at")
+        .in("task_id", chunk)
+        .order("created_at", { ascending: true });
+    } catch (error) {
+      if (isFetchFailedError(error)) return null;
+      throw error;
+    }
+
+    if (result.error) {
+      if (isTaskAssigneesMissingError(result.error)) return null;
+      throw new Error(result.error.message ?? "Could not load task assignees.");
+    }
+
+    rows.push(...((result.data ?? []) as TaskAssigneeRow[]));
+  }
+
+  return rows;
+}
+
 function sortPeople<T extends TaskAssignee>(people: T[]): T[] {
   return [...people].sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
 }
@@ -307,6 +338,18 @@ export function isTaskAssigneesMissingError(error: SupabaseErrorLike): boolean {
     (error.code === "PGRST205" || message.includes("schema cache")) &&
     message.includes("task_assignees")
   );
+}
+
+function isFetchFailedError(error: unknown): boolean {
+  return error instanceof TypeError && error.message.toLowerCase().includes("fetch failed");
+}
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function attachLegacyAssignees<T extends { assignee_email?: string | null }>(

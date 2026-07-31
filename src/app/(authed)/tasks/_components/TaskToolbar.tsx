@@ -7,6 +7,8 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Download,
+  FileUp,
   Settings2,
   UserRound,
   UsersRound,
@@ -106,6 +108,9 @@ export function TaskToolbar({
   listColumns,
   hiddenListColumnKeys,
   onToggleListColumn,
+  exportTaskIds,
+  canExportImport,
+  onImport,
 }: {
   view: BoardView;
   onViewChange: (view: BoardView) => void;
@@ -146,6 +151,9 @@ export function TaskToolbar({
   listColumns: TaskListColumn[];
   hiddenListColumnKeys: ReadonlySet<TaskListColumnKey>;
   onToggleListColumn: (key: TaskListColumnKey) => void;
+  exportTaskIds: string[];
+  canExportImport: boolean;
+  onImport: () => void;
 }) {
   const agentOptions = [
     { value: ALL_AGENTS, label: "Agent" },
@@ -174,6 +182,13 @@ export function TaskToolbar({
 
   const presetOptions = PRESETS.filter((p) => !p.managerOnly);
   const hasVisibleAssigneeFilter = showAssignee || showInlineAssignee;
+  const exportColumnKeys = listColumns
+    .filter((column) => column.locked || !hiddenListColumnKeys.has(column.key))
+    .map((column) => column.key)
+    .join(",");
+  const exportHref = `/api/tasks/export?columns=${encodeURIComponent(
+    exportColumnKeys
+  )}&ids=${encodeURIComponent(exportTaskIds.join(","))}`;
 
   const hasActiveFilters =
     (showAgent && agentFilter.length > 0) ||
@@ -377,11 +392,34 @@ export function TaskToolbar({
           })}
 
           {view === "list" || view === "backlog" ? (
-            <TaskListColumnSettingsButton
-              columns={listColumns}
-              hiddenColumnKeys={hiddenListColumnKeys}
-              onToggleColumn={onToggleListColumn}
-            />
+            <>
+              <TaskListColumnSettingsButton
+                columns={listColumns}
+                hiddenColumnKeys={hiddenListColumnKeys}
+                onToggleColumn={onToggleListColumn}
+              />
+              {canExportImport ? (
+                <>
+                  <a
+                    href={exportHref}
+                    className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                    title="Export visible columns"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export
+                  </a>
+                  <button
+                    type="button"
+                    onClick={onImport}
+                    className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                    title="Import table data"
+                  >
+                    <FileUp className="h-4 w-4" />
+                    Import
+                  </button>
+                </>
+              ) : null}
+            </>
           ) : null}
 
           {hasActiveFilters ? (

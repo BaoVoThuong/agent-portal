@@ -25,6 +25,11 @@ import {
   toggleHiddenTaskListColumn,
   writeHiddenTaskListColumns,
 } from "@/lib/tasks/list-column-visibility";
+import {
+  resolveLayout,
+  serializeLayout,
+  type LayoutEntry,
+} from "@/lib/table-config/layout";
 import { isTaskOverdue } from "@/lib/tasks/sla";
 import { KanbanBoard } from "./KanbanBoard";
 import { TaskListView } from "./TaskListView";
@@ -43,11 +48,11 @@ import { AgentGroupsModal } from "./AgentGroupsModal";
 import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
+import { HealthTableImportDialog } from "../../_components/HealthTableImportDialog";
 import {
-  TASK_LIST_COLUMNS,
-  TASK_LIST_COLUMN_KEYS,
   TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
   TASK_LIST_LOCKED_COLUMN_KEYS,
+  taskListColumnsFromConfig,
   visibleTaskListColumns,
   type TaskListColumnKey,
 } from "./task-list-columns";
@@ -55,6 +60,7 @@ import {
   optimisticallyAssignOverviewTask,
 } from "@/lib/tasks/overview";
 import type { OverviewSnapshot } from "@/lib/tasks/overview-types";
+import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 
 // Countdown/overdue labels only need to refresh every so often, not on every
 // render — 30s keeps the board close to live without a timer per card.
@@ -77,6 +83,9 @@ export function TaskBoardClient({
   myAssistantAgents,
   agentMembersByAgent,
   initialCategories,
+  tableColumns,
+  tableColumnOptions,
+  canExportImport,
 }: {
   initialTasks: TaskRow[];
   initialNowIso: string;
@@ -90,6 +99,9 @@ export function TaskBoardClient({
   myAssistantAgents: string[];
   agentMembersByAgent: Record<string, string[]>;
   initialCategories: TaskCategory[];
+  tableColumns: TableColumn[];
+  tableColumnOptions: TableColumnOption[];
+  canExportImport: boolean;
 }) {
   const searchParams = useSearchParams();
   const deepLinkId = searchParams.get("task");
@@ -109,7 +121,9 @@ export function TaskBoardClient({
     () => deepLinkCommentId
   );
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
+  const [taskLayoutColumns, setTaskLayoutColumns] = useState<TableColumn[]>(tableColumns);
   const [managingCategories, setManagingCategories] = useState(false);
   const [managingAgentGroups, setManagingAgentGroups] = useState(false);
   const [managingSlaRules, setManagingSlaRules] = useState(false);
@@ -166,23 +180,86 @@ export function TaskBoardClient({
   // just-moved card from flashing back to its old column for ~1s.
   const recentTaskWritesRef = useRef(new Map<string, number>());
 
+  const taskListColumnConfig = useMemo(
+    () => taskListColumnsFromConfig(taskLayoutColumns),
+    [taskLayoutColumns]
+  );
+  const taskListColumnKeySet = useMemo(
+    () => new Set(taskListColumnConfig.map((column) => column.key)),
+    [taskListColumnConfig]
+  );
+  const taskListDefaultHiddenKeys = useMemo(
+    () =>
+      new Set<TaskListColumnKey>([
+        ...TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
+        ...taskLayoutColumns
+          .filter((column) => column.hidden_default)
+          .map((column) => column.key as TaskListColumnKey),
+      ]),
+    [taskLayoutColumns]
+  );
+
   useEffect(() => {
+    let alive = true;
     const timer = window.setTimeout(() => {
       const storedDefault = readTaskDateRangeDefault();
       setDateRangeDefault(storedDefault);
       setDateRange(resolveTaskDateRangeDefault(storedDefault));
-      setHiddenTaskListColumnKeys(
-        readHiddenTaskListColumns(
-          browserStorage(),
-          TASK_LIST_COLUMN_KEYS,
-          TASK_LIST_LOCKED_COLUMN_KEYS,
-          TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS
-        ) as Set<TaskListColumnKey>
-      );
+      void fetch("/api/config/layout?scope=cs")
+        .then((response) => (response.ok ? response.json() : null))
+        .then((payload: { layout?: unknown } | null) => {
+          if (!alive) return;
+          if (Array.isArray(payload?.layout)) {
+            const resolved = resolveLayout(tableColumns, payload.layout as LayoutEntry[]);
+            setTaskLayoutColumns(
+              resolved.map((column, index) => ({
+                ...column,
+                position: (index + 1) * 10,
+                hidden_default: column.hidden,
+              }))
+            );
+            setHiddenTaskListColumnKeys(
+              new Set(
+                resolved
+                  .filter(
+                    (column) =>
+                      column.hidden &&
+                      !TASK_LIST_LOCKED_COLUMN_KEYS.has(column.key)
+                  )
+                  .map((column) => column.key as TaskListColumnKey)
+              )
+            );
+            return;
+          }
+          setTaskLayoutColumns(tableColumns);
+          setHiddenTaskListColumnKeys(
+            readHiddenTaskListColumns(
+              browserStorage(),
+              taskListColumnKeySet,
+              TASK_LIST_LOCKED_COLUMN_KEYS,
+              taskListDefaultHiddenKeys
+            ) as Set<TaskListColumnKey>
+          );
+        })
+        .catch(() => {
+          if (!alive) return;
+          setTaskLayoutColumns(tableColumns);
+          setHiddenTaskListColumnKeys(
+            readHiddenTaskListColumns(
+              browserStorage(),
+              taskListColumnKeySet,
+              TASK_LIST_LOCKED_COLUMN_KEYS,
+              taskListDefaultHiddenKeys
+            ) as Set<TaskListColumnKey>
+          );
+        });
     }, 0);
 
-    return () => window.clearTimeout(timer);
-  }, []);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [tableColumns, taskListColumnKeySet, taskListDefaultHiddenKeys]);
 
   // Auto-dismiss the error toast so it doesn't linger.
   useEffect(() => {
@@ -608,8 +685,8 @@ export function TaskBoardClient({
   const showPriorityFilter = true;
   const showCategoryFilter = !shouldLimitPlainCsTasks;
   const visibleTaskListColumnConfig = useMemo(
-    () => visibleTaskListColumns(hiddenTaskListColumnKeys),
-    [hiddenTaskListColumnKeys]
+    () => visibleTaskListColumns(hiddenTaskListColumnKeys, taskListColumnConfig),
+    [hiddenTaskListColumnKeys, taskListColumnConfig]
   );
 
   const visibleTasks = useMemo(
@@ -657,6 +734,10 @@ export function TaskBoardClient({
     view === "backlog" ? backlogTasks.length : visibleTasks.length;
   const displayedTotalCount =
     view === "backlog" ? backlogTotalCount : tasks.length;
+  const exportTaskIds = useMemo(
+    () => (view === "backlog" ? backlogTasks : visibleTasks).map((task) => task.id),
+    [backlogTasks, view, visibleTasks]
+  );
 
   const openTask = tasks.find((t) => t.id === openId) ?? null;
 
@@ -1027,8 +1108,33 @@ export function TaskBoardClient({
         TASK_LIST_LOCKED_COLUMN_KEYS
       ) as Set<TaskListColumnKey>;
       writeHiddenTaskListColumns(browserStorage(), next);
+      void saveTaskTableLayout(next);
       return next;
     });
+  }
+
+  async function saveTaskTableLayout(hiddenKeys: ReadonlySet<TaskListColumnKey>) {
+    const layout = serializeLayout(
+      taskLayoutColumns.map((column) => ({
+        ...column,
+        width: null,
+        hidden:
+          !TASK_LIST_LOCKED_COLUMN_KEYS.has(column.key) &&
+          hiddenKeys.has(column.key as TaskListColumnKey),
+      }))
+    );
+    const response = await fetch("/api/config/layout", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "cs", layout }),
+    }).catch(() => null);
+    if (!response?.ok) {
+      const data = (await response?.json().catch(() => null)) as
+        | { error?: string }
+        | null
+        | undefined;
+      setError(data?.error ?? "Không lưu được cấu hình bảng.");
+    }
   }
 
   function saveDefaultDateRange(nextDefault: TaskDateRangeDefault) {
@@ -1139,9 +1245,12 @@ export function TaskBoardClient({
           resultCount={displayedResultCount}
           totalCount={displayedTotalCount}
           onClearAll={clearAllFilters}
-          listColumns={TASK_LIST_COLUMNS}
+          listColumns={taskListColumnConfig}
           hiddenListColumnKeys={hiddenTaskListColumnKeys}
           onToggleListColumn={toggleTaskListColumn}
+          exportTaskIds={exportTaskIds}
+          canExportImport={canExportImport}
+          onImport={() => setImporting(true)}
         />
       </div>
 
@@ -1190,6 +1299,7 @@ export function TaskBoardClient({
           onUnlockOverdue={setUnlockingTaskId}
           onReopenRequest={setReopeningTaskId}
           visibleColumns={visibleTaskListColumnConfig}
+          tableColumnOptions={tableColumnOptions}
         />
       )}
 
@@ -1215,6 +1325,7 @@ export function TaskBoardClient({
           onUnlockOverdue={setUnlockingTaskId}
           onReopenRequest={setReopeningTaskId}
           visibleColumns={visibleTaskListColumnConfig}
+          tableColumnOptions={tableColumnOptions}
         />
       )}
 
@@ -1249,6 +1360,14 @@ export function TaskBoardClient({
           categories={categories}
           onClose={() => setCreating(false)}
           onCreate={createTask}
+        />
+      ) : null}
+
+      {importing ? (
+        <HealthTableImportDialog
+          scope="cs"
+          columns={tableColumns}
+          onClose={() => setImporting(false)}
         />
       ) : null}
 

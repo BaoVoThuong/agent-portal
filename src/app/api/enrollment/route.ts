@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
-import { fetchEnrollmentRecords } from "@/lib/enrollment/queries";
+import {
+  fetchEnrollmentRecords,
+  isMissingEnrollmentDescriptionColumn,
+} from "@/lib/enrollment/queries";
 import {
   assertEnrollmentOptionSet,
   fetchEnrollmentOptionData,
@@ -24,6 +27,7 @@ type CreateBody = Record<string, unknown>;
 
 const STRING_FIELDS = [
   "client_name",
+  "description",
   "fub_link",
   "pcp_2025",
   "pcp_2026",
@@ -117,20 +121,36 @@ export async function POST(request: Request) {
   }
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const insertBase = {
+    created_by_email: actorResult.actor.email,
+    updated_by_email: actorResult.actor.email,
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+  let insertResult = await supabase
     .from("enrollment_records")
     .insert({
       ...patch,
-      created_by_email: actorResult.actor.email,
-      updated_by_email: actorResult.actor.email,
-      created_at: nowIso,
-      updated_at: nowIso,
+      ...insertBase,
     })
     .select("*")
     .single();
+  if (isMissingEnrollmentDescriptionColumn(insertResult.error)) {
+    const patchWithoutDescription = { ...patch };
+    delete patchWithoutDescription.description;
+    insertResult = await supabase
+      .from("enrollment_records")
+      .insert({
+        ...patchWithoutDescription,
+        ...insertBase,
+      })
+      .select("*")
+      .single();
+  }
+  const { data, error } = insertResult;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const record = data as EnrollmentRecordWithStats;
+  const record = { description: null, ...data } as EnrollmentRecordWithStats;
   const activityRows: {
     record_id: string;
     actor_email: string;

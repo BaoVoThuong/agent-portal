@@ -14,20 +14,22 @@ export function columnVisibilityStorageKey(program: EnrollmentProgram): string {
 export function readHiddenColumns(
   storage: ColumnVisibilityStorage | undefined,
   program: EnrollmentProgram,
-  validKeys: ReadonlySet<string>
+  validKeys: ReadonlySet<string>,
+  defaultHiddenKeys: ReadonlySet<string> = new Set()
 ): Set<string> {
-  if (!storage) return new Set();
+  if (!storage) return new Set(defaultHiddenKeys);
 
   try {
     const raw = storage.getItem(columnVisibilityStorageKey(program));
+    if (raw === null) return new Set(defaultHiddenKeys);
     const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    if (!Array.isArray(parsed)) return new Set();
+    if (!Array.isArray(parsed)) return new Set(defaultHiddenKeys);
 
     return new Set(
       parsed.filter((key): key is string => typeof key === "string" && validKeys.has(key))
     );
   } catch {
-    return new Set();
+    return new Set(defaultHiddenKeys);
   }
 }
 

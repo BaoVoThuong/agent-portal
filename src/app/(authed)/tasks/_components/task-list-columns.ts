@@ -1,6 +1,7 @@
 import type { SortKey } from "@/lib/tasks/sorting";
+import type { TableColumn } from "@/lib/table-config/types";
 
-export type TaskListColumnKey =
+export type KnownTaskListColumnKey =
   | "key"
   | "id"
   | "assignee"
@@ -43,6 +44,7 @@ export type TaskListColumnKey =
   | "priority"
   | "status"
   | "review";
+export type TaskListColumnKey = KnownTaskListColumnKey | (string & {});
 
 export type TaskListColumn = {
   key: TaskListColumnKey;
@@ -50,6 +52,7 @@ export type TaskListColumn = {
   sortKey?: SortKey;
   locked?: boolean;
   align?: "center";
+  configColumn?: TableColumn;
 };
 
 export const TASK_LIST_COLUMNS: TaskListColumn[] = [
@@ -98,9 +101,49 @@ export const TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS = new Set<TaskListColumnKey>(
 );
 
 export function visibleTaskListColumns(
-  hiddenKeys: ReadonlySet<TaskListColumnKey>
+  hiddenKeys: ReadonlySet<TaskListColumnKey>,
+  columns: readonly TaskListColumn[] = TASK_LIST_COLUMNS
 ): TaskListColumn[] {
-  return TASK_LIST_COLUMNS.filter(
+  return columns.filter(
     (column) => column.locked || !hiddenKeys.has(column.key)
   );
+}
+
+export function taskListColumnsFromConfig(
+  configuredColumns: readonly TableColumn[] = []
+): TaskListColumn[] {
+  if (configuredColumns.length === 0) return TASK_LIST_COLUMNS;
+  const byKey = new Map(TASK_LIST_COLUMNS.map((column) => [column.key, column]));
+  const ordered = configuredColumns
+    .filter(
+      (column) => column.is_system
+        ? byKey.has(column.key as TaskListColumnKey)
+        : true
+    )
+    .sort((a, b) => a.position - b.position || a.label.localeCompare(b.label));
+  const next: TaskListColumn[] = [];
+  const used = new Set<TaskListColumnKey>();
+  for (const configured of ordered) {
+    const key = configured.key as TaskListColumnKey;
+    const base = byKey.get(key);
+    if (configured.is_system) {
+      if (!base) continue;
+      next.push({ ...base, label: configured.label, configColumn: configured });
+    } else {
+      next.push({
+        key,
+        label: configured.label,
+        align: configured.type === "checkbox" ? "center" : undefined,
+        configColumn: configured,
+      });
+    }
+    used.add(key);
+  }
+  for (const column of TASK_LIST_COLUMNS) {
+    if (!used.has(column.key)) next.push(column);
+  }
+  return [
+    ...next.filter((column) => column.key === "key" || column.key === "summary"),
+    ...next.filter((column) => column.key !== "key" && column.key !== "summary"),
+  ];
 }

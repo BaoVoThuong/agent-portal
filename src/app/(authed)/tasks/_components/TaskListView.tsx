@@ -13,6 +13,7 @@ import {
 } from "@/lib/tasks/sorting";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
+import type { TableColumnOption } from "@/lib/table-config/types";
 import { LIST_COL, TaskRowItem } from "./TaskRowItem";
 import type {
   TaskListColumn,
@@ -40,6 +41,7 @@ export function TaskListView({
   onUnlockOverdue,
   onReopenRequest,
   visibleColumns,
+  tableColumnOptions,
 }: {
   tasks: TaskRow[];
   categories: TaskCategory[];
@@ -61,6 +63,7 @@ export function TaskListView({
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
   visibleColumns: TaskListColumn[];
+  tableColumnOptions: TableColumnOption[];
 }) {
   function isAgentOwnerOrAssistantOf(agentEmail: string | null): boolean {
     if (!agentEmail) return false;
@@ -177,6 +180,8 @@ export function TaskListView({
                         onUnlockOverdueRequest={() => onUnlockOverdue(task.id)}
                         onReopenRequest={() => onReopenRequest(task.id)}
                         visibleColumnKeys={visibleColumnKeys}
+                        visibleColumns={visibleColumns}
+                        tableColumnOptions={tableColumnOptions}
                         rules={rules}
                         now={now}
                       />
@@ -278,6 +283,10 @@ function headerWidthClass(column: TaskListColumn): string {
       return `flex ${LIST_COL.status} shrink-0`;
     case "review":
       return `flex ${LIST_COL.review} shrink-0 justify-center`;
+    default:
+      return `flex ${LIST_COL.custom} shrink-0 ${
+        column.align === "center" ? "justify-center" : ""
+      }`;
   }
 }
 
