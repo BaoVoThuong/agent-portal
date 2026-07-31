@@ -4,6 +4,7 @@ export type EditableColumnField =
   | "label"
   | "type"
   | "position"
+  | "pinned"
   | "hidden_default"
   | "required"
   | "archived_at";
@@ -35,7 +36,12 @@ export function canEditColumnField(
   field: EditableColumnField
 ): boolean {
   if (!column.is_system) return true;
-  return field === "label" || field === "position" || field === "hidden_default";
+  return (
+    field === "label" ||
+    field === "position" ||
+    field === "pinned" ||
+    field === "hidden_default"
+  );
 }
 
 export function nextPosition(columns: readonly Pick<TableColumn, "position">[]): number {

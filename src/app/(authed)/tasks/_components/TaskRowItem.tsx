@@ -92,6 +92,69 @@ export const LIST_COL = {
   custom: "w-[180px]",
 };
 
+export const LIST_COL_WIDTH_PX: Record<string, number> = {
+  key: 100,
+  id: 256,
+  assignee: 190,
+  primaryAssignee: 190,
+  assignedAt: 112,
+  agent: 180,
+  summary: 300,
+  description: 320,
+  category: 260,
+  reporter: 190,
+  created: 136,
+  updated: 112,
+  activity: 148,
+  activityBy: 144,
+  comments: 80,
+  attachments: 64,
+  fub: 48,
+  sla: 80,
+  slaRemaining: 160,
+  overdueCount: 80,
+  todoTime: 96,
+  progressTime: 112,
+  waitingTime: 96,
+  todoStarted: 112,
+  progressStarted: 112,
+  waitingStarted: 112,
+  dueSoonNotified: 128,
+  todoReminded: 128,
+  waitingReminded: 128,
+  overdueFlagged: 112,
+  overdueReminded: 128,
+  overdueUnlocked: 112,
+  staleReminded: 128,
+  qcReminded: 112,
+  reopened: 112,
+  closed: 112,
+  reviewedBy: 144,
+  reviewedAt: 112,
+  position: 80,
+  priority: 108,
+  status: 140,
+  review: 48,
+  custom: 180,
+};
+
+export function listColumnWidthPx(key: TaskListColumnKey): number {
+  return LIST_COL_WIDTH_PX[String(key)] ?? LIST_COL_WIDTH_PX.custom;
+}
+
+function buildPinnedTaskOffsetByKey(
+  columns: readonly TaskListColumn[]
+): Map<TaskListColumnKey, number> {
+  const offsets = new Map<TaskListColumnKey, number>();
+  let left = 0;
+  for (const column of columns) {
+    if (!column.pinned) continue;
+    offsets.set(column.key, left);
+    left += listColumnWidthPx(column.key);
+  }
+  return offsets;
+}
+
 const DEFAULT_ROW_COLUMN_KEYS = new Set<TaskListColumnKey>([
   "key",
   "assignee",
@@ -177,13 +240,27 @@ export function TaskRowItem({
   const configuredColumns = Boolean(visibleColumnKeys);
   const hasColumn = (key: TaskListColumnKey) =>
     visibleColumnKeys ? visibleColumnKeys.has(key) : DEFAULT_ROW_COLUMN_KEYS.has(key);
-  const columnOrderByKey = visibleColumnKeys
+  const columnOrderByKey = visibleColumns
     ? new Map<TaskListColumnKey, number>(
-        Array.from(visibleColumnKeys, (key, index) => [key, index])
+        visibleColumns.map((column, index) => [column.key, index])
       )
     : null;
-  const columnStyle = (key: TaskListColumnKey): CSSProperties | undefined =>
-    columnOrderByKey ? { order: columnOrderByKey.get(key) ?? 999 } : undefined;
+  const pinnedOffsetByKey = visibleColumns
+    ? buildPinnedTaskOffsetByKey(visibleColumns)
+    : new Map<TaskListColumnKey, number>();
+  const columnStyle = (key: TaskListColumnKey): CSSProperties | undefined => {
+    const style: CSSProperties = {};
+    if (columnOrderByKey) style.order = columnOrderByKey.get(key) ?? 999;
+    const pinnedLeft = pinnedOffsetByKey.get(key);
+    if (configuredColumns && pinnedLeft !== undefined) style.left = pinnedLeft;
+    return Object.keys(style).length > 0 ? style : undefined;
+  };
+  const pinnedCellClass = (key: TaskListColumnKey): string =>
+    configuredColumns && pinnedOffsetByKey.has(key)
+      ? "sticky z-[2] border-r border-[#dfe1e6] bg-white group-hover:bg-[#f7f8f9]"
+      : "";
+  const cellClassName = (key: TaskListColumnKey, className: string): string =>
+    `${className} ${pinnedCellClass(key)}`;
   const customColumns = (visibleColumns ?? []).filter(
     (column) => column.configColumn && !column.configColumn.is_system
   );
@@ -225,13 +302,11 @@ export function TaskRowItem({
       {hasColumn("key") ? (
         <span
           style={columnStyle("key")}
-          className={`${LIST_COL.key} shrink-0 truncate font-mono text-xs font-bold text-[#97a0af] ${
+          className={cellClassName("key", `${LIST_COL.key} shrink-0 truncate font-mono text-xs font-bold text-[#97a0af] ${
             configuredColumns
-              ? `sticky left-0 z-[2] flex items-center gap-1.5 border-r border-[#dfe1e6] bg-white group-hover:bg-[#f7f8f9] ${
-                  isOverdue ? "border-l-4 border-l-[#f97316]" : ""
-                }`
+              ? `flex items-center gap-1.5 ${isOverdue ? "border-l-4 border-l-[#f97316]" : ""}`
               : ""
-          }`}
+          }`)}
         >
           {configuredColumns ? dragHandle : null}
           <span className="min-w-0 truncate">{taskKey(task.id)}</span>
@@ -241,7 +316,10 @@ export function TaskRowItem({
       {configuredColumns && hasColumn("summary") ? (
         <div
           style={columnStyle("summary")}
-          className={`sticky left-[100px] z-[2] flex ${summaryClassName} items-center gap-1.5 border-r border-[#dfe1e6] bg-white group-hover:bg-[#f7f8f9]`}
+          className={cellClassName(
+            "summary",
+            `flex ${summaryClassName} items-center gap-1.5`
+          )}
         >
           <button
             type="button"
@@ -259,7 +337,11 @@ export function TaskRowItem({
 
       {hasColumn("id") ? (
         <span
-          className={`${LIST_COL.id} shrink-0 truncate font-mono text-[11px] font-semibold text-[#6b778c]`}
+          style={columnStyle("id")}
+          className={cellClassName(
+            "id",
+            `${LIST_COL.id} shrink-0 truncate font-mono text-[11px] font-semibold text-[#6b778c]`
+          )}
           title={task.id}
         >
           {task.id}
@@ -269,7 +351,10 @@ export function TaskRowItem({
       {hasColumn("assignee") ? (
         <span
           style={columnStyle("assignee")}
-          className={`${LIST_COL.assignee} shrink-0 whitespace-normal`}
+          className={cellClassName(
+            "assignee",
+            `${LIST_COL.assignee} shrink-0 whitespace-normal`
+          )}
         >
           <AssigneeMenu
             emails={task.assignees}
@@ -285,7 +370,11 @@ export function TaskRowItem({
 
       {hasColumn("primaryAssignee") ? (
         <span
-          className={`${LIST_COL.primaryAssignee} shrink-0 truncate text-xs font-semibold text-[#42526e]`}
+          style={columnStyle("primaryAssignee")}
+          className={cellClassName(
+            "primaryAssignee",
+            `${LIST_COL.primaryAssignee} shrink-0 truncate text-xs font-semibold text-[#42526e]`
+          )}
           title={task.assignee_email ?? "No primary assignee"}
         >
           {personLabel(task.assignee_email)}
@@ -294,7 +383,11 @@ export function TaskRowItem({
 
       {hasColumn("assignedAt") ? (
         <span
-          className={`${LIST_COL.assignedAt} shrink-0 truncate text-[11px] font-medium text-[#6b778c]`}
+          style={columnStyle("assignedAt")}
+          className={cellClassName(
+            "assignedAt",
+            `${LIST_COL.assignedAt} shrink-0 truncate text-[11px] font-medium text-[#6b778c]`
+          )}
           title={formatDateTime(task.assignee_started_at)}
         >
           {formatShortDateTime(task.assignee_started_at)}
@@ -304,7 +397,7 @@ export function TaskRowItem({
       {hasColumn("agent") ? (
         <span
           style={columnStyle("agent")}
-          className={`${LIST_COL.agent} min-w-0 shrink-0`}
+          className={cellClassName("agent", `${LIST_COL.agent} min-w-0 shrink-0`)}
         >
           <AgentMenu
             email={task.agent_email}
@@ -331,7 +424,11 @@ export function TaskRowItem({
 
       {hasColumn("description") ? (
         <span
-          className={`${LIST_COL.description} shrink-0 truncate text-xs font-medium text-[#6b778c]`}
+          style={columnStyle("description")}
+          className={cellClassName(
+            "description",
+            `${LIST_COL.description} shrink-0 truncate text-xs font-medium text-[#6b778c]`
+          )}
           title={task.description ?? "No description"}
         >
           {task.description?.trim() || "—"}
@@ -339,7 +436,10 @@ export function TaskRowItem({
       ) : null}
 
       {hasColumn("category") ? (
-        <span style={columnStyle("category")} className={categoryClassName}>
+        <span
+          style={columnStyle("category")}
+          className={cellClassName("category", categoryClassName)}
+        >
           <CategoryMenu
             category={category}
             categories={categories}
@@ -352,7 +452,10 @@ export function TaskRowItem({
       {hasColumn("reporter") ? (
         <span
           style={columnStyle("reporter")}
-          className={`${LIST_COL.reporter} min-w-0 shrink-0 gap-1.5 text-xs font-semibold text-[#42526e]`}
+          className={cellClassName(
+            "reporter",
+            `${LIST_COL.reporter} min-w-0 shrink-0 gap-1.5 text-xs font-semibold text-[#42526e]`
+          )}
           title={task.reporter_email}
         >
           <Initials
@@ -372,7 +475,10 @@ export function TaskRowItem({
       {hasColumn("created") ? (
         <span
           style={columnStyle("created")}
-          className={`${LIST_COL.created} shrink-0 text-[11px] font-medium text-[#6b778c]`}
+          className={cellClassName(
+            "created",
+            `${LIST_COL.created} shrink-0 text-[11px] font-medium text-[#6b778c]`
+          )}
         >
           {formatShortDate(task.created_at)}
         </span>
@@ -380,7 +486,11 @@ export function TaskRowItem({
 
       {hasColumn("updated") ? (
         <span
-          className={`${LIST_COL.updated} shrink-0 truncate text-[11px] font-medium text-[#6b778c]`}
+          style={columnStyle("updated")}
+          className={cellClassName(
+            "updated",
+            `${LIST_COL.updated} shrink-0 truncate text-[11px] font-medium text-[#6b778c]`
+          )}
           title={formatDateTime(task.updated_at)}
         >
           {formatShortDateTime(task.updated_at)}
@@ -390,7 +500,10 @@ export function TaskRowItem({
       {hasColumn("activity") ? (
         <span
           style={columnStyle("activity")}
-          className={`${LIST_COL.activity} shrink-0 truncate text-[11px] font-medium text-[#6b778c]`}
+          className={cellClassName(
+            "activity",
+            `${LIST_COL.activity} shrink-0 truncate text-[11px] font-medium text-[#6b778c]`
+          )}
           title={task.last_activity_at ? formatDateTime(task.last_activity_at) : "No activity yet"}
         >
           {task.last_activity_at ? formatShortDateTime(task.last_activity_at) : "—"}
@@ -399,7 +512,11 @@ export function TaskRowItem({
 
       {hasColumn("activityBy") ? (
         <span
-          className={`${LIST_COL.activityBy} shrink-0 truncate text-xs font-semibold text-[#42526e]`}
+          style={columnStyle("activityBy")}
+          className={cellClassName(
+            "activityBy",
+            `${LIST_COL.activityBy} shrink-0 truncate text-xs font-semibold text-[#42526e]`
+          )}
           title={task.last_activity_by_email ?? "No activity actor"}
         >
           {personLabel(task.last_activity_by_email)}
@@ -408,7 +525,11 @@ export function TaskRowItem({
 
       {hasColumn("comments") ? (
         <span
-          className={`flex ${LIST_COL.comments} shrink-0 justify-center text-xs font-bold text-[#42526e]`}
+          style={columnStyle("comments")}
+          className={cellClassName(
+            "comments",
+            `flex ${LIST_COL.comments} shrink-0 justify-center text-xs font-bold text-[#42526e]`
+          )}
           title="Comment count"
         >
           {task.comment_count ?? 0}
@@ -417,7 +538,11 @@ export function TaskRowItem({
 
       {hasColumn("attachments") ? (
         <span
-          className={`flex ${LIST_COL.attachments} shrink-0 justify-center text-xs font-bold text-[#42526e]`}
+          style={columnStyle("attachments")}
+          className={cellClassName(
+            "attachments",
+            `flex ${LIST_COL.attachments} shrink-0 justify-center text-xs font-bold text-[#42526e]`
+          )}
           title="Attachment count"
         >
           {task.attachment_count ?? 0}
@@ -427,7 +552,7 @@ export function TaskRowItem({
       {hasColumn("fub") ? (
         <span
           style={columnStyle("fub")}
-          className={`flex ${LIST_COL.fub} shrink-0 justify-center`}
+          className={cellClassName("fub", `flex ${LIST_COL.fub} shrink-0 justify-center`)}
         >
           <TaskFubLink href={task.fub_link} empty />
         </span>
@@ -435,7 +560,11 @@ export function TaskRowItem({
 
       {hasColumn("sla") ? (
         <span
-          className={`${LIST_COL.sla} shrink-0 truncate text-[11px] font-semibold text-[#42526e]`}
+          style={columnStyle("sla")}
+          className={cellClassName(
+            "sla",
+            `${LIST_COL.sla} shrink-0 truncate text-[11px] font-semibold text-[#42526e]`
+          )}
           title={`${slaMinutes} SLA minutes`}
         >
           {formatDurationMinutes(slaMinutes)}
@@ -445,7 +574,10 @@ export function TaskRowItem({
       {hasColumn("slaRemaining") ? (
         <span
           style={columnStyle("slaRemaining")}
-          className={`${LIST_COL.slaRemaining} shrink-0 truncate text-[11px] font-semibold ${timeReport.className}`}
+          className={cellClassName(
+            "slaRemaining",
+            `${LIST_COL.slaRemaining} shrink-0 truncate text-[11px] font-semibold ${timeReport.className}`
+          )}
           title={timeReport.title}
         >
           {timeReport.label}
@@ -454,9 +586,13 @@ export function TaskRowItem({
 
       {hasColumn("overdueCount") ? (
         <span
-          className={`flex ${LIST_COL.overdueCount} shrink-0 justify-center text-xs font-bold ${
-            task.overdue_count > 0 ? "text-[#bf2600]" : "text-[#6b778c]"
-          }`}
+          style={columnStyle("overdueCount")}
+          className={cellClassName(
+            "overdueCount",
+            `flex ${LIST_COL.overdueCount} shrink-0 justify-center text-xs font-bold ${
+              task.overdue_count > 0 ? "text-[#bf2600]" : "text-[#6b778c]"
+            }`
+          )}
           title="How many times this task went overdue"
         >
           {task.overdue_count}
@@ -466,6 +602,8 @@ export function TaskRowItem({
       {hasColumn("todoTime") ? (
         <DurationCell
           widthClass={LIST_COL.todoTime}
+          style={columnStyle("todoTime")}
+          cellClassName={pinnedCellClass("todoTime")}
           seconds={stageElapsedSeconds(task.todo_seconds, task.todo_started_at, liveNow ?? undefined)}
         />
       ) : null}
@@ -473,6 +611,8 @@ export function TaskRowItem({
       {hasColumn("progressTime") ? (
         <DurationCell
           widthClass={LIST_COL.progressTime}
+          style={columnStyle("progressTime")}
+          cellClassName={pinnedCellClass("progressTime")}
           seconds={stageElapsedSeconds(
             task.in_progress_seconds,
             task.in_progress_at,
@@ -484,65 +624,136 @@ export function TaskRowItem({
       {hasColumn("waitingTime") ? (
         <DurationCell
           widthClass={LIST_COL.waitingTime}
+          style={columnStyle("waitingTime")}
+          cellClassName={pinnedCellClass("waitingTime")}
           seconds={stageElapsedSeconds(task.waiting_seconds, task.waiting_started_at, liveNow ?? undefined)}
         />
       ) : null}
 
       {hasColumn("todoStarted") ? (
-        <DateCell widthClass={LIST_COL.todoStarted} value={task.todo_started_at} />
+        <DateCell
+          widthClass={LIST_COL.todoStarted}
+          value={task.todo_started_at}
+          style={columnStyle("todoStarted")}
+          cellClassName={pinnedCellClass("todoStarted")}
+        />
       ) : null}
 
       {hasColumn("progressStarted") ? (
-        <DateCell widthClass={LIST_COL.progressStarted} value={task.in_progress_at} />
+        <DateCell
+          widthClass={LIST_COL.progressStarted}
+          value={task.in_progress_at}
+          style={columnStyle("progressStarted")}
+          cellClassName={pinnedCellClass("progressStarted")}
+        />
       ) : null}
 
       {hasColumn("waitingStarted") ? (
-        <DateCell widthClass={LIST_COL.waitingStarted} value={task.waiting_started_at} />
+        <DateCell
+          widthClass={LIST_COL.waitingStarted}
+          value={task.waiting_started_at}
+          style={columnStyle("waitingStarted")}
+          cellClassName={pinnedCellClass("waitingStarted")}
+        />
       ) : null}
 
       {hasColumn("dueSoonNotified") ? (
-        <DateCell widthClass={LIST_COL.dueSoonNotified} value={task.due_soon_notified_at} />
+        <DateCell
+          widthClass={LIST_COL.dueSoonNotified}
+          value={task.due_soon_notified_at}
+          style={columnStyle("dueSoonNotified")}
+          cellClassName={pinnedCellClass("dueSoonNotified")}
+        />
       ) : null}
 
       {hasColumn("todoReminded") ? (
-        <DateCell widthClass={LIST_COL.todoReminded} value={task.todo_reminded_at} />
+        <DateCell
+          widthClass={LIST_COL.todoReminded}
+          value={task.todo_reminded_at}
+          style={columnStyle("todoReminded")}
+          cellClassName={pinnedCellClass("todoReminded")}
+        />
       ) : null}
 
       {hasColumn("waitingReminded") ? (
-        <DateCell widthClass={LIST_COL.waitingReminded} value={task.waiting_reminded_at} />
+        <DateCell
+          widthClass={LIST_COL.waitingReminded}
+          value={task.waiting_reminded_at}
+          style={columnStyle("waitingReminded")}
+          cellClassName={pinnedCellClass("waitingReminded")}
+        />
       ) : null}
 
       {hasColumn("overdueFlagged") ? (
-        <DateCell widthClass={LIST_COL.overdueFlagged} value={task.overdue_flagged_at} />
+        <DateCell
+          widthClass={LIST_COL.overdueFlagged}
+          value={task.overdue_flagged_at}
+          style={columnStyle("overdueFlagged")}
+          cellClassName={pinnedCellClass("overdueFlagged")}
+        />
       ) : null}
 
       {hasColumn("overdueReminded") ? (
-        <DateCell widthClass={LIST_COL.overdueReminded} value={task.overdue_reminded_at} />
+        <DateCell
+          widthClass={LIST_COL.overdueReminded}
+          value={task.overdue_reminded_at}
+          style={columnStyle("overdueReminded")}
+          cellClassName={pinnedCellClass("overdueReminded")}
+        />
       ) : null}
 
       {hasColumn("overdueUnlocked") ? (
-        <DateCell widthClass={LIST_COL.overdueUnlocked} value={task.overdue_unlocked_at} />
+        <DateCell
+          widthClass={LIST_COL.overdueUnlocked}
+          value={task.overdue_unlocked_at}
+          style={columnStyle("overdueUnlocked")}
+          cellClassName={pinnedCellClass("overdueUnlocked")}
+        />
       ) : null}
 
       {hasColumn("staleReminded") ? (
-        <DateCell widthClass={LIST_COL.staleReminded} value={task.stale_reminded_at} />
+        <DateCell
+          widthClass={LIST_COL.staleReminded}
+          value={task.stale_reminded_at}
+          style={columnStyle("staleReminded")}
+          cellClassName={pinnedCellClass("staleReminded")}
+        />
       ) : null}
 
       {hasColumn("qcReminded") ? (
-        <DateCell widthClass={LIST_COL.qcReminded} value={task.qc_reminded_at} />
+        <DateCell
+          widthClass={LIST_COL.qcReminded}
+          value={task.qc_reminded_at}
+          style={columnStyle("qcReminded")}
+          cellClassName={pinnedCellClass("qcReminded")}
+        />
       ) : null}
 
       {hasColumn("reopened") ? (
-        <DateCell widthClass={LIST_COL.reopened} value={task.reopened_at} />
+        <DateCell
+          widthClass={LIST_COL.reopened}
+          value={task.reopened_at}
+          style={columnStyle("reopened")}
+          cellClassName={pinnedCellClass("reopened")}
+        />
       ) : null}
 
       {hasColumn("closed") ? (
-        <DateCell widthClass={LIST_COL.closed} value={task.closed_at} />
+        <DateCell
+          widthClass={LIST_COL.closed}
+          value={task.closed_at}
+          style={columnStyle("closed")}
+          cellClassName={pinnedCellClass("closed")}
+        />
       ) : null}
 
       {hasColumn("reviewedBy") ? (
         <span
-          className={`${LIST_COL.reviewedBy} shrink-0 truncate text-xs font-semibold text-[#42526e]`}
+          style={columnStyle("reviewedBy")}
+          className={cellClassName(
+            "reviewedBy",
+            `${LIST_COL.reviewedBy} shrink-0 truncate text-xs font-semibold text-[#42526e]`
+          )}
           title={task.done_reviewed_by_email ?? "Not reviewed"}
         >
           {personLabel(task.done_reviewed_by_email)}
@@ -550,12 +761,21 @@ export function TaskRowItem({
       ) : null}
 
       {hasColumn("reviewedAt") ? (
-        <DateCell widthClass={LIST_COL.reviewedAt} value={task.done_reviewed_at} />
+        <DateCell
+          widthClass={LIST_COL.reviewedAt}
+          value={task.done_reviewed_at}
+          style={columnStyle("reviewedAt")}
+          cellClassName={pinnedCellClass("reviewedAt")}
+        />
       ) : null}
 
       {hasColumn("position") ? (
         <span
-          className={`flex ${LIST_COL.position} shrink-0 justify-center text-[11px] font-semibold text-[#6b778c]`}
+          style={columnStyle("position")}
+          className={cellClassName(
+            "position",
+            `flex ${LIST_COL.position} shrink-0 justify-center text-[11px] font-semibold text-[#6b778c]`
+          )}
           title="Manual board position"
         >
           {Number.isFinite(task.position) ? task.position.toFixed(2) : "—"}
@@ -564,7 +784,10 @@ export function TaskRowItem({
 
       {hasColumn("priority") ? (
         <span
-          className={`flex ${LIST_COL.priority} shrink-0 justify-start gap-1.5 text-xs font-bold`}
+          className={cellClassName(
+            "priority",
+            `flex ${LIST_COL.priority} shrink-0 justify-start gap-1.5 text-xs font-bold`
+          )}
           title={`${PRIORITY_META[task.priority].label} priority`}
           style={{
             ...(columnStyle("priority") ?? {}),
@@ -591,13 +814,14 @@ export function TaskRowItem({
           onUnlockOverdueRequest={onUnlockOverdueRequest}
           onReopenRequest={onReopenRequest}
           cellStyle={columnStyle("status")}
+          cellClassName={pinnedCellClass("status")}
         />
       ) : null}
 
       {hasColumn("review") ? (
         <span
           style={columnStyle("review")}
-          className={`flex ${LIST_COL.review} shrink-0 justify-center`}
+          className={cellClassName("review", `flex ${LIST_COL.review} shrink-0 justify-center`)}
         >
           <DoneReviewPill
             task={task}
@@ -616,6 +840,7 @@ export function TaskRowItem({
             column={configColumn}
             value={task.custom_values?.[configColumn.key]}
             style={columnStyle(column.key)}
+            cellClassName={pinnedCellClass(column.key)}
             optionById={customOptionById}
             options={customOptionsByColumnId.get(configColumn.id) ?? []}
             labelByEmail={personLabelByEmail}
@@ -631,6 +856,7 @@ function CustomTaskValueCell({
   column,
   value,
   style,
+  cellClassName = "",
   optionById,
   options,
   labelByEmail,
@@ -638,6 +864,7 @@ function CustomTaskValueCell({
   column: NonNullable<TaskListColumn["configColumn"]>;
   value: unknown;
   style?: CSSProperties;
+  cellClassName?: string;
   optionById: ReadonlyMap<string, TableColumnOption>;
   options: readonly TableColumnOption[];
   labelByEmail: ReadonlyMap<string, string>;
@@ -650,7 +877,7 @@ function CustomTaskValueCell({
     return (
       <span
         style={style}
-        className={`flex ${LIST_COL.custom} shrink-0 justify-center`}
+        className={`flex ${LIST_COL.custom} shrink-0 justify-center ${cellClassName}`}
         title={formatCustomValue(column.type, value)}
       >
         {value ? (
@@ -668,7 +895,7 @@ function CustomTaskValueCell({
     return (
       <span
         style={style}
-        className={`flex ${LIST_COL.custom} shrink-0 justify-start`}
+        className={`flex ${LIST_COL.custom} shrink-0 justify-start ${cellClassName}`}
       >
         {empty ? (
           <span className="text-[11px] font-semibold text-[#97a0af]">—</span>
@@ -685,7 +912,7 @@ function CustomTaskValueCell({
     return (
       <span
         style={style}
-        className={`${LIST_COL.custom} min-w-0 shrink-0 gap-1.5 text-xs font-semibold text-[#42526e]`}
+        className={`${LIST_COL.custom} min-w-0 shrink-0 gap-1.5 text-xs font-semibold text-[#42526e] ${cellClassName}`}
         title={email || "No person"}
       >
         {email ? <Initials email={email} label={label} /> : null}
@@ -706,7 +933,7 @@ function CustomTaskValueCell({
     return (
       <span
         style={style}
-        className={`flex ${LIST_COL.custom} shrink-0 justify-start`}
+        className={`flex ${LIST_COL.custom} shrink-0 justify-start ${cellClassName}`}
         title={option?.label ?? (empty ? "No value" : String(value))}
       >
         {option ? (
@@ -734,7 +961,7 @@ function CustomTaskValueCell({
   return (
     <span
       style={style}
-      className={commonClass}
+      className={`${commonClass} ${cellClassName}`}
       title={label || "No value"}
     >
       <span className="min-w-0 truncate">{label || "—"}</span>
@@ -760,13 +987,18 @@ const MONTH_LABELS = [
 function DateCell({
   widthClass,
   value,
+  style,
+  cellClassName = "",
 }: {
   widthClass: string;
   value: string | null | undefined;
+  style?: CSSProperties;
+  cellClassName?: string;
 }) {
   return (
     <span
-      className={`${widthClass} shrink-0 truncate text-[11px] font-medium text-[#6b778c]`}
+      style={style}
+      className={`${widthClass} shrink-0 truncate text-[11px] font-medium text-[#6b778c] ${cellClassName}`}
       title={formatDateTime(value)}
     >
       {formatShortDateTime(value)}
@@ -777,13 +1009,18 @@ function DateCell({
 function DurationCell({
   widthClass,
   seconds,
+  style,
+  cellClassName = "",
 }: {
   widthClass: string;
   seconds: number;
+  style?: CSSProperties;
+  cellClassName?: string;
 }) {
   return (
     <span
-      className={`${widthClass} shrink-0 truncate text-[11px] font-semibold text-[#42526e]`}
+      style={style}
+      className={`${widthClass} shrink-0 truncate text-[11px] font-semibold text-[#42526e] ${cellClassName}`}
       title={`${Math.max(0, Math.round(seconds))} seconds`}
     >
       {formatDurationSeconds(seconds)}
@@ -1090,6 +1327,7 @@ function StatusPill({
   assigned,
   canChangeStatus,
   cellStyle,
+  cellClassName = "",
   isOverdueLocked = false,
   hasBeenInProgress = false,
   onChange,
@@ -1100,6 +1338,7 @@ function StatusPill({
   assigned: boolean;
   canChangeStatus: boolean;
   cellStyle?: CSSProperties;
+  cellClassName?: string;
   isOverdueLocked?: boolean;
   hasBeenInProgress?: boolean;
   onChange: (status: TaskStatus) => void;
@@ -1138,7 +1377,7 @@ function StatusPill({
       ) : null}
     </span>
   );
-  const wrapperClassName = `flex ${LIST_COL.status} shrink-0 justify-start`;
+  const wrapperClassName = `flex ${LIST_COL.status} shrink-0 justify-start ${cellClassName}`;
 
   if (canUnlockOverdue) {
     return (

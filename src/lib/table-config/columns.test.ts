@@ -15,6 +15,7 @@ const col = (key: string, position: number, label = key): TableColumn => ({
   type: "text",
   is_system: false,
   position,
+  pinned: false,
   hidden_default: false,
   required: false,
   archived_at: null,
@@ -39,6 +40,7 @@ describe("canEditColumnField", () => {
     const system = { is_system: true };
     expect(canEditColumnField(system, "label")).toBe(true);
     expect(canEditColumnField(system, "position")).toBe(true);
+    expect(canEditColumnField(system, "pinned")).toBe(true);
     expect(canEditColumnField(system, "hidden_default")).toBe(true);
     expect(canEditColumnField(system, "type")).toBe(false);
     expect(canEditColumnField(system, "archived_at")).toBe(false);

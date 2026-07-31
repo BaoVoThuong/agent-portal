@@ -51,13 +51,14 @@ export type TaskListColumn = {
   label: string;
   sortKey?: SortKey;
   locked?: boolean;
+  pinned?: boolean;
   align?: "center";
   configColumn?: TableColumn;
 };
 
 export const TASK_LIST_COLUMNS: TaskListColumn[] = [
-  { key: "key", label: "Key", sortKey: "key", locked: true },
-  { key: "summary", label: "Task", sortKey: "title", locked: true },
+  { key: "key", label: "Key", sortKey: "key", locked: true, pinned: true },
+  { key: "summary", label: "Task", sortKey: "title", locked: true, pinned: true },
   { key: "assignee", label: "Assignee", sortKey: "assignee" },
   { key: "category", label: "Category", sortKey: "category" },
   { key: "status", label: "Stage", sortKey: "status" },
@@ -105,7 +106,7 @@ export function visibleTaskListColumns(
   columns: readonly TaskListColumn[] = TASK_LIST_COLUMNS
 ): TaskListColumn[] {
   return columns.filter(
-    (column) => column.locked || !hiddenKeys.has(column.key)
+    (column) => column.locked || column.pinned || !hiddenKeys.has(column.key)
   );
 }
 
@@ -128,11 +129,17 @@ export function taskListColumnsFromConfig(
     const base = byKey.get(key);
     if (configured.is_system) {
       if (!base) continue;
-      next.push({ ...base, label: configured.label, configColumn: configured });
+      next.push({
+        ...base,
+        label: configured.label,
+        pinned: configured.pinned,
+        configColumn: configured,
+      });
     } else {
       next.push({
         key,
         label: configured.label,
+        pinned: configured.pinned,
         align: configured.type === "checkbox" ? "center" : undefined,
         configColumn: configured,
       });
@@ -142,8 +149,15 @@ export function taskListColumnsFromConfig(
   for (const column of TASK_LIST_COLUMNS) {
     if (!used.has(column.key)) next.push(column);
   }
+  // hidden_default = archived: dropped from the column set entirely, for
+  // every viewer, before any per-user filter (hiddenColumnKeys/localStorage,
+  // saved layout) ever runs — so no personal preference can bring it back.
+  // `locked` columns (Key/Task) are the one hard exception: they must always
+  // render no matter what an admin does in Config Table, so archiving never
+  // applies to them even if hidden_default somehow ends up true on one.
+  const kept = next.filter((column) => column.locked || !column.configColumn?.hidden_default);
   return [
-    ...next.filter((column) => column.key === "key" || column.key === "summary"),
-    ...next.filter((column) => column.key !== "key" && column.key !== "summary"),
+    ...kept.filter((column) => column.pinned),
+    ...kept.filter((column) => !column.pinned),
   ];
 }

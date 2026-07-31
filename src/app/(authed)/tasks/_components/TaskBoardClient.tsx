@@ -212,10 +212,16 @@ export function TaskBoardClient({
           if (Array.isArray(payload?.layout)) {
             const resolved = resolveLayout(tableColumns, payload.layout as LayoutEntry[]);
             setTaskLayoutColumns(
+              // Keep hidden_default as the admin's own global default (already
+              // correct on `column` via resolveLayout's spread of tableColumns)
+              // — this user's resolved per-column visibility lives separately
+              // in hiddenTaskListColumnKeys below. Overwriting it here would
+              // make an archived column (hidden_default: true) silently read
+              // as "not archived" for any user who already had it visible in
+              // their own saved layout.
               resolved.map((column, index) => ({
                 ...column,
                 position: (index + 1) * 10,
-                hidden_default: column.hidden,
               }))
             );
             setHiddenTaskListColumnKeys(
@@ -224,6 +230,7 @@ export function TaskBoardClient({
                   .filter(
                     (column) =>
                       column.hidden &&
+                      !column.pinned &&
                       !TASK_LIST_LOCKED_COLUMN_KEYS.has(column.key)
                   )
                   .map((column) => column.key as TaskListColumnKey)
@@ -1119,6 +1126,7 @@ export function TaskBoardClient({
         ...column,
         width: null,
         hidden:
+          !column.pinned &&
           !TASK_LIST_LOCKED_COLUMN_KEYS.has(column.key) &&
           hiddenKeys.has(column.key as TaskListColumnKey),
       }))

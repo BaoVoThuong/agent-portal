@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type CSSProperties,
   type ReactNode,
   type SetStateAction,
 } from "react";
@@ -160,6 +161,11 @@ type EnrollmentColumn = {
   label: string;
   width: number;
   sticky?: boolean;
+  // Hard, code-level floor mirroring TASK_LIST_COLUMNS' `locked` for CS: Key
+  // and Client Name must always render and always stay toggle/archive-proof,
+  // even if an admin unpins them (or, in theory, sets hidden_default on them)
+  // in Config Table. Unlike `sticky`/pinned, this is never admin-configurable.
+  locked?: boolean;
   sortable?: boolean;
   align?: "center";
   configColumn?: TableColumn;
@@ -171,8 +177,8 @@ type EnrollmentColumnKey = EnrollmentColumn["key"];
 // real Medicare Slack List), so enrollmentColumnsForProgram() below derives a
 // trimmed, relabeled set from this instead of duplicating the whole table.
 const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
-  { key: "key", label: "Key", width: 100, sticky: true, sortable: true },
-  { key: "client", label: "Client Name", width: 300, sticky: true, sortable: true },
+  { key: "key", label: "Key", width: 100, sticky: true, locked: true, sortable: true },
+  { key: "client", label: "Client Name", width: 300, sticky: true, locked: true, sortable: true },
   { key: "stage", label: "Stage", width: 260, sortable: true },
   { key: "caller", label: "Caller", width: 180, sortable: true },
   { key: "responsible", label: "Responsible Enroll", width: 200, sortable: true },
@@ -189,7 +195,7 @@ const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
   { key: "createdAt", label: "Created time", width: 120, sortable: true },
   { key: "updatedBy", label: "Last edited by", width: 130, sortable: true },
   { key: "updated", label: "Last edited time", width: 130, sortable: true },
-  { key: "qc", label: "QC", width: 64, sticky: true, align: "center", sortable: true },
+  { key: "qc", label: "QC", width: 64, align: "center", sortable: true },
 ];
 
 // Medicare's real Slack List has no Payment/Consent/Platform/AC columns and a
@@ -237,12 +243,18 @@ function enrollmentColumnsForProgram(
     const base = byKey.get(key);
     if (configured.is_system) {
       if (!base) continue;
-      next.push({ ...base, label: configured.label, configColumn: configured });
+      next.push({
+        ...base,
+        label: configured.label,
+        sticky: configured.pinned,
+        configColumn: configured,
+      });
     } else {
       next.push({
         key,
         label: configured.label,
         width: configured.type === "checkbox" ? 110 : 180,
+        sticky: configured.pinned,
         align: configured.type === "checkbox" ? "center" : undefined,
         configColumn: configured,
       });
@@ -252,13 +264,17 @@ function enrollmentColumnsForProgram(
   for (const column of baseColumns) {
     if (!used.has(column.key)) next.push(column);
   }
+  // hidden_default = archived: dropped from the column set entirely, for
+  // every viewer, before any per-user filter (hiddenColumnKeys/localStorage,
+  // saved layout) ever runs — so no personal preference can bring it back.
+  // `locked` columns (Key/Client) are the one hard exception: they must
+  // always render no matter what an admin does in Config Table.
+  const kept = next.filter((column) => column.locked || !column.configColumn?.hidden_default);
   return [
-    ...next.filter((column) => column.key === "key" || column.key === "client"),
-    ...next.filter((column) => column.key !== "key" && column.key !== "client"),
+    ...kept.filter((column) => column.sticky),
+    ...kept.filter((column) => !column.sticky),
   ];
 }
-
-const ENROLLMENT_COLUMN_KEYS = new Set(ACA_ENROLLMENT_COLUMNS.map((column) => column.key));
 
 function browserStorage() {
   return typeof window === "undefined" ? undefined : window.localStorage;
@@ -319,7 +335,7 @@ function useHiddenEnrollmentColumns(
         const next = toggleHiddenColumn(
           current[program],
           key,
-          Boolean(column?.sticky)
+          Boolean(column?.sticky || column?.locked)
         ) as Set<EnrollmentColumnKey>;
         writeHiddenColumns(browserStorage(), program, next);
         return { ...current, [program]: next };
@@ -406,14 +422,18 @@ export function EnrollmentClient({
     useHiddenEnrollmentColumns(program, columns);
   const visibleColumns = useMemo(
     () =>
-      columns.filter((column) => column.sticky || !hiddenColumnKeys.has(column.key)),
+      columns.filter(
+        (column) => column.locked || column.sticky || !hiddenColumnKeys.has(column.key)
+      ),
     [columns, hiddenColumnKeys]
   );
 
   useEffect(() => {
     let alive = true;
     enrollmentLayoutHydratedRef.current = false;
-    setLayoutTableColumns(tableColumns);
+    const resetTimer = window.setTimeout(() => {
+      if (alive) setLayoutTableColumns(tableColumns);
+    }, 0);
     void fetch(`/api/config/layout?scope=${program}`)
       .then((response) => (response.ok ? response.json() : null))
       .then((payload: { layout?: unknown } | null) => {
@@ -421,16 +441,22 @@ export function EnrollmentClient({
         if (Array.isArray(payload?.layout)) {
           const resolved = resolveLayout(tableColumns, payload.layout as LayoutEntry[]);
           setLayoutTableColumns(
+            // Keep hidden_default as the admin's own global default (already
+            // correct on `column` via resolveLayout's spread of tableColumns)
+            // — this user's resolved per-column visibility lives separately
+            // in hiddenColumnKeys below. Writing it back into hidden_default
+            // here would make an archived column (hidden_default: true)
+            // silently read as "not archived" for any user who already had
+            // that column visible in their own saved layout.
             resolved.map((column, index) => ({
               ...column,
               position: (index + 1) * 10,
-              hidden_default: column.hidden,
             }))
           );
           setHiddenColumnKeys(
             new Set(
               resolved
-                .filter((column) => column.hidden)
+                .filter((column) => column.hidden && !column.pinned)
                 .map((column) => column.key as EnrollmentColumnKey)
             )
           );
@@ -447,6 +473,7 @@ export function EnrollmentClient({
 
     return () => {
       alive = false;
+      window.clearTimeout(resetTimer);
     };
   }, [program, setHiddenColumnKeys, tableColumns]);
 
@@ -456,7 +483,9 @@ export function EnrollmentClient({
       layoutTableColumns.map((column) => ({
         ...column,
         width: null,
-        hidden: hiddenColumnKeys.has(column.key as EnrollmentColumnKey),
+        hidden:
+          !column.pinned &&
+          hiddenColumnKeys.has(column.key as EnrollmentColumnKey),
       }))
     );
     const timer = window.setTimeout(() => {
@@ -853,7 +882,7 @@ function EnrollmentToolbar({
 }) {
   const isMedicare = program === "medicare";
   const exportColumnKeys = columns
-    .filter((column) => column.sticky || !hiddenColumnKeys.has(column.key))
+    .filter((column) => column.locked || column.sticky || !hiddenColumnKeys.has(column.key))
     .map((column) => column.key)
     .join(",");
   const exportHref = `/api/enrollment/export?program=${program}&columns=${encodeURIComponent(
@@ -1095,7 +1124,7 @@ function ColumnVisibilityButton({
   onToggleColumn: (key: EnrollmentColumnKey) => void;
 }) {
   const { isOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
-  const toggleableColumns = columns.filter((column) => !column.sticky);
+  const toggleableColumns = columns.filter((column) => !column.sticky && !column.locked);
   const hiddenCount = toggleableColumns.filter((column) =>
     hiddenColumnKeys.has(column.key)
   ).length;
@@ -1403,11 +1432,25 @@ function EnrollmentRowItem({
     customOptionsByColumnId.set(option.column_id, list);
   }
 
-  function cellStyle(column: EnrollmentColumn): React.CSSProperties {
+  const columnByKey = new Map(columns.map((column) => [column.key, column]));
+  const columnOrderByKey = new Map(
+    columns.map((column, index) => [column.key, index])
+  );
+
+  function cellStyleFor(key: EnrollmentColumn["key"]): CSSProperties {
+    const column = columnByKey.get(key);
     return {
-      width: column.width,
-      left: column.sticky ? stickyOffset(columns, column.key) : undefined,
+      width: column?.width ?? colWidth(columns, key),
+      order: columnOrderByKey.get(key) ?? 999,
+      left: column?.sticky ? stickyOffset(columns, key) : undefined,
     };
+  }
+
+  function cellClassName(key: EnrollmentColumn["key"], className: string): string {
+    const stickyClass = columnByKey.get(key)?.sticky
+      ? "sticky z-[1] border-r border-[#dfe1e6] bg-white group-hover:bg-[#f7f8f9]"
+      : "";
+    return `${className} ${stickyClass}`;
   }
 
   return (
@@ -1415,40 +1458,50 @@ function EnrollmentRowItem({
       onDoubleClick={() => onOpen(record.id)}
       className="group flex items-stretch whitespace-nowrap bg-white transition hover:bg-[#f7f8f9]"
     >
-      {/* Key — carries the overdue accent so it stays visible while the row is
-          scrolled horizontally (this is the leftmost sticky column). */}
-      <div
-        style={cellStyle(columns[0])}
-        className={`sticky z-[1] flex shrink-0 items-center border-r border-[#dfe1e6] bg-white px-3 py-2.5 group-hover:bg-[#f7f8f9] ${
-          overdue ? "border-l-4 border-l-[#f97316]" : ""
-        }`}
-      >
-        <span
-          className="truncate font-mono text-xs font-bold text-[#97a0af]"
-          title={enrollmentKey(record.id)}
+      {has("key") ? (
+        <div
+          style={cellStyleFor("key")}
+          className={cellClassName(
+            "key",
+            `flex shrink-0 items-center px-3 py-2.5 ${
+              overdue ? "border-l-4 border-l-[#f97316]" : ""
+            }`
+          )}
         >
-          {enrollmentKey(record.id)}
-        </span>
-      </div>
+          <span
+            className="truncate font-mono text-xs font-bold text-[#97a0af]"
+            title={enrollmentKey(record.id)}
+          >
+            {enrollmentKey(record.id)}
+          </span>
+        </div>
+      ) : null}
 
-      {/* Client Name */}
-      <div
-        style={cellStyle(columns[1])}
-        className="sticky z-[1] flex shrink-0 items-center border-r border-[#dfe1e6] bg-white px-3 py-2.5 group-hover:bg-[#f7f8f9]"
-      >
-        <button
-          type="button"
-          onClick={() => onOpen(record.id)}
-          className="min-w-0 flex-1 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]"
-          title={record.client_name ?? undefined}
+      {has("client") ? (
+        <div
+          style={cellStyleFor("client")}
+          className={cellClassName(
+            "client",
+            "flex shrink-0 items-center px-3 py-2.5"
+          )}
         >
-          {record.client_name || "Unnamed client"}
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => onOpen(record.id)}
+            className="min-w-0 flex-1 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]"
+            title={record.client_name ?? undefined}
+          >
+            {record.client_name || "Unnamed client"}
+          </button>
+        </div>
+      ) : null}
 
       {/* Stage */}
       {has("stage") ? (
-        <div style={{ width: colWidth(columns, "stage") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("stage")}
+          className={cellClassName("stage", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <EnrollmentStagePill
             stageId={record.stage_id}
             stages={optionsBySet.stage}
@@ -1459,7 +1512,10 @@ function EnrollmentRowItem({
 
       {/* Caller — ACA only; Medicare has a single Assignee (Responsible). */}
       {has("caller") ? (
-        <div style={{ width: colWidth(columns, "caller") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("caller")}
+          className={cellClassName("caller", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <EnrollmentPersonMenu
             value={record.caller_email}
             peopleByEmail={peopleByEmail}
@@ -1471,7 +1527,10 @@ function EnrollmentRowItem({
 
       {/* Responsible Enroll (labeled "Assignee" for Medicare) */}
       {has("responsible") ? (
-        <div style={{ width: colWidth(columns, "responsible") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("responsible")}
+          className={cellClassName("responsible", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <EnrollmentPersonMenu
             value={record.responsible_enroll_email}
             peopleByEmail={peopleByEmail}
@@ -1485,7 +1544,10 @@ function EnrollmentRowItem({
 
       {/* Payment status — ACA only */}
       {has("payment") ? (
-        <div style={{ width: colWidth(columns, "payment") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("payment")}
+          className={cellClassName("payment", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <EnrollmentOptionMenu
             optionId={record.payment_status_id}
             options={optionsBySet.payment_status}
@@ -1497,7 +1559,10 @@ function EnrollmentRowItem({
 
       {/* Carrier */}
       {has("carrier") ? (
-        <div style={{ width: colWidth(columns, "carrier") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("carrier")}
+          className={cellClassName("carrier", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <EnrollmentOptionMenu
             optionId={record.carrier_id}
             options={optionsBySet.carrier}
@@ -1509,7 +1574,10 @@ function EnrollmentRowItem({
 
       {/* AC (ACA account status) — ACA only */}
       {has("aca") ? (
-        <div style={{ width: colWidth(columns, "aca") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("aca")}
+          className={cellClassName("aca", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <EnrollmentOptionMenu
             optionId={record.aca_status_id}
             options={optionsBySet.aca_status}
@@ -1521,7 +1589,10 @@ function EnrollmentRowItem({
 
       {/* Consent — ACA only; Yes/Not Yet is a binary field, so it's a tick box. */}
       {has("consent") ? (
-        <div style={{ width: colWidth(columns, "consent") }} className="flex shrink-0 items-center justify-center px-2 py-2.5">
+        <div
+          style={cellStyleFor("consent")}
+          className={cellClassName("consent", "flex shrink-0 items-center justify-center px-2 py-2.5")}
+        >
           <EnrollmentConsentToggle
             optionId={record.consent_id}
             options={optionsBySet.consent}
@@ -1532,7 +1603,10 @@ function EnrollmentRowItem({
 
       {/* Platform — ACA only */}
       {has("platform") ? (
-        <div style={{ width: colWidth(columns, "platform") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("platform")}
+          className={cellClassName("platform", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <EnrollmentOptionMenu
             optionId={record.platform_id}
             options={optionsBySet.platform}
@@ -1544,7 +1618,10 @@ function EnrollmentRowItem({
 
       {/* PCP 2025 (labeled "PCP" for Medicare, which has a single PCP field) */}
       {has("pcp2025") ? (
-        <div style={{ width: colWidth(columns, "pcp2025") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("pcp2025")}
+          className={cellClassName("pcp2025", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <button
             type="button"
             onClick={() => onOpen(record.id)}
@@ -1558,7 +1635,10 @@ function EnrollmentRowItem({
 
       {/* PCP 2026 — ACA only */}
       {has("pcp2026") ? (
-        <div style={{ width: colWidth(columns, "pcp2026") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("pcp2026")}
+          className={cellClassName("pcp2026", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <button
             type="button"
             onClick={() => onOpen(record.id)}
@@ -1573,14 +1653,17 @@ function EnrollmentRowItem({
       {/* Due Date */}
       {has("due") ? (
         <div
-          style={{ width: colWidth(columns, "due") }}
-          className={`flex shrink-0 items-center px-3 py-2.5 text-xs font-medium ${
-            risk.tone === "danger"
-              ? "text-[#bf2600]"
-              : risk.tone === "warning"
-                ? "text-[#b76e00]"
-                : "text-[#6b778c]"
-          }`}
+          style={cellStyleFor("due")}
+          className={cellClassName(
+            "due",
+            `flex shrink-0 items-center px-3 py-2.5 text-xs font-medium ${
+              risk.tone === "danger"
+                ? "text-[#bf2600]"
+                : risk.tone === "warning"
+                  ? "text-[#b76e00]"
+                  : "text-[#6b778c]"
+            }`
+          )}
           title={record.due_date ? `Due ${formatDateShort(record.due_date)}` : "No due date"}
         >
           {record.due_date ? formatDateShort(record.due_date) : "-"}
@@ -1589,7 +1672,10 @@ function EnrollmentRowItem({
 
       {/* FUB Link */}
       {has("fub") ? (
-        <div style={{ width: colWidth(columns, "fub") }} className="flex shrink-0 items-center justify-center px-2 py-2.5">
+        <div
+          style={cellStyleFor("fub")}
+          className={cellClassName("fub", "flex shrink-0 items-center justify-center px-2 py-2.5")}
+        >
           {record.fub_link ? (
             <a
               href={formatExternalLink(record.fub_link)}
@@ -1610,7 +1696,10 @@ function EnrollmentRowItem({
 
       {/* Created by */}
       {has("createdBy") ? (
-        <div style={{ width: colWidth(columns, "createdBy") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("createdBy")}
+          className={cellClassName("createdBy", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <span className="truncate text-xs font-medium text-[#42526e]">
             {personLabel(record.created_by_email, peopleByEmail)}
           </span>
@@ -1619,7 +1708,10 @@ function EnrollmentRowItem({
 
       {/* Created time */}
       {has("createdAt") ? (
-        <div style={{ width: colWidth(columns, "createdAt") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("createdAt")}
+          className={cellClassName("createdAt", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <RelativeTime
             value={record.created_at}
             className="truncate text-xs font-medium text-[#6b778c]"
@@ -1629,7 +1721,10 @@ function EnrollmentRowItem({
 
       {/* Last edited by */}
       {has("updatedBy") ? (
-        <div style={{ width: colWidth(columns, "updatedBy") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("updatedBy")}
+          className={cellClassName("updatedBy", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <span className="truncate text-xs font-medium text-[#42526e]">
             {record.updated_by_email
               ? personLabel(record.updated_by_email, peopleByEmail)
@@ -1640,7 +1735,10 @@ function EnrollmentRowItem({
 
       {/* Last edited time */}
       {has("updated") ? (
-        <div style={{ width: colWidth(columns, "updated") }} className="flex shrink-0 items-center px-3 py-2.5">
+        <div
+          style={cellStyleFor("updated")}
+          className={cellClassName("updated", "flex shrink-0 items-center px-3 py-2.5")}
+        >
           <RelativeTime
             value={record.updated_at}
             className="truncate text-xs font-medium text-[#6b778c]"
@@ -1655,7 +1753,8 @@ function EnrollmentRowItem({
           <EnrollmentCustomValueCell
             key={column.key}
             column={configColumn}
-            width={column.width}
+            style={cellStyleFor(column.key)}
+            cellClassName={cellClassName(column.key, "")}
             value={record.custom_values?.[configColumn.key]}
             peopleByEmail={peopleByEmail}
             optionById={customOptionById}
@@ -1664,44 +1763,49 @@ function EnrollmentRowItem({
         );
       })}
 
-      {/* QC — sticky at the far right */}
-      <div
-        style={cellStyle(columns.find((column) => column.key === "qc") ?? columns[columns.length - 1])}
-        className={`sticky z-[1] flex shrink-0 items-center justify-center border-l border-[#dfe1e6] px-2 py-2.5 bg-white group-hover:bg-[#f7f8f9]`}
-      >
-        <QCCheckButton
-          record={record}
-          stage={stage}
-          onToggle={() => onPatch(record.id, { qc_checked: !record.qc_checked_at })}
-        />
-      </div>
+      {has("qc") ? (
+        <div
+          style={cellStyleFor("qc")}
+          className={cellClassName(
+            "qc",
+            "flex shrink-0 items-center justify-center px-2 py-2.5"
+          )}
+        >
+          <QCCheckButton
+            record={record}
+            stage={stage}
+            onToggle={() => onPatch(record.id, { qc_checked: !record.qc_checked_at })}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function EnrollmentCustomValueCell({
   column,
-  width,
+  style,
+  cellClassName = "",
   value,
   peopleByEmail,
   optionById,
   options,
 }: {
   column: TableColumn;
-  width: number;
+  style: CSSProperties;
+  cellClassName?: string;
   value: unknown;
   peopleByEmail: Map<string, string>;
   optionById: ReadonlyMap<string, TableColumnOption>;
   options: readonly TableColumnOption[];
 }) {
   const empty = value === null || value === undefined || value === "";
-  const style = { width };
 
   if (column.type === "checkbox") {
     return (
       <div
         style={style}
-        className="flex shrink-0 items-center justify-center px-2 py-2.5"
+        className={`flex shrink-0 items-center justify-center px-2 py-2.5 ${cellClassName}`}
         title={formatCustomValue(column.type, value)}
       >
         {value ? (
@@ -1719,7 +1823,7 @@ function EnrollmentCustomValueCell({
     return (
       <div
         style={style}
-        className="flex shrink-0 items-center justify-center px-2 py-2.5"
+        className={`flex shrink-0 items-center justify-center px-2 py-2.5 ${cellClassName}`}
       >
         {empty ? (
           <span className="text-xs font-semibold text-[#97a0af]">-</span>
@@ -1746,7 +1850,7 @@ function EnrollmentCustomValueCell({
     return (
       <div
         style={style}
-        className="flex min-w-0 shrink-0 items-center px-3 py-2.5"
+        className={`flex min-w-0 shrink-0 items-center px-3 py-2.5 ${cellClassName}`}
         title={email || "No person"}
       >
         {email ? (
@@ -1767,7 +1871,7 @@ function EnrollmentCustomValueCell({
     return (
       <div
         style={style}
-        className="flex min-w-0 shrink-0 items-center px-3 py-2.5"
+        className={`flex min-w-0 shrink-0 items-center px-3 py-2.5 ${cellClassName}`}
         title={option?.label ?? (empty ? "No value" : String(value))}
       >
         {option ? (
@@ -1792,7 +1896,7 @@ function EnrollmentCustomValueCell({
   return (
     <div
       style={style}
-      className="flex min-w-0 shrink-0 items-center px-3 py-2.5 text-xs font-medium text-[#42526e]"
+      className={`flex min-w-0 shrink-0 items-center px-3 py-2.5 text-xs font-medium text-[#42526e] ${cellClassName}`}
       title={label || "No value"}
     >
       <span className="min-w-0 truncate">{label || "-"}</span>

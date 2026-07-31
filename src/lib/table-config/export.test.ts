@@ -10,6 +10,7 @@ const col = (key: string, label: string): TableColumn => ({
   type: "text",
   is_system: true,
   position: 0,
+  pinned: false,
   hidden_default: false,
   required: false,
   archived_at: null,

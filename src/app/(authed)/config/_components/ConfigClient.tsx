@@ -1,10 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  ChevronDown,
   Check,
   FileCheck2,
+  GripVertical,
   Plus,
   Settings2,
   SlidersHorizontal,
@@ -42,12 +61,33 @@ type ImportRequestListRow = {
 };
 
 type Tab = "table" | "value" | "assistant" | "imports";
+type SelectOption<T extends string> = { value: T; label: string };
 
 const SCOPE_LABEL: Record<TableScope, string> = {
   cs: "Health Customer Service",
   aca: "Health ACA Enrollment",
   medicare: "Health Medicare Enrollment",
 };
+
+const SCOPE_OPTIONS: SelectOption<TableScope>[] = TABLE_SCOPES.map((scope) => ({
+  value: scope,
+  label: SCOPE_LABEL[scope],
+}));
+
+const COLUMN_TYPE_LABEL: Record<ColumnType, string> = {
+  text: "Text",
+  number: "Number",
+  dropdown: "Dropdown",
+  date: "Date",
+  checkbox: "Yes/No",
+  link: "Link",
+  person: "Person",
+};
+
+const COLUMN_TYPE_OPTIONS: SelectOption<ColumnType>[] = COLUMN_TYPES.map((type) => ({
+  value: type,
+  label: COLUMN_TYPE_LABEL[type],
+}));
 
 export function ConfigClient({
   initialColumns,
@@ -104,33 +144,30 @@ export function ConfigClient({
             <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#0c66e4]">
               Health Admin
             </p>
-            <h1 className="mt-2 text-3xl font-bold">Config</h1>
+            <h1 className="mt-2 text-3xl font-bold">Health Table Configuration</h1>
           </div>
-          <select
+          <DropdownSelect
+            label="Table"
             value={scope}
-            onChange={(event) => setScope(event.target.value as TableScope)}
-            className="h-11 rounded border border-[#dfe1e6] bg-white px-4 text-sm font-semibold shadow-sm"
-          >
-            {TABLE_SCOPES.map((item) => (
-              <option key={item} value={item}>
-                {SCOPE_LABEL[item]}
-              </option>
-            ))}
-          </select>
+            options={SCOPE_OPTIONS}
+            onChange={setScope}
+            className="w-[330px]"
+            buttonClassName="h-11 shadow-sm"
+          />
         </header>
 
         <div className="flex w-fit rounded bg-[#f1f2f4] p-1">
           <TabButton active={tab === "table"} onClick={() => setTab("table")}>
-            <Settings2 className="h-4 w-4" /> Config Table
+            <Settings2 className="h-4 w-4" /> Table Columns
           </TabButton>
           <TabButton active={tab === "value"} onClick={() => setTab("value")}>
-            <SlidersHorizontal className="h-4 w-4" /> Config Value
+            <SlidersHorizontal className="h-4 w-4" /> Dropdown Values
           </TabButton>
           <TabButton active={tab === "assistant"} onClick={() => setTab("assistant")}>
-            <UserRoundCog className="h-4 w-4" /> Config Assistant
+            <UserRoundCog className="h-4 w-4" /> Assistant Membership
           </TabButton>
           <TabButton active={tab === "imports"} onClick={() => setTab("imports")}>
-            <FileCheck2 className="h-4 w-4" /> Import Review
+            <FileCheck2 className="h-4 w-4" /> Data Import Review
           </TabButton>
         </div>
 
@@ -201,6 +238,109 @@ function TabButton({
   );
 }
 
+function DropdownSelect<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder = "Select",
+  className = "",
+  buttonClassName = "",
+}: {
+  label: string;
+  value: T;
+  options: SelectOption<T>[];
+  onChange: (value: T) => void;
+  placeholder?: string;
+  className?: string;
+  buttonClassName?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value);
+
+  return (
+    <div
+      className={`relative ${className}`}
+      onBlur={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+          return;
+        }
+        setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+          }
+          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+        className={`flex h-10 w-full items-center justify-between gap-3 rounded border border-[#dfe1e6] bg-white px-3 text-left text-sm font-semibold text-[#172b4d] shadow-sm outline-none transition hover:border-[#b8c7dc] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#0c66e4]/20 ${buttonClassName}`}
+      >
+        <span className={`truncate ${selected ? "" : "text-[#97a0af]"}`}>
+          {selected?.label ?? placeholder}
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-[#6b778c] transition ${open ? "rotate-180" : ""}`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {open ? (
+        <div
+          role="listbox"
+          aria-label={label}
+          tabIndex={-1}
+          className="absolute left-0 right-0 z-50 mt-1 max-h-72 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_14px_32px_rgba(22,35,58,0.18)]"
+        >
+          {options.length === 0 ? (
+            <div className="px-3 py-2 text-sm font-semibold text-[#6b778c]">
+              No options
+            </div>
+          ) : (
+            options.map((option) => {
+              const active = option.value === value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  className={`flex min-h-9 w-full items-center gap-2 rounded px-3 py-2 text-left text-sm font-semibold transition ${
+                    active
+                      ? "bg-[#deebff] text-[#0c66e4]"
+                      : "text-[#172b4d] hover:bg-[#f1f2f4]"
+                  }`}
+                >
+                  <Check
+                    className={`h-4 w-4 shrink-0 ${active ? "opacity-100" : "opacity-0"}`}
+                    aria-hidden="true"
+                  />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ConfigTableSection({
   scope,
   columns,
@@ -216,13 +356,94 @@ function ConfigTableSection({
 }) {
   const [newLabel, setNewLabel] = useState("");
   const [newType, setNewType] = useState<ColumnType>("text");
+  const [dragReady, setDragReady] = useState(false);
+  const sortedColumns = useMemo(
+    () =>
+      [...columns].sort(
+        (a, b) =>
+          // Hidden columns sink to the bottom of the editor — no one sees
+          // them in the live table, so they'd just clutter the top of the
+          // list otherwise. This only affects display order here; the
+          // underlying position is only rewritten on an explicit drag.
+          Number(a.hidden_default) - Number(b.hidden_default) ||
+          a.position - b.position ||
+          a.label.localeCompare(b.label) ||
+          a.key.localeCompare(b.key)
+      ),
+    [columns]
+  );
+  const [localColumns, setLocalColumns] = useState(sortedColumns);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
-  async function patchColumn(id: string, patch: Record<string, unknown>) {
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLocalColumns(sortedColumns), 0);
+    return () => window.clearTimeout(timer);
+  }, [sortedColumns]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDragReady(true), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  function patchSuccessMessage(patch: Record<string, unknown>): string {
+    // hidden_default/pinned resets everyone's saved layout server-side (see
+    // resetTableLayoutsForScope) so the admin's change actually takes effect
+    // for users who already customized this table — say so explicitly.
+    return "hidden_default" in patch || "pinned" in patch
+      ? "Column visibility updated for everyone."
+      : "Column updated.";
+  }
+
+  async function updateColumn(id: string, patch: Record<string, unknown>) {
     await requestJson(`/api/config/columns/${id}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     });
-    await refreshScope(scope);
+  }
+
+  async function patchColumn(id: string, patch: Record<string, unknown>) {
+    const previousColumns = localColumns;
+    setLocalColumns((current) =>
+      current.map((column) =>
+        column.id === id ? ({ ...column, ...patch } as TableColumn) : column
+      )
+    );
+    try {
+      await updateColumn(id, patch);
+      await refreshScope(scope);
+    } catch (error) {
+      setLocalColumns(previousColumns);
+      throw error;
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = localColumns.findIndex((column) => column.id === active.id);
+    const newIndex = localColumns.findIndex((column) => column.id === over.id);
+    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+    const nextColumns = arrayMove(localColumns, oldIndex, newIndex).map(
+      (column, index) => ({ ...column, position: index + 1 })
+    );
+    setLocalColumns(nextColumns);
+
+    void run(async () => {
+      await requestJson("/api/config/columns/reorder", {
+        method: "POST",
+        body: JSON.stringify({
+          scope,
+          column_ids: nextColumns.map((column) => column.id),
+          column_keys: nextColumns.map((column) => column.key),
+        }),
+      });
+      await refreshScope(scope);
+    }, "Column order updated for everyone.");
   }
 
   return (
@@ -235,7 +456,7 @@ function ConfigTableSection({
         </p>
       </div>
       <form
-        className="grid gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4 md:grid-cols-[1fr_180px_140px]"
+        className="flex flex-wrap items-center gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4"
         onSubmit={(event) => {
           event.preventDefault();
           void run(async () => {
@@ -252,98 +473,271 @@ function ConfigTableSection({
           value={newLabel}
           onChange={(event) => setNewLabel(event.target.value)}
           placeholder="New column label"
-          className="h-10 rounded border border-[#dfe1e6] px-3 text-sm font-semibold outline-none focus:border-[#0c66e4]"
+          className="h-10 min-w-[280px] max-w-[520px] flex-1 rounded border border-[#dfe1e6] px-3 text-sm font-semibold outline-none focus:border-[#0c66e4]"
         />
-        <select
+        <DropdownSelect
+          label="Column type"
           value={newType}
-          onChange={(event) => setNewType(event.target.value as ColumnType)}
-          className="h-10 rounded border border-[#dfe1e6] px-3 text-sm font-semibold"
-        >
-          {COLUMN_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
+          options={COLUMN_TYPE_OPTIONS}
+          onChange={setNewType}
+          className="w-[200px]"
+        />
         <button
           type="submit"
           disabled={busy || !newLabel.trim()}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
+          className="inline-flex h-10 w-[140px] items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
         >
           <Plus className="h-4 w-4" /> Add
         </button>
       </form>
-      <div className="grid grid-cols-[80px_1fr_140px_120px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
+      <div className="grid grid-cols-[112px_minmax(260px,1fr)_140px_120px_120px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
         <span>Order</span>
         <span>Label</span>
         <span>Type</span>
+        <span>Pinned</span>
         <span>Default</span>
         <span>Action</span>
       </div>
-      {columns.map((column) => (
-        <div
-          key={column.id}
-          className="grid grid-cols-[80px_1fr_140px_120px_120px] items-center border-b border-[#ebecf0] px-4 py-2 last:border-b-0"
+      {dragReady ? (
+        <DndContext
+          id="config-table-columns"
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
         >
-          <input
-            defaultValue={column.position}
-            className="h-9 w-16 rounded border border-[#dfe1e6] px-2 text-sm font-semibold"
-            onBlur={(event) => {
-              const position = Number(event.target.value);
-              if (Number.isFinite(position) && position !== column.position) {
-                void run(
-                  () => patchColumn(column.id, { position }),
-                  "Column position updated."
-                );
+          <SortableContext
+            items={localColumns.map((column) => column.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {localColumns.map((column, index) => (
+              <SortableColumnRow
+                key={column.id}
+                column={column}
+                index={index}
+                busy={busy}
+                onPatch={(patch) =>
+                  run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
+                }
+                onArchive={() =>
+                  run(async () => {
+                    await requestJson(`/api/config/columns/${column.id}`, {
+                      method: "DELETE",
+                    });
+                    await refreshScope(scope);
+                  }, "Column archived.")
+                }
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
+      ) : (
+        <div>
+          {localColumns.map((column, index) => (
+            <StaticColumnRow
+              key={column.id}
+              column={column}
+              index={index}
+              busy={busy}
+              onPatch={(patch) =>
+                run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
               }
-            }}
-          />
-          <input
-            defaultValue={column.label}
-            className="h-9 rounded border border-[#dfe1e6] px-3 text-sm font-semibold"
-            onBlur={(event) => {
-              const label = event.target.value.trim();
-              if (label && label !== column.label) {
-                void run(() => patchColumn(column.id, { label }), "Column label updated.");
-              }
-            }}
-          />
-          <span className="text-sm font-semibold text-[#44546f]">{column.type}</span>
-          <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#44546f]">
-            <input
-              type="checkbox"
-              defaultChecked={column.hidden_default}
-              onChange={(event) =>
-                void run(
-                  () => patchColumn(column.id, { hidden_default: event.target.checked }),
-                  "Default visibility updated."
-                )
-              }
-            />
-            Hidden
-          </label>
-          {column.is_system ? (
-            <span className="text-xs font-bold uppercase text-[#97a0af]">System</span>
-          ) : (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
+              onArchive={() =>
+                run(async () => {
                   await requestJson(`/api/config/columns/${column.id}`, {
                     method: "DELETE",
                   });
                   await refreshScope(scope);
                 }, "Column archived.")
               }
-              className="inline-flex w-fit items-center gap-1 rounded px-2 py-1 text-sm font-bold text-[#bf2600] hover:bg-[#ffebe6]"
-            >
-              <Trash2 className="h-4 w-4" /> Archive
-            </button>
-          )}
+            />
+          ))}
         </div>
-      ))}
+      )}
     </section>
+  );
+}
+
+function SortableColumnRow({
+  column,
+  index,
+  busy,
+  onPatch,
+  onArchive,
+}: {
+  column: TableColumn;
+  index: number;
+  busy: boolean;
+  onPatch: (patch: Record<string, unknown>) => Promise<void>;
+  onArchive: () => Promise<void>;
+}) {
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: column.id, disabled: busy });
+  const { "aria-describedby": _ariaDescribedBy, ...dragAttributes } = attributes;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 20 : undefined,
+      }}
+      className={`grid grid-cols-[112px_minmax(260px,1fr)_140px_120px_120px_120px] items-center border-b border-[#ebecf0] px-4 py-2.5 last:border-b-0 ${
+        isDragging ? "bg-[#deebff] shadow-lg" : "bg-white"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          disabled={busy}
+          aria-label={`Drag ${column.label}`}
+          className="inline-flex h-8 w-8 cursor-grab items-center justify-center rounded border border-[#dfe1e6] bg-[#fafbfc] text-[#6b778c] hover:border-[#0c66e4] hover:text-[#0c66e4] active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50"
+          {...dragAttributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-[#f1f2f4] px-2 text-xs font-bold text-[#44546f]">
+          {index + 1}
+        </span>
+      </div>
+      <input
+        defaultValue={column.label}
+        className="h-9 w-full rounded border border-transparent bg-transparent px-3 text-sm font-bold text-[#172b4d] outline-none transition hover:border-[#dfe1e6] hover:bg-white focus:border-[#0c66e4] focus:bg-white"
+        onBlur={(event) => {
+          const label = event.target.value.trim();
+          if (label && label !== column.label) {
+            void onPatch({ label });
+          }
+        }}
+      />
+      <span className="inline-flex w-fit rounded bg-[#f1f2f4] px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-[#44546f]">
+        {COLUMN_TYPE_LABEL[column.type]}
+      </span>
+      <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#44546f]">
+        <input
+          type="checkbox"
+          checked={column.pinned}
+          onChange={(event) =>
+            void onPatch({
+              pinned: event.target.checked,
+              ...(event.target.checked ? { hidden_default: false } : {}),
+            })
+          }
+        />
+        Pinned
+      </label>
+      <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#44546f]">
+        <input
+          type="checkbox"
+          checked={!column.pinned && column.hidden_default}
+          disabled={column.pinned}
+          onChange={(event) =>
+            void onPatch({ hidden_default: event.target.checked })
+          }
+        />
+        Hidden
+      </label>
+      {column.is_system ? (
+        <span className="text-xs font-bold uppercase text-[#97a0af]">System</span>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void onArchive()}
+          className="inline-flex w-fit items-center gap-1 rounded px-2 py-1 text-sm font-bold text-[#bf2600] hover:bg-[#ffebe6]"
+        >
+          <Trash2 className="h-4 w-4" /> Archive
+        </button>
+      )}
+    </div>
+  );
+}
+
+function StaticColumnRow({
+  column,
+  index,
+  busy,
+  onPatch,
+  onArchive,
+}: {
+  column: TableColumn;
+  index: number;
+  busy: boolean;
+  onPatch: (patch: Record<string, unknown>) => Promise<void>;
+  onArchive: () => Promise<void>;
+}) {
+  return (
+    <div className="grid grid-cols-[112px_minmax(260px,1fr)_140px_120px_120px_120px] items-center border-b border-[#ebecf0] bg-white px-4 py-2.5 last:border-b-0">
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden="true"
+          className="inline-flex h-8 w-8 items-center justify-center rounded border border-[#dfe1e6] bg-[#fafbfc] text-[#6b778c]"
+        >
+          <GripVertical className="h-4 w-4" />
+        </span>
+        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-[#f1f2f4] px-2 text-xs font-bold text-[#44546f]">
+          {index + 1}
+        </span>
+      </div>
+      <input
+        defaultValue={column.label}
+        className="h-9 w-full rounded border border-transparent bg-transparent px-3 text-sm font-bold text-[#172b4d] outline-none transition hover:border-[#dfe1e6] hover:bg-white focus:border-[#0c66e4] focus:bg-white"
+        onBlur={(event) => {
+          const label = event.target.value.trim();
+          if (label && label !== column.label) {
+            void onPatch({ label });
+          }
+        }}
+      />
+      <span className="inline-flex w-fit rounded bg-[#f1f2f4] px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-[#44546f]">
+        {COLUMN_TYPE_LABEL[column.type]}
+      </span>
+      <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#44546f]">
+        <input
+          type="checkbox"
+          checked={column.pinned}
+          onChange={(event) =>
+            void onPatch({
+              pinned: event.target.checked,
+              ...(event.target.checked ? { hidden_default: false } : {}),
+            })
+          }
+        />
+        Pinned
+      </label>
+      <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#44546f]">
+        <input
+          type="checkbox"
+          checked={!column.pinned && column.hidden_default}
+          disabled={column.pinned}
+          onChange={(event) =>
+            void onPatch({ hidden_default: event.target.checked })
+          }
+        />
+        Hidden
+      </label>
+      {column.is_system ? (
+        <span className="text-xs font-bold uppercase text-[#97a0af]">System</span>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void onArchive()}
+          className="inline-flex w-fit items-center gap-1 rounded px-2 py-1 text-sm font-bold text-[#bf2600] hover:bg-[#ffebe6]"
+        >
+          <Trash2 className="h-4 w-4" /> Archive
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -369,6 +763,10 @@ function ConfigValueSection({
   const [label, setLabel] = useState("");
   const selectedColumn = dropdownColumns.find((column) => column.id === columnId);
   const optionRows = options.filter((option) => option.column_id === columnId);
+  const dropdownColumnOptions: SelectOption<string>[] = dropdownColumns.map((column) => ({
+    value: column.id,
+    label: column.label,
+  }));
 
   return (
     <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
@@ -400,17 +798,12 @@ function ConfigValueSection({
               }, "Option added.");
             }}
           >
-            <select
+            <DropdownSelect
+              label="Dropdown column"
               value={columnId}
-              onChange={(event) => setColumnId(event.target.value)}
-              className="h-10 rounded border border-[#dfe1e6] px-3 text-sm font-semibold"
-            >
-              {dropdownColumns.map((column) => (
-                <option key={column.id} value={column.id}>
-                  {column.label}
-                </option>
-              ))}
-            </select>
+              options={dropdownColumnOptions}
+              onChange={setColumnId}
+            />
             <input
               value={label}
               onChange={(event) => setLabel(event.target.value)}
@@ -476,6 +869,17 @@ function ConfigAssistantSection({
     () => new Map(candidates.map((person) => [person.email, person])),
     [candidates]
   );
+  const agentOptions: SelectOption<string>[] = agents.map((agent) => ({
+    value: agent.email,
+    label: agent.name?.trim() || agent.email,
+  }));
+  const assistantOptions: SelectOption<string>[] = [
+    { value: "", label: "Select assistant" },
+    ...candidates.map((person) => ({
+      value: person.email,
+      label: person.name?.trim() || person.email,
+    })),
+  ];
   const memberRows = members
     .filter((member) => !agentEmail || member.agent_email === agentEmail)
     .sort((a, b) => labelForEmail(a.cs_email, candidateByEmail).localeCompare(labelForEmail(b.cs_email, candidateByEmail)));
@@ -510,29 +914,20 @@ function ConfigAssistantSection({
           }, "Assistant added.");
         }}
       >
-        <select
+        <DropdownSelect
+          label="Agent"
           value={agentEmail}
-          onChange={(event) => setAgentEmail(event.target.value)}
-          className="h-10 rounded border border-[#dfe1e6] px-3 text-sm font-semibold"
-        >
-          {agents.map((agent) => (
-            <option key={agent.email} value={agent.email}>
-              {agent.name?.trim() || agent.email}
-            </option>
-          ))}
-        </select>
-        <select
+          options={agentOptions}
+          onChange={setAgentEmail}
+          placeholder="Select agent"
+        />
+        <DropdownSelect
+          label="Assistant"
           value={assistantEmail}
-          onChange={(event) => setAssistantEmail(event.target.value)}
-          className="h-10 rounded border border-[#dfe1e6] px-3 text-sm font-semibold"
-        >
-          <option value="">Select assistant</option>
-          {candidates.map((person) => (
-            <option key={person.email} value={person.email}>
-              {person.name?.trim() || person.email}
-            </option>
-          ))}
-        </select>
+          options={assistantOptions}
+          onChange={setAssistantEmail}
+          placeholder="Select assistant"
+        />
         <button
           type="submit"
           disabled={busy || !agentEmail || !assistantEmail}
@@ -589,7 +984,7 @@ function ImportReviewSection({
   const [requests, setRequests] = useState<ImportRequestListRow[]>([]);
   const [loading, setLoading] = useState(false);
 
-  async function refreshRequests() {
+  const refreshRequests = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(`/api/config/imports?scope=${scope}`, {
@@ -601,11 +996,14 @@ function ImportReviewSection({
     } finally {
       setLoading(false);
     }
-  }
+  }, [scope]);
 
   useEffect(() => {
-    void refreshRequests();
-  }, [scope]);
+    const timer = window.setTimeout(() => {
+      void refreshRequests();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [refreshRequests]);
 
   return (
     <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">

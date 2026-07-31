@@ -72,12 +72,13 @@ export async function POST(request: Request) {
       type,
       is_system: false,
       position,
-      hidden_default: Boolean(body?.hidden_default),
+      pinned: Boolean(body?.pinned),
+      hidden_default: Boolean(body?.pinned) ? false : Boolean(body?.hidden_default),
       required: Boolean(body?.required),
       created_by_email: admin.actor.email,
     })
     .select(
-      "id,scope,key,label,type,is_system,position,hidden_default,required,created_by_email,created_at,updated_at,archived_at"
+      "id,scope,key,label,type,is_system,position,pinned,hidden_default,required,created_by_email,created_at,updated_at,archived_at"
     )
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

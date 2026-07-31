@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
@@ -22,6 +23,10 @@ import { canActorExportImport } from "@/lib/table-config/export-access";
 import type { TaskCategory } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Customer Service Task Board",
+};
 
 export default async function TasksPage() {
   const session = await requireAnyPermission([

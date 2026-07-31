@@ -120,7 +120,7 @@ const menuData: MenuItem[] = [
       },
       {
         href: "/config",
-        label: "Health Config",
+        label: "Health Table Configuration",
         permission: PERMISSIONS.TASK_MANAGE,
       },
     ],

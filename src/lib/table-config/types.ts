@@ -20,6 +20,7 @@ export type TableColumn = {
   type: ColumnType;
   is_system: boolean;
   position: number;
+  pinned: boolean;
   hidden_default: boolean;
   required: boolean;
   created_by_email?: string | null;

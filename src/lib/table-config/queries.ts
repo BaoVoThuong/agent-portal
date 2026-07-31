@@ -5,10 +5,13 @@ import type { TableColumn, TableColumnOption, TableScope } from "./types";
 
 type SupabaseErrorLike = { code?: string; message?: string } | null | undefined;
 
+const TABLE_COLUMN_SELECT =
+  "id,scope,key,label,type,is_system,position,pinned,hidden_default,required,created_by_email,created_at,updated_at,archived_at";
+
 const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
   cs: [
-    col("cs", "key", "Key", "text", 10),
-    col("cs", "summary", "Task", "text", 20),
+    col("cs", "key", "Key", "text", 10, false, true),
+    col("cs", "summary", "Task", "text", 20, false, true),
     col("cs", "assignee", "Assignee", "person", 30),
     col("cs", "category", "Category", "dropdown", 40),
     col("cs", "status", "Stage", "dropdown", 50),
@@ -21,8 +24,8 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("cs", "review", "QC", "checkbox", 120),
   ],
   aca: [
-    col("aca", "key", "Key", "text", 10),
-    col("aca", "client", "Client Name", "text", 20),
+    col("aca", "key", "Key", "text", 10, false, true),
+    col("aca", "client", "Client Name", "text", 20, false, true),
     col("aca", "stage", "Stage", "dropdown", 30),
     col("aca", "caller", "Caller", "person", 40),
     col("aca", "responsible", "Responsible Enroll", "person", 50),
@@ -42,18 +45,12 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("aca", "qc", "QC", "checkbox", 190),
   ],
   medicare: [
-    col("medicare", "key", "Key", "text", 10),
-    col("medicare", "client", "Client Name", "text", 20),
+    col("medicare", "key", "Key", "text", 10, false, true),
+    col("medicare", "client", "Client Name", "text", 20, false, true),
     col("medicare", "stage", "Stage", "dropdown", 30),
-    col("medicare", "caller", "Caller", "person", 40, true),
     col("medicare", "responsible", "Assignee", "person", 50),
-    col("medicare", "payment", "Payment status", "dropdown", 60, true),
     col("medicare", "carrier", "Carrier", "dropdown", 70),
-    col("medicare", "aca", "AC", "dropdown", 80, true),
-    col("medicare", "consent", "Consent", "checkbox", 90, true),
-    col("medicare", "platform", "Platform", "dropdown", 100, true),
     col("medicare", "pcp2025", "PCP", "text", 110),
-    col("medicare", "pcp2026", "PCP 2026", "text", 120, true),
     col("medicare", "due", "Due Date", "date", 130),
     col("medicare", "fub", "FUB Link", "link", 140),
     col("medicare", "createdBy", "Created by", "person", 150, true),
@@ -72,23 +69,118 @@ export async function fetchTableColumns(
   scope: TableScope,
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<TableColumn[]> {
+  const activeRows = await fetchActiveTableColumnRows(scope, supabase);
+  if (!activeRows.ok) {
+    if (isTableConfigMissingError(activeRows.error)) return defaultTableColumns(scope);
+    throw new Error(activeRows.error?.message ?? "Could not fetch table columns.");
+  }
+
+  if (hasDefaultColumns(scope, activeRows.rows)) {
+    return activeRows.rows.length > 0 ? sortColumns(activeRows.rows) : defaultTableColumns(scope);
+  }
+
+  const ensuredRows = await ensureTableColumns(scope, supabase);
+  return ensuredRows.length > 0 ? sortColumns(ensuredRows) : defaultTableColumns(scope);
+}
+
+export async function ensureTableColumns(
+  scope: TableScope,
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<TableColumn[]> {
+  const allRows = await fetchAllTableColumnRows(scope, supabase);
+  if (!allRows.ok) {
+    if (isTableConfigMissingError(allRows.error)) return defaultTableColumns(scope);
+    throw new Error(allRows.error?.message ?? "Could not fetch table columns.");
+  }
+
+  const existingByKey = new Map(allRows.rows.map((column) => [column.key, column]));
+  const defaults = defaultTableColumns(scope);
+  const inserts = defaults
+    .filter((column) => !existingByKey.has(column.key))
+    .map((column) => ({
+      scope: column.scope,
+      key: column.key,
+      label: column.label,
+      type: column.type,
+      is_system: column.is_system,
+      position: column.position,
+      pinned: column.pinned,
+      hidden_default: column.hidden_default,
+      required: column.required,
+      created_by_email: column.created_by_email ?? null,
+    }));
+  const archivedDefaultIds = defaults
+    .map((column) => existingByKey.get(column.key))
+    .filter((column): column is TableColumn => Boolean(column?.archived_at))
+    .map((column) => column.id);
+
+  if (inserts.length > 0) {
+    const { error } = await supabase
+      .from("table_column")
+      .upsert(inserts, { onConflict: "scope,key", ignoreDuplicates: true });
+    if (error) throw new Error(error.message ?? "Could not create default columns.");
+  }
+
+  if (archivedDefaultIds.length > 0) {
+    const { error } = await supabase
+      .from("table_column")
+      .update({ archived_at: null, updated_at: new Date().toISOString() })
+      .in("id", archivedDefaultIds);
+    if (error) throw new Error(error.message ?? "Could not restore default columns.");
+  }
+
+  const activeRows = await fetchActiveTableColumnRows(scope, supabase);
+  if (!activeRows.ok) {
+    if (isTableConfigMissingError(activeRows.error)) return defaultTableColumns(scope);
+    throw new Error(activeRows.error?.message ?? "Could not fetch table columns.");
+  }
+  return activeRows.rows;
+}
+
+async function fetchActiveTableColumnRows(
+  scope: TableScope,
+  supabase: SupabaseClient
+): Promise<
+  | { ok: true; rows: TableColumn[] }
+  | { ok: false; error: SupabaseErrorLike }
+> {
   const { data, error } = await supabase
     .from("table_column")
-    .select(
-      "id,scope,key,label,type,is_system,position,hidden_default,required,created_by_email,created_at,updated_at,archived_at"
-    )
+    .select(TABLE_COLUMN_SELECT)
     .eq("scope", scope)
     .is("archived_at", null)
     .order("position", { ascending: true })
     .order("label", { ascending: true });
 
   if (error) {
-    if (isTableConfigMissingError(error)) return defaultTableColumns(scope);
-    throw new Error(error.message ?? "Could not fetch table columns.");
+    return { ok: false, error };
   }
 
-  const rows = (data ?? []) as unknown as TableColumn[];
-  return rows.length > 0 ? sortColumns(rows) : defaultTableColumns(scope);
+  return { ok: true, rows: (data ?? []) as unknown as TableColumn[] };
+}
+
+async function fetchAllTableColumnRows(
+  scope: TableScope,
+  supabase: SupabaseClient
+): Promise<
+  | { ok: true; rows: TableColumn[] }
+  | { ok: false; error: SupabaseErrorLike }
+> {
+  const { data, error } = await supabase
+    .from("table_column")
+    .select(TABLE_COLUMN_SELECT)
+    .eq("scope", scope);
+
+  if (error) {
+    return { ok: false, error };
+  }
+
+  return { ok: true, rows: (data ?? []) as unknown as TableColumn[] };
+}
+
+function hasDefaultColumns(scope: TableScope, rows: TableColumn[]): boolean {
+  const existingKeys = new Set(rows.map((column) => column.key));
+  return defaultTableColumns(scope).every((column) => existingKeys.has(column.key));
 }
 
 export async function fetchAllTableColumns(
@@ -107,9 +199,7 @@ export async function fetchTableColumnById(
 ): Promise<TableColumn | null> {
   const { data, error } = await supabase
     .from("table_column")
-    .select(
-      "id,scope,key,label,type,is_system,position,hidden_default,required,created_by_email,created_at,updated_at,archived_at"
-    )
+    .select(TABLE_COLUMN_SELECT)
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
@@ -155,13 +245,53 @@ export async function fetchAllTableColumnOptions(
 }
 
 export function isTableConfigMissingError(error: SupabaseErrorLike): boolean {
+  // 42703 = Postgres undefined_column. A missing column (e.g. a migration that
+  // hasn't been applied yet) means the schema is out of date, not "not set up
+  // yet" — surface it as a real error instead of silently serving fake
+  // system-<scope>-<key> rows, which later crash with an invalid UUID error
+  // the moment a write (reorder/patch) tries to use one of those fake ids.
+  if (error?.code === "42703") return false;
+  const message = error?.message?.toLowerCase() ?? "";
+  // Word-boundary check: "table_column" contains the substring "column" too
+  // (joined by "_", itself a \w character), so a plain .includes("column")
+  // would also match genuine table-missing messages. \bcolumn\b only matches
+  // "column" as its own word, e.g. "column table_column.pinned does not exist".
+  if (/\bcolumn\b/.test(message)) return false;
+
+  return (
+    error?.code === "42P01" ||
+    error?.code === "PGRST205" ||
+    (message.includes("table_column") && message.includes("schema cache")) ||
+    (message.includes("table_column") && message.includes("does not exist"))
+  );
+}
+
+export function isTableLayoutMissingError(error: SupabaseErrorLike): boolean {
   const message = error?.message?.toLowerCase() ?? "";
   return (
     error?.code === "42P01" ||
     error?.code === "PGRST205" ||
-    message.includes("table_column") && message.includes("schema cache") ||
-    message.includes("table_column") && message.includes("does not exist")
+    (message.includes("user_table_layout") &&
+      (message.includes("schema cache") || message.includes("does not exist")))
   );
+}
+
+// A column's `hidden_default`/`pinned` is only a fallback for users who have
+// never customized that table — see resolveLayout() in ./layout.ts, which
+// prefers a saved per-user layout entry over hidden_default. Admin changes to
+// these two fields are meant to apply to everyone (same intent as reordering
+// columns), so wipe every user's saved layout for the scope whenever either
+// field changes — otherwise anyone who already touched that table keeps
+// seeing their stale choice and the admin's change looks like it did nothing.
+export async function resetTableLayoutsForScope(
+  scope: TableScope,
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await supabase.from("user_table_layout").delete().eq("scope", scope);
+  if (error && !isTableLayoutMissingError(error)) {
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 function col(
@@ -170,7 +300,8 @@ function col(
   label: string,
   type: TableColumn["type"],
   position: number,
-  hiddenDefault = false
+  hiddenDefault = false,
+  pinned = false
 ): TableColumn {
   return {
     id: `system-${scope}-${key}`,
@@ -180,6 +311,7 @@ function col(
     type,
     is_system: true,
     position,
+    pinned,
     hidden_default: hiddenDefault,
     required: false,
     archived_at: null,

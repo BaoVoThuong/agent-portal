@@ -2,7 +2,7 @@ export const ENROLLMENT_PROGRAMS = ["aca", "medicare"] as const;
 export type EnrollmentProgram = (typeof ENROLLMENT_PROGRAMS)[number];
 
 export const ENROLLMENT_PROGRAM_LABELS: Record<EnrollmentProgram, string> = {
-  aca: "Health ACA Enroll",
+  aca: "Health ACA Enrollment",
   medicare: "Health Medicare Enrollment",
 };
 

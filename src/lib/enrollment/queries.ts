@@ -17,7 +17,27 @@ const ENROLLMENT_RECORD_COLUMNS_LEGACY_WITHOUT_DESCRIPTION =
   "id,program,client_name,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at";
 
 type SupabaseLikeError = { code?: string; message?: string } | null | undefined;
-type LooseSupabaseClient = { from: (table: string) => any };
+type LooseSupabaseRowsResult = {
+  data: unknown[] | null;
+  error: SupabaseLikeError;
+};
+type LooseSupabaseRowResult = {
+  data: unknown | null;
+  error: SupabaseLikeError;
+};
+type LooseSupabaseQueryBuilder = {
+  select: (columns: string) => LooseSupabaseQueryBuilder;
+  eq: (column: string, value: unknown) => LooseSupabaseQueryBuilder;
+  is: (column: string, value: unknown) => LooseSupabaseQueryBuilder;
+  order: (
+    column: string,
+    options: { ascending: boolean }
+  ) => Promise<LooseSupabaseRowsResult>;
+  maybeSingle: () => Promise<LooseSupabaseRowResult>;
+};
+type LooseSupabaseClient = {
+  from: (table: string) => LooseSupabaseQueryBuilder;
+};
 
 export function isMissingEnrollmentDescriptionColumn(error: SupabaseLikeError) {
   const message = error?.message?.toLowerCase() ?? "";

@@ -2133,6 +2133,7 @@ create table if not exists table_column (
     check (type in ('text','number','dropdown','date','checkbox','link','person')),
   is_system boolean not null default false,
   position integer not null default 0,
+  pinned boolean not null default false,
   hidden_default boolean not null default false,
   required boolean not null default false,
   created_by_email text,
@@ -2157,6 +2158,9 @@ create index if not exists table_column_scope_position_idx
   on table_column (scope, archived_at, position, label);
 create index if not exists table_column_option_column_idx
   on table_column_option (column_id, archived_at, position, label);
+
+alter table table_column
+  add column if not exists pinned boolean not null default false;
 
 create table if not exists user_table_layout (
   id uuid primary key default gen_random_uuid(),
@@ -2536,15 +2540,9 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('medicare', 'key', 'Key', 'text', 10, false),
     ('medicare', 'client', 'Client Name', 'text', 20, false),
     ('medicare', 'stage', 'Stage', 'dropdown', 30, false),
-    ('medicare', 'caller', 'Caller', 'person', 40, true),
     ('medicare', 'responsible', 'Assignee', 'person', 50, false),
-    ('medicare', 'payment', 'Payment status', 'dropdown', 60, true),
     ('medicare', 'carrier', 'Carrier', 'dropdown', 70, false),
-    ('medicare', 'aca', 'AC', 'dropdown', 80, true),
-    ('medicare', 'consent', 'Consent', 'checkbox', 90, true),
-    ('medicare', 'platform', 'Platform', 'dropdown', 100, true),
     ('medicare', 'pcp2025', 'PCP', 'text', 110, false),
-    ('medicare', 'pcp2026', 'PCP 2026', 'text', 120, true),
     ('medicare', 'due', 'Due Date', 'date', 130, false),
     ('medicare', 'fub', 'FUB Link', 'link', 140, false),
     ('medicare', 'createdBy', 'Created by', 'person', 150, true),
@@ -2554,11 +2552,44 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('medicare', 'qc', 'QC', 'checkbox', 190, false)
 )
 insert into table_column (
-  scope, key, label, type, is_system, position, hidden_default, required
+  scope, key, label, type, is_system, position, pinned, hidden_default, required
 )
-select scope, key, label, type, true, position, hidden_default, false
+select
+  scope,
+  key,
+  label,
+  type,
+  true,
+  position,
+  case
+    when scope = 'cs' and key in ('key', 'summary') then true
+    when scope in ('aca', 'medicare') and key in ('key', 'client') then true
+    else false
+  end,
+  hidden_default,
+  false
 from system_column_seed
 on conflict (scope, key) do nothing;
+
+update table_column
+set pinned = true
+where
+  (scope = 'cs' and key in ('key', 'summary'))
+  or (scope in ('aca', 'medicare') and key in ('key', 'client'));
+
+-- Medicare has no Payment/Consent/Platform/AC/Caller concept (its option sets
+-- only cover stage/carrier — see enrollment_option_sets seed below) and its
+-- EnrollmentClient.tsx render path (MEDICARE_HIDDEN_COLUMNS) has always
+-- excluded these unconditionally. Seeding them as editable system columns for
+-- scope 'medicare' let an admin toggle Pinned/Hidden/label in Config Table
+-- with zero real effect, since the render-side exclusion always wins anyway
+-- — archive any that a previous run of this seed already created.
+update table_column
+set archived_at = now(), updated_at = now()
+where scope = 'medicare'
+  and key in ('caller', 'payment', 'aca', 'consent', 'platform', 'pcp2026')
+  and is_system = true
+  and archived_at is null;
 
 -- Defense-in-depth: enable RLS on every table. The app talks to Supabase only
 -- through the service-role key, which bypasses RLS, so behavior is unchanged.

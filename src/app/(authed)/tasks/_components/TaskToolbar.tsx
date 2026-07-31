@@ -452,7 +452,9 @@ function TaskListColumnSettingsButton({
   onToggleColumn: (key: TaskListColumnKey) => void;
 }) {
   const { isOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
-  const toggleableColumns = columns.filter((column) => !column.locked);
+  const toggleableColumns = columns.filter(
+    (column) => !column.locked && !column.pinned
+  );
   const hiddenCount = toggleableColumns.filter((column) =>
     hiddenColumnKeys.has(column.key)
   ).length;

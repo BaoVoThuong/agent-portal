@@ -14,6 +14,7 @@ const col = (
   type,
   is_system: false,
   position: 0,
+  pinned: false,
   hidden_default: false,
   required: false,
   archived_at: null,

@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { canEditColumnField } from "@/lib/table-config/columns";
-import { fetchTableColumnById } from "@/lib/table-config/queries";
+import {
+  ensureTableColumns,
+  fetchTableColumnById,
+  resetTableLayoutsForScope,
+} from "@/lib/table-config/queries";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
-import { isColumnType } from "@/lib/table-config/types";
+import { isColumnType, isTableScope } from "@/lib/table-config/types";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +22,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   const supabase = getSupabaseAdmin();
-  const column = await fetchTableColumnById(id, supabase);
+  const column = await fetchColumnForPatch(id, supabase);
   if (!column) return NextResponse.json({ error: "Column not found." }, { status: 404 });
 
   const body = await request.json().catch(() => null);
@@ -50,6 +54,12 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
     patch.hidden_default = Boolean(body.hidden_default);
   }
+  if ("pinned" in body) {
+    if (!canEditColumnField(column, "pinned")) {
+      return NextResponse.json({ error: "System column pinning cannot be edited." }, { status: 400 });
+    }
+    patch.pinned = Boolean(body.pinned);
+  }
   if ("type" in body) {
     if (!canEditColumnField(column, "type")) {
       return NextResponse.json({ error: "System column type cannot be edited." }, { status: 400 });
@@ -65,17 +75,31 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
     patch.required = Boolean(body.required);
   }
+  if (patch.pinned === true) {
+    patch.hidden_default = false;
+  }
 
   const { data, error } = await supabase
     .from("table_column")
     .update(patch)
-    .eq("id", id)
+    .eq("id", column.id)
     .select(
-      "id,scope,key,label,type,is_system,position,hidden_default,required,created_by_email,created_at,updated_at,archived_at"
+      "id,scope,key,label,type,is_system,position,pinned,hidden_default,required,created_by_email,created_at,updated_at,archived_at"
     )
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Column not found." }, { status: 404 });
+
+  // hidden_default/pinned are meant to apply to everyone, same as reordering
+  // — but resolveLayout() prefers a user's saved layout entry over
+  // hidden_default. Without this, anyone who already customized this table
+  // keeps their old visibility and the admin's change looks like a no-op.
+  if ("hidden_default" in patch || "pinned" in patch) {
+    const resetResult = await resetTableLayoutsForScope(column.scope, supabase);
+    if (!resetResult.ok) {
+      return NextResponse.json({ error: resetResult.error }, { status: 500 });
+    }
+  }
 
   await broadcastTableConfigChanged();
   return NextResponse.json({ column: data });
@@ -107,4 +131,20 @@ export async function DELETE(_request: Request, { params }: Ctx) {
 
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
+}
+
+async function fetchColumnForPatch(
+  id: string,
+  supabase: ReturnType<typeof getSupabaseAdmin>
+) {
+  const column = await fetchTableColumnById(id, supabase);
+  if (column || !id.startsWith("system-")) return column;
+
+  const idParts = id.split("-");
+  const scope = idParts[1];
+  const key = idParts.slice(2).join("-");
+  if (!isTableScope(scope) || !key) return null;
+
+  const columns = await ensureTableColumns(scope, supabase);
+  return columns.find((candidate) => candidate.key === key) ?? null;
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskSlaRule } from "@/lib/tasks/types";
@@ -14,7 +15,7 @@ import {
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TableColumnOption } from "@/lib/table-config/types";
-import { LIST_COL, TaskRowItem } from "./TaskRowItem";
+import { LIST_COL, TaskRowItem, listColumnWidthPx } from "./TaskRowItem";
 import type {
   TaskListColumn,
   TaskListColumnKey,
@@ -119,6 +120,7 @@ export function TaskListView({
   const visibleColumnKeys = new Set<TaskListColumnKey>(
     visibleColumns.map((column) => column.key)
   );
+  const pinnedOffsetByKey = buildPinnedOffsetByKey(visibleColumns);
 
   return (
     <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
@@ -137,13 +139,21 @@ export function TaskListView({
                       key={column.key}
                       label={column.label}
                       col={column.sortKey}
-                      widthClass={headerWidthClass(column)}
+                      widthClass={headerWidthClass(
+                        column,
+                        pinnedOffsetByKey.has(column.key)
+                      )}
+                      style={headerStyle(column, pinnedOffsetByKey)}
                       {...sp}
                     />
                   ) : (
                     <span
                       key={column.key}
-                      className={`${headerWidthClass(column)} items-center px-3 py-2`}
+                      style={headerStyle(column, pinnedOffsetByKey)}
+                      className={`${headerWidthClass(
+                        column,
+                        pinnedOffsetByKey.has(column.key)
+                      )} items-center px-3 py-2`}
                     >
                       {column.label}
                     </span>
@@ -197,10 +207,18 @@ export function TaskListView({
   );
 }
 
-function headerWidthClass(column: TaskListColumn): string {
+function headerWidthClass(column: TaskListColumn, pinned: boolean): string {
+  const stickyClass = pinned
+    ? "sticky z-[30] border-r border-[#dfe1e6] bg-[#fafbfc]"
+    : "";
+  const widthClass = headerBaseWidthClass(column);
+  return `${widthClass} ${stickyClass}`;
+}
+
+function headerBaseWidthClass(column: TaskListColumn): string {
   switch (column.key) {
     case "key":
-      return `sticky left-0 z-[30] flex ${LIST_COL.key} shrink-0 border-r border-[#dfe1e6] bg-[#fafbfc]`;
+      return `flex ${LIST_COL.key} shrink-0`;
     case "id":
       return `flex ${LIST_COL.id} shrink-0`;
     case "assignee":
@@ -212,7 +230,7 @@ function headerWidthClass(column: TaskListColumn): string {
     case "agent":
       return `flex ${LIST_COL.agent} shrink-0`;
     case "summary":
-      return `sticky left-[100px] z-[30] flex ${LIST_COL.summary} shrink-0 border-r border-[#dfe1e6] bg-[#fafbfc]`;
+      return `flex ${LIST_COL.summary} shrink-0`;
     case "description":
       return `flex ${LIST_COL.description} shrink-0`;
     case "category":
@@ -290,11 +308,33 @@ function headerWidthClass(column: TaskListColumn): string {
   }
 }
 
+function buildPinnedOffsetByKey(
+  columns: readonly TaskListColumn[]
+): Map<TaskListColumnKey, number> {
+  const offsets = new Map<TaskListColumnKey, number>();
+  let left = 0;
+  for (const column of columns) {
+    if (!column.pinned) continue;
+    offsets.set(column.key, left);
+    left += listColumnWidthPx(column.key);
+  }
+  return offsets;
+}
+
+function headerStyle(
+  column: TaskListColumn,
+  pinnedOffsetByKey: ReadonlyMap<TaskListColumnKey, number>
+): CSSProperties | undefined {
+  const left = pinnedOffsetByKey.get(column.key);
+  return left === undefined ? undefined : { left };
+}
+
 // A clickable column header that sorts by `col` and shows the active direction.
 function SortTh({
   label,
   col,
   widthClass,
+  style,
   sortKey,
   sortDir,
   onSort,
@@ -302,6 +342,7 @@ function SortTh({
   label: string;
   col: SortKey;
   widthClass: string;
+  style?: CSSProperties;
   sortKey: SortKey | null;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
@@ -311,6 +352,7 @@ function SortTh({
     <button
       type="button"
       onClick={() => onSort(col)}
+      style={style}
       className={`items-center gap-1 whitespace-nowrap px-3 py-2 uppercase transition ${widthClass} ${
         active ? "text-[#0c66e4]" : "hover:text-[#172b4d]"
       }`}

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTaskAgentCandidates, fetchTaskAgents } from "@/lib/tasks/assignees";
@@ -9,6 +10,10 @@ import {
 import { ConfigClient } from "./_components/ConfigClient";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Health Table Configuration",
+};
 
 export default async function ConfigPage() {
   const admin = await loadConfigAdmin();
