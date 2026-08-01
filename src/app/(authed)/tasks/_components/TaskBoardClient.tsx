@@ -7,7 +7,7 @@ import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
-import { ChevronDown, Clock, Download, FileUp, Plus, Tag, UsersRound } from "lucide-react";
+import { ChevronDown, Clock, Download, FileUp, Loader2, Plus, Tag, UsersRound } from "lucide-react";
 import type {
   TaskCategory,
   TaskPriority,
@@ -750,12 +750,33 @@ export function TaskBoardClient({
     [visibleTasks]
   );
   const exportColumnKeys = useMemo(
-    () => visibleTaskListColumnConfig.map((column) => column.key).join(","),
+    () => visibleTaskListColumnConfig.map((column) => column.key),
     [visibleTaskListColumnConfig]
   );
-  const exportHref = `/api/tasks/export?columns=${encodeURIComponent(
-    exportColumnKeys
-  )}&ids=${encodeURIComponent(exportTaskIds.join(","))}`;
+  // POST the visible ids in the body instead of a GET href: a few hundred task
+  // ids in the query string overflow the server's max header/URL size and fail
+  // with HTTP 431 ("Request Header Fields Too Large").
+  const [exporting, setExporting] = useState(false);
+  const exportVisibleTasks = useCallback(async () => {
+    setExporting(true);
+    try {
+      const response = await fetch("/api/tasks/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ columns: exportColumnKeys, ids: exportTaskIds }),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        window.alert(data?.error ?? "Could not export tasks.");
+        return;
+      }
+      await downloadResponseFile(response, "health-tasks.xlsx");
+    } catch {
+      window.alert("Could not export tasks.");
+    } finally {
+      setExporting(false);
+    }
+  }, [exportColumnKeys, exportTaskIds]);
 
   const openTask = tasks.find((t) => t.id === openId) ?? null;
 
@@ -1179,6 +1200,12 @@ export function TaskBoardClient({
 
   return (
     <div className={shellClassName}>
+      {exporting ? (
+        <div className="notif-toast fixed bottom-4 right-4 z-[200] flex items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-4 py-3 text-sm font-bold text-[#172b4d] shadow-xl">
+          <Loader2 className="h-4 w-4 animate-spin text-[#0c66e4]" />
+          Đang xuất Excel…
+        </div>
+      ) : null}
       <div className="min-w-0 shrink-0 px-6 pb-5 pt-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -1236,7 +1263,7 @@ export function TaskBoardClient({
               )}
               {canExportImport ? (
                 <ImportExportMenu
-                  exportHref={exportHref}
+                  onExport={exportVisibleTasks}
                   onImport={() => setImporting(true)}
                 />
               ) : null}
@@ -1476,11 +1503,25 @@ export function TaskBoardClient({
   );
 }
 
+async function downloadResponseFile(response: Response, fallback: string) {
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  const disposition = response.headers.get("content-disposition");
+  const match = disposition ? /filename="?([^"]+)"?/.exec(disposition) : null;
+  link.download = match?.[1] ?? fallback;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function ImportExportMenu({
-  exportHref,
+  onExport,
   onImport,
 }: {
-  exportHref: string;
+  onExport: () => void;
   onImport: () => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
@@ -1523,15 +1564,18 @@ function ImportExportMenu({
                 <FileUp className="h-4 w-4 text-[#0c66e4]" />
                 Import table data
               </button>
-              <a
-                href={exportHref}
+              <button
+                type="button"
                 role="menuitem"
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  setIsOpen(false);
+                  onExport();
+                }}
                 className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm font-semibold text-[#172b4d] transition hover:bg-[#f4f5f7]"
               >
                 <Download className="h-4 w-4 text-[#0c66e4]" />
                 Export visible data
-              </a>
+              </button>
             </div>,
             document.body
           )

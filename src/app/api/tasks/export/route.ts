@@ -17,7 +17,35 @@ import { formatCustomValue } from "@/lib/table-config/values";
 
 export const dynamic = "force-dynamic";
 
+// GET is kept for tiny/no-id selections and backward compat. The board UI now
+// POSTs the visible ids in the body: with a few hundred tasks the id list blows
+// past the server's max URL/header size on GET and fails with HTTP 431.
 export async function GET(request: Request) {
+  const url = new URL(request.url);
+  return exportTasksResponse({
+    requestedKeys: parseColumnKeys(url.searchParams.get("columns")),
+    requestedIds: parseColumnKeys(url.searchParams.get("ids")),
+  });
+}
+
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as {
+    columns?: unknown;
+    ids?: unknown;
+  };
+  return exportTasksResponse({
+    requestedKeys: parseColumnKeyInput(body.columns),
+    requestedIds: parseColumnKeyInput(body.ids),
+  });
+}
+
+async function exportTasksResponse({
+  requestedKeys,
+  requestedIds,
+}: {
+  requestedKeys: ReadonlySet<string>;
+  requestedIds: ReadonlySet<string>;
+}) {
   const actorResult = await loadEnrollmentActor();
   if (!actorResult.ok) {
     return NextResponse.json(
@@ -29,9 +57,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const url = new URL(request.url);
-  const requestedKeys = parseColumnKeys(url.searchParams.get("columns"));
-  const requestedIds = parseColumnKeys(url.searchParams.get("ids"));
   const supabase = getSupabaseAdmin();
   const [tasks, columns, customOptions, categories, assignees, agents] =
     await Promise.all([
@@ -163,6 +188,17 @@ function parseColumnKeys(value: string | null): Set<string> {
       .map((key) => key.trim())
       .filter(Boolean)
   );
+}
+
+function parseColumnKeyInput(value: unknown): Set<string> {
+  if (Array.isArray(value)) {
+    return new Set(
+      value
+        .map((key) => (typeof key === "string" ? key.trim() : ""))
+        .filter(Boolean)
+    );
+  }
+  return parseColumnKeys(typeof value === "string" ? value : null);
 }
 
 function orderByRequestedIds(
