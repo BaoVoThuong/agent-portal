@@ -60,6 +60,12 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
     patch.pinned = Boolean(body.pinned);
   }
+  if ("show_in_detail" in body) {
+    if (!canEditColumnField(column, "show_in_detail")) {
+      return NextResponse.json({ error: "System column detail visibility cannot be edited." }, { status: 400 });
+    }
+    patch.show_in_detail = Boolean(body.show_in_detail);
+  }
   if ("type" in body) {
     if (!canEditColumnField(column, "type")) {
       return NextResponse.json({ error: "System column type cannot be edited." }, { status: 400 });
@@ -84,7 +90,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .update(patch)
     .eq("id", column.id)
     .select(
-      "id,scope,key,label,type,is_system,position,pinned,hidden_default,required,created_by_email,created_at,updated_at,archived_at"
+      "id,scope,key,label,type,is_system,position,pinned,hidden_default,show_in_detail,required,created_by_email,created_at,updated_at,archived_at"
     )
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

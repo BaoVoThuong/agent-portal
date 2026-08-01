@@ -1,4 +1,4 @@
-import type { TableColumn } from "./types";
+import type { ColumnType, TableColumn } from "./types";
 import { coerceCustomValue, type CustomValueContext } from "./values";
 
 export type ImportClassifiedRow = {
@@ -14,12 +14,16 @@ export type ImportSummary = {
   errorCount: number;
 };
 
+export type ImportValueContext = CustomValueContext & {
+  typeOverride?: ColumnType;
+};
+
 export function classifyImportRows(
   rows: Record<string, unknown>[],
   columns: TableColumn[],
   matchColumnKey: string,
   existingByMatchValue: Map<string, string>,
-  ctxByColumnKey: Record<string, CustomValueContext> = {}
+  ctxByColumnKey: Record<string, ImportValueContext> = {}
 ): { rows: ImportClassifiedRow[]; summary: ImportSummary } {
   const columnByKey = new Map(columns.map((column) => [column.key, column]));
   const matchColumn = columnByKey.get(matchColumnKey);
@@ -30,7 +34,12 @@ export function classifyImportRows(
     for (const [key, raw] of Object.entries(row)) {
       const column = columnByKey.get(key);
       if (!column) continue;
-      const coerced = coerceCustomValue(column.type, raw, ctxByColumnKey[key]);
+      const ctx = ctxByColumnKey[key];
+      const coerced = coerceCustomValue(
+        ctx?.typeOverride ?? column.type,
+        raw,
+        ctx
+      );
       if (coerced.ok) {
         values[key] = coerced.value;
       } else {

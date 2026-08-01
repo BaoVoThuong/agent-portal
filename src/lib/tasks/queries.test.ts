@@ -1,5 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { isMissingTaskListMetadataRpc } from "./queries";
+
+afterEach(() => {
+  vi.doUnmock("@/lib/supabase");
+  vi.doUnmock("./assignees");
+  vi.doUnmock("./membership");
+  vi.doUnmock("./participants");
+  vi.resetModules();
+});
 
 describe("isMissingTaskListMetadataRpc", () => {
   it("treats PostgREST 'function not found' (PGRST202) as missing", () => {
@@ -31,3 +39,95 @@ describe("isMissingTaskListMetadataRpc", () => {
     expect(isMissingTaskListMetadataRpc(null)).toBe(false);
   });
 });
+
+describe("fetchTasksForActor view scope", () => {
+  it("does not scope plain-CS workers", async () => {
+    const { fetchTasksForActor, orCalls } = await loadFetchTasksForActor({
+      selectedAgentEmails: [],
+      assistantAgents: [],
+    });
+
+    await fetchTasksForActor({
+      email: "cs@example.com",
+      isManager: false,
+      isWorker: true,
+    });
+
+    expect(orCalls).toEqual([]);
+  });
+
+  it("keeps agent workers scoped", async () => {
+    const { fetchTasksForActor, orCalls } = await loadFetchTasksForActor({
+      selectedAgentEmails: ["agent@example.com"],
+      assistantAgents: [],
+    });
+
+    await fetchTasksForActor({
+      email: "agent@example.com",
+      isManager: false,
+      isWorker: true,
+    });
+
+    expect(orCalls.length).toBeGreaterThan(0);
+  });
+
+  it("keeps assistant workers scoped", async () => {
+    const { fetchTasksForActor, orCalls } = await loadFetchTasksForActor({
+      selectedAgentEmails: [],
+      assistantAgents: ["agent@example.com"],
+    });
+
+    await fetchTasksForActor({
+      email: "assistant@example.com",
+      isManager: false,
+      isWorker: true,
+    });
+
+    expect(orCalls.length).toBeGreaterThan(0);
+  });
+});
+
+async function loadFetchTasksForActor({
+  selectedAgentEmails,
+  assistantAgents,
+}: {
+  selectedAgentEmails: string[];
+  assistantAgents: string[];
+}) {
+  vi.resetModules();
+  const orCalls: string[] = [];
+  const builder = {
+    select: vi.fn(() => builder),
+    is: vi.fn(() => builder),
+    order: vi.fn(() => builder),
+    or: vi.fn((value: string) => {
+      orCalls.push(value);
+      return builder;
+    }),
+    eq: vi.fn(() => builder),
+    then: (resolve: (value: { data: unknown[]; error: null }) => void) =>
+      resolve({ data: [], error: null }),
+  };
+  const supabase = {
+    from: vi.fn(() => builder),
+  };
+
+  vi.doMock("@/lib/supabase", () => ({
+    getSupabaseAdmin: () => supabase,
+  }));
+  vi.doMock("./assignees", () => ({
+    attachAssigneesToTasks: vi.fn(async (tasks: unknown[]) => tasks),
+    fetchAssignedTaskIdsForEmail: vi.fn(async () => []),
+    fetchSelectedAgentEmails: vi.fn(async () => new Set(selectedAgentEmails)),
+  }));
+  vi.doMock("./membership", () => ({
+    fetchAgentsForCs: vi.fn(async () => assistantAgents),
+    fetchAssistantAgentsForCs: vi.fn(async () => assistantAgents),
+  }));
+  vi.doMock("./participants", () => ({
+    fetchParticipantTaskIds: vi.fn(async () => []),
+  }));
+
+  const queriesModule = await import("./queries");
+  return { fetchTasksForActor: queriesModule.fetchTasksForActor, orCalls };
+}

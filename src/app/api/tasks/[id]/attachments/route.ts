@@ -6,6 +6,7 @@ import { fetchTaskAssigneeEmails, isTaskAssignee } from "@/lib/tasks/assignees";
 import { buildStoragePath, uploadTaskFile, signTaskFile } from "@/lib/tasks/storage";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
+  actorSeesAllTasks,
   fetchAgentOwnerAndAssistantEmails,
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
@@ -18,8 +19,8 @@ import {
 import type { TaskRow } from "@/lib/tasks/types";
 import {
   attachmentTooLargeMessage,
-  inferAttachmentMimeType,
   TASK_ATTACHMENT_MAX_BYTES,
+  validateAttachmentFile,
 } from "@/lib/tasks/attachments";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,8 @@ async function canViewResolved(
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
+  // Plain-CS can view/attach on the shared queue; standalone task edits stay gated.
+  if (await actorSeesAllTasks(actor)) return true;
   const [isParticipant, isAssignee, agents, isAgentOwner] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
     isTaskAssignee(taskId, actor.email),
@@ -150,10 +153,15 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
+  const fileData = await file.arrayBuffer();
+  const validation = validateAttachmentFile(file.name, fileData);
+  if (!validation.ok) {
+    return NextResponse.json({ error: validation.error }, { status: 400 });
+  }
+
   const path = buildStoragePath(id, file.name);
-  const contentType = inferAttachmentMimeType(file.name, file.type);
   try {
-    await uploadTaskFile(path, await file.arrayBuffer(), contentType);
+    await uploadTaskFile(path, fileData, validation.contentType);
   } catch (error) {
     return NextResponse.json(
       {
@@ -173,7 +181,7 @@ export async function POST(req: Request, { params }: Ctx) {
       comment_id: commentId,
       storage_path: path,
       file_name: file.name,
-      mime_type: contentType,
+      mime_type: validation.contentType,
       size_bytes: file.size,
       uploaded_by: r.actor.email,
     })

@@ -47,6 +47,10 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
   },
   {
+    href: "/config",
+    permission: PERMISSIONS.TASK_MANAGE,
+  },
+  {
     href: "/account-manager",
     permission: PERMISSIONS.ACCOUNT_MANAGER,
   },

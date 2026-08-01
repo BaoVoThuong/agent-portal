@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { canApproveImport } from "@/lib/table-config/import";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
+import { isTaskAssigneesMissingError } from "@/lib/tasks/assignees";
 import type { TableScope } from "@/lib/table-config/types";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +32,8 @@ type ImportStagingRow = {
   values: Record<string, unknown>;
   error_text: string | null;
 };
+
+const REJECTABLE_IMPORT_STATUSES = new Set(["pending", "processing", "failed"]);
 
 export async function GET(_request: Request, { params }: Ctx) {
   const { id } = await params;
@@ -63,19 +67,56 @@ export async function POST(_request: Request, { params }: Ctx) {
     );
   }
 
-  for (const row of data.rows) {
-    await applyImportRow(data.request.scope, row);
+  const nowIso = new Date().toISOString();
+  const supabase = getSupabaseAdmin();
+  const { data: claimed, error: claimError } = await supabase
+    .from("import_request")
+    .update({
+      status: "processing",
+      reviewed_by_email: admin.actor.email,
+      reviewed_at: nowIso,
+    })
+    .eq("id", id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+  if (claimError) return NextResponse.json({ error: claimError.message }, { status: 500 });
+  if (!claimed) {
+    return NextResponse.json(
+      { error: "Import request was already reviewed or is processing." },
+      { status: 409 }
+    );
   }
 
-  const nowIso = new Date().toISOString();
-  const { error } = await getSupabaseAdmin()
+  try {
+    for (const row of data.rows) {
+      await applyImportRow(data.request.scope, row);
+    }
+  } catch (applyError) {
+    const message =
+      applyError instanceof Error ? applyError.message : "Could not apply import.";
+    await supabase
+      .from("import_request")
+      .update({
+        status: "failed",
+        reject_reason: message,
+        reviewed_by_email: admin.actor.email,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("status", "processing");
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+
+  const { error } = await supabase
     .from("import_request")
     .update({
       status: "approved",
       reviewed_by_email: admin.actor.email,
-      reviewed_at: nowIso,
+      reviewed_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", "processing");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await broadcastTableConfigChanged();
@@ -94,9 +135,19 @@ export async function DELETE(request: Request, { params }: Ctx) {
 
   const data = await loadImportRequest(id);
   if (!data) return NextResponse.json({ error: "Import request not found." }, { status: 404 });
-  const approval = canApproveImport(data.request, admin.actor.email);
-  if (!approval.ok && data.request.status !== "pending") {
-    return NextResponse.json({ error: approval.error }, { status: 400 });
+  if (!REJECTABLE_IMPORT_STATUSES.has(data.request.status)) {
+    return NextResponse.json(
+      { error: "Import request cannot be rejected in its current state." },
+      { status: 400 }
+    );
+  }
+  if (
+    data.request.status === "pending" &&
+    data.request.submitted_by_email.trim().toLowerCase() !==
+    admin.actor.email.trim().toLowerCase()
+  ) {
+    const approval = canApproveImport(data.request, admin.actor.email);
+    if (!approval.ok) return NextResponse.json({ error: approval.error }, { status: 400 });
   }
 
   const nowIso = new Date().toISOString();
@@ -108,7 +159,8 @@ export async function DELETE(request: Request, { params }: Ctx) {
       reviewed_at: nowIso,
       reject_reason: rejectReason || null,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .in("status", [...REJECTABLE_IMPORT_STATUSES]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
@@ -154,32 +206,74 @@ async function applyTaskImportRow(row: ImportStagingRow): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { systemPatch, customPatch } = splitTaskValues(row.values);
   if (row.action === "add") {
-    const { error } = await supabase.from("tasks").insert({
-      title: systemPatch.title ?? "Imported task",
-      description: systemPatch.description ?? null,
-      fub_link: systemPatch.fub_link ?? null,
-      status: systemPatch.status ?? "backlog",
-      priority: systemPatch.priority ?? "medium",
-      category_id: systemPatch.category_id ?? null,
-      agent_email: systemPatch.agent_email ?? null,
-      reporter_email: systemPatch.reporter_email ?? "import",
-      custom_values: customPatch,
-    });
+    const assigneeEmail =
+      typeof systemPatch.assignee_email === "string" &&
+      systemPatch.assignee_email.trim() !== ""
+        ? systemPatch.assignee_email.trim()
+        : null;
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        title: systemPatch.title ?? "Imported task",
+        description: systemPatch.description ?? null,
+        fub_link: systemPatch.fub_link ?? null,
+        status: systemPatch.status ?? (assigneeEmail ? "todo" : "backlog"),
+        priority: systemPatch.priority ?? "medium",
+        category_id: systemPatch.category_id ?? null,
+        agent_email: systemPatch.agent_email ?? null,
+        assignee_email: assigneeEmail,
+        reporter_email: systemPatch.reporter_email ?? "import",
+        custom_values: customPatch,
+      })
+      .select("id")
+      .single();
     if (error) throw new Error(error.message);
+    await syncImportedTaskAssignee(supabase, (data as { id: string }).id, assigneeEmail);
     return;
   }
 
   if (!row.target_record_id) throw new Error("Update row is missing target_record_id.");
   const currentCustomValues = await fetchCurrentCustomValues("tasks", row.target_record_id);
+  const { assignee_email: ignoredAssigneeEmail, ...updatePatch } = systemPatch;
+  void ignoredAssigneeEmail;
   const { error } = await supabase
     .from("tasks")
     .update({
-      ...systemPatch,
+      ...updatePatch,
       custom_values: { ...currentCustomValues, ...customPatch },
       updated_at: new Date().toISOString(),
     })
     .eq("id", row.target_record_id);
   if (error) throw new Error(error.message);
+}
+
+async function syncImportedTaskAssignee(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  taskId: string,
+  rawAssigneeEmail: unknown
+): Promise<void> {
+  const assigneeEmail =
+    typeof rawAssigneeEmail === "string" && rawAssigneeEmail.trim() !== ""
+      ? rawAssigneeEmail.trim()
+      : null;
+  const { error: deleteError } = await supabase
+    .from("task_assignees")
+    .delete()
+    .eq("task_id", taskId);
+  if (deleteError) {
+    if (isTaskAssigneesMissingError(deleteError)) return;
+    throw new Error(deleteError.message);
+  }
+  if (!assigneeEmail) return;
+
+  const { error: insertError } = await supabase.from("task_assignees").insert({
+    task_id: taskId,
+    email: assigneeEmail,
+    created_at: new Date().toISOString(),
+  });
+  if (insertError && !isTaskAssigneesMissingError(insertError)) {
+    throw new Error(insertError.message);
+  }
 }
 
 async function applyEnrollmentImportRow(
@@ -189,7 +283,7 @@ async function applyEnrollmentImportRow(
   const supabase = getSupabaseAdmin();
   const { systemPatch, customPatch } = splitEnrollmentValues(row.values);
   if (row.action === "add") {
-    const { error } = await supabase.from("enrollment_records").insert({
+    const insertPatch = sanitizeEnrollmentPatchForProgram(scope, {
       program: scope,
       client_name: systemPatch.client_name ?? "Imported enrollment",
       description: systemPatch.description ?? null,
@@ -208,6 +302,7 @@ async function applyEnrollmentImportRow(
       created_by_email: "import",
       custom_values: customPatch,
     });
+    const { error } = await supabase.from("enrollment_records").insert(insertPatch);
     if (error) throw new Error(error.message);
     return;
   }
@@ -220,7 +315,7 @@ async function applyEnrollmentImportRow(
   const { error } = await supabase
     .from("enrollment_records")
     .update({
-      ...systemPatch,
+      ...sanitizeEnrollmentPatchForProgram(scope, systemPatch),
       custom_values: { ...currentCustomValues, ...customPatch },
       updated_at: new Date().toISOString(),
     })
@@ -269,6 +364,9 @@ function splitTaskValues(values: Record<string, unknown>): {
         break;
       case "category":
         systemPatch.category_id = value;
+        break;
+      case "assignee":
+        systemPatch.assignee_email = value;
         break;
       case "agent":
         systemPatch.agent_email = value;

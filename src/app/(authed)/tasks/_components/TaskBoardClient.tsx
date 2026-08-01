@@ -709,6 +709,14 @@ export function TaskBoardClient({
     () => visibleTaskListColumns(hiddenTaskListColumnKeys, taskListColumnConfig),
     [hiddenTaskListColumnKeys, taskListColumnConfig]
   );
+  const taskDetailColumns = useMemo(
+    () =>
+      taskLayoutColumns.filter(
+        (column) =>
+          column.show_in_detail && !column.is_system && !column.archived_at
+      ),
+    [taskLayoutColumns]
+  );
 
   const visibleTasks = useMemo(
     () =>
@@ -1206,26 +1214,26 @@ export function TaskBoardClient({
           Đang xuất Excel…
         </div>
       ) : null}
-      <div className="min-w-0 shrink-0 px-6 pb-5 pt-7">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p
-              className="text-xs font-bold uppercase tracking-[0.16em] text-[#0c66e4]"
+              className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#0c66e4]"
             >
               {pageEyebrow}
             </p>
-            <h1 className="mt-1 text-3xl font-bold tracking-normal text-[#172b4d]">
+            <h1 className="mt-1 text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
               {pageTitle}
             </h1>
           </div>
 
           {!overviewHeader ? (
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {isManager && (
                 <button
                   type="button"
                   onClick={() => setManagingAgentGroups(true)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                 >
                   <UsersRound className="h-4 w-4" />
                   Agent Groups
@@ -1236,7 +1244,7 @@ export function TaskBoardClient({
                   <button
                     type="button"
                     onClick={() => setManagingCategories(true)}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                   >
                     <Tag className="h-4 w-4" />
                     Categories
@@ -1244,7 +1252,7 @@ export function TaskBoardClient({
                   <button
                     type="button"
                     onClick={() => setManagingSlaRules(true)}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                   >
                     <Clock className="h-4 w-4" />
                     SLA Times
@@ -1255,7 +1263,7 @@ export function TaskBoardClient({
                 <button
                   type="button"
                   onClick={() => setCreating(true)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
                 >
                   <Plus className="h-4 w-4" />
                   New task
@@ -1419,6 +1427,8 @@ export function TaskBoardClient({
           agents={taskAgents}
           mentionMembers={mentionMembers}
           categories={categories}
+          detailColumns={taskDetailColumns}
+          tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           canReviewDone={
             (openTask.status === "done" || openTask.status === "cancel") &&
@@ -1535,7 +1545,7 @@ function ImportExportMenu({
         onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        className={`inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] ${
+        className={`inline-flex h-9 items-center gap-2 rounded-lg border bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] ${
           isOpen ? "border-[#0c66e4] text-[#0c66e4]" : "border-[#d8dee8]"
         }`}
       >
@@ -1634,6 +1644,12 @@ function buildOptimisticTaskPatch(
   before?: TaskRow | null
 ): Record<string, unknown> {
   const optimistic = { ...patch };
+  if (before && isPlainObject(optimistic.custom_values)) {
+    optimistic.custom_values = {
+      ...(isPlainObject(before.custom_values) ? before.custom_values : {}),
+      ...optimistic.custom_values,
+    };
+  }
 
   // Mirror transitions.ts so the card doesn't flicker before the server
   // responds: bank the leaving stage's seconds into its accumulator for
@@ -1686,6 +1702,10 @@ function buildOptimisticTaskPatch(
   }
 
   return optimistic;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 const TASK_DATE_RANGE_DEFAULT_STORAGE_KEY = "eps.tasks.dateRangeDefault.v1";

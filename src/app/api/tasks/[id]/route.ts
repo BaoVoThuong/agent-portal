@@ -28,6 +28,7 @@ import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
   attachAssigneesToTasks,
   fetchTaskAssigneeEmails,
+  isEligibleTaskAssigneeEmail,
   isTaskAssigneesMissingError,
   isTaskAssignee,
 } from "@/lib/tasks/assignees";
@@ -279,6 +280,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
     nowIso,
   });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+  if (
+    reassigning &&
+    typeof resolved.patch.assignee_email === "string" &&
+    !(await isEligibleTaskAssigneeEmail(resolved.patch.assignee_email))
+  ) {
+    return NextResponse.json(
+      { error: `Assignee is not eligible: ${resolved.patch.assignee_email}` },
+      { status: 400 }
+    );
+  }
 
   if (isRecord(bodyRecord.custom_values)) {
     resolved.patch.custom_values = {

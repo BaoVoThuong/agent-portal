@@ -42,20 +42,6 @@ export default async function EnrollmentPage({
     isAdmin: isTaskViewAdmin(session.user),
   });
 
-  if (recordId) {
-    const linkedRecord = await fetchEnrollmentRecordById(recordId);
-    if (linkedRecord && linkedRecord.program !== program) {
-      const nextParams = new URLSearchParams();
-      for (const [key, value] of Object.entries(params)) {
-        if (typeof value === "string") nextParams.set(key, value);
-        else if (Array.isArray(value) && value[0]) nextParams.set(key, value[0]);
-      }
-      nextParams.set("program", linkedRecord.program);
-      nextParams.set("record", linkedRecord.id);
-      redirect(`/enrollment?${nextParams.toString()}`);
-    }
-  }
-
   const [
     records,
     people,
@@ -71,6 +57,22 @@ export default async function EnrollmentPage({
     fetchTableColumnOptions(program),
     canActorExportImport(actor),
   ]);
+
+  if (recordId) {
+    const linkedRecord =
+      records.find((record) => record.id === recordId) ??
+      (await fetchEnrollmentRecordById(recordId));
+    if (linkedRecord && linkedRecord.program !== program) {
+      const nextParams = new URLSearchParams();
+      for (const [key, value] of Object.entries(params)) {
+        if (typeof value === "string") nextParams.set(key, value);
+        else if (Array.isArray(value) && value[0]) nextParams.set(key, value[0]);
+      }
+      nextParams.set("program", linkedRecord.program);
+      nextParams.set("record", linkedRecord.id);
+      redirect(`/enrollment?${nextParams.toString()}`);
+    }
+  }
 
   return (
     <EnrollmentClient

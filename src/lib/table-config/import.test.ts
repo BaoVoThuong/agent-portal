@@ -16,6 +16,7 @@ const col = (
   position: 0,
   pinned: false,
   hidden_default: false,
+  show_in_detail: false,
   required: false,
   archived_at: null,
 });
@@ -42,6 +43,31 @@ describe("classifyImportRows", () => {
       "add",
       "error",
     ]);
+  });
+
+  it("uses import context type overrides", () => {
+    const result = classifyImportRows(
+      [{ client: "A", consent: "Yes" }],
+      [
+        col("client"),
+        { ...col("consent", "checkbox", "Consent"), is_system: true },
+      ],
+      "client",
+      new Map(),
+      {
+        consent: {
+          typeOverride: "dropdown",
+          optionIds: new Set(["consent-yes"]),
+          optionIdByLabel: new Map([["yes", "consent-yes"]]),
+        },
+      }
+    );
+
+    expect(result.rows[0]).toMatchObject({
+      action: "add",
+      values: { client: "A", consent: "consent-yes" },
+      errors: [],
+    });
   });
 });
 

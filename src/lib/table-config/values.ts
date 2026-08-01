@@ -6,6 +6,7 @@ export type CustomValueContext = {
   optionIdByLabel?: ReadonlyMap<string, string>;
   personEmails?: ReadonlySet<string>;
   personLabelByEmail?: ReadonlyMap<string, string>;
+  personEmailByLabel?: ReadonlyMap<string, string>;
 };
 
 export type CoerceResult =
@@ -66,7 +67,8 @@ export function coerceCustomValue(
       return { ok: true, value: optionId };
     }
     case "person": {
-      const email = String(raw).trim().toLowerCase();
+      const text = String(raw).trim();
+      const email = ctx.personEmailByLabel?.get(text.toLowerCase()) ?? text.toLowerCase();
       if (ctx.personEmails && !ctx.personEmails.has(email)) {
         return { ok: false, error: "Select a valid person." };
       }

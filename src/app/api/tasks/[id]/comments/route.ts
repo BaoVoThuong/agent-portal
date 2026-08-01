@@ -14,7 +14,7 @@ import {
   fetchTaskParticipantEmails,
   isTaskParticipant,
 } from "@/lib/tasks/participants";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { touchLastActivity } from "@/lib/tasks/last-activity";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
@@ -57,6 +57,8 @@ async function canViewResolved(
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
+  // Plain-CS see (and can comment on) the whole company queue; task edits stay gated.
+  if (await actorSeesAllTasks(actor)) return true;
   const [isParticipant, isAssignee, agents] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
     isTaskAssignee(taskId, actor.email),

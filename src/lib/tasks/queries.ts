@@ -1,5 +1,9 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { attachAssigneesToTasks, fetchAssignedTaskIdsForEmail } from "./assignees";
+import {
+  attachAssigneesToTasks,
+  fetchAssignedTaskIdsForEmail,
+  fetchSelectedAgentEmails,
+} from "./assignees";
 import { canViewTask } from "./access";
 import { fetchAgentsForCs, fetchAssistantAgentsForCs } from "./membership";
 import { fetchParticipantTaskIds } from "./participants";
@@ -20,8 +24,6 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
     .order("created_at", { ascending: true })
     .order("id", { ascending: true });
 
-  // Manager sees everything; worker sees their own assigned tasks plus any task
-  // they participate in (e.g. were @mentioned on).
   let workerScope:
     | {
       agents: string[];
@@ -30,23 +32,34 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
       participantIds: string[];
     }
     | null = null;
+  // Manager and plain-CS see the shared company queue. Agent/assistant users
+  // keep the narrower agent-scope view.
+  let seeAll = actor.isManager;
   if (!actor.isManager) {
-    const [agents, assistantAgents, assignedIds, participantIds] = await Promise.all([
-      fetchAgentsForCs(actor.email),
+    const [selectedAgentEmails, assistantAgents] = await Promise.all([
+      fetchSelectedAgentEmails(),
       fetchAssistantAgentsForCs(actor.email),
-      fetchAssignedTaskIdsForEmail(actor.email, supabase),
-      fetchParticipantTaskIds(actor.email),
     ]);
-    workerScope = { agents, assistantAgents, assignedIds, participantIds };
-    const ors: string[] = [`assignee_email.eq."${actor.email}"`];
-    ors.push(`agent_email.eq."${actor.email}"`);
-    if (agents.length > 0) ors.push(`agent_email.in.(${agents.map((a) => `"${a}"`).join(",")})`);
-    if (assignedIds.length > 0) ors.push(`id.in.(${assignedIds.join(",")})`);
-    if (participantIds.length > 0) ors.push(`id.in.(${participantIds.join(",")})`);
-    query =
-      ors.length > 0
-        ? query.or(ors.join(","))
-        : query.eq("id", "00000000-0000-0000-0000-000000000000");
+    const isAgent = selectedAgentEmails.has(actor.email);
+    const isAssistant = assistantAgents.length > 0;
+    seeAll = !isAgent && !isAssistant;
+    if (!seeAll) {
+      const [agents, assignedIds, participantIds] = await Promise.all([
+        fetchAgentsForCs(actor.email),
+        fetchAssignedTaskIdsForEmail(actor.email, supabase),
+        fetchParticipantTaskIds(actor.email),
+      ]);
+      workerScope = { agents, assistantAgents, assignedIds, participantIds };
+      const ors: string[] = [`assignee_email.eq."${actor.email}"`];
+      ors.push(`agent_email.eq."${actor.email}"`);
+      if (agents.length > 0) ors.push(`agent_email.in.(${agents.map((a) => `"${a}"`).join(",")})`);
+      if (assignedIds.length > 0) ors.push(`id.in.(${assignedIds.join(",")})`);
+      if (participantIds.length > 0) ors.push(`id.in.(${participantIds.join(",")})`);
+      query =
+        ors.length > 0
+          ? query.or(ors.join(","))
+          : query.eq("id", "00000000-0000-0000-0000-000000000000");
+    }
   }
 
   const result = await query;
@@ -60,7 +73,7 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
       .order("position", { ascending: true })
       .order("created_at", { ascending: true })
       .order("id", { ascending: true });
-    if (!actor.isManager) {
+    if (!seeAll) {
       const scopedOrs = buildWorkerTaskOrs(actor.email, workerScope);
       fallback =
         scopedOrs.length > 0

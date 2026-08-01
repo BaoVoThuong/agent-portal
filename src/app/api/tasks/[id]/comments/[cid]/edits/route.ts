@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -41,7 +41,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const taskScope = task as Pick<TaskRow, "assignee_email" | "agent_email">;
 
-  if (!actor.isManager) {
+  if (!actor.isManager && !(await actorSeesAllTasks(actor))) {
     const [isParticipant, isAssignee, agents] = await Promise.all([
       isTaskParticipant(id, actor.email),
       isTaskAssignee(id, actor.email),

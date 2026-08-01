@@ -16,12 +16,14 @@ export async function GET(_request: Request, { params }: Ctx) {
     );
   }
   const { id } = await params;
-  const { data } = await getSupabaseAdmin()
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
     .from("enrollment_records")
     .select("id")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const activity = await fetchEnrollmentActivity(id);

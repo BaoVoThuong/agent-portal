@@ -166,6 +166,7 @@ export async function fetchEnrollmentRecordById(
   }
   if (queryError) throw new Error(queryError.message ?? "Could not fetch record.");
   if (!row) return null;
+  const record = coerceEnrollmentRecord(row);
 
   const [commentsRes, attachmentsRes] = await Promise.all([
     supabase
@@ -182,7 +183,7 @@ export async function fetchEnrollmentRecordById(
   if (attachmentsRes.error) throw new Error(attachmentsRes.error.message);
 
   return {
-    ...coerceEnrollmentRecord(row),
+    ...record,
     comment_count: commentsRes.count ?? 0,
     attachment_count: attachmentsRes.count ?? 0,
   };

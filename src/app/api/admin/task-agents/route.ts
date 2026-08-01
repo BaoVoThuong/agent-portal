@@ -1,22 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { canAny } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
 
 export const dynamic = "force-dynamic";
 
-const AGENT_GROUP_PERMISSIONS = [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.TASK_MANAGE];
-
-function canManageAgentGroups(permissions: readonly string[] | undefined): boolean {
-  return canAny(permissions, AGENT_GROUP_PERMISSIONS);
-}
-
 export async function GET() {
-  const session = await auth();
-  if (!canManageAgentGroups(session?.user?.permissions)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const admin = await loadTaskAgentAdmin();
+  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const sb = getSupabaseAdmin();
   const { data: selected, error: selectedErr } = await sb
@@ -38,10 +29,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!canManageAgentGroups(session?.user?.permissions)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const admin = await loadTaskAgentAdmin();
+  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const body = await req.json().catch(() => null);
   const email = typeof body?.email === "string" ? body.email.trim() : "";
@@ -67,10 +56,8 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const session = await auth();
-  if (!canManageAgentGroups(session?.user?.permissions)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const admin = await loadTaskAgentAdmin();
+  if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const body = await req.json().catch(() => null);
   const email = typeof body?.email === "string" ? body.email.trim() : "";
@@ -87,6 +74,20 @@ export async function DELETE(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
+}
+
+async function loadTaskAgentAdmin(): Promise<
+  | { ok: true }
+  | { ok: false; error: "Unauthorized" | "Forbidden"; status: 401 | 403 }
+> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return { ok: false, error: "Unauthorized", status: 401 };
+  const actor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
+  if (!actor.isManager) return { ok: false, error: "Forbidden", status: 403 };
+  return { ok: true };
 }
 
 function sortPeople(

@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
-import { fetchAgentsForCs } from "@/lib/tasks/membership";
+import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { removeTaskFile } from "@/lib/tasks/storage";
 import type { TaskRow } from "@/lib/tasks/types";
@@ -18,6 +18,7 @@ async function canViewResolved(
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
+  if (await actorSeesAllTasks(actor)) return true;
   const [isParticipant, isAssignee, agents] = await Promise.all([
     isTaskParticipant(taskId, actor.email),
     isTaskAssignee(taskId, actor.email),

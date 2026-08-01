@@ -2170,6 +2170,7 @@ create table if not exists table_column (
   position integer not null default 0,
   pinned boolean not null default false,
   hidden_default boolean not null default false,
+  show_in_detail boolean not null default false,
   required boolean not null default false,
   created_by_email text,
   created_at timestamptz not null default now(),
@@ -2196,6 +2197,8 @@ create index if not exists table_column_option_column_idx
 
 alter table table_column
   add column if not exists pinned boolean not null default false;
+alter table table_column
+  add column if not exists show_in_detail boolean not null default false;
 
 create table if not exists user_table_layout (
   id uuid primary key default gen_random_uuid(),
@@ -2211,7 +2214,7 @@ create table if not exists import_request (
   scope text not null check (scope in ('cs','aca','medicare')),
   submitted_by_email text not null,
   status text not null default 'pending'
-    check (status in ('pending','approved','rejected')),
+    check (status in ('pending','processing','approved','rejected','failed')),
   match_column_key text not null,
   column_mapping jsonb not null default '{}'::jsonb,
   summary jsonb not null default '{}'::jsonb,
@@ -2237,6 +2240,11 @@ create index if not exists import_request_pending_idx
   on import_request (scope, status);
 create index if not exists import_request_row_req_idx
   on import_request_row (request_id);
+alter table import_request
+  drop constraint if exists import_request_status_check;
+alter table import_request
+  add constraint import_request_status_check
+  check (status in ('pending','processing','approved','rejected','failed'));
 
 create table if not exists enrollment_records (
   id uuid primary key default gen_random_uuid(),
@@ -2294,6 +2302,37 @@ alter table enrollment_records
 alter table enrollment_records
   add constraint enrollment_records_program_check
   check (program in ('aca', 'medicare'));
+update enrollment_records
+  set
+    caller_email = null,
+    pcp_2026 = null,
+    platform_id = null,
+    consent_id = null,
+    payment_status_id = null,
+    aca_status_id = null
+  where program = 'medicare'
+    and (
+      caller_email is not null or
+      pcp_2026 is not null or
+      platform_id is not null or
+      consent_id is not null or
+      payment_status_id is not null or
+      aca_status_id is not null
+    );
+alter table enrollment_records
+  drop constraint if exists enrollment_records_medicare_fields_check;
+alter table enrollment_records
+  add constraint enrollment_records_medicare_fields_check
+  check (
+    program <> 'medicare' or (
+      caller_email is null and
+      pcp_2026 is null and
+      platform_id is null and
+      consent_id is null and
+      payment_status_id is null and
+      aca_status_id is null
+    )
+  );
 create index if not exists enrollment_records_program_updated_idx
   on enrollment_records (program, archived_at, updated_at desc);
 

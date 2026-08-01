@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadEnrollmentActor } from "@/lib/enrollment/access";
+import {
+  canMutateEnrollmentRecord,
+  loadEnrollmentActor,
+} from "@/lib/enrollment/access";
 import {
   buildEnrollmentStoragePath,
   signTaskFile,
@@ -8,8 +11,8 @@ import {
 } from "@/lib/enrollment/storage";
 import {
   attachmentTooLargeMessage,
-  inferAttachmentMimeType,
   TASK_ATTACHMENT_MAX_BYTES,
+  validateAttachmentFile,
 } from "@/lib/tasks/attachments";
 import {
   insertEnrollmentNotifications,
@@ -100,12 +103,19 @@ export async function POST(request: Request, { params }: Ctx) {
     ) {
       return NextResponse.json({ error: "Invalid comment." }, { status: 400 });
     }
+  } else if (!canMutateEnrollmentRecord(context.actor, context.record)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const contentType = inferAttachmentMimeType(file.name, file.type);
+  const dataBuffer = await file.arrayBuffer();
+  const validation = validateAttachmentFile(file.name, dataBuffer);
+  if (!validation.ok) {
+    return NextResponse.json({ error: validation.error }, { status: 400 });
+  }
+
   const storagePath = buildEnrollmentStoragePath(id, file.name);
   try {
-    await uploadTaskFile(storagePath, await file.arrayBuffer(), contentType);
+    await uploadTaskFile(storagePath, dataBuffer, validation.contentType);
   } catch (error) {
     return NextResponse.json(
       {
@@ -123,7 +133,7 @@ export async function POST(request: Request, { params }: Ctx) {
       comment_id: commentId,
       storage_path: storagePath,
       file_name: file.name,
-      mime_type: contentType,
+      mime_type: validation.contentType,
       size_bytes: file.size,
       uploaded_by: context.actor.email,
     })

@@ -16,6 +16,7 @@ const col = (
   position,
   pinned: false,
   hidden_default: false,
+  show_in_detail: false,
   required: false,
   archived_at: null,
   ...over,

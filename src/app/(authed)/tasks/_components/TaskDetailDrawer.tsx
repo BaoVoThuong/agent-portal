@@ -19,6 +19,8 @@ import { TaskSelect } from "./TaskSelect";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
 import { AvatarStack } from "./board-ui";
 import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
+import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
+import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
@@ -40,6 +42,8 @@ export function TaskDetailDrawer({
   agents,
   mentionMembers,
   categories,
+  detailColumns,
+  tableColumnOptions,
   currentEmail,
   canReviewDone,
   canViewNonCommentDetail,
@@ -61,6 +65,8 @@ export function TaskDetailDrawer({
   agents: TaskAgent[];
   mentionMembers: TaskAssignee[];
   categories: TaskCategory[];
+  detailColumns: TableColumn[];
+  tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   canReviewDone: boolean;
   canViewNonCommentDetail: boolean;
@@ -139,6 +145,15 @@ export function TaskDetailDrawer({
   }
   if (!personLabelByEmail.has(currentEmail)) {
     personLabelByEmail.set(currentEmail, formatEmailAsName(currentEmail));
+  }
+  const optionLabelById = new Map(
+    tableColumnOptions.map((option) => [option.id, option.label])
+  );
+  const optionsByColumnId = new Map<string, TableColumnOption[]>();
+  for (const option of tableColumnOptions) {
+    const current = optionsByColumnId.get(option.column_id) ?? [];
+    current.push(option);
+    optionsByColumnId.set(option.column_id, current);
   }
   const fubHref = formatExternalLink(fubLink);
   const overdueLog =
@@ -373,6 +388,35 @@ export function TaskDetailDrawer({
                     </div>
                   )}
                 </div>
+
+                {detailColumns.length > 0 ? (
+                  <div className="space-y-2 border-t border-[#dfe1e6] pt-3">
+                    <span className={LABEL_CLASS}>Custom fields</span>
+                    <div className="space-y-2">
+                      {detailColumns.map((column) => (
+                        <div key={column.id} className="space-y-1.5">
+                          <span className="block truncate text-xs font-semibold text-[#44546f]">
+                            {column.label}
+                          </span>
+                          <EditableCustomCell
+                            column={column}
+                            value={task.custom_values?.[column.key]}
+                            options={optionsByColumnId.get(column.id) ?? []}
+                            people={assignees}
+                            optionLabelById={optionLabelById}
+                            personLabelByEmail={personLabelByEmail}
+                            canEdit={canEdit}
+                            onSave={(next) =>
+                              onPatch({ custom_values: { [column.key]: next } })
+                            }
+                            className={column.type === "checkbox" ? "" : "w-full"}
+                            inputClassName="h-9 w-full rounded-lg border border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>QC Review</span>

@@ -11,7 +11,7 @@ import {
 import type { EnrollmentOption, EnrollmentProgram } from "./types";
 
 const OVERVIEW_RECORD_COLUMNS =
-  "id,program,client_name,stage_id,responsible_enroll_email,due_date,qc_checked_at,closed_at,created_at,updated_at,archived_at";
+  "id,program,client_name,stage_id,caller_email,responsible_enroll_email,created_by_email,due_date,qc_checked_at,closed_at,created_at,updated_at,archived_at";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();

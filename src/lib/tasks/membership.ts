@@ -1,4 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { fetchSelectedAgentEmails } from "./assignees";
+import type { TaskActor } from "./types";
 
 export async function fetchAgentsForCs(email: string): Promise<string[]> {
   const { data, error } = await getSupabaseAdmin()
@@ -116,4 +118,17 @@ export async function fetchAdminEmails(): Promise<string[]> {
   return [
     ...new Set((data ?? []).map((row) => (row as { email: string }).email)),
   ];
+}
+
+// A "see-all" task viewer: managers plus plain-CS (the company-wide queue).
+// Agents (in task_agents) and Assistants stay scoped to their agent's tasks.
+// Mirrors the plain-CS branch of fetchTasksForActor — keep the two in sync.
+export async function actorSeesAllTasks(actor: TaskActor): Promise<boolean> {
+  if (actor.isManager) return true;
+  if (!actor.isWorker) return false;
+  const [selectedAgentEmails, assistantAgents] = await Promise.all([
+    fetchSelectedAgentEmails(),
+    fetchAssistantAgentsForCs(actor.email),
+  ]);
+  return !selectedAgentEmails.has(actor.email) && assistantAgents.length === 0;
 }

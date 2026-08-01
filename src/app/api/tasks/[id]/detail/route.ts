@@ -3,7 +3,11 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
 import { loadTaskDetail } from "@/lib/tasks/detail";
-import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import {
+  actorSeesAllTasks,
+  fetchAgentsForCs,
+  isAgentOwnerOrAssistant,
+} from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskRow } from "@/lib/tasks/types";
@@ -47,18 +51,22 @@ export async function GET(_req: Request, { params }: Ctx) {
     // The response is gated on canViewTask; activity is owner/assistant-only, so
     // it's stripped for non-owners after the fact. Behaviour is identical to the
     // old sequential version — just parallelized.
-    const [isAgentOwner, isParticipant, isAssignee, agents, detail] =
+    const [isAgentOwner, isParticipant, isAssignee, agents, detail, seeAll] =
       await Promise.all([
         isAgentOwnerOrAssistant(taskScope.agent_email, actor.email),
         isTaskParticipant(id, actor.email),
         isTaskAssignee(id, actor.email, supabase),
         fetchAgentsForCs(actor.email),
         loadTaskDetail(supabase, id, detailOpts),
+        actorSeesAllTasks(actor),
       ]);
     const isAgentMember = Boolean(
       taskScope.agent_email && agents.includes(taskScope.agent_email)
     );
+    // Plain-CS (company-wide queue) can read any task; owner/assignee/participant
+    // gating still applies to everyone else. Activity stays owner-only below.
     if (
+      !seeAll &&
       !canViewTask(actor, taskScope, {
         isParticipant,
         isAgentMember,

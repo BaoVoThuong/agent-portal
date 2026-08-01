@@ -8,12 +8,44 @@ import type { TaskActor } from "@/lib/tasks/types";
 
 export type EnrollmentActor = TaskActor;
 
+export type EnrollmentRecordAccessFields = {
+  id?: string | null;
+  caller_email?: string | null;
+  responsible_enroll_email?: string | null;
+  created_by_email?: string | null;
+};
+
 export function canAccessEnrollment(actor: EnrollmentActor): boolean {
   return canAccessBoard(actor);
 }
 
 export function canManageEnrollmentOptions(actor: EnrollmentActor): boolean {
   return actor.isManager;
+}
+
+export function canMutateEnrollmentRecord(
+  actor: EnrollmentActor,
+  record: EnrollmentRecordAccessFields
+): boolean {
+  if (actor.isManager) return true;
+  if (!actor.isWorker) return false;
+  return isDirectEnrollmentStakeholder(actor.email, record);
+}
+
+function isDirectEnrollmentStakeholder(
+  email: string,
+  record: EnrollmentRecordAccessFields
+): boolean {
+  const normalized = normalizeEmail(email);
+  return [
+    record.caller_email,
+    record.responsible_enroll_email,
+    record.created_by_email,
+  ].some((value) => normalizeEmail(value) === normalized);
+}
+
+function normalizeEmail(email: string | null | undefined): string {
+  return email?.trim().toLowerCase() ?? "";
 }
 
 export async function loadEnrollmentActor():

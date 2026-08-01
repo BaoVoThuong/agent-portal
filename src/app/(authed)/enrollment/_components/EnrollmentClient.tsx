@@ -72,12 +72,12 @@ import {
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName, personLabel } from "@/lib/tasks/people";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
-import { formatCustomValue } from "@/lib/table-config/values";
 import {
   resolveLayout,
   serializeLayout,
   type LayoutEntry,
 } from "@/lib/table-config/layout";
+import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
 import { AttachmentPanel } from "../../tasks/_components/AttachmentPanel";
@@ -368,6 +368,32 @@ function colWidth(columns: EnrollmentColumn[], key: EnrollmentColumn["key"]): nu
   return columns.find((column) => column.key === key)?.width ?? 120;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function canEditEnrollmentRecordClient(
+  record: Pick<
+    EnrollmentRecordWithStats,
+    "caller_email" | "responsible_enroll_email" | "created_by_email"
+  >,
+  currentEmail: string,
+  isManager: boolean
+): boolean {
+  if (isManager) return true;
+  const normalized = normalizeEnrollmentEmail(currentEmail);
+  if (!normalized) return false;
+  return [
+    record.caller_email,
+    record.responsible_enroll_email,
+    record.created_by_email,
+  ].some((email) => normalizeEnrollmentEmail(email) === normalized);
+}
+
+function normalizeEnrollmentEmail(email: string | null | undefined): string {
+  return email?.trim().toLowerCase() ?? "";
+}
+
 export function EnrollmentClient({
   program,
   initialRecords,
@@ -394,7 +420,11 @@ export function EnrollmentClient({
   const [records, setRecords] = useState(initialRecords);
   const [options, setOptions] = useState(initialOptions);
   const [view, setView] = useState<"list" | "overview">("list");
-  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [filters, setFilters] = useState<Filters>(() =>
+    canManageOptions
+      ? DEFAULT_FILTERS
+      : { ...DEFAULT_FILTERS, responsible: [currentEmail] }
+  );
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
     key: "attention",
     dir: "desc",
@@ -422,6 +452,14 @@ export function EnrollmentClient({
         (column) => column.locked || column.sticky || !hiddenColumnKeys.has(column.key)
       ),
     [columns, hiddenColumnKeys]
+  );
+  const detailCustomColumns = useMemo(
+    () =>
+      layoutTableColumns.filter(
+        (column) =>
+          column.show_in_detail && !column.is_system && !column.archived_at
+      ),
+    [layoutTableColumns]
   );
 
   useEffect(() => {
@@ -667,8 +705,21 @@ export function EnrollmentClient({
     const before = records.find((record) => record.id === id);
     if (!before) return;
     pendingRef.current.add(id);
+    const optimisticPatch = isPlainRecord(patch.custom_values)
+      ? {
+          ...patch,
+          custom_values: {
+            ...(isPlainRecord(before.custom_values) ? before.custom_values : {}),
+            ...patch.custom_values,
+          },
+        }
+      : patch;
     setRecords((current) =>
-      current.map((record) => (record.id === id ? ({ ...record, ...patch } as EnrollmentRecordWithStats) : record))
+      current.map((record) =>
+        record.id === id
+          ? ({ ...record, ...optimisticPatch } as EnrollmentRecordWithStats)
+          : record
+      )
     );
 
     try {
@@ -743,23 +794,20 @@ export function EnrollmentClient({
 
   return (
     <div className={shellClassName}>
-      <div className="min-w-0 shrink-0 px-6 pb-5 pt-7">
-        <div className="mx-auto flex max-w-[1760px] flex-col gap-4">
-          <header className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+        <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
+          <header className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0c66e4]">
-                Health Enrollment
-              </p>
-              <h1 className="mt-1 text-3xl font-bold tracking-normal text-[#172b4d]">
+              <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
                 {ENROLLMENT_PROGRAM_LABELS[program]}
               </h1>
             </div>
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {canManageOptions ? (
                 <button
                   type="button"
                   onClick={() => setManagingOptions(true)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                 >
                   <Settings2 className="h-4 w-4" />
                   Option sets
@@ -774,7 +822,7 @@ export function EnrollmentClient({
               <button
                 type="button"
                 onClick={() => setCreating(true)}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
               >
                 <Plus className="h-4 w-4" />
                 New enrollment
@@ -822,6 +870,8 @@ export function EnrollmentClient({
               optionsById={optionsById}
               optionsBySet={optionsBySet}
               tableColumnOptions={tableColumnOptions}
+              currentEmail={currentEmail}
+              isManager={canManageOptions}
               sort={sort}
               onSort={(key) =>
                 setSort((current) =>
@@ -850,7 +900,10 @@ export function EnrollmentClient({
           mentionMembers={mentionMembers}
           optionsById={optionsById}
           optionsBySet={optionsBySet}
+          detailColumns={detailCustomColumns}
+          tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
+          isManager={canManageOptions}
           onClose={closeRecord}
           onPatch={(patch) => patchRecord(openRecord.id, patch)}
           onArchive={() => archiveRecord(openRecord.id)}
@@ -911,7 +964,7 @@ function EnrollmentImportExportMenu({
         onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        className={`inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] ${
+        className={`inline-flex h-9 items-center gap-2 rounded-lg border bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] ${
           isOpen ? "border-[#0c66e4] text-[#0c66e4]" : "border-[#d8dee8]"
         }`}
       >
@@ -1048,7 +1101,7 @@ function EnrollmentToolbar({
                 onChange={(event) =>
                   setFilters((current) => ({ ...current, query: event.target.value }))
                 }
-                placeholder="Search task name and comments..."
+                placeholder="Search client, FUB, and comments..."
                 className="h-10 w-full rounded border-2 border-transparent bg-[#f4f5f7] pl-10 pr-9 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#44546f] hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white"
               />
             </div>
@@ -1305,6 +1358,8 @@ function EnrollmentTable({
   optionsById,
   optionsBySet,
   tableColumnOptions,
+  currentEmail,
+  isManager,
   sort,
   onSort,
   onOpen,
@@ -1316,6 +1371,8 @@ function EnrollmentTable({
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
   tableColumnOptions: TableColumnOption[];
+  currentEmail: string;
+  isManager: boolean;
   sort: { key: SortKey; dir: SortDir };
   onSort: (key: SortKey) => void;
   onOpen: (id: string) => void;
@@ -1380,6 +1437,8 @@ function EnrollmentTable({
                   optionsById={optionsById}
                   optionsBySet={optionsBySet}
                   tableColumnOptions={tableColumnOptions}
+                  currentEmail={currentEmail}
+                  isManager={isManager}
                   onOpen={onOpen}
                   onPatch={onPatch}
                 />
@@ -1399,6 +1458,8 @@ function EnrollmentRowItem({
   optionsById,
   optionsBySet,
   tableColumnOptions,
+  currentEmail,
+  isManager,
   onOpen,
   onPatch,
 }: {
@@ -1408,6 +1469,8 @@ function EnrollmentRowItem({
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
   tableColumnOptions: TableColumnOption[];
+  currentEmail: string;
+  isManager: boolean;
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
 }) {
@@ -1418,8 +1481,8 @@ function EnrollmentRowItem({
   const customColumns = columns.filter(
     (column) => column.configColumn && !column.configColumn.is_system
   );
-  const customOptionById = new Map(
-    tableColumnOptions.map((option) => [option.id, option])
+  const customOptionLabelById = new Map(
+    tableColumnOptions.map((option) => [option.id, option.label])
   );
   const customOptionsByColumnId = new Map<string, TableColumnOption[]>();
   for (const option of tableColumnOptions) {
@@ -1427,6 +1490,15 @@ function EnrollmentRowItem({
     list.push(option);
     customOptionsByColumnId.set(option.column_id, list);
   }
+  const customPeople = [...peopleByEmail.entries()].map(([email, name]) => ({
+    email,
+    name,
+  }));
+  const canEditRecord = canEditEnrollmentRecordClient(
+    record,
+    currentEmail,
+    isManager
+  );
 
   const columnByKey = new Map(columns.map((column) => [column.key, column]));
   const columnOrderByKey = new Map(
@@ -1746,16 +1818,32 @@ function EnrollmentRowItem({
         const configColumn = column.configColumn;
         if (!configColumn) return null;
         return (
-          <EnrollmentCustomValueCell
+          <div
             key={column.key}
-            column={configColumn}
             style={cellStyleFor(column.key)}
-            cellClassName={cellClassName(column.key, "")}
-            value={record.custom_values?.[configColumn.key]}
-            peopleByEmail={peopleByEmail}
-            optionById={customOptionById}
-            options={customOptionsByColumnId.get(configColumn.id) ?? []}
-          />
+            className={cellClassName(
+              column.key,
+              `flex min-w-0 shrink-0 items-center px-3 py-2.5 ${
+                configColumn.type === "checkbox" ? "justify-center" : ""
+              }`
+            )}
+          >
+            <EditableCustomCell
+              column={configColumn}
+              value={record.custom_values?.[configColumn.key]}
+              options={customOptionsByColumnId.get(configColumn.id) ?? []}
+              people={customPeople}
+              optionLabelById={customOptionLabelById}
+              personLabelByEmail={peopleByEmail}
+              canEdit={canEditRecord}
+              onSave={(next) =>
+                void onPatch(record.id, {
+                  custom_values: { [configColumn.key]: next },
+                })
+              }
+              className={configColumn.type === "checkbox" ? "" : "w-full"}
+            />
+          </div>
         );
       })}
 
@@ -1776,139 +1864,6 @@ function EnrollmentRowItem({
       ) : null}
     </div>
   );
-}
-
-function EnrollmentCustomValueCell({
-  column,
-  style,
-  cellClassName = "",
-  value,
-  peopleByEmail,
-  optionById,
-  options,
-}: {
-  column: TableColumn;
-  style: CSSProperties;
-  cellClassName?: string;
-  value: unknown;
-  peopleByEmail: Map<string, string>;
-  optionById: ReadonlyMap<string, TableColumnOption>;
-  options: readonly TableColumnOption[];
-}) {
-  const empty = value === null || value === undefined || value === "";
-
-  if (column.type === "checkbox") {
-    return (
-      <div
-        style={style}
-        className={`flex shrink-0 items-center justify-center px-2 py-2.5 ${cellClassName}`}
-        title={formatCustomValue(column.type, value)}
-      >
-        {value ? (
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#00875a] text-white">
-            <Check className="h-3.5 w-3.5" />
-          </span>
-        ) : (
-          <span className="text-xs font-semibold text-[#97a0af]">-</span>
-        )}
-      </div>
-    );
-  }
-
-  if (column.type === "link") {
-    return (
-      <div
-        style={style}
-        className={`flex shrink-0 items-center justify-center px-2 py-2.5 ${cellClassName}`}
-      >
-        {empty ? (
-          <span className="text-xs font-semibold text-[#97a0af]">-</span>
-        ) : (
-          <a
-            href={formatExternalLink(String(value))}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(event) => event.stopPropagation()}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[#b3d4ff] bg-[#deebff] text-[#0055cc]"
-            title={String(value)}
-            aria-label={`Open ${column.label}`}
-          >
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        )}
-      </div>
-    );
-  }
-
-  if (column.type === "person") {
-    const email = empty ? "" : String(value).toLowerCase();
-    const label = email ? peopleByEmail.get(email) ?? formatEmailAsName(email) : "-";
-    return (
-      <div
-        style={style}
-        className={`flex min-w-0 shrink-0 items-center px-3 py-2.5 ${cellClassName}`}
-        title={email || "No person"}
-      >
-        {email ? (
-          <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-[#42526e]">
-            <Initials email={email} label={label} />
-            <span className="min-w-0 truncate">{label}</span>
-          </span>
-        ) : (
-          <span className="text-xs font-semibold text-[#97a0af]">-</span>
-        )}
-      </div>
-    );
-  }
-
-  if (column.type === "dropdown") {
-    const option = empty ? null : optionById.get(String(value)) ?? null;
-    const pillStyle = customOptionPillStyle(option);
-    return (
-      <div
-        style={style}
-        className={`flex min-w-0 shrink-0 items-center px-3 py-2.5 ${cellClassName}`}
-        title={option?.label ?? (empty ? "No value" : String(value))}
-      >
-        {option ? (
-          <span
-            className="inline-flex max-w-full items-center rounded px-2 py-1 text-xs font-medium"
-            style={{ backgroundColor: pillStyle.bg, color: pillStyle.fg }}
-          >
-            <span className="min-w-0 truncate">{option.label}</span>
-          </span>
-        ) : options.length === 0 && empty ? (
-          <span className="text-xs font-semibold text-[#97a0af]">-</span>
-        ) : (
-          <span className="min-w-0 truncate text-xs font-medium text-[#42526e]">
-            {empty ? "-" : String(value)}
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  const label = formatCustomValue(column.type, value);
-  return (
-    <div
-      style={style}
-      className={`flex min-w-0 shrink-0 items-center px-3 py-2.5 text-xs font-medium text-[#42526e] ${cellClassName}`}
-      title={label || "No value"}
-    >
-      <span className="min-w-0 truncate">{label || "-"}</span>
-    </div>
-  );
-}
-
-function customOptionPillStyle(option: TableColumnOption | null): {
-  bg: string;
-  fg: string;
-} {
-  if (!option?.color) return { bg: "#f4f5f7", fg: "#5e6c84" };
-  return {
-    bg: hexToRgba(option.color, 0.08) ?? "#dfe1e6",
-    fg: option.color,
-  };
 }
 
 // Consent is a two-state field (Yes / Not Yet) so a click-to-toggle checkbox
@@ -2320,7 +2275,10 @@ function EnrollmentDrawer({
   mentionMembers,
   optionsById,
   optionsBySet,
+  detailColumns,
+  tableColumnOptions,
   currentEmail,
+  isManager,
   onClose,
   onPatch,
   onArchive,
@@ -2330,7 +2288,10 @@ function EnrollmentDrawer({
   mentionMembers: TaskAssignee[];
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
+  detailColumns: TableColumn[];
+  tableColumnOptions: TableColumnOption[];
   currentEmail: string;
+  isManager: boolean;
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
   onArchive: () => Promise<void>;
@@ -2341,6 +2302,24 @@ function EnrollmentDrawer({
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
   const reopenTarget = getReopenStage(stage, optionsBySet.stage);
   const fubHref = record.fub_link ? formatExternalLink(record.fub_link) : null;
+  const optionLabelById = new Map(
+    tableColumnOptions.map((option) => [option.id, option.label])
+  );
+  const optionsByColumnId = new Map<string, TableColumnOption[]>();
+  for (const option of tableColumnOptions) {
+    const current = optionsByColumnId.get(option.column_id) ?? [];
+    current.push(option);
+    optionsByColumnId.set(option.column_id, current);
+  }
+  const customPeople = [...peopleByEmail.entries()].map(([email, name]) => ({
+    email,
+    name,
+  }));
+  const canEditRecord = canEditEnrollmentRecordClient(
+    record,
+    currentEmail,
+    isManager
+  );
   // Medicare's real data has no Payment/Consent/Platform/AC concepts and a
   // single Assignee + PCP field — see enrollmentColumnsForProgram() for the
   // list-view equivalent of this same trim.
@@ -2488,7 +2467,7 @@ function EnrollmentDrawer({
                     attachments={detail.attachments}
                     taskId={record.id}
                     apiBase="/api/enrollment"
-                    canEdit
+                    canEdit={canEditRecord}
                     onReload={reload}
                   />
                 )}
@@ -2614,6 +2593,29 @@ function EnrollmentDrawer({
                 </FieldBlock>
               ) : null}
             </SidebarSection>
+
+            {detailColumns.length > 0 ? (
+              <SidebarSection title="Custom fields">
+                {detailColumns.map((column) => (
+                  <FieldBlock key={column.id} label={column.label}>
+                    <EditableCustomCell
+                      column={column}
+                      value={record.custom_values?.[column.key]}
+                      options={optionsByColumnId.get(column.id) ?? []}
+                      people={customPeople}
+                      optionLabelById={optionLabelById}
+                      personLabelByEmail={peopleByEmail}
+                      canEdit={canEditRecord}
+                      onSave={(next) =>
+                        onPatch({ custom_values: { [column.key]: next } })
+                      }
+                      className={column.type === "checkbox" ? "" : "w-full"}
+                      inputClassName="h-9 w-full rounded-lg border border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]"
+                    />
+                  </FieldBlock>
+                ))}
+              </SidebarSection>
+            ) : null}
 
             <div className="space-y-3">
               <FieldBlock label="QC Review">

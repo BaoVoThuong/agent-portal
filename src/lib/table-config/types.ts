@@ -22,6 +22,7 @@ export type TableColumn = {
   position: number;
   pinned: boolean;
   hidden_default: boolean;
+  show_in_detail: boolean;
   required: boolean;
   created_by_email?: string | null;
   created_at?: string;

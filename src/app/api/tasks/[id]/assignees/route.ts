@@ -5,6 +5,7 @@ import { buildTaskActor, isTaskViewAdmin, canAssignToTask } from "@/lib/tasks/ac
 import {
   attachAssigneesToTasks,
   fetchTaskAssigneeEmails,
+  isEligibleTaskAssigneeEmail,
   isTaskAssigneesMissingError,
 } from "@/lib/tasks/assignees";
 import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
@@ -61,9 +62,15 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!email) {
     return NextResponse.json({ error: "email is required." }, { status: 400 });
   }
+  if (!(await isEligibleTaskAssigneeEmail(email))) {
+    return NextResponse.json(
+      { error: `Assignee is not eligible: ${email}` },
+      { status: 400 }
+    );
+  }
 
   // Anyone with assign rights on this task (manager or the agent owner/assistant)
-  // can now assign it to ANY account — no longer restricted to the agent's team.
+  // can assign it to any active account with task work/manage permission.
   const currentFromJunction = await fetchTaskAssigneeEmails(id, ctx.supabase);
   const current =
     currentFromJunction.length > 0

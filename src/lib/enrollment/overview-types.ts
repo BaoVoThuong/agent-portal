@@ -38,7 +38,9 @@ export type EnrollmentOverviewRecordInput = {
   program: EnrollmentProgram;
   client_name: string | null;
   stage_id: string | null;
+  caller_email?: string | null;
   responsible_enroll_email: string | null;
+  created_by_email?: string | null;
   due_date: string | null;
   qc_checked_at: string | null;
   closed_at: string | null;

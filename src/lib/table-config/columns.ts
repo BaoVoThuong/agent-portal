@@ -6,6 +6,7 @@ export type EditableColumnField =
   | "position"
   | "pinned"
   | "hidden_default"
+  | "show_in_detail"
   | "required"
   | "archived_at";
 
@@ -40,7 +41,8 @@ export function canEditColumnField(
     field === "label" ||
     field === "position" ||
     field === "pinned" ||
-    field === "hidden_default"
+    field === "hidden_default" ||
+    field === "show_in_detail"
   );
 }
 

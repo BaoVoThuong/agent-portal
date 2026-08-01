@@ -8,7 +8,11 @@ import {
   canCreateTaskWithScope,
   resolveCreateAssignment,
 } from "@/lib/tasks/access";
-import { attachAssigneesToTasks, isTaskAssigneesMissingError } from "@/lib/tasks/assignees";
+import {
+  attachAssigneesToTasks,
+  findIneligibleTaskAssigneeEmail,
+  isTaskAssigneesMissingError,
+} from "@/lib/tasks/assignees";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskRow } from "@/lib/tasks/types";
@@ -114,6 +118,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: assignment.error }, { status: 400 });
   const elevated = actor.isManager || hasAgentScope;
   const assignedEmails = elevated ? requestedAssignees : [email];
+  const ineligibleAssignee = await findIneligibleTaskAssigneeEmail(assignedEmails);
+  if (ineligibleAssignee) {
+    return NextResponse.json(
+      { error: `Assignee is not eligible: ${ineligibleAssignee}` },
+      { status: 400 }
+    );
+  }
   const fubLink =
     typeof body?.fub_link === "string" && body.fub_link.trim() !== ""
       ? body.fub_link.trim()

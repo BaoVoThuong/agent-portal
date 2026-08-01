@@ -17,18 +17,31 @@ export async function GET(_request: Request, { params }: Ctx) {
   }
 
   const supabase = getSupabaseAdmin();
-  const { data: comment, error: commentError } = await supabase
-    .from("enrollment_comments")
-    .select("record_id")
-    .eq("id", cid)
-    .maybeSingle();
+  const [
+    { data: comment, error: commentError },
+    { data: record, error: recordError },
+  ] = await Promise.all([
+    supabase
+      .from("enrollment_comments")
+      .select("record_id")
+      .eq("id", cid)
+      .maybeSingle(),
+    supabase
+      .from("enrollment_records")
+      .select("id")
+      .eq("id", id)
+      .is("archived_at", null)
+      .maybeSingle(),
+  ]);
   if (commentError) {
     return NextResponse.json({ error: commentError.message }, { status: 500 });
   }
-  if (!comment || (comment as { record_id: string }).record_id !== id) {
+  if (recordError) {
+    return NextResponse.json({ error: recordError.message }, { status: 500 });
+  }
+  if (!record || !comment || (comment as { record_id: string }).record_id !== id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-
   const { data, error } = await supabase
     .from("enrollment_comment_edits")
     .select("id,previous_body,edited_by,edited_at")

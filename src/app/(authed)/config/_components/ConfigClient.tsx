@@ -51,7 +51,7 @@ type ImportRequestListRow = {
   id: string;
   scope: TableScope;
   submitted_by_email: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "processing" | "approved" | "rejected" | "failed";
   match_column_key: string;
   summary: { addCount?: number; updateCount?: number; errorCount?: number };
   reviewed_by_email: string | null;
@@ -490,12 +490,13 @@ function ConfigTableSection({
           <Plus className="h-4 w-4" /> Add
         </button>
       </form>
-      <div className="grid grid-cols-[112px_minmax(260px,1fr)_140px_120px_120px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
+      <div className="grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_112px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
         <span>Order</span>
         <span>Label</span>
         <span>Type</span>
         <span>Pinned</span>
-        <span>Default</span>
+        <span>Hidden</span>
+        <span>In detail</span>
         <span>Action</span>
       </div>
       {dragReady ? (
@@ -579,7 +580,8 @@ function SortableColumnRow({
     transition,
     isDragging,
   } = useSortable({ id: column.id, disabled: busy });
-  const { "aria-describedby": _ariaDescribedBy, ...dragAttributes } = attributes;
+  const dragAttributes = { ...attributes };
+  delete (dragAttributes as Record<string, unknown>)["aria-describedby"];
 
   return (
     <div
@@ -589,7 +591,7 @@ function SortableColumnRow({
         transition,
         zIndex: isDragging ? 20 : undefined,
       }}
-      className={`grid grid-cols-[112px_minmax(260px,1fr)_140px_120px_120px_120px] items-center border-b border-[#ebecf0] px-4 py-2.5 last:border-b-0 ${
+      className={`grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_112px_120px] items-center border-b border-[#ebecf0] px-4 py-2.5 last:border-b-0 ${
         isDragging ? "bg-[#deebff] shadow-lg" : "bg-white"
       }`}
     >
@@ -646,6 +648,16 @@ function SortableColumnRow({
         />
         Hidden
       </label>
+      <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#44546f]">
+        <input
+          type="checkbox"
+          checked={column.show_in_detail}
+          onChange={(event) =>
+            void onPatch({ show_in_detail: event.target.checked })
+          }
+        />
+        Detail
+      </label>
       {column.is_system ? (
         <span className="text-xs font-bold uppercase text-[#97a0af]">System</span>
       ) : (
@@ -676,7 +688,7 @@ function StaticColumnRow({
   onArchive: () => Promise<void>;
 }) {
   return (
-    <div className="grid grid-cols-[112px_minmax(260px,1fr)_140px_120px_120px_120px] items-center border-b border-[#ebecf0] bg-white px-4 py-2.5 last:border-b-0">
+    <div className="grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_112px_120px] items-center border-b border-[#ebecf0] bg-white px-4 py-2.5 last:border-b-0">
       <div className="flex items-center gap-2">
         <span
           aria-hidden="true"
@@ -724,6 +736,16 @@ function StaticColumnRow({
           }
         />
         Hidden
+      </label>
+      <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#44546f]">
+        <input
+          type="checkbox"
+          checked={column.show_in_detail}
+          onChange={(event) =>
+            void onPatch({ show_in_detail: event.target.checked })
+          }
+        />
+        Detail
       </label>
       {column.is_system ? (
         <span className="text-xs font-bold uppercase text-[#97a0af]">System</span>
@@ -1025,6 +1047,8 @@ function ImportReviewSection({
         <div className="divide-y divide-[#ebecf0]">
           {requests.map((request) => {
             const pending = request.status === "pending";
+            const recoverable =
+              request.status === "failed" || request.status === "processing";
             const summary = request.summary ?? {};
             return (
               <div
@@ -1058,9 +1082,11 @@ function ImportReviewSection({
                     className={`inline-flex rounded px-2 py-1 text-xs font-bold uppercase ${
                       pending
                         ? "bg-[#fff7d6] text-[#946f00]"
-                        : request.status === "approved"
-                          ? "bg-[#e3fcef] text-[#00875a]"
-                          : "bg-[#ffebe6] text-[#bf2600]"
+                        : request.status === "processing"
+                          ? "bg-[#deebff] text-[#0c66e4]"
+                          : request.status === "approved"
+                            ? "bg-[#e3fcef] text-[#00875a]"
+                            : "bg-[#ffebe6] text-[#bf2600]"
                     }`}
                   >
                     {request.status}
@@ -1108,6 +1134,25 @@ function ImportReviewSection({
                         <X className="h-4 w-4" /> Reject
                       </button>
                     </>
+                  ) : recoverable ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          await requestJson(`/api/config/imports/${request.id}`, {
+                            method: "DELETE",
+                            body: JSON.stringify({
+                              reject_reason: "Closed in config.",
+                            }),
+                          });
+                          await refreshRequests();
+                        }, "Import closed.")
+                      }
+                      className="inline-flex h-9 items-center gap-2 rounded border border-[#c1c7d0] bg-white px-3 text-sm font-bold text-[#42526e] disabled:opacity-50"
+                    >
+                      <X className="h-4 w-4" /> Close
+                    </button>
                   ) : null}
                 </div>
               </div>

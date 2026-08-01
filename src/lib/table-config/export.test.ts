@@ -12,6 +12,7 @@ const col = (key: string, label: string): TableColumn => ({
   position: 0,
   pinned: false,
   hidden_default: false,
+  show_in_detail: false,
   required: false,
   archived_at: null,
 });

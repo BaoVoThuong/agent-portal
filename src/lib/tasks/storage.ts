@@ -1,5 +1,8 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { TASK_ATTACHMENT_MAX_BYTES } from "./attachments";
+import {
+  ATTACHMENT_ALLOWED_MIME_TYPES,
+  TASK_ATTACHMENT_MAX_BYTES,
+} from "./attachments";
 
 export const TASK_BUCKET = "task-attachments";
 
@@ -29,7 +32,7 @@ async function configureTaskBucket(): Promise<void> {
   const options = {
     public: false,
     fileSizeLimit: TASK_ATTACHMENT_MAX_BYTES,
-    allowedMimeTypes: null,
+    allowedMimeTypes: ATTACHMENT_ALLOWED_MIME_TYPES,
   };
 
   const { error: getError } = await supabase.storage.getBucket(TASK_BUCKET);

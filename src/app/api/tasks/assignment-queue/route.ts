@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
+import { isEligibleTaskAssigneeEmail } from "@/lib/tasks/assignees";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,12 @@ export async function PATCH(request: Request) {
   if (!email || enabled === null) {
     return NextResponse.json(
       { error: "email and enabled are required." },
+      { status: 400 }
+    );
+  }
+  if (enabled && !(await isEligibleTaskAssigneeEmail(email))) {
+    return NextResponse.json(
+      { error: `Assignee is not eligible: ${email}` },
       { status: 400 }
     );
   }

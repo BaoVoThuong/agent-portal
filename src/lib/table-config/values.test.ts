@@ -23,6 +23,12 @@ describe("coerceCustomValue", () => {
         personEmails: new Set(["good@example.com"]),
       }).ok
     ).toBe(false);
+    expect(
+      coerceCustomValue("person", "Good Agent", {
+        personEmails: new Set(["good@example.com"]),
+        personEmailByLabel: new Map([["good agent", "good@example.com"]]),
+      })
+    ).toEqual({ ok: true, value: "good@example.com" });
   });
 });
 

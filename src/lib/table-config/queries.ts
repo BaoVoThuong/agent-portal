@@ -6,7 +6,7 @@ import type { TableColumn, TableColumnOption, TableScope } from "./types";
 type SupabaseErrorLike = { code?: string; message?: string } | null | undefined;
 
 const TABLE_COLUMN_SELECT =
-  "id,scope,key,label,type,is_system,position,pinned,hidden_default,required,created_by_email,created_at,updated_at,archived_at";
+  "id,scope,key,label,type,is_system,position,pinned,hidden_default,show_in_detail,required,created_by_email,created_at,updated_at,archived_at";
 
 const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
   cs: [
@@ -106,6 +106,7 @@ export async function ensureTableColumns(
       position: column.position,
       pinned: column.pinned,
       hidden_default: column.hidden_default,
+      show_in_detail: column.show_in_detail,
       required: column.required,
       created_by_email: column.created_by_email ?? null,
     }));
@@ -329,6 +330,7 @@ function col(
     position,
     pinned,
     hidden_default: hiddenDefault,
+    show_in_detail: false,
     required: false,
     archived_at: null,
   };

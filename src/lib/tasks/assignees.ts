@@ -32,7 +32,7 @@ type AccountRoleRow = {
   }> | null;
 };
 
-const fetchSelectedAgentEmails = cache(async (): Promise<Set<string>> => {
+export const fetchSelectedAgentEmails = cache(async (): Promise<Set<string>> => {
   const { data, error } = await getSupabaseAdmin()
     .from("task_agents")
     .select("email");
@@ -53,7 +53,7 @@ const fetchAssistantMemberRows = cache(
 
 // Active accounts whose role grants task.work or task.manage. Used by the
 // assignee picker (manager only).
-export async function fetchTaskAssignees(): Promise<TaskAssignee[]> {
+export const fetchTaskAssignees = cache(async (): Promise<TaskAssignee[]> => {
   const supabase = getSupabaseAdmin();
 
   const { data: rp, error: rpErr } = await supabase
@@ -82,6 +82,28 @@ export async function fetchTaskAssignees(): Promise<TaskAssignee[]> {
   if (accErr) throw new Error(accErr.message);
 
   return enrichTaskPeopleRoles((accounts ?? []) as unknown as AccountRoleRow[]);
+});
+
+export async function isEligibleTaskAssigneeEmail(email: string): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return false;
+  const assignees = await fetchTaskAssignees();
+  return assignees.some((assignee) => assignee.email.trim().toLowerCase() === normalized);
+}
+
+export async function findIneligibleTaskAssigneeEmail(
+  emails: readonly string[]
+): Promise<string | null> {
+  const normalized = emails
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  if (normalized.length === 0) return null;
+
+  const assignees = await fetchTaskAssignees();
+  const eligible = new Set(
+    assignees.map((assignee) => assignee.email.trim().toLowerCase())
+  );
+  return normalized.find((email) => !eligible.has(email)) ?? null;
 }
 
 export async function fetchTaskAgents(): Promise<TaskAgent[]> {

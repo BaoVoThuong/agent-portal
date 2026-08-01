@@ -20,6 +20,7 @@ import {
   toEnrollmentProgram,
   type EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
+import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +121,8 @@ export async function POST(request: Request) {
     patch.closed_at = nowIso;
   }
 
+  const sanitizedPatch = sanitizeEnrollmentPatchForProgram(program, patch);
+
   const supabase = getSupabaseAdmin();
   const insertBase = {
     created_by_email: actorResult.actor.email,
@@ -130,13 +133,13 @@ export async function POST(request: Request) {
   let insertResult = await supabase
     .from("enrollment_records")
     .insert({
-      ...patch,
+      ...sanitizedPatch,
       ...insertBase,
     })
     .select("*")
     .single();
   if (isMissingEnrollmentDescriptionColumn(insertResult.error)) {
-    const patchWithoutDescription = { ...patch };
+    const patchWithoutDescription = { ...sanitizedPatch };
     delete patchWithoutDescription.description;
     insertResult = await supabase
       .from("enrollment_records")

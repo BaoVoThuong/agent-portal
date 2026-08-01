@@ -38,8 +38,8 @@ import {
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { taskCategoryPalette } from "@/lib/tasks/category-colors";
-import { formatCustomValue } from "@/lib/table-config/values";
 import type { TableColumnOption } from "@/lib/table-config/types";
+import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 import { Initials, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
 import { TaskAssigneePicker } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
@@ -264,8 +264,8 @@ export function TaskRowItem({
   const customColumns = (visibleColumns ?? []).filter(
     (column) => column.configColumn && !column.configColumn.is_system
   );
-  const customOptionById = new Map(
-    (tableColumnOptions ?? []).map((option) => [option.id, option])
+  const customOptionLabelById = new Map(
+    (tableColumnOptions ?? []).map((option) => [option.id, option.label])
   );
   const customOptionsByColumnId = new Map<string, TableColumnOption[]>();
   for (const option of tableColumnOptions ?? []) {
@@ -835,137 +835,31 @@ export function TaskRowItem({
         const configColumn = column.configColumn;
         if (!configColumn) return null;
         return (
-          <CustomTaskValueCell
+          <span
             key={column.key}
-            column={configColumn}
-            value={task.custom_values?.[configColumn.key]}
             style={columnStyle(column.key)}
-            cellClassName={pinnedCellClass(column.key)}
-            optionById={customOptionById}
-            options={customOptionsByColumnId.get(configColumn.id) ?? []}
-            labelByEmail={personLabelByEmail}
-          />
+            className={`${LIST_COL.custom} flex min-w-0 shrink-0 items-center ${
+              configColumn.type === "checkbox" ? "justify-center" : ""
+            } ${pinnedCellClass(column.key)}`}
+          >
+            <EditableCustomCell
+              column={configColumn}
+              value={task.custom_values?.[configColumn.key]}
+              options={customOptionsByColumnId.get(configColumn.id) ?? []}
+              people={assignees}
+              optionLabelById={customOptionLabelById}
+              personLabelByEmail={personLabelByEmail}
+              canEdit={canEditContent}
+              onSave={(next) =>
+                onPatch(task.id, { custom_values: { [configColumn.key]: next } })
+              }
+              className={configColumn.type === "checkbox" ? "" : "w-full"}
+            />
+          </span>
         );
       })}
 
     </div>
-  );
-}
-
-function CustomTaskValueCell({
-  column,
-  value,
-  style,
-  cellClassName = "",
-  optionById,
-  options,
-  labelByEmail,
-}: {
-  column: NonNullable<TaskListColumn["configColumn"]>;
-  value: unknown;
-  style?: CSSProperties;
-  cellClassName?: string;
-  optionById: ReadonlyMap<string, TableColumnOption>;
-  options: readonly TableColumnOption[];
-  labelByEmail: ReadonlyMap<string, string>;
-}) {
-  const empty = value === null || value === undefined || value === "";
-  const commonClass =
-    `${LIST_COL.custom} min-w-0 shrink-0 text-xs font-semibold text-[#42526e]`;
-
-  if (column.type === "checkbox") {
-    return (
-      <span
-        style={style}
-        className={`flex ${LIST_COL.custom} shrink-0 justify-center ${cellClassName}`}
-        title={formatCustomValue(column.type, value)}
-      >
-        {value ? (
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#00875a] text-white">
-            <Check className="h-3.5 w-3.5" />
-          </span>
-        ) : (
-          <span className="text-[#97a0af]">—</span>
-        )}
-      </span>
-    );
-  }
-
-  if (column.type === "link") {
-    return (
-      <span
-        style={style}
-        className={`flex ${LIST_COL.custom} shrink-0 justify-start ${cellClassName}`}
-      >
-        {empty ? (
-          <span className="text-[11px] font-semibold text-[#97a0af]">—</span>
-        ) : (
-          <TaskFubLink href={String(value)} empty />
-        )}
-      </span>
-    );
-  }
-
-  if (column.type === "person") {
-    const email = empty ? "" : String(value).toLowerCase();
-    const label = email ? labelByEmail.get(email) ?? formatEmailAsName(email) : "—";
-    return (
-      <span
-        style={style}
-        className={`${LIST_COL.custom} min-w-0 shrink-0 gap-1.5 text-xs font-semibold text-[#42526e] ${cellClassName}`}
-        title={email || "No person"}
-      >
-        {email ? <Initials email={email} label={label} /> : null}
-        <span className="min-w-0 truncate">{label}</span>
-      </span>
-    );
-  }
-
-  if (column.type === "dropdown") {
-    const option = empty ? null : optionById.get(String(value)) ?? null;
-    const palette = option
-      ? taskCategoryPalette({
-          id: option.id,
-          name: option.label,
-          color: option.color,
-        })
-      : null;
-    return (
-      <span
-        style={style}
-        className={`flex ${LIST_COL.custom} shrink-0 justify-start ${cellClassName}`}
-        title={option?.label ?? (empty ? "No value" : String(value))}
-      >
-        {option ? (
-          <span
-            className="inline-flex max-w-full items-center rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
-            style={{
-              backgroundColor: palette?.background,
-              color: palette?.foreground,
-            }}
-          >
-            <span className="truncate">{option.label}</span>
-          </span>
-        ) : options.length === 0 && empty ? (
-          <span className="text-[11px] font-semibold text-[#97a0af]">—</span>
-        ) : (
-          <span className="min-w-0 truncate text-xs font-semibold text-[#42526e]">
-            {empty ? "—" : String(value)}
-          </span>
-        )}
-      </span>
-    );
-  }
-
-  const label = formatCustomValue(column.type, value);
-  return (
-    <span
-      style={style}
-      className={`${commonClass} ${cellClassName}`}
-      title={label || "No value"}
-    >
-      <span className="min-w-0 truncate">{label || "—"}</span>
-    </span>
   );
 }
 

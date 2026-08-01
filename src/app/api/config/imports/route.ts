@@ -1,13 +1,26 @@
 import { NextResponse } from "next/server";
+import { fetchEnrollmentOptionData } from "@/lib/enrollment/options";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin, loadConfigActor } from "@/lib/table-config/access";
 import { canActorExportImport } from "@/lib/table-config/export-access";
-import { classifyImportRows } from "@/lib/table-config/import";
-import { fetchTableColumns } from "@/lib/table-config/queries";
+import { classifyImportRows, type ImportValueContext } from "@/lib/table-config/import";
+import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import { readSheetRows } from "@/lib/table-config/sheet-io";
-import { isTableScope, toTableScope, type TableScope } from "@/lib/table-config/types";
+import {
+  isTableScope,
+  toTableScope,
+  type TableColumn,
+  type TableColumnOption,
+  type TableScope,
+} from "@/lib/table-config/types";
+import { fetchTaskAgents, fetchTaskAssignees } from "@/lib/tasks/assignees";
+import { STATUS_LABEL, TASK_PRIORITIES, TASK_STATUSES } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
+
+const IMPORT_FILE_MAX_BYTES = 10 * 1024 * 1024;
+const IMPORT_MAX_ROWS = 5_000;
+const IMPORT_FILE_EXTENSIONS = new Set(["csv", "xls", "xlsx"]);
 
 export async function GET(request: Request) {
   const admin = await loadConfigAdmin();
@@ -49,6 +62,9 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "File is required." }, { status: 400 });
   }
+  const fileError = validateImportFile(file);
+  if (fileError) return NextResponse.json({ error: fileError }, { status: 400 });
+
   const scope = typeof scopeRaw === "string" && isTableScope(scopeRaw) ? scopeRaw : null;
   if (!scope) return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
   const matchColumnKey =
@@ -61,10 +77,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Column mapping is invalid." }, { status: 400 });
   }
 
-  const rows = readSheetRows(Buffer.from(await file.arrayBuffer()));
+  let rows: string[][];
+  try {
+    rows = readSheetRows(Buffer.from(await file.arrayBuffer()));
+  } catch {
+    return NextResponse.json(
+      { error: "Could not read the import file. Upload a valid .xlsx, .xls, or .csv file." },
+      { status: 400 }
+    );
+  }
   const [header, ...bodyRows] = rows;
   if (!header || bodyRows.length === 0) {
     return NextResponse.json({ error: "The file has no data rows." }, { status: 400 });
+  }
+  if (bodyRows.length > IMPORT_MAX_ROWS) {
+    return NextResponse.json(
+      { error: `Import has too many rows (max ${IMPORT_MAX_ROWS}).` },
+      { status: 400 }
+    );
   }
 
   const mappedRows = bodyRows.map((row) => {
@@ -75,13 +105,17 @@ export async function POST(request: Request) {
     });
     return mapped;
   });
-  const columns = await fetchTableColumns(scope);
-  const existingByMatchValue = await fetchExistingMatchValues(scope, matchColumnKey);
+  const { columns, options: tableColumnOptions } = await fetchTableColumnsWithOptions(scope);
+  const [existingByMatchValue, ctxByColumnKey] = await Promise.all([
+    fetchExistingMatchValues(scope, matchColumnKey),
+    buildImportValueContexts(scope, columns, tableColumnOptions),
+  ]);
   const classified = classifyImportRows(
     mappedRows,
     columns,
     matchColumnKey,
-    existingByMatchValue
+    existingByMatchValue,
+    ctxByColumnKey
   );
 
   const supabase = getSupabaseAdmin();
@@ -128,6 +162,23 @@ export async function POST(request: Request) {
   });
 }
 
+function validateImportFile(file: File): string | null {
+  if (file.size > IMPORT_FILE_MAX_BYTES) {
+    return `Import file too large (max ${formatBytes(IMPORT_FILE_MAX_BYTES)}).`;
+  }
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (!extension || !IMPORT_FILE_EXTENSIONS.has(extension)) {
+    return "Unsupported import file type. Upload .xlsx, .xls, or .csv.";
+  }
+  return null;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))}MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${bytes}B`;
+}
+
 function parseColumnMapping(value: FormDataEntryValue | null): Record<string, string> | null {
   if (typeof value !== "string") return null;
   try {
@@ -143,6 +194,204 @@ function parseColumnMapping(value: FormDataEntryValue | null): Record<string, st
   } catch {
     return null;
   }
+}
+
+async function buildImportValueContexts(
+  scope: TableScope,
+  columns: TableColumn[],
+  tableColumnOptions: TableColumnOption[]
+): Promise<Record<string, ImportValueContext>> {
+  const [personContext, systemDropdownContexts, systemPersonContexts] = await Promise.all([
+    fetchPersonValueContext(),
+    scope === "cs"
+      ? fetchTaskSystemDropdownContexts()
+      : fetchEnrollmentSystemDropdownContexts(scope),
+    scope === "cs"
+      ? fetchTaskSystemPersonContexts()
+      : Promise.resolve<Record<string, ImportValueContext>>({}),
+  ]);
+  const optionsByColumnId = new Map<string, TableColumnOption[]>();
+  for (const option of tableColumnOptions) {
+    const current = optionsByColumnId.get(option.column_id) ?? [];
+    optionsByColumnId.set(option.column_id, [...current, option]);
+  }
+
+  const ctxByColumnKey: Record<string, ImportValueContext> = {};
+  for (const column of columns) {
+    const ctx: ImportValueContext = {};
+    const systemDropdownContext = systemDropdownContexts[column.key];
+    if (systemDropdownContext) {
+      Object.assign(ctx, systemDropdownContext);
+    } else if (!column.is_system && column.type === "dropdown") {
+      Object.assign(
+        ctx,
+        dropdownContext(
+          (optionsByColumnId.get(column.id) ?? []).map((option) => ({
+            id: option.id,
+            label: option.label,
+          }))
+        )
+      );
+    }
+
+    const systemPersonContext = systemPersonContexts[column.key];
+    if (systemPersonContext) {
+      Object.assign(ctx, systemPersonContext);
+    } else if (column.type === "person" || isSystemPersonColumn(scope, column.key)) {
+      Object.assign(ctx, personContext);
+    }
+
+    if (Object.keys(ctx).length > 0) {
+      ctxByColumnKey[column.key] = ctx;
+    }
+  }
+  return ctxByColumnKey;
+}
+
+async function fetchPersonValueContext(): Promise<ImportValueContext> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("portal_account")
+    .select("email,name")
+    .eq("is_active", true);
+  if (error) throw new Error(error.message);
+
+  const personEmails = new Set<string>();
+  const personEmailByLabel = new Map<string, string>();
+  const personLabelByEmail = new Map<string, string>();
+  for (const row of (data ?? []) as Array<{ email: string; name: string | null }>) {
+    const email = row.email.trim().toLowerCase();
+    if (!email) continue;
+    const label = row.name?.trim() || email;
+    personEmails.add(email);
+    personLabelByEmail.set(email, label);
+    personEmailByLabel.set(email, email);
+    if (row.name?.trim()) {
+      const normalizedLabel = row.name.trim().toLowerCase();
+      if (!personEmailByLabel.has(normalizedLabel)) {
+        personEmailByLabel.set(normalizedLabel, email);
+      }
+    }
+  }
+
+  return { personEmails, personEmailByLabel, personLabelByEmail };
+}
+
+async function fetchTaskSystemDropdownContexts(): Promise<Record<string, ImportValueContext>> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("task_categories")
+    .select("id,name")
+    .eq("is_active", true);
+  if (error) throw new Error(error.message);
+
+  return {
+    status: dropdownContext(
+      TASK_STATUSES.map((status) => ({ id: status, label: STATUS_LABEL[status] }))
+    ),
+    priority: dropdownContext(
+      TASK_PRIORITIES.map((priority) => ({ id: priority, label: titleCase(priority) }))
+    ),
+    category: dropdownContext(
+      ((data ?? []) as Array<{ id: string; name: string }>).map((category) => ({
+        id: category.id,
+        label: category.name,
+      }))
+    ),
+  };
+}
+
+async function fetchTaskSystemPersonContexts(): Promise<Record<string, ImportValueContext>> {
+  const [assignees, agents, people] = await Promise.all([
+    fetchTaskAssignees(),
+    fetchTaskAgents(),
+    fetchPersonValueContext(),
+  ]);
+  return {
+    assignee: personContextFromPeople(assignees),
+    agent: personContextFromPeople(agents),
+    reporter: people,
+  };
+}
+
+async function fetchEnrollmentSystemDropdownContexts(
+  scope: Exclude<TableScope, "cs">
+): Promise<Record<string, ImportValueContext>> {
+  const { options } = await fetchEnrollmentOptionData(scope);
+  const optionsByColumnKey = new Map<string, Array<{ id: string; label: string }>>();
+  for (const option of options) {
+    if (option.archived_at) continue;
+    const columnKey = enrollmentOptionColumnKey(option.set_key);
+    const current = optionsByColumnKey.get(columnKey) ?? [];
+    optionsByColumnKey.set(columnKey, [...current, { id: option.id, label: option.label }]);
+  }
+
+  return Object.fromEntries(
+    [...optionsByColumnKey.entries()].map(([key, values]) => [
+      key,
+      dropdownContext(values),
+    ])
+  );
+}
+
+function personContextFromPeople(
+  people: Array<{ email: string; name: string | null }>
+): ImportValueContext {
+  const personEmails = new Set<string>();
+  const personEmailByLabel = new Map<string, string>();
+  const personLabelByEmail = new Map<string, string>();
+  for (const person of people) {
+    const email = person.email.trim().toLowerCase();
+    if (!email) continue;
+    const label = person.name?.trim() || email;
+    personEmails.add(email);
+    personLabelByEmail.set(email, label);
+    personEmailByLabel.set(email, email);
+    if (person.name?.trim()) {
+      const normalizedLabel = person.name.trim().toLowerCase();
+      if (!personEmailByLabel.has(normalizedLabel)) {
+        personEmailByLabel.set(normalizedLabel, email);
+      }
+    }
+  }
+  return { personEmails, personEmailByLabel, personLabelByEmail };
+}
+
+function dropdownContext(
+  options: Array<{ id: string; label: string }>
+): ImportValueContext {
+  const optionIds = new Set<string>();
+  const optionIdByLabel = new Map<string, string>();
+  for (const option of options) {
+    const id = option.id.trim();
+    const label = option.label.trim();
+    if (!id) continue;
+    optionIds.add(id);
+    optionIdByLabel.set(id.toLowerCase(), id);
+    if (label) optionIdByLabel.set(label.toLowerCase(), id);
+  }
+  return { typeOverride: "dropdown", optionIds, optionIdByLabel };
+}
+
+function enrollmentOptionColumnKey(setKey: string): string {
+  switch (setKey) {
+    case "payment_status":
+      return "payment";
+    case "aca_status":
+      return "aca";
+    default:
+      return setKey;
+  }
+}
+
+function isSystemPersonColumn(scope: TableScope, key: string): boolean {
+  if (scope === "cs") return ["assignee", "agent", "reporter"].includes(key);
+  return ["caller", "responsible", "createdBy", "updatedBy"].includes(key);
+}
+
+function titleCase(value: string): string {
+  return value
+    .split("_")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
 
 async function fetchExistingMatchValues(

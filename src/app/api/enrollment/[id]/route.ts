@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadEnrollmentActor } from "@/lib/enrollment/access";
+import {
+  canMutateEnrollmentRecord,
+  loadEnrollmentActor,
+} from "@/lib/enrollment/access";
 import {
   ENROLLMENT_OPTION_LABELS,
   fetchEnrollmentOptionData,
@@ -18,6 +21,7 @@ import {
   broadcastEnrollmentChanged,
   broadcastEnrollmentRoom,
 } from "@/lib/enrollment/realtime";
+import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
 import { fetchAdminEmails } from "@/lib/tasks/membership";
 import type {
   EnrollmentOption,
@@ -104,6 +108,9 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
   if (!currentData) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const current = currentData as EnrollmentRecord;
+  if (!canMutateEnrollmentRecord(actorResult.actor, current)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   if (current.updated_at !== expectedUpdatedAt) {
     return NextResponse.json(
@@ -211,23 +218,29 @@ export async function PATCH(request: Request, { params }: Ctx) {
     changedFields.push("custom_values");
   }
 
-  if (Object.keys(patch).length === 0) {
+  const sanitizedPatch = sanitizeEnrollmentPatchForProgram(
+    current.program,
+    patch,
+    current
+  );
+
+  if (Object.keys(sanitizedPatch).length === 0) {
     return NextResponse.json({ record: { ...current, comment_count: 0, attachment_count: 0 } });
   }
 
-  patch.updated_by_email = actorResult.actor.email;
-  patch.updated_at = nowIso;
+  sanitizedPatch.updated_by_email = actorResult.actor.email;
+  sanitizedPatch.updated_at = nowIso;
 
   let descriptionSkipped = false;
   let updateResult = await supabase
     .from("enrollment_records")
-    .update(patch)
+    .update(sanitizedPatch)
     .eq("id", id)
     .eq("updated_at", expectedUpdatedAt)
     .select("*")
     .maybeSingle();
-  if (isMissingEnrollmentDescriptionColumn(updateResult.error) && "description" in patch) {
-    const patchWithoutDescription = { ...patch };
+  if (isMissingEnrollmentDescriptionColumn(updateResult.error) && "description" in sanitizedPatch) {
+    const patchWithoutDescription = { ...sanitizedPatch };
     delete patchWithoutDescription.description;
     const hasPersistableField = Object.keys(patchWithoutDescription).some(
       (key) => key !== "updated_by_email" && key !== "updated_at"
@@ -427,7 +440,19 @@ export async function DELETE(_request: Request, { params }: Ctx) {
 
   const supabase = getSupabaseAdmin();
   const nowIso = new Date().toISOString();
-  const { error } = await supabase
+  const { data: currentData, error: currentError } = await supabase
+    .from("enrollment_records")
+    .select("id,caller_email,responsible_enroll_email,created_by_email")
+    .eq("id", id)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+  if (!currentData) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!canMutateEnrollmentRecord(actorResult.actor, currentData)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { data, error } = await supabase
     .from("enrollment_records")
     .update({
       archived_at: nowIso,
@@ -435,15 +460,21 @@ export async function DELETE(_request: Request, { params }: Ctx) {
       updated_by_email: actorResult.actor.email,
     })
     .eq("id", id)
-    .is("archived_at", null);
+    .is("archived_at", null)
+    .select("id")
+    .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await supabase.from("enrollment_activity").insert({
+  const { error: activityError } = await supabase.from("enrollment_activity").insert({
     record_id: id,
     actor_email: actorResult.actor.email,
     type: "archived",
     meta: null,
   });
+  if (activityError) {
+    console.error("Failed to write enrollment archive activity", activityError);
+  }
   await broadcastEnrollmentChanged();
   await broadcastEnrollmentRoom(id);
   return NextResponse.json({ ok: true });

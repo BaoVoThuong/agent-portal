@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { isTaskViewAdmin } from "@/lib/tasks/access";
-import { attachAssigneesToTasks } from "@/lib/tasks/assignees";
+import {
+  attachAssigneesToTasks,
+  isEligibleTaskAssigneeEmail,
+} from "@/lib/tasks/assignees";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
@@ -32,6 +35,12 @@ export async function POST(request: Request, { params }: Ctx) {
   const expectedUpdatedAt =
     typeof body?.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : null;
   if (!email) return NextResponse.json({ error: "email is required." }, { status: 400 });
+  if (!(await isEligibleTaskAssigneeEmail(email))) {
+    return NextResponse.json(
+      { error: `Assignee is not eligible: ${email}` },
+      { status: 400 }
+    );
+  }
 
   const supabase = getSupabaseAdmin();
   const { error: assignError } = await supabase.rpc("assign_unassigned_task", {
