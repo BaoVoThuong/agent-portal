@@ -11,14 +11,11 @@ import {
 import {
   fetchAgentsForCs,
   fetchAssistantAgentsForCs,
-  fetchCsForAgent,
+  fetchCsForAgents,
 } from "@/lib/tasks/membership";
 import { TaskBoardClient } from "./_components/TaskBoardClient";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  fetchTableColumnOptions,
-  fetchTableColumns,
-} from "@/lib/table-config/queries";
+import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import { canActorExportImport } from "@/lib/table-config/export-access";
 import type { TaskCategory } from "@/lib/tasks/types";
 
@@ -47,8 +44,7 @@ export default async function TasksPage() {
     csAgents,
     myAssistantAgents,
     categories,
-    tableColumns,
-    tableColumnOptions,
+    tableConfig,
     canExportImport,
   ] = await Promise.all([
     fetchTasksForActor(actor),
@@ -66,8 +62,7 @@ export default async function TasksPage() {
       .order("position", { ascending: true })
       .order("name", { ascending: true })
       .then((r) => (r.data ?? []) as TaskCategory[]),
-    fetchTableColumns("cs"),
-    fetchTableColumnOptions("cs"),
+    fetchTableColumnsWithOptions("cs"),
     canActorExportImport(actor),
   ]);
   const myAgents = actor.isManager ? agents.map((a) => a.email) : csAgents;
@@ -82,14 +77,7 @@ export default async function TasksPage() {
       ] as string[]
     ),
   ];
-  const agentMembersByAgent = Object.fromEntries(
-    await Promise.all(
-      agentEmailsForMembers.map(async (agentEmail) => [
-        agentEmail,
-        await fetchCsForAgent(agentEmail),
-      ])
-    )
-  );
+  const agentMembersByAgent = await fetchCsForAgents(agentEmailsForMembers);
   const boardTitle = getTaskBoardTitle({
     isAdmin: isTaskViewAdmin(session.user),
     isTaskAgent: agents.some((agent) => agent.email === email),
@@ -111,8 +99,8 @@ export default async function TasksPage() {
       myAssistantAgents={myAssistantAgents}
       agentMembersByAgent={agentMembersByAgent}
       initialCategories={categories}
-      tableColumns={tableColumns}
-      tableColumnOptions={tableColumnOptions}
+      tableColumns={tableConfig.columns}
+      tableColumnOptions={tableConfig.options}
       canExportImport={canExportImport}
     />
   );

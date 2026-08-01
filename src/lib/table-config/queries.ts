@@ -216,6 +216,22 @@ export async function fetchTableColumnOptions(
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<TableColumnOption[]> {
   const columns = await fetchTableColumns(scope, supabase);
+  return fetchTableColumnOptionsForColumns(columns, supabase);
+}
+
+export async function fetchTableColumnsWithOptions(
+  scope: TableScope,
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<{ columns: TableColumn[]; options: TableColumnOption[] }> {
+  const columns = await fetchTableColumns(scope, supabase);
+  const options = await fetchTableColumnOptionsForColumns(columns, supabase);
+  return { columns, options };
+}
+
+async function fetchTableColumnOptionsForColumns(
+  columns: TableColumn[],
+  supabase: SupabaseClient
+): Promise<TableColumnOption[]> {
   const ids = columns.map((column) => column.id).filter((id) => !id.startsWith("system-"));
   if (ids.length === 0) return [];
 

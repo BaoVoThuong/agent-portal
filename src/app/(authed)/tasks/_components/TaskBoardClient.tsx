@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
-import { Clock, Plus, Tag, UsersRound } from "lucide-react";
+import { ChevronDown, Clock, Download, FileUp, Plus, Tag, UsersRound } from "lucide-react";
 import type {
   TaskCategory,
   TaskPriority,
@@ -49,6 +50,7 @@ import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
 import { HealthTableImportDialog } from "../../_components/HealthTableImportDialog";
+import { useAnchoredMenu } from "./use-anchored-menu";
 import {
   TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
   TASK_LIST_LOCKED_COLUMN_KEYS,
@@ -171,6 +173,7 @@ export function TaskBoardClient({
   const tasksWriteVersionRef = useRef(0);
   const tasksRefetchRequestRef = useRef(0);
   const pendingTaskMutationsRef = useRef(new Map<string, number>());
+  const overviewRangeKeyRef = useRef<string | null>(null);
   // Per-task safety net on top of the version/pending guards above: even if a
   // background refetch's response somehow reflects a slightly-behind snapshot
   // (a race the in-flight/version checks don't fully rule out — e.g. a
@@ -384,7 +387,14 @@ export function TaskBoardClient({
     if (background) setOverviewRefreshing(true);
     else setOverviewLoading(true);
     try {
-      const response = await fetch("/api/tasks/overview", { cache: "no-store" });
+      const params = new URLSearchParams();
+      if (dateRange.from) params.set("from", dateRange.from);
+      if (dateRange.to) params.set("to", dateRange.to);
+      const query = params.toString();
+      const response = await fetch(
+        `/api/tasks/overview${query ? `?${query}` : ""}`,
+        { cache: "no-store" }
+      );
       const data = (await response.json().catch(() => null)) as
         | OverviewSnapshot
         | { error?: string }
@@ -402,7 +412,7 @@ export function TaskBoardClient({
       if (background) setOverviewRefreshing(false);
       else setOverviewLoading(false);
     }
-  }, [isManager]);
+  }, [dateRange.from, dateRange.to, isManager]);
 
   const changeAssignmentQueueMember = useCallback(
     async (email: string, enabled: boolean) => {
@@ -440,10 +450,16 @@ export function TaskBoardClient({
   );
 
   useEffect(() => {
-    if (!isManager || view !== "overview" || overviewSnapshot) return;
-    const timer = window.setTimeout(() => void loadOverview(), 0);
+    if (!isManager || view !== "overview") return;
+    const rangeKey = `${dateRange.from}|${dateRange.to}`;
+    if (overviewSnapshot && overviewRangeKeyRef.current === rangeKey) return;
+    overviewRangeKeyRef.current = rangeKey;
+    const timer = window.setTimeout(
+      () => void loadOverview(Boolean(overviewSnapshot)),
+      0
+    );
     return () => window.clearTimeout(timer);
-  }, [isManager, loadOverview, overviewSnapshot, view]);
+  }, [dateRange.from, dateRange.to, isManager, loadOverview, overviewSnapshot, view]);
 
   useEffect(() => {
     if (!isManager || view !== "overview" || !overviewSnapshot) return;
@@ -678,10 +694,8 @@ export function TaskBoardClient({
   //  - Status: List only (Board columns already are statuses; Backlog is all backlog).
   //  - Category: hidden for plain CS users.
   const showAgentFilter = scopedAgentStats.length > 0;
-  const showAssigneeFilter =
-    (isManager || isAgentOrAssistant) && view !== "backlog";
-  const showInlineAssigneeFilter =
-    shouldLimitPlainCsTasks && view !== "backlog";
+  const showAssigneeFilter = isManager || isAgentOrAssistant;
+  const showInlineAssigneeFilter = shouldLimitPlainCsTasks;
   const enableAssigneeFilter = showAssigneeFilter || showInlineAssigneeFilter;
   const effectivePresets = useMemo(
     () =>
@@ -729,22 +743,19 @@ export function TaskBoardClient({
       overdueIds,
     ]
   );
-  const backlogTasks = useMemo(
-    () => visibleTasks.filter((task) => task.status === "backlog"),
+  const displayedResultCount = visibleTasks.length;
+  const displayedTotalCount = tasks.length;
+  const exportTaskIds = useMemo(
+    () => visibleTasks.map((task) => task.id),
     [visibleTasks]
   );
-  const backlogTotalCount = useMemo(
-    () => scopedTasks.filter((task) => task.status === "backlog").length,
-    [scopedTasks]
+  const exportColumnKeys = useMemo(
+    () => visibleTaskListColumnConfig.map((column) => column.key).join(","),
+    [visibleTaskListColumnConfig]
   );
-  const displayedResultCount =
-    view === "backlog" ? backlogTasks.length : visibleTasks.length;
-  const displayedTotalCount =
-    view === "backlog" ? backlogTotalCount : tasks.length;
-  const exportTaskIds = useMemo(
-    () => (view === "backlog" ? backlogTasks : visibleTasks).map((task) => task.id),
-    [backlogTasks, view, visibleTasks]
-  );
+  const exportHref = `/api/tasks/export?columns=${encodeURIComponent(
+    exportColumnKeys
+  )}&ids=${encodeURIComponent(exportTaskIds.join(","))}`;
 
   const openTask = tasks.find((t) => t.id === openId) ?? null;
 
@@ -1158,69 +1169,87 @@ export function TaskBoardClient({
     openTask && (isManager || isAgentOwnerOrAssistantOf(openTask.agent_email))
   );
   const canCreateTasks = isManager || canManageOwnAgentGroup;
+  const frameView = view === "list";
+  const shellClassName = frameView
+    ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
+    : "flex min-h-full min-w-0 flex-col bg-[#f7f9fc] text-[#172b4d]";
+  const overviewHeader = view === "overview" && isManager;
+  const pageEyebrow = "Task Management";
+  const pageTitle = overviewHeader ? "CS Workload Overview" : boardTitle;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f7f9fc] text-[#172b4d]">
-      <div className="shrink-0 px-6 pb-5 pt-7">
+    <div className={shellClassName}>
+      <div className="min-w-0 shrink-0 px-6 pb-5 pt-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0c66e4]">
-              Task Management
+            <p
+              className="text-xs font-bold uppercase tracking-[0.16em] text-[#0c66e4]"
+            >
+              {pageEyebrow}
             </p>
             <h1 className="mt-1 text-3xl font-bold tracking-normal text-[#172b4d]">
-              {boardTitle}
+              {pageTitle}
             </h1>
           </div>
 
-          <div className="flex flex-wrap justify-end gap-2">
-            {isManager && (
-              <button
-                type="button"
-                onClick={() => setManagingAgentGroups(true)}
-                className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-              >
-                <UsersRound className="h-4 w-4" />
-                Agent Groups
-              </button>
-            )}
-            {isManager && (
-              <>
+          {!overviewHeader ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              {isManager && (
                 <button
                   type="button"
-                  onClick={() => setManagingCategories(true)}
+                  onClick={() => setManagingAgentGroups(true)}
                   className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                 >
-                  <Tag className="h-4 w-4" />
-                  Categories
+                  <UsersRound className="h-4 w-4" />
+                  Agent Groups
                 </button>
+              )}
+              {isManager && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setManagingCategories(true)}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  >
+                    <Tag className="h-4 w-4" />
+                    Categories
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManagingSlaRules(true)}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  >
+                    <Clock className="h-4 w-4" />
+                    SLA Times
+                  </button>
+                </>
+              )}
+              {canCreateTasks && (
                 <button
                   type="button"
-                  onClick={() => setManagingSlaRules(true)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  onClick={() => setCreating(true)}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
                 >
-                  <Clock className="h-4 w-4" />
-                  SLA Times
+                  <Plus className="h-4 w-4" />
+                  New task
                 </button>
-              </>
-            )}
-            {canCreateTasks && (
-              <button
-                type="button"
-                onClick={() => setCreating(true)}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
-              >
-                <Plus className="h-4 w-4" />
-                New task
-              </button>
-            )}
-          </div>
+              )}
+              {canExportImport ? (
+                <ImportExportMenu
+                  exportHref={exportHref}
+                  onImport={() => setImporting(true)}
+                />
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <TaskToolbar
           view={view}
           onViewChange={setView}
           isManager={isManager}
-          showBacklog={isManager || canManageOwnAgentGroup}
+          overviewRefreshing={overviewRefreshing}
+          onOverviewRefresh={() => void loadOverview(Boolean(overviewSnapshot))}
           labelByEmail={searchLabelByEmail}
           agentStats={scopedAgentStats}
           agentFilter={agentFilter}
@@ -1256,9 +1285,6 @@ export function TaskBoardClient({
           listColumns={taskListColumnConfig}
           hiddenListColumnKeys={hiddenTaskListColumnKeys}
           onToggleListColumn={toggleTaskListColumn}
-          exportTaskIds={exportTaskIds}
-          canExportImport={canExportImport}
-          onImport={() => setImporting(true)}
         />
       </div>
 
@@ -1311,37 +1337,10 @@ export function TaskBoardClient({
         />
       )}
 
-      {view === "backlog" && (isManager || canManageOwnAgentGroup) && (
-        <TaskListView
-          tasks={backlogTasks}
-          categories={categories}
-          assignees={assignees}
-          agents={taskAgents}
-          isManager={isManager}
-          myAssistantAgents={myAssistantAgents}
-          agentMembersByAgent={agentMembersByAgent}
-          currentEmail={currentEmail}
-          onOpen={openTaskById}
-          onPatch={patchTask}
-          onReviewDone={reviewDoneTask}
-          onAssigneeChange={changeAssignee}
-          overdueIds={overdueIds}
-          newAssignedTaskIds={displayNewAssignedTaskIds}
-          rules={slaRules}
-          now={now}
-          managerView={managerView}
-          onUnlockOverdue={setUnlockingTaskId}
-          onReopenRequest={setReopeningTaskId}
-          visibleColumns={visibleTaskListColumnConfig}
-          tableColumnOptions={tableColumnOptions}
-        />
-      )}
-
       {view === "overview" && isManager && (
         <CSWorkloadOverview
           snapshot={overviewSnapshot}
           loading={overviewLoading}
-          refreshing={overviewRefreshing}
           error={overviewError}
           notice={overviewNotice}
           onRefresh={() => void loadOverview(Boolean(overviewSnapshot))}
@@ -1474,6 +1473,70 @@ export function TaskBoardClient({
         </div>
       )}
     </div>
+  );
+}
+
+function ImportExportMenu({
+  exportHref,
+  onImport,
+}: {
+  exportHref: string;
+  onImport: () => void;
+}) {
+  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
+    useAnchoredMenu();
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggle}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        className={`inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] ${
+          isOpen ? "border-[#0c66e4] text-[#0c66e4]" : "border-[#d8dee8]"
+        }`}
+      >
+        <Download className="h-4 w-4" />
+        Import / Export
+        <ChevronDown className="h-4 w-4 text-[#6b778c]" />
+      </button>
+
+      {isOpen
+        ? createPortal(
+            <div
+              ref={menuRef}
+              style={menuStyle}
+              role="menu"
+              className="dashboard-filter-menu z-[140] w-[min(17rem,calc(100vw-1rem))] overflow-hidden p-1.5"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  onImport();
+                }}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm font-semibold text-[#172b4d] transition hover:bg-[#f4f5f7]"
+              >
+                <FileUp className="h-4 w-4 text-[#0c66e4]" />
+                Import table data
+              </button>
+              <a
+                href={exportHref}
+                role="menuitem"
+                onClick={() => setIsOpen(false)}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm font-semibold text-[#172b4d] transition hover:bg-[#f4f5f7]"
+              >
+                <Download className="h-4 w-4 text-[#0c66e4]" />
+                Export visible data
+              </a>
+            </div>,
+            document.body
+          )
+        : null}
+    </>
   );
 }
 

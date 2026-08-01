@@ -10,14 +10,47 @@ export async function fetchAgentsForCs(email: string): Promise<string[]> {
   return [...new Set((data ?? []).map((r) => (r as { agent_email: string }).agent_email))];
 }
 
-export async function fetchCsForAgent(agentEmail: string): Promise<string[]> {
+export function groupAssistantMembers(
+  rows: Array<{ agent_email: string; cs_email: string }>,
+  agentEmails: string[]
+): Record<string, string[]> {
+  const byAgent = new Map<string, Set<string>>();
+  for (const email of agentEmails) {
+    if (email) byAgent.set(email, new Set());
+  }
+
+  for (const row of rows) {
+    if (!row.agent_email || !row.cs_email) continue;
+    const members = byAgent.get(row.agent_email) ?? new Set<string>();
+    members.add(row.cs_email);
+    byAgent.set(row.agent_email, members);
+  }
+
+  return Object.fromEntries(
+    [...byAgent.entries()].map(([agentEmail, members]) => [
+      agentEmail,
+      [...members],
+    ])
+  );
+}
+
+export async function fetchCsForAgents(
+  agentEmails: string[]
+): Promise<Record<string, string[]>> {
+  const emails = [...new Set(agentEmails.filter(Boolean))];
+  if (emails.length === 0) return {};
+
   const { data, error } = await getSupabaseAdmin()
     .from("agent_members")
-    .select("cs_email")
-    .eq("agent_email", agentEmail)
+    .select("agent_email,cs_email")
+    .in("agent_email", emails)
     .eq("is_assistant", true);
-  if (error) return [];
-  return [...new Set((data ?? []).map((r) => (r as { cs_email: string }).cs_email))];
+  if (error) return Object.fromEntries(emails.map((email) => [email, []]));
+
+  return groupAssistantMembers(
+    (data ?? []) as Array<{ agent_email: string; cs_email: string }>,
+    emails
+  );
 }
 
 // Agents this person is a promoted "Assistant" for — an Assistant gets the

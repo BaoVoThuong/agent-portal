@@ -14,7 +14,6 @@ import {
 import {
   ArrowDown,
   ArrowUp,
-  CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -23,7 +22,6 @@ import {
   ExternalLink,
   FileUp,
   Plus,
-  RefreshCw,
   Search,
   Settings2,
   UserPlus,
@@ -84,6 +82,7 @@ import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
 import { AttachmentPanel } from "../../tasks/_components/AttachmentPanel";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
+import { DateRangeFilter } from "../../tasks/_components/TaskToolbar";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { Initials } from "../../tasks/_components/board-ui";
 import { HealthTableImportDialog } from "../../_components/HealthTableImportDialog";
@@ -123,8 +122,8 @@ type Filters = {
   overdue: boolean;
   qcNeeded: boolean;
   unowned: boolean;
-  dueFrom: string;
-  dueTo: string;
+  createdFrom: string;
+  createdTo: string;
 };
 
 const DEFAULT_FILTERS: Filters = {
@@ -138,12 +137,9 @@ const DEFAULT_FILTERS: Filters = {
   overdue: false,
   qcNeeded: false,
   unowned: false,
-  dueFrom: "",
-  dueTo: "",
+  createdFrom: "",
+  createdTo: "",
 };
-
-const DATE_INPUT_CLASS =
-  "h-9 rounded border border-[#d8dee8] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]";
 
 const FILTER_SELECT_BUTTON_CLASS =
   "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
@@ -550,7 +546,47 @@ export function EnrollmentClient({
       ),
     [records, filters, optionsById, peopleByEmail, sort]
   );
+  const exportColumnKeys = useMemo(
+    () =>
+      columns
+        .filter(
+          (column) =>
+            column.locked || column.sticky || !hiddenColumnKeys.has(column.key)
+        )
+        .map((column) => column.key)
+        .join(","),
+    [columns, hiddenColumnKeys]
+  );
+  const exportRecordIds = useMemo(
+    () => visibleRecords.map((record) => record.id),
+    [visibleRecords]
+  );
   const openRecord = records.find((record) => record.id === openId) ?? null;
+
+  const exportVisibleRecords = useCallback(async () => {
+    try {
+      setError(null);
+      const response = await fetch("/api/enrollment/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          program,
+          columns: exportColumnKeys.split(",").filter(Boolean),
+          ids: exportRecordIds,
+        }),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setError(data?.error ?? "Could not export enrollment data.");
+        return;
+      }
+      await downloadResponseFile(response, `enrollment-${program}.xlsx`);
+    } catch {
+      setError("Could not export enrollment data.");
+    }
+  }, [exportColumnKeys, exportRecordIds, program]);
 
   const refetch = useCallback(async () => {
     try {
@@ -700,96 +736,106 @@ export function EnrollmentClient({
     writeEnrollmentDeepLink(null);
   }
 
+  const frameView = view === "list";
+  const shellClassName = frameView
+    ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
+    : "flex min-h-full min-w-0 flex-col bg-[#f7f9fc] text-[#172b4d]";
+
   return (
-    <div className="min-h-full bg-[#f7f9fc] px-6 py-7 text-[#172b4d]">
-      <div className="mx-auto flex max-w-[1760px] flex-col gap-4">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0c66e4]">
-              Health Enrollment
-            </p>
-            <h1 className="mt-1 text-3xl font-bold tracking-normal text-[#172b4d]">
-              {ENROLLMENT_PROGRAM_LABELS[program]}
-            </h1>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            {canManageOptions ? (
+    <div className={shellClassName}>
+      <div className="min-w-0 shrink-0 px-6 pb-5 pt-7">
+        <div className="mx-auto flex max-w-[1760px] flex-col gap-4">
+          <header className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#0c66e4]">
+                Health Enrollment
+              </p>
+              <h1 className="mt-1 text-3xl font-bold tracking-normal text-[#172b4d]">
+                {ENROLLMENT_PROGRAM_LABELS[program]}
+              </h1>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              {canManageOptions ? (
+                <button
+                  type="button"
+                  onClick={() => setManagingOptions(true)}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                >
+                  <Settings2 className="h-4 w-4" />
+                  Option sets
+                </button>
+              ) : null}
+              {canExportImport ? (
+                <EnrollmentImportExportMenu
+                  onExport={exportVisibleRecords}
+                  onImport={() => setImporting(true)}
+                />
+              ) : null}
               <button
                 type="button"
-                onClick={() => setManagingOptions(true)}
-                className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                onClick={() => setCreating(true)}
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
               >
-                <Settings2 className="h-4 w-4" />
-                Option sets
+                <Plus className="h-4 w-4" />
+                New enrollment
               </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => void refetch()}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </button>
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
-            >
-              <Plus className="h-4 w-4" />
-              New enrollment
-            </button>
-          </div>
-        </header>
+            </div>
+          </header>
 
-        <EnrollmentToolbar
-          program={program}
-          view={view}
-          onViewChange={setView}
-          filters={filters}
-          setFilters={setFilters}
-          people={people}
-          optionsBySet={optionsBySet}
-          columns={columns}
-          hiddenColumnKeys={hiddenColumnKeys}
-          onToggleColumn={toggleColumn}
-          canExportImport={canExportImport}
-          onImport={() => setImporting(true)}
-          visibleCount={visibleRecords.length}
-          totalCount={records.length}
-          visibleRecordIds={visibleRecords.map((record) => record.id)}
-        />
-
-        {view === "overview" ? (
-          <EnrollmentOverview
-            key={program}
+          <EnrollmentToolbar
             program={program}
-            onOpenRecord={openRecordById}
-            onAssign={(recordId, email) =>
-              patchRecord(recordId, { responsible_enroll_email: email })
-            }
-          />
-        ) : (
-          <EnrollmentTable
-            columns={visibleColumns}
-            records={visibleRecords}
-            peopleByEmail={peopleByEmail}
-            optionsById={optionsById}
+            view={view}
+            onViewChange={setView}
+            filters={filters}
+            setFilters={setFilters}
+            people={people}
             optionsBySet={optionsBySet}
-            tableColumnOptions={tableColumnOptions}
-            sort={sort}
-            onSort={(key) =>
-              setSort((current) =>
-                current.key === key
-                  ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
-                  : { key, dir: "asc" }
-              )
-            }
-            onOpen={openRecordById}
-            onPatch={patchRecord}
+            columns={columns}
+            hiddenColumnKeys={hiddenColumnKeys}
+            onToggleColumn={toggleColumn}
+            visibleCount={visibleRecords.length}
+            totalCount={records.length}
           />
-        )}
+        </div>
       </div>
+
+      {view === "overview" ? (
+        <div className="min-w-0 px-6 pb-6">
+          <div className="mx-auto max-w-[1760px]">
+            <EnrollmentOverview
+              key={program}
+              program={program}
+              onOpenRecord={openRecordById}
+              onAssign={(recordId, email) =>
+                patchRecord(recordId, { responsible_enroll_email: email })
+              }
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-0 flex flex-1 flex-col px-6 pb-6">
+          <div className="mx-auto flex min-h-0 w-full max-w-[1760px] flex-1 flex-col">
+            <EnrollmentTable
+              columns={visibleColumns}
+              records={visibleRecords}
+              peopleByEmail={peopleByEmail}
+              optionsById={optionsById}
+              optionsBySet={optionsBySet}
+              tableColumnOptions={tableColumnOptions}
+              sort={sort}
+              onSort={(key) =>
+                setSort((current) =>
+                  current.key === key
+                    ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
+                    : { key, dir: "asc" }
+                )
+              }
+              onOpen={openRecordById}
+              onPatch={patchRecord}
+            />
+          </div>
+        </div>
+      )}
 
       {error ? (
         <div className="fixed bottom-4 right-4 z-[200] rounded-lg border border-[#ffbdad] bg-white px-4 py-3 text-sm font-bold text-[#bf2600] shadow-xl">
@@ -847,6 +893,91 @@ export function EnrollmentClient({
   );
 }
 
+function EnrollmentImportExportMenu({
+  onExport,
+  onImport,
+}: {
+  onExport: () => void;
+  onImport: () => void;
+}) {
+  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
+    useAnchoredMenu();
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggle}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        className={`inline-flex h-10 items-center gap-2 rounded-lg border bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] ${
+          isOpen ? "border-[#0c66e4] text-[#0c66e4]" : "border-[#d8dee8]"
+        }`}
+      >
+        <Download className="h-4 w-4" />
+        Import / Export
+        <ChevronDown className="h-4 w-4 text-[#6b778c]" />
+      </button>
+
+      {isOpen
+        ? createPortal(
+            <div
+              ref={menuRef}
+              style={menuStyle}
+              role="menu"
+              className="dashboard-filter-menu z-[140] w-[min(17rem,calc(100vw-1rem))] overflow-hidden p-1.5"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  onImport();
+                }}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm font-semibold text-[#172b4d] transition hover:bg-[#f4f5f7]"
+              >
+                <FileUp className="h-4 w-4 text-[#0c66e4]" />
+                Import table data
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsOpen(false);
+                  onExport();
+                }}
+                className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm font-semibold text-[#172b4d] transition hover:bg-[#f4f5f7]"
+              >
+                <Download className="h-4 w-4 text-[#0c66e4]" />
+                Export visible data
+              </button>
+            </div>,
+            document.body
+          )
+        : null}
+    </>
+  );
+}
+
+function getDownloadFilename(contentDisposition: string | null, fallback: string) {
+  const match = contentDisposition?.match(/filename="?([^"]+)"?/i);
+  return match?.[1] ?? fallback;
+}
+
+async function downloadResponseFile(response: Response, fallback: string) {
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = getDownloadFilename(
+    response.headers.get("content-disposition"),
+    fallback
+  );
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function EnrollmentToolbar({
   program,
   view,
@@ -858,11 +989,8 @@ function EnrollmentToolbar({
   columns,
   hiddenColumnKeys,
   onToggleColumn,
-  canExportImport,
-  onImport,
   visibleCount,
   totalCount,
-  visibleRecordIds,
 }: {
   program: EnrollmentProgram;
   view: "list" | "overview";
@@ -874,20 +1002,10 @@ function EnrollmentToolbar({
   columns: EnrollmentColumn[];
   hiddenColumnKeys: Set<EnrollmentColumnKey>;
   onToggleColumn: (key: EnrollmentColumnKey) => void;
-  canExportImport: boolean;
-  onImport: () => void;
   visibleCount: number;
   totalCount: number;
-  visibleRecordIds: string[];
 }) {
   const isMedicare = program === "medicare";
-  const exportColumnKeys = columns
-    .filter((column) => column.locked || column.sticky || !hiddenColumnKeys.has(column.key))
-    .map((column) => column.key)
-    .join(",");
-  const exportHref = `/api/enrollment/export?program=${program}&columns=${encodeURIComponent(
-    exportColumnKeys
-  )}&ids=${encodeURIComponent(visibleRecordIds.join(","))}`;
   const hasActiveFilters =
     filters.query.trim() !== "" ||
     filters.stage.length > 0 ||
@@ -899,11 +1017,11 @@ function EnrollmentToolbar({
     filters.overdue ||
     filters.qcNeeded ||
     filters.unowned ||
-    filters.dueFrom !== "" ||
-    filters.dueTo !== "";
+    filters.createdFrom !== "" ||
+    filters.createdTo !== "";
 
   return (
-    <section className="mt-6 space-y-3">
+    <section className="mt-2 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
@@ -939,11 +1057,16 @@ function EnrollmentToolbar({
 
         {view === "list" ? (
           <div className="flex shrink-0 items-center gap-2">
-            <EnrollmentDueRangeFilter
-              from={filters.dueFrom}
-              to={filters.dueTo}
+            <DateRangeFilter
+              from={filters.createdFrom}
+              to={filters.createdTo}
+              allDatesLabel="All created dates"
               onChange={({ from, to }) =>
-                setFilters((current) => ({ ...current, dueFrom: from, dueTo: to }))
+                setFilters((current) => ({
+                  ...current,
+                  createdFrom: from,
+                  createdTo: to,
+                }))
               }
             />
           </div>
@@ -1046,28 +1169,6 @@ function EnrollmentToolbar({
           hiddenColumnKeys={hiddenColumnKeys}
           onToggleColumn={onToggleColumn}
         />
-
-        {canExportImport ? (
-          <>
-            <a
-              href={exportHref}
-              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-              title="Export visible columns"
-            >
-              <Download className="h-4 w-4" />
-              Export
-            </a>
-            <button
-              type="button"
-              onClick={onImport}
-              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-              title="Import table data"
-            >
-              <FileUp className="h-4 w-4" />
-              Import
-            </button>
-          </>
-        ) : null}
 
         {hasActiveFilters ? (
           <button
@@ -1197,119 +1298,6 @@ function ColumnVisibilityButton({
   );
 }
 
-function EnrollmentDueRangeFilter({
-  from,
-  to,
-  onChange,
-}: {
-  from: string;
-  to: string;
-  onChange: (value: { from: string; to: string }) => void;
-}) {
-  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
-    useAnchoredMenu();
-  const [draft, setDraft] = useState({ from, to });
-  const label = formatEnrollmentDateRangeLabel(from, to);
-
-  function applyRange() {
-    onChange(finalizeEnrollmentDateRange(draft.from, draft.to));
-    setIsOpen(false);
-  }
-
-  function clearRange() {
-    setDraft({ from: "", to: "" });
-    onChange({ from: "", to: "" });
-    setIsOpen(false);
-  }
-
-  return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => {
-          if (!isOpen) setDraft({ from, to });
-          toggle();
-        }}
-        className={`dashboard-filter-button min-w-[13.75rem] ${FILTER_SELECT_BUTTON_CLASS}`}
-        aria-expanded={isOpen}
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          <CalendarDays className="h-4 w-4 shrink-0 text-[#44546f]" />
-          <span className="truncate font-medium">{label}</span>
-        </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-[#667085]" />
-      </button>
-
-      {isOpen
-        ? createPortal(
-            <div
-              ref={menuRef}
-              style={menuStyle}
-              className="dashboard-filter-menu z-[110] w-[min(18rem,calc(100vw-1rem))] p-3"
-            >
-              <div className="grid gap-3">
-                <label className="grid gap-1.5">
-                  <span className="text-[0.68rem] font-bold uppercase tracking-wide text-[#6b778c]">
-                    Due from
-                  </span>
-                  <input
-                    type="date"
-                    value={draft.from}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        from: event.target.value,
-                      }))
-                    }
-                    className={`${DATE_INPUT_CLASS} w-full`}
-                  />
-                </label>
-                <label className="grid gap-1.5">
-                  <span className="text-[0.68rem] font-bold uppercase tracking-wide text-[#6b778c]">
-                    Due to
-                  </span>
-                  <input
-                    type="date"
-                    value={draft.to}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, to: event.target.value }))
-                    }
-                    className={`${DATE_INPUT_CLASS} w-full`}
-                  />
-                </label>
-              </div>
-              <div className="mt-3 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={clearRange}
-                  className="mr-auto rounded px-2 py-1.5 text-xs font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]"
-                >
-                  Clear dates
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsOpen(false)}
-                  className="rounded px-2 py-1.5 text-xs font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={applyRange}
-                  className="rounded bg-[#0c66e4] px-2.5 py-1.5 text-xs font-bold text-white transition hover:bg-[#0055cc]"
-                >
-                  Apply
-                </button>
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
-    </div>
-  );
-}
-
 function EnrollmentTable({
   columns,
   records,
@@ -1337,61 +1325,69 @@ function EnrollmentTable({
     () => columns.reduce((sum, column) => sum + column.width, 0),
     [columns]
   );
+  const tableFrameStyle: CSSProperties = {
+    maxHeight: "1008px",
+  };
+
+  if (records.length === 0) {
+    return (
+      <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
+        No enrollment records match this view.
+      </div>
+    );
+  }
 
   return (
-    <div className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
-      {records.length === 0 ? (
-        <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
-          No enrollment records match this view.
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <div style={{ minWidth }}>
-            <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
-              {columns.map((column) => (
-                <div
-                  key={column.key}
-                  style={{
-                    width: column.width,
-                    left: column.sticky ? stickyOffset(columns, column.key) : undefined,
-                  }}
-                  className={`flex shrink-0 items-center px-3 py-2 ${
-                    column.align === "center" ? "justify-center" : ""
-                  } ${column.sticky ? "sticky z-[30] border-r border-[#dfe1e6] bg-[#fafbfc]" : ""}`}
-                >
-                  {column.sortable ? (
-                    <EnrollmentSortTh
-                      label={column.label}
-                      col={column.key as SortKey}
-                      sortKey={sort.key}
-                      sortDir={sort.dir}
-                      onSort={onSort}
-                    />
-                  ) : (
-                    <span className="truncate">{column.label}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-            <ul className="divide-y divide-[#ebecf0]">
-              {records.map((record) => (
-                <li key={record.id}>
-                  <EnrollmentRowItem
-                    columns={columns}
-                    record={record}
-                    peopleByEmail={peopleByEmail}
-                    optionsById={optionsById}
-                    optionsBySet={optionsBySet}
-                    tableColumnOptions={tableColumnOptions}
-                    onOpen={onOpen}
-                    onPatch={onPatch}
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
+      style={tableFrameStyle}
+    >
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div style={{ minWidth }}>
+          <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
+            {columns.map((column) => (
+              <div
+                key={column.key}
+                style={{
+                  width: column.width,
+                  left: column.sticky ? stickyOffset(columns, column.key) : undefined,
+                }}
+                className={`flex shrink-0 items-center px-3 py-2 ${
+                  column.align === "center" ? "justify-center" : ""
+                } ${column.sticky ? "sticky z-[30] border-r border-[#dfe1e6] bg-[#fafbfc]" : ""}`}
+              >
+                {column.sortable ? (
+                  <EnrollmentSortTh
+                    label={column.label}
+                    col={column.key as SortKey}
+                    sortKey={sort.key}
+                    sortDir={sort.dir}
+                    onSort={onSort}
                   />
-                </li>
-              ))}
-            </ul>
+                ) : (
+                  <span className="truncate">{column.label}</span>
+                )}
+              </div>
+            ))}
           </div>
+          <ul>
+            {records.map((record) => (
+              <li key={record.id} className="border-b border-[#ebecf0]">
+                <EnrollmentRowItem
+                  columns={columns}
+                  record={record}
+                  peopleByEmail={peopleByEmail}
+                  optionsById={optionsById}
+                  optionsBySet={optionsBySet}
+                  tableColumnOptions={tableColumnOptions}
+                  onOpen={onOpen}
+                  onPatch={onPatch}
+                />
+              </li>
+            ))}
+          </ul>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -3532,8 +3528,9 @@ function filterRecords(
     ) {
       return false;
     }
-    if (filters.dueFrom && (!record.due_date || record.due_date < filters.dueFrom)) return false;
-    if (filters.dueTo && (!record.due_date || record.due_date > filters.dueTo)) return false;
+    const createdDate = record.created_at.slice(0, 10);
+    if (filters.createdFrom && createdDate < filters.createdFrom) return false;
+    if (filters.createdTo && createdDate > filters.createdTo) return false;
     if (!query) return true;
 
     const haystack = [
@@ -3724,61 +3721,6 @@ function hexToRgba(hex: string, alpha: number): string | null {
   if (!match) return null;
   const [, r, g, b] = match;
   return `rgba(${parseInt(r, 16)}, ${parseInt(g, 16)}, ${parseInt(b, 16)}, ${alpha})`;
-}
-
-function finalizeEnrollmentDateRange(from: string, to: string) {
-  if (!from && !to) return { from: "", to: "" };
-  if (from && !to) return { from, to: from };
-  if (!from && to) return { from: to, to };
-  if (from.localeCompare(to) > 0) return { from: to, to: from };
-  return { from, to };
-}
-
-function formatEnrollmentDateRangeLabel(from: string, to: string) {
-  if (!from && !to) return "All due dates";
-  if (from && to) return formatEnrollmentCompactDateRangeLabel(from, to);
-  if (from) return `From ${formatEnrollmentDateLabel(from)}`;
-  return `Through ${formatEnrollmentDateLabel(to)}`;
-}
-
-function formatEnrollmentCompactDateRangeLabel(from: string, to: string) {
-  if (from === to) return formatEnrollmentDateLabel(from);
-
-  const start = dateKeyToLocalDate(from);
-  const end = dateKeyToLocalDate(to);
-  const sameYear = start.getFullYear() === end.getFullYear();
-  const sameMonth = sameYear && start.getMonth() === end.getMonth();
-
-  if (sameMonth) {
-    return `${formatEnrollmentMonthDay(from)} - ${end.getDate()}, ${end.getFullYear()}`;
-  }
-
-  if (sameYear) {
-    return `${formatEnrollmentMonthDay(from)} - ${formatEnrollmentMonthDay(to)}, ${end.getFullYear()}`;
-  }
-
-  return `${formatEnrollmentDateLabel(from)} - ${formatEnrollmentDateLabel(to)}`;
-}
-
-function formatEnrollmentDateLabel(value: string) {
-  if (!value) return "";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(dateKeyToLocalDate(value));
-}
-
-function formatEnrollmentMonthDay(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(dateKeyToLocalDate(value));
-}
-
-function dateKeyToLocalDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day);
 }
 
 function groupOptions(options: EnrollmentOption[]): EnrollmentOptionsBySet {

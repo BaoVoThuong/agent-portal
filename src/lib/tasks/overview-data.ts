@@ -17,7 +17,15 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnapshot> {
+export type TaskOverviewDateRange = {
+  from?: string;
+  to?: string;
+};
+
+export async function fetchTaskOverview(
+  now = new Date(),
+  dateRange: TaskOverviewDateRange = {}
+): Promise<OverviewSnapshot> {
   const supabase = getSupabaseAdmin();
   const recentDoneSince = new Date(now.getTime() - 7 * 24 * 3600_000).toISOString();
   const [accountsResult, rolesResult, rolePermissionsResult, userRolesResult, agentsResult, membersResult, rotationResult, queueMemberResult, categoryResult, activeTaskResult, recentDoneResult, rulesResult, reminderResult] =
@@ -189,7 +197,10 @@ export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnaps
     ...(activeTaskResult.data ?? []),
     ...(recentDoneResult.data ?? []),
   ] as unknown as OverviewTaskInput[];
-  const taskIds = tasks.map((task) => task.id);
+  const filteredTasks = tasks.filter((task) =>
+    matchesOverviewDateWindow(task, dateRange)
+  );
+  const taskIds = filteredTasks.map((task) => task.id);
   const assigneeRows = (await fetchTaskAssigneeRowsForTaskIds(taskIds, supabase)) ?? [];
   const assigneesByTask = new Map<string, string[]>();
   for (const row of assigneeRows as Array<{ task_id: string; email: string }>) {
@@ -198,7 +209,7 @@ export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnaps
     assigneesByTask.set(row.task_id, [...new Set(emails)]);
   }
 
-  const normalizedTasks = tasks.map((task) => ({
+  const normalizedTasks = filteredTasks.map((task) => ({
     ...task,
     agent_email: task.agent_email ? normalizeEmail(task.agent_email) : null,
     assignee_email: task.assignee_email ? normalizeEmail(task.assignee_email) : null,
@@ -219,6 +230,52 @@ export async function fetchTaskOverview(now = new Date()): Promise<OverviewSnaps
     rules,
     reminderSettings,
   });
+}
+
+function matchesOverviewDateWindow(
+  task: OverviewTaskInput,
+  dateRange: TaskOverviewDateRange
+): boolean {
+  const dateFrom = normalizeDateKey(dateRange.from);
+  const dateTo = normalizeDateKey(dateRange.to);
+  if (!dateFrom && !dateTo) return true;
+
+  const createdDate = getLocalDateKey(task.created_at);
+  if (dateKeyInRange(createdDate, dateFrom, dateTo)) return true;
+
+  const isTerminal = task.status === "done" || task.status === "cancel";
+  if (isTerminal) {
+    return dateKeyInRange(
+      getLocalDateKey(task.closed_at ?? task.updated_at),
+      dateFrom,
+      dateTo
+    );
+  }
+
+  return dateFrom !== null && createdDate < dateFrom;
+}
+
+function dateKeyInRange(
+  dateKey: string,
+  dateFrom: string | null,
+  dateTo: string | null
+): boolean {
+  return (!dateFrom || dateKey >= dateFrom) && (!dateTo || dateKey <= dateTo);
+}
+
+function normalizeDateKey(value: string | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  return value;
+}
+
+function getLocalDateKey(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function overviewRoleLabel({

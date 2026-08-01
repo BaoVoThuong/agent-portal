@@ -1673,6 +1673,41 @@ create table if not exists task_activity (
 
 create index if not exists task_activity_task_idx on task_activity (task_id, created_at);
 
+create or replace function task_list_metadata(task_ids uuid[])
+returns table (
+  task_id uuid,
+  last_activity_by_email text,
+  comment_count integer,
+  attachment_count integer
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    t.id as task_id,
+    (
+      select a.actor_email
+      from task_activity a
+      where a.task_id = t.id
+      order by a.created_at desc
+      limit 1
+    ) as last_activity_by_email,
+    (
+      select count(*)::integer
+      from task_comments c
+      where c.task_id = t.id
+        and c.deleted_at is null
+    ) as comment_count,
+    (
+      select count(*)::integer
+      from task_attachments att
+      where att.task_id = t.id
+    ) as attachment_count
+  from unnest(task_ids) as t(id);
+$$;
+
 delete from task_activity
 where type = 'due_changed';
 

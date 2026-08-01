@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { cache } from "react";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   LEGACY_SUPER_ADMIN_ROLE_NAME,
@@ -30,6 +31,25 @@ type AccountRoleRow = {
     roles: { name: string; is_active: boolean } | null;
   }> | null;
 };
+
+const fetchSelectedAgentEmails = cache(async (): Promise<Set<string>> => {
+  const { data, error } = await getSupabaseAdmin()
+    .from("task_agents")
+    .select("email");
+  if (error) throw new Error(error.message);
+  return new Set((data ?? []).map((row) => (row as { email: string }).email));
+});
+
+const fetchAssistantMemberRows = cache(
+  async (): Promise<Array<{ agent_email: string; cs_email: string }>> => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("agent_members")
+      .select("agent_email,cs_email")
+      .eq("is_assistant", true);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Array<{ agent_email: string; cs_email: string }>;
+  }
+);
 
 // Active accounts whose role grants task.work or task.manage. Used by the
 // assignee picker (manager only).
@@ -102,23 +122,10 @@ async function enrichTaskPeopleRoles(rows: AccountRoleRow[]): Promise<TaskAssign
   if (people.length === 0) return [];
 
   const supabase = getSupabaseAdmin();
-  const [agentResult, assistantResult] = await Promise.all([
-    supabase.from("task_agents").select("email"),
-    supabase
-      .from("agent_members")
-      .select("agent_email,cs_email")
-      .eq("is_assistant", true),
+  const [selectedAgentEmails, assistantRows] = await Promise.all([
+    fetchSelectedAgentEmails(),
+    fetchAssistantMemberRows(),
   ]);
-  if (agentResult.error) throw new Error(agentResult.error.message);
-  if (assistantResult.error) throw new Error(assistantResult.error.message);
-
-  const selectedAgentEmails = new Set(
-    (agentResult.data ?? []).map((row) => (row as { email: string }).email)
-  );
-  const assistantRows = (assistantResult.data ?? []) as Array<{
-    agent_email: string;
-    cs_email: string;
-  }>;
 
   const accountByEmail = new Map(rows.map((account) => [account.email, account]));
   const nameByEmail = new Map(people.map((person) => [person.email, person.name]));
@@ -299,24 +306,30 @@ export async function fetchTaskAssigneeRowsForTaskIds(
   if (ids.length === 0) return [];
 
   const rows: TaskAssigneeRow[] = [];
-  for (const chunk of chunkValues(ids, TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE)) {
-    let result:
-      | {
-          data: unknown[] | null;
-          error: SupabaseErrorLike | null;
-        }
-      | null = null;
-    try {
-      result = await supabase
-        .from("task_assignees")
-        .select("task_id,email,created_at")
-        .in("task_id", chunk)
-        .order("created_at", { ascending: true });
-    } catch (error) {
-      if (isFetchFailedError(error)) return null;
-      throw error;
-    }
+  const results = await Promise.all(
+    chunkValues(ids, TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE).map(async (chunk) => {
+      let result:
+        | {
+            data: unknown[] | null;
+            error: SupabaseErrorLike | null;
+          }
+        | null = null;
+      try {
+        result = await supabase
+          .from("task_assignees")
+          .select("task_id,email,created_at")
+          .in("task_id", chunk)
+          .order("created_at", { ascending: true });
+      } catch (error) {
+        if (isFetchFailedError(error)) return null;
+        throw error;
+      }
+      return result;
+    })
+  );
 
+  for (const result of results) {
+    if (!result) return null;
     if (result.error) {
       if (isTaskAssigneesMissingError(result.error)) return null;
       throw new Error(result.error.message ?? "Could not load task assignees.");
@@ -325,7 +338,10 @@ export async function fetchTaskAssigneeRowsForTaskIds(
     rows.push(...((result.data ?? []) as TaskAssigneeRow[]));
   }
 
-  return rows;
+  return rows.sort(
+    (a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
 }
 
 function sortPeople<T extends TaskAssignee>(people: T[]): T[] {

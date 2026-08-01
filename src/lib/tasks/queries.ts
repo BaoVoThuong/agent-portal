@@ -115,9 +115,50 @@ type TaskActivityListRow = {
   actor_email: string;
   created_at: string;
 };
+type TaskListMetadataRow = {
+  task_id: string;
+  last_activity_by_email: string | null;
+  comment_count: number | null;
+  attachment_count: number | null;
+};
 const TASK_METADATA_TASK_ID_CHUNK_SIZE = 50;
 
 async function attachTaskListMetadata(
+  tasks: TaskRow[],
+  supabase = getSupabaseAdmin()
+): Promise<TaskRow[]> {
+  if (tasks.length === 0) return tasks;
+
+  const ids = tasks.map((task) => task.id);
+  const { data, error } = await supabase.rpc("task_list_metadata", {
+    task_ids: ids,
+  });
+  if (error) {
+    if (isMissingTaskListMetadataRpc(error)) {
+      return attachTaskListMetadataLegacy(tasks, supabase);
+    }
+    throw new Error(error.message);
+  }
+
+  const metadataByTask = new Map(
+    ((data ?? []) as unknown as TaskListMetadataRow[]).map((row) => [
+      row.task_id,
+      row,
+    ])
+  );
+
+  return tasks.map((task) => {
+    const metadata = metadataByTask.get(task.id);
+    return {
+      ...task,
+      last_activity_by_email: metadata?.last_activity_by_email ?? null,
+      comment_count: metadata?.comment_count ?? 0,
+      attachment_count: metadata?.attachment_count ?? 0,
+    };
+  });
+}
+
+async function attachTaskListMetadataLegacy(
   tasks: TaskRow[],
   supabase = getSupabaseAdmin()
 ): Promise<TaskRow[]> {
@@ -152,13 +193,18 @@ async function fetchTaskActivityRows(
   taskIds: string[],
   supabase = getSupabaseAdmin()
 ): Promise<TaskActivityListRow[]> {
+  const chunks = chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE);
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      supabase
+        .from("task_activity")
+        .select("task_id,actor_email,created_at")
+        .in("task_id", chunk)
+        .order("created_at", { ascending: false })
+    )
+  );
   const rows: TaskActivityListRow[] = [];
-  for (const chunk of chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE)) {
-    const { data, error } = await supabase
-      .from("task_activity")
-      .select("task_id,actor_email,created_at")
-      .in("task_id", chunk)
-      .order("created_at", { ascending: false });
+  for (const { data, error } of results) {
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as unknown as TaskActivityListRow[]));
   }
@@ -172,13 +218,18 @@ async function fetchTaskCommentRows(
   taskIds: string[],
   supabase = getSupabaseAdmin()
 ): Promise<Array<{ task_id: string }>> {
+  const chunks = chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE);
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      supabase
+        .from("task_comments")
+        .select("task_id")
+        .in("task_id", chunk)
+        .is("deleted_at", null)
+    )
+  );
   const rows: Array<{ task_id: string }> = [];
-  for (const chunk of chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE)) {
-    const { data, error } = await supabase
-      .from("task_comments")
-      .select("task_id")
-      .in("task_id", chunk)
-      .is("deleted_at", null);
+  for (const { data, error } of results) {
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as Array<{ task_id: string }>));
   }
@@ -189,12 +240,17 @@ async function fetchTaskAttachmentRows(
   taskIds: string[],
   supabase = getSupabaseAdmin()
 ): Promise<Array<{ task_id: string }>> {
+  const chunks = chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE);
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      supabase
+        .from("task_attachments")
+        .select("task_id")
+        .in("task_id", chunk)
+    )
+  );
   const rows: Array<{ task_id: string }> = [];
-  for (const chunk of chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE)) {
-    const { data, error } = await supabase
-      .from("task_attachments")
-      .select("task_id")
-      .in("task_id", chunk);
+  for (const { data, error } of results) {
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as Array<{ task_id: string }>));
   }
@@ -251,5 +307,14 @@ function isMissingTaskCustomValuesColumn(error: { code?: string; message?: strin
     (message.includes("custom_values") &&
       message.includes("tasks") &&
       (message.includes("does not exist") || message.includes("schema cache")))
+  );
+}
+
+export function isMissingTaskListMetadataRpc(error: { code?: string; message?: string } | null): boolean {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "PGRST202" ||
+    (message.includes("task_list_metadata") &&
+      (message.includes("does not exist") || message.includes("could not find")))
   );
 }

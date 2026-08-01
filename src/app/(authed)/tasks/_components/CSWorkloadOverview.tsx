@@ -1011,7 +1011,6 @@ function UnassignedTaskRow({
 export function CSWorkloadOverview({
   snapshot,
   loading,
-  refreshing,
   error,
   notice,
   onRefresh,
@@ -1024,7 +1023,6 @@ export function CSWorkloadOverview({
 }: {
   snapshot: OverviewSnapshot | null;
   loading: boolean;
-  refreshing: boolean;
   error: string | null;
   notice: string | null;
   onRefresh: () => void;
@@ -1101,19 +1099,8 @@ export function CSWorkloadOverview({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#f7f9fc] px-4 pb-8 pt-4 sm:px-6">
+    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#f7f9fc] px-4 pb-8 pt-0 sm:px-6">
       <div className="mx-auto max-w-[1480px] min-w-0 space-y-4">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.1em] text-[#0c66e4]">Admin workload dashboard {refreshing ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}</div>
-            <h2 className="mt-1 text-2xl font-bold tracking-normal text-[#172b4d]">CS Workload Overview</h2>
-            <p className="mt-1 text-xs text-[#667085]">Snapshot at {new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. SLA exposure is a workload proxy, not an ETA.</p>
-          </div>
-          <button type="button" onClick={onRefresh} disabled={refreshing} className="inline-flex h-9 items-center gap-2 rounded border border-[#cfd8e5] bg-white px-3 text-sm font-bold text-[#344054] shadow-sm hover:bg-[#f8fafc] disabled:opacity-60" title="Refresh overview">
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Refresh
-          </button>
-        </header>
-
         {error ? <div className="flex items-center justify-between gap-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"><span>Showing the last good snapshot. {error}</span><button type="button" onClick={onRefresh} className="font-bold underline">Retry</button></div> : null}
         {notice ? <div className="rounded border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-800" role="status">{notice}</div> : null}
 

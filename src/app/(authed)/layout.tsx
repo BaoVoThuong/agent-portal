@@ -16,11 +16,16 @@ export default async function AuthedLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-[#f7f9fc]">
+    // Fixed viewport frame: the whole app is exactly one screen tall and never
+    // page-scrolls. The sidebar + top bar stay pinned; only <main> scrolls.
+    // This lets frame-style pages (e.g. the Task Board root, which is
+    // `h-full min-h-0 flex-col`) fill the remaining height and scroll their
+    // own table body internally instead of pushing the page taller.
+    <div className="flex h-screen overflow-hidden bg-[#f7f9fc]">
       <Sidebar
         permissions={session.user.permissions ?? []}
       />
-      <div className="flex flex-1 min-w-0 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar
           userName={session.user.name ?? null}
           userEmail={session.user.email}
@@ -30,7 +35,11 @@ export default async function AuthedLayout({
             PERMISSIONS.TASK_WORK,
           ])}
         />
-        <main className="flex-1">{children}</main>
+        {/* min-h-0 makes <main> a bounded flex child; overflow-y-auto lets
+            ordinary (non-frame) pages scroll here while the shell stays put. */}
+        <main className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+          {children}
+        </main>
       </div>
     </div>
   );

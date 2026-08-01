@@ -264,7 +264,7 @@ function Column({
   return (
     <section
       ref={setNodeRef}
-      className={`flex min-w-0 flex-1 flex-col rounded border border-transparent bg-[#f4f5f7] p-1.5 transition-colors ${
+      className={`flex min-w-0 flex-col rounded border border-transparent bg-[#f4f5f7] p-1.5 transition-colors ${
         isOver ? "bg-[#deebff]" : ""
       }`}
     >
@@ -276,7 +276,7 @@ function Column({
           {tasks.length}
         </span>
       </div>
-      <div className="min-h-[12rem] flex-1 overflow-y-auto rounded px-0.5 pb-1">
+      <div className="rounded px-0.5 pb-1">
         <SortableContext
           items={tasks.map((t) => t.id)}
           strategy={verticalListSortingStrategy}
@@ -518,45 +518,47 @@ export function KanbanBoard({
   }
 
   return (
-    <DndContext
-      id="kanban-board"
-      sensors={sensors}
-      collisionDetection={kanbanCollisionDetection}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={() => {
-        setActiveId(null);
-        setDragItems(null);
-      }}
-    >
-      <div className="grid min-h-0 flex-1 grid-cols-5 gap-3 px-4 pb-6 xl:px-6">
-        {KANBAN_COLUMNS.map((column) => renderColumn(column))}
-      </div>
+    <div className="min-w-0 px-4 pb-6 xl:px-6">
+      <DndContext
+        id="kanban-board"
+        sensors={sensors}
+        collisionDetection={kanbanCollisionDetection}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => {
+          setActiveId(null);
+          setDragItems(null);
+        }}
+      >
+        <div className="grid min-w-0 grid-cols-5 items-start gap-3">
+          {KANBAN_COLUMNS.map((column) => renderColumn(column))}
+        </div>
 
-      <DragOverlay dropAnimation={{ duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" }}>
-        {activeTask ? (
-          <div className="rotate-2 cursor-grabbing opacity-95 shadow-[0_12px_28px_rgba(9,30,66,0.28)]">
-            <TaskCard
-              task={activeTask}
-              category={
-                activeTask.category_id
-                  ? categoryById.get(activeTask.category_id)
-                  : null
-              }
-              assigneeLabelByEmail={assigneeLabelByEmail}
-              canReviewDone={false}
-              onReviewDone={onReviewDone}
-              onOpen={() => {}}
-              slaRemainingSeconds={slaRemainingFor(activeTask)}
-              isOverdue={isOverdueTask(activeTask)}
-              isNewAssigned={newAssignedTaskIds.has(activeTask.id)}
-              useAssigneeTodoClock={useAssigneeTodoClock}
-              now={now}
-            />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+        <DragOverlay dropAnimation={{ duration: 200, easing: "cubic-bezier(0.2, 0, 0, 1)" }}>
+          {activeTask ? (
+            <div className="rotate-2 cursor-grabbing opacity-95 shadow-[0_12px_28px_rgba(9,30,66,0.28)]">
+              <TaskCard
+                task={activeTask}
+                category={
+                  activeTask.category_id
+                    ? categoryById.get(activeTask.category_id)
+                    : null
+                }
+                assigneeLabelByEmail={assigneeLabelByEmail}
+                canReviewDone={false}
+                onReviewDone={onReviewDone}
+                onOpen={() => {}}
+                slaRemainingSeconds={slaRemainingFor(activeTask)}
+                isOverdue={isOverdueTask(activeTask)}
+                isNewAssigned={newAssignedTaskIds.has(activeTask.id)}
+                useAssigneeTodoClock={useAssigneeTodoClock}
+                now={now}
+              />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </div>
   );
 }

@@ -25,6 +25,37 @@ import type { TableColumn } from "@/lib/table-config/types";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const url = new URL(request.url);
+  return exportEnrollment({
+    program: toEnrollmentProgram(url.searchParams.get("program")),
+    requestedKeys: parseColumnKeys(url.searchParams.get("columns")),
+    requestedIds: parseColumnKeys(url.searchParams.get("ids")),
+  });
+}
+
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as {
+    program?: unknown;
+    columns?: unknown;
+    ids?: unknown;
+  };
+
+  return exportEnrollment({
+    program: toEnrollmentProgram(body.program),
+    requestedKeys: parseColumnKeyInput(body.columns),
+    requestedIds: parseColumnKeyInput(body.ids),
+  });
+}
+
+async function exportEnrollment({
+  program,
+  requestedKeys,
+  requestedIds,
+}: {
+  program: ReturnType<typeof toEnrollmentProgram>;
+  requestedKeys: ReadonlySet<string>;
+  requestedIds: ReadonlySet<string>;
+}) {
   const actorResult = await loadEnrollmentActor();
   if (!actorResult.ok) {
     return NextResponse.json(
@@ -35,11 +66,6 @@ export async function GET(request: Request) {
   if (!(await canActorExportImport(actorResult.actor))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-
-  const url = new URL(request.url);
-  const program = toEnrollmentProgram(url.searchParams.get("program"));
-  const requestedKeys = parseColumnKeys(url.searchParams.get("columns"));
-  const requestedIds = parseColumnKeys(url.searchParams.get("ids"));
 
   const [records, optionData, people, columns, customOptions] = await Promise.all([
     fetchEnrollmentRecords(program),
@@ -165,6 +191,17 @@ function parseColumnKeys(value: string | null): Set<string> {
       .map((key) => key.trim())
       .filter(Boolean)
   );
+}
+
+function parseColumnKeyInput(value: unknown): Set<string> {
+  if (Array.isArray(value)) {
+    return new Set(
+      value
+        .map((key) => (typeof key === "string" ? key.trim() : ""))
+        .filter(Boolean)
+    );
+  }
+  return parseColumnKeys(typeof value === "string" ? value : null);
 }
 
 function orderByRequestedIds(

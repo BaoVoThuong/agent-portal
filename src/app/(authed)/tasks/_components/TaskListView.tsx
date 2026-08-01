@@ -121,16 +121,22 @@ export function TaskListView({
     visibleColumns.map((column) => column.key)
   );
   const pinnedOffsetByKey = buildPinnedOffsetByKey(visibleColumns);
+  const tableFrameStyle: CSSProperties = {
+    maxHeight: "1008px",
+  };
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
+    <div className="min-h-0 flex flex-1 flex-col px-6 pb-6">
       {rows.length === 0 ? (
         <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
           No tasks match the current filters.
         </div>
       ) : (
-        <div className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
-          <div className="overflow-x-auto">
+        <div
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
+          style={tableFrameStyle}
+        >
+          <div className="min-h-0 flex-1 overflow-auto">
             <div className="min-w-max">
               <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
                 {visibleColumns.map((column) =>
@@ -160,11 +166,11 @@ export function TaskListView({
                   )
                 )}
               </div>
-              <ul className="divide-y divide-[#ebecf0]">
+              <ul>
                 {rows.map((task) => {
                   const capabilities = capabilitiesFor(task);
                   return (
-                    <li key={task.id}>
+                    <li key={task.id} className="border-b border-[#ebecf0]">
                       <TaskRowItem
                         task={task}
                         category={categoryById.get(task.category_id ?? "") ?? null}

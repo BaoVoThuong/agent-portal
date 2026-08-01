@@ -7,8 +7,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Download,
-  FileUp,
+  RefreshCw,
   Settings2,
   UserRound,
   UsersRound,
@@ -31,7 +30,7 @@ import type {
   TaskListColumnKey,
 } from "./task-list-columns";
 
-export type BoardView = "board" | "list" | "backlog" | "overview";
+export type BoardView = "board" | "list" | "overview";
 
 export type TaskDateRangeValue = { from: string; to: string };
 
@@ -72,7 +71,8 @@ export function TaskToolbar({
   view,
   onViewChange,
   isManager,
-  showBacklog,
+  overviewRefreshing = false,
+  onOverviewRefresh,
   labelByEmail,
   agentStats,
   agentFilter,
@@ -108,14 +108,12 @@ export function TaskToolbar({
   listColumns,
   hiddenListColumnKeys,
   onToggleListColumn,
-  exportTaskIds,
-  canExportImport,
-  onImport,
 }: {
   view: BoardView;
   onViewChange: (view: BoardView) => void;
   isManager: boolean;
-  showBacklog: boolean;
+  overviewRefreshing?: boolean;
+  onOverviewRefresh?: () => void;
   labelByEmail: Map<string, string>;
   agentStats: AgentStat[];
   agentFilter: string[];
@@ -151,9 +149,6 @@ export function TaskToolbar({
   listColumns: TaskListColumn[];
   hiddenListColumnKeys: ReadonlySet<TaskListColumnKey>;
   onToggleListColumn: (key: TaskListColumnKey) => void;
-  exportTaskIds: string[];
-  canExportImport: boolean;
-  onImport: () => void;
 }) {
   const agentOptions = [
     { value: ALL_AGENTS, label: "Agent" },
@@ -182,14 +177,6 @@ export function TaskToolbar({
 
   const presetOptions = PRESETS.filter((p) => !p.managerOnly);
   const hasVisibleAssigneeFilter = showAssignee || showInlineAssignee;
-  const exportColumnKeys = listColumns
-    .filter((column) => column.locked || !hiddenListColumnKeys.has(column.key))
-    .map((column) => column.key)
-    .join(",");
-  const exportHref = `/api/tasks/export?columns=${encodeURIComponent(
-    exportColumnKeys
-  )}&ids=${encodeURIComponent(exportTaskIds.join(","))}`;
-
   const hasActiveFilters =
     (showAgent && agentFilter.length > 0) ||
     (hasVisibleAssigneeFilter && assigneeFilter.length > 0) ||
@@ -210,15 +197,15 @@ export function TaskToolbar({
     ...(isManager ? [{ key: "overview" as const, label: "Overview" }] : []),
     { key: "board", label: "Board" },
     { key: "list", label: "List" },
-    ...(showBacklog ? [{ key: "backlog" as const, label: "Backlog" }] : []),
   ];
 
   const showTaskFilters = view !== "overview";
+  const showDateRangeFilter = showTaskFilters || view === "overview";
 
   return (
-    <section className="mt-6 space-y-3">
+    <section className="mt-6 min-w-0 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
             {views.map((v) => (
               <button
@@ -245,18 +232,37 @@ export function TaskToolbar({
           ) : null}
         </div>
 
-        {showTaskFilters ? (
-          <DateRangeFilter
-            from={dateFrom}
-            to={dateTo}
-            onChange={onDateRange}
-            onDefaultChange={onDefaultDateRange}
-          />
+        {showDateRangeFilter || onOverviewRefresh ? (
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {showDateRangeFilter ? (
+              <DateRangeFilter
+                from={dateFrom}
+                to={dateTo}
+                onChange={onDateRange}
+                onDefaultChange={onDefaultDateRange}
+              />
+            ) : null}
+
+            {view === "overview" && onOverviewRefresh ? (
+              <button
+                type="button"
+                onClick={onOverviewRefresh}
+                disabled={overviewRefreshing}
+                className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-60"
+                title="Refresh overview"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${overviewRefreshing ? "animate-spin" : ""}`}
+                />
+                Refresh
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
       {showTaskFilters ? (
-        <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {showAgent ? (
             <TaskSelect
               multi
@@ -391,35 +397,12 @@ export function TaskToolbar({
             );
           })}
 
-          {view === "list" || view === "backlog" ? (
-            <>
-              <TaskListColumnSettingsButton
-                columns={listColumns}
-                hiddenColumnKeys={hiddenListColumnKeys}
-                onToggleColumn={onToggleListColumn}
-              />
-              {canExportImport ? (
-                <>
-                  <a
-                    href={exportHref}
-                    className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                    title="Export visible columns"
-                  >
-                    <Download className="h-4 w-4" />
-                    Export
-                  </a>
-                  <button
-                    type="button"
-                    onClick={onImport}
-                    className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                    title="Import table data"
-                  >
-                    <FileUp className="h-4 w-4" />
-                    Import
-                  </button>
-                </>
-              ) : null}
-            </>
+          {view === "list" ? (
+            <TaskListColumnSettingsButton
+              columns={listColumns}
+              hiddenColumnKeys={hiddenListColumnKeys}
+              onToggleColumn={onToggleListColumn}
+            />
           ) : null}
 
           {hasActiveFilters ? (
@@ -527,16 +510,18 @@ function TaskListColumnSettingsButton({
   );
 }
 
-function DateRangeFilter({
+export function DateRangeFilter({
   from,
   to,
   onChange,
   onDefaultChange,
+  allDatesLabel = "All task dates",
 }: {
   from: string;
   to: string;
   onChange: (value: TaskDateRangeValue) => void;
-  onDefaultChange: (value: TaskDateRangeDefault) => void;
+  onDefaultChange?: (value: TaskDateRangeDefault) => void;
+  allDatesLabel?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -585,7 +570,10 @@ function DateRangeFilter({
     [draftRange.from, draftRange.to]
   );
 
-  const label = useMemo(() => formatDateRangeLabel(from, to), [from, to]);
+  const label = useMemo(
+    () => formatDateRangeLabel(from, to, allDatesLabel),
+    [allDatesLabel, from, to]
+  );
 
   function selectStartDate(dateKey: string) {
     setDraftPreset("fixed");
@@ -619,6 +607,7 @@ function DateRangeFilter({
     const nextPreset =
       nextRange.from || nextRange.to ? draftPreset : ("all" as const);
 
+    if (!onDefaultChange) return;
     onDefaultChange({ ...nextRange, preset: nextPreset });
     onChange(nextRange);
     setIsOpen(false);
@@ -683,7 +672,8 @@ function DateRangeFilter({
                     : getPresetDateRange(preset.key);
                 const presetRangeLabel = formatDateRangeLabel(
                   presetRange.from,
-                  presetRange.to
+                  presetRange.to,
+                  allDatesLabel
                 );
 
                 return (
@@ -752,13 +742,17 @@ function DateRangeFilter({
           ) : null}
 
           <div className="dashboard-filter-footer mt-3">
-            <button
-              type="button"
-              onClick={saveDefaultRange}
-              className="dashboard-filter-action mr-auto text-[#184e8a] hover:bg-[#edf4ff]"
-            >
-              Set default
-            </button>
+            {onDefaultChange ? (
+              <button
+                type="button"
+                onClick={saveDefaultRange}
+                className="dashboard-filter-action mr-auto text-[#184e8a] hover:bg-[#edf4ff]"
+              >
+                Set default
+              </button>
+            ) : (
+              <span className="mr-auto" />
+            )}
             <button
               type="button"
               onClick={() => setIsOpen(false)}
@@ -982,8 +976,8 @@ function getPresetDateRange(presetKey: TaskDatePresetKey) {
   }
 }
 
-function formatDateRangeLabel(from: string, to: string) {
-  if (!from && !to) return "All task dates";
+function formatDateRangeLabel(from: string, to: string, allDatesLabel = "All task dates") {
+  if (!from && !to) return allDatesLabel;
   if (from && to) return formatCompactDateRangeLabel(from, to);
   if (from) return `From ${formatDateLabel(from)}`;
   return `Through ${formatDateLabel(to)}`;

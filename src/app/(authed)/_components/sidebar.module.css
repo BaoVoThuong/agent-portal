@@ -2,13 +2,23 @@
   display: flex;
   flex-direction: column;
   width: 280px;
-  min-height: 100vh;
+  /* Keep the fixed 280px slot in the flex row — never let the sidebar shrink
+     or the long menu labels get squished, which pushed content around. */
+  flex-shrink: 0;
   background: #0f2849;
   color: #ffffff;
   font-family: Arial, Helvetica, sans-serif;
+  /* Pin to viewport height and stick to the top so the sidebar stays visible
+     while the page scrolls vertically. `align-self: flex-start` stops the flex
+     row from stretching it to the full (tall) content height — which is what
+     silently defeated the previous `sticky; top: 0`. NO `left: 0`: that turned
+     the sidebar into a horizontal sticky that slid over the content whenever
+     the page scrolled sideways (the reported overlap bug). */
   position: sticky;
   top: 0;
-  left: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .logoWrap {
