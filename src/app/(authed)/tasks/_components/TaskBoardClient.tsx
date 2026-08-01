@@ -1203,7 +1203,6 @@ export function TaskBoardClient({
     ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
     : "flex min-h-full min-w-0 flex-col bg-[#f7f9fc] text-[#172b4d]";
   const overviewHeader = view === "overview" && isManager;
-  const pageEyebrow = "Task Management";
   const pageTitle = overviewHeader ? "CS Workload Overview" : boardTitle;
 
   return (
@@ -1215,112 +1214,109 @@ export function TaskBoardClient({
         </div>
       ) : null}
       <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p
-              className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#0c66e4]"
-            >
-              {pageEyebrow}
-            </p>
-            <h1 className="mt-1 text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
-              {pageTitle}
-            </h1>
-          </div>
-
-          {!overviewHeader ? (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {isManager && (
-                <button
-                  type="button"
-                  onClick={() => setManagingAgentGroups(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                >
-                  <UsersRound className="h-4 w-4" />
-                  Agent Groups
-                </button>
-              )}
-              {isManager && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setManagingCategories(true)}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                  >
-                    <Tag className="h-4 w-4" />
-                    Categories
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setManagingSlaRules(true)}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                  >
-                    <Clock className="h-4 w-4" />
-                    SLA Times
-                  </button>
-                </>
-              )}
-              {canCreateTasks && (
-                <button
-                  type="button"
-                  onClick={() => setCreating(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
-                >
-                  <Plus className="h-4 w-4" />
-                  New task
-                </button>
-              )}
-              {canExportImport ? (
-                <ImportExportMenu
-                  onExport={exportVisibleTasks}
-                  onImport={() => setImporting(true)}
-                />
-              ) : null}
+        <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
+          <header className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
+                {pageTitle}
+              </h1>
             </div>
-          ) : null}
-        </div>
 
-        <TaskToolbar
-          view={view}
-          onViewChange={setView}
-          isManager={isManager}
-          overviewRefreshing={overviewRefreshing}
-          onOverviewRefresh={() => void loadOverview(Boolean(overviewSnapshot))}
-          labelByEmail={searchLabelByEmail}
-          agentStats={scopedAgentStats}
-          agentFilter={agentFilter}
-          onAgentFilter={setAgentFilter}
-          assignees={filterAssignees}
-          assigneeFilter={assigneeFilter}
-          onAssigneeFilter={setAssigneeFilter}
-          presets={effectivePresets}
-          onPresets={setPresets}
-          category={categoryFilter}
-          onCategory={setCategoryFilter}
-          status={statusFilter}
-          onStatus={setStatusFilter}
-          priority={priorityFilter}
-          onPriority={setPriorityFilter}
-          dateFrom={dateRange.from}
-          dateTo={dateRange.to}
-          defaultDateRange={defaultDateRange}
-          onDateRange={setDateRange}
-          onDefaultDateRange={saveDefaultDateRange}
-          showAgent={showAgentFilter}
-          showAssignee={showAssigneeFilter}
-          showInlineAssignee={showInlineAssigneeFilter}
-          showStatus={showStatusFilter}
-          showCategory={showCategoryFilter}
-          showTeamTasksToggle={false}
-          teamTasksEnabled={showTeamTasks}
-          onTeamTasksEnabledChange={setShowTeamTasks}
-          categories={categories}
-          resultCount={displayedResultCount}
-          totalCount={displayedTotalCount}
-          onClearAll={clearAllFilters}
-          listColumns={taskListColumnConfig}
-          hiddenListColumnKeys={hiddenTaskListColumnKeys}
-          onToggleListColumn={toggleTaskListColumn}
-        />
+            {!overviewHeader ? (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {isManager && (
+                  <button
+                    type="button"
+                    onClick={() => setManagingAgentGroups(true)}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  >
+                    <UsersRound className="h-4 w-4" />
+                    Agent Groups
+                  </button>
+                )}
+                {isManager && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setManagingCategories(true)}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                    >
+                      <Tag className="h-4 w-4" />
+                      Categories
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setManagingSlaRules(true)}
+                      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                    >
+                      <Clock className="h-4 w-4" />
+                      SLA Times
+                    </button>
+                  </>
+                )}
+                {canCreateTasks && (
+                  <button
+                    type="button"
+                    onClick={() => setCreating(true)}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    New task
+                  </button>
+                )}
+                {canExportImport ? (
+                  <ImportExportMenu
+                    onExport={exportVisibleTasks}
+                    onImport={() => setImporting(true)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+          </header>
+
+          <TaskToolbar
+            view={view}
+            onViewChange={setView}
+            isManager={isManager}
+            overviewRefreshing={overviewRefreshing}
+            onOverviewRefresh={() => void loadOverview(Boolean(overviewSnapshot))}
+            labelByEmail={searchLabelByEmail}
+            agentStats={scopedAgentStats}
+            agentFilter={agentFilter}
+            onAgentFilter={setAgentFilter}
+            assignees={filterAssignees}
+            assigneeFilter={assigneeFilter}
+            onAssigneeFilter={setAssigneeFilter}
+            presets={effectivePresets}
+            onPresets={setPresets}
+            category={categoryFilter}
+            onCategory={setCategoryFilter}
+            status={statusFilter}
+            onStatus={setStatusFilter}
+            priority={priorityFilter}
+            onPriority={setPriorityFilter}
+            dateFrom={dateRange.from}
+            dateTo={dateRange.to}
+            defaultDateRange={defaultDateRange}
+            onDateRange={setDateRange}
+            onDefaultDateRange={saveDefaultDateRange}
+            showAgent={showAgentFilter}
+            showAssignee={showAssigneeFilter}
+            showInlineAssignee={showInlineAssigneeFilter}
+            showStatus={showStatusFilter}
+            showCategory={showCategoryFilter}
+            showTeamTasksToggle={false}
+            teamTasksEnabled={showTeamTasks}
+            onTeamTasksEnabledChange={setShowTeamTasks}
+            categories={categories}
+            resultCount={displayedResultCount}
+            totalCount={displayedTotalCount}
+            onClearAll={clearAllFilters}
+            listColumns={taskListColumnConfig}
+            hiddenListColumnKeys={hiddenTaskListColumnKeys}
+            onToggleListColumn={toggleTaskListColumn}
+          />
+        </div>
       </div>
 
       {view === "board" && (

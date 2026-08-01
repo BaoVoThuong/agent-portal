@@ -203,7 +203,7 @@ export function TaskToolbar({
   const showDateRangeFilter = showTaskFilters || view === "overview";
 
   return (
-    <section className="mt-6 min-w-0 space-y-3">
+    <section className="mt-2 min-w-0 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
