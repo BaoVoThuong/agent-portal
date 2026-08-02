@@ -308,6 +308,39 @@ async function refreshAgents() {
 ### 8. Xoá file component
 `src/app/(authed)/tasks/_components/AgentGroupsModal.tsx` — xoá hẳn.
 
+## Phát hiện bổ sung sau khi rà soát sâu logic liên kết (`TaskBoardClient.tsx`)
+
+Trace toàn bộ usage của `taskAgents`/`manageableAgentEmails` trước khi viết plan implementation, phát hiện 1 việc **spec ban đầu bỏ sót**:
+
+**`manageableAgentEmails` KHÔNG chết** — biến này (`TaskBoardClient.tsx:644-648`, tính từ `agents`/`myAssistantAgents` prop, độc lập hoàn toàn với modal) nuôi trực tiếp:
+- `canManageOwnAgentGroup` (:648) → `shouldLimitPlainCsTasks` (:649, lõi Q1 — plain-CS-thấy-hết) và `isAgentOrAssistant` (:673)
+- `canCreateTasks` (:1216)
+
+→ Xác nhận **giữ nguyên 100%** phần khai báo (644-648); chỉ xoá đúng dòng `manageableAgentEmails={manageableAgentEmails}` (prop truyền vào `<AgentGroupsModal>`) khi xoá modal.
+
+**`taskAgents` state SẼ thành dead sau khi xoá modal** — `setTaskAgents` hiện **chỉ** được dùng ở đúng 1 chỗ: `onAgentsChange={setTaskAgents}` (prop modal, dòng 1480). Không có realtime subscription nào refresh `taskAgents` (kênh broadcast duy nhất trong file là `TASKS_TOPIC`, không liên quan agent list). Sau khi xoá modal, `setTaskAgents` không còn ai gọi → **vỡ lint** (`no-unused-vars`).
+
+→ **Xử lý:** xoá hẳn state `taskAgents`, dùng thẳng prop `agents` (đã verify: prop `agents: TaskAgent[]` của `TaskBoardClient` không bị shadow ở đâu trong file) — thay `taskAgents` bằng `agents` ở 7 chỗ đọc (dòng 539, 548, 630, 634, 1366, 1410, 1443), xoá dòng khai báo `const [taskAgents, setTaskAgents] = useState<TaskAgent[]>(agents);` (:113). Đây là thay đổi CẦN THÊM vào phần "Khai tử Agent Groups" bên dưới, không phải suy diễn — đã trace bằng grep đầy đủ.
+
+## Phát hiện bổ sung #2: 2 nguồn "candidates" khác nhau, `ConfigAssistantSection` hiện đang dùng SAI 1 trong 2
+
+Đã verify code thật:
+- `AgentGroupsModal` (cũ) dùng **2 nguồn tách biệt**: picker "Add Agent" → `candidates` = `fetchTaskAgentCandidates()` (MỌI `portal_account` active, không lọc quyền). Checklist "Assistant" → `cs` = `assignees` = `fetchTaskAssignees()` (CHỈ người có quyền `task.work`/`task.manage`).
+- `ConfigAssistantSection` (hiện tại) chỉ nhận **1 nguồn** `candidates` = `fetchTaskAgentCandidates()` (`config/page.tsx:29`), và dùng nguồn này cho **cả** `assistantOptions` (dropdown chọn Assistant) — tức đang cho chọn **bất kỳ account active nào trong toàn hệ thống** làm Assistant, không lọc còn ai thực sự thuộc CS/task-work.
+
+**Quyết định (lý do nghiệp vụ, không phải sở thích code):**
+- Agent picker: **giữ** `fetchTaskAgentCandidates()` — Agent là khái niệm sở hữu khách hàng, không bắt buộc có quyền `task.work` (có thể chưa từng dùng CS board).
+- Assistant picker: **đổi về** `fetchTaskAssignees()` — làm Assistant = được cấp quyền ngang agent-owner trên task (`isAgentOwnerOrAssistant`). Người không có `task.work`/`task.manage` bị `canAccessBoard` chặn từ `/tasks` luôn, nên cho chọn họ làm Assistant là gán vô nghĩa/lỗi tiềm ẩn.
+- → Sửa luôn bug này khi consolidate, **không** mang theo hành vi sai hiện tại của `ConfigAssistantSection`.
+
+**Cần thêm data fetch mới** (`config/page.tsx` hiện KHÔNG gọi `fetchTaskAssignees()`):
+```
+config/page.tsx: thêm fetchTaskAssignees() vào Promise.all → prop assignees xuống ConfigClient
+ConfigClient: nhận + truyền tiếp assignees xuống ConfigAssistantSection
+ConfigAssistantSection: prop `candidates` (giữ, dùng cho Agent picker) + prop MỚI `assignees` (dùng cho Assistant dropdown + label lookup của list hiện có)
+```
+Xem Part C/D/E trong plan implementation để có code chính xác.
+
 ## Việc cần re-verify khi code (không đoán trước)
 - Đọc lại chính xác `requestJson` helper trong `ConfigClient.tsx` (cách xử lý lỗi) trước khi tái dùng cho request Agent mới — đảm bảo pattern try/catch khớp `run()` wrapper.
 - Sau khi xoá `AgentGroupsModal`, chạy `grep -rn "AgentGroupsModal\|managingAgentGroups"` để chắc không sót import/reference.
