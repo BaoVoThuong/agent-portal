@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canManageCategories } from "@/lib/tasks/access";
+import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     .select("id,name,color,position")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await broadcastTasksChanged();
   return NextResponse.json({ category: data });
 }
 
@@ -52,5 +54,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     .update({ is_active: false })
     .eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await broadcastTasksChanged();
   return NextResponse.json({ ok: true });
 }

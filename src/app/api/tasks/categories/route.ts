@@ -7,6 +7,7 @@ import {
   isTaskViewAdmin,
   canManageCategories,
 } from "@/lib/tasks/access";
+import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 
 export const dynamic = "force-dynamic";
 
@@ -55,5 +56,6 @@ export async function POST(req: Request) {
     .select("id,name,color,position")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await broadcastTasksChanged();
   return NextResponse.json({ category: data });
 }

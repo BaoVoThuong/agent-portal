@@ -84,7 +84,6 @@ export default async function EnrollmentPage({
       initialRecords={records}
       people={people}
       agents={agents}
-      optionSets={optionData.sets}
       initialOptions={optionData.options}
       tableColumns={tableColumns}
       tableColumnOptions={tableColumnOptions}

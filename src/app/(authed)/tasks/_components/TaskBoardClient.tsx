@@ -7,7 +7,7 @@ import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
-import { ChevronDown, Clock, Download, FileUp, Loader2, Plus, Tag } from "lucide-react";
+import { ChevronDown, Clock, Download, FileUp, Loader2, Plus } from "lucide-react";
 import type {
   TaskCategory,
   TaskPriority,
@@ -45,7 +45,6 @@ import {
 } from "./TaskToolbar";
 import { NewTaskDialog, type NewTaskPayload } from "./NewTaskDialog";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
-import { CategoryManager } from "./CategoryManager";
 import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
@@ -125,7 +124,6 @@ export function TaskBoardClient({
   const [importing, setImporting] = useState(false);
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
   const [taskLayoutColumns, setTaskLayoutColumns] = useState<TableColumn[]>(tableColumns);
-  const [managingCategories, setManagingCategories] = useState(false);
   const [managingSlaRules, setManagingSlaRules] = useState(false);
   const [slaRules, setSlaRules] = useState<TaskSlaRule[]>([]);
   const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
@@ -473,6 +471,7 @@ export function TaskBoardClient({
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         void refetchTasks();
+        void reloadCategories();
         if (isManager && view === "overview") void loadOverview(true);
       }, 300);
     };
@@ -1241,14 +1240,6 @@ export function TaskBoardClient({
                   <>
                     <button
                       type="button"
-                      onClick={() => setManagingCategories(true)}
-                      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                    >
-                      <Tag className="h-4 w-4" />
-                      Categories
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => setManagingSlaRules(true)}
                       className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                     >
@@ -1450,12 +1441,6 @@ export function TaskBoardClient({
           onDelete={() => deleteTask(openTask.id)}
         />
       )}
-
-      <CategoryManager
-        open={managingCategories}
-        onClose={() => setManagingCategories(false)}
-        onChanged={reloadCategories}
-      />
 
       <SlaRulesModal
         open={managingSlaRules}

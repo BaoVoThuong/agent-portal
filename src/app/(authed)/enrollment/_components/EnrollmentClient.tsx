@@ -46,7 +46,6 @@ import {
 import {
   compareEnrollmentOptionText,
   emptyEnrollmentOptionsBySet,
-  ENROLLMENT_OPTION_LABELS,
   optionById,
   sortEnrollmentOptionsByLabel,
   type EnrollmentOptionsBySet,
@@ -56,7 +55,6 @@ import {
   ENROLLMENT_PROGRAM_LABELS,
   type EnrollmentDetail,
   type EnrollmentOption,
-  type EnrollmentOptionSet,
   type EnrollmentOptionSetKey,
   type EnrollmentPerson,
   type EnrollmentProgram,
@@ -415,7 +413,6 @@ export function EnrollmentClient({
   initialRecords,
   people,
   agents,
-  optionSets,
   initialOptions,
   tableColumns,
   tableColumnOptions,
@@ -427,7 +424,6 @@ export function EnrollmentClient({
   initialRecords: EnrollmentRecordWithStats[];
   people: EnrollmentPerson[];
   agents: TaskAgent[];
-  optionSets: EnrollmentOptionSet[];
   initialOptions: EnrollmentOption[];
   tableColumns: TableColumn[];
   tableColumnOptions: TableColumnOption[];
@@ -449,7 +445,6 @@ export function EnrollmentClient({
   });
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [managingOptions, setManagingOptions] = useState(false);
   const [importing, setImporting] = useState(false);
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
@@ -560,25 +555,6 @@ export function EnrollmentClient({
     return () => window.clearTimeout(timer);
   }, [hiddenColumnKeys, layoutTableColumns, program]);
 
-  // How many live records reference each option — shown in the archive
-  // confirm dialog so an admin can see the blast radius before archiving
-  // (this is what silently broke the ACA Payment "Auto pay" option earlier).
-  const optionUsageCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    const bump = (id: string | null) => {
-      if (!id) return;
-      counts.set(id, (counts.get(id) ?? 0) + 1);
-    };
-    for (const record of records) {
-      bump(record.stage_id);
-      bump(record.carrier_id);
-      bump(record.platform_id);
-      bump(record.consent_id);
-      bump(record.payment_status_id);
-      bump(record.aca_status_id);
-    }
-    return counts;
-  }, [records]);
   const peopleByEmail = useMemo(() => {
     const map = new Map<string, string>();
     for (const person of people) {
@@ -716,7 +692,10 @@ export function EnrollmentClient({
     let timer: ReturnType<typeof setTimeout> | null = null;
     const schedule = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void refetch(), 300);
+      timer = setTimeout(() => {
+        void refetch();
+        void reloadOptions();
+      }, 300);
     };
     const channel = sb
       .channel(ENROLLMENT_TOPIC)
@@ -728,7 +707,7 @@ export function EnrollmentClient({
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
-  }, [refetch]);
+  }, [refetch, reloadOptions]);
 
   async function patchRecord(id: string, patch: Record<string, unknown>) {
     const before = records.find((record) => record.id === id);
@@ -832,16 +811,6 @@ export function EnrollmentClient({
               </h1>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {canManageOptions ? (
-                <button
-                  type="button"
-                  onClick={() => setManagingOptions(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                >
-                  <Settings2 className="h-4 w-4" />
-                  Option sets
-                </button>
-              ) : null}
               {canExportImport ? (
                 <EnrollmentImportExportMenu
                   onExport={exportVisibleRecords}
@@ -956,17 +925,6 @@ export function EnrollmentClient({
             await createRecord(payload);
             setCreating(false);
           }}
-        />
-      ) : null}
-
-      {managingOptions ? (
-        <OptionSetManager
-          program={program}
-          optionSets={optionSets}
-          optionsBySet={optionsBySet}
-          optionUsageCounts={optionUsageCounts}
-          onClose={() => setManagingOptions(false)}
-          onChanged={reloadOptions}
         />
       ) : null}
 
@@ -3110,265 +3068,6 @@ function NewEnrollmentDialog({
           </button>
         </footer>
       </div>
-    </div>
-  );
-}
-
-function OptionSetManager({
-  program,
-  optionSets,
-  optionsBySet,
-  optionUsageCounts,
-  onClose,
-  onChanged,
-}: {
-  program: EnrollmentProgram;
-  optionSets: EnrollmentOptionSet[];
-  optionsBySet: EnrollmentOptionsBySet;
-  optionUsageCounts: Map<string, number>;
-  onClose: () => void;
-  onChanged: () => Promise<void>;
-}) {
-  const [setKey, setSetKey] = useState<EnrollmentOptionSetKey>("stage");
-  const [label, setLabel] = useState("");
-  const [color, setColor] = useState("#0C66E4");
-  const [isTerminal, setIsTerminal] = useState(false);
-  const [triggersQc, setTriggersQc] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmArchive, setConfirmArchive] = useState<EnrollmentOption | null>(null);
-  const setOptions = sortEnrollmentOptionsByLabel(optionsBySet[setKey]);
-
-  async function addOption() {
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/enrollment/option-sets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          program,
-          set_key: setKey,
-          label,
-          color,
-          is_terminal: isTerminal,
-          triggers_qc: triggersQc,
-        }),
-      });
-      const data = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(data?.error ?? "Could not add option.");
-      setLabel("");
-      setIsTerminal(false);
-      setTriggersQc(false);
-      await onChanged();
-    } catch (addError) {
-      setError(addError instanceof Error ? addError.message : "Could not add option.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function patchOption(id: string, patch: Record<string, unknown>) {
-    const response = await fetch(`/api/enrollment/option-sets/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (response.ok) await onChanged();
-  }
-
-  async function archiveOption(id: string) {
-    const response = await fetch(`/api/enrollment/option-sets/${id}`, {
-      method: "DELETE",
-    });
-    if (response.ok) await onChanged();
-  }
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#091e42]/40 p-4">
-      <div className="flex h-[calc(100vh-2rem)] max-h-[760px] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
-        <header className="shrink-0 flex items-center justify-between border-b border-[#d8dee8] px-5 py-3">
-          <div>
-            <h2 className="text-lg font-bold text-[#172b4d]">
-              {program === "medicare" ? "Medicare option sets" : "ACA option sets"}
-            </h2>
-            <p className="text-sm font-medium text-[#6b778c]">
-              Archive options instead of deleting them from historical records.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1.5 text-[#42526e] transition hover:bg-[#f4f5f7]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </header>
-        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[220px_minmax(0,1fr)]">
-          <nav className="overflow-y-auto border-b border-[#d8dee8] bg-[#f7f8fa] p-3 md:border-b-0 md:border-r">
-            {optionSets.map((set) => (
-              <button
-                key={set.id}
-                type="button"
-                onClick={() => setSetKey(set.key)}
-                className={`mb-1 flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm font-bold transition ${
-                  set.key === setKey
-                    ? "bg-[#e9f2ff] text-[#0c66e4]"
-                    : "text-[#42526e] hover:bg-white"
-                }`}
-              >
-                {set.label}
-                <span>{optionsBySet[set.key].length}</span>
-              </button>
-            ))}
-          </nav>
-          <section className="flex min-h-0 flex-col p-4">
-            <div className="shrink-0 grid grid-cols-1 gap-2 border-b border-[#d8dee8] pb-4 md:grid-cols-[minmax(0,1fr)_110px_120px_120px_auto]">
-              <input
-                value={label}
-                onChange={(event) => setLabel(event.target.value)}
-                placeholder={`New ${ENROLLMENT_OPTION_LABELS[setKey]}`}
-                className="h-10 rounded border border-[#d8dee8] px-3 text-sm font-semibold outline-none focus:border-[#0c66e4]"
-              />
-              <input
-                type="color"
-                value={color}
-                onChange={(event) => setColor(event.target.value)}
-                className="h-10 w-full rounded border border-[#d8dee8] bg-white p-1"
-              />
-              <label className="flex items-center justify-center gap-2 rounded border border-[#d8dee8] px-2 text-xs font-bold text-[#42526e]">
-                <input
-                  type="checkbox"
-                  disabled={setKey !== "stage"}
-                  checked={setKey === "stage" && isTerminal}
-                  onChange={(event) => setIsTerminal(event.target.checked)}
-                />
-                Terminal
-              </label>
-              <label className="flex items-center justify-center gap-2 rounded border border-[#d8dee8] px-2 text-xs font-bold text-[#42526e]">
-                <input
-                  type="checkbox"
-                  disabled={setKey !== "stage"}
-                  checked={setKey === "stage" && triggersQc}
-                  onChange={(event) => setTriggersQc(event.target.checked)}
-                />
-                QC
-              </label>
-              <button
-                type="button"
-                disabled={busy || !label.trim()}
-                onClick={() => void addOption()}
-                className="h-10 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc] disabled:opacity-40"
-              >
-                Add
-              </button>
-            </div>
-            {error ? (
-              <div className="mt-3 shrink-0 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-sm font-bold text-[#bf2600]">
-                {error}
-              </div>
-            ) : null}
-            <div className="mt-4 min-h-0 flex-1 overflow-auto rounded-lg border border-[#d8dee8]">
-              <table className="w-full border-collapse text-sm">
-                <thead className="sticky top-0 z-10 bg-[#f7f8fa] text-xs font-bold uppercase tracking-wide text-[#6b778c]">
-                  <tr>
-                    <th className="border-b border-r border-[#d8dee8] px-3 py-2 text-left">Label</th>
-                    <th className="border-b border-r border-[#d8dee8] px-3 py-2 text-left">Color</th>
-                    <th className="border-b border-r border-[#d8dee8] px-3 py-2 text-left">Rules</th>
-                    <th className="border-b border-[#d8dee8] px-3 py-2 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {setOptions.map((option) => (
-                    <tr key={option.id}>
-                      <td className="border-b border-r border-[#d8dee8] px-3 py-2">
-                        <input
-                          defaultValue={option.label}
-                          onBlur={(event) => {
-                            const value = event.target.value.trim();
-                            if (value && value !== option.label) {
-                              void patchOption(option.id, { label: value });
-                            }
-                          }}
-                          className="h-8 w-full rounded border border-[#d8dee8] px-2 font-semibold text-[#172b4d] outline-none focus:border-[#0c66e4]"
-                        />
-                      </td>
-                      <td className="border-b border-r border-[#d8dee8] px-3 py-2">
-                        <input
-                          type="color"
-                          defaultValue={option.color ?? "#97A0AF"}
-                          onBlur={(event) => void patchOption(option.id, { color: event.target.value })}
-                          className="h-8 w-full rounded border border-[#d8dee8] bg-white p-1"
-                        />
-                      </td>
-                      <td className="border-b border-r border-[#d8dee8] px-3 py-2 text-xs font-semibold text-[#42526e]">
-                        {setKey === "stage" ? (
-                          <div className="flex flex-wrap gap-2">
-                            <label className="flex items-center gap-1.5">
-                              <input
-                                type="checkbox"
-                                checked={option.is_terminal}
-                                onChange={(event) =>
-                                  void patchOption(option.id, {
-                                    is_terminal: event.target.checked,
-                                  })
-                                }
-                              />
-                              Terminal
-                            </label>
-                            <label className="flex items-center gap-1.5">
-                              <input
-                                type="checkbox"
-                                checked={option.triggers_qc}
-                                onChange={(event) =>
-                                  void patchOption(option.id, {
-                                    triggers_qc: event.target.checked,
-                                  })
-                                }
-                              />
-                              QC
-                            </label>
-                          </div>
-                        ) : (
-                          "Standard option"
-                        )}
-                      </td>
-                      <td className="border-b border-[#d8dee8] px-3 py-2 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmArchive(option)}
-                          className="text-xs font-bold text-[#bf2600] transition hover:underline"
-                        >
-                          Archive
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-      </div>
-
-      {confirmArchive ? (
-        <ConfirmDialog
-          title={`Archive "${confirmArchive.label}"?`}
-          description={
-            (optionUsageCounts.get(confirmArchive.id) ?? 0) > 0
-              ? `${optionUsageCounts.get(confirmArchive.id)} record(s) currently use this option. Archiving removes it from pickers going forward — those records keep showing it, but nobody can select it for a new record until it's restored.`
-              : "No live records currently use this option. It will be removed from pickers going forward."
-          }
-          confirmLabel="Archive"
-          onCancel={() => setConfirmArchive(null)}
-          onConfirm={() => {
-            const id = confirmArchive.id;
-            setConfirmArchive(null);
-            void archiveOption(id);
-          }}
-        />
-      ) : null}
     </div>
   );
 }
