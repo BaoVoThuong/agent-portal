@@ -1,4 +1,3 @@
-import { enrollmentIsDueSoon, enrollmentIsOverdue } from "./helpers";
 import { sortEnrollmentOptionsByLabel } from "./options";
 import type { EnrollmentOption, EnrollmentProgram } from "./types";
 import {
@@ -29,8 +28,6 @@ export type AggregateEnrollmentOverviewInput = {
 };
 
 const ATTENTION_LABELS: Record<EnrollmentOverviewRiskFlag, string> = {
-  overdue: "Overdue",
-  due_soon: "Due soon",
   qc_stale: "QC stale",
   missing_owner: "No owner",
   no_due_date: "No due date",
@@ -61,8 +58,6 @@ function deriveRecord(
   const flags: EnrollmentOverviewRiskFlag[] = [];
 
   if (isOpen) {
-    if (enrollmentIsOverdue(record, now)) flags.push("overdue");
-    else if (enrollmentIsDueSoon(record, now)) flags.push("due_soon");
     if (!record.responsible_enroll_email) flags.push("missing_owner");
     if (!record.due_date) flags.push("no_due_date");
   }
@@ -130,7 +125,6 @@ export function aggregateEnrollmentOverview(
           dueDate: item.record.due_date,
           createdAt: item.record.created_at,
           ageSeconds: ageSeconds(item.record.created_at, now),
-          isOverdue: item.riskFlags.includes("overdue"),
         });
       } else {
         const bucket = buckets.get(owner);
@@ -151,7 +145,6 @@ export function aggregateEnrollmentOverview(
   const rows: EnrollmentOverviewRow[] = [...buckets.values()].map(
     ({ account, openRecords, qcStale, done7dCount }) => {
       const openCount = openRecords.length;
-      const overdueCount = openRecords.filter((r) => r.riskFlags.includes("overdue")).length;
       const riskFlags = [
         ...new Set(
           openRecords.flatMap((r) => r.riskFlags).concat(qcStale.length > 0 ? (["qc_stale"] as const) : [])
@@ -163,7 +156,6 @@ export function aggregateEnrollmentOverview(
         email: account.email,
         name: account.name,
         openCount,
-        overdueCount,
         qcStaleCount: qcStale.length,
         riskFlags,
         oldestOpenCreatedAt: oldest,
@@ -209,22 +201,19 @@ export function aggregateEnrollmentOverview(
   for (const stage of sortedStages) {
     const stageOpen = derived.filter((item) => item.isOpen && item.record.stage_id === stage.id);
     if (stageOpen.length === 0) continue;
-    const danger = stageOpen.filter((r) => r.riskFlags.includes("overdue")).length;
     const warning = stageOpen.filter(
       (r) =>
-        !r.riskFlags.includes("overdue") &&
-        (r.riskFlags.includes("due_soon") ||
-          r.riskFlags.includes("missing_owner") ||
-          r.riskFlags.includes("no_due_date"))
+        r.riskFlags.includes("missing_owner") ||
+        r.riskFlags.includes("no_due_date")
     ).length;
     stageBuckets.push({
       stageId: stage.id,
       stageLabel: stage.label,
       stageColor: stage.color,
       total: stageOpen.length,
-      danger,
+      danger: 0,
       warning,
-      ok: stageOpen.length - danger - warning,
+      ok: stageOpen.length - warning,
     });
   }
   const workMix: EnrollmentOverviewWorkMix = { stages: stageBuckets };
@@ -235,7 +224,6 @@ export function aggregateEnrollmentOverview(
     openRecordCount: rows.reduce((sum, row) => sum + row.openCount, 0),
     needsAttentionCount: rows.filter((row) => row.riskFlags.length > 0).length,
     unassignedCount: unassigned.length,
-    overdueCount: rows.reduce((sum, row) => sum + row.overdueCount, 0),
   };
 
   return {

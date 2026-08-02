@@ -3,12 +3,9 @@ import type { EnrollmentProgram } from "./types";
 export const ENROLLMENT_OVERVIEW_STATUSES = ["free", "ok", "busy", "overloaded"] as const;
 export type EnrollmentOverviewStatus = (typeof ENROLLMENT_OVERVIEW_STATUSES)[number];
 
-// Enrollment has no priority field and no SLA-minutes clock, so risk is
-// purely about due dates, QC turnaround, and missing ownership — not
-// priority-pressure like CS's overview.
+// Enrollment does not have an SLA/overdue workflow yet. Until that exists,
+// overview risk stays limited to explicit ownership/QC data.
 export const ENROLLMENT_OVERVIEW_RISK_FLAGS = [
-  "overdue",
-  "due_soon",
   "qc_stale",
   "missing_owner",
   "no_due_date",
@@ -62,7 +59,6 @@ export type EnrollmentOverviewRow = {
   email: string;
   name: string | null;
   openCount: number;
-  overdueCount: number;
   qcStaleCount: number;
   riskFlags: EnrollmentOverviewRiskFlag[];
   oldestOpenCreatedAt: string | null;
@@ -103,7 +99,6 @@ export type EnrollmentOverviewKpis = {
   openRecordCount: number;
   needsAttentionCount: number;
   unassignedCount: number;
-  overdueCount: number;
 };
 
 export type EnrollmentUnassignedOverviewRecord = {
@@ -115,7 +110,6 @@ export type EnrollmentUnassignedOverviewRecord = {
   dueDate: string | null;
   createdAt: string;
   ageSeconds: number;
-  isOverdue: boolean;
 };
 
 export type EnrollmentOverviewSnapshot = {

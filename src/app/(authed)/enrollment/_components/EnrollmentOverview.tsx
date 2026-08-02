@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { rankEnrollmentRecommendation } from "@/lib/enrollment/overview";
 import type {
   EnrollmentOverviewAttentionBar,
@@ -115,15 +115,10 @@ export function EnrollmentOverview({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <MetricTile label="People" value={snapshot.kpis.peopleCount} />
         <MetricTile label="Free" value={snapshot.kpis.zeroLoadCount} tone="ok" />
         <MetricTile label="Open records" value={snapshot.kpis.openRecordCount} />
-        <MetricTile
-          label="Overdue"
-          value={snapshot.kpis.overdueCount}
-          tone={snapshot.kpis.overdueCount > 0 ? "danger" : "default"}
-        />
         <MetricTile
           label="Needs attention"
           value={snapshot.kpis.needsAttentionCount}
@@ -154,16 +149,13 @@ export function EnrollmentOverview({
       <div className="rounded-lg border border-[#e6eaf0] bg-white p-4">
         <h3 className="text-sm font-bold text-[#172b4d]">Work mix by stage</h3>
         <p className="mt-1 text-xs text-[#667085]">
-          Open records per stage, shaded by risk (red = overdue, amber = at risk, green = on track).
+          Open records per stage, shaded by attention state.
         </p>
         <div className="mt-3 space-y-1.5">
           {snapshot.workMix.stages.map((stage) => (
             <div key={stage.stageId} className="flex items-center gap-2 text-xs">
               <span className="w-40 shrink-0 truncate font-semibold text-[#42526e]">{stage.stageLabel}</span>
               <div className="flex h-4 flex-1 overflow-hidden rounded bg-[#f4f5f7]">
-                {stage.danger > 0 ? (
-                  <div style={{ width: `${(stage.danger / stage.total) * 100}%`, backgroundColor: "#ff5630" }} />
-                ) : null}
                 {stage.warning > 0 ? (
                   <div style={{ width: `${(stage.warning / stage.total) * 100}%`, backgroundColor: "#ffab00" }} />
                 ) : null}
@@ -229,7 +221,6 @@ export function EnrollmentOverview({
               >
                 {record.clientName || "Unnamed client"}
               </button>
-              {record.isOverdue ? <AlertTriangle className="h-4 w-4 shrink-0 text-[#ff5630]" /> : null}
               <button
                 type="button"
                 onClick={() => setRecommendFor((current) => (current === record.id ? null : record.id))}
@@ -342,9 +333,6 @@ function WorkloadRow({
           {style.label}
         </span>
         <span className="w-16 shrink-0 text-right text-sm font-bold text-[#172b4d]">{row.openCount} open</span>
-        {row.overdueCount > 0 ? (
-          <span className="shrink-0 text-xs font-bold text-[#bf2600]">{row.overdueCount} overdue</span>
-        ) : null}
         {row.qcStaleCount > 0 ? (
           <span className="shrink-0 text-xs font-bold text-[#7f5f01]">{row.qcStaleCount} QC stale</span>
         ) : null}
@@ -399,7 +387,7 @@ function RecommendationPanel({
           >
             <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[#172b4d]">
               {candidate.hasRiskFlag ? (
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[#ffab00]" />
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#ffab00]" />
               ) : (
                 <Check className="h-3.5 w-3.5 shrink-0 text-[#00875a]" />
               )}

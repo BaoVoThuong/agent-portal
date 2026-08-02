@@ -59,7 +59,7 @@ describe("aggregateEnrollmentOverview", () => {
     expect(snapshot.rows[0].status).toBe("free");
   });
 
-  it("flags an open record past its due date as overdue, not a closed one", () => {
+  it("does not treat past due dates as overdue before Enrollment has an overdue workflow", () => {
     const snapshot = aggregateEnrollmentOverview({
       now,
       program: "aca",
@@ -73,8 +73,9 @@ describe("aggregateEnrollmentOverview", () => {
       qcStaleHours: 48,
     });
     const row = snapshot.rows[0];
-    expect(row.overdueCount).toBe(1);
     expect(row.openCount).toBe(1);
+    expect(row.riskFlags).not.toContain("overdue");
+    expect(snapshot.kpis).not.toHaveProperty("overdueCount");
   });
 
   it("flags a closed record needing QC past qcStaleHours", () => {
@@ -203,14 +204,14 @@ describe("rankEnrollmentRecommendation", () => {
     expect(ranked[0].email).toBe("free@x.com");
   });
 
-  it("de-ranks a candidate with an active risk flag even if their open count is lower", () => {
+  it("de-ranks a candidate with an active ownership risk flag even if their open count is lower", () => {
     const snapshot = aggregateEnrollmentOverview({
       now,
       program: "aca",
       accounts: [account("risky@x.com"), account("clean@x.com")],
       stageOptions: [stageOption()],
       records: [
-        record({ id: "r1", responsible_enroll_email: "risky@x.com", due_date: "2026-07-01" }), // overdue
+        record({ id: "r1", responsible_enroll_email: "risky@x.com", due_date: null }),
         record({ id: "r2", responsible_enroll_email: "clean@x.com", due_date: "2026-08-01" }),
         record({ id: "r3", responsible_enroll_email: "clean@x.com", due_date: "2026-08-01" }),
         record({ id: "target", responsible_enroll_email: null }),
