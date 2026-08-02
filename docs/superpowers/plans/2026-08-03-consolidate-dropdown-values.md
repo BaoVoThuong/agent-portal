@@ -749,3 +749,18 @@ Test tay:
 - **Đừng quên Q1 guard áp cho CẢ Add lẫn Archive** — chỉ chặn 1 chiều (vd chỉ chặn Add) vẫn có thể tụt xuống dưới 2 qua đường archive.
 - **Thứ tự xoá UI cũ** — làm sau cùng (Part E/F), sau khi UI mới ở `/config` đã chạy được, tránh có lúc không ai set up được category/option nếu giữa chừng lỗi.
 - **`.next` cache** — không chạy `next build` nếu nghi dev server đang chạy song song (đã có sự cố thật ở đợt trước).
+
+---
+
+## 6. Cập nhật sau khi deploy — gộp tiếp 2 khối thành 1 (2026-08-03, cùng ngày)
+
+Sau khi Part A-F code xong và user test trực tiếp trên UI, phát hiện: scope=aca hiện **"No dropdown columns yet."** ở khối trên (vì Stage/Carrier/... bị filter loại khỏi đó theo đúng thiết kế 2-khối), trong khi khối "Option sets" riêng bên dưới lại có đủ — nhìn tổng thể tạo cảm giác rời rạc. User phản hồi trực tiếp: *"tất cả là drop down value chứ không tách riêng option set và có những feature/column giống nhau"*.
+
+**Quyết định cuối (ghi đè quyết định "2 khối" ở trên):** gộp `ConfigValueSection` + `ConfigOptionSetSection` thành **1 component duy nhất** `ConfigDropdownValuesSection`, dùng layout nav-trái/chi-tiết-phải (giống Option Sets cũ, vì danh sách nhiều mục hơn 1 dropdown-picker):
+- Nav trái liệt kê **mọi** nhóm giá trị của scope hiện tại: Option Set (nếu aca/medicare) + Category (nếu cs) + mọi custom dropdown column — chung 1 danh sách phẳng, không tách khối/trang.
+- Chọn 1 mục → panel phải hiện value tương ứng: thêm/sửa tên/đổi màu/archive dùng chung 1 form+table.
+- Field đặc thù hiện **có điều kiện** theo nhóm đang chọn: Terminal/QC chỉ khi mục là Option Set "stage"; cảnh báo archive theo usage-count chỉ khi mục thuộc Option Set (Custom/Category archive dùng confirm text chung, không có số liệu usage vì không tính — đúng phạm vi, không mở rộng thêm query).
+- Guard Consent (2 giá trị active) áp dụng khi mục đang chọn là set "consent".
+- Đã audit lại DB xác nhận danh sách nhóm đúng: cs chỉ có Category (Status/Priority loại đúng thiết kế); aca đủ 6 Option Set; medicare 2 Option Set (3 dòng `table_column` payment/aca/platform của medicare đã `archived_at` sẵn — khớp rule cũ "Medicare không có Payment/Consent/Platform/AC").
+- **Không đổi schema/API** — thuần gộp UI, tái dùng lại toàn bộ logic CRUD đã viết ở Part A/B, chỉ đổi cách chọn nhóm (nav thay vì 2 section riêng) và chuẩn hoá field điều kiện.
+- Verify sau gộp: `tsc --noEmit` sạch, `vitest run` 419/419, `lint` 0 error 0 warning (dọn thêm vài import/prop chết phát sinh do gộp: `optionSets` prop của `EnrollmentClient`, `ENROLLMENT_OPTION_LABELS`/`EnrollmentProgram` import thừa trong `ConfigClient.tsx`).

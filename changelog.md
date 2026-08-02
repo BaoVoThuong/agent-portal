@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-03 — Merge Dropdown Values into one unified nav (Custom + Category + Option Sets)
+- **Loại**: refactor-logic
+- **Cái gì**: gộp `ConfigValueSection` + `ConfigOptionSetSection` (2 khối riêng của đợt consolidate cùng ngày) thành 1 component `ConfigDropdownValuesSection` — 1 nav trái liệt kê mọi nhóm giá trị (Option Set nếu aca/medicare + Category nếu cs + mọi custom dropdown), chọn 1 mục hiện value tương ứng ở panel phải, dùng chung 1 form/table. Field đặc thù (Terminal/QC, cảnh báo archive theo usage-count, guard Consent 2-giá-trị) hiện có điều kiện theo nhóm đang chọn thay vì cố định theo khối.
+- **Vì sao**: user test UI thật thấy 2 khối tách rời gây cảm giác rời rạc (vd scope=aca báo "No dropdown columns yet" ở khối trên dù Stage/Carrier/... có đủ ở khối dưới) — phản hồi trực tiếp: "tất cả là dropdown value, không nên tách riêng option set". Trước khi gộp đã audit lại DB (`table_column` 3 scope + `enrollment_option_sets`) xác nhận danh sách nhóm hiển thị đúng, không thiếu/thừa.
+- **File**: config/_components/ConfigClient.tsx (xoá `ConfigValueSection`+`ConfigOptionSetSection`, thêm `ConfigDropdownValuesSection`), enrollment/_components/EnrollmentClient.tsx (bỏ prop `optionSets` đã hết dùng), enrollment/page.tsx
+- **Ảnh hưởng**: thuần UI, không đổi schema/API/RBAC — tái dùng nguyên logic CRUD đã viết ở đợt trước.
+- **Ref**: docs/superpowers/plans/2026-08-03-consolidate-dropdown-values.md (mục 6)
+
 ## 2026-08-03 — Consolidate dropdown values (Custom + Category + Option Sets) into /config
 - **Loại**: feat, refactor-logic, fix
 - **Cái gì**: gộp quản lý mọi dropdown value (custom column + CS Category + Enrollment Option Sets) vào `/config` → tab Dropdown Values, 2 khối theo scope (Custom+Category chung 1 form, nâng cấp thêm màu + sửa-tên-inline; Option Sets port gần nguyên vẹn giữ đủ Terminal/QC + cảnh báo usage-count khi archive, tính qua query mới ở server thay vì load nguyên enrollment records). Loại CS Status/Priority khỏi picker (dropdown system nhưng giá trị hardcode enum, không có nơi lưu). Xoá UI setup cũ khỏi `/tasks` (nút+modal Categories) và `/enrollment` (nút+modal Option sets). Kèm 2 fix có sẵn: Consent giới hạn đúng 2 giá trị active (chặn bug im lặng trong `EnrollmentConsentToggle` khi có option thứ 3 — nó chỉ hiểu "Yes" + 1 option khác); category giờ bắn `broadcastTasksChanged()` (3 route trước đó thiếu) và `/tasks` tự refresh category qua realtime thay vì chỉ lúc mở modal cũ; tương tự `/enrollment` giờ tự refresh option set qua realtime.
