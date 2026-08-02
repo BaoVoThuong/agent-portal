@@ -21,6 +21,7 @@ import {
   type TaskStatus,
 } from "@/lib/tasks/types";
 import { ALL_AGENTS, NO_ASSIGNEE, type QuickFilter } from "@/lib/tasks/filtering";
+import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { TaskSelect } from "./TaskSelect";
 import { TaskSearchBox } from "./TaskSearchBox";
@@ -172,7 +173,10 @@ export function TaskToolbar({
   const assigneeOptions = [
     { value: "", label: "All Assignees" },
     { value: NO_ASSIGNEE, label: "Unassigned" },
-    ...assignees.map((a) => ({ value: a.email, label: a.name ?? a.email })),
+    ...assignees.map((a) => ({
+      value: a.email,
+      label: a.name?.trim() || formatEmailAsName(a.email),
+    })),
   ];
 
   const presetOptions = PRESETS.filter((p) => !p.managerOnly);

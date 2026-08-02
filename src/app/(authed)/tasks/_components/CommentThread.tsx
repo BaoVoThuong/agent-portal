@@ -74,7 +74,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 function mentionLabel(member: TaskAssignee) {
-  return member.name ?? member.email;
+  return member.name?.trim() || formatEmailAsName(member.email);
 }
 
 function escapeRegExp(value: string) {
@@ -928,7 +928,7 @@ function Composer({
                     : "text-[#172b4d] hover:bg-[#f4f5f7]"
                 }`}
               >
-                <Initials email={m.email} label={m.name ?? m.email} />
+                <Initials email={m.email} label={mentionLabel(m)} />
                 <span className="min-w-0 flex-1 truncate font-semibold">
                   {mentionLabel(m)}
                 </span>

@@ -569,7 +569,7 @@ function CsTable({
                   <td className={bodyCellClass}>
                     <button type="button" onClick={() => onSelect(selected ? null : row.email)} className="block max-w-full text-left leading-tight">
                       <div className="truncate text-[13px] font-bold text-[#172b4d]">{personName(row.email, row.name)}</div>
-                      <div className="mt-0.5 truncate text-[11px] font-semibold text-[#667085]" title={row.email}>
+                      <div className="mt-0.5 truncate text-[11px] font-semibold text-[#667085]" title={row.roleLabel}>
                         {row.roleLabel}
                       </div>
                     </button>

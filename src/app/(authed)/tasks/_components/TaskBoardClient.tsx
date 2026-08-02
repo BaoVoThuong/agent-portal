@@ -21,6 +21,7 @@ import {
   NO_AGENT,
   type QuickFilter,
 } from "@/lib/tasks/filtering";
+import { formatEmailAsName } from "@/lib/tasks/people";
 import {
   readHiddenTaskListColumns,
   toggleHiddenTaskListColumn,
@@ -551,7 +552,7 @@ export function TaskBoardClient({
       new Map(
         assignees.map((assignee) => [
           assignee.email,
-          assignee.name?.trim() || assignee.email,
+          assignee.name?.trim() || formatEmailAsName(assignee.email),
         ])
       ),
     [assignees]
@@ -708,6 +709,19 @@ export function TaskBoardClient({
   const visibleTaskListColumnConfig = useMemo(
     () => visibleTaskListColumns(hiddenTaskListColumnKeys, taskListColumnConfig),
     [hiddenTaskListColumnKeys, taskListColumnConfig]
+  );
+  const configuredCreateColumnKeys = useMemo(
+    () =>
+      new Set(
+        taskLayoutColumns
+          .filter((column) => !column.archived_at)
+          .map((column) => column.key)
+      ),
+    [taskLayoutColumns]
+  );
+  const visibleCreateColumnKeys = useMemo(
+    () => new Set(visibleTaskListColumnConfig.map((column) => column.key)),
+    [visibleTaskListColumnConfig]
   );
   const taskDetailColumns = useMemo(
     () =>
@@ -1082,7 +1096,9 @@ export function TaskBoardClient({
       }
       setOverviewError(null);
       await loadOverview(true);
-      setOverviewNotice(`Task assigned to ${email}.`);
+      setOverviewNotice(
+        `Task assigned to ${assigneeLabelByEmail.get(email) ?? formatEmailAsName(email)}.`
+      );
     } catch {
       setOverviewSnapshot(before);
       setOverviewError("Connection lost — the assignment was not confirmed.");
@@ -1396,6 +1412,10 @@ export function TaskBoardClient({
           myAgents={myAgents}
           agentMembersByAgent={agentMembersByAgent}
           categories={categories}
+          detailColumns={taskDetailColumns}
+          tableColumnOptions={tableColumnOptions}
+          configuredColumnKeys={configuredCreateColumnKeys}
+          visibleColumnKeys={visibleCreateColumnKeys}
           onClose={() => setCreating(false)}
           onCreate={createTask}
         />
@@ -1424,6 +1444,8 @@ export function TaskBoardClient({
           mentionMembers={mentionMembers}
           categories={categories}
           detailColumns={taskDetailColumns}
+          configuredColumnKeys={configuredCreateColumnKeys}
+          visibleColumnKeys={visibleCreateColumnKeys}
           tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           canReviewDone={
@@ -1591,7 +1613,7 @@ function ImportExportMenu({
 }
 
 function formatAgentLabel(agent: TaskAgent) {
-  return agent.name?.trim() || agent.email;
+  return agent.name?.trim() || formatEmailAsName(agent.email);
 }
 
 function optimisticElapsedSeconds(startIso: string | null | undefined, nowIso: string): number {

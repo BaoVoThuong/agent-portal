@@ -8,6 +8,7 @@ import type {
 import { stageElapsedSeconds } from "@/lib/tasks/sla";
 import { taskCategoryPalette } from "@/lib/tasks/category-colors";
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
+import { formatEmailAsName } from "@/lib/tasks/people";
 import {
   Initials,
   NewAssignedBadge,
@@ -54,10 +55,11 @@ export function TaskCard({
   const isTerminal = task.status === "done" || task.status === "cancel";
   const primaryAssigneeEmail = task.assignees[0] ?? null;
   const primaryAssigneeLabel = primaryAssigneeEmail
-    ? assigneeLabelByEmail?.get(primaryAssigneeEmail) ?? primaryAssigneeEmail
+    ? assigneeLabelByEmail?.get(primaryAssigneeEmail) ??
+      formatEmailAsName(primaryAssigneeEmail)
     : null;
   const assigneeTitle = task.assignees
-    .map((email) => assigneeLabelByEmail?.get(email) ?? email)
+    .map((email) => assigneeLabelByEmail?.get(email) ?? formatEmailAsName(email))
     .join(", ");
   // Cumulative time in the current stage (accumulator + live open stint), so
   // the clock keeps counting across re-entries instead of resetting. For the
@@ -213,7 +215,11 @@ function DoneReviewBadge({
     return (
       <span
         className={className}
-        title={reviewed ? `QC checked by ${task.done_reviewed_by_email}` : "Waiting for agent/admin QC"}
+        title={
+          reviewed && task.done_reviewed_by_email
+            ? `QC checked by ${formatEmailAsName(task.done_reviewed_by_email)}`
+            : "Waiting for agent/admin QC"
+        }
       >
         {icon}
         {label}

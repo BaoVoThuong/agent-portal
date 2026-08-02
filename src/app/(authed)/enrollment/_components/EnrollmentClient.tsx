@@ -145,8 +145,25 @@ const FILTER_SELECT_BUTTON_CLASS =
   "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
+const DETAIL_FIELD_BUTTON_CLASS =
+  "flex h-9 w-full min-w-0 items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-left text-sm font-semibold text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4]";
+const DETAIL_FIELD_INPUT_CLASS =
+  "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]";
+const DETAIL_FIELD_DISPLAY_CLASS =
+  "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-left text-sm font-semibold text-[#172b4d] hover:border-[#c1c7d0] hover:bg-white disabled:bg-[#f4f5f7]";
 const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
+const COMPACT_DETAIL_FIELD_CLASS = "block space-y-1";
+const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
+const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] resize-none overflow-hidden !px-2 !py-2 leading-6`;
+const CREATE_DESCRIPTION_CLASS =
+  "min-h-[21rem] w-full resize-none rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
+
+function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.max(72, textarea.scrollHeight)}px`;
+}
 
 // Column layout for the enrollment list — mirrors the Slack List this module
 // replaces: every field is its own fixed-width column so the table scrolls
@@ -452,6 +469,10 @@ export function EnrollmentClient({
         (column) => column.locked || column.sticky || !hiddenColumnKeys.has(column.key)
       ),
     [columns, hiddenColumnKeys]
+  );
+  const visibleCreateColumnKeys = useMemo(
+    () => new Set(visibleColumns.map((column) => column.key)),
+    [visibleColumns]
   );
   const detailCustomColumns = useMemo(
     () =>
@@ -901,6 +922,7 @@ export function EnrollmentClient({
           optionsById={optionsById}
           optionsBySet={optionsBySet}
           detailColumns={detailCustomColumns}
+          visibleColumnKeys={visibleCreateColumnKeys}
           tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           isManager={canManageOptions}
@@ -915,6 +937,7 @@ export function EnrollmentClient({
           program={program}
           peopleByEmail={peopleByEmail}
           optionsBySet={optionsBySet}
+          visibleColumnKeys={visibleCreateColumnKeys}
           currentEmail={currentEmail}
           onClose={() => setCreating(false)}
           onCreate={async (payload) => {
@@ -1873,10 +1896,12 @@ function EnrollmentRowItem({
 function EnrollmentConsentToggle({
   optionId,
   options,
+  field = false,
   onChange,
 }: {
   optionId: string | null;
   options: EnrollmentOption[];
+  field?: boolean;
   onChange: (value: string) => void;
 }) {
   const yesOption =
@@ -1888,6 +1913,7 @@ function EnrollmentConsentToggle({
         optionId={optionId}
         options={options}
         emptyLabel="No consent"
+        field={field}
         onChange={onChange}
       />
     );
@@ -1907,7 +1933,11 @@ function EnrollmentConsentToggle({
       aria-label={`Consent: ${label}`}
       aria-pressed={checked}
       title={label}
-      className="inline-flex h-7 w-7 items-center justify-center rounded text-[#42526e] transition hover:bg-[#f4f5f7] hover:text-[#172b4d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#deebff]"
+      className={
+        field
+          ? DETAIL_FIELD_BUTTON_CLASS
+          : "inline-flex h-7 w-7 items-center justify-center rounded text-[#42526e] transition hover:bg-[#f4f5f7] hover:text-[#172b4d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#deebff]"
+      }
     >
       <span
         className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border-2 transition ${
@@ -1916,6 +1946,7 @@ function EnrollmentConsentToggle({
       >
         {checked ? <Check className="h-3 w-3 text-white" /> : null}
       </span>
+      {field ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
     </button>
   );
 }
@@ -1927,11 +1958,13 @@ function EnrollmentOptionMenu({
   optionId,
   options,
   emptyLabel,
+  field = false,
   onChange,
 }: {
   optionId: string | null;
   options: EnrollmentOption[];
   emptyLabel: string;
+  field?: boolean;
   onChange: (value: string) => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
@@ -1952,11 +1985,28 @@ function EnrollmentOptionMenu({
         }}
         aria-expanded={isOpen}
         title={option?.label ?? emptyLabel}
-        className="flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium"
-        style={{ backgroundColor: option ? style.bg : "transparent", color: option ? style.fg : "#97a0af" }}
+        className={
+          field
+            ? DETAIL_FIELD_BUTTON_CLASS
+            : "flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium"
+        }
+        style={
+          field
+            ? undefined
+            : {
+                backgroundColor: option ? style.bg : "transparent",
+                color: option ? style.fg : "#97a0af",
+              }
+        }
       >
-        <span className="min-w-0 flex-1 truncate text-left">{option?.label ?? emptyLabel}</span>
-        <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+        <span
+          className={`min-w-0 flex-1 truncate text-left ${
+            field && !option ? "font-normal text-[#97a0af]" : ""
+          }`}
+        >
+          {option?.label ?? emptyLabel}
+        </span>
+        <ChevronDown className={`${field ? "h-4 w-4" : "h-3 w-3"} shrink-0 opacity-60`} />
       </button>
       {isOpen
         ? createPortal(
@@ -2000,11 +2050,13 @@ function EnrollmentPersonMenu({
   value,
   peopleByEmail,
   emptyLabel,
+  field = false,
   onChange,
 }: {
   value: string | null;
   peopleByEmail: Map<string, string>;
   emptyLabel: string;
+  field?: boolean;
   onChange: (value: string | null) => void;
 }) {
   const { isOpen, toggle, triggerRef, menuRef, menuStyle, setIsOpen } =
@@ -2012,18 +2064,9 @@ function EnrollmentPersonMenu({
   const options = [...peopleByEmail.entries()]
     .map(([email, name]) => ({ email, name }))
     .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
-  const nameCounts = new Map<string, number>();
-  for (const option of options) {
-    const key = personNameKey(option.name);
-    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
-  }
-  const hasDuplicateName = (name: string) => (nameCounts.get(personNameKey(name)) ?? 0) > 1;
   const selectedLabel = value
     ? peopleByEmail.get(value) ?? formatEmailAsName(value)
     : emptyLabel;
-  const selectedEmail = value && hasDuplicateName(selectedLabel) ? value : null;
-  const title =
-    selectedEmail ? `${selectedLabel} (${selectedEmail})` : selectedLabel;
 
   return (
     <span className="block min-w-0">
@@ -2035,27 +2078,33 @@ function EnrollmentPersonMenu({
           toggle();
         }}
         aria-expanded={isOpen}
-        title={title}
-        className="flex w-full min-w-0 items-center"
+        title={selectedLabel}
+        className={field ? DETAIL_FIELD_BUTTON_CLASS : "flex w-full min-w-0 items-center"}
       >
         {value ? (
-          <span className="flex min-w-0 items-center gap-1.5 text-left text-xs font-semibold text-[#42526e] transition hover:text-[#0c66e4]">
+          <span
+            className={`flex min-w-0 items-center gap-1.5 text-left font-semibold transition ${
+              field ? "flex-1 text-sm text-[#172b4d]" : "text-xs text-[#42526e] hover:text-[#0c66e4]"
+            }`}
+          >
             <Initials email={value} label={selectedLabel} />
             <span className="min-w-0 flex-1 leading-tight">
               <span className="block truncate">{selectedLabel}</span>
-              {selectedEmail ? (
-                <span className="block truncate text-[10px] font-medium text-[#6b778c]">
-                  {selectedEmail}
-                </span>
-              ) : null}
             </span>
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]">
-            <UserPlus className="h-3 w-3" />
-            Assign
+          <span
+            className={
+              field
+                ? "inline-flex min-w-0 items-center gap-1.5 text-sm font-normal text-[#97a0af]"
+                : "inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]"
+            }
+          >
+            <UserPlus className={field ? "h-4 w-4" : "h-3 w-3"} />
+            {field ? emptyLabel : "Assign"}
           </span>
         )}
+        {field ? <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" /> : null}
       </button>
       {isOpen
         ? createPortal(
@@ -2082,46 +2131,32 @@ function EnrollmentPersonMenu({
                 {emptyLabel}
                 {!value ? <Check className="h-4 w-4 text-[#0c66e4]" /> : null}
               </button>
-              {options.map(({ email, name }) => {
-                const showEmail = hasDuplicateName(name);
-                return (
-                  <button
-                    key={email}
-                    type="button"
-                    role="option"
-                    aria-selected={email === value}
-                    onClick={() => {
-                      onChange(email);
-                      setIsOpen(false);
-                    }}
-                    className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition ${
-                      email === value
-                        ? "bg-[#e9f2ff] text-[#0c66e4]"
-                        : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                    }`}
-                  >
-                    <span className="min-w-0 flex-1 leading-tight">
-                      <span className="block truncate">{name}</span>
-                      {showEmail ? (
-                        <span className="block truncate text-xs font-medium text-[#6b778c]">
-                          {email}
-                        </span>
-                      ) : null}
-                    </span>
-                    {email === value ? <Check className="h-4 w-4 text-[#0c66e4]" /> : null}
-                  </button>
-                );
-              })}
+              {options.map(({ email, name }) => (
+                <button
+                  key={email}
+                  type="button"
+                  role="option"
+                  aria-selected={email === value}
+                  onClick={() => {
+                    onChange(email);
+                    setIsOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition ${
+                    email === value
+                      ? "bg-[#e9f2ff] text-[#0c66e4]"
+                      : "text-[#172b4d] hover:bg-[#f4f5f7]"
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate">{name}</span>
+                  {email === value ? <Check className="h-4 w-4 text-[#0c66e4]" /> : null}
+                </button>
+              ))}
             </div>,
             document.body
           )
         : null}
     </span>
   );
-}
-
-function personNameKey(name: string) {
-  return name.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function QCCheckButton({
@@ -2161,10 +2196,12 @@ function QCCheckButton({
 function EnrollmentStagePill({
   stageId,
   stages,
+  field = false,
   onChange,
 }: {
   stageId: string | null;
   stages: EnrollmentOption[];
+  field?: boolean;
   onChange: (stageId: string) => Promise<void>;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
@@ -2172,7 +2209,16 @@ function EnrollmentStagePill({
   const stage = stageId ? stages.find((option) => option.id === stageId) ?? null : null;
   const style = optionPillStyle(stage);
   const label = stage?.label ?? "No stage";
-  const pill = (
+  const pill = field ? (
+    <span className={DETAIL_FIELD_BUTTON_CLASS}>
+      <span
+        className="h-2.5 w-2.5 shrink-0 rounded-full"
+        style={{ backgroundColor: style.fg }}
+      />
+      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+    </span>
+  ) : (
     <span
       className="flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wide"
       style={{ backgroundColor: style.bg, color: style.fg }}
@@ -2276,6 +2322,7 @@ function EnrollmentDrawer({
   optionsById,
   optionsBySet,
   detailColumns,
+  visibleColumnKeys,
   tableColumnOptions,
   currentEmail,
   isManager,
@@ -2289,6 +2336,7 @@ function EnrollmentDrawer({
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
   detailColumns: TableColumn[];
+  visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   isManager: boolean;
@@ -2324,6 +2372,26 @@ function EnrollmentDrawer({
   // single Assignee + PCP field — see enrollmentColumnsForProgram() for the
   // list-view equivalent of this same trim.
   const isMedicare = record.program === "medicare";
+  const showField = (key: string) =>
+    visibleColumnKeys.has(key as EnrollmentColumnKey);
+  const showClient = showField("client");
+  const showStage = showField("stage");
+  const showFub = showField("fub");
+  const showDue = showField("due");
+  const showPayment = !isMedicare && showField("payment");
+  const showCarrier = showField("carrier");
+  const showAca = !isMedicare && showField("aca");
+  const showConsent = !isMedicare && showField("consent");
+  const showPlatform = !isMedicare && showField("platform");
+  const showCaller = !isMedicare && showField("caller");
+  const showResponsible = showField("responsible");
+  const showCreatedBy = showField("createdBy");
+  const showPcp2025 = showField("pcp2025");
+  const showPcp2026 = !isMedicare && showField("pcp2026");
+  const showQc = showField("qc");
+  const visibleDetailColumns = detailColumns.filter((column) =>
+    showField(column.key)
+  );
 
   const reload = useCallback(async () => {
     const response = await fetch(`/api/enrollment/${record.id}/detail`, {
@@ -2364,7 +2432,7 @@ function EnrollmentDrawer({
             <span className="font-mono text-sm font-bold text-[#97a0af]">
               {enrollmentKey(record.id)}
             </span>
-            {stage ? (
+            {stage && showStage ? (
               <span
                 className="rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
                 style={{
@@ -2388,51 +2456,55 @@ function EnrollmentDrawer({
 
         <div className="flex-1 overflow-y-auto">
           <div className="grid min-h-full grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <main className="min-w-0 space-y-6 p-5 lg:p-7">
-              <label className="block space-y-1.5">
-                <span className={LABEL_CLASS}>Ticket</span>
-                <EditableInput
-                  value={record.client_name ?? ""}
-                  placeholder="Client or ticket summary"
-                  className={`${INPUT_CLASS} h-11 text-base font-semibold`}
-                  onSave={(value) => onPatch({ client_name: value })}
-                />
-              </label>
-
-              <label className="block space-y-1.5">
-                <span className={LABEL_CLASS}>FUB Link</span>
-                <div className="flex gap-1.5">
+            <main className="min-w-0 space-y-3 p-4 lg:p-5">
+              {showClient ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>Client Name</span>
                   <EditableInput
-                    value={record.fub_link ?? ""}
-                    placeholder="No FUB link"
-                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
-                    onSave={(value) => onPatch({ fub_link: value })}
+                    value={record.client_name ?? ""}
+                    placeholder="Client name"
+                    className={COMPACT_DETAIL_INPUT_CLASS}
+                    onSave={(value) => onPatch({ client_name: value })}
                   />
-                  {fubHref ? (
-                    <a
-                      href={fubHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label="Open FUB link"
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  ) : null}
-                </div>
-              </label>
+                </label>
+              ) : null}
 
-              <label className="block space-y-1.5">
+              {showFub ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>FUB Link</span>
+                  <div className="flex gap-1.5">
+                    <EditableInput
+                      value={record.fub_link ?? ""}
+                      placeholder="No FUB link"
+                      className={COMPACT_DETAIL_INPUT_CLASS}
+                      onSave={(value) => onPatch({ fub_link: value })}
+                    />
+                    {fubHref ? (
+                      <a
+                        href={fubHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open FUB link"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                  </div>
+                </label>
+              ) : null}
+
+              <label className={COMPACT_DETAIL_FIELD_CLASS}>
                 <span className={LABEL_CLASS}>Description</span>
                 <EditableTextarea
                   value={record.description ?? ""}
                   placeholder="No description"
-                  className={`${INPUT_CLASS} min-h-[120px] resize-y leading-6`}
+                  className={COMPACT_DESCRIPTION_CLASS}
                   onSave={(value) => onPatch({ description: value })}
                 />
               </label>
 
-              <section className="space-y-3 border-t border-[#dfe1e6] pt-5">
+              <section className="space-y-3 border-t border-[#dfe1e6] pt-4">
                 <div className="flex flex-wrap gap-1 rounded bg-[#f4f5f7] p-1">
                   <DrawerTab active={tab === "comments"} onClick={() => setTab("comments")}>
                     Comments ({detail?.comments.length ?? record.comment_count})
@@ -2474,115 +2546,137 @@ function EnrollmentDrawer({
               </section>
             </main>
 
-          <aside className="space-y-5 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
-            <SidebarSection title="Pipeline">
-              <FieldBlock label="Stage">
-                <EnrollmentStagePill
-                  stageId={record.stage_id}
-                  stages={optionsBySet.stage}
-                  onChange={(value) => onPatch({ stage_id: value })}
-                />
-              </FieldBlock>
+          <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
+            <div className="space-y-3">
+              {showStage ? (
+                <FieldBlock label="Stage">
+                  <EnrollmentStagePill
+                    stageId={record.stage_id}
+                    stages={optionsBySet.stage}
+                    field
+                    onChange={(value) => onPatch({ stage_id: value })}
+                  />
+                </FieldBlock>
+              ) : null}
 
-              <FieldBlock label="Due date">
-                <input
-                  type="date"
-                  value={formatDateInput(record.due_date)}
-                  onChange={(event) =>
-                    void onPatch({ due_date: event.target.value || null })
-                  }
-                  className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
-                />
-              </FieldBlock>
-            </SidebarSection>
+              {showDue ? (
+                <FieldBlock label="Due date">
+                  <input
+                    type="date"
+                    value={formatDateInput(record.due_date)}
+                    onChange={(event) =>
+                      void onPatch({ due_date: event.target.value || null })
+                    }
+                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
+                  />
+                </FieldBlock>
+              ) : null}
 
-            <SidebarSection title={isMedicare ? "Plan" : "Plan & payment"}>
-              {!isMedicare ? (
+              {showPayment ? (
                 <FieldBlock label="Payment">
                   <EnrollmentOptionMenu
                     optionId={record.payment_status_id}
                     options={optionsBySet.payment_status}
                     emptyLabel="No payment"
+                    field
                     onChange={(value) => void onPatch({ payment_status_id: value })}
                   />
                 </FieldBlock>
               ) : null}
 
-              <FieldBlock label="Carrier">
-                <EnrollmentOptionMenu
-                  optionId={record.carrier_id}
-                  options={optionsBySet.carrier}
-                  emptyLabel="No carrier"
-                  onChange={(value) => void onPatch({ carrier_id: value })}
-                />
-              </FieldBlock>
+              {showCarrier ? (
+                <FieldBlock label="Carrier">
+                  <EnrollmentOptionMenu
+                    optionId={record.carrier_id}
+                    options={optionsBySet.carrier}
+                    emptyLabel="No carrier"
+                    field
+                    onChange={(value) => void onPatch({ carrier_id: value })}
+                  />
+                </FieldBlock>
+              ) : null}
 
-              {!isMedicare ? (
-                <>
+              {showAca ? (
                   <FieldBlock label="AC">
                     <EnrollmentOptionMenu
                       optionId={record.aca_status_id}
                       options={optionsBySet.aca_status}
                       emptyLabel="No AC status"
+                      field
                       onChange={(value) => void onPatch({ aca_status_id: value })}
                     />
                   </FieldBlock>
+              ) : null}
 
+              {showConsent ? (
                   <FieldBlock label="Consent">
                     <EnrollmentConsentToggle
                       optionId={record.consent_id}
                       options={optionsBySet.consent}
+                      field
                       onChange={(value) => void onPatch({ consent_id: value })}
                     />
                   </FieldBlock>
+              ) : null}
 
+              {showPlatform ? (
                   <FieldBlock label="Platform">
                     <EnrollmentOptionMenu
                       optionId={record.platform_id}
                       options={optionsBySet.platform}
                       emptyLabel="No platform"
+                      field
                       onChange={(value) => void onPatch({ platform_id: value })}
                     />
                   </FieldBlock>
-                </>
               ) : null}
-            </SidebarSection>
 
-            <SidebarSection title="Ownership">
-              {!isMedicare ? (
+              {showCaller ? (
                 <FieldBlock label="Caller">
                   <EnrollmentPersonMenu
                     value={record.caller_email}
                     peopleByEmail={peopleByEmail}
                     emptyLabel="No caller"
+                    field
                     onChange={(value) => void onPatch({ caller_email: value })}
                   />
                 </FieldBlock>
               ) : null}
 
-              <FieldBlock label={isMedicare ? "Assignee" : "Responsible enroll"}>
-                <EnrollmentPersonMenu
-                  value={record.responsible_enroll_email}
-                  peopleByEmail={peopleByEmail}
-                  emptyLabel="Unassigned"
-                  onChange={(value) =>
-                    void onPatch({ responsible_enroll_email: value })
-                  }
-                />
-              </FieldBlock>
-            </SidebarSection>
+              {showResponsible ? (
+                <FieldBlock label={isMedicare ? "Assignee" : "Responsible enroll"}>
+                  <EnrollmentPersonMenu
+                    value={record.responsible_enroll_email}
+                    peopleByEmail={peopleByEmail}
+                    emptyLabel="Unassigned"
+                    field
+                    onChange={(value) =>
+                      void onPatch({ responsible_enroll_email: value })
+                    }
+                  />
+                </FieldBlock>
+              ) : null}
 
-            <SidebarSection title="PCP">
-              <FieldBlock label={isMedicare ? "PCP" : "PCP 2025"}>
-                <EditableInput
-                  value={record.pcp_2025 ?? ""}
-                  placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
-                  className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
-                  onSave={(value) => onPatch({ pcp_2025: value })}
-                />
-              </FieldBlock>
+              {showCreatedBy ? (
+                <FieldBlock label="Created by">
+                  <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
+                    {personLabel(record.created_by_email, peopleByEmail)}
+                  </div>
+                </FieldBlock>
+              ) : null}
 
-              {!isMedicare ? (
+              {showPcp2025 ? (
+                <FieldBlock label={isMedicare ? "PCP" : "PCP 2025"}>
+                  <EditableInput
+                    value={record.pcp_2025 ?? ""}
+                    placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
+                    onSave={(value) => onPatch({ pcp_2025: value })}
+                  />
+                </FieldBlock>
+              ) : null}
+
+              {showPcp2026 ? (
                 <FieldBlock label="PCP 2026">
                   <EditableInput
                     value={record.pcp_2026 ?? ""}
@@ -2592,40 +2686,33 @@ function EnrollmentDrawer({
                   />
                 </FieldBlock>
               ) : null}
-            </SidebarSection>
 
-            {detailColumns.length > 0 ? (
-              <SidebarSection title="Custom fields">
-                {detailColumns.map((column) => (
-                  <FieldBlock key={column.id} label={column.label}>
-                    <EditableCustomCell
-                      column={column}
-                      value={record.custom_values?.[column.key]}
-                      options={optionsByColumnId.get(column.id) ?? []}
-                      people={customPeople}
-                      optionLabelById={optionLabelById}
-                      personLabelByEmail={peopleByEmail}
-                      canEdit={canEditRecord}
-                      onSave={(next) =>
-                        onPatch({ custom_values: { [column.key]: next } })
-                      }
-                      className={column.type === "checkbox" ? "" : "w-full"}
-                      inputClassName="h-9 w-full rounded-lg border border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]"
-                    />
-                  </FieldBlock>
-                ))}
-              </SidebarSection>
-            ) : null}
+              {visibleDetailColumns.map((column) => (
+                <FieldBlock key={column.id} label={column.label}>
+                  <EnrollmentDetailCustomFieldControl
+                    column={column}
+                    value={record.custom_values?.[column.key]}
+                    options={optionsByColumnId.get(column.id) ?? []}
+                    people={customPeople}
+                    optionLabelById={optionLabelById}
+                    personLabelByEmail={peopleByEmail}
+                    canEdit={canEditRecord}
+                    onSave={(next) =>
+                      onPatch({ custom_values: { [column.key]: next } })
+                    }
+                  />
+                </FieldBlock>
+              ))}
 
-            <div className="space-y-3">
-              <FieldBlock label="QC Review">
-                <EnrollmentQCPanel
-                  record={record}
-                  stage={stage}
-                  peopleByEmail={peopleByEmail}
-                  onToggle={() => onPatch({ qc_checked: !record.qc_checked_at })}
-                />
-              </FieldBlock>
+              {showQc ? (
+                <FieldBlock label="QC Review">
+                  <EnrollmentQCPanel
+                    record={record}
+                    stage={stage}
+                    onToggle={() => onPatch({ qc_checked: !record.qc_checked_at })}
+                  />
+                </FieldBlock>
+              ) : null}
             </div>
 
             {stage?.is_terminal && reopenTarget ? (
@@ -2639,15 +2726,6 @@ function EnrollmentDrawer({
                 </button>
               </div>
             ) : null}
-
-            <div className="rounded-lg border border-[#dfe1e6] bg-white p-3 text-xs font-semibold text-[#6b778c]">
-              <div>Created by {personLabel(record.created_by_email, peopleByEmail)}</div>
-              <div className="mt-1">Created {formatStableDateTime(record.created_at)}</div>
-              <div className="mt-1">
-                Updated {record.updated_by_email ? `by ${personLabel(record.updated_by_email, peopleByEmail)} ` : ""}
-                <RelativeTime value={record.updated_at} />
-              </div>
-            </div>
 
             <div className="border-t border-[#dfe1e6] pt-3">
               <button
@@ -2683,6 +2761,7 @@ function NewEnrollmentDialog({
   program,
   peopleByEmail,
   optionsBySet,
+  visibleColumnKeys,
   currentEmail,
   onClose,
   onCreate,
@@ -2690,6 +2769,7 @@ function NewEnrollmentDialog({
   program: EnrollmentProgram;
   peopleByEmail: Map<string, string>;
   optionsBySet: EnrollmentOptionsBySet;
+  visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
   currentEmail: string;
   onClose: () => void;
   onCreate: (payload: Record<string, unknown>) => Promise<void>;
@@ -2718,6 +2798,25 @@ function NewEnrollmentDialog({
   useEffect(() => {
     ticketInputRef.current?.focus();
   }, []);
+
+  const showField = (key: EnrollmentColumnKey) => visibleColumnKeys.has(key);
+  const showFub = showField("fub");
+  const showStage = showField("stage");
+  const showDue = showField("due");
+  const showPayment = !isMedicare && showField("payment");
+  const showCarrier = showField("carrier");
+  const showAca = !isMedicare && showField("aca");
+  const showConsent = !isMedicare && showField("consent");
+  const showPlatform = !isMedicare && showField("platform");
+  const showCaller = !isMedicare && showField("caller");
+  const showResponsible = showField("responsible");
+  const showPcp2025 = showField("pcp2025");
+  const showPcp2026 = !isMedicare && showField("pcp2026");
+  const showPipelineSection = showStage || showDue;
+  const showPlanSection =
+    showPayment || showCarrier || showAca || showConsent || showPlatform;
+  const showOwnershipSection = showCaller || showResponsible;
+  const showPcpSection = showPcp2025 || showPcp2026;
 
   function update(field: string, value: string | null) {
     setForm((current) => ({ ...current, [field]: value ?? "" }));
@@ -2757,7 +2856,7 @@ function NewEnrollmentDialog({
           <div>
             <h2 className="text-lg font-bold text-[#172b4d]">New enrollment</h2>
             <p className="text-sm font-medium text-[#6b778c]">
-              Capture the ticket first, then set ownership and enrollment details.
+              Capture the client first, then set ownership and enrollment details.
             </p>
           </div>
           <button
@@ -2769,43 +2868,51 @@ function NewEnrollmentDialog({
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <label className="block space-y-1.5">
-            <span className={LABEL_CLASS}>Ticket</span>
-            <input
-              ref={ticketInputRef}
-              value={form.client_name}
-              onChange={(event) => update("client_name", event.target.value)}
-              placeholder="Client or ticket summary"
-              className={`${INPUT_CLASS} h-11 text-base font-semibold`}
-            />
-          </label>
-
-          <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <main className="min-w-0 space-y-4">
-              <label className="block space-y-1.5">
-                <span className={LABEL_CLASS}>FUB Link</span>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_320px]">
+            <main className="min-w-0 space-y-3 px-6 py-5">
+              <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                <span className={LABEL_CLASS}>Client Name</span>
                 <input
-                  value={form.fub_link}
-                  onChange={(event) => update("fub_link", event.target.value)}
-                  placeholder="https://app.followupboss.com/..."
-                  className={`${INPUT_CLASS} h-10 font-semibold`}
+                  ref={ticketInputRef}
+                  value={form.client_name}
+                  onChange={(event) => update("client_name", event.target.value)}
+                  placeholder="Client name"
+                  className={COMPACT_DETAIL_INPUT_CLASS}
                 />
               </label>
 
-              <label className="block space-y-1.5">
+              {showFub ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>FUB Link</span>
+                  <input
+                    value={form.fub_link}
+                    onChange={(event) => update("fub_link", event.target.value)}
+                    placeholder="https://app.followupboss.com/..."
+                    className={COMPACT_DETAIL_INPUT_CLASS}
+                  />
+                </label>
+              ) : null}
+
+              <label className={COMPACT_DETAIL_FIELD_CLASS}>
                 <span className={LABEL_CLASS}>Description</span>
                 <textarea
                   value={form.description}
                   onChange={(event) => update("description", event.target.value)}
                   placeholder="Add context, notes, missing items, or next steps..."
-                  rows={10}
-                  className={`${INPUT_CLASS} min-h-[230px] resize-y leading-6`}
+                  rows={13}
+                  className={CREATE_DESCRIPTION_CLASS}
                 />
               </label>
+
+              {error ? (
+                <div className="rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-sm font-bold text-[#bf2600]">
+                  {error}
+                </div>
+              ) : null}
             </main>
 
-            <aside className="min-w-0 space-y-5 rounded-lg border border-[#dfe1e6] bg-[#f7f8fa] p-4">
+            <aside className="min-w-0 space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-bold text-[#172b4d]">Properties</h3>
@@ -2818,46 +2925,54 @@ function NewEnrollmentDialog({
                 </span>
               </div>
 
-              <CreatePropertySection title="Pipeline">
-                <CreatePropertyField label="Stage">
-                  <EnrollmentStagePill
-                    stageId={form.stage_id || null}
-                    stages={optionsBySet.stage}
-                    onChange={async (value) => update("stage_id", value)}
-                  />
-                </CreatePropertyField>
+              {showPipelineSection ? (
+                <CreatePropertySection>
+                  {showStage ? (
+                    <CreatePropertyField label="Stage">
+                      <EnrollmentStagePill
+                        stageId={form.stage_id || null}
+                        stages={optionsBySet.stage}
+                        onChange={async (value) => update("stage_id", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
 
-                <CreatePropertyInput
-                  label="Due date"
-                  type="date"
-                  value={form.due_date}
-                  onChange={(value) => update("due_date", value)}
-                />
-              </CreatePropertySection>
-
-              <CreatePropertySection title={isMedicare ? "Plan" : "Plan & payment"}>
-                {!isMedicare ? (
-                  <CreatePropertyField label="Payment">
-                    <EnrollmentOptionMenu
-                      optionId={form.payment_status_id || null}
-                      options={optionsBySet.payment_status}
-                      emptyLabel="No payment"
-                      onChange={(value) => update("payment_status_id", value)}
+                  {showDue ? (
+                    <CreatePropertyInput
+                      label="Due date"
+                      type="date"
+                      value={form.due_date}
+                      onChange={(value) => update("due_date", value)}
                     />
-                  </CreatePropertyField>
-                ) : null}
+                  ) : null}
+                </CreatePropertySection>
+              ) : null}
 
-                <CreatePropertyField label="Carrier">
-                  <EnrollmentOptionMenu
-                    optionId={form.carrier_id || null}
-                    options={optionsBySet.carrier}
-                    emptyLabel="No carrier"
-                    onChange={(value) => update("carrier_id", value)}
-                  />
-                </CreatePropertyField>
+              {showPlanSection ? (
+                <CreatePropertySection>
+                  {showPayment ? (
+                    <CreatePropertyField label="Payment">
+                      <EnrollmentOptionMenu
+                        optionId={form.payment_status_id || null}
+                        options={optionsBySet.payment_status}
+                        emptyLabel="No payment"
+                        onChange={(value) => update("payment_status_id", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
 
-                {!isMedicare ? (
-                  <>
+                  {showCarrier ? (
+                    <CreatePropertyField label="Carrier">
+                      <EnrollmentOptionMenu
+                        optionId={form.carrier_id || null}
+                        options={optionsBySet.carrier}
+                        emptyLabel="No carrier"
+                        onChange={(value) => update("carrier_id", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+
+                  {showAca ? (
                     <CreatePropertyField label="ACA">
                       <EnrollmentOptionMenu
                         optionId={form.aca_status_id || null}
@@ -2866,7 +2981,9 @@ function NewEnrollmentDialog({
                         onChange={(value) => update("aca_status_id", value)}
                       />
                     </CreatePropertyField>
+                  ) : null}
 
+                  {showConsent ? (
                     <CreatePropertyField label="Consent">
                       <EnrollmentConsentToggle
                         optionId={form.consent_id || null}
@@ -2874,7 +2991,9 @@ function NewEnrollmentDialog({
                         onChange={(value) => update("consent_id", value)}
                       />
                     </CreatePropertyField>
+                  ) : null}
 
+                  {showPlatform ? (
                     <CreatePropertyField label="Platform">
                       <EnrollmentOptionMenu
                         optionId={form.platform_id || null}
@@ -2883,56 +3002,59 @@ function NewEnrollmentDialog({
                         onChange={(value) => update("platform_id", value)}
                       />
                     </CreatePropertyField>
-                  </>
-                ) : null}
-              </CreatePropertySection>
+                  ) : null}
+                </CreatePropertySection>
+              ) : null}
 
-              <CreatePropertySection title="Ownership">
-                {!isMedicare ? (
-                  <CreatePropertyField label="Caller">
-                    <EnrollmentPersonMenu
-                      value={form.caller_email || null}
-                      peopleByEmail={peopleByEmail}
-                      emptyLabel="No caller"
-                      onChange={(value) => update("caller_email", value)}
+              {showOwnershipSection ? (
+                <CreatePropertySection>
+                  {showCaller ? (
+                    <CreatePropertyField label="Caller">
+                      <EnrollmentPersonMenu
+                        value={form.caller_email || null}
+                        peopleByEmail={peopleByEmail}
+                        emptyLabel="No caller"
+                        onChange={(value) => update("caller_email", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+
+                  {showResponsible ? (
+                    <CreatePropertyField label={isMedicare ? "Assignee" : "Responsible enroll"}>
+                      <EnrollmentPersonMenu
+                        value={form.responsible_enroll_email || null}
+                        peopleByEmail={peopleByEmail}
+                        emptyLabel="Unassigned"
+                        onChange={(value) => update("responsible_enroll_email", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+                </CreatePropertySection>
+              ) : null}
+
+              {showPcpSection ? (
+                <CreatePropertySection>
+                  {showPcp2025 ? (
+                    <CreatePropertyInput
+                      label={isMedicare ? "PCP" : "PCP 2025"}
+                      value={form.pcp_2025}
+                      placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                      onChange={(value) => update("pcp_2025", value)}
                     />
-                  </CreatePropertyField>
-                ) : null}
+                  ) : null}
 
-                <CreatePropertyField label={isMedicare ? "Assignee" : "Responsible enroll"}>
-                  <EnrollmentPersonMenu
-                    value={form.responsible_enroll_email || null}
-                    peopleByEmail={peopleByEmail}
-                    emptyLabel="Unassigned"
-                    onChange={(value) => update("responsible_enroll_email", value)}
-                  />
-                </CreatePropertyField>
-              </CreatePropertySection>
-
-              <CreatePropertySection title="PCP">
-                <CreatePropertyInput
-                  label={isMedicare ? "PCP" : "PCP 2025"}
-                  value={form.pcp_2025}
-                  placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
-                  onChange={(value) => update("pcp_2025", value)}
-                />
-
-                {!isMedicare ? (
-                  <CreatePropertyInput
-                    label="PCP 2026"
-                    value={form.pcp_2026}
-                    placeholder="No PCP 2026"
-                    onChange={(value) => update("pcp_2026", value)}
-                  />
-                ) : null}
-              </CreatePropertySection>
+                  {showPcp2026 ? (
+                    <CreatePropertyInput
+                      label="PCP 2026"
+                      value={form.pcp_2026}
+                      placeholder="No PCP 2026"
+                      onChange={(value) => update("pcp_2026", value)}
+                    />
+                  ) : null}
+                </CreatePropertySection>
+              ) : null}
             </aside>
           </div>
-          {error ? (
-            <div className="mt-4 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-sm font-bold text-[#bf2600]">
-              {error}
-            </div>
-          ) : null}
         </div>
         <footer className="flex justify-end gap-2 border-t border-[#d8dee8] px-5 py-3">
           <button
@@ -3244,7 +3366,7 @@ function EditableInput({
 function EditableTextarea({
   value,
   placeholder,
-  className = `${INPUT_CLASS} min-h-[96px] resize-y leading-6`,
+  className = COMPACT_DESCRIPTION_CLASS,
   onSave,
 }: {
   value: string;
@@ -3252,17 +3374,98 @@ function EditableTextarea({
   className?: string;
   onSave: (value: string | null) => Promise<void>;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    autosizeTextarea(textareaRef.current);
+  }, [value]);
+
   return (
     <textarea
+      ref={textareaRef}
       key={value}
       defaultValue={value}
       placeholder={placeholder}
       onClick={(event) => event.stopPropagation()}
+      onInput={(event) => autosizeTextarea(event.currentTarget)}
       onBlur={(event) => {
         const next = event.currentTarget.value.trim();
         if (next !== value.trim()) void onSave(next || null);
       }}
+      rows={2}
       className={className}
+    />
+  );
+}
+
+function EnrollmentDetailCustomFieldControl({
+  column,
+  value,
+  options,
+  people,
+  optionLabelById,
+  personLabelByEmail,
+  canEdit,
+  onSave,
+}: {
+  column: TableColumn;
+  value: unknown;
+  options: readonly TableColumnOption[];
+  people: readonly { email: string; name: string | null }[];
+  optionLabelById: ReadonlyMap<string, string>;
+  personLabelByEmail: ReadonlyMap<string, string>;
+  canEdit: boolean;
+  onSave: (next: unknown) => Promise<void>;
+}) {
+  const [saveError, setSaveError] = useState(false);
+
+  if (column.type === "checkbox") {
+    const checked = Boolean(value);
+    return (
+      <button
+        type="button"
+        disabled={!canEdit}
+        aria-pressed={checked}
+        onClick={async () => {
+          setSaveError(false);
+          try {
+            await onSave(!checked);
+          } catch {
+            setSaveError(true);
+          }
+        }}
+        className={`${DETAIL_FIELD_BUTTON_CLASS} ${
+          saveError ? "ring-2 ring-[#ff5630] ring-offset-1" : ""
+        } disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
+        title={saveError ? "Save failed. Try again." : column.label}
+      >
+        <span
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${
+            checked
+              ? "border-[#00875a] bg-[#00875a] text-white"
+              : "border-[#c1c7d0] text-transparent"
+          }`}
+        >
+          <Check className="h-3.5 w-3.5" />
+        </span>
+        <span>{checked ? "Yes" : "No"}</span>
+      </button>
+    );
+  }
+
+  return (
+    <EditableCustomCell
+      column={column}
+      value={value}
+      options={options}
+      people={people}
+      optionLabelById={optionLabelById}
+      personLabelByEmail={personLabelByEmail}
+      canEdit={canEdit}
+      onSave={onSave}
+      className={DETAIL_FIELD_DISPLAY_CLASS}
+      inputClassName={DETAIL_FIELD_INPUT_CLASS}
+      emptyLabel={`No ${column.label}`}
     />
   );
 }
@@ -3270,65 +3473,46 @@ function EditableTextarea({
 function EnrollmentQCPanel({
   record,
   stage,
-  peopleByEmail,
   onToggle,
 }: {
   record: EnrollmentRecordWithStats;
   stage: EnrollmentOption | null;
-  peopleByEmail: Map<string, string>;
   onToggle: () => Promise<void>;
 }) {
   const reviewed = Boolean(record.qc_checked_at);
   const required = Boolean(stage?.triggers_qc);
-  const reviewerLabel = record.qc_checked_by_email
-    ? personLabel(record.qc_checked_by_email, peopleByEmail)
-    : null;
+  const label = reviewed
+    ? "QC checked"
+    : required
+      ? "Needs QC"
+      : "No QC required";
 
   return (
-    <div className="rounded-lg border border-[#dfe1e6] bg-white p-3">
-      <div className="flex items-start gap-2">
-        <span
-          className={`mt-0.5 shrink-0 ${
-            reviewed
-              ? "text-[#00875a]"
-              : required
-                ? "text-[#ff991f]"
-                : "text-[#97a0af]"
-          }`}
-        >
-          {reviewed ? (
-            <CheckCircle2 className="h-5 w-5" />
-          ) : (
-            <Circle className="h-5 w-5" />
-          )}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[#172b4d]">
-            {reviewed
-              ? "QC checked"
-              : required
-                ? "Needs enroll QC"
-                : "No QC required"}
-          </p>
-          <p className="mt-0.5 text-xs leading-5 text-[#626f86]">
-            {!required
-              ? "Available after this record reaches a QC stage."
-              : reviewed
-                ? `Checked by ${reviewerLabel ?? "unknown"}${record.qc_checked_at ? ` on ${new Date(record.qc_checked_at).toLocaleString()}` : ""}.`
-                : "Awaiting enrollment QC verification."}
-          </p>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        disabled={!required}
-        onClick={() => void onToggle()}
-        className="mt-3 inline-flex h-8 w-full items-center justify-center gap-2 rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:bg-[#dfe1e6] disabled:text-[#6b778c]"
+    <button
+      type="button"
+      disabled={!required}
+      aria-pressed={reviewed}
+      aria-label={reviewed ? "Clear QC check" : "Mark QC checked"}
+      onClick={() => void onToggle()}
+      className="flex h-9 w-full items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-left text-sm font-semibold text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:bg-[#f4f5f7]"
+    >
+      <span
+        className={`shrink-0 ${
+          reviewed
+            ? "text-[#00875a]"
+            : required
+              ? "text-[#ff991f]"
+              : "text-[#97a0af]"
+        }`}
       >
-        {reviewed ? "Clear QC check" : "Mark QC checked"}
-      </button>
-    </div>
+        {reviewed ? (
+          <CheckCircle2 className="h-5 w-5" />
+        ) : (
+          <Circle className="h-5 w-5" />
+        )}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
   );
 }
 
@@ -3366,26 +3550,6 @@ function DrawerTab({
   );
 }
 
-// Groups related sidebar fields under a small heading so the drawer reads as
-// a few clusters (Pipeline / Plan / Ownership / PCP) instead of one long,
-// undifferentiated stack of boxes.
-function SidebarSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-3 border-t border-[#dfe1e6] pt-4 first:border-t-0 first:pt-0">
-      <h3 className="text-[10.5px] font-bold uppercase tracking-wide text-[#8993a4]">
-        {title}
-      </h3>
-      <div className="space-y-3">{children}</div>
-    </div>
-  );
-}
-
 function FieldBlock({
   label,
   children,
@@ -3402,18 +3566,13 @@ function FieldBlock({
 }
 
 function CreatePropertySection({
-  title,
   children,
 }: {
-  title: string;
   children: ReactNode;
 }) {
   return (
     <section className="space-y-3 border-t border-[#dfe1e6] pt-4 first:border-t-0 first:pt-0">
-      <h4 className="text-[10.5px] font-bold uppercase tracking-wide text-[#8993a4]">
-        {title}
-      </h4>
-      <div className="space-y-3">{children}</div>
+      {children}
     </section>
   );
 }

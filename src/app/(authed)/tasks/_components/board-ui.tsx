@@ -172,7 +172,7 @@ export function Initials({
     <span
       className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-white"
       style={{ backgroundColor: colors[hash] }}
-      title={label ? `${label} (${email})` : email}
+      title={displayName}
     >
       {initials}
     </span>
@@ -198,7 +198,9 @@ export function AvatarStack({
 
   const visible = emails.slice(0, max);
   const overflow = emails.length - visible.length;
-  const title = emails.map((email) => labelByEmail?.get(email) ?? email).join(", ");
+  const title = emails
+    .map((email) => labelByEmail?.get(email) ?? email.split("@")[0])
+    .join(", ");
 
   return (
     <span className="inline-flex items-center" title={title}>
@@ -208,7 +210,7 @@ export function AvatarStack({
           className={index === 0 ? "" : "-ml-2"}
           style={{ zIndex: visible.length - index }}
         >
-          <Initials email={email} label={labelByEmail?.get(email) ?? email} />
+          <Initials email={email} label={labelByEmail?.get(email) ?? email.split("@")[0]} />
         </span>
       ))}
       {overflow > 0 ? (

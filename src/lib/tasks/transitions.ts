@@ -19,6 +19,7 @@ export type TaskPatchInput = {
   priority?: unknown;
   category_id?: unknown;
   agent_email?: unknown;
+  custom_values?: unknown;
   status?: unknown;
   assignee_email?: unknown;
   done_reviewed?: unknown;
@@ -43,6 +44,26 @@ type Result =
 
 function isEnum<T extends readonly string[]>(v: unknown, allowed: T): v is T[number] {
   return typeof v === "string" && (allowed as readonly string[]).includes(v);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function cleanCustomValues(values: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (!key.trim()) continue;
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      next[key] = value;
+    }
+  }
+  return next;
 }
 
 function elapsedSeconds(startIso: string, endIso: string): number {
@@ -118,6 +139,15 @@ export function resolveTaskPatch(
     if (typeof r.position !== "number" || !Number.isFinite(r.position))
       return { ok: false, error: "Invalid position." };
     patch.position = r.position;
+  }
+  if (r.custom_values !== undefined) {
+    if (!isPlainRecord(r.custom_values)) {
+      return { ok: false, error: "Invalid custom values." };
+    }
+    const customValues = cleanCustomValues(r.custom_values);
+    if (Object.keys(customValues).length > 0) {
+      patch.custom_values = customValues;
+    }
   }
 
   // --- status / assignee are interdependent ---

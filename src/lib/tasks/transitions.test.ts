@@ -16,6 +16,36 @@ describe("resolveTaskPatch", () => {
     expect(r).toEqual({ ok: true, patch: { title: "New title" } });
   });
 
+  it("accepts a custom-values-only edit", () => {
+    expect(
+      resolveTaskPatch(manager, assigned, {
+        custom_values: {
+          customText: "hello",
+          customNumber: 42,
+          customBoolean: false,
+          customEmpty: null,
+        },
+      })
+    ).toEqual({
+      ok: true,
+      patch: {
+        custom_values: {
+          customText: "hello",
+          customNumber: 42,
+          customBoolean: false,
+          customEmpty: null,
+        },
+      },
+    });
+  });
+
+  it("rejects a non-object custom-values patch", () => {
+    expect(resolveTaskPatch(manager, assigned, { custom_values: [] })).toEqual({
+      ok: false,
+      error: "Invalid custom values.",
+    });
+  });
+
   it("accepts changing the customer agent and rejects clearing it", () => {
     expect(
       resolveTaskPatch(manager, assigned, { agent_email: "  agent@x.com  " })

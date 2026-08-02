@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Search } from "lucide-react";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
+import { formatEmailAsName } from "@/lib/tasks/people";
 import { AvatarStack, Initials } from "./board-ui";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
@@ -28,13 +29,13 @@ export function TaskAssigneeDropdown({
       new Map(
         assignees.map((assignee) => [
           assignee.email,
-          assignee.name?.trim() || assignee.email,
+          assignee.name?.trim() || formatEmailAsName(assignee.email),
         ])
       ),
     [assignees]
   );
   const selectedLabels = selectedEmails.map(
-    (email) => labelByEmail.get(email) ?? email
+    (email) => labelByEmail.get(email) ?? formatEmailAsName(email)
   );
   const isUnassigned = selectedLabels.length === 0;
   const summary =
@@ -137,7 +138,8 @@ export function TaskAssigneePicker({
         {selectedPeople.length > 0 ? (
           <div className="space-y-1">
             {selectedPeople.map((assignee) => {
-              const label = assignee.name?.trim() || assignee.email;
+              const label =
+                assignee.name?.trim() || formatEmailAsName(assignee.email);
               return (
                 <button
                   key={assignee.email}
@@ -173,7 +175,8 @@ export function TaskAssigneePicker({
       <div className={`overflow-auto p-1 ${listClassName}`}>
         {people.map((assignee) => {
           const checked = selected.has(assignee.email);
-          const label = assignee.name?.trim() || assignee.email;
+          const label =
+            assignee.name?.trim() || formatEmailAsName(assignee.email);
           return (
             <button
               key={assignee.email}

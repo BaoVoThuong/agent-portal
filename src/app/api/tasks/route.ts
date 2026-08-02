@@ -35,6 +35,26 @@ import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
 
 export const dynamic = "force-dynamic";
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function cleanCustomValues(values: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (!key.trim()) continue;
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
 export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
@@ -136,6 +156,16 @@ export async function POST(request: Request) {
   if (!categoryId) {
     return NextResponse.json({ error: "Category is required." }, { status: 400 });
   }
+  let customValues: Record<string, unknown> = {};
+  if (body?.custom_values !== undefined) {
+    if (!isPlainRecord(body.custom_values)) {
+      return NextResponse.json(
+        { error: "Invalid custom values." },
+        { status: 400 }
+      );
+    }
+    customValues = cleanCustomValues(body.custom_values);
+  }
 
   const supabase = getSupabaseAdmin();
   // Place new card at the bottom of its column.
@@ -177,6 +207,7 @@ export async function POST(request: Request) {
       assignee_email: assignment.assignee_email,
       reporter_email: email,
       category_id: categoryId,
+      custom_values: customValues,
       position,
       last_activity_at: nowIso,
       stale_reminded_at: null,

@@ -275,6 +275,10 @@ export function TaskRowItem({
   }
   const personLabel = (email: string | null | undefined) =>
     email ? personLabelByEmail.get(email) ?? formatEmailAsName(email) : "—";
+  const primaryAssigneeLabel = personLabel(task.assignee_email);
+  const reporterLabel = personLabel(task.reporter_email);
+  const activityByLabel = personLabel(task.last_activity_by_email);
+  const reviewedByLabel = personLabel(task.done_reviewed_by_email);
   const ruleSet = rules ?? [];
   const liveNow = now ?? null;
   const slaMinutes = effectiveSlaMinutes(task, ruleSet);
@@ -373,11 +377,11 @@ export function TaskRowItem({
           style={columnStyle("primaryAssignee")}
           className={cellClassName(
             "primaryAssignee",
-            `${LIST_COL.primaryAssignee} shrink-0 truncate text-xs font-semibold text-[#42526e]`
+            `flex ${LIST_COL.primaryAssignee} min-w-0 shrink-0 items-center text-xs font-semibold text-[#42526e]`
           )}
-          title={task.assignee_email ?? "No primary assignee"}
+          title={primaryAssigneeLabel}
         >
-          {personLabel(task.assignee_email)}
+          <PersonInline email={task.assignee_email} label={primaryAssigneeLabel} />
         </span>
       ) : null}
 
@@ -454,21 +458,11 @@ export function TaskRowItem({
           style={columnStyle("reporter")}
           className={cellClassName(
             "reporter",
-            `${LIST_COL.reporter} min-w-0 shrink-0 gap-1.5 text-xs font-semibold text-[#42526e]`
+            `flex ${LIST_COL.reporter} min-w-0 shrink-0 items-center text-xs font-semibold text-[#42526e]`
           )}
-          title={task.reporter_email}
+          title={reporterLabel}
         >
-          <Initials
-            email={task.reporter_email}
-            label={
-              personLabelByEmail.get(task.reporter_email) ??
-              formatEmailAsName(task.reporter_email)
-            }
-          />
-          <span className="whitespace-nowrap">
-            {personLabelByEmail.get(task.reporter_email) ??
-              formatEmailAsName(task.reporter_email)}
-          </span>
+          <PersonInline email={task.reporter_email} label={reporterLabel} />
         </span>
       ) : null}
 
@@ -515,11 +509,11 @@ export function TaskRowItem({
           style={columnStyle("activityBy")}
           className={cellClassName(
             "activityBy",
-            `${LIST_COL.activityBy} shrink-0 truncate text-xs font-semibold text-[#42526e]`
+            `flex ${LIST_COL.activityBy} min-w-0 shrink-0 items-center text-xs font-semibold text-[#42526e]`
           )}
-          title={task.last_activity_by_email ?? "No activity actor"}
+          title={activityByLabel}
         >
-          {personLabel(task.last_activity_by_email)}
+          <PersonInline email={task.last_activity_by_email} label={activityByLabel} />
         </span>
       ) : null}
 
@@ -752,11 +746,11 @@ export function TaskRowItem({
           style={columnStyle("reviewedBy")}
           className={cellClassName(
             "reviewedBy",
-            `${LIST_COL.reviewedBy} shrink-0 truncate text-xs font-semibold text-[#42526e]`
+            `flex ${LIST_COL.reviewedBy} min-w-0 shrink-0 items-center text-xs font-semibold text-[#42526e]`
           )}
-          title={task.done_reviewed_by_email ?? "Not reviewed"}
+          title={reviewedByLabel}
         >
-          {personLabel(task.done_reviewed_by_email)}
+          <PersonInline email={task.done_reviewed_by_email} label={reviewedByLabel} />
         </span>
       ) : null}
 
@@ -1481,6 +1475,27 @@ function CategoryBadge({ category }: { category: TaskCategory }) {
   );
 }
 
+function PersonInline({
+  email,
+  label,
+  emptyLabel = "—",
+}: {
+  email: string | null | undefined;
+  label: string;
+  emptyLabel?: string;
+}) {
+  if (!email) {
+    return <span className="min-w-0 truncate text-[#97a0af]">{emptyLabel}</span>;
+  }
+
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <Initials email={email} label={label} />
+      <span className="min-w-0 truncate">{label}</span>
+    </span>
+  );
+}
+
 function AgentMenu({
   email,
   agents,
@@ -1505,7 +1520,9 @@ function AgentMenu({
     ...(currentAgentMissing && email ? [{ email, name: currentLabel }] : []),
     ...agents,
   ].sort((a, b) =>
-    (a.name?.trim() || a.email).localeCompare(b.name?.trim() || b.email)
+    (a.name?.trim() || formatEmailAsName(a.email)).localeCompare(
+      b.name?.trim() || formatEmailAsName(b.email)
+    )
   );
 
   if (!canEdit) {

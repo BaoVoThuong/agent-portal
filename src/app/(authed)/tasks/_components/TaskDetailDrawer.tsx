@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Circle, ExternalLink, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, CheckCircle2, Circle, ExternalLink, X } from "lucide-react";
 import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
@@ -26,8 +26,21 @@ const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
 const SIDE_SELECT_BUTTON_CLASS =
   "!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none border-[#dfe1e6] bg-white";
+const CUSTOM_FIELD_DISPLAY_CLASS =
+  "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-left text-sm font-semibold text-[#172b4d] hover:border-[#c1c7d0] hover:bg-white disabled:bg-[#f4f5f7]";
+const CUSTOM_FIELD_INPUT_CLASS =
+  "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]";
 const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
+const COMPACT_DETAIL_FIELD_CLASS = "block space-y-1";
+const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
+const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] resize-none overflow-hidden !px-2 !py-2 leading-6`;
+
+function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.max(72, textarea.scrollHeight)}px`;
+}
 
 type DetailTab = "comments" | "activity" | "overdue";
 
@@ -43,6 +56,8 @@ export function TaskDetailDrawer({
   mentionMembers,
   categories,
   detailColumns,
+  configuredColumnKeys,
+  visibleColumnKeys,
   tableColumnOptions,
   currentEmail,
   canReviewDone,
@@ -66,6 +81,8 @@ export function TaskDetailDrawer({
   mentionMembers: TaskAssignee[];
   categories: TaskCategory[];
   detailColumns: TableColumn[];
+  configuredColumnKeys: ReadonlySet<string>;
+  visibleColumnKeys: ReadonlySet<string>;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   canReviewDone: boolean;
@@ -81,6 +98,7 @@ export function TaskDetailDrawer({
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [fubLink, setFubLink] = useState(task.fub_link ?? "");
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(
     () => getCachedTaskDetail(task.id) ?? null
   );
@@ -98,6 +116,10 @@ export function TaskDetailDrawer({
       // The next mutation/realtime ping retries.
     }
   }, [task.id]);
+
+  useEffect(() => {
+    autosizeTextarea(descriptionRef.current);
+  }, [description]);
 
   useEffect(() => {
     const timer = setTimeout(() => void reload(), 0);
@@ -122,7 +144,7 @@ export function TaskDetailDrawer({
   }));
   const agentOptions = agents.map((agent) => ({
     value: agent.email,
-    label: agent.name ?? agent.email,
+    label: agent.name?.trim() || formatEmailAsName(agent.email),
   }));
   const personLabelByEmail = new Map<string, string>();
   for (const agent of agents) {
@@ -164,6 +186,23 @@ export function TaskDetailDrawer({
         a.type === "task_reopened"
     ) ?? [];
   const canReopen = canChangeStatus && (task.status === "done" || task.status === "cancel");
+  const showField = (key: string) =>
+    !configuredColumnKeys.has(key) || visibleColumnKeys.has(key);
+  const showTitle = showField("summary");
+  const showFub = showField("fub");
+  const showDescription = showField("description");
+  const showStageTime = (["todoTime", "progressTime", "waitingTime"] as const).some(
+    showField
+  );
+  const showPriority = showField("priority");
+  const showCategory = showField("category");
+  const showAgent = showField("agent");
+  const showCreatedBy = showField("reporter");
+  const showAssignees = showField("assignee");
+  const showQcReview = showField("review");
+  const visibleDetailColumns = detailColumns.filter((column) =>
+    showField(column.key)
+  );
 
   return (
     <div
@@ -192,41 +231,81 @@ export function TaskDetailDrawer({
 
         <div className="flex-1 overflow-y-auto">
           <div className="grid min-h-full grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <main className="min-w-0 space-y-6 p-5 lg:p-7">
-              <label className="block space-y-1.5">
-                <span className={LABEL_CLASS}>Ticket</span>
-                <input
-                  value={title}
-                  disabled={!canEdit}
-                  onChange={(e) => setTitle(e.target.value)}
-                  onBlur={() =>
-                    canEdit &&
-                    title.trim() &&
-                    title !== task.title &&
-                    onPatch({ title: title.trim() })
-                  }
-                  className={`${INPUT_CLASS} h-11 text-base font-semibold`}
-                />
-              </label>
+            <main className="min-w-0 space-y-3 p-4 lg:p-5">
+              {showTitle ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>Client Name</span>
+                  <input
+                    value={title}
+                    disabled={!canEdit}
+                    onChange={(e) => setTitle(e.target.value)}
+                    onBlur={() =>
+                      canEdit &&
+                      title.trim() &&
+                      title !== task.title &&
+                      onPatch({ title: title.trim() })
+                    }
+                    className={COMPACT_DETAIL_INPUT_CLASS}
+                  />
+                </label>
+              ) : null}
 
-              <label className="block space-y-1.5">
-                <span className={LABEL_CLASS}>Description</span>
-                <textarea
-                  value={description}
-                  disabled={!canEdit}
-                  onChange={(e) => setDescription(e.target.value)}
-                  onBlur={() =>
-                    canEdit &&
-                    description !== (task.description ?? "") &&
-                    onPatch({ description })
-                  }
-                  rows={5}
-                  placeholder="Add a description…"
-                  className={INPUT_CLASS}
-                />
-              </label>
+              {showFub ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>FUB Link</span>
+                  <div className="flex gap-1.5">
+                    <input
+                      value={fubLink}
+                      disabled={!canEdit}
+                      onChange={(e) => setFubLink(e.target.value)}
+                      onBlur={() => {
+                        const next = fubLink.trim();
+                        if (canEdit && next !== (task.fub_link ?? "")) {
+                          onPatch({ fub_link: next || null });
+                        }
+                      }}
+                      placeholder="No FUB link"
+                      className={COMPACT_DETAIL_INPUT_CLASS}
+                    />
+                    {fubHref ? (
+                      <a
+                        href={fubHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open FUB link"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                  </div>
+                </label>
+              ) : null}
 
-              <section className="space-y-3 border-t border-[#dfe1e6] pt-5">
+              {showDescription ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>Description</span>
+                  <textarea
+                    ref={descriptionRef}
+                    value={description}
+                    disabled={!canEdit}
+                    onChange={(e) => {
+                      setDescription(e.target.value);
+                      autosizeTextarea(e.currentTarget);
+                    }}
+                    onBlur={() =>
+                      canEdit &&
+                      description !== (task.description ?? "") &&
+                      onPatch({ description })
+                    }
+                    rows={2}
+                    placeholder="Add a description…"
+                    className={COMPACT_DESCRIPTION_CLASS}
+                  />
+                </label>
+              ) : null}
+
+              <section className="space-y-3 border-t border-[#dfe1e6] pt-4">
                 <div className="flex flex-wrap gap-1 rounded bg-[#f4f5f7] p-1">
                   <DetailTabButton
                     label={`Comments (${detail?.comments.length ?? 0})`}
@@ -281,8 +360,9 @@ export function TaskDetailDrawer({
             </main>
 
             <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
-              <StageTimeBreakdown task={task} />
+              {showStageTime ? <StageTimeBreakdown task={task} /> : null}
               <div className="space-y-3">
+                {showPriority ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Priority</span>
                   <TaskPrioritySelect
@@ -294,7 +374,9 @@ export function TaskDetailDrawer({
                     }
                   />
                 </div>
+                ) : null}
 
+                {showCategory ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Category</span>
                   <TaskSelect
@@ -307,37 +389,9 @@ export function TaskDetailDrawer({
                     onChange={(nextCategoryId) => onPatch({ category_id: nextCategoryId })}
                   />
                 </div>
+                ) : null}
 
-                <div className="space-y-1.5">
-                  <span className={LABEL_CLASS}>FUB Link</span>
-                  <div className="flex gap-1.5">
-                    <input
-                      value={fubLink}
-                      disabled={!canEdit}
-                      onChange={(e) => setFubLink(e.target.value)}
-                      onBlur={() => {
-                        const next = fubLink.trim();
-                        if (canEdit && next !== (task.fub_link ?? "")) {
-                          onPatch({ fub_link: next || null });
-                        }
-                      }}
-                      placeholder="No FUB link"
-                      className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
-                    />
-                    {fubHref ? (
-                      <a
-                        href={fubHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label="Open FUB link"
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    ) : null}
-                  </div>
-                </div>
-
+                {showAgent ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Agent</span>
                   <TaskSelect
@@ -350,7 +404,9 @@ export function TaskDetailDrawer({
                     onChange={(nextAgent) => onPatch({ agent_email: nextAgent })}
                   />
                 </div>
+                ) : null}
 
+                {showCreatedBy ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Created by</span>
                   <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
@@ -360,7 +416,9 @@ export function TaskDetailDrawer({
                       : "—"}
                   </div>
                 </div>
+                ) : null}
 
+                {showAssignees ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Assignees</span>
                   {canAssign ? (
@@ -388,50 +446,36 @@ export function TaskDetailDrawer({
                     </div>
                   )}
                 </div>
-
-                {detailColumns.length > 0 ? (
-                  <div className="space-y-2 border-t border-[#dfe1e6] pt-3">
-                    <span className={LABEL_CLASS}>Custom fields</span>
-                    <div className="space-y-2">
-                      {detailColumns.map((column) => (
-                        <div key={column.id} className="space-y-1.5">
-                          <span className="block truncate text-xs font-semibold text-[#44546f]">
-                            {column.label}
-                          </span>
-                          <EditableCustomCell
-                            column={column}
-                            value={task.custom_values?.[column.key]}
-                            options={optionsByColumnId.get(column.id) ?? []}
-                            people={assignees}
-                            optionLabelById={optionLabelById}
-                            personLabelByEmail={personLabelByEmail}
-                            canEdit={canEdit}
-                            onSave={(next) =>
-                              onPatch({ custom_values: { [column.key]: next } })
-                            }
-                            className={column.type === "checkbox" ? "" : "w-full"}
-                            inputClassName="h-9 w-full rounded-lg border border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
                 ) : null}
 
+                {visibleDetailColumns.map((column) => (
+                  <div key={column.id} className="space-y-1.5">
+                    <span className={LABEL_CLASS}>{column.label}</span>
+                    <DetailCustomFieldControl
+                      column={column}
+                      value={task.custom_values?.[column.key]}
+                      options={optionsByColumnId.get(column.id) ?? []}
+                      people={assignees}
+                      optionLabelById={optionLabelById}
+                      personLabelByEmail={personLabelByEmail}
+                      canEdit={canEdit}
+                      onSave={(next) =>
+                        onPatch({ custom_values: { [column.key]: next } })
+                      }
+                    />
+                  </div>
+                ))}
+
+                {showQcReview ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>QC Review</span>
                   <DoneReviewPanel
                     task={task}
                     canReviewDone={canReviewDone}
-                    reviewerLabel={
-                      task.done_reviewed_by_email
-                        ? personLabelByEmail.get(task.done_reviewed_by_email) ??
-                          formatEmailAsName(task.done_reviewed_by_email)
-                        : null
-                    }
                     onReviewDone={onReviewDone}
                   />
                 </div>
+                ) : null}
               </div>
 
               {canReopen && (
@@ -503,65 +547,119 @@ export function TaskDetailDrawer({
   );
 }
 
+function DetailCustomFieldControl({
+  column,
+  value,
+  options,
+  people,
+  optionLabelById,
+  personLabelByEmail,
+  canEdit,
+  onSave,
+}: {
+  column: TableColumn;
+  value: unknown;
+  options: readonly TableColumnOption[];
+  people: readonly TaskAssignee[];
+  optionLabelById: ReadonlyMap<string, string>;
+  personLabelByEmail: ReadonlyMap<string, string>;
+  canEdit: boolean;
+  onSave: (next: unknown) => Promise<void>;
+}) {
+  const [saveError, setSaveError] = useState(false);
+
+  if (column.type === "checkbox") {
+    const checked = Boolean(value);
+    return (
+      <button
+        type="button"
+        disabled={!canEdit}
+        aria-pressed={checked}
+        onClick={async () => {
+          setSaveError(false);
+          try {
+            await onSave(!checked);
+          } catch {
+            setSaveError(true);
+          }
+        }}
+        className={`flex h-9 w-full items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-left text-sm font-semibold text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:bg-[#f4f5f7] ${
+          saveError ? "ring-2 ring-[#ff5630] ring-offset-1" : ""
+        }`}
+        title={saveError ? "Save failed. Try again." : column.label}
+      >
+        <span
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${
+            checked
+              ? "border-[#00875a] bg-[#00875a] text-white"
+              : "border-[#c1c7d0] text-transparent"
+          }`}
+        >
+          <Check className="h-3.5 w-3.5" />
+        </span>
+        <span>{checked ? "Yes" : "No"}</span>
+      </button>
+    );
+  }
+
+  return (
+    <EditableCustomCell
+      column={column}
+      value={value}
+      options={options}
+      people={people}
+      optionLabelById={optionLabelById}
+      personLabelByEmail={personLabelByEmail}
+      canEdit={canEdit}
+      onSave={onSave}
+      className={CUSTOM_FIELD_DISPLAY_CLASS}
+      inputClassName={CUSTOM_FIELD_INPUT_CLASS}
+      emptyLabel={`No ${column.label}`}
+    />
+  );
+}
+
 function DoneReviewPanel({
   task,
   canReviewDone,
-  reviewerLabel,
   onReviewDone,
 }: {
   task: TaskRow;
   canReviewDone: boolean;
-  reviewerLabel: string | null;
   onReviewDone: (reviewed: boolean) => void;
 }) {
   const reviewed = Boolean(task.done_reviewed_at);
-  const disabled =
-    (task.status !== "done" && task.status !== "cancel") || !canReviewDone;
+  const inReviewStage = task.status === "done" || task.status === "cancel";
+  const disabled = !inReviewStage || !canReviewDone;
+  const label = reviewed ? "QC checked" : "Needs QC";
 
   return (
-    <div className="rounded-lg border border-[#dfe1e6] bg-white p-3">
-      <div className="flex items-start gap-2">
-        <span
-          className={`mt-0.5 shrink-0 ${
-            reviewed ? "text-[#00875a]" : "text-[#ff991f]"
-          }`}
-        >
-          {reviewed ? (
-            <CheckCircle2 className="h-5 w-5" />
-          ) : (
-            <Circle className="h-5 w-5" />
-          )}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[#172b4d]">
-            {reviewed ? "QC checked" : "Needs agent/admin QC"}
-          </p>
-          <p className="mt-0.5 text-xs leading-5 text-[#626f86]">
-            {task.status !== "done" && task.status !== "cancel"
-              ? "Available after CS moves this task to Done or Cancel."
-              : reviewed
-                ? `Checked by ${reviewerLabel ?? "unknown"}${task.done_reviewed_at ? ` on ${formatReviewTime(task.done_reviewed_at)}` : ""}.`
-                : "Awaiting agent/admin QC verification."}
-          </p>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onReviewDone(!reviewed)}
-        className="mt-3 inline-flex h-8 w-full items-center justify-center gap-2 rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:bg-[#dfe1e6] disabled:text-[#6b778c]"
+    <button
+      type="button"
+      disabled={disabled}
+      aria-pressed={reviewed}
+      aria-label={reviewed ? "Clear QC check" : "Mark QC checked"}
+      onClick={() => onReviewDone(!reviewed)}
+      className="flex h-9 w-full items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-left text-sm font-semibold text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:bg-[#f4f5f7]"
+    >
+      <span
+        className={`shrink-0 ${
+          reviewed
+            ? "text-[#00875a]"
+            : inReviewStage
+              ? "text-[#ff991f]"
+              : "text-[#97a0af]"
+        }`}
       >
-        {reviewed ? "Clear QC check" : "Mark QC checked"}
-      </button>
-    </div>
+        {reviewed ? (
+          <CheckCircle2 className="h-5 w-5" />
+        ) : (
+          <Circle className="h-5 w-5" />
+        )}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
   );
-}
-
-function formatReviewTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
 }
 
 function DetailTabButton({
