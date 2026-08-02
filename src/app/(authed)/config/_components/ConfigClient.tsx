@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
   closestCenter,
@@ -92,20 +92,23 @@ const COLUMN_TYPE_OPTIONS: SelectOption<ColumnType>[] = COLUMN_TYPES.map((type) 
 export function ConfigClient({
   initialColumns,
   initialOptions,
-  agents,
+  initialAgents,
   candidates,
+  assignees,
   initialMembers,
 }: {
   initialColumns: Record<TableScope, TableColumn[]>;
   initialOptions: Record<TableScope, TableColumnOption[]>;
-  agents: TaskAgent[];
+  initialAgents: TaskAgent[];
   candidates: TaskAssignee[];
+  assignees: TaskAssignee[];
   initialMembers: AssistantMember[];
 }) {
   const [tab, setTab] = useState<Tab>("table");
   const [scope, setScope] = useState<TableScope>("cs");
   const [columns, setColumns] = useState(initialColumns);
   const [options, setOptions] = useState(initialOptions);
+  const [agents, setAgents] = useState(initialAgents);
   const [members, setMembers] = useState(initialMembers);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -200,10 +203,12 @@ export function ConfigClient({
           <ConfigAssistantSection
             agents={agents}
             candidates={candidates}
+            assignees={assignees}
             members={members}
             busy={busy}
             run={run}
             setMembers={setMembers}
+            onAgentsChange={setAgents}
           />
         ) : null}
         {tab === "imports" ? (
@@ -256,7 +261,22 @@ function DropdownSelect<T extends string>({
   buttonClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const selected = options.find((option) => option.value === value);
+  const POPUP_MAX_HEIGHT = 288; // px, matches max-h-72 below
+
+  function toggleOpen() {
+    setOpen((current) => {
+      const next = !current;
+      if (next) {
+        const rect = triggerRef.current?.getBoundingClientRect();
+        const spaceBelow = rect ? window.innerHeight - rect.bottom : Infinity;
+        setOpenUpward(spaceBelow < POPUP_MAX_HEIGHT && (rect?.top ?? 0) > spaceBelow);
+      }
+      return next;
+    });
+  }
 
   return (
     <div
@@ -270,18 +290,19 @@ function DropdownSelect<T extends string>({
       }}
     >
       <button
+        ref={triggerRef}
         type="button"
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOpen}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             setOpen(false);
           }
           if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            setOpen(true);
+            if (!open) toggleOpen();
           }
         }}
         className={`flex h-10 w-full items-center justify-between gap-3 rounded border border-[#dfe1e6] bg-white px-3 text-left text-sm font-semibold text-[#172b4d] shadow-sm outline-none transition hover:border-[#b8c7dc] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#0c66e4]/20 ${buttonClassName}`}
@@ -300,7 +321,9 @@ function DropdownSelect<T extends string>({
           role="listbox"
           aria-label={label}
           tabIndex={-1}
-          className="absolute left-0 right-0 z-50 mt-1 max-h-72 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_14px_32px_rgba(22,35,58,0.18)]"
+          className={`absolute left-0 right-0 z-50 max-h-72 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_14px_32px_rgba(22,35,58,0.18)] ${
+            openUpward ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
         >
           {options.length === 0 ? (
             <div className="px-3 py-2 text-sm font-semibold text-[#6b778c]">
@@ -873,38 +896,76 @@ function ConfigValueSection({
 function ConfigAssistantSection({
   agents,
   candidates,
+  assignees,
   members,
   busy,
   run,
   setMembers,
+  onAgentsChange,
 }: {
   agents: TaskAgent[];
   candidates: TaskAssignee[];
+  assignees: TaskAssignee[];
   members: AssistantMember[];
   busy: boolean;
   run: (action: () => Promise<void>, success: string) => Promise<void>;
   setMembers: Dispatch<SetStateAction<AssistantMember[]>>;
+  onAgentsChange: Dispatch<SetStateAction<TaskAgent[]>>;
 }) {
   const [agentEmail, setAgentEmail] = useState(agents[0]?.email ?? "");
   const [assistantEmail, setAssistantEmail] = useState("");
+  const [newAgentEmail, setNewAgentEmail] = useState("");
+  const agentEmails = new Set(agents.map((a) => a.email));
+  // Agent picker: MỌI account active (khớp AgentGroupsModal cũ) — Agent không
+  // bắt buộc có quyền task.work, họ có thể chưa từng dùng CS board.
+  const agentCandidateOptions: SelectOption<string>[] = [
+    { value: "", label: "Select person" },
+    ...candidates
+      .filter((person) => !agentEmails.has(person.email))
+      .map((person) => ({ value: person.email, label: person.name?.trim() || person.email })),
+  ];
+
+  async function refreshAgents() {
+    const response = await fetch("/api/config/agents", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error ?? "Could not load agents.");
+    onAgentsChange(payload.agents);
+  }
+
+  // Gộp cả 2 nguồn để label luôn resolve được tên — member.agent_email có thể
+  // thuộc `candidates` (mọi account), member.cs_email chỉ thuộc `assignees`
+  // (task-work roster). labelForEmail() fallback về raw email nếu không thấy.
   const candidateByEmail = useMemo(
-    () => new Map(candidates.map((person) => [person.email, person])),
-    [candidates]
+    () => new Map([...candidates, ...assignees].map((person) => [person.email, person])),
+    [candidates, assignees]
   );
   const agentOptions: SelectOption<string>[] = agents.map((agent) => ({
     value: agent.email,
     label: agent.name?.trim() || agent.email,
   }));
+  // Assistant picker: CHỈ người có task.work/task.manage (khớp AgentGroupsModal
+  // cũ, prop `cs`) — làm Assistant = được cấp quyền ngang agent-owner trên task
+  // của agent đó, người không có quyền task.work không vào được /tasks nên
+  // gán họ làm Assistant là vô nghĩa.
   const assistantOptions: SelectOption<string>[] = [
     { value: "", label: "Select assistant" },
-    ...candidates.map((person) => ({
+    ...assignees.map((person) => ({
       value: person.email,
       label: person.name?.trim() || person.email,
     })),
   ];
-  const memberRows = members
-    .filter((member) => !agentEmail || member.agent_email === agentEmail)
-    .sort((a, b) => labelForEmail(a.cs_email, candidateByEmail).localeCompare(labelForEmail(b.cs_email, candidateByEmail)));
+  // Hiện TẤT CẢ quan hệ agent→assistant, sắp theo tên agent rồi tên assistant
+  // — dropdown "Agent" bên trên chỉ dùng để tạo mới, không lọc list này, để
+  // admin xem được toàn bộ cấu trúc team trong 1 lần nhìn.
+  const memberRows = [...members].sort((a, b) => {
+    const agentCompare = labelForEmail(a.agent_email, candidateByEmail).localeCompare(
+      labelForEmail(b.agent_email, candidateByEmail)
+    );
+    if (agentCompare !== 0) return agentCompare;
+    return labelForEmail(a.cs_email, candidateByEmail).localeCompare(
+      labelForEmail(b.cs_email, candidateByEmail)
+    );
+  });
 
   async function refreshMembers() {
     const response = await fetch("/api/config/assistants", { cache: "no-store" });
@@ -914,29 +975,98 @@ function ConfigAssistantSection({
   }
 
   return (
-    <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
-      <div className="border-b border-[#dfe1e6] px-6 py-4">
-        <h2 className="text-lg font-bold">Assistant membership</h2>
-        <p className="mt-1 text-sm text-[#6b778c]">
-          Agent ownership is configured in Agent Groups. This section only links
-          assistants to an agent.
-        </p>
-      </div>
-      <form
-        className="grid gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4 md:grid-cols-[280px_1fr_120px]"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void run(async () => {
-            await requestJson("/api/config/assistants", {
-              method: "POST",
-              body: JSON.stringify({ agent_email: agentEmail, cs_email: assistantEmail }),
-            });
-            setAssistantEmail("");
-            await refreshMembers();
-          }, "Assistant added.");
-        }}
-      >
-        <DropdownSelect
+    <>
+      <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+        <div className="border-b border-[#dfe1e6] px-6 py-4">
+          <h2 className="text-lg font-bold">Agents</h2>
+          <p className="mt-1 text-sm text-[#6b778c]">
+            Add people as Agents. Removing an agent also unlinks all of their assistants.
+          </p>
+        </div>
+        <form
+          className="grid gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4 md:grid-cols-[1fr_120px]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!newAgentEmail) return;
+            void run(async () => {
+              await requestJson("/api/config/agents", {
+                method: "POST",
+                body: JSON.stringify({ email: newAgentEmail }),
+              });
+              setNewAgentEmail("");
+              await refreshAgents();
+            }, "Agent added.");
+          }}
+        >
+          <DropdownSelect
+            label="Person"
+            value={newAgentEmail}
+            options={agentCandidateOptions}
+            onChange={setNewAgentEmail}
+            placeholder="Select person"
+          />
+          <button
+            type="submit"
+            disabled={busy || !newAgentEmail}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" /> Add
+          </button>
+        </form>
+        {agents.map((agent) => (
+          <div
+            key={agent.email}
+            className="grid grid-cols-[1fr_140px] items-center border-b border-[#ebecf0] px-4 py-2 last:border-b-0"
+          >
+            <div>
+              <p className="text-sm font-bold">{agent.name?.trim() || agent.email}</p>
+              <p className="text-xs font-semibold text-[#6b778c]">{agent.email}</p>
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  await requestJson("/api/config/agents", {
+                    method: "DELETE",
+                    body: JSON.stringify({ email: agent.email }),
+                  });
+                  await refreshAgents();
+                  // Xoá agent cascade-xoá agent_members ở server — refresh
+                  // luôn danh sách assistant để không còn row mồ côi trên UI.
+                  await refreshMembers();
+                }, "Agent removed.")
+              }
+              className="inline-flex w-fit items-center gap-1 rounded px-2 py-1 text-sm font-bold text-[#bf2600] hover:bg-[#ffebe6]"
+            >
+              <Trash2 className="h-4 w-4" /> Remove
+            </button>
+          </div>
+        ))}
+      </section>
+
+      <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+        <div className="border-b border-[#dfe1e6] px-6 py-4">
+          <h2 className="text-lg font-bold">Assistant membership</h2>
+          <p className="mt-1 text-sm text-[#6b778c]">
+            Link an existing Agent to the people who assist them.
+          </p>
+        </div>
+        <form
+          className="grid gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4 md:grid-cols-[280px_1fr_120px]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void run(async () => {
+              await requestJson("/api/config/assistants", {
+                method: "POST",
+                body: JSON.stringify({ agent_email: agentEmail, cs_email: assistantEmail }),
+              });
+              setAssistantEmail("");
+              await refreshMembers();
+            }, "Assistant added.");
+          }}
+        >
+          <DropdownSelect
           label="Agent"
           value={agentEmail}
           options={agentOptions}
@@ -990,7 +1120,8 @@ function ConfigAssistantSection({
           </button>
         </div>
       ))}
-    </section>
+      </section>
+    </>
   );
 }
 

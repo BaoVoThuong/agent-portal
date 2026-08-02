@@ -7,7 +7,7 @@ import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
-import { ChevronDown, Clock, Download, FileUp, Loader2, Plus, Tag, UsersRound } from "lucide-react";
+import { ChevronDown, Clock, Download, FileUp, Loader2, Plus, Tag } from "lucide-react";
 import type {
   TaskCategory,
   TaskPriority,
@@ -46,7 +46,6 @@ import {
 import { NewTaskDialog, type NewTaskPayload } from "./NewTaskDialog";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { CategoryManager } from "./CategoryManager";
-import { AgentGroupsModal } from "./AgentGroupsModal";
 import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
@@ -110,7 +109,6 @@ export function TaskBoardClient({
   const deepLinkId = searchParams.get("task");
   const deepLinkCommentId = searchParams.get("comment");
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
-  const [taskAgents, setTaskAgents] = useState<TaskAgent[]>(agents);
   const [view, setView] = useState<BoardView>(() => (isManager ? "overview" : "board"));
   const [overviewSnapshot, setOverviewSnapshot] = useState<OverviewSnapshot | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
@@ -128,7 +126,6 @@ export function TaskBoardClient({
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
   const [taskLayoutColumns, setTaskLayoutColumns] = useState<TableColumn[]>(tableColumns);
   const [managingCategories, setManagingCategories] = useState(false);
-  const [managingAgentGroups, setManagingAgentGroups] = useState(false);
   const [managingSlaRules, setManagingSlaRules] = useState(false);
   const [slaRules, setSlaRules] = useState<TaskSlaRule[]>([]);
   const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
@@ -536,7 +533,7 @@ export function TaskBoardClient({
 
   const agentChoices = useMemo(() => {
     const byEmail = new Map<string, TaskAgent>();
-    for (const agent of taskAgents) byEmail.set(agent.email, agent);
+    for (const agent of agents) byEmail.set(agent.email, agent);
     for (const task of tasks) {
       if (task.agent_email && !byEmail.has(task.agent_email)) {
         byEmail.set(task.agent_email, { email: task.agent_email, name: null });
@@ -545,7 +542,7 @@ export function TaskBoardClient({
     return [...byEmail.values()].sort((a, b) =>
       formatAgentLabel(a).localeCompare(formatAgentLabel(b))
     );
-  }, [taskAgents, tasks]);
+  }, [agents, tasks]);
 
   const assigneeLabelByEmail = useMemo(
     () =>
@@ -627,11 +624,11 @@ export function TaskBoardClient({
       if (task.priority === "urgent" || task.priority === "high") stat.urgent += 1;
     }
 
-    const selectedAgentEmails = new Set(taskAgents.map((agent) => agent.email));
+    const selectedAgentEmails = new Set(agents.map((agent) => agent.email));
     return [...stats.values()].filter(
       (stat) => stat.total > 0 || selectedAgentEmails.has(stat.key)
     );
-  }, [agentChoices, taskAgents, tasks, slaRules, now]);
+  }, [agentChoices, agents, tasks, slaRules, now]);
 
   const overdueIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1241,16 +1238,6 @@ export function TaskBoardClient({
             {!overviewHeader ? (
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {isManager && (
-                  <button
-                    type="button"
-                    onClick={() => setManagingAgentGroups(true)}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                  >
-                    <UsersRound className="h-4 w-4" />
-                    Agent Groups
-                  </button>
-                )}
-                {isManager && (
                   <>
                     <button
                       type="button"
@@ -1363,7 +1350,7 @@ export function TaskBoardClient({
           tasks={visibleTasks}
           categories={categories}
           assignees={assignees}
-          agents={taskAgents}
+          agents={agents}
           isManager={isManager}
           myAssistantAgents={myAssistantAgents}
           agentMembersByAgent={agentMembersByAgent}
@@ -1407,7 +1394,7 @@ export function TaskBoardClient({
           currentEmail={currentEmail}
           myAssistantAgents={myAssistantAgents}
           assignees={assignees}
-          agents={taskAgents}
+          agents={agents}
           agentCandidates={agentCandidates}
           myAgents={myAgents}
           agentMembersByAgent={agentMembersByAgent}
@@ -1440,7 +1427,7 @@ export function TaskBoardClient({
           onReopenRequest={() => setReopeningTaskId(openTask.id)}
           assignees={assignees}
           agentMembersByAgent={agentMembersByAgent}
-          agents={taskAgents}
+          agents={agents}
           mentionMembers={mentionMembers}
           categories={categories}
           detailColumns={taskDetailColumns}
@@ -1468,17 +1455,6 @@ export function TaskBoardClient({
         open={managingCategories}
         onClose={() => setManagingCategories(false)}
         onChanged={reloadCategories}
-      />
-
-      <AgentGroupsModal
-        open={managingAgentGroups && isManager}
-        agents={taskAgents}
-        candidates={agentCandidates}
-        cs={assignees}
-        isManager={isManager}
-        manageableAgentEmails={manageableAgentEmails}
-        onAgentsChange={setTaskAgents}
-        onClose={() => setManagingAgentGroups(false)}
       />
 
       <SlaRulesModal

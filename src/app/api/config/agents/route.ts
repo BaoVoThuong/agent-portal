@@ -1,18 +1,16 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
+import { loadConfigAdmin } from "@/lib/table-config/access";
+import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const admin = await loadTaskAgentAdmin();
+  const admin = await loadConfigAdmin();
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const sb = getSupabaseAdmin();
-  const { data: selected, error: selectedErr } = await sb
-    .from("task_agents")
-    .select("email");
+  const { data: selected, error: selectedErr } = await sb.from("task_agents").select("email");
   if (selectedErr) return NextResponse.json({ error: selectedErr.message }, { status: 500 });
 
   const emails = [...new Set((selected ?? []).map((row) => (row as { email: string }).email))];
@@ -28,12 +26,12 @@ export async function GET() {
   return NextResponse.json({ agents: sortPeople(data ?? []) });
 }
 
-export async function POST(req: Request) {
-  const admin = await loadTaskAgentAdmin();
+export async function POST(request: Request) {
+  const admin = await loadConfigAdmin();
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
-  const body = await req.json().catch(() => null);
-  const email = typeof body?.email === "string" ? body.email.trim() : "";
+  const body = await request.json().catch(() => null);
+  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
 
   const sb = getSupabaseAdmin();
@@ -51,52 +49,35 @@ export async function POST(req: Request) {
     .upsert({ email }, { onConflict: "email", ignoreDuplicates: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  await broadcastTableConfigChanged();
   const row = account as { email: string; name: string | null };
   return NextResponse.json({ agent: { email: row.email, name: row.name } });
 }
 
-export async function DELETE(req: Request) {
-  const admin = await loadTaskAgentAdmin();
+export async function DELETE(request: Request) {
+  const admin = await loadConfigAdmin();
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
-  const body = await req.json().catch(() => null);
-  const email = typeof body?.email === "string" ? body.email.trim() : "";
+  const body = await request.json().catch(() => null);
+  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
 
   const sb = getSupabaseAdmin();
-  const { error: memberErr } = await sb
-    .from("agent_members")
-    .delete()
-    .eq("agent_email", email);
+  // Cascade: xoá agent thì gỡ hết assistant-link của agent đó, tránh để lại
+  // row mồ côi trong agent_members trỏ tới 1 email không còn trong task_agents.
+  const { error: memberErr } = await sb.from("agent_members").delete().eq("agent_email", email);
   if (memberErr) return NextResponse.json({ error: memberErr.message }, { status: 500 });
 
   const { error } = await sb.from("task_agents").delete().eq("email", email);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
 }
 
-async function loadTaskAgentAdmin(): Promise<
-  | { ok: true }
-  | { ok: false; error: "Unauthorized" | "Forbidden"; status: 401 | 403 }
-> {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) return { ok: false, error: "Unauthorized", status: 401 };
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
-  if (!actor.isManager) return { ok: false, error: "Forbidden", status: 403 };
-  return { ok: true };
-}
-
-function sortPeople(
-  rows: { email?: string | null; name?: string | null }[]
-): { email: string; name: string | null }[] {
+function sortPeople(rows: { email?: string | null; name?: string | null }[]) {
   return rows
-    .filter((row): row is { email: string; name: string | null } =>
-      typeof row.email === "string"
-    )
+    .filter((row): row is { email: string; name: string | null } => typeof row.email === "string")
     .map((row) => ({ email: row.email, name: row.name ?? null }))
     .sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
 }
