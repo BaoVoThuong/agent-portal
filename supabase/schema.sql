@@ -2287,8 +2287,6 @@ create index if not exists enrollment_records_caller_idx
   on enrollment_records (caller_email, archived_at);
 create index if not exists enrollment_records_responsible_idx
   on enrollment_records (responsible_enroll_email, archived_at);
-create index if not exists enrollment_records_agent_idx
-  on enrollment_records (agent_email, archived_at);
 create index if not exists enrollment_records_updated_idx
   on enrollment_records (archived_at, updated_at desc);
 
@@ -2301,6 +2299,8 @@ alter table enrollment_records
   add column if not exists custom_values jsonb not null default '{}'::jsonb;
 alter table enrollment_records
   add column if not exists agent_email text;
+create index if not exists enrollment_records_agent_idx
+  on enrollment_records (agent_email, archived_at);
 alter table enrollment_records
   drop constraint if exists enrollment_records_program_check;
 alter table enrollment_records
