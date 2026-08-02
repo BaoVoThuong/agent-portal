@@ -40,6 +40,7 @@ const TEXT_FIELDS = [
   "fub_link",
   "pcp_2025",
   "pcp_2026",
+  "agent_email",
   "caller_email",
   "responsible_enroll_email",
 ] as const;

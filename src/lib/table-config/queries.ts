@@ -26,6 +26,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
   aca: [
     col("aca", "key", "Key", "text", 10, false, true),
     col("aca", "client", "Client Name", "text", 20, false, true),
+    col("aca", "agent", "Agent", "person", 25),
     col("aca", "stage", "Stage", "dropdown", 30),
     col("aca", "caller", "Caller", "person", 40),
     col("aca", "responsible", "Responsible Enroll", "person", 50),
@@ -47,6 +48,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
   medicare: [
     col("medicare", "key", "Key", "text", 10, false, true),
     col("medicare", "client", "Client Name", "text", 20, false, true),
+    col("medicare", "agent", "Agent", "person", 25),
     col("medicare", "stage", "Stage", "dropdown", 30),
     col("medicare", "responsible", "Assignee", "person", 50),
     col("medicare", "carrier", "Carrier", "dropdown", 70),

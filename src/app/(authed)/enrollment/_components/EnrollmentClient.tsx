@@ -38,8 +38,6 @@ import {
   enrollmentRoomTopic,
 } from "@/lib/enrollment/realtime-topics";
 import {
-  enrollmentIsDueSoon,
-  enrollmentIsOverdue,
   enrollmentKey,
   formatDateInput,
   formatDateShort,
@@ -69,7 +67,7 @@ import {
   toggleHiddenColumn,
   writeHiddenColumns,
 } from "@/lib/enrollment/column-visibility";
-import type { TaskAssignee } from "@/lib/tasks/assignees";
+import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName, personLabel } from "@/lib/tasks/people";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import {
@@ -114,12 +112,12 @@ type SortDir = "asc" | "desc";
 type Filters = {
   query: string;
   stage: string[];
+  agent: string[];
   caller: string[];
   responsible: string[];
   carrier: string[];
   payment: string[];
   attention: boolean;
-  overdue: boolean;
   qcNeeded: boolean;
   unowned: boolean;
   createdFrom: string;
@@ -129,12 +127,12 @@ type Filters = {
 const DEFAULT_FILTERS: Filters = {
   query: "",
   stage: [],
+  agent: [],
   caller: [],
   responsible: [],
   carrier: [],
   payment: [],
   attention: false,
-  overdue: false,
   qcNeeded: false,
   unowned: false,
   createdFrom: "",
@@ -192,6 +190,7 @@ type EnrollmentColumnKey = EnrollmentColumn["key"];
 const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
   { key: "key", label: "Key", width: 100, sticky: true, locked: true, sortable: true },
   { key: "client", label: "Client Name", width: 300, sticky: true, locked: true, sortable: true },
+  { key: "agent", label: "Agent", width: 170, sortable: true },
   { key: "stage", label: "Stage", width: 260, sortable: true },
   { key: "caller", label: "Caller", width: 180, sortable: true },
   { key: "responsible", label: "Responsible Enroll", width: 200, sortable: true },
@@ -415,6 +414,7 @@ export function EnrollmentClient({
   program,
   initialRecords,
   people,
+  agents,
   optionSets,
   initialOptions,
   tableColumns,
@@ -426,6 +426,7 @@ export function EnrollmentClient({
   program: EnrollmentProgram;
   initialRecords: EnrollmentRecordWithStats[];
   people: EnrollmentPerson[];
+  agents: TaskAgent[];
   optionSets: EnrollmentOptionSet[];
   initialOptions: EnrollmentOption[];
   tableColumns: TableColumn[];
@@ -586,6 +587,13 @@ export function EnrollmentClient({
     if (!map.has(currentEmail)) map.set(currentEmail, formatEmailAsName(currentEmail));
     return map;
   }, [currentEmail, people]);
+  const agentsByEmail = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const agent of agents) {
+      map.set(agent.email, agent.name?.trim() || formatEmailAsName(agent.email));
+    }
+    return map;
+  }, [agents]);
   const mentionMembers = useMemo<TaskAssignee[]>(
     () =>
       people.map((person) => ({
@@ -858,6 +866,7 @@ export function EnrollmentClient({
             filters={filters}
             setFilters={setFilters}
             people={people}
+            agents={agents}
             optionsBySet={optionsBySet}
             columns={columns}
             hiddenColumnKeys={hiddenColumnKeys}
@@ -888,6 +897,7 @@ export function EnrollmentClient({
               columns={visibleColumns}
               records={visibleRecords}
               peopleByEmail={peopleByEmail}
+              agentsByEmail={agentsByEmail}
               optionsById={optionsById}
               optionsBySet={optionsBySet}
               tableColumnOptions={tableColumnOptions}
@@ -918,6 +928,7 @@ export function EnrollmentClient({
         <EnrollmentDrawer
           record={openRecord}
           peopleByEmail={peopleByEmail}
+          agentsByEmail={agentsByEmail}
           mentionMembers={mentionMembers}
           optionsById={optionsById}
           optionsBySet={optionsBySet}
@@ -936,6 +947,7 @@ export function EnrollmentClient({
         <NewEnrollmentDialog
           program={program}
           peopleByEmail={peopleByEmail}
+          agentsByEmail={agentsByEmail}
           optionsBySet={optionsBySet}
           visibleColumnKeys={visibleCreateColumnKeys}
           currentEmail={currentEmail}
@@ -1061,6 +1073,7 @@ function EnrollmentToolbar({
   filters,
   setFilters,
   people,
+  agents,
   optionsBySet,
   columns,
   hiddenColumnKeys,
@@ -1074,6 +1087,7 @@ function EnrollmentToolbar({
   filters: Filters;
   setFilters: Dispatch<SetStateAction<Filters>>;
   people: EnrollmentPerson[];
+  agents: TaskAgent[];
   optionsBySet: EnrollmentOptionsBySet;
   columns: EnrollmentColumn[];
   hiddenColumnKeys: Set<EnrollmentColumnKey>;
@@ -1085,12 +1099,12 @@ function EnrollmentToolbar({
   const hasActiveFilters =
     filters.query.trim() !== "" ||
     filters.stage.length > 0 ||
+    filters.agent.length > 0 ||
     filters.caller.length > 0 ||
     filters.responsible.length > 0 ||
     filters.carrier.length > 0 ||
     filters.payment.length > 0 ||
     filters.attention ||
-    filters.overdue ||
     filters.qcNeeded ||
     filters.unowned ||
     filters.createdFrom !== "" ||
@@ -1164,6 +1178,19 @@ function EnrollmentToolbar({
           onValuesChange={(stage) => setFilters((current) => ({ ...current, stage }))}
         />
 
+        <TaskSelect
+          label="Agent"
+          multi
+          values={filters.agent}
+          options={[{ value: "", label: "All Agents" }, ...agentOptions(agents)]}
+          placeholder="Agent"
+          allValue=""
+          summaryLabel="agents"
+          className="w-max min-w-[10rem]"
+          buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+          onValuesChange={(agent) => setFilters((current) => ({ ...current, agent }))}
+        />
+
         {!isMedicare ? (
           <TaskSelect
             label="Caller"
@@ -1231,15 +1258,6 @@ function EnrollmentToolbar({
           />
         ) : null}
 
-        <ToolbarToggleButton
-          active={filters.overdue}
-          onClick={() =>
-            setFilters((current) => ({ ...current, overdue: !current.overdue }))
-          }
-        >
-          Overdue
-        </ToolbarToggleButton>
-
         <ColumnVisibilityButton
           columns={columns}
           hiddenColumnKeys={hiddenColumnKeys}
@@ -1263,31 +1281,6 @@ function EnrollmentToolbar({
       ) : null}
 
     </section>
-  );
-}
-
-function ToolbarToggleButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`inline-flex h-9 shrink-0 items-center rounded-lg border px-3 text-sm font-semibold transition ${
-        active
-          ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
-          : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#c1c7d0]"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -1378,6 +1371,7 @@ function EnrollmentTable({
   columns,
   records,
   peopleByEmail,
+  agentsByEmail,
   optionsById,
   optionsBySet,
   tableColumnOptions,
@@ -1391,6 +1385,7 @@ function EnrollmentTable({
   columns: EnrollmentColumn[];
   records: EnrollmentRecordWithStats[];
   peopleByEmail: Map<string, string>;
+  agentsByEmail: Map<string, string>;
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
   tableColumnOptions: TableColumnOption[];
@@ -1457,6 +1452,7 @@ function EnrollmentTable({
                   columns={columns}
                   record={record}
                   peopleByEmail={peopleByEmail}
+                  agentsByEmail={agentsByEmail}
                   optionsById={optionsById}
                   optionsBySet={optionsBySet}
                   tableColumnOptions={tableColumnOptions}
@@ -1478,6 +1474,7 @@ function EnrollmentRowItem({
   columns,
   record,
   peopleByEmail,
+  agentsByEmail,
   optionsById,
   optionsBySet,
   tableColumnOptions,
@@ -1489,6 +1486,7 @@ function EnrollmentRowItem({
   columns: EnrollmentColumn[];
   record: EnrollmentRecordWithStats;
   peopleByEmail: Map<string, string>;
+  agentsByEmail: Map<string, string>;
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
   tableColumnOptions: TableColumnOption[];
@@ -1498,8 +1496,6 @@ function EnrollmentRowItem({
   onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
 }) {
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
-  const overdue = enrollmentIsOverdue(record);
-  const risk = enrollmentRisk(record, stage);
   const has = (key: EnrollmentColumn["key"]) => columns.some((column) => column.key === key);
   const customColumns = columns.filter(
     (column) => column.configColumn && !column.configColumn.is_system
@@ -1554,9 +1550,7 @@ function EnrollmentRowItem({
           style={cellStyleFor("key")}
           className={cellClassName(
             "key",
-            `flex shrink-0 items-center px-3 py-2.5 ${
-              overdue ? "border-l-4 border-l-[#f97316]" : ""
-            }`
+            "flex shrink-0 items-center px-3 py-2.5"
           )}
         >
           <span
@@ -1597,6 +1591,20 @@ function EnrollmentRowItem({
             stageId={record.stage_id}
             stages={optionsBySet.stage}
             onChange={(value) => onPatch(record.id, { stage_id: value })}
+          />
+        </div>
+      ) : null}
+
+      {has("agent") ? (
+        <div
+          style={cellStyleFor("agent")}
+          className={cellClassName("agent", "flex shrink-0 items-center px-3 py-2.5")}
+        >
+          <EnrollmentPersonMenu
+            value={record.agent_email}
+            peopleByEmail={agentsByEmail}
+            emptyLabel="No agent"
+            onChange={(value) => void onPatch(record.id, { agent_email: value })}
           />
         </div>
       ) : null}
@@ -1747,13 +1755,7 @@ function EnrollmentRowItem({
           style={cellStyleFor("due")}
           className={cellClassName(
             "due",
-            `flex shrink-0 items-center px-3 py-2.5 text-xs font-medium ${
-              risk.tone === "danger"
-                ? "text-[#bf2600]"
-                : risk.tone === "warning"
-                  ? "text-[#b76e00]"
-                  : "text-[#6b778c]"
-            }`
+            "flex shrink-0 items-center px-3 py-2.5 text-xs font-medium text-[#6b778c]"
           )}
           title={record.due_date ? `Due ${formatDateShort(record.due_date)}` : "No due date"}
         >
@@ -2318,6 +2320,7 @@ function EnrollmentSortTh({
 function EnrollmentDrawer({
   record,
   peopleByEmail,
+  agentsByEmail,
   mentionMembers,
   optionsById,
   optionsBySet,
@@ -2332,6 +2335,7 @@ function EnrollmentDrawer({
 }: {
   record: EnrollmentRecordWithStats;
   peopleByEmail: Map<string, string>;
+  agentsByEmail: Map<string, string>;
   mentionMembers: TaskAssignee[];
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
@@ -2383,6 +2387,7 @@ function EnrollmentDrawer({
   const showAca = !isMedicare && showField("aca");
   const showConsent = !isMedicare && showField("consent");
   const showPlatform = !isMedicare && showField("platform");
+  const showAgent = showField("agent");
   const showCaller = !isMedicare && showField("caller");
   const showResponsible = showField("responsible");
   const showCreatedBy = showField("createdBy");
@@ -2631,6 +2636,18 @@ function EnrollmentDrawer({
                   </FieldBlock>
               ) : null}
 
+              {showAgent ? (
+                <FieldBlock label="Agent">
+                  <EnrollmentPersonMenu
+                    value={record.agent_email}
+                    peopleByEmail={agentsByEmail}
+                    emptyLabel="No agent"
+                    field
+                    onChange={(value) => void onPatch({ agent_email: value })}
+                  />
+                </FieldBlock>
+              ) : null}
+
               {showCaller ? (
                 <FieldBlock label="Caller">
                   <EnrollmentPersonMenu
@@ -2760,6 +2777,7 @@ function EnrollmentDrawer({
 function NewEnrollmentDialog({
   program,
   peopleByEmail,
+  agentsByEmail,
   optionsBySet,
   visibleColumnKeys,
   currentEmail,
@@ -2768,6 +2786,7 @@ function NewEnrollmentDialog({
 }: {
   program: EnrollmentProgram;
   peopleByEmail: Map<string, string>;
+  agentsByEmail: Map<string, string>;
   optionsBySet: EnrollmentOptionsBySet;
   visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
   currentEmail: string;
@@ -2789,6 +2808,7 @@ function NewEnrollmentDialog({
     aca_status_id: "",
     pcp_2025: "",
     pcp_2026: "",
+    agent_email: "",
     caller_email: isMedicare ? "" : currentEmail,
     responsible_enroll_email: "",
   });
@@ -2808,6 +2828,7 @@ function NewEnrollmentDialog({
   const showAca = !isMedicare && showField("aca");
   const showConsent = !isMedicare && showField("consent");
   const showPlatform = !isMedicare && showField("platform");
+  const showAgent = showField("agent");
   const showCaller = !isMedicare && showField("caller");
   const showResponsible = showField("responsible");
   const showPcp2025 = showField("pcp2025");
@@ -2815,7 +2836,7 @@ function NewEnrollmentDialog({
   const showPipelineSection = showStage || showDue;
   const showPlanSection =
     showPayment || showCarrier || showAca || showConsent || showPlatform;
-  const showOwnershipSection = showCaller || showResponsible;
+  const showOwnershipSection = showAgent || showCaller || showResponsible;
   const showPcpSection = showPcp2025 || showPcp2026;
 
   function update(field: string, value: string | null) {
@@ -3008,6 +3029,17 @@ function NewEnrollmentDialog({
 
               {showOwnershipSection ? (
                 <CreatePropertySection>
+                  {showAgent ? (
+                    <CreatePropertyField label="Agent">
+                      <EnrollmentPersonMenu
+                        value={form.agent_email || null}
+                        peopleByEmail={agentsByEmail}
+                        emptyLabel="No agent"
+                        onChange={(value) => update("agent_email", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+
                   {showCaller ? (
                     <CreatePropertyField label="Caller">
                       <EnrollmentPersonMenu
@@ -3066,7 +3098,11 @@ function NewEnrollmentDialog({
           </button>
           <button
             type="button"
-            disabled={saving || (!form.client_name.trim() && !form.fub_link.trim())}
+            disabled={
+              saving ||
+              (!form.client_name.trim() && !form.fub_link.trim()) ||
+              !form.agent_email.trim()
+            }
             onClick={() => void submit()}
             className="h-9 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -3668,13 +3704,13 @@ function filterRecords(
   return records.filter((record) => {
     const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
     if (filters.attention && !enrollmentNeedsAttention(record, optionsById)) return false;
-    if (filters.overdue && !enrollmentIsOverdue(record)) return false;
     if (filters.qcNeeded && !(stage?.triggers_qc && !record.qc_checked_at)) return false;
     const hasCaller = record.program === "medicare" || Boolean(record.caller_email);
     if (filters.unowned && hasCaller && record.responsible_enroll_email) {
       return false;
     }
     if (filters.stage.length > 0 && !filters.stage.includes(record.stage_id ?? "")) return false;
+    if (filters.agent.length > 0 && !filters.agent.includes(record.agent_email ?? "")) return false;
     if (filters.caller.length > 0 && !filters.caller.includes(record.caller_email ?? "")) return false;
     if (
       filters.responsible.length > 0 &&
@@ -3796,8 +3832,7 @@ function sortValue(
 
 function enrollmentNeedsAttention(
   record: EnrollmentRecordWithStats,
-  optionsById: Map<string, EnrollmentOption>,
-  now = new Date()
+  optionsById: Map<string, EnrollmentOption>
 ): boolean {
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
   if (record.closed_at) return Boolean(stage?.triggers_qc && !record.qc_checked_at);
@@ -3805,38 +3840,11 @@ function enrollmentNeedsAttention(
   // treat a missing caller as a real "nobody owns this" signal.
   const missingCaller = record.program !== "medicare" && !record.caller_email;
   return (
-    enrollmentIsOverdue(record, now) ||
-    enrollmentIsDueSoon(record, now) ||
     Boolean(stage?.triggers_qc && !record.qc_checked_at) ||
     missingCaller ||
     !record.responsible_enroll_email ||
     !record.due_date
   );
-}
-
-function enrollmentRisk(
-  record: EnrollmentRecordWithStats,
-  stage: EnrollmentOption | null
-): {
-  label: string;
-  tone: "danger" | "warning" | "info" | "neutral" | "ok";
-} {
-  if (enrollmentIsOverdue(record)) {
-    return { label: "Overdue", tone: "danger" };
-  }
-  if (enrollmentIsDueSoon(record)) {
-    return { label: "Due soon", tone: "warning" };
-  }
-  if (stage?.triggers_qc && !record.qc_checked_at) {
-    return { label: "QC needed", tone: "info" };
-  }
-  if (!record.responsible_enroll_email || (record.program !== "medicare" && !record.caller_email)) {
-    return { label: "Missing owner", tone: "warning" };
-  }
-  if (!record.due_date && !record.closed_at) {
-    return { label: "No due date", tone: "neutral" };
-  }
-  return { label: "Healthy", tone: "ok" };
 }
 
 function enrollmentAttentionScore(
@@ -3847,19 +3855,10 @@ function enrollmentAttentionScore(
   if (record.closed_at && !(stage?.triggers_qc && !record.qc_checked_at)) return 0;
 
   let score = 0;
-  if (enrollmentIsOverdue(record)) score += 1000;
-  if (enrollmentIsDueSoon(record)) score += 800;
   if (stage?.triggers_qc && !record.qc_checked_at) score += 700;
   if (!record.responsible_enroll_email) score += 500;
   if (record.program !== "medicare" && !record.caller_email) score += 400;
   if (!record.due_date) score += 300;
-  if (record.due_date) {
-    const dueDistance = Math.max(
-      0,
-      new Date(`${record.due_date}T23:59:59.999`).getTime() - Date.now()
-    );
-    score += Math.max(0, 100 - Math.floor(dueDistance / 86_400_000));
-  }
   return score;
 }
 
@@ -3903,6 +3902,13 @@ function peopleOptions(people: EnrollmentPerson[]) {
   return people.map((person) => ({
     value: person.email,
     label: person.name?.trim() || formatEmailAsName(person.email),
+  }));
+}
+
+function agentOptions(agents: TaskAgent[]) {
+  return agents.map((agent) => ({
+    value: agent.email,
+    label: agent.name?.trim() || formatEmailAsName(agent.email),
   }));
 }
 

@@ -121,6 +121,8 @@ function enrollmentExportValue(record: EnrollmentRecordWithStats, key: string): 
       return `ENR-${record.id.slice(0, 4).toUpperCase()}`;
     case "client":
       return record.client_name;
+    case "agent":
+      return record.agent_email;
     case "stage":
       return record.stage_id;
     case "caller":
@@ -172,7 +174,7 @@ function formatEnrollmentExportValue(
     if (["stage", "payment", "carrier", "aca", "consent", "platform"].includes(column.key)) {
       return raw ? ctx.optionLabels.get(String(raw)) ?? String(raw) : "";
     }
-    if (["caller", "responsible", "createdBy", "updatedBy"].includes(column.key)) {
+    if (["agent", "caller", "responsible", "createdBy", "updatedBy"].includes(column.key)) {
       return raw ? ctx.names.get(String(raw)) ?? String(raw) : "";
     }
     return raw == null ? "" : String(raw);

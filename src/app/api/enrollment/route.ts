@@ -32,6 +32,7 @@ const STRING_FIELDS = [
   "fub_link",
   "pcp_2025",
   "pcp_2026",
+  "agent_email",
   "caller_email",
   "responsible_enroll_email",
 ] as const;
@@ -110,6 +111,9 @@ export async function POST(request: Request) {
       { error: "Client name or FUB link is required." },
       { status: 400 }
     );
+  }
+  if (!patch.agent_email) {
+    return NextResponse.json({ error: "Agent is required." }, { status: 400 });
   }
 
   const nowIso = new Date().toISOString();

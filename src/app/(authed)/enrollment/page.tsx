@@ -11,6 +11,7 @@ import {
   fetchEnrollmentPeople,
   fetchEnrollmentRecords,
 } from "@/lib/enrollment/queries";
+import { fetchTaskAgents } from "@/lib/tasks/assignees";
 import { fetchEnrollmentOptionData } from "@/lib/enrollment/options";
 import { toEnrollmentProgram } from "@/lib/enrollment/types";
 import {
@@ -45,6 +46,7 @@ export default async function EnrollmentPage({
   const [
     records,
     people,
+    agents,
     optionData,
     tableColumns,
     tableColumnOptions,
@@ -52,6 +54,7 @@ export default async function EnrollmentPage({
   ] = await Promise.all([
     fetchEnrollmentRecords(program),
     fetchEnrollmentPeople(),
+    fetchTaskAgents(),
     fetchEnrollmentOptionData(program),
     fetchTableColumns(program),
     fetchTableColumnOptions(program),
@@ -80,6 +83,7 @@ export default async function EnrollmentPage({
       program={program}
       initialRecords={records}
       people={people}
+      agents={agents}
       optionSets={optionData.sets}
       initialOptions={optionData.options}
       tableColumns={tableColumns}

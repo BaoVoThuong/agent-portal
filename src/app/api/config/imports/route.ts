@@ -384,7 +384,7 @@ function enrollmentOptionColumnKey(setKey: string): string {
 
 function isSystemPersonColumn(scope: TableScope, key: string): boolean {
   if (scope === "cs") return ["assignee", "agent", "reporter"].includes(key);
-  return ["caller", "responsible", "createdBy", "updatedBy"].includes(key);
+  return ["agent", "caller", "responsible", "createdBy", "updatedBy"].includes(key);
 }
 
 function titleCase(value: string): string {

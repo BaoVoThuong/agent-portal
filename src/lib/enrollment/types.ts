@@ -77,6 +77,7 @@ export type EnrollmentRecord = {
   pcp_2025: string | null;
   pcp_2026: string | null;
   custom_values?: Record<string, unknown>;
+  agent_email: string | null;
   caller_email: string | null;
   responsible_enroll_email: string | null;
   qc_checked_by_email: string | null;

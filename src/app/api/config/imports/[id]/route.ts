@@ -425,6 +425,9 @@ function splitEnrollmentValues(values: Record<string, unknown>): {
       case "pcp2026":
         systemPatch.pcp_2026 = value;
         break;
+      case "agent":
+        systemPatch.agent_email = value;
+        break;
       case "caller":
         systemPatch.caller_email = value;
         break;
