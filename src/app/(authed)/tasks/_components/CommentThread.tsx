@@ -42,6 +42,11 @@ type Comment = CommentWithAttachments & {
   optimistic?: boolean;
   failed?: boolean;
   error?: string;
+  // Set once the server has created the real row. Posting a comment broadcasts
+  // to the room, so a reload can bring the real comment back while this
+  // optimistic copy is still on screen waiting for its files to finish
+  // uploading — without this link the same comment renders twice.
+  realId?: string;
 };
 
 type CommentEdit = {
@@ -327,6 +332,14 @@ export function CommentThread({
       }
 
       const { comment } = (await res.json()) as { comment: { id: string } };
+      // Link this optimistic row to its real row now, so if a reload lands
+      // mid-upload the duplicate is filtered out instead of rendering twice.
+      setOptimisticComments((current) =>
+        current.map((item) =>
+          item.id === tempId ? { ...item, realId: comment.id } : item,
+        ),
+      );
+
       for (const file of files) {
         const form = new FormData();
         form.append("file", file);
@@ -374,7 +387,19 @@ export function CommentThread({
     return true;
   }
 
-  const rows = [...(comments as Comment[]), ...optimisticComments];
+  // Posting broadcasts to the room, so a reload can deliver the real comment
+  // while its files are still uploading. Show exactly one copy: keep the
+  // optimistic row (it carries the local image previews) and hide the server
+  // row it maps to until releaseOptimistic swaps them after the upload.
+  const shadowedIds = new Set(
+    optimisticComments
+      .map((comment) => comment.realId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const rows = [
+    ...(comments as Comment[]).filter((comment) => !shadowedIds.has(comment.id)),
+    ...optimisticComments,
+  ];
   const timestampOf = (comment: Comment) =>
     new Date(comment.created_at).getTime() || 0;
   const repliesOf = (id: string) =>

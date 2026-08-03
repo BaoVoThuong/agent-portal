@@ -29,6 +29,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: `CommentThread` dùng chung qua prop `apiBase` nên **enrollment cũng được khôi phục đính kèm cùng lúc** (enrollment vốn đã load sẵn comment attachments). Không đổi schema/RBAC — quyền attach giữ nguyên: phải xem được task/record **và** là tác giả của comment đó. Blob URL của preview lạc quan được revoke khi server trả về URL thật (tránh memory leak).
 - **Ref**: regression từ commit 2b185f0
 
+## 2026-08-03 — Fix comment hiện 2 lần khi gửi kèm file
+- **Loại**: fix
+- **Cái gì**: gửi comment có đính kèm thì nội dung hiện **2 lần** rồi vài giây sau mới còn 1. Nguyên nhân: POST comment bắn realtime broadcast → `onReload()` chạy sau ~300ms mang comment **thật** về, trong khi bản **lạc quan** vẫn còn trên màn hình do đang upload file → cả 2 cùng render. Cửa sổ trùng đúng bằng thời gian upload (nên user thấy ~5s). Fix: khi server trả về id thật, gắn `realId` vào bản lạc quan; lúc dựng danh sách thì ẩn bản server tương ứng và **giữ bản lạc quan** (vì nó có preview ảnh cục bộ), tới khi upload xong `releaseOptimistic` mới hoán đổi sang bản thật.
+- **Vì sao**: lỗi do chính đợt khôi phục đính kèm ở entry trên gây ra — trước đó comment không có file nên `persistComment` chạy gần như tức thì, cửa sổ trùng không nhìn thấy được.
+- **File**: src/app/(authed)/tasks/_components/CommentThread.tsx
+- **Ảnh hưởng**: chỉ hiển thị; không đổi API/schema. Chọn giữ bản lạc quan thay vì bản server để ảnh preview không bị nháy (biến mất rồi hiện lại) trong lúc upload.
+
 ## 2026-08-03 — Merge Dropdown Values into one unified nav (Custom + Category + Option Sets)
 - **Loại**: refactor-logic
 - **Cái gì**: gộp `ConfigValueSection` + `ConfigOptionSetSection` (2 khối riêng của đợt consolidate cùng ngày) thành 1 component `ConfigDropdownValuesSection` — 1 nav trái liệt kê mọi nhóm giá trị (Option Set nếu aca/medicare + Category nếu cs + mọi custom dropdown), chọn 1 mục hiện value tương ứng ở panel phải, dùng chung 1 form/table. Field đặc thù (Terminal/QC, cảnh báo archive theo usage-count, guard Consent 2-giá-trị) hiện có điều kiện theo nhóm đang chọn thay vì cố định theo khối.
