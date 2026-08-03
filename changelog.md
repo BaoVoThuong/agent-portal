@@ -43,6 +43,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **File**: src/app/(authed)/tasks/_components/CommentThread.tsx
 - **Ảnh hưởng**: chỉ ô soạn cấp cao nhất dùng `alwaysOpen`; ô **trả lời** (reply) giữ nguyên hành vi cũ (mở khi bấm Reply, có Cancel để đóng). Cố ý **không autofocus** ô luôn-mở, nếu không mỗi lần mở task sẽ bị cướp con trỏ. Enrollment dùng chung component nên cũng được cập nhật.
 
+## 2026-08-03 — Comment thread dựng đúng layout Messenger (list cuộn riêng, ô nhập dính đáy)
+- **Loại**: feat
+- **Cái gì**: bản trước dùng `sticky bottom-0` nên ô nhập chỉ dính đáy khi comment đủ dài để cuộn — ít comment thì nó trôi lên giữa drawer. Nay dựng đúng kiểu Messenger: **danh sách comment có vùng cuộn riêng** (`flex-1` + `overflow-y-auto`), **ô nhập docked cố định** ngay dưới nó và không bao giờ di chuyển, bất kể có 0 hay 100 comment. Thêm **tự cuộn xuống tin mới nhất** khi mở/khi có comment mới (bỏ qua khi đang deep-link tới 1 comment cụ thể để không phá luồng đó).
+- **Vì sao**: user yêu cầu "y xì Messenger" — ô nhập phải luôn nằm đáy.
+- **File**: src/app/(authed)/tasks/_components/CommentThread.tsx, src/app/(authed)/tasks/_components/TaskDetailDrawer.tsx, src/app/(authed)/enrollment/_components/EnrollmentClient.tsx
+- **Ảnh hưởng**: để vùng cuộn hoạt động, khu tab trong drawer phải giãn đầy chiều cao — đã đổi `<main>` sang flex-column và section tab sang `flex-1 min-h-0` ở **cả 2 drawer** (task + enrollment). Không đổi API/schema/logic.
+
 ## 2026-08-03 — Merge Dropdown Values into one unified nav (Custom + Category + Option Sets)
 - **Loại**: refactor-logic
 - **Cái gì**: gộp `ConfigValueSection` + `ConfigOptionSetSection` (2 khối riêng của đợt consolidate cùng ngày) thành 1 component `ConfigDropdownValuesSection` — 1 nav trái liệt kê mọi nhóm giá trị (Option Set nếu aca/medicare + Category nếu cs + mọi custom dropdown), chọn 1 mục hiện value tương ứng ở panel phải, dùng chung 1 form/table. Field đặc thù (Terminal/QC, cảnh báo archive theo usage-count, guard Consent 2-giá-trị) hiện có điều kiện theo nhóm đang chọn thay vì cố định theo khối.

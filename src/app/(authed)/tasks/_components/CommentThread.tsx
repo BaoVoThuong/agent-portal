@@ -234,6 +234,7 @@ export function CommentThread({
   const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const optimisticCounterRef = useRef(0);
   // Blob URLs created for optimistic attachment previews, keyed by temp comment
   // id so they can be revoked once the real (signed) URLs replace them.
@@ -411,6 +412,15 @@ export function CommentThread({
     .sort((a, b) => timestampOf(a) - timestampOf(b));
   const rowSignature = rows.map((comment) => comment.id).join("|");
 
+  // Land on the newest message, like opening a chat. Skipped when deep-linking
+  // to a specific comment — that flow scrolls to its own target below.
+  useEffect(() => {
+    if (highlightCommentId) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [rowSignature, highlightCommentId]);
+
   useEffect(() => {
     if (!highlightCommentId) return;
 
@@ -430,7 +440,10 @@ export function CommentThread({
 
   return (
     <>
-      <section ref={rootRef} className="space-y-3">
+      {/* Messenger layout: the thread scrolls inside its own box and the
+          composer is docked underneath it, so the input never moves. */}
+      <section ref={rootRef} className="flex h-full min-h-0 flex-1 flex-col">
+        <div ref={scrollRef} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
         {topLevel.length === 0 ? (
           <div className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]">
             No comments yet.
@@ -481,10 +494,9 @@ export function CommentThread({
             ))}
           </div>
         )}
+        </div>
 
-        {/* Messenger-style: the box lives below the thread and stays pinned to
-            the bottom of the scroll area, always open and ready to type. */}
-        <div className="sticky bottom-0 -mx-1 border-t border-[#dfe1e6] bg-white px-1 pb-1 pt-3">
+        <div className="shrink-0 border-t border-[#dfe1e6] bg-white pt-3">
           <Composer
             alwaysOpen
             currentEmail={currentEmail}

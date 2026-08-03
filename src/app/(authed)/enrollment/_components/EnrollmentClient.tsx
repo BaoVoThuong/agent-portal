@@ -2419,7 +2419,7 @@ function EnrollmentDrawer({
 
         <div className="flex-1 overflow-y-auto">
           <div className="grid min-h-full grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <main className="min-w-0 space-y-3 p-4 lg:p-5">
+            <main className="flex min-w-0 flex-col gap-3 p-4 lg:p-5">
               {showClient ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>Client Name</span>
@@ -2467,8 +2467,8 @@ function EnrollmentDrawer({
                 />
               </label>
 
-              <section className="space-y-3 border-t border-[#dfe1e6] pt-4">
-                <div className="flex flex-wrap gap-1 rounded bg-[#f4f5f7] p-1">
+              <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
+                <div className="flex shrink-0 flex-wrap gap-1 rounded bg-[#f4f5f7] p-1">
                   <DrawerTab active={tab === "comments"} onClick={() => setTab("comments")}>
                     Comments ({detail?.comments.length ?? record.comment_count})
                   </DrawerTab>
