@@ -36,6 +36,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **File**: src/app/(authed)/tasks/_components/CommentThread.tsx
 - **Ảnh hưởng**: chỉ hiển thị; không đổi API/schema. Chọn giữ bản lạc quan thay vì bản server để ảnh preview không bị nháy (biến mất rồi hiện lại) trong lúc upload.
 
+## 2026-08-03 — Ô soạn comment luôn mở & ghim đáy (kiểu Messenger)
+- **Loại**: feat
+- **Cái gì**: ô soạn comment trước đây **thu gọn** thành 1 nút, phải bấm mới mở. Nay thêm chế độ `alwaysOpen`: luôn mở sẵn, `sticky bottom-0` nên **ghim ở đáy vùng cuộn** — cuộn danh sách comment thì ô nhập vẫn nằm nguyên dưới cùng, giống Messenger. Kèm: textarea gọn hơn (2 dòng thay vì 3), nút "Cancel" đổi thành "Clear" và **chỉ hiện khi đã có nội dung** (ô luôn-mở thì không có gì để "cancel" về).
+- **Vì sao**: user yêu cầu "lúc nào nó cũng nằm bên dưới sẵn giống Messenger".
+- **File**: src/app/(authed)/tasks/_components/CommentThread.tsx
+- **Ảnh hưởng**: chỉ ô soạn cấp cao nhất dùng `alwaysOpen`; ô **trả lời** (reply) giữ nguyên hành vi cũ (mở khi bấm Reply, có Cancel để đóng). Cố ý **không autofocus** ô luôn-mở, nếu không mỗi lần mở task sẽ bị cướp con trỏ. Enrollment dùng chung component nên cũng được cập nhật.
+
 ## 2026-08-03 — Merge Dropdown Values into one unified nav (Custom + Category + Option Sets)
 - **Loại**: refactor-logic
 - **Cái gì**: gộp `ConfigValueSection` + `ConfigOptionSetSection` (2 khối riêng của đợt consolidate cùng ngày) thành 1 component `ConfigDropdownValuesSection` — 1 nav trái liệt kê mọi nhóm giá trị (Option Set nếu aca/medicare + Category nếu cs + mọi custom dropdown), chọn 1 mục hiện value tương ứng ở panel phải, dùng chung 1 form/table. Field đặc thù (Terminal/QC, cảnh báo archive theo usage-count, guard Consent 2-giá-trị) hiện có điều kiện theo nhóm đang chọn thay vì cố định theo khối.

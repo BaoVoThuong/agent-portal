@@ -482,10 +482,11 @@ export function CommentThread({
           </div>
         )}
 
-        {/* Composer sits BELOW the thread so new messages appear directly above
-            the box you are typing in, like a chat. */}
-        <div className="border-t border-[#dfe1e6] pt-3">
+        {/* Messenger-style: the box lives below the thread and stays pinned to
+            the bottom of the scroll area, always open and ready to type. */}
+        <div className="sticky bottom-0 -mx-1 border-t border-[#dfe1e6] bg-white px-1 pb-1 pt-3">
           <Composer
+            alwaysOpen
             currentEmail={currentEmail}
             members={members}
             nameOf={nameOf}
@@ -874,6 +875,7 @@ function EditCommentForm({
 
 function Composer({
   initiallyExpanded = false,
+  alwaysOpen = false,
   currentEmail,
   members,
   nameOf,
@@ -882,6 +884,8 @@ function Composer({
   placeholder,
 }: {
   initiallyExpanded?: boolean;
+  /** Messenger-style: the box stays open at the bottom instead of collapsing. */
+  alwaysOpen?: boolean;
   currentEmail: string;
   members: TaskAssignee[];
   nameOf: (email: string) => string;
@@ -892,7 +896,7 @@ function Composer({
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(initiallyExpanded);
+  const [expanded, setExpanded] = useState(initiallyExpanded || alwaysOpen);
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [query, setQuery] = useState<string | null>(null);
   const [mentionPosition, setMentionPosition] =
@@ -914,10 +918,13 @@ function Composer({
   });
 
   useEffect(() => {
-    if (!expanded) return;
+    // An always-open box is present from the start, so focusing it here would
+    // steal the caret every time the drawer opens. Only auto-focus a box the
+    // user actively expanded (reply, or the collapsed composer).
+    if (!expanded || alwaysOpen) return;
     const frame = requestAnimationFrame(() => taRef.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [expanded]);
+  }, [expanded, alwaysOpen]);
 
   const matches =
     query === null
@@ -1009,7 +1016,7 @@ function Composer({
     clearDraft();
     if (onCancel) {
       onCancel();
-    } else {
+    } else if (!alwaysOpen) {
       setExpanded(false);
     }
   }
@@ -1024,7 +1031,7 @@ function Composer({
       clearDraft();
       if (onCancel) {
         onCancel();
-      } else {
+      } else if (!alwaysOpen) {
         setExpanded(false);
       }
     }
@@ -1091,8 +1098,10 @@ function Composer({
           }
           onKeyDown={onKeyDown}
           placeholder={placeholder}
-          rows={3}
-          className="block min-h-[5.5rem] w-full resize-y bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none placeholder:text-[#7a869a]"
+          rows={alwaysOpen ? 2 : 3}
+          className={`block w-full resize-y bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none placeholder:text-[#7a869a] ${
+            alwaysOpen ? "min-h-[3.25rem]" : "min-h-[5.5rem]"
+          }`}
         />
 
         {query !== null && matches.length > 0 && (
@@ -1179,13 +1188,17 @@ function Composer({
             <Paperclip className="h-4 w-4" /> Attach
           </button>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={cancel}
-              className="h-8 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
-            >
-              Cancel
-            </button>
+            {/* An always-open box has nothing to collapse back to, so Cancel
+                only appears once there is a draft — there it means "clear". */}
+            {alwaysOpen && !text.trim() && files.length === 0 ? null : (
+              <button
+                type="button"
+                onClick={cancel}
+                className="h-8 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
+              >
+                {alwaysOpen ? "Clear" : "Cancel"}
+              </button>
+            )}
             <button
               type="button"
               onClick={submit}
