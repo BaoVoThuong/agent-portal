@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-03 — Khôi phục đính kèm file trong comment + chuyển composer xuống dưới
+- **Loại**: fix, feat
+- **Cái gì**: (1) **Khôi phục regression**: tính năng đính kèm file trong comment (nút Attach, chip file đã chọn, preview ảnh inline + modal phóng to, link tải file thường) đã bị gỡ khỏi `CommentThread.tsx` ở commit `2b185f0` (2026-07-13, "simplify detail visibility and attachments") — nay port lại vào cấu trúc hiện tại (không revert thẳng vì file đã thay đổi nhiều: mention encoding, edit history, prop `apiBase`). Kèm theo: bật lại `includeCommentAttachments: true` ở `/api/tasks/[id]/detail` (đang bị tắt cứng `false`), và cho phép comment **chỉ có file, không có chữ** ở cả 2 route POST comments (trước đó chặn `400 "Comment is empty."`). (2) **Đổi layout**: ô soạn comment chuyển từ trên xuống **dưới** danh sách, để tin nhắn mới hiện ngay phía trên chỗ đang gõ, giống giao diện chat.
+- **Vì sao**: user báo mất nút đính kèm và muốn layout kiểu chat. Điều tra git xác nhận là regression thật (backend `/api/{tasks,enrollment}/[id]/attachments` nhận `comment_id`, `groupCommentAttachments`, signed URL, magic-byte validation đều còn nguyên vẹn — chỉ mất UI + 1 cờ bị tắt).
+- **File**: src/app/(authed)/tasks/_components/CommentThread.tsx, src/app/api/tasks/[id]/detail/route.ts, src/app/api/tasks/[id]/comments/route.ts, src/app/api/enrollment/[id]/comments/route.ts
+- **Ảnh hưởng**: `CommentThread` dùng chung qua prop `apiBase` nên **enrollment cũng được khôi phục đính kèm cùng lúc** (enrollment vốn đã load sẵn comment attachments). Không đổi schema/RBAC — quyền attach giữ nguyên: phải xem được task/record **và** là tác giả của comment đó. Blob URL của preview lạc quan được revoke khi server trả về URL thật (tránh memory leak).
+- **Ref**: regression từ commit 2b185f0
+
 ## 2026-08-03 — Merge Dropdown Values into one unified nav (Custom + Category + Option Sets)
 - **Loại**: refactor-logic
 - **Cái gì**: gộp `ConfigValueSection` + `ConfigOptionSetSection` (2 khối riêng của đợt consolidate cùng ngày) thành 1 component `ConfigDropdownValuesSection` — 1 nav trái liệt kê mọi nhóm giá trị (Option Set nếu aca/medicare + Category nếu cs + mọi custom dropdown), chọn 1 mục hiện value tương ứng ở panel phải, dùng chung 1 form/table. Field đặc thù (Terminal/QC, cảnh báo archive theo usage-count, guard Consent 2-giá-trị) hiện có điều kiện theo nhóm đang chọn thay vì cố định theo khối.

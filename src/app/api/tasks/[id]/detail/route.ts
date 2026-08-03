@@ -38,7 +38,11 @@ export async function GET(_req: Request, { params }: Ctx) {
   const taskScope = task as Pick<TaskRow, "assignee_email" | "agent_email">;
   const detailOpts = {
     includeActivity: true,
-    includeCommentAttachments: false,
+    // Comment attachments are rendered inline in the thread, so they must be
+    // signed and returned with the comments themselves.
+    includeCommentAttachments: true,
+    // Task-level (non-comment) attachments have no UI on the task drawer —
+    // every task file is attached through a comment. Skip signing them.
     includeTaskAttachments: false,
   } as const;
 

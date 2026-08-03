@@ -104,7 +104,10 @@ export async function POST(req: Request, { params }: Ctx) {
 
   const body = await req.json().catch(() => null);
   const text = typeof body?.body === "string" ? body.body.trim() : "";
-  if (!text)
+  // An attachment-only comment is valid: the client creates the comment first,
+  // then uploads files against its id, so the text can legitimately be empty.
+  const hasAttachments = body?.hasAttachments === true;
+  if (!text && !hasAttachments)
     return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
   const nowIso = new Date().toISOString();
 
