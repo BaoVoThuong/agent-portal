@@ -2473,16 +2473,25 @@ function EnrollmentDrawer({
               </label>
 
               <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
-                <div className="flex shrink-0 flex-wrap gap-1 rounded bg-[#f4f5f7] p-1">
-                  <DrawerTab active={tab === "comments"} onClick={() => setTab("comments")}>
-                    Comments ({detail?.comments.length ?? record.comment_count})
-                  </DrawerTab>
-                  <DrawerTab active={tab === "activity"} onClick={() => setTab("activity")}>
-                    Activity ({detail?.activity.length ?? 0})
-                  </DrawerTab>
-                  <DrawerTab active={tab === "files"} onClick={() => setTab("files")}>
-                    Files ({detail?.attachments.length ?? record.attachment_count})
-                  </DrawerTab>
+                <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
+                  <DrawerTab
+                    label="Comments"
+                    count={detail?.comments.length ?? record.comment_count}
+                    active={tab === "comments"}
+                    onClick={() => setTab("comments")}
+                  />
+                  <DrawerTab
+                    label="Activity"
+                    count={detail?.activity.length ?? 0}
+                    active={tab === "activity"}
+                    onClick={() => setTab("activity")}
+                  />
+                  <DrawerTab
+                    label="Files"
+                    count={detail?.attachments.length ?? record.attachment_count}
+                    active={tab === "files"}
+                    onClick={() => setTab("files")}
+                  />
                 </div>
 
                 {!detail ? (
@@ -3267,25 +3276,39 @@ function DetailSkeleton() {
 }
 
 function DrawerTab({
+  label,
+  count,
   active,
   onClick,
-  children,
 }: {
+  label: string;
+  count?: number;
   active: boolean;
   onClick: () => void;
-  children: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded px-3 py-1.5 text-sm font-bold transition ${
+      aria-current={active ? "page" : undefined}
+      className={`group -mb-px inline-flex items-center gap-1.5 border-b-2 px-1 pb-2 text-sm font-semibold transition ${
         active
-          ? "bg-white text-[#0c66e4] shadow-sm"
-          : "text-[#42526e] hover:text-[#172b4d]"
+          ? "border-[#0c66e4] text-[#0c66e4]"
+          : "border-transparent text-[#5e6c84] hover:border-[#c1c7d0] hover:text-[#172b4d]"
       }`}
     >
-      {children}
+      {label}
+      {typeof count === "number" ? (
+        <span
+          className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums transition ${
+            active
+              ? "bg-[#e9f2ff] text-[#0c66e4]"
+              : "bg-[#f1f2f4] text-[#626f86] group-hover:bg-[#dfe1e6]"
+          }`}
+        >
+          {count}
+        </span>
+      ) : null}
     </button>
   );
 }

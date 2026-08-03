@@ -57,6 +57,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **File**: src/app/(authed)/tasks/_components/TaskDetailDrawer.tsx, src/app/(authed)/enrollment/_components/EnrollmentClient.tsx
 - **Ảnh hưởng**: chỉ áp dụng từ breakpoint `lg` trở lên; màn hình hẹp giữ layout cuộn-một-mạch như cũ (2 cột xếp dọc mà khoá chiều cao sẽ quá chật). Không đổi API/schema/logic.
 
+## 2026-08-03 — Thu gọn composer + thiết kế lại tab Comments/Activity
+- **Loại**: style
+- **Cái gì**: (1) ô soạn comment chiếm quá nhiều chỗ → thu còn ~nửa chiều cao: 1 dòng thay vì 2-3, padding sát, nút cao 28px, nút Attach chỉ còn icon (có tooltip). Áp cho **cả ô docked lẫn ô Reply** (lần đầu quên Reply). (2) Tab Comments/Activity/Overdue (task) và Comments/Activity/Files (enrollment) đổi từ pill trên nền xám sang **tab gạch chân** + số đếm tách thành badge tròn riêng thay vì nhét trong ngoặc `(5)`; active = chữ xanh + gạch chân xanh, hover = gạch chân xám nhạt.
+- **Vì sao**: user báo composer chiếm hết chỗ, và tab bar "xấu quá". Tab gạch chân cũng thấp hơn pill nên trả thêm chỗ cho danh sách comment.
+- **File**: src/app/(authed)/tasks/_components/CommentThread.tsx, src/app/(authed)/tasks/_components/TaskDetailDrawer.tsx, src/app/(authed)/enrollment/_components/EnrollmentClient.tsx
+- **Ảnh hưởng**: `DetailTabButton`/`DrawerTab` đổi API từ `label`-gộp-số (hoặc `children`) sang `label` + `count` riêng — đã cập nhật đủ 6 call site. Tiện thể dọn: bỏ hết nhánh `alwaysOpen ? ... : ...` trong class kích thước, giờ `alwaysOpen` chỉ quyết định **hành vi** (thu gọn hay không, nút phụ "Clear" hay "Cancel").
+
 ## 2026-08-03 — Merge Dropdown Values into one unified nav (Custom + Category + Option Sets)
 - **Loại**: refactor-logic
 - **Cái gì**: gộp `ConfigValueSection` + `ConfigOptionSetSection` (2 khối riêng của đợt consolidate cùng ngày) thành 1 component `ConfigDropdownValuesSection` — 1 nav trái liệt kê mọi nhóm giá trị (Option Set nếu aca/medicare + Category nếu cs + mọi custom dropdown), chọn 1 mục hiện value tương ứng ở panel phải, dùng chung 1 form/table. Field đặc thù (Terminal/QC, cảnh báo archive theo usage-count, guard Consent 2-giá-trị) hiện có điều kiện theo nhóm đang chọn thay vì cố định theo khối.

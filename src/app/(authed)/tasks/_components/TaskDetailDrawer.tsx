@@ -311,21 +311,24 @@ export function TaskDetailDrawer({
               ) : null}
 
               <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
-                <div className="flex shrink-0 flex-wrap gap-1 rounded bg-[#f4f5f7] p-1">
+                <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
                   <DetailTabButton
-                    label={`Comments (${detail?.comments.length ?? 0})`}
+                    label="Comments"
+                    count={detail?.comments.length ?? 0}
                     active={tab === "comments"}
                     onClick={() => setTab("comments")}
                   />
                   {canViewNonCommentDetail ? (
                     <>
                       <DetailTabButton
-                        label={`Activity (${detail?.activity.length ?? 0})`}
+                        label="Activity"
+                        count={detail?.activity.length ?? 0}
                         active={tab === "activity"}
                         onClick={() => setTab("activity")}
                       />
                       <DetailTabButton
-                        label={`Overdue (${overdueLog.length})`}
+                        label="Overdue"
+                        count={overdueLog.length}
                         active={tab === "overdue"}
                         onClick={() => setTab("overdue")}
                       />
@@ -669,10 +672,12 @@ function DoneReviewPanel({
 
 function DetailTabButton({
   label,
+  count,
   active,
   onClick,
 }: {
   label: string;
+  count?: number;
   active: boolean;
   onClick: () => void;
 }) {
@@ -680,13 +685,25 @@ function DetailTabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+      aria-current={active ? "page" : undefined}
+      className={`group -mb-px inline-flex items-center gap-1.5 border-b-2 px-1 pb-2 text-sm font-semibold transition ${
         active
-          ? "bg-white text-[#0c66e4] shadow-sm"
-          : "text-[#44546f] hover:text-[#172b4d]"
+          ? "border-[#0c66e4] text-[#0c66e4]"
+          : "border-transparent text-[#5e6c84] hover:border-[#c1c7d0] hover:text-[#172b4d]"
       }`}
     >
       {label}
+      {typeof count === "number" ? (
+        <span
+          className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums transition ${
+            active
+              ? "bg-[#e9f2ff] text-[#0c66e4]"
+              : "bg-[#f1f2f4] text-[#626f86] group-hover:bg-[#dfe1e6]"
+          }`}
+        >
+          {count}
+        </span>
+      ) : null}
     </button>
   );
 }
