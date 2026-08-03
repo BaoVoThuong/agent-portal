@@ -1110,12 +1110,8 @@ function Composer({
           }
           onKeyDown={onKeyDown}
           placeholder={placeholder}
-          rows={alwaysOpen ? 1 : 3}
-          className={`block w-full resize-y bg-white text-sm text-[#172b4d] outline-none placeholder:text-[#7a869a] ${
-            alwaysOpen
-              ? "min-h-[2.25rem] px-3 py-2 leading-5"
-              : "min-h-[5.5rem] px-3 py-3 leading-6"
-          }`}
+          rows={1}
+          className="block min-h-[2.25rem] w-full resize-y bg-white px-3 py-2 text-sm leading-5 text-[#172b4d] outline-none placeholder:text-[#7a869a]"
         />
 
         {query !== null && matches.length > 0 && (
@@ -1183,11 +1179,7 @@ function Composer({
           </div>
         )}
 
-        <div
-          className={`flex items-center justify-between gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-2 ${
-            alwaysOpen ? "py-1" : "py-2"
-          }`}
-        >
+        <div className="flex items-center justify-between gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-2 py-1">
           <input
             ref={fileRef}
             type="file"
@@ -1198,19 +1190,15 @@ function Composer({
               if (fileRef.current) fileRef.current.value = "";
             }}
           />
+          {/* Icon-only: the bar is tight and the paperclip reads on its own. */}
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
             aria-label="Attach files"
             title="Attach files"
-            className={`inline-flex items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d] ${
-              alwaysOpen ? "h-7" : "h-8"
-            }`}
+            className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
           >
             <Paperclip className="h-4 w-4" />
-            {/* The docked box is tight on space, so the icon carries the
-                meaning there and the label only shows in the roomier form. */}
-            {alwaysOpen ? null : "Attach"}
           </button>
           <div className="flex items-center gap-2">
             {/* An always-open box has nothing to collapse back to, so Cancel
@@ -1219,9 +1207,7 @@ function Composer({
               <button
                 type="button"
                 onClick={cancel}
-                className={`rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d] ${
-                  alwaysOpen ? "h-7" : "h-8"
-                }`}
+                className="h-7 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
               >
                 {alwaysOpen ? "Clear" : "Cancel"}
               </button>
@@ -1230,9 +1216,7 @@ function Composer({
               type="button"
               onClick={submit}
               disabled={!text.trim() && files.length === 0}
-              className={`inline-flex items-center gap-1.5 rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40 ${
-                alwaysOpen ? "h-7" : "h-8"
-              }`}
+              className="inline-flex h-7 items-center gap-1.5 rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send className="h-3.5 w-3.5" /> Send
             </button>
