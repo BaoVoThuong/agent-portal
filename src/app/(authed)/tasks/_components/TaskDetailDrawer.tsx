@@ -32,7 +32,9 @@ const CUSTOM_FIELD_INPUT_CLASS =
   "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]";
 const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
-const COMPACT_DETAIL_FIELD_CLASS = "block space-y-1";
+// shrink-0: these sit above the comment thread in a flex column, so they must
+// keep their natural height and let the thread absorb the leftover space.
+const COMPACT_DETAIL_FIELD_CLASS = "block shrink-0 space-y-1";
 const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
 const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] resize-none overflow-hidden !px-2 !py-2 leading-6`;
 
@@ -229,9 +231,12 @@ export function TaskDetailDrawer({
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto">
-          <div className="grid min-h-full grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <main className="flex min-w-0 flex-col gap-3 p-4 lg:p-5">
+        {/* On wide screens each column owns its scrolling, which is what keeps
+            the comment composer docked at the bottom no matter how long the
+            thread gets. Narrow screens keep the simpler single-scroll layout. */}
+        <div className="flex-1 overflow-y-auto lg:overflow-hidden">
+          <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
+            <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
               {showTitle ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>Client Name</span>
@@ -359,7 +364,7 @@ export function TaskDetailDrawer({
               </section>
             </main>
 
-            <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
+            <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
               {showStageTime ? <StageTimeBreakdown task={task} /> : null}
               <div className="space-y-3">
                 {showPriority ? (

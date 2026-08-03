@@ -50,6 +50,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **File**: src/app/(authed)/tasks/_components/CommentThread.tsx, src/app/(authed)/tasks/_components/TaskDetailDrawer.tsx, src/app/(authed)/enrollment/_components/EnrollmentClient.tsx
 - **Ảnh hưởng**: để vùng cuộn hoạt động, khu tab trong drawer phải giãn đầy chiều cao — đã đổi `<main>` sang flex-column và section tab sang `flex-1 min-h-0` ở **cả 2 drawer** (task + enrollment). Không đổi API/schema/logic.
 
+## 2026-08-03 — Khoá chiều cao drawer để ô nhập comment thật sự dính đáy
+- **Loại**: fix
+- **Cái gì**: bản trước vẫn sai — có nhiều comment thì ô nhập bị đẩy khỏi màn hình, phải kéo xuống mới thấy. Nguyên nhân: vùng cuộn nội bộ **không bị chặn chiều cao** (grid dùng `min-h-full` + body vẫn `overflow-y-auto`), nên `flex-1` cứ nở ra theo nội dung thay vì cuộn. Fix: ở màn hình lớn (`lg:`), body chuyển `overflow-hidden`, grid dùng `h-full`, `<main>` thêm `min-h-0 overflow-hidden`, sidebar tự cuộn riêng — mỗi cột có vùng cuộn độc lập, đúng kiểu app chat. Các field phía trên (Client Name/FUB/Description) thêm `shrink-0` để không bị bóp lại khi chỗ chật.
+- **Vì sao**: user báo "ô comment phải stick chứ sao mất khi có nhiều comment" — đúng, 2 lần trước tao chưa khoá chiều cao nên dock không có tác dụng.
+- **File**: src/app/(authed)/tasks/_components/TaskDetailDrawer.tsx, src/app/(authed)/enrollment/_components/EnrollmentClient.tsx
+- **Ảnh hưởng**: chỉ áp dụng từ breakpoint `lg` trở lên; màn hình hẹp giữ layout cuộn-một-mạch như cũ (2 cột xếp dọc mà khoá chiều cao sẽ quá chật). Không đổi API/schema/logic.
+
 ## 2026-08-03 — Merge Dropdown Values into one unified nav (Custom + Category + Option Sets)
 - **Loại**: refactor-logic
 - **Cái gì**: gộp `ConfigValueSection` + `ConfigOptionSetSection` (2 khối riêng của đợt consolidate cùng ngày) thành 1 component `ConfigDropdownValuesSection` — 1 nav trái liệt kê mọi nhóm giá trị (Option Set nếu aca/medicare + Category nếu cs + mọi custom dropdown), chọn 1 mục hiện value tương ứng ở panel phải, dùng chung 1 form/table. Field đặc thù (Terminal/QC, cảnh báo archive theo usage-count, guard Consent 2-giá-trị) hiện có điều kiện theo nhóm đang chọn thay vì cố định theo khối.
