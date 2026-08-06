@@ -1210,7 +1210,7 @@ function DoneReviewPill({
   );
 }
 
-function StatusPill({
+export function StatusPill({
   status,
   assigned,
   canChangeStatus,
@@ -1218,6 +1218,7 @@ function StatusPill({
   cellClassName = "",
   isOverdueLocked = false,
   hasBeenInProgress = false,
+  size = "row",
   onChange,
   onUnlockOverdueRequest,
   onReopenRequest,
@@ -1229,6 +1230,9 @@ function StatusPill({
   cellClassName?: string;
   isOverdueLocked?: boolean;
   hasBeenInProgress?: boolean;
+  /** "row" (default) is the compact list/board pill. "field" is a full-width,
+   * detail-drawer-sized control matching the other TaskSelect-style fields. */
+  size?: "row" | "field";
   onChange: (status: TaskStatus) => void;
   onUnlockOverdueRequest?: () => void;
   onReopenRequest?: () => void;
@@ -1253,6 +1257,85 @@ function StatusPill({
       s !== "backlog" &&
       !(s === "todo" && hasBeenInProgress && status !== "todo")
   );
+  const showChevron = interactive || canReopen || canUnlockOverdue;
+
+  if (size === "field") {
+    const badge = (
+      <span
+        className="inline-flex shrink-0 items-center rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
+        style={{ backgroundColor: meta.bg, color: meta.fg }}
+      >
+        {label}
+      </span>
+    );
+    const onClick = canUnlockOverdue
+      ? onUnlockOverdueRequest
+      : canReopen
+        ? onReopenRequest
+        : interactive
+          ? toggle
+          : undefined;
+    const title = canUnlockOverdue
+      ? "Enter a reason to unlock this overdue task"
+      : canReopen
+        ? "Reopen (reason required)"
+        : canChangeStatus && !assigned
+          ? "Assign someone (avatar) to move it out of backlog"
+          : undefined;
+
+    return (
+      <div className={`relative ${cellClassName}`} style={cellStyle}>
+        <button
+          ref={triggerRef}
+          type="button"
+          disabled={!onClick}
+          onClick={onClick}
+          title={title}
+          aria-expanded={interactive ? isOpen : undefined}
+          className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-left transition hover:border-[#c1c7d0] disabled:cursor-not-allowed disabled:bg-[#f4f5f7]"
+        >
+          {badge}
+          {showChevron ? (
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 text-[#667085] transition ${isOpen ? "rotate-180" : ""}`}
+            />
+          ) : null}
+        </button>
+        {interactive && isOpen
+          ? createPortal(
+              <div
+                ref={menuRef}
+                role="listbox"
+                style={menuStyle}
+                className="z-[100] overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+              >
+                {options.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    role="option"
+                    aria-selected={s === status}
+                    onClick={() => {
+                      onChange(s);
+                      setIsOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition ${
+                      s === status
+                        ? "bg-[#e9f2ff] text-[#0c66e4]"
+                        : "text-[#172b4d] hover:bg-[#f4f5f7]"
+                    }`}
+                  >
+                    {STATUS_LABEL[s]}
+                    {s === status ? <Check className="h-4 w-4 text-[#0c66e4]" /> : null}
+                  </button>
+                ))}
+              </div>,
+              document.body
+            )
+          : null}
+      </div>
+    );
+  }
 
   const pill = (
     <span

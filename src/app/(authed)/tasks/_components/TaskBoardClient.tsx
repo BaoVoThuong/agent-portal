@@ -706,11 +706,46 @@ export function TaskBoardClient({
     () => visibleTaskListColumns(hiddenTaskListColumnKeys, taskListColumnConfig),
     [hiddenTaskListColumnKeys, taskListColumnConfig]
   );
+  // Admin-level visibility for the Create dialog + Detail drawer — computed
+  // straight from the raw column config, deliberately NOT from
+  // visibleTaskListColumnConfig above (that one also folds in this specific
+  // user's personal List/Board column-hide state via hiddenTaskListColumnKeys,
+  // which must never affect whether a field can be created/edited).
+  const configuredColumnKeys = useMemo(
+    () =>
+      new Set(
+        taskLayoutColumns
+          .filter((column) => !column.archived_at)
+          .map((column) => column.key)
+      ),
+    [taskLayoutColumns]
+  );
+  const adminVisibleColumnKeys = useMemo(
+    () =>
+      new Set(
+        taskLayoutColumns
+          .filter((column) => !column.archived_at && !column.hidden_default)
+          .map((column) => column.key)
+      ),
+    [taskLayoutColumns]
+  );
+  const requiredColumnKeys = useMemo(
+    () =>
+      new Set(
+        taskLayoutColumns
+          .filter((column) => column.required && !column.archived_at)
+          .map((column) => column.key)
+      ),
+    [taskLayoutColumns]
+  );
   const taskDetailColumns = useMemo(
     () =>
       taskLayoutColumns.filter(
         (column) =>
-          column.show_in_detail && !column.is_system && !column.archived_at
+          column.show_in_detail &&
+          !column.is_system &&
+          !column.archived_at &&
+          !column.hidden_default
       ),
     [taskLayoutColumns]
   );
@@ -1379,6 +1414,9 @@ export function TaskBoardClient({
           categories={categories}
           detailColumns={taskDetailColumns}
           tableColumnOptions={tableColumnOptions}
+          configuredColumnKeys={configuredColumnKeys}
+          visibleColumnKeys={adminVisibleColumnKeys}
+          requiredColumnKeys={requiredColumnKeys}
           onClose={() => setCreating(false)}
           onCreate={createTask}
         />
@@ -1400,7 +1438,9 @@ export function TaskBoardClient({
           canAssign={canAssignOpen}
           canDelete={canDeleteOpen}
           canChangeStatus={Boolean(openTaskCapabilities?.canChangeStatus)}
+          isOverdue={overdueIds.has(openTask.id)}
           onReopenRequest={() => setReopeningTaskId(openTask.id)}
+          onUnlockOverdueRequest={() => setUnlockingTaskId(openTask.id)}
           assignees={assignees}
           agentMembersByAgent={agentMembersByAgent}
           agents={agents}
@@ -1408,6 +1448,9 @@ export function TaskBoardClient({
           categories={categories}
           detailColumns={taskDetailColumns}
           tableColumnOptions={tableColumnOptions}
+          configuredColumnKeys={configuredColumnKeys}
+          visibleColumnKeys={adminVisibleColumnKeys}
+          requiredColumnKeys={requiredColumnKeys}
           currentEmail={currentEmail}
           canReviewDone={
             (openTask.status === "done" || openTask.status === "cancel") &&

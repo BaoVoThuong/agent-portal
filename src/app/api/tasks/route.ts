@@ -32,6 +32,10 @@ import {
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import { recordInitialTaskHistory } from "@/lib/tasks/history";
 import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
+import {
+  findMissingRequiredFields,
+  missingRequiredFieldsMessage,
+} from "@/lib/table-config/required";
 
 export const dynamic = "force-dynamic";
 
@@ -149,6 +153,10 @@ export async function POST(request: Request) {
     typeof body?.fub_link === "string" && body.fub_link.trim() !== ""
       ? body.fub_link.trim()
       : null;
+  const description =
+    typeof body?.description === "string" && body.description.trim() !== ""
+      ? body.description.trim()
+      : null;
   const categoryId =
     typeof body?.category_id === "string" && body.category_id.trim() !== ""
       ? body.category_id.trim()
@@ -165,6 +173,35 @@ export async function POST(request: Request) {
       );
     }
     customValues = cleanCustomValues(body.custom_values);
+  }
+  // Title/Agent/Category are validated above with field-specific messages;
+  // this additionally covers any OTHER column an admin has marked Required —
+  // findMissingRequiredFields() reads the live table_column rows itself, so
+  // WHICH fields get checked is 100% driven by Config, not this file. This
+  // object only needs to name every CS system column that has a real
+  // Create-time input at all (table_column.key on the left — not the DB
+  // column name, that would only make sense by coincidence for a couple of
+  // these), so a required column always has somewhere to read its value from
+  // — see REQUIRED_CAPABLE_SYSTEM_KEYS.cs in src/lib/table-config/columns.ts
+  // for that full list. Leaving one out here means Config would let an admin
+  // mark it Required while nothing could ever satisfy it (this is exactly
+  // how Priority broke Create on 2026-08-07 — see changelog.md).
+  const missingRequired = await findMissingRequiredFields("cs", {
+    fieldValues: {
+      summary: title,
+      description,
+      fub: fubLink,
+      priority,
+      category: categoryId,
+      agent: agentEmail,
+    },
+    customValues,
+  });
+  if (missingRequired.length > 0) {
+    return NextResponse.json(
+      { error: missingRequiredFieldsMessage(missingRequired) },
+      { status: 400 }
+    );
   }
 
   const supabase = getSupabaseAdmin();
@@ -196,10 +233,7 @@ export async function POST(request: Request) {
     .from("tasks")
     .insert({
       title,
-      description:
-        typeof body?.description === "string" && body.description.trim() !== ""
-          ? body.description.trim()
-          : null,
+      description,
       fub_link: fubLink,
       status: assignment.status,
       priority,

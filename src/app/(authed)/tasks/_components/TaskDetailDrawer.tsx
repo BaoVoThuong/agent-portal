@@ -15,6 +15,7 @@ import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
 import { OverdueLog } from "./OverdueLog";
 import { StageTimeBreakdown } from "./StageTimeBreakdown";
+import { StatusPill } from "./TaskRowItem";
 import { TaskSelect } from "./TaskSelect";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
 import { AvatarStack } from "./board-ui";
@@ -37,6 +38,8 @@ const LABEL_CLASS =
 const COMPACT_DETAIL_FIELD_CLASS = "block shrink-0 space-y-1";
 const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
 const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] resize-none overflow-hidden !px-2 !py-2 leading-6`;
+const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
+const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
 
 function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
   if (!textarea) return;
@@ -52,12 +55,16 @@ export function TaskDetailDrawer({
   canAssign,
   canDelete,
   canChangeStatus,
+  isOverdue,
   assignees,
   agentMembersByAgent,
   agents,
   mentionMembers,
   categories,
   detailColumns,
+  configuredColumnKeys,
+  visibleColumnKeys,
+  requiredColumnKeys,
   tableColumnOptions,
   currentEmail,
   canReviewDone,
@@ -69,18 +76,23 @@ export function TaskDetailDrawer({
   onAssigneeChange,
   onDelete,
   onReopenRequest,
+  onUnlockOverdueRequest,
 }: {
   task: TaskRow;
   canEdit: boolean;
   canAssign: boolean;
   canDelete: boolean;
   canChangeStatus: boolean;
+  isOverdue: boolean;
   assignees: TaskAssignee[];
   agentMembersByAgent: Record<string, string[]>;
   agents: TaskAgent[];
   mentionMembers: TaskAssignee[];
   categories: TaskCategory[];
   detailColumns: TableColumn[];
+  configuredColumnKeys: ReadonlySet<string>;
+  visibleColumnKeys: ReadonlySet<string>;
+  requiredColumnKeys: ReadonlySet<string>;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   canReviewDone: boolean;
@@ -92,10 +104,12 @@ export function TaskDetailDrawer({
   onAssigneeChange: (email: string, assigned: boolean) => void;
   onDelete: () => Promise<void>;
   onReopenRequest: () => void;
+  onUnlockOverdueRequest: () => void;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [fubLink, setFubLink] = useState(task.fub_link ?? "");
+  const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
   const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(
     () => getCachedTaskDetail(task.id) ?? null
@@ -184,7 +198,39 @@ export function TaskDetailDrawer({
         a.type === "task_reopened"
     ) ?? [];
   const canReopen = canChangeStatus && (task.status === "done" || task.status === "cancel");
+  const showField = (key: string) =>
+    !configuredColumnKeys.has(key) || visibleColumnKeys.has(key);
+  const showTitle = showField("summary");
+  const showFub = showField("fub");
+  const showDescription = showField("description");
+  const showStageTime = (["todoTime", "progressTime", "waitingTime"] as const).some(
+    showField
+  );
+  const showPriority = showField("priority");
+  const showCategory = showField("category");
+  const showAgent = showField("agent");
+  const showCreatedBy = showField("reporter");
+  const showAssignees = showField("assignee");
+  const showQcReview = showField("review");
+  const showStage = showField("status");
+  const hasBeenInProgress =
+    task.status === "in_progress" ||
+    Boolean(task.in_progress_at) ||
+    task.in_progress_seconds > 0;
   const visibleDetailColumns = detailColumns;
+
+  function markInvalid(key: string) {
+    setInvalidKeys((current) => new Set([...current, key]));
+  }
+  function clearInvalid(key: string) {
+    setInvalidKeys((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  }
+  const isInvalid = (key: string) => invalidKeys.has(key);
 
   return (
     <div
@@ -217,72 +263,112 @@ export function TaskDetailDrawer({
         <div className="flex-1 overflow-y-auto lg:overflow-hidden">
           <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
             <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
-              <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>Client Name</span>
-                <input
-                  value={title}
-                  disabled={!canEdit}
-                  onChange={(e) => setTitle(e.target.value)}
-                  onBlur={() =>
-                    canEdit &&
-                    title.trim() &&
-                    title !== task.title &&
-                    onPatch({ title: title.trim() })
-                  }
-                  className={COMPACT_DETAIL_INPUT_CLASS}
-                />
-              </label>
-
-              <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>FUB Link</span>
-                <div className="flex gap-1.5">
+              {showTitle ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>
+                    Client Name
+                    {requiredColumnKeys.has("summary") ? REQUIRED_MARK : null}
+                  </span>
                   <input
-                    value={fubLink}
+                    value={title}
                     disabled={!canEdit}
-                    onChange={(e) => setFubLink(e.target.value)}
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                      clearInvalid("summary");
+                    }}
                     onBlur={() => {
-                      const next = fubLink.trim();
-                      if (canEdit && next !== (task.fub_link ?? "")) {
-                        onPatch({ fub_link: next || null });
+                      if (!canEdit) return;
+                      const trimmed = title.trim();
+                      if (requiredColumnKeys.has("summary") && !trimmed) {
+                        setTitle(task.title);
+                        markInvalid("summary");
+                        return;
+                      }
+                      if (trimmed && title !== task.title) {
+                        onPatch({ title: trimmed });
                       }
                     }}
-                    placeholder="No FUB link"
-                    className={COMPACT_DETAIL_INPUT_CLASS}
+                    className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("summary") ? INVALID_RING_CLASS : ""}`}
                   />
-                  {fubHref ? (
-                    <a
-                      href={fubHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label="Open FUB link"
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  ) : null}
-                </div>
-              </label>
+                </label>
+              ) : null}
 
-              <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>Description</span>
-                <textarea
-                  ref={descriptionRef}
-                  value={description}
-                  disabled={!canEdit}
-                  onChange={(e) => {
-                    setDescription(e.target.value);
-                    autosizeTextarea(e.currentTarget);
-                  }}
-                  onBlur={() =>
-                    canEdit &&
-                    description !== (task.description ?? "") &&
-                    onPatch({ description })
-                  }
-                  rows={2}
-                  placeholder="Add a description…"
-                  className={COMPACT_DESCRIPTION_CLASS}
-                />
-              </label>
+              {showFub ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>
+                    FUB Link
+                    {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
+                  </span>
+                  <div className="flex gap-1.5">
+                    <input
+                      value={fubLink}
+                      disabled={!canEdit}
+                      onChange={(e) => {
+                        setFubLink(e.target.value);
+                        clearInvalid("fub");
+                      }}
+                      onBlur={() => {
+                        if (!canEdit) return;
+                        const next = fubLink.trim();
+                        if (requiredColumnKeys.has("fub") && !next) {
+                          setFubLink(task.fub_link ?? "");
+                          markInvalid("fub");
+                          return;
+                        }
+                        if (next !== (task.fub_link ?? "")) {
+                          onPatch({ fub_link: next || null });
+                        }
+                      }}
+                      placeholder="No FUB link"
+                      className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("fub") ? INVALID_RING_CLASS : ""}`}
+                    />
+                    {fubHref ? (
+                      <a
+                        href={fubHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open FUB link"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                  </div>
+                </label>
+              ) : null}
+
+              {showDescription ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>
+                    Description
+                    {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
+                  </span>
+                  <textarea
+                    ref={descriptionRef}
+                    value={description}
+                    disabled={!canEdit}
+                    onChange={(e) => {
+                      setDescription(e.target.value);
+                      autosizeTextarea(e.currentTarget);
+                      clearInvalid("description");
+                    }}
+                    onBlur={() => {
+                      if (!canEdit) return;
+                      if (requiredColumnKeys.has("description") && !description.trim()) {
+                        setDescription(task.description ?? "");
+                        markInvalid("description");
+                        return;
+                      }
+                      if (description !== (task.description ?? "")) {
+                        onPatch({ description });
+                      }
+                    }}
+                    rows={2}
+                    placeholder="Add a description…"
+                    className={`${COMPACT_DESCRIPTION_CLASS} ${isInvalid("description") ? INVALID_RING_CLASS : ""}`}
+                  />
+                </label>
+              ) : null}
 
               <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
@@ -342,87 +428,126 @@ export function TaskDetailDrawer({
             </main>
 
             <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
-              <StageTimeBreakdown task={task} />
+              {showStageTime ? <StageTimeBreakdown task={task} /> : null}
               <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <span className={LABEL_CLASS}>Priority</span>
-                  <TaskPrioritySelect
-                    value={task.priority}
-                    disabled={!canEdit}
-                    buttonClassName="!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none"
-                    onChange={(nextPriority) =>
-                      onPatch({ priority: nextPriority as TaskPriority })
-                    }
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <span className={LABEL_CLASS}>Category</span>
-                  <TaskSelect
-                    label="Category"
-                    value={task.category_id ?? ""}
-                    disabled={!canEdit}
-                    options={categoryOptions}
-                    placeholder="Select category"
-                    buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                    onChange={(nextCategoryId) => onPatch({ category_id: nextCategoryId })}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <span className={LABEL_CLASS}>Agent</span>
-                  <TaskSelect
-                    label="Agent"
-                    value={task.agent_email ?? ""}
-                    disabled={!canEdit}
-                    options={agentOptions}
-                    placeholder="Select agent"
-                    buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                    onChange={(nextAgent) => onPatch({ agent_email: nextAgent })}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <span className={LABEL_CLASS}>Created by</span>
-                  <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
-                    {task.reporter_email
-                      ? personLabelByEmail.get(task.reporter_email) ??
-                        formatEmailAsName(task.reporter_email)
-                      : "—"}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <span className={LABEL_CLASS}>Assignees</span>
-                  {canAssign ? (
-                    <TaskAssigneeDropdown
-                      assignees={assignees}
-                      selectedEmails={task.assignees}
-                      agentEmail={task.agent_email}
-                      agentMembersByAgent={agentMembersByAgent}
-                      onToggle={onAssigneeChange}
+                {showPriority ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      Priority
+                      {requiredColumnKeys.has("priority") ? REQUIRED_MARK : null}
+                    </span>
+                    <TaskPrioritySelect
+                      value={task.priority}
+                      disabled={!canEdit}
+                      buttonClassName="!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none"
+                      onChange={(nextPriority) =>
+                        onPatch({ priority: nextPriority as TaskPriority })
+                      }
                     />
-                  ) : (
-                    <div className="flex min-h-10 items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-sm font-medium text-[#172b4d]">
-                      <AvatarStack emails={task.assignees} labelByEmail={personLabelByEmail} />
-                      <span className="min-w-0 truncate">
-                        {task.assignees.length > 0
-                          ? task.assignees
-                              .map(
-                                (email) =>
-                                  personLabelByEmail.get(email) ??
-                                  formatEmailAsName(email)
-                              )
-                              .join(", ")
-                          : "Unassigned"}
-                      </span>
+                  </div>
+                ) : null}
+
+                {showCategory ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      Category
+                      {requiredColumnKeys.has("category") ? REQUIRED_MARK : null}
+                    </span>
+                    <TaskSelect
+                      label="Category"
+                      value={task.category_id ?? ""}
+                      disabled={!canEdit}
+                      options={categoryOptions}
+                      placeholder="Select category"
+                      buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+                      onChange={(nextCategoryId) => onPatch({ category_id: nextCategoryId })}
+                    />
+                  </div>
+                ) : null}
+
+                {showAgent ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      Agent
+                      {requiredColumnKeys.has("agent") ? REQUIRED_MARK : null}
+                    </span>
+                    <TaskSelect
+                      label="Agent"
+                      value={task.agent_email ?? ""}
+                      disabled={!canEdit}
+                      options={agentOptions}
+                      placeholder="Select agent"
+                      buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+                      onChange={(nextAgent) => onPatch({ agent_email: nextAgent })}
+                    />
+                  </div>
+                ) : null}
+
+                {showCreatedBy ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>Created by</span>
+                    <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
+                      {task.reporter_email
+                        ? personLabelByEmail.get(task.reporter_email) ??
+                          formatEmailAsName(task.reporter_email)
+                        : "—"}
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : null}
+
+                {showAssignees ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>Assignees</span>
+                    {canAssign ? (
+                      <TaskAssigneeDropdown
+                        assignees={assignees}
+                        selectedEmails={task.assignees}
+                        agentEmail={task.agent_email}
+                        agentMembersByAgent={agentMembersByAgent}
+                        onToggle={onAssigneeChange}
+                      />
+                    ) : (
+                      <div className="flex min-h-10 items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-sm font-medium text-[#172b4d]">
+                        <AvatarStack emails={task.assignees} labelByEmail={personLabelByEmail} />
+                        <span className="min-w-0 truncate">
+                          {task.assignees.length > 0
+                            ? task.assignees
+                                .map(
+                                  (email) =>
+                                    personLabelByEmail.get(email) ??
+                                    formatEmailAsName(email)
+                                )
+                                .join(", ")
+                            : "Unassigned"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+
+                {showStage ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>Stage</span>
+                    <StatusPill
+                      size="field"
+                      status={task.status}
+                      assigned={task.assignees.length > 0}
+                      canChangeStatus={canChangeStatus}
+                      hasBeenInProgress={hasBeenInProgress}
+                      isOverdueLocked={isOverdue}
+                      onChange={(nextStatus) => onPatch({ status: nextStatus })}
+                      onUnlockOverdueRequest={onUnlockOverdueRequest}
+                      onReopenRequest={onReopenRequest}
+                    />
+                  </div>
+                ) : null}
 
                 {visibleDetailColumns.map((column) => (
                   <div key={column.id} className="space-y-1.5">
-                    <span className={LABEL_CLASS}>{column.label}</span>
+                    <span className={LABEL_CLASS}>
+                      {column.label}
+                      {column.required ? REQUIRED_MARK : null}
+                    </span>
                     <DetailCustomFieldControl
                       column={column}
                       value={task.custom_values?.[column.key]}
@@ -438,14 +563,16 @@ export function TaskDetailDrawer({
                   </div>
                 ))}
 
-                <div className="space-y-1.5">
-                  <span className={LABEL_CLASS}>QC Review</span>
-                  <DoneReviewPanel
-                    task={task}
-                    canReviewDone={canReviewDone}
-                    onReviewDone={onReviewDone}
-                  />
-                </div>
+                {showQcReview ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>QC Review</span>
+                    <DoneReviewPanel
+                      task={task}
+                      canReviewDone={canReviewDone}
+                      onReviewDone={onReviewDone}
+                    />
+                  </div>
+                ) : null}
               </div>
 
               {canReopen && (

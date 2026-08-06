@@ -38,6 +38,10 @@ import {
   syncAssignmentCycles,
 } from "@/lib/tasks/history";
 import { touchLastActivity } from "@/lib/tasks/last-activity";
+import {
+  findMissingRequiredFields,
+  missingRequiredFieldsMessage,
+} from "@/lib/table-config/required";
 
 export const dynamic = "force-dynamic";
 
@@ -280,6 +284,38 @@ export async function PATCH(req: Request, { params }: Ctx) {
       ...(isRecord(r.task.custom_values) ? r.task.custom_values : {}),
       ...resolved.patch.custom_values,
     };
+  }
+
+  // findMissingRequiredFields() keys fieldValues by table_column.key, not by
+  // the tasks table's own column names — resolved.patch uses the latter
+  // (title/category_id/agent_email/...), so translate only the few that
+  // actually differ, and only when the patch actually touches them (so
+  // `partial: true` below correctly ignores fields this request never sent —
+  // a patch that never mentions Agent must not be blocked by Agent being
+  // Required).
+  const requiredFieldValues: Record<string, unknown> = {};
+  if ("title" in resolved.patch) requiredFieldValues.summary = resolved.patch.title;
+  if ("description" in resolved.patch) requiredFieldValues.description = resolved.patch.description;
+  if ("fub_link" in resolved.patch) requiredFieldValues.fub = resolved.patch.fub_link;
+  if ("priority" in resolved.patch) requiredFieldValues.priority = resolved.patch.priority;
+  if ("category_id" in resolved.patch) requiredFieldValues.category = resolved.patch.category_id;
+  if ("agent_email" in resolved.patch) requiredFieldValues.agent = resolved.patch.agent_email;
+  const missingRequired = await findMissingRequiredFields(
+    "cs",
+    {
+      fieldValues: requiredFieldValues,
+      customValues: isRecord(resolved.patch.custom_values)
+        ? resolved.patch.custom_values
+        : undefined,
+      partial: true,
+    },
+    r.supabase
+  );
+  if (missingRequired.length > 0) {
+    return NextResponse.json(
+      { error: missingRequiredFieldsMessage(missingRequired) },
+      { status: 400 }
+    );
   }
 
   if (reassigning) {

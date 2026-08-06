@@ -23,6 +23,10 @@ import {
 } from "@/lib/enrollment/realtime";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
 import { fetchAdminEmails } from "@/lib/tasks/membership";
+import {
+  findMissingRequiredFields,
+  missingRequiredFieldsMessage,
+} from "@/lib/table-config/required";
 import type {
   EnrollmentOption,
   EnrollmentOptionSetKey,
@@ -217,6 +221,44 @@ export async function PATCH(request: Request, { params }: Ctx) {
       ...cleanCustomValues(body.custom_values),
     };
     changedFields.push("custom_values");
+  }
+
+  // findMissingRequiredFields() keys fieldValues by table_column.key, which
+  // differs from this table's own column names for most of these —
+  // translate here, only including a key if `patch` actually touches the
+  // matching DB field (partial: true below then only checks what this
+  // specific request changes — editing an unrelated field must not be
+  // blocked by some other Required field the record already has a value for).
+  const requiredFieldValues: Record<string, unknown> = {};
+  if ("client_name" in patch) requiredFieldValues.client = patch.client_name;
+  if ("description" in patch) requiredFieldValues.description = patch.description;
+  if ("fub_link" in patch) requiredFieldValues.fub = patch.fub_link;
+  if ("due_date" in patch) requiredFieldValues.due = patch.due_date;
+  if ("stage_id" in patch) requiredFieldValues.stage = patch.stage_id;
+  if ("carrier_id" in patch) requiredFieldValues.carrier = patch.carrier_id;
+  if ("platform_id" in patch) requiredFieldValues.platform = patch.platform_id;
+  if ("consent_id" in patch) requiredFieldValues.consent = patch.consent_id;
+  if ("payment_status_id" in patch) requiredFieldValues.payment = patch.payment_status_id;
+  if ("aca_status_id" in patch) requiredFieldValues.aca = patch.aca_status_id;
+  if ("pcp_2025" in patch) requiredFieldValues.pcp2025 = patch.pcp_2025;
+  if ("pcp_2026" in patch) requiredFieldValues.pcp2026 = patch.pcp_2026;
+  if ("agent_email" in patch) requiredFieldValues.agent = patch.agent_email;
+  if ("caller_email" in patch) requiredFieldValues.caller = patch.caller_email;
+  if ("responsible_enroll_email" in patch) requiredFieldValues.responsible = patch.responsible_enroll_email;
+  const missingRequired = await findMissingRequiredFields(
+    current.program,
+    {
+      fieldValues: requiredFieldValues,
+      customValues: isPlainRecord(patch.custom_values) ? patch.custom_values : undefined,
+      partial: true,
+    },
+    supabase
+  );
+  if (missingRequired.length > 0) {
+    return NextResponse.json(
+      { error: missingRequiredFieldsMessage(missingRequired) },
+      { status: 400 }
+    );
   }
 
   const sanitizedPatch = sanitizeEnrollmentPatchForProgram(

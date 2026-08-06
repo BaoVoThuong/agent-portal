@@ -81,8 +81,17 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
     patch.required = Boolean(body.required);
   }
-  if (patch.pinned === true) {
+  // Required fields must always reach the Create/Detail form, so they can
+  // never be Hidden — same invariant as Pinned. A custom field also gets
+  // forced into show_in_detail (Required means "must appear on the form",
+  // which is meaningless if the form-opt-in checkbox is off).
+  const willBePinned = "pinned" in patch ? patch.pinned === true : column.pinned;
+  const willBeRequired = "required" in patch ? patch.required === true : column.required;
+  if (willBePinned || willBeRequired) {
     patch.hidden_default = false;
+  }
+  if (willBeRequired && !column.is_system) {
+    patch.show_in_detail = true;
   }
 
   const { data, error } = await supabase
@@ -123,6 +132,12 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (!column) return NextResponse.json({ error: "Column not found." }, { status: 404 });
   if (column.is_system) {
     return NextResponse.json({ error: "System columns cannot be archived." }, { status: 400 });
+  }
+  if (column.required) {
+    return NextResponse.json(
+      { error: "Required columns cannot be archived — turn off Required first." },
+      { status: 400 }
+    );
   }
 
   const nowIso = new Date().toISOString();

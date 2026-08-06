@@ -21,6 +21,10 @@ import {
   type EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
+import {
+  findMissingRequiredFields,
+  missingRequiredFieldsMessage,
+} from "@/lib/table-config/required";
 
 export const dynamic = "force-dynamic";
 
@@ -106,14 +110,38 @@ export async function POST(request: Request) {
     }
   }
 
-  if (!patch.client_name && !patch.fub_link) {
+  // No more either/or (client_name OR fub_link) — each field's required-ness
+  // is now independently controlled by table_column.required (Config →
+  // Table Columns), read fresh from the DB inside findMissingRequiredFields.
+  // That function keys fieldValues by table_column.key, which differs from
+  // this table's own column names for most of these — translate here, at
+  // the point where both names are already in scope, rather than via a
+  // separate shared table.
+  const missingRequired = await findMissingRequiredFields(program, {
+    fieldValues: {
+      client: patch.client_name,
+      description: patch.description,
+      fub: patch.fub_link,
+      due: patch.due_date,
+      stage: patch.stage_id,
+      carrier: patch.carrier_id,
+      platform: patch.platform_id,
+      consent: patch.consent_id,
+      payment: patch.payment_status_id,
+      aca: patch.aca_status_id,
+      pcp2025: patch.pcp_2025,
+      pcp2026: patch.pcp_2026,
+      agent: patch.agent_email,
+      caller: patch.caller_email,
+      responsible: patch.responsible_enroll_email,
+    },
+    checkCustom: false,
+  });
+  if (missingRequired.length > 0) {
     return NextResponse.json(
-      { error: "Client name or FUB link is required." },
+      { error: missingRequiredFieldsMessage(missingRequired) },
       { status: 400 }
     );
-  }
-  if (!patch.agent_email) {
-    return NextResponse.json({ error: "Agent is required." }, { status: 400 });
   }
 
   const nowIso = new Date().toISOString();

@@ -156,6 +156,8 @@ const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibo
 const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] resize-none overflow-hidden !px-2 !py-2 leading-6`;
 const CREATE_DESCRIPTION_CLASS =
   "min-h-[21rem] w-full resize-none rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
+const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
+const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
 
 function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
   if (!textarea) return;
@@ -468,11 +470,37 @@ export function EnrollmentClient({
       ),
     [columns, hiddenColumnKeys]
   );
+  // Admin-level visibility for the Create dialog + Detail drawer — computed
+  // straight from the raw column config, deliberately NOT from
+  // visibleColumns above (that one also folds in this specific user's
+  // personal List/Board column-hide state via hiddenColumnKeys, which must
+  // never affect whether a field can be created/edited).
+  const adminVisibleColumnKeys = useMemo(
+    () =>
+      new Set(
+        layoutTableColumns
+          .filter((column) => !column.archived_at && !column.hidden_default)
+          .map((column) => column.key)
+      ) as ReadonlySet<EnrollmentColumnKey>,
+    [layoutTableColumns]
+  );
+  const requiredColumnKeys = useMemo(
+    () =>
+      new Set(
+        layoutTableColumns
+          .filter((column) => column.required && !column.archived_at)
+          .map((column) => column.key)
+      ),
+    [layoutTableColumns]
+  );
   const detailCustomColumns = useMemo(
     () =>
       layoutTableColumns.filter(
         (column) =>
-          column.show_in_detail && !column.is_system && !column.archived_at
+          column.show_in_detail &&
+          !column.is_system &&
+          !column.archived_at &&
+          !column.hidden_default
       ),
     [layoutTableColumns]
   );
@@ -900,6 +928,8 @@ export function EnrollmentClient({
           optionsById={optionsById}
           optionsBySet={optionsBySet}
           detailColumns={detailCustomColumns}
+          visibleColumnKeys={adminVisibleColumnKeys}
+          requiredColumnKeys={requiredColumnKeys}
           tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           isManager={canManageOptions}
@@ -915,6 +945,8 @@ export function EnrollmentClient({
           peopleByEmail={peopleByEmail}
           agentsByEmail={agentsByEmail}
           optionsBySet={optionsBySet}
+          visibleColumnKeys={adminVisibleColumnKeys}
+          requiredColumnKeys={requiredColumnKeys}
           currentEmail={currentEmail}
           onClose={() => setCreating(false)}
           onCreate={async (payload) => {
@@ -2279,6 +2311,8 @@ function EnrollmentDrawer({
   optionsById,
   optionsBySet,
   detailColumns,
+  visibleColumnKeys,
+  requiredColumnKeys,
   tableColumnOptions,
   currentEmail,
   isManager,
@@ -2293,6 +2327,8 @@ function EnrollmentDrawer({
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
   detailColumns: TableColumn[];
+  visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
+  requiredColumnKeys: ReadonlySet<string>;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   isManager: boolean;
@@ -2303,6 +2339,7 @@ function EnrollmentDrawer({
   const [detail, setDetail] = useState<EnrollmentDetail | null>(null);
   const [tab, setTab] = useState<"comments" | "activity" | "files">("comments");
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
   const reopenTarget = getReopenStage(stage, optionsBySet.stage);
   const fubHref = record.fub_link ? formatExternalLink(record.fub_link) : null;
@@ -2328,13 +2365,38 @@ function EnrollmentDrawer({
   // single Assignee + PCP field — see enrollmentColumnsForProgram() for the
   // list-view equivalent of this same trim.
   const isMedicare = record.program === "medicare";
-  const showPayment = !isMedicare;
-  const showAca = !isMedicare;
-  const showConsent = !isMedicare;
-  const showPlatform = !isMedicare;
-  const showCaller = !isMedicare;
-  const showPcp2026 = !isMedicare;
+  const showField = (key: string) =>
+    visibleColumnKeys.has(key as EnrollmentColumnKey);
+  const showClient = showField("client");
+  const showStage = showField("stage");
+  const showFub = showField("fub");
+  const showDue = showField("due");
+  const showPayment = !isMedicare && showField("payment");
+  const showCarrier = showField("carrier");
+  const showAca = !isMedicare && showField("aca");
+  const showConsent = !isMedicare && showField("consent");
+  const showPlatform = !isMedicare && showField("platform");
+  const showAgent = showField("agent");
+  const showCaller = !isMedicare && showField("caller");
+  const showResponsible = showField("responsible");
+  const showCreatedBy = showField("createdBy");
+  const showPcp2025 = showField("pcp2025");
+  const showPcp2026 = !isMedicare && showField("pcp2026");
+  const showQc = showField("qc");
   const visibleDetailColumns = detailColumns;
+
+  function markInvalid(key: string) {
+    setInvalidKeys((current) => new Set([...current, key]));
+  }
+  function clearInvalid(key: string) {
+    setInvalidKeys((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  }
+  const isInvalid = (key: string) => invalidKeys.has(key);
 
   const reload = useCallback(async () => {
     const response = await fetch(`/api/enrollment/${record.id}/detail`, {
@@ -2375,7 +2437,7 @@ function EnrollmentDrawer({
             <span className="font-mono text-sm font-bold text-[#97a0af]">
               {enrollmentKey(record.id)}
             </span>
-            {stage ? (
+            {stage && showStage ? (
               <span
                 className="rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
                 style={{
@@ -2403,41 +2465,62 @@ function EnrollmentDrawer({
         <div className="flex-1 overflow-y-auto lg:overflow-hidden">
           <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
             <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
-              <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>Client Name</span>
-                <EditableInput
-                  value={record.client_name ?? ""}
-                  placeholder="Client name"
-                  className={COMPACT_DETAIL_INPUT_CLASS}
-                  onSave={(value) => onPatch({ client_name: value })}
-                />
-              </label>
-
-              <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>FUB Link</span>
-                <div className="flex gap-1.5">
+              {showClient ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>
+                    Client Name
+                    {requiredColumnKeys.has("client") ? REQUIRED_MARK : null}
+                  </span>
                   <EditableInput
-                    value={record.fub_link ?? ""}
-                    placeholder="No FUB link"
+                    value={record.client_name ?? ""}
+                    placeholder="Client name"
                     className={COMPACT_DETAIL_INPUT_CLASS}
-                    onSave={(value) => onPatch({ fub_link: value })}
+                    required={requiredColumnKeys.has("client")}
+                    invalid={isInvalid("client")}
+                    onRejectEmpty={() => markInvalid("client")}
+                    onEditStart={() => clearInvalid("client")}
+                    onSave={(value) => onPatch({ client_name: value })}
                   />
-                  {fubHref ? (
-                    <a
-                      href={fubHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label="Open FUB link"
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  ) : null}
-                </div>
-              </label>
+                </label>
+              ) : null}
+
+              {showFub ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>
+                    FUB Link
+                    {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
+                  </span>
+                  <div className="flex gap-1.5">
+                    <EditableInput
+                      value={record.fub_link ?? ""}
+                      placeholder="No FUB link"
+                      className={COMPACT_DETAIL_INPUT_CLASS}
+                      required={requiredColumnKeys.has("fub")}
+                      invalid={isInvalid("fub")}
+                      onRejectEmpty={() => markInvalid("fub")}
+                      onEditStart={() => clearInvalid("fub")}
+                      onSave={(value) => onPatch({ fub_link: value })}
+                    />
+                    {fubHref ? (
+                      <a
+                        href={fubHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open FUB link"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                  </div>
+                </label>
+              ) : null}
 
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>Description</span>
+                <span className={LABEL_CLASS}>
+                  Description
+                  {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
+                </span>
                 <EditableTextarea
                   value={record.description ?? ""}
                   placeholder="No description"
@@ -2499,28 +2582,32 @@ function EnrollmentDrawer({
 
           <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
             <div className="space-y-3">
-              <FieldBlock label="Stage">
-                <EnrollmentStagePill
-                  stageId={record.stage_id}
-                  stages={optionsBySet.stage}
-                  field
-                  onChange={(value) => onPatch({ stage_id: value })}
-                />
-              </FieldBlock>
+              {showStage ? (
+                <FieldBlock label="Stage" required={requiredColumnKeys.has("stage")}>
+                  <EnrollmentStagePill
+                    stageId={record.stage_id}
+                    stages={optionsBySet.stage}
+                    field
+                    onChange={(value) => onPatch({ stage_id: value })}
+                  />
+                </FieldBlock>
+              ) : null}
 
-              <FieldBlock label="Due date">
-                <input
-                  type="date"
-                  value={formatDateInput(record.due_date)}
-                  onChange={(event) =>
-                    void onPatch({ due_date: event.target.value || null })
-                  }
-                  className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
-                />
-              </FieldBlock>
+              {showDue ? (
+                <FieldBlock label="Due date" required={requiredColumnKeys.has("due")}>
+                  <input
+                    type="date"
+                    value={formatDateInput(record.due_date)}
+                    onChange={(event) =>
+                      void onPatch({ due_date: event.target.value || null })
+                    }
+                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
+                  />
+                </FieldBlock>
+              ) : null}
 
               {showPayment ? (
-                <FieldBlock label="Payment">
+                <FieldBlock label="Payment" required={requiredColumnKeys.has("payment")}>
                   <EnrollmentOptionMenu
                     optionId={record.payment_status_id}
                     options={optionsBySet.payment_status}
@@ -2531,18 +2618,20 @@ function EnrollmentDrawer({
                 </FieldBlock>
               ) : null}
 
-              <FieldBlock label="Carrier">
-                <EnrollmentOptionMenu
-                  optionId={record.carrier_id}
-                  options={optionsBySet.carrier}
-                  emptyLabel="No carrier"
-                  field
-                  onChange={(value) => void onPatch({ carrier_id: value })}
-                />
-              </FieldBlock>
+              {showCarrier ? (
+                <FieldBlock label="Carrier" required={requiredColumnKeys.has("carrier")}>
+                  <EnrollmentOptionMenu
+                    optionId={record.carrier_id}
+                    options={optionsBySet.carrier}
+                    emptyLabel="No carrier"
+                    field
+                    onChange={(value) => void onPatch({ carrier_id: value })}
+                  />
+                </FieldBlock>
+              ) : null}
 
               {showAca ? (
-                  <FieldBlock label="AC">
+                  <FieldBlock label="AC" required={requiredColumnKeys.has("aca")}>
                     <EnrollmentOptionMenu
                       optionId={record.aca_status_id}
                       options={optionsBySet.aca_status}
@@ -2554,7 +2643,7 @@ function EnrollmentDrawer({
               ) : null}
 
               {showConsent ? (
-                  <FieldBlock label="Consent">
+                  <FieldBlock label="Consent" required={requiredColumnKeys.has("consent")}>
                     <EnrollmentConsentToggle
                       optionId={record.consent_id}
                       options={optionsBySet.consent}
@@ -2565,7 +2654,7 @@ function EnrollmentDrawer({
               ) : null}
 
               {showPlatform ? (
-                  <FieldBlock label="Platform">
+                  <FieldBlock label="Platform" required={requiredColumnKeys.has("platform")}>
                     <EnrollmentOptionMenu
                       optionId={record.platform_id}
                       options={optionsBySet.platform}
@@ -2576,18 +2665,27 @@ function EnrollmentDrawer({
                   </FieldBlock>
               ) : null}
 
-              <FieldBlock label="Agent">
-                <EnrollmentPersonMenu
-                  value={record.agent_email}
-                  peopleByEmail={agentsByEmail}
-                  emptyLabel="No agent"
-                  field
-                  onChange={(value) => void onPatch({ agent_email: value })}
-                />
-              </FieldBlock>
+              {showAgent ? (
+                <FieldBlock label="Agent" required={requiredColumnKeys.has("agent")} invalid={isInvalid("agent")}>
+                  <EnrollmentPersonMenu
+                    value={record.agent_email}
+                    peopleByEmail={agentsByEmail}
+                    emptyLabel="No agent"
+                    field
+                    onChange={(value) => {
+                      if (requiredColumnKeys.has("agent") && !value) {
+                        markInvalid("agent");
+                        return;
+                      }
+                      clearInvalid("agent");
+                      void onPatch({ agent_email: value });
+                    }}
+                  />
+                </FieldBlock>
+              ) : null}
 
               {showCaller ? (
-                <FieldBlock label="Caller">
+                <FieldBlock label="Caller" required={requiredColumnKeys.has("caller")}>
                   <EnrollmentPersonMenu
                     value={record.caller_email}
                     peopleByEmail={peopleByEmail}
@@ -2598,46 +2696,63 @@ function EnrollmentDrawer({
                 </FieldBlock>
               ) : null}
 
-              <FieldBlock label={isMedicare ? "Assignee" : "Responsible enroll"}>
-                <EnrollmentPersonMenu
-                  value={record.responsible_enroll_email}
-                  peopleByEmail={peopleByEmail}
-                  emptyLabel="Unassigned"
-                  field
-                  onChange={(value) =>
-                    void onPatch({ responsible_enroll_email: value })
-                  }
-                />
-              </FieldBlock>
+              {showResponsible ? (
+                <FieldBlock
+                  label={isMedicare ? "Assignee" : "Responsible enroll"}
+                  required={requiredColumnKeys.has("responsible")}
+                >
+                  <EnrollmentPersonMenu
+                    value={record.responsible_enroll_email}
+                    peopleByEmail={peopleByEmail}
+                    emptyLabel="Unassigned"
+                    field
+                    onChange={(value) =>
+                      void onPatch({ responsible_enroll_email: value })
+                    }
+                  />
+                </FieldBlock>
+              ) : null}
 
-              <FieldBlock label="Created by">
-                <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
-                  {personLabel(record.created_by_email, peopleByEmail)}
-                </div>
-              </FieldBlock>
+              {showCreatedBy ? (
+                <FieldBlock label="Created by">
+                  <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
+                    {personLabel(record.created_by_email, peopleByEmail)}
+                  </div>
+                </FieldBlock>
+              ) : null}
 
-              <FieldBlock label={isMedicare ? "PCP" : "PCP 2025"}>
-                <EditableInput
-                  value={record.pcp_2025 ?? ""}
-                  placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
-                  className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
-                  onSave={(value) => onPatch({ pcp_2025: value })}
-                />
-              </FieldBlock>
+              {showPcp2025 ? (
+                <FieldBlock label={isMedicare ? "PCP" : "PCP 2025"} required={requiredColumnKeys.has("pcp2025")}>
+                  <EditableInput
+                    value={record.pcp_2025 ?? ""}
+                    placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
+                    required={requiredColumnKeys.has("pcp2025")}
+                    invalid={isInvalid("pcp2025")}
+                    onRejectEmpty={() => markInvalid("pcp2025")}
+                    onEditStart={() => clearInvalid("pcp2025")}
+                    onSave={(value) => onPatch({ pcp_2025: value })}
+                  />
+                </FieldBlock>
+              ) : null}
 
               {showPcp2026 ? (
-                <FieldBlock label="PCP 2026">
+                <FieldBlock label="PCP 2026" required={requiredColumnKeys.has("pcp2026")}>
                   <EditableInput
                     value={record.pcp_2026 ?? ""}
                     placeholder="No PCP 2026"
                     className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
+                    required={requiredColumnKeys.has("pcp2026")}
+                    invalid={isInvalid("pcp2026")}
+                    onRejectEmpty={() => markInvalid("pcp2026")}
+                    onEditStart={() => clearInvalid("pcp2026")}
                     onSave={(value) => onPatch({ pcp_2026: value })}
                   />
                 </FieldBlock>
               ) : null}
 
               {visibleDetailColumns.map((column) => (
-                <FieldBlock key={column.id} label={column.label}>
+                <FieldBlock key={column.id} label={column.label} required={column.required}>
                   <EnrollmentDetailCustomFieldControl
                     column={column}
                     value={record.custom_values?.[column.key]}
@@ -2653,13 +2768,15 @@ function EnrollmentDrawer({
                 </FieldBlock>
               ))}
 
-              <FieldBlock label="QC Review">
-                <EnrollmentQCPanel
-                  record={record}
-                  stage={stage}
-                  onToggle={() => onPatch({ qc_checked: !record.qc_checked_at })}
-                />
-              </FieldBlock>
+              {showQc ? (
+                <FieldBlock label="QC Review">
+                  <EnrollmentQCPanel
+                    record={record}
+                    stage={stage}
+                    onToggle={() => onPatch({ qc_checked: !record.qc_checked_at })}
+                  />
+                </FieldBlock>
+              ) : null}
             </div>
 
             {stage?.is_terminal && reopenTarget ? (
@@ -2704,11 +2821,34 @@ function EnrollmentDrawer({
   );
 }
 
+// Maps a table_column key to the local form field it feeds — needed to check
+// a Required column's value, since the form uses DB field names, not column
+// keys.
+const ENROLLMENT_FORM_FIELD_BY_KEY: Record<string, string> = {
+  client: "client_name",
+  description: "description",
+  fub: "fub_link",
+  due: "due_date",
+  stage: "stage_id",
+  carrier: "carrier_id",
+  platform: "platform_id",
+  consent: "consent_id",
+  payment: "payment_status_id",
+  aca: "aca_status_id",
+  pcp2025: "pcp_2025",
+  pcp2026: "pcp_2026",
+  agent: "agent_email",
+  caller: "caller_email",
+  responsible: "responsible_enroll_email",
+};
+
 function NewEnrollmentDialog({
   program,
   peopleByEmail,
   agentsByEmail,
   optionsBySet,
+  visibleColumnKeys,
+  requiredColumnKeys,
   currentEmail,
   onClose,
   onCreate,
@@ -2717,6 +2857,8 @@ function NewEnrollmentDialog({
   peopleByEmail: Map<string, string>;
   agentsByEmail: Map<string, string>;
   optionsBySet: EnrollmentOptionsBySet;
+  visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
+  requiredColumnKeys: ReadonlySet<string>;
   currentEmail: string;
   onClose: () => void;
   onCreate: (payload: Record<string, unknown>) => Promise<void>;
@@ -2742,23 +2884,55 @@ function NewEnrollmentDialog({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     ticketInputRef.current?.focus();
   }, []);
 
-  const showPayment = !isMedicare;
-  const showAca = !isMedicare;
-  const showConsent = !isMedicare;
-  const showPlatform = !isMedicare;
-  const showCaller = !isMedicare;
-  const showPcp2026 = !isMedicare;
+  const showField = (key: EnrollmentColumnKey) => visibleColumnKeys.has(key);
+  const showFub = showField("fub");
+  const showStage = showField("stage");
+  const showDue = showField("due");
+  const showPayment = !isMedicare && showField("payment");
+  const showCarrier = showField("carrier");
+  const showAca = !isMedicare && showField("aca");
+  const showConsent = !isMedicare && showField("consent");
+  const showPlatform = !isMedicare && showField("platform");
+  const showAgent = showField("agent");
+  const showCaller = !isMedicare && showField("caller");
+  const showResponsible = showField("responsible");
+  const showPcp2025 = showField("pcp2025");
+  const showPcp2026 = !isMedicare && showField("pcp2026");
+  const showPipelineSection = showStage || showDue;
+  const showPlanSection =
+    showPayment || showCarrier || showAca || showConsent || showPlatform;
+  const showOwnershipSection = showAgent || showCaller || showResponsible;
+  const showPcpSection = showPcp2025 || showPcp2026;
+
+  function isFilled(value: unknown): boolean {
+    if (value === null || value === undefined) return false;
+    return String(value).trim() !== "";
+  }
+  function isInvalid(key: string): boolean {
+    const formField = ENROLLMENT_FORM_FIELD_BY_KEY[key];
+    return invalidKeys.has(key) && !isFilled(formField ? form[formField] : undefined);
+  }
 
   function update(field: string, value: string | null) {
     setForm((current) => ({ ...current, [field]: value ?? "" }));
   }
 
   async function submit() {
+    const missing = [...requiredColumnKeys].filter((key) => {
+      const formField = ENROLLMENT_FORM_FIELD_BY_KEY[key];
+      return formField && !isFilled(form[formField]);
+    });
+    if (missing.length > 0) {
+      setInvalidKeys(new Set(missing));
+      return;
+    }
+    setInvalidKeys(new Set());
     setSaving(true);
     setError(null);
     try {
@@ -2808,34 +2982,45 @@ function NewEnrollmentDialog({
           <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_320px]">
             <main className="min-w-0 space-y-3 px-6 py-5">
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>Client Name</span>
+                <span className={LABEL_CLASS}>
+                  Client Name
+                  {requiredColumnKeys.has("client") ? REQUIRED_MARK : null}
+                </span>
                 <input
                   ref={ticketInputRef}
                   value={form.client_name}
                   onChange={(event) => update("client_name", event.target.value)}
                   placeholder="Client name"
-                  className={COMPACT_DETAIL_INPUT_CLASS}
+                  className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("client") ? INVALID_RING_CLASS : ""}`}
                 />
               </label>
 
-              <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>FUB Link</span>
-                <input
-                  value={form.fub_link}
-                  onChange={(event) => update("fub_link", event.target.value)}
-                  placeholder="https://app.followupboss.com/..."
-                  className={COMPACT_DETAIL_INPUT_CLASS}
-                />
-              </label>
+              {showFub ? (
+                <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>
+                    FUB Link
+                    {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
+                  </span>
+                  <input
+                    value={form.fub_link}
+                    onChange={(event) => update("fub_link", event.target.value)}
+                    placeholder="https://app.followupboss.com/..."
+                    className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("fub") ? INVALID_RING_CLASS : ""}`}
+                  />
+                </label>
+              ) : null}
 
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>Description</span>
+                <span className={LABEL_CLASS}>
+                  Description
+                  {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
+                </span>
                 <textarea
                   value={form.description}
                   onChange={(event) => update("description", event.target.value)}
                   placeholder="Add context, notes, missing items, or next steps..."
                   rows={13}
-                  className={CREATE_DESCRIPTION_CLASS}
+                  className={`${CREATE_DESCRIPTION_CLASS} ${isInvalid("description") ? INVALID_RING_CLASS : ""}`}
                 />
               </label>
 
@@ -2859,125 +3044,155 @@ function NewEnrollmentDialog({
                 </span>
               </div>
 
-              <CreatePropertySection>
-                <CreatePropertyField label="Stage">
-                  <EnrollmentStagePill
-                    stageId={form.stage_id || null}
-                    stages={optionsBySet.stage}
-                    onChange={async (value) => update("stage_id", value)}
-                  />
-                </CreatePropertyField>
+              {showPipelineSection ? (
+                <CreatePropertySection>
+                  {showStage ? (
+                    <CreatePropertyField label="Stage" required={requiredColumnKeys.has("stage")} invalid={isInvalid("stage")}>
+                      <EnrollmentStagePill
+                        stageId={form.stage_id || null}
+                        stages={optionsBySet.stage}
+                        onChange={async (value) => update("stage_id", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
 
-                <CreatePropertyInput
-                  label="Due date"
-                  type="date"
-                  value={form.due_date}
-                  onChange={(value) => update("due_date", value)}
-                />
-              </CreatePropertySection>
-
-              <CreatePropertySection>
-                {showPayment ? (
-                  <CreatePropertyField label="Payment">
-                    <EnrollmentOptionMenu
-                      optionId={form.payment_status_id || null}
-                      options={optionsBySet.payment_status}
-                      emptyLabel="No payment"
-                      onChange={(value) => update("payment_status_id", value)}
+                  {showDue ? (
+                    <CreatePropertyInput
+                      label="Due date"
+                      type="date"
+                      value={form.due_date}
+                      required={requiredColumnKeys.has("due")}
+                      invalid={isInvalid("due")}
+                      onChange={(value) => update("due_date", value)}
                     />
-                  </CreatePropertyField>
-                ) : null}
+                  ) : null}
+                </CreatePropertySection>
+              ) : null}
 
-                <CreatePropertyField label="Carrier">
-                  <EnrollmentOptionMenu
-                    optionId={form.carrier_id || null}
-                    options={optionsBySet.carrier}
-                    emptyLabel="No carrier"
-                    onChange={(value) => update("carrier_id", value)}
-                  />
-                </CreatePropertyField>
+              {showPlanSection ? (
+                <CreatePropertySection>
+                  {showPayment ? (
+                    <CreatePropertyField label="Payment" required={requiredColumnKeys.has("payment")} invalid={isInvalid("payment")}>
+                      <EnrollmentOptionMenu
+                        optionId={form.payment_status_id || null}
+                        options={optionsBySet.payment_status}
+                        emptyLabel="No payment"
+                        onChange={(value) => update("payment_status_id", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
 
-                {showAca ? (
-                  <CreatePropertyField label="ACA">
-                    <EnrollmentOptionMenu
-                      optionId={form.aca_status_id || null}
-                      options={optionsBySet.aca_status}
-                      emptyLabel="No ACA status"
-                      onChange={(value) => update("aca_status_id", value)}
+                  {showCarrier ? (
+                    <CreatePropertyField label="Carrier" required={requiredColumnKeys.has("carrier")} invalid={isInvalid("carrier")}>
+                      <EnrollmentOptionMenu
+                        optionId={form.carrier_id || null}
+                        options={optionsBySet.carrier}
+                        emptyLabel="No carrier"
+                        onChange={(value) => update("carrier_id", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+
+                  {showAca ? (
+                    <CreatePropertyField label="ACA" required={requiredColumnKeys.has("aca")} invalid={isInvalid("aca")}>
+                      <EnrollmentOptionMenu
+                        optionId={form.aca_status_id || null}
+                        options={optionsBySet.aca_status}
+                        emptyLabel="No ACA status"
+                        onChange={(value) => update("aca_status_id", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+
+                  {showConsent ? (
+                    <CreatePropertyField label="Consent" required={requiredColumnKeys.has("consent")} invalid={isInvalid("consent")}>
+                      <EnrollmentConsentToggle
+                        optionId={form.consent_id || null}
+                        options={optionsBySet.consent}
+                        onChange={(value) => update("consent_id", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+
+                  {showPlatform ? (
+                    <CreatePropertyField label="Platform" required={requiredColumnKeys.has("platform")} invalid={isInvalid("platform")}>
+                      <EnrollmentOptionMenu
+                        optionId={form.platform_id || null}
+                        options={optionsBySet.platform}
+                        emptyLabel="No platform"
+                        onChange={(value) => update("platform_id", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+                </CreatePropertySection>
+              ) : null}
+
+              {showOwnershipSection ? (
+                <CreatePropertySection>
+                  {showAgent ? (
+                    <CreatePropertyField label="Agent" required={requiredColumnKeys.has("agent")} invalid={isInvalid("agent")}>
+                      <EnrollmentPersonMenu
+                        value={form.agent_email || null}
+                        peopleByEmail={agentsByEmail}
+                        emptyLabel="No agent"
+                        onChange={(value) => update("agent_email", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+
+                  {showCaller ? (
+                    <CreatePropertyField label="Caller" required={requiredColumnKeys.has("caller")} invalid={isInvalid("caller")}>
+                      <EnrollmentPersonMenu
+                        value={form.caller_email || null}
+                        peopleByEmail={peopleByEmail}
+                        emptyLabel="No caller"
+                        onChange={(value) => update("caller_email", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+
+                  {showResponsible ? (
+                    <CreatePropertyField
+                      label={isMedicare ? "Assignee" : "Responsible enroll"}
+                      required={requiredColumnKeys.has("responsible")}
+                      invalid={isInvalid("responsible")}
+                    >
+                      <EnrollmentPersonMenu
+                        value={form.responsible_enroll_email || null}
+                        peopleByEmail={peopleByEmail}
+                        emptyLabel="Unassigned"
+                        onChange={(value) => update("responsible_enroll_email", value)}
+                      />
+                    </CreatePropertyField>
+                  ) : null}
+                </CreatePropertySection>
+              ) : null}
+
+              {showPcpSection ? (
+                <CreatePropertySection>
+                  {showPcp2025 ? (
+                    <CreatePropertyInput
+                      label={isMedicare ? "PCP" : "PCP 2025"}
+                      value={form.pcp_2025}
+                      placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                      required={requiredColumnKeys.has("pcp2025")}
+                      invalid={isInvalid("pcp2025")}
+                      onChange={(value) => update("pcp_2025", value)}
                     />
-                  </CreatePropertyField>
-                ) : null}
+                  ) : null}
 
-                {showConsent ? (
-                  <CreatePropertyField label="Consent">
-                    <EnrollmentConsentToggle
-                      optionId={form.consent_id || null}
-                      options={optionsBySet.consent}
-                      onChange={(value) => update("consent_id", value)}
+                  {showPcp2026 ? (
+                    <CreatePropertyInput
+                      label="PCP 2026"
+                      value={form.pcp_2026}
+                      placeholder="No PCP 2026"
+                      required={requiredColumnKeys.has("pcp2026")}
+                      invalid={isInvalid("pcp2026")}
+                      onChange={(value) => update("pcp_2026", value)}
                     />
-                  </CreatePropertyField>
-                ) : null}
-
-                {showPlatform ? (
-                  <CreatePropertyField label="Platform">
-                    <EnrollmentOptionMenu
-                      optionId={form.platform_id || null}
-                      options={optionsBySet.platform}
-                      emptyLabel="No platform"
-                      onChange={(value) => update("platform_id", value)}
-                    />
-                  </CreatePropertyField>
-                ) : null}
-              </CreatePropertySection>
-
-              <CreatePropertySection>
-                <CreatePropertyField label="Agent">
-                  <EnrollmentPersonMenu
-                    value={form.agent_email || null}
-                    peopleByEmail={agentsByEmail}
-                    emptyLabel="No agent"
-                    onChange={(value) => update("agent_email", value)}
-                  />
-                </CreatePropertyField>
-
-                {showCaller ? (
-                  <CreatePropertyField label="Caller">
-                    <EnrollmentPersonMenu
-                      value={form.caller_email || null}
-                      peopleByEmail={peopleByEmail}
-                      emptyLabel="No caller"
-                      onChange={(value) => update("caller_email", value)}
-                    />
-                  </CreatePropertyField>
-                ) : null}
-
-                <CreatePropertyField label={isMedicare ? "Assignee" : "Responsible enroll"}>
-                  <EnrollmentPersonMenu
-                    value={form.responsible_enroll_email || null}
-                    peopleByEmail={peopleByEmail}
-                    emptyLabel="Unassigned"
-                    onChange={(value) => update("responsible_enroll_email", value)}
-                  />
-                </CreatePropertyField>
-              </CreatePropertySection>
-
-              <CreatePropertySection>
-                <CreatePropertyInput
-                  label={isMedicare ? "PCP" : "PCP 2025"}
-                  value={form.pcp_2025}
-                  placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
-                  onChange={(value) => update("pcp_2025", value)}
-                />
-
-                {showPcp2026 ? (
-                  <CreatePropertyInput
-                    label="PCP 2026"
-                    value={form.pcp_2026}
-                    placeholder="No PCP 2026"
-                    onChange={(value) => update("pcp_2026", value)}
-                  />
-                ) : null}
-              </CreatePropertySection>
+                  ) : null}
+                </CreatePropertySection>
+              ) : null}
             </aside>
           </div>
         </div>
@@ -2991,11 +3206,7 @@ function NewEnrollmentDialog({
           </button>
           <button
             type="button"
-            disabled={
-              saving ||
-              (!form.client_name.trim() && !form.fub_link.trim()) ||
-              !form.agent_email.trim()
-            }
+            disabled={saving}
             onClick={() => void submit()}
             className="h-9 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -3011,24 +3222,42 @@ function EditableInput({
   value,
   placeholder,
   className = `${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`,
+  required,
+  invalid,
+  onRejectEmpty,
+  onEditStart,
   onSave,
 }: {
   value: string;
   placeholder: string;
   className?: string;
+  required?: boolean;
+  invalid?: boolean;
+  onRejectEmpty?: () => void;
+  onEditStart?: () => void;
   onSave: (value: string | null) => Promise<void>;
 }) {
+  // revertNonce forces a remount (fresh defaultValue) when a required field
+  // gets blurred empty — the input is uncontrolled, so without this the DOM
+  // would keep showing what the user typed even though we refuse to save it.
+  const [revertNonce, setRevertNonce] = useState(0);
   return (
     <input
-      key={value}
+      key={`${value}-${revertNonce}`}
       defaultValue={value}
       placeholder={placeholder}
       onClick={(event) => event.stopPropagation()}
+      onFocus={() => onEditStart?.()}
       onBlur={(event) => {
         const next = event.currentTarget.value.trim();
+        if (required && !next) {
+          setRevertNonce((n) => n + 1);
+          onRejectEmpty?.();
+          return;
+        }
         if (next !== value.trim()) void onSave(next || null);
       }}
-      className={className}
+      className={`${className} ${invalid ? INVALID_RING_CLASS : ""}`}
     />
   );
 }
@@ -3236,15 +3465,24 @@ function DrawerTab({
 
 function FieldBlock({
   label,
+  required,
+  invalid,
   children,
 }: {
   label: string;
+  required?: boolean;
+  invalid?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
-      <span className={LABEL_CLASS}>{label}</span>
-      {children}
+      <span className={LABEL_CLASS}>
+        {label}
+        {required ? REQUIRED_MARK : null}
+      </span>
+      <div className={invalid ? `${INVALID_RING_CLASS} rounded-lg` : undefined}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -3263,15 +3501,24 @@ function CreatePropertySection({
 
 function CreatePropertyField({
   label,
+  required,
+  invalid,
   children,
 }: {
   label: string;
+  required?: boolean;
+  invalid?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
-      <span className={LABEL_CLASS}>{label}</span>
-      <div className="flex min-h-10 items-center rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1 text-sm font-semibold text-[#172b4d] transition hover:border-[#c1c7d0] focus-within:border-[#0c66e4] focus-within:ring-2 focus-within:ring-[#deebff]">
+      <span className={LABEL_CLASS}>
+        {label}
+        {required ? REQUIRED_MARK : null}
+      </span>
+      <div
+        className={`flex min-h-10 items-center rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1 text-sm font-semibold text-[#172b4d] transition hover:border-[#c1c7d0] focus-within:border-[#0c66e4] focus-within:ring-2 focus-within:ring-[#deebff] ${invalid ? INVALID_RING_CLASS : ""}`}
+      >
         <div className="min-w-0 flex-1">{children}</div>
       </div>
     </div>
@@ -3283,16 +3530,20 @@ function CreatePropertyInput({
   value,
   type = "text",
   placeholder,
+  required,
+  invalid,
   onChange,
 }: {
   label: string;
   value: string;
   type?: string;
   placeholder?: string;
+  required?: boolean;
+  invalid?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
-    <CreatePropertyField label={label}>
+    <CreatePropertyField label={label} required={required} invalid={invalid}>
       <input
         type={type}
         value={value}

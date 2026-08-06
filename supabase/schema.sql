@@ -2598,6 +2598,7 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('cs', 'review', 'QC', 'checkbox', 120, false),
     ('aca', 'key', 'Key', 'text', 10, false),
     ('aca', 'client', 'Client Name', 'text', 20, false),
+    ('aca', 'agent', 'Agent', 'person', 25, false),
     ('aca', 'stage', 'Stage', 'dropdown', 30, false),
     ('aca', 'caller', 'Caller', 'person', 40, false),
     ('aca', 'responsible', 'Responsible Enroll', 'person', 50, false),
@@ -2617,6 +2618,7 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('aca', 'qc', 'QC', 'checkbox', 190, false),
     ('medicare', 'key', 'Key', 'text', 10, false),
     ('medicare', 'client', 'Client Name', 'text', 20, false),
+    ('medicare', 'agent', 'Agent', 'person', 25, false),
     ('medicare', 'stage', 'Stage', 'dropdown', 30, false),
     ('medicare', 'responsible', 'Assignee', 'person', 50, false),
     ('medicare', 'carrier', 'Carrier', 'dropdown', 70, false),
@@ -2645,7 +2647,11 @@ select
     else false
   end,
   hidden_default,
-  false
+  case
+    when scope = 'cs' and key in ('summary', 'agent', 'category') then true
+    when scope in ('aca', 'medicare') and key in ('agent', 'client') then true
+    else false
+  end
 from system_column_seed
 on conflict (scope, key) do nothing;
 
@@ -2654,6 +2660,46 @@ set pinned = true
 where
   (scope = 'cs' and key in ('key', 'summary'))
   or (scope in ('aca', 'medicare') and key in ('key', 'client'));
+
+-- Agent/Category (CS) and Agent/Client Name (Enrollment) are hard-required to
+-- submit Create — see canSubmit in NewTaskDialog.tsx / the disabled= check in
+-- NewEnrollmentDialog. Marking them required=true here (idempotent, safe to
+-- re-run) locks their Hidden checkbox off in Config so an admin can never
+-- brick record creation by hiding one of them — see the required/hidden_default
+-- mutual exclusion in api/config/columns/[id]/route.ts.
+update table_column
+set required = true, updated_at = now()
+where
+  (scope = 'cs' and key in ('summary', 'agent', 'category') and is_system = true)
+  or (scope in ('aca', 'medicare') and key in ('agent', 'client') and is_system = true);
+
+-- show_in_detail is only READ for custom (non-system) columns — see
+-- taskDetailColumns in TaskBoardClient.tsx / detailCustomColumns in
+-- EnrollmentClient.tsx, and Config's "Detail" checkbox is disabled for
+-- system rows for the same reason (app logic never checks it for them).
+-- Still: seed it true here for every system column that genuinely has an
+-- editable input on the Create dialog today, so the stored data honestly
+-- reflects reality instead of the false the col()/seed defaults leave it at
+-- — protects any future code that reads show_in_detail without the
+-- is_system guard, and keeps Config's table state legible to a human admin
+-- inspecting raw rows. Columns intentionally excluded: key/reporter/created/
+-- activity (cs) and key/createdBy/createdAt/updatedBy/updated (aca/medicare)
+-- — no create-time input, auto-generated; review/qc — Detail-drawer only,
+-- never appears on Create; status/slaRemaining (cs) — no Create input either
+-- (status comes from board-column assignment, slaRemaining is computed).
+update table_column
+set show_in_detail = true, updated_at = now()
+where
+  (scope = 'cs' and key in ('summary', 'priority', 'category', 'agent', 'assignee') and is_system = true)
+  or (
+    scope in ('aca', 'medicare')
+    and key in (
+      'client', 'fub', 'stage', 'due', 'agent', 'responsible',
+      'payment', 'carrier', 'aca', 'consent', 'platform', 'caller',
+      'pcp2025', 'pcp2026'
+    )
+    and is_system = true
+  );
 
 -- Medicare has no Payment/Consent/Platform/AC/Caller concept (its option sets
 -- only cover stage/carrier — see enrollment_option_sets seed below) and its

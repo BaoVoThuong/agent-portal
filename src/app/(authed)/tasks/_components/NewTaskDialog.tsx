@@ -2,7 +2,13 @@
 
 import { useState, type ReactNode } from "react";
 import { Check, X } from "lucide-react";
-import type { TaskPriority, TaskCategory } from "@/lib/tasks/types";
+import {
+  TASK_STATUSES,
+  STATUS_LABEL,
+  type TaskPriority,
+  type TaskCategory,
+  type TaskStatus,
+} from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
@@ -21,6 +27,8 @@ const PRIMARY_INPUT_CLASS =
   "h-9 w-full rounded border-2 border-[#dfe1e6] bg-white !px-2 !py-1.5 text-sm font-semibold text-[#172b4d] outline-none transition placeholder:font-normal placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
 const PRIMARY_TEXTAREA_CLASS =
   "min-h-[21rem] w-full resize-none rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
+const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
+const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
 
 export type NewTaskPayload = {
   title: string;
@@ -30,8 +38,16 @@ export type NewTaskPayload = {
   agent_email: string;
   assignees?: string[];
   category_id: string;
+  status?: TaskStatus;
   custom_values?: Record<string, unknown>;
 };
+
+// A task with nobody assigned MUST start in Backlog, and a task WITH an
+// assignee can never start in Backlog — see resolveCreateAssignment() in
+// src/lib/tasks/access.ts, which enforces this same rule server-side. The
+// Stage picker below mirrors that: locked to "Backlog" while unassigned,
+// otherwise offers every other stage.
+const ASSIGNED_STATUS_OPTIONS = TASK_STATUSES.filter((status) => status !== "backlog");
 
 export function NewTaskDialog({
   open,
@@ -45,6 +61,9 @@ export function NewTaskDialog({
   categories,
   detailColumns,
   tableColumnOptions,
+  configuredColumnKeys,
+  visibleColumnKeys,
+  requiredColumnKeys,
   onClose,
   onCreate,
 }: {
@@ -60,6 +79,9 @@ export function NewTaskDialog({
   categories: TaskCategory[];
   detailColumns: TableColumn[];
   tableColumnOptions: TableColumnOption[];
+  configuredColumnKeys: ReadonlySet<string>;
+  visibleColumnKeys: ReadonlySet<string>;
+  requiredColumnKeys: ReadonlySet<string>;
   onClose: () => void;
   onCreate: (payload: NewTaskPayload) => Promise<void>;
 }) {
@@ -69,9 +91,11 @@ export function NewTaskDialog({
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [agentEmail, setAgentEmail] = useState("");
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const [status, setStatus] = useState<TaskStatus>("todo");
   const [categoryId, setCategoryId] = useState("");
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
+  const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
   const categoryOptions = categories.map((category) => ({
     value: category.id,
     label: category.name,
@@ -94,6 +118,15 @@ export function NewTaskDialog({
     value: assignee.email,
     label: assignee.name?.trim() || formatEmailAsName(assignee.email),
   }));
+  const isFieldVisible = (key: string) =>
+    !configuredColumnKeys.has(key) || visibleColumnKeys.has(key);
+  const showFubLink = isFieldVisible("fub");
+  const showDescription = isFieldVisible("description");
+  const showPriority = isFieldVisible("priority");
+  const showCategory = isFieldVisible("category");
+  const showAgent = isFieldVisible("agent");
+  const showAssignee = isFieldVisible("assignee");
+  const showStage = isFieldVisible("status");
   const visibleDetailColumns = detailColumns;
   const optionsByColumnId = new Map<string, TableColumnOption[]>();
   for (const option of tableColumnOptions) {
@@ -106,9 +139,33 @@ export function NewTaskDialog({
       (agentEmail === currentEmail || myAssistantAgents.includes(agentEmail))
   );
   const canPickAssignee = isManager || hasAgentScope;
-  const canSubmit = Boolean(
-    title.trim() && categoryId && agentEmail && !saving
-  );
+  // Mirrors resolveCreateAssignment()'s server-side rule exactly: unassigned
+  // tasks are always Backlog, assigned tasks are never Backlog. Non-elevated
+  // users (canPickAssignee false) always end up self-assigned server-side —
+  // see the "Assigned to you" fallback below — so they're always "assigned"
+  // for this purpose.
+  const isAssigned = canPickAssignee ? selectedAssignees.length > 0 : true;
+  const effectiveStatus: TaskStatus = isAssigned ? status : "backlog";
+
+  function fieldValue(key: string): unknown {
+    if (key === "summary") return title;
+    if (key === "fub") return fubLink;
+    if (key === "description") return description;
+    if (key === "priority") return priority;
+    if (key === "category") return categoryId;
+    if (key === "agent") return agentEmail;
+    return customValues[key];
+  }
+
+  function isFilled(value: unknown): boolean {
+    if (value === null || value === undefined) return false;
+    return String(value).trim() !== "";
+  }
+
+  function isInvalid(key: string): boolean {
+    return invalidKeys.has(key) && !isFilled(fieldValue(key));
+  }
+
   function toggleAssignee(email: string, on: boolean) {
     setSelectedAssignees((current) =>
       on
@@ -128,7 +185,12 @@ export function NewTaskDialog({
   if (!open) return null;
 
   async function submit() {
-    if (!canSubmit) return;
+    const missing = [...requiredColumnKeys].filter((key) => !isFilled(fieldValue(key)));
+    if (missing.length > 0) {
+      setInvalidKeys(new Set(missing));
+      return;
+    }
+    setInvalidKeys(new Set());
     setSaving(true);
     const cleanedCustomValues = cleanCustomValues(
       customValues,
@@ -143,6 +205,7 @@ export function NewTaskDialog({
         agent_email: agentEmail,
         assignees: canPickAssignee ? selectedAssignees : undefined,
         category_id: categoryId,
+        status: effectiveStatus,
         ...(Object.keys(cleanedCustomValues).length > 0
           ? { custom_values: cleanedCustomValues }
           : {}),
@@ -153,6 +216,7 @@ export function NewTaskDialog({
       setPriority("medium");
       setAgentEmail("");
       setSelectedAssignees([]);
+      setStatus("todo");
       setCategoryId("");
       setCustomValues({});
       onClose();
@@ -189,36 +253,49 @@ export function NewTaskDialog({
           <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_20rem]">
             <section className="min-w-0 space-y-3 px-6 py-5">
               <label className={PRIMARY_FIELD_CLASS}>
-                <span className={PRIMARY_LABEL_CLASS}>Title</span>
+                <span className={PRIMARY_LABEL_CLASS}>
+                  Title
+                  {requiredColumnKeys.has("summary") ? REQUIRED_MARK : null}
+                </span>
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="What needs to be done?"
-                  className={PRIMARY_INPUT_CLASS}
+                  className={`${PRIMARY_INPUT_CLASS} ${isInvalid("summary") ? INVALID_RING_CLASS : ""}`}
                   autoFocus
                 />
               </label>
 
-              <label className={PRIMARY_FIELD_CLASS}>
-                <span className={PRIMARY_LABEL_CLASS}>FUB Link</span>
-                <input
-                  value={fubLink}
-                  onChange={(e) => setFubLink(e.target.value)}
-                  placeholder="https://..."
-                  className={PRIMARY_INPUT_CLASS}
-                />
-              </label>
+              {showFubLink ? (
+                <label className={PRIMARY_FIELD_CLASS}>
+                  <span className={PRIMARY_LABEL_CLASS}>
+                    FUB Link
+                    {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
+                  </span>
+                  <input
+                    value={fubLink}
+                    onChange={(e) => setFubLink(e.target.value)}
+                    placeholder="https://..."
+                    className={`${PRIMARY_INPUT_CLASS} ${isInvalid("fub") ? INVALID_RING_CLASS : ""}`}
+                  />
+                </label>
+              ) : null}
 
-              <label className={PRIMARY_FIELD_CLASS}>
-                <span className={PRIMARY_LABEL_CLASS}>Description</span>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Add context, acceptance notes, links, or customer details..."
-                  rows={13}
-                  className={PRIMARY_TEXTAREA_CLASS}
-                />
-              </label>
+              {showDescription ? (
+                <label className={PRIMARY_FIELD_CLASS}>
+                  <span className={PRIMARY_LABEL_CLASS}>
+                    Description
+                    {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
+                  </span>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Add context, acceptance notes, links, or customer details..."
+                    rows={13}
+                    className={`${PRIMARY_TEXTAREA_CLASS} ${isInvalid("description") ? INVALID_RING_CLASS : ""}`}
+                  />
+                </label>
+              ) : null}
             </section>
 
             <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
@@ -230,52 +307,86 @@ export function NewTaskDialog({
                   Task
                 </span>
               </div>
-              <MetaField label="Priority">
-                <TaskPrioritySelect
-                  value={priority}
-                  onChange={setPriority}
-                  menuClassName="min-w-full"
-                />
-              </MetaField>
-
-              <MetaField label="Category">
-                <TaskSelect
-                  label="Category"
-                  value={categoryId}
-                  options={categoryOptions}
-                  placeholder="Select category"
-                  onChange={setCategoryId}
-                  buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                  menuClassName="min-w-full"
-                />
-              </MetaField>
-
-              <MetaField label="Agent">
-                <TaskSelect
-                  label="Agent"
-                  value={agentEmail}
-                  options={agentOptions}
-                  placeholder="Select agent"
-                  onChange={changeAgent}
-                  buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                  menuClassName="min-w-full"
-                />
-              </MetaField>
-
-              <MetaField label="Assignee">
-                {canPickAssignee ? (
-                  <TaskAssigneeDropdown
-                    assignees={assignees}
-                    selectedEmails={selectedAssignees}
-                    agentEmail={agentEmail || null}
-                    onToggle={toggleAssignee}
+              {showPriority ? (
+                <MetaField label="Priority" required={requiredColumnKeys.has("priority")}>
+                  <TaskPrioritySelect
+                    value={priority}
+                    onChange={setPriority}
+                    menuClassName="min-w-full"
+                    buttonClassName={isInvalid("priority") ? INVALID_RING_CLASS : ""}
                   />
-                ) : (
-                  <div className="flex h-10 items-center rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d]">
-                    Assigned to you
-                  </div>
-                )}
-              </MetaField>
+                </MetaField>
+              ) : null}
+
+              {showCategory ? (
+                <MetaField label="Category" required={requiredColumnKeys.has("category")}>
+                  <TaskSelect
+                    label="Category"
+                    value={categoryId}
+                    options={categoryOptions}
+                    placeholder="Select category"
+                    onChange={setCategoryId}
+                    buttonClassName={`${SIDE_SELECT_BUTTON_CLASS} ${isInvalid("category") ? INVALID_RING_CLASS : ""}`}
+                    menuClassName="min-w-full"
+                  />
+                </MetaField>
+              ) : null}
+
+              {showAgent ? (
+                <MetaField label="Agent" required={requiredColumnKeys.has("agent")}>
+                  <TaskSelect
+                    label="Agent"
+                    value={agentEmail}
+                    options={agentOptions}
+                    placeholder="Select agent"
+                    onChange={changeAgent}
+                    buttonClassName={`${SIDE_SELECT_BUTTON_CLASS} ${isInvalid("agent") ? INVALID_RING_CLASS : ""}`}
+                    menuClassName="min-w-full"
+                  />
+                </MetaField>
+              ) : null}
+
+              {showAssignee ? (
+                <MetaField label="Assignee" required={requiredColumnKeys.has("assignee")}>
+                  {canPickAssignee ? (
+                    <TaskAssigneeDropdown
+                      assignees={assignees}
+                      selectedEmails={selectedAssignees}
+                      agentEmail={agentEmail || null}
+                      onToggle={toggleAssignee}
+                    />
+                  ) : (
+                    <div className="flex h-10 items-center rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d]">
+                      Assigned to you
+                    </div>
+                  )}
+                </MetaField>
+              ) : null}
+
+              {showStage ? (
+                <MetaField label="Stage">
+                  {isAssigned ? (
+                    <TaskSelect
+                      label="Stage"
+                      value={status}
+                      options={ASSIGNED_STATUS_OPTIONS.map((s) => ({
+                        value: s,
+                        label: STATUS_LABEL[s],
+                      }))}
+                      onChange={(next) => setStatus(next as TaskStatus)}
+                      buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+                      menuClassName="min-w-full"
+                    />
+                  ) : (
+                    <div
+                      className="flex h-10 items-center rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d]"
+                      title="Unassigned tasks always start in Backlog — pick an Assignee to choose a different stage."
+                    >
+                      {STATUS_LABEL.backlog}
+                    </div>
+                  )}
+                </MetaField>
+              ) : null}
 
               {visibleDetailColumns.length > 0 ? (
                 <div className="space-y-3 border-t border-[#dfe1e6] pt-3">
@@ -283,12 +394,13 @@ export function NewTaskDialog({
                     Custom fields
                   </span>
                   {visibleDetailColumns.map((column) => (
-                    <MetaField key={column.id} label={column.label}>
+                    <MetaField key={column.id} label={column.label} required={column.required}>
                       <NewTaskCustomField
                         column={column}
                         value={customValues[column.key]}
                         options={optionsByColumnId.get(column.id) ?? []}
                         peopleOptions={assigneeOptions}
+                        invalid={isInvalid(column.key)}
                         onChange={(value) => setCustomValue(column.key, value)}
                       />
                     </MetaField>
@@ -310,7 +422,7 @@ export function NewTaskDialog({
           <button
             type="button"
             onClick={submit}
-            disabled={!canSubmit}
+            disabled={saving}
             className="rounded bg-[#0c66e4] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saving ? "Creating..." : "Create"}
@@ -323,15 +435,18 @@ export function NewTaskDialog({
 
 function MetaField({
   label,
+  required,
   children,
 }: {
   label: string;
+  required?: boolean;
   children: ReactNode;
 }) {
   return (
     <div>
       <span className="mb-1.5 block text-xs font-bold uppercase text-[#6b778c]">
         {label}
+        {required ? REQUIRED_MARK : null}
       </span>
       {children}
     </div>
@@ -343,12 +458,14 @@ function NewTaskCustomField({
   value,
   options,
   peopleOptions,
+  invalid,
   onChange,
 }: {
   column: TableColumn;
   value: unknown;
   options: readonly TableColumnOption[];
   peopleOptions: { value: string; label: string }[];
+  invalid?: boolean;
   onChange: (value: unknown) => void;
 }) {
   if (column.type === "dropdown") {
@@ -362,7 +479,7 @@ function NewTaskCustomField({
         }))}
         placeholder={`Select ${column.label}`}
         onChange={(next) => onChange(next || null)}
-        buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+        buttonClassName={`${SIDE_SELECT_BUTTON_CLASS} ${invalid ? INVALID_RING_CLASS : ""}`}
         menuClassName="min-w-full"
       />
     );
@@ -376,7 +493,7 @@ function NewTaskCustomField({
         options={peopleOptions}
         placeholder={`Select ${column.label}`}
         onChange={(next) => onChange(next || null)}
-        buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+        buttonClassName={`${SIDE_SELECT_BUTTON_CLASS} ${invalid ? INVALID_RING_CLASS : ""}`}
         menuClassName="min-w-full"
       />
     );
@@ -409,7 +526,7 @@ function NewTaskCustomField({
       value={inputValue(value)}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholderForCustomField(column.type)}
-      className={SIDE_INPUT_CLASS}
+      className={`${SIDE_INPUT_CLASS} ${invalid ? INVALID_RING_CLASS : ""}`}
     />
   );
 }
