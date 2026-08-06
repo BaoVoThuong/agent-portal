@@ -45,8 +45,6 @@ export function NewTaskDialog({
   categories,
   detailColumns,
   tableColumnOptions,
-  configuredColumnKeys,
-  visibleColumnKeys,
   onClose,
   onCreate,
 }: {
@@ -62,8 +60,6 @@ export function NewTaskDialog({
   categories: TaskCategory[];
   detailColumns: TableColumn[];
   tableColumnOptions: TableColumnOption[];
-  configuredColumnKeys: ReadonlySet<string>;
-  visibleColumnKeys: ReadonlySet<string>;
   onClose: () => void;
   onCreate: (payload: NewTaskPayload) => Promise<void>;
 }) {
@@ -80,14 +76,6 @@ export function NewTaskDialog({
     value: category.id,
     label: category.name,
   }));
-  const isFieldVisible = (key: string) =>
-    !configuredColumnKeys.has(key) || visibleColumnKeys.has(key);
-  const showDescription = isFieldVisible("description");
-  const showFubLink = isFieldVisible("fub");
-  const showPriority = isFieldVisible("priority");
-  const showCategory = isFieldVisible("category");
-  const showAgent = isFieldVisible("agent");
-  const showAssignee = isFieldVisible("assignee");
   const visibleAgents = (() => {
     if (isManager) return agents;
     const byEmail = new Map<string, TaskAgent>();
@@ -106,31 +94,20 @@ export function NewTaskDialog({
     value: assignee.email,
     label: assignee.name?.trim() || formatEmailAsName(assignee.email),
   }));
-  const visibleDetailColumns = detailColumns.filter((column) =>
-    isFieldVisible(column.key)
-  );
+  const visibleDetailColumns = detailColumns;
   const optionsByColumnId = new Map<string, TableColumnOption[]>();
   for (const option of tableColumnOptions) {
     const current = optionsByColumnId.get(option.column_id) ?? [];
     current.push(option);
     optionsByColumnId.set(option.column_id, current);
   }
-  const fallbackAgentEmail =
-    agentOptions.find((option) => option.value === currentEmail)?.value ??
-    agentOptions[0]?.value ??
-    "";
-  const effectiveAgentEmail =
-    agentEmail || (!showAgent ? fallbackAgentEmail : "");
-  const effectiveCategoryId =
-    categoryId || (!showCategory ? categoryOptions[0]?.value ?? "" : "");
   const hasAgentScope = Boolean(
-    effectiveAgentEmail &&
-      (effectiveAgentEmail === currentEmail ||
-        myAssistantAgents.includes(effectiveAgentEmail))
+    agentEmail &&
+      (agentEmail === currentEmail || myAssistantAgents.includes(agentEmail))
   );
   const canPickAssignee = isManager || hasAgentScope;
   const canSubmit = Boolean(
-    title.trim() && effectiveCategoryId && effectiveAgentEmail && !saving
+    title.trim() && categoryId && agentEmail && !saving
   );
   function toggleAssignee(email: string, on: boolean) {
     setSelectedAssignees((current) =>
@@ -163,10 +140,9 @@ export function NewTaskDialog({
         description: description.trim(),
         fub_link: fubLink.trim() || undefined,
         priority,
-        agent_email: effectiveAgentEmail,
-        assignees:
-          showAssignee && canPickAssignee ? selectedAssignees : undefined,
-        category_id: effectiveCategoryId,
+        agent_email: agentEmail,
+        assignees: canPickAssignee ? selectedAssignees : undefined,
+        category_id: categoryId,
         ...(Object.keys(cleanedCustomValues).length > 0
           ? { custom_values: cleanedCustomValues }
           : {}),
@@ -223,30 +199,26 @@ export function NewTaskDialog({
                 />
               </label>
 
-              {showFubLink ? (
-                <label className={PRIMARY_FIELD_CLASS}>
-                  <span className={PRIMARY_LABEL_CLASS}>FUB Link</span>
-                  <input
-                    value={fubLink}
-                    onChange={(e) => setFubLink(e.target.value)}
-                    placeholder="https://..."
-                    className={PRIMARY_INPUT_CLASS}
-                  />
-                </label>
-              ) : null}
+              <label className={PRIMARY_FIELD_CLASS}>
+                <span className={PRIMARY_LABEL_CLASS}>FUB Link</span>
+                <input
+                  value={fubLink}
+                  onChange={(e) => setFubLink(e.target.value)}
+                  placeholder="https://..."
+                  className={PRIMARY_INPUT_CLASS}
+                />
+              </label>
 
-              {showDescription ? (
-                <label className={PRIMARY_FIELD_CLASS}>
-                  <span className={PRIMARY_LABEL_CLASS}>Description</span>
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Add context, acceptance notes, links, or customer details..."
-                    rows={13}
-                    className={PRIMARY_TEXTAREA_CLASS}
-                  />
-                </label>
-              ) : null}
+              <label className={PRIMARY_FIELD_CLASS}>
+                <span className={PRIMARY_LABEL_CLASS}>Description</span>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Add context, acceptance notes, links, or customer details..."
+                  rows={13}
+                  className={PRIMARY_TEXTAREA_CLASS}
+                />
+              </label>
             </section>
 
             <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
@@ -258,60 +230,52 @@ export function NewTaskDialog({
                   Task
                 </span>
               </div>
-              {showPriority ? (
-                <MetaField label="Priority">
-                  <TaskPrioritySelect
-                    value={priority}
-                    onChange={setPriority}
-                    menuClassName="min-w-full"
-                  />
-                </MetaField>
-              ) : null}
+              <MetaField label="Priority">
+                <TaskPrioritySelect
+                  value={priority}
+                  onChange={setPriority}
+                  menuClassName="min-w-full"
+                />
+              </MetaField>
 
-              {showCategory ? (
-                <MetaField label="Category">
-                  <TaskSelect
-                    label="Category"
-                    value={categoryId}
-                    options={categoryOptions}
-                    placeholder="Select category"
-                    onChange={setCategoryId}
-                    buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                    menuClassName="min-w-full"
-                  />
-                </MetaField>
-              ) : null}
+              <MetaField label="Category">
+                <TaskSelect
+                  label="Category"
+                  value={categoryId}
+                  options={categoryOptions}
+                  placeholder="Select category"
+                  onChange={setCategoryId}
+                  buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+                  menuClassName="min-w-full"
+                />
+              </MetaField>
 
-              {showAgent ? (
-                <MetaField label="Agent">
-                  <TaskSelect
-                    label="Agent"
-                    value={agentEmail}
-                    options={agentOptions}
-                    placeholder="Select agent"
-                    onChange={changeAgent}
-                    buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                    menuClassName="min-w-full"
-                  />
-                </MetaField>
-              ) : null}
+              <MetaField label="Agent">
+                <TaskSelect
+                  label="Agent"
+                  value={agentEmail}
+                  options={agentOptions}
+                  placeholder="Select agent"
+                  onChange={changeAgent}
+                  buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+                  menuClassName="min-w-full"
+                />
+              </MetaField>
 
-              {showAssignee ? (
-                <MetaField label="Assignee">
-                  {canPickAssignee ? (
-                    <TaskAssigneeDropdown
-                      assignees={assignees}
-                      selectedEmails={selectedAssignees}
-                      agentEmail={effectiveAgentEmail || null}
-                      onToggle={toggleAssignee}
-                    />
-                  ) : (
-                    <div className="flex h-10 items-center rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d]">
-                      Assigned to you
-                    </div>
-                  )}
-                </MetaField>
-              ) : null}
+              <MetaField label="Assignee">
+                {canPickAssignee ? (
+                  <TaskAssigneeDropdown
+                    assignees={assignees}
+                    selectedEmails={selectedAssignees}
+                    agentEmail={agentEmail || null}
+                    onToggle={toggleAssignee}
+                  />
+                ) : (
+                  <div className="flex h-10 items-center rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d]">
+                    Assigned to you
+                  </div>
+                )}
+              </MetaField>
 
               {visibleDetailColumns.length > 0 ? (
                 <div className="space-y-3 border-t border-[#dfe1e6] pt-3">

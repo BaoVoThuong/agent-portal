@@ -468,10 +468,6 @@ export function EnrollmentClient({
       ),
     [columns, hiddenColumnKeys]
   );
-  const visibleCreateColumnKeys = useMemo(
-    () => new Set(visibleColumns.map((column) => column.key)),
-    [visibleColumns]
-  );
   const detailCustomColumns = useMemo(
     () =>
       layoutTableColumns.filter(
@@ -904,7 +900,6 @@ export function EnrollmentClient({
           optionsById={optionsById}
           optionsBySet={optionsBySet}
           detailColumns={detailCustomColumns}
-          visibleColumnKeys={visibleCreateColumnKeys}
           tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           isManager={canManageOptions}
@@ -920,7 +915,6 @@ export function EnrollmentClient({
           peopleByEmail={peopleByEmail}
           agentsByEmail={agentsByEmail}
           optionsBySet={optionsBySet}
-          visibleColumnKeys={visibleCreateColumnKeys}
           currentEmail={currentEmail}
           onClose={() => setCreating(false)}
           onCreate={async (payload) => {
@@ -2285,7 +2279,6 @@ function EnrollmentDrawer({
   optionsById,
   optionsBySet,
   detailColumns,
-  visibleColumnKeys,
   tableColumnOptions,
   currentEmail,
   isManager,
@@ -2300,7 +2293,6 @@ function EnrollmentDrawer({
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
   detailColumns: TableColumn[];
-  visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   isManager: boolean;
@@ -2336,27 +2328,13 @@ function EnrollmentDrawer({
   // single Assignee + PCP field — see enrollmentColumnsForProgram() for the
   // list-view equivalent of this same trim.
   const isMedicare = record.program === "medicare";
-  const showField = (key: string) =>
-    visibleColumnKeys.has(key as EnrollmentColumnKey);
-  const showClient = showField("client");
-  const showStage = showField("stage");
-  const showFub = showField("fub");
-  const showDue = showField("due");
-  const showPayment = !isMedicare && showField("payment");
-  const showCarrier = showField("carrier");
-  const showAca = !isMedicare && showField("aca");
-  const showConsent = !isMedicare && showField("consent");
-  const showPlatform = !isMedicare && showField("platform");
-  const showAgent = showField("agent");
-  const showCaller = !isMedicare && showField("caller");
-  const showResponsible = showField("responsible");
-  const showCreatedBy = showField("createdBy");
-  const showPcp2025 = showField("pcp2025");
-  const showPcp2026 = !isMedicare && showField("pcp2026");
-  const showQc = showField("qc");
-  const visibleDetailColumns = detailColumns.filter((column) =>
-    showField(column.key)
-  );
+  const showPayment = !isMedicare;
+  const showAca = !isMedicare;
+  const showConsent = !isMedicare;
+  const showPlatform = !isMedicare;
+  const showCaller = !isMedicare;
+  const showPcp2026 = !isMedicare;
+  const visibleDetailColumns = detailColumns;
 
   const reload = useCallback(async () => {
     const response = await fetch(`/api/enrollment/${record.id}/detail`, {
@@ -2397,7 +2375,7 @@ function EnrollmentDrawer({
             <span className="font-mono text-sm font-bold text-[#97a0af]">
               {enrollmentKey(record.id)}
             </span>
-            {stage && showStage ? (
+            {stage ? (
               <span
                 className="rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
                 style={{
@@ -2425,42 +2403,38 @@ function EnrollmentDrawer({
         <div className="flex-1 overflow-y-auto lg:overflow-hidden">
           <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
             <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
-              {showClient ? (
-                <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>Client Name</span>
-                  <EditableInput
-                    value={record.client_name ?? ""}
-                    placeholder="Client name"
-                    className={COMPACT_DETAIL_INPUT_CLASS}
-                    onSave={(value) => onPatch({ client_name: value })}
-                  />
-                </label>
-              ) : null}
+              <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                <span className={LABEL_CLASS}>Client Name</span>
+                <EditableInput
+                  value={record.client_name ?? ""}
+                  placeholder="Client name"
+                  className={COMPACT_DETAIL_INPUT_CLASS}
+                  onSave={(value) => onPatch({ client_name: value })}
+                />
+              </label>
 
-              {showFub ? (
-                <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>FUB Link</span>
-                  <div className="flex gap-1.5">
-                    <EditableInput
-                      value={record.fub_link ?? ""}
-                      placeholder="No FUB link"
-                      className={COMPACT_DETAIL_INPUT_CLASS}
-                      onSave={(value) => onPatch({ fub_link: value })}
-                    />
-                    {fubHref ? (
-                      <a
-                        href={fubHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label="Open FUB link"
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    ) : null}
-                  </div>
-                </label>
-              ) : null}
+              <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                <span className={LABEL_CLASS}>FUB Link</span>
+                <div className="flex gap-1.5">
+                  <EditableInput
+                    value={record.fub_link ?? ""}
+                    placeholder="No FUB link"
+                    className={COMPACT_DETAIL_INPUT_CLASS}
+                    onSave={(value) => onPatch({ fub_link: value })}
+                  />
+                  {fubHref ? (
+                    <a
+                      href={fubHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Open FUB link"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  ) : null}
+                </div>
+              </label>
 
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
                 <span className={LABEL_CLASS}>Description</span>
@@ -2525,29 +2499,25 @@ function EnrollmentDrawer({
 
           <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
             <div className="space-y-3">
-              {showStage ? (
-                <FieldBlock label="Stage">
-                  <EnrollmentStagePill
-                    stageId={record.stage_id}
-                    stages={optionsBySet.stage}
-                    field
-                    onChange={(value) => onPatch({ stage_id: value })}
-                  />
-                </FieldBlock>
-              ) : null}
+              <FieldBlock label="Stage">
+                <EnrollmentStagePill
+                  stageId={record.stage_id}
+                  stages={optionsBySet.stage}
+                  field
+                  onChange={(value) => onPatch({ stage_id: value })}
+                />
+              </FieldBlock>
 
-              {showDue ? (
-                <FieldBlock label="Due date">
-                  <input
-                    type="date"
-                    value={formatDateInput(record.due_date)}
-                    onChange={(event) =>
-                      void onPatch({ due_date: event.target.value || null })
-                    }
-                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
-                  />
-                </FieldBlock>
-              ) : null}
+              <FieldBlock label="Due date">
+                <input
+                  type="date"
+                  value={formatDateInput(record.due_date)}
+                  onChange={(event) =>
+                    void onPatch({ due_date: event.target.value || null })
+                  }
+                  className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
+                />
+              </FieldBlock>
 
               {showPayment ? (
                 <FieldBlock label="Payment">
@@ -2561,17 +2531,15 @@ function EnrollmentDrawer({
                 </FieldBlock>
               ) : null}
 
-              {showCarrier ? (
-                <FieldBlock label="Carrier">
-                  <EnrollmentOptionMenu
-                    optionId={record.carrier_id}
-                    options={optionsBySet.carrier}
-                    emptyLabel="No carrier"
-                    field
-                    onChange={(value) => void onPatch({ carrier_id: value })}
-                  />
-                </FieldBlock>
-              ) : null}
+              <FieldBlock label="Carrier">
+                <EnrollmentOptionMenu
+                  optionId={record.carrier_id}
+                  options={optionsBySet.carrier}
+                  emptyLabel="No carrier"
+                  field
+                  onChange={(value) => void onPatch({ carrier_id: value })}
+                />
+              </FieldBlock>
 
               {showAca ? (
                   <FieldBlock label="AC">
@@ -2608,17 +2576,15 @@ function EnrollmentDrawer({
                   </FieldBlock>
               ) : null}
 
-              {showAgent ? (
-                <FieldBlock label="Agent">
-                  <EnrollmentPersonMenu
-                    value={record.agent_email}
-                    peopleByEmail={agentsByEmail}
-                    emptyLabel="No agent"
-                    field
-                    onChange={(value) => void onPatch({ agent_email: value })}
-                  />
-                </FieldBlock>
-              ) : null}
+              <FieldBlock label="Agent">
+                <EnrollmentPersonMenu
+                  value={record.agent_email}
+                  peopleByEmail={agentsByEmail}
+                  emptyLabel="No agent"
+                  field
+                  onChange={(value) => void onPatch({ agent_email: value })}
+                />
+              </FieldBlock>
 
               {showCaller ? (
                 <FieldBlock label="Caller">
@@ -2632,38 +2598,32 @@ function EnrollmentDrawer({
                 </FieldBlock>
               ) : null}
 
-              {showResponsible ? (
-                <FieldBlock label={isMedicare ? "Assignee" : "Responsible enroll"}>
-                  <EnrollmentPersonMenu
-                    value={record.responsible_enroll_email}
-                    peopleByEmail={peopleByEmail}
-                    emptyLabel="Unassigned"
-                    field
-                    onChange={(value) =>
-                      void onPatch({ responsible_enroll_email: value })
-                    }
-                  />
-                </FieldBlock>
-              ) : null}
+              <FieldBlock label={isMedicare ? "Assignee" : "Responsible enroll"}>
+                <EnrollmentPersonMenu
+                  value={record.responsible_enroll_email}
+                  peopleByEmail={peopleByEmail}
+                  emptyLabel="Unassigned"
+                  field
+                  onChange={(value) =>
+                    void onPatch({ responsible_enroll_email: value })
+                  }
+                />
+              </FieldBlock>
 
-              {showCreatedBy ? (
-                <FieldBlock label="Created by">
-                  <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
-                    {personLabel(record.created_by_email, peopleByEmail)}
-                  </div>
-                </FieldBlock>
-              ) : null}
+              <FieldBlock label="Created by">
+                <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
+                  {personLabel(record.created_by_email, peopleByEmail)}
+                </div>
+              </FieldBlock>
 
-              {showPcp2025 ? (
-                <FieldBlock label={isMedicare ? "PCP" : "PCP 2025"}>
-                  <EditableInput
-                    value={record.pcp_2025 ?? ""}
-                    placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
-                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
-                    onSave={(value) => onPatch({ pcp_2025: value })}
-                  />
-                </FieldBlock>
-              ) : null}
+              <FieldBlock label={isMedicare ? "PCP" : "PCP 2025"}>
+                <EditableInput
+                  value={record.pcp_2025 ?? ""}
+                  placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                  className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
+                  onSave={(value) => onPatch({ pcp_2025: value })}
+                />
+              </FieldBlock>
 
               {showPcp2026 ? (
                 <FieldBlock label="PCP 2026">
@@ -2693,15 +2653,13 @@ function EnrollmentDrawer({
                 </FieldBlock>
               ))}
 
-              {showQc ? (
-                <FieldBlock label="QC Review">
-                  <EnrollmentQCPanel
-                    record={record}
-                    stage={stage}
-                    onToggle={() => onPatch({ qc_checked: !record.qc_checked_at })}
-                  />
-                </FieldBlock>
-              ) : null}
+              <FieldBlock label="QC Review">
+                <EnrollmentQCPanel
+                  record={record}
+                  stage={stage}
+                  onToggle={() => onPatch({ qc_checked: !record.qc_checked_at })}
+                />
+              </FieldBlock>
             </div>
 
             {stage?.is_terminal && reopenTarget ? (
@@ -2751,7 +2709,6 @@ function NewEnrollmentDialog({
   peopleByEmail,
   agentsByEmail,
   optionsBySet,
-  visibleColumnKeys,
   currentEmail,
   onClose,
   onCreate,
@@ -2760,7 +2717,6 @@ function NewEnrollmentDialog({
   peopleByEmail: Map<string, string>;
   agentsByEmail: Map<string, string>;
   optionsBySet: EnrollmentOptionsBySet;
-  visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
   currentEmail: string;
   onClose: () => void;
   onCreate: (payload: Record<string, unknown>) => Promise<void>;
@@ -2791,25 +2747,12 @@ function NewEnrollmentDialog({
     ticketInputRef.current?.focus();
   }, []);
 
-  const showField = (key: EnrollmentColumnKey) => visibleColumnKeys.has(key);
-  const showFub = showField("fub");
-  const showStage = showField("stage");
-  const showDue = showField("due");
-  const showPayment = !isMedicare && showField("payment");
-  const showCarrier = showField("carrier");
-  const showAca = !isMedicare && showField("aca");
-  const showConsent = !isMedicare && showField("consent");
-  const showPlatform = !isMedicare && showField("platform");
-  const showAgent = showField("agent");
-  const showCaller = !isMedicare && showField("caller");
-  const showResponsible = showField("responsible");
-  const showPcp2025 = showField("pcp2025");
-  const showPcp2026 = !isMedicare && showField("pcp2026");
-  const showPipelineSection = showStage || showDue;
-  const showPlanSection =
-    showPayment || showCarrier || showAca || showConsent || showPlatform;
-  const showOwnershipSection = showAgent || showCaller || showResponsible;
-  const showPcpSection = showPcp2025 || showPcp2026;
+  const showPayment = !isMedicare;
+  const showAca = !isMedicare;
+  const showConsent = !isMedicare;
+  const showPlatform = !isMedicare;
+  const showCaller = !isMedicare;
+  const showPcp2026 = !isMedicare;
 
   function update(field: string, value: string | null) {
     setForm((current) => ({ ...current, [field]: value ?? "" }));
@@ -2875,17 +2818,15 @@ function NewEnrollmentDialog({
                 />
               </label>
 
-              {showFub ? (
-                <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>FUB Link</span>
-                  <input
-                    value={form.fub_link}
-                    onChange={(event) => update("fub_link", event.target.value)}
-                    placeholder="https://app.followupboss.com/..."
-                    className={COMPACT_DETAIL_INPUT_CLASS}
-                  />
-                </label>
-              ) : null}
+              <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                <span className={LABEL_CLASS}>FUB Link</span>
+                <input
+                  value={form.fub_link}
+                  onChange={(event) => update("fub_link", event.target.value)}
+                  placeholder="https://app.followupboss.com/..."
+                  className={COMPACT_DETAIL_INPUT_CLASS}
+                />
+              </label>
 
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
                 <span className={LABEL_CLASS}>Description</span>
@@ -2918,145 +2859,125 @@ function NewEnrollmentDialog({
                 </span>
               </div>
 
-              {showPipelineSection ? (
-                <CreatePropertySection>
-                  {showStage ? (
-                    <CreatePropertyField label="Stage">
-                      <EnrollmentStagePill
-                        stageId={form.stage_id || null}
-                        stages={optionsBySet.stage}
-                        onChange={async (value) => update("stage_id", value)}
-                      />
-                    </CreatePropertyField>
-                  ) : null}
+              <CreatePropertySection>
+                <CreatePropertyField label="Stage">
+                  <EnrollmentStagePill
+                    stageId={form.stage_id || null}
+                    stages={optionsBySet.stage}
+                    onChange={async (value) => update("stage_id", value)}
+                  />
+                </CreatePropertyField>
 
-                  {showDue ? (
-                    <CreatePropertyInput
-                      label="Due date"
-                      type="date"
-                      value={form.due_date}
-                      onChange={(value) => update("due_date", value)}
+                <CreatePropertyInput
+                  label="Due date"
+                  type="date"
+                  value={form.due_date}
+                  onChange={(value) => update("due_date", value)}
+                />
+              </CreatePropertySection>
+
+              <CreatePropertySection>
+                {showPayment ? (
+                  <CreatePropertyField label="Payment">
+                    <EnrollmentOptionMenu
+                      optionId={form.payment_status_id || null}
+                      options={optionsBySet.payment_status}
+                      emptyLabel="No payment"
+                      onChange={(value) => update("payment_status_id", value)}
                     />
-                  ) : null}
-                </CreatePropertySection>
-              ) : null}
+                  </CreatePropertyField>
+                ) : null}
 
-              {showPlanSection ? (
-                <CreatePropertySection>
-                  {showPayment ? (
-                    <CreatePropertyField label="Payment">
-                      <EnrollmentOptionMenu
-                        optionId={form.payment_status_id || null}
-                        options={optionsBySet.payment_status}
-                        emptyLabel="No payment"
-                        onChange={(value) => update("payment_status_id", value)}
-                      />
-                    </CreatePropertyField>
-                  ) : null}
+                <CreatePropertyField label="Carrier">
+                  <EnrollmentOptionMenu
+                    optionId={form.carrier_id || null}
+                    options={optionsBySet.carrier}
+                    emptyLabel="No carrier"
+                    onChange={(value) => update("carrier_id", value)}
+                  />
+                </CreatePropertyField>
 
-                  {showCarrier ? (
-                    <CreatePropertyField label="Carrier">
-                      <EnrollmentOptionMenu
-                        optionId={form.carrier_id || null}
-                        options={optionsBySet.carrier}
-                        emptyLabel="No carrier"
-                        onChange={(value) => update("carrier_id", value)}
-                      />
-                    </CreatePropertyField>
-                  ) : null}
-
-                  {showAca ? (
-                    <CreatePropertyField label="ACA">
-                      <EnrollmentOptionMenu
-                        optionId={form.aca_status_id || null}
-                        options={optionsBySet.aca_status}
-                        emptyLabel="No ACA status"
-                        onChange={(value) => update("aca_status_id", value)}
-                      />
-                    </CreatePropertyField>
-                  ) : null}
-
-                  {showConsent ? (
-                    <CreatePropertyField label="Consent">
-                      <EnrollmentConsentToggle
-                        optionId={form.consent_id || null}
-                        options={optionsBySet.consent}
-                        onChange={(value) => update("consent_id", value)}
-                      />
-                    </CreatePropertyField>
-                  ) : null}
-
-                  {showPlatform ? (
-                    <CreatePropertyField label="Platform">
-                      <EnrollmentOptionMenu
-                        optionId={form.platform_id || null}
-                        options={optionsBySet.platform}
-                        emptyLabel="No platform"
-                        onChange={(value) => update("platform_id", value)}
-                      />
-                    </CreatePropertyField>
-                  ) : null}
-                </CreatePropertySection>
-              ) : null}
-
-              {showOwnershipSection ? (
-                <CreatePropertySection>
-                  {showAgent ? (
-                    <CreatePropertyField label="Agent">
-                      <EnrollmentPersonMenu
-                        value={form.agent_email || null}
-                        peopleByEmail={agentsByEmail}
-                        emptyLabel="No agent"
-                        onChange={(value) => update("agent_email", value)}
-                      />
-                    </CreatePropertyField>
-                  ) : null}
-
-                  {showCaller ? (
-                    <CreatePropertyField label="Caller">
-                      <EnrollmentPersonMenu
-                        value={form.caller_email || null}
-                        peopleByEmail={peopleByEmail}
-                        emptyLabel="No caller"
-                        onChange={(value) => update("caller_email", value)}
-                      />
-                    </CreatePropertyField>
-                  ) : null}
-
-                  {showResponsible ? (
-                    <CreatePropertyField label={isMedicare ? "Assignee" : "Responsible enroll"}>
-                      <EnrollmentPersonMenu
-                        value={form.responsible_enroll_email || null}
-                        peopleByEmail={peopleByEmail}
-                        emptyLabel="Unassigned"
-                        onChange={(value) => update("responsible_enroll_email", value)}
-                      />
-                    </CreatePropertyField>
-                  ) : null}
-                </CreatePropertySection>
-              ) : null}
-
-              {showPcpSection ? (
-                <CreatePropertySection>
-                  {showPcp2025 ? (
-                    <CreatePropertyInput
-                      label={isMedicare ? "PCP" : "PCP 2025"}
-                      value={form.pcp_2025}
-                      placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
-                      onChange={(value) => update("pcp_2025", value)}
+                {showAca ? (
+                  <CreatePropertyField label="ACA">
+                    <EnrollmentOptionMenu
+                      optionId={form.aca_status_id || null}
+                      options={optionsBySet.aca_status}
+                      emptyLabel="No ACA status"
+                      onChange={(value) => update("aca_status_id", value)}
                     />
-                  ) : null}
+                  </CreatePropertyField>
+                ) : null}
 
-                  {showPcp2026 ? (
-                    <CreatePropertyInput
-                      label="PCP 2026"
-                      value={form.pcp_2026}
-                      placeholder="No PCP 2026"
-                      onChange={(value) => update("pcp_2026", value)}
+                {showConsent ? (
+                  <CreatePropertyField label="Consent">
+                    <EnrollmentConsentToggle
+                      optionId={form.consent_id || null}
+                      options={optionsBySet.consent}
+                      onChange={(value) => update("consent_id", value)}
                     />
-                  ) : null}
-                </CreatePropertySection>
-              ) : null}
+                  </CreatePropertyField>
+                ) : null}
+
+                {showPlatform ? (
+                  <CreatePropertyField label="Platform">
+                    <EnrollmentOptionMenu
+                      optionId={form.platform_id || null}
+                      options={optionsBySet.platform}
+                      emptyLabel="No platform"
+                      onChange={(value) => update("platform_id", value)}
+                    />
+                  </CreatePropertyField>
+                ) : null}
+              </CreatePropertySection>
+
+              <CreatePropertySection>
+                <CreatePropertyField label="Agent">
+                  <EnrollmentPersonMenu
+                    value={form.agent_email || null}
+                    peopleByEmail={agentsByEmail}
+                    emptyLabel="No agent"
+                    onChange={(value) => update("agent_email", value)}
+                  />
+                </CreatePropertyField>
+
+                {showCaller ? (
+                  <CreatePropertyField label="Caller">
+                    <EnrollmentPersonMenu
+                      value={form.caller_email || null}
+                      peopleByEmail={peopleByEmail}
+                      emptyLabel="No caller"
+                      onChange={(value) => update("caller_email", value)}
+                    />
+                  </CreatePropertyField>
+                ) : null}
+
+                <CreatePropertyField label={isMedicare ? "Assignee" : "Responsible enroll"}>
+                  <EnrollmentPersonMenu
+                    value={form.responsible_enroll_email || null}
+                    peopleByEmail={peopleByEmail}
+                    emptyLabel="Unassigned"
+                    onChange={(value) => update("responsible_enroll_email", value)}
+                  />
+                </CreatePropertyField>
+              </CreatePropertySection>
+
+              <CreatePropertySection>
+                <CreatePropertyInput
+                  label={isMedicare ? "PCP" : "PCP 2025"}
+                  value={form.pcp_2025}
+                  placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                  onChange={(value) => update("pcp_2025", value)}
+                />
+
+                {showPcp2026 ? (
+                  <CreatePropertyInput
+                    label="PCP 2026"
+                    value={form.pcp_2026}
+                    placeholder="No PCP 2026"
+                    onChange={(value) => update("pcp_2026", value)}
+                  />
+                ) : null}
+              </CreatePropertySection>
             </aside>
           </div>
         </div>

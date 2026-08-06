@@ -58,8 +58,6 @@ export function TaskDetailDrawer({
   mentionMembers,
   categories,
   detailColumns,
-  configuredColumnKeys,
-  visibleColumnKeys,
   tableColumnOptions,
   currentEmail,
   canReviewDone,
@@ -83,8 +81,6 @@ export function TaskDetailDrawer({
   mentionMembers: TaskAssignee[];
   categories: TaskCategory[];
   detailColumns: TableColumn[];
-  configuredColumnKeys: ReadonlySet<string>;
-  visibleColumnKeys: ReadonlySet<string>;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   canReviewDone: boolean;
@@ -188,23 +184,7 @@ export function TaskDetailDrawer({
         a.type === "task_reopened"
     ) ?? [];
   const canReopen = canChangeStatus && (task.status === "done" || task.status === "cancel");
-  const showField = (key: string) =>
-    !configuredColumnKeys.has(key) || visibleColumnKeys.has(key);
-  const showTitle = showField("summary");
-  const showFub = showField("fub");
-  const showDescription = showField("description");
-  const showStageTime = (["todoTime", "progressTime", "waitingTime"] as const).some(
-    showField
-  );
-  const showPriority = showField("priority");
-  const showCategory = showField("category");
-  const showAgent = showField("agent");
-  const showCreatedBy = showField("reporter");
-  const showAssignees = showField("assignee");
-  const showQcReview = showField("review");
-  const visibleDetailColumns = detailColumns.filter((column) =>
-    showField(column.key)
-  );
+  const visibleDetailColumns = detailColumns;
 
   return (
     <div
@@ -237,78 +217,72 @@ export function TaskDetailDrawer({
         <div className="flex-1 overflow-y-auto lg:overflow-hidden">
           <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
             <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
-              {showTitle ? (
-                <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>Client Name</span>
+              <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                <span className={LABEL_CLASS}>Client Name</span>
+                <input
+                  value={title}
+                  disabled={!canEdit}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onBlur={() =>
+                    canEdit &&
+                    title.trim() &&
+                    title !== task.title &&
+                    onPatch({ title: title.trim() })
+                  }
+                  className={COMPACT_DETAIL_INPUT_CLASS}
+                />
+              </label>
+
+              <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                <span className={LABEL_CLASS}>FUB Link</span>
+                <div className="flex gap-1.5">
                   <input
-                    value={title}
+                    value={fubLink}
                     disabled={!canEdit}
-                    onChange={(e) => setTitle(e.target.value)}
-                    onBlur={() =>
-                      canEdit &&
-                      title.trim() &&
-                      title !== task.title &&
-                      onPatch({ title: title.trim() })
-                    }
+                    onChange={(e) => setFubLink(e.target.value)}
+                    onBlur={() => {
+                      const next = fubLink.trim();
+                      if (canEdit && next !== (task.fub_link ?? "")) {
+                        onPatch({ fub_link: next || null });
+                      }
+                    }}
+                    placeholder="No FUB link"
                     className={COMPACT_DETAIL_INPUT_CLASS}
                   />
-                </label>
-              ) : null}
+                  {fubHref ? (
+                    <a
+                      href={fubHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Open FUB link"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  ) : null}
+                </div>
+              </label>
 
-              {showFub ? (
-                <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>FUB Link</span>
-                  <div className="flex gap-1.5">
-                    <input
-                      value={fubLink}
-                      disabled={!canEdit}
-                      onChange={(e) => setFubLink(e.target.value)}
-                      onBlur={() => {
-                        const next = fubLink.trim();
-                        if (canEdit && next !== (task.fub_link ?? "")) {
-                          onPatch({ fub_link: next || null });
-                        }
-                      }}
-                      placeholder="No FUB link"
-                      className={COMPACT_DETAIL_INPUT_CLASS}
-                    />
-                    {fubHref ? (
-                      <a
-                        href={fubHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label="Open FUB link"
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    ) : null}
-                  </div>
-                </label>
-              ) : null}
-
-              {showDescription ? (
-                <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>Description</span>
-                  <textarea
-                    ref={descriptionRef}
-                    value={description}
-                    disabled={!canEdit}
-                    onChange={(e) => {
-                      setDescription(e.target.value);
-                      autosizeTextarea(e.currentTarget);
-                    }}
-                    onBlur={() =>
-                      canEdit &&
-                      description !== (task.description ?? "") &&
-                      onPatch({ description })
-                    }
-                    rows={2}
-                    placeholder="Add a description…"
-                    className={COMPACT_DESCRIPTION_CLASS}
-                  />
-                </label>
-              ) : null}
+              <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                <span className={LABEL_CLASS}>Description</span>
+                <textarea
+                  ref={descriptionRef}
+                  value={description}
+                  disabled={!canEdit}
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    autosizeTextarea(e.currentTarget);
+                  }}
+                  onBlur={() =>
+                    canEdit &&
+                    description !== (task.description ?? "") &&
+                    onPatch({ description })
+                  }
+                  rows={2}
+                  placeholder="Add a description…"
+                  className={COMPACT_DESCRIPTION_CLASS}
+                />
+              </label>
 
               <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
@@ -368,9 +342,8 @@ export function TaskDetailDrawer({
             </main>
 
             <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
-              {showStageTime ? <StageTimeBreakdown task={task} /> : null}
+              <StageTimeBreakdown task={task} />
               <div className="space-y-3">
-                {showPriority ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Priority</span>
                   <TaskPrioritySelect
@@ -382,9 +355,7 @@ export function TaskDetailDrawer({
                     }
                   />
                 </div>
-                ) : null}
 
-                {showCategory ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Category</span>
                   <TaskSelect
@@ -397,9 +368,7 @@ export function TaskDetailDrawer({
                     onChange={(nextCategoryId) => onPatch({ category_id: nextCategoryId })}
                   />
                 </div>
-                ) : null}
 
-                {showAgent ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Agent</span>
                   <TaskSelect
@@ -412,9 +381,7 @@ export function TaskDetailDrawer({
                     onChange={(nextAgent) => onPatch({ agent_email: nextAgent })}
                   />
                 </div>
-                ) : null}
 
-                {showCreatedBy ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Created by</span>
                   <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
@@ -424,9 +391,7 @@ export function TaskDetailDrawer({
                       : "—"}
                   </div>
                 </div>
-                ) : null}
 
-                {showAssignees ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>Assignees</span>
                   {canAssign ? (
@@ -454,7 +419,6 @@ export function TaskDetailDrawer({
                     </div>
                   )}
                 </div>
-                ) : null}
 
                 {visibleDetailColumns.map((column) => (
                   <div key={column.id} className="space-y-1.5">
@@ -474,7 +438,6 @@ export function TaskDetailDrawer({
                   </div>
                 ))}
 
-                {showQcReview ? (
                 <div className="space-y-1.5">
                   <span className={LABEL_CLASS}>QC Review</span>
                   <DoneReviewPanel
@@ -483,7 +446,6 @@ export function TaskDetailDrawer({
                     onReviewDone={onReviewDone}
                   />
                 </div>
-                ) : null}
               </div>
 
               {canReopen && (

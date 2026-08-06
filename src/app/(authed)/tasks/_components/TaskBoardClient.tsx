@@ -706,19 +706,6 @@ export function TaskBoardClient({
     () => visibleTaskListColumns(hiddenTaskListColumnKeys, taskListColumnConfig),
     [hiddenTaskListColumnKeys, taskListColumnConfig]
   );
-  const configuredCreateColumnKeys = useMemo(
-    () =>
-      new Set(
-        taskLayoutColumns
-          .filter((column) => !column.archived_at)
-          .map((column) => column.key)
-      ),
-    [taskLayoutColumns]
-  );
-  const visibleCreateColumnKeys = useMemo(
-    () => new Set(visibleTaskListColumnConfig.map((column) => column.key)),
-    [visibleTaskListColumnConfig]
-  );
   const taskDetailColumns = useMemo(
     () =>
       taskLayoutColumns.filter(
@@ -1392,8 +1379,6 @@ export function TaskBoardClient({
           categories={categories}
           detailColumns={taskDetailColumns}
           tableColumnOptions={tableColumnOptions}
-          configuredColumnKeys={configuredCreateColumnKeys}
-          visibleColumnKeys={visibleCreateColumnKeys}
           onClose={() => setCreating(false)}
           onCreate={createTask}
         />
@@ -1422,8 +1407,6 @@ export function TaskBoardClient({
           mentionMembers={mentionMembers}
           categories={categories}
           detailColumns={taskDetailColumns}
-          configuredColumnKeys={configuredCreateColumnKeys}
-          visibleColumnKeys={visibleCreateColumnKeys}
           tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           canReviewDone={
