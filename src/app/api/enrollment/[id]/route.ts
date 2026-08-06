@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
+  canArchiveEnrollmentRecord,
   canMutateEnrollmentRecord,
   loadEnrollmentActor,
 } from "@/lib/enrollment/access";
@@ -491,7 +492,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     .maybeSingle();
   if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
   if (!currentData) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!canMutateEnrollmentRecord(actorResult.actor, currentData)) {
+  if (!canArchiveEnrollmentRecord(actorResult.actor, currentData)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

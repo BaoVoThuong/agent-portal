@@ -129,7 +129,12 @@ export function formatCustomValue(
     }
     case "number":
       return typeof value === "number" ? String(value) : String(value);
-    case "date":
+    case "date": {
+      const raw = String(value);
+      const date = new Date(`${raw.slice(0, 10)}T00:00:00`);
+      if (Number.isNaN(date.getTime())) return raw;
+      return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
     case "link":
     case "text":
       return String(value);

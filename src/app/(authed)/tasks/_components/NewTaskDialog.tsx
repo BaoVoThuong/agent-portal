@@ -228,8 +228,8 @@ export function NewTaskDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/45 p-4 sm:p-6">
-      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded bg-white shadow-[0_16px_48px_rgba(9,30,66,0.32)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6">
+      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-[0_16px_48px_rgba(9,30,66,0.32)]">
         <header className="shrink-0 border-b border-[#dfe1e6] px-6 py-4">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -254,7 +254,7 @@ export function NewTaskDialog({
             <section className="min-w-0 space-y-3 px-6 py-5">
               <label className={PRIMARY_FIELD_CLASS}>
                 <span className={PRIMARY_LABEL_CLASS}>
-                  Title
+                  Client Name
                   {requiredColumnKeys.has("summary") ? REQUIRED_MARK : null}
                 </span>
                 <input

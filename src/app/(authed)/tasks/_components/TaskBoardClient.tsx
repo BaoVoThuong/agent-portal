@@ -108,7 +108,7 @@ export function TaskBoardClient({
   const deepLinkId = searchParams.get("task");
   const deepLinkCommentId = searchParams.get("comment");
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
-  const [view, setView] = useState<BoardView>(() => (isManager ? "overview" : "board"));
+  const [view, setView] = useState<BoardView>("list");
   const [overviewSnapshot, setOverviewSnapshot] = useState<OverviewSnapshot | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewRefreshing, setOverviewRefreshing] = useState(false);
@@ -1270,6 +1270,12 @@ export function TaskBoardClient({
                     </button>
                   </>
                 )}
+                {canExportImport ? (
+                  <ImportExportMenu
+                    onExport={exportVisibleTasks}
+                    onImport={() => setImporting(true)}
+                  />
+                ) : null}
                 {canCreateTasks && (
                   <button
                     type="button"
@@ -1280,12 +1286,6 @@ export function TaskBoardClient({
                     New task
                   </button>
                 )}
-                {canExportImport ? (
-                  <ImportExportMenu
-                    onExport={exportVisibleTasks}
-                    onImport={() => setImporting(true)}
-                  />
-                ) : null}
               </div>
             ) : null}
           </header>

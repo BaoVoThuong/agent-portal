@@ -32,6 +32,20 @@ export function canMutateEnrollmentRecord(
   return isDirectEnrollmentStakeholder(actor.email, record);
 }
 
+// Narrower than canMutateEnrollmentRecord on purpose — mirrors CS's
+// canDeleteTask() (manager or agent-owner only, not every stakeholder who
+// can edit a task). Enrollment has no agent-ownership model wired through
+// like CS does, so "owner" here is the record's original creator — the
+// closest native equivalent, using data already on every record.
+export function canArchiveEnrollmentRecord(
+  actor: EnrollmentActor,
+  record: EnrollmentRecordAccessFields
+): boolean {
+  if (actor.isManager) return true;
+  if (!actor.isWorker) return false;
+  return normalizeEmail(record.created_by_email) === normalizeEmail(actor.email);
+}
+
 function isDirectEnrollmentStakeholder(
   email: string,
   record: EnrollmentRecordAccessFields

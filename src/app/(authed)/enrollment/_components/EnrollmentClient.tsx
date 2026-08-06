@@ -40,7 +40,6 @@ import {
 import {
   enrollmentKey,
   formatDateInput,
-  formatDateShort,
   optionLabel,
 } from "@/lib/enrollment/helpers";
 import {
@@ -410,6 +409,20 @@ function canEditEnrollmentRecordClient(
 
 function normalizeEnrollmentEmail(email: string | null | undefined): string {
   return email?.trim().toLowerCase() ?? "";
+}
+
+// Narrower than canEditEnrollmentRecordClient on purpose — mirrors the
+// server's canArchiveEnrollmentRecord() (lib/enrollment/access.ts): manager
+// or the record's original creator only, not every stakeholder who can edit.
+function canArchiveEnrollmentRecordClient(
+  record: Pick<EnrollmentRecordWithStats, "created_by_email">,
+  currentEmail: string,
+  isManager: boolean
+): boolean {
+  if (isManager) return true;
+  const normalized = normalizeEnrollmentEmail(currentEmail);
+  if (!normalized) return false;
+  return normalizeEnrollmentEmail(record.created_by_email) === normalized;
 }
 
 export function EnrollmentClient({
@@ -1556,14 +1569,19 @@ function EnrollmentRowItem({
             "flex shrink-0 items-center px-3 py-2.5"
           )}
         >
-          <button
-            type="button"
-            onClick={() => onOpen(record.id)}
-            className="min-w-0 flex-1 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]"
-            title={record.client_name ?? undefined}
-          >
-            {record.client_name || "Unnamed client"}
-          </button>
+          <EditableCustomCell
+            column={{
+              id: "client_name",
+              type: "text",
+              key: "client_name",
+              label: columnByKey.get("client")?.label ?? "Client Name",
+            }}
+            value={record.client_name}
+            canEdit={canEditRecord}
+            onSave={(next) => onPatch(record.id, { client_name: next })}
+            emptyLabel="Unnamed client"
+            className="w-full !text-sm !font-medium !text-[#172b4d]"
+          />
         </div>
       ) : null}
 
@@ -1707,14 +1725,18 @@ function EnrollmentRowItem({
           style={cellStyleFor("pcp2025")}
           className={cellClassName("pcp2025", "flex shrink-0 items-center px-3 py-2.5")}
         >
-          <button
-            type="button"
-            onClick={() => onOpen(record.id)}
-            className="min-w-0 truncate text-left text-xs font-medium text-[#42526e] hover:text-[#0c66e4]"
-            title={record.pcp_2025 ?? undefined}
-          >
-            {record.pcp_2025 || <span className="text-[#97a0af]">-</span>}
-          </button>
+          <EditableCustomCell
+            column={{
+              id: "pcp_2025",
+              type: "text",
+              key: "pcp_2025",
+              label: columnByKey.get("pcp2025")?.label ?? "PCP 2025",
+            }}
+            value={record.pcp_2025}
+            canEdit={canEditRecord}
+            onSave={(next) => onPatch(record.id, { pcp_2025: next })}
+            className="w-full"
+          />
         </div>
       ) : null}
 
@@ -1724,14 +1746,13 @@ function EnrollmentRowItem({
           style={cellStyleFor("pcp2026")}
           className={cellClassName("pcp2026", "flex shrink-0 items-center px-3 py-2.5")}
         >
-          <button
-            type="button"
-            onClick={() => onOpen(record.id)}
-            className="min-w-0 truncate text-left text-xs font-medium text-[#42526e] hover:text-[#0c66e4]"
-            title={record.pcp_2026 ?? undefined}
-          >
-            {record.pcp_2026 || <span className="text-[#97a0af]">-</span>}
-          </button>
+          <EditableCustomCell
+            column={{ id: "pcp_2026", type: "text", key: "pcp_2026", label: "PCP 2026" }}
+            value={record.pcp_2026}
+            canEdit={canEditRecord}
+            onSave={(next) => onPatch(record.id, { pcp_2026: next })}
+            className="w-full"
+          />
         </div>
       ) : null}
 
@@ -1739,13 +1760,15 @@ function EnrollmentRowItem({
       {has("due") ? (
         <div
           style={cellStyleFor("due")}
-          className={cellClassName(
-            "due",
-            "flex shrink-0 items-center px-3 py-2.5 text-xs font-medium text-[#6b778c]"
-          )}
-          title={record.due_date ? `Due ${formatDateShort(record.due_date)}` : "No due date"}
+          className={cellClassName("due", "flex shrink-0 items-center px-3 py-2.5")}
         >
-          {record.due_date ? formatDateShort(record.due_date) : "-"}
+          <EditableCustomCell
+            column={{ id: "due_date", type: "date", key: "due_date", label: "Due Date" }}
+            value={record.due_date}
+            canEdit={canEditRecord}
+            onSave={(next) => onPatch(record.id, { due_date: next })}
+            className="w-full !text-xs !font-medium !text-[#6b778c]"
+          />
         </div>
       ) : null}
 
@@ -2361,6 +2384,11 @@ function EnrollmentDrawer({
     currentEmail,
     isManager
   );
+  const canArchive = canArchiveEnrollmentRecordClient(
+    record,
+    currentEmail,
+    isManager
+  );
   // Medicare's real data has no Payment/Consent/Platform/AC concepts and a
   // single Assignee + PCP field — see enrollmentColumnsForProgram() for the
   // list-view equivalent of this same trim.
@@ -2433,21 +2461,8 @@ function EnrollmentDrawer({
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
-          <span className="flex items-center gap-2.5">
-            <span className="font-mono text-sm font-bold text-[#97a0af]">
-              {enrollmentKey(record.id)}
-            </span>
-            {stage && showStage ? (
-              <span
-                className="rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
-                style={{
-                  backgroundColor: optionPillStyle(stage).bg,
-                  color: optionPillStyle(stage).fg,
-                }}
-              >
-                {stage.label}
-              </span>
-            ) : null}
+          <span className="font-mono text-sm font-bold text-[#97a0af]">
+            {enrollmentKey(record.id)}
           </span>
           <button
             type="button"
@@ -2791,15 +2806,17 @@ function EnrollmentDrawer({
               </div>
             ) : null}
 
-            <div className="border-t border-[#dfe1e6] pt-3">
-              <button
-                type="button"
-                onClick={() => setConfirmArchive(true)}
-                className="text-sm font-semibold text-[#bf2600] transition hover:underline"
-              >
-                Archive record
-              </button>
-            </div>
+            {canArchive && (
+              <div className="border-t border-[#dfe1e6] pt-3">
+                <button
+                  type="button"
+                  onClick={() => setConfirmArchive(true)}
+                  className="text-sm font-semibold text-[#bf2600] transition hover:underline"
+                >
+                  Archive record
+                </button>
+              </div>
+            )}
           </aside>
         </div>
       </div>
