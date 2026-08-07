@@ -172,6 +172,7 @@ function SortableCard({
   now,
   onUnlockOverdue,
   onReopenRequest,
+  visibleColumnKeys,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
@@ -187,6 +188,7 @@ function SortableCard({
   now: Date;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
+  visibleColumnKeys: ReadonlySet<string>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id, disabled: !canMove });
@@ -218,6 +220,7 @@ function SortableCard({
         now={now}
         onUnlockOverdue={onUnlockOverdue}
         onReopenRequest={onReopenRequest}
+        visibleColumnKeys={visibleColumnKeys}
       />
     </div>
   );
@@ -240,6 +243,7 @@ function Column({
   activeId,
   onUnlockOverdue,
   onReopenRequest,
+  visibleColumnKeys,
 }: {
   column: BoardColumn;
   tasks: TaskRow[];
@@ -257,6 +261,7 @@ function Column({
   activeId: string | null;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
+  visibleColumnKeys: ReadonlySet<string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${column}` });
   const isTerminalColumn = column === "done" || column === "cancel";
@@ -305,6 +310,7 @@ function Column({
               now={now}
               onUnlockOverdue={onUnlockOverdue}
               onReopenRequest={onReopenRequest}
+              visibleColumnKeys={visibleColumnKeys}
             />
           ))}
         </SortableContext>
@@ -329,6 +335,7 @@ export function KanbanBoard({
   managerView,
   onUnlockOverdue,
   onReopenRequest,
+  visibleColumnKeys,
 }: {
   tasks: TaskRow[];
   onOpen: (id: string) => void;
@@ -345,6 +352,7 @@ export function KanbanBoard({
   managerView: boolean;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
+  visibleColumnKeys: ReadonlySet<string>;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -407,6 +415,7 @@ export function KanbanBoard({
       activeId={activeId}
       onUnlockOverdue={onUnlockOverdue}
       onReopenRequest={onReopenRequest}
+      visibleColumnKeys={visibleColumnKeys}
     />
   );
 
@@ -554,6 +563,7 @@ export function KanbanBoard({
                 isNewAssigned={newAssignedTaskIds.has(activeTask.id)}
                 useAssigneeTodoClock={useAssigneeTodoClock}
                 now={now}
+                visibleColumnKeys={visibleColumnKeys}
               />
             </div>
           ) : null}

@@ -738,6 +738,15 @@ export function TaskBoardClient({
       ),
     [taskLayoutColumns]
   );
+  // Label source for surfaces that don't get the per-user-filtered list —
+  // same rule as configuredColumnKeys/adminVisibleColumnKeys above: built
+  // from taskListColumnConfig (already resolves live label/position/pinned
+  // over defaults), never from a second independent derivation, and never
+  // from anything that folds in this user's personal List-view hide state.
+  const columnByKey = useMemo(
+    () => new Map(taskListColumnConfig.map((column) => [column.key, column])),
+    [taskListColumnConfig]
+  );
   const taskDetailColumns = useMemo(
     () =>
       taskLayoutColumns.filter(
@@ -1355,6 +1364,7 @@ export function TaskBoardClient({
           managerView={managerView}
           onUnlockOverdue={setUnlockingTaskId}
           onReopenRequest={setReopeningTaskId}
+          visibleColumnKeys={adminVisibleColumnKeys}
         />
       )}
 
@@ -1417,6 +1427,7 @@ export function TaskBoardClient({
           configuredColumnKeys={configuredColumnKeys}
           visibleColumnKeys={adminVisibleColumnKeys}
           requiredColumnKeys={requiredColumnKeys}
+          columnByKey={columnByKey}
           onClose={() => setCreating(false)}
           onCreate={createTask}
         />
@@ -1451,6 +1462,7 @@ export function TaskBoardClient({
           configuredColumnKeys={configuredColumnKeys}
           visibleColumnKeys={adminVisibleColumnKeys}
           requiredColumnKeys={requiredColumnKeys}
+          columnByKey={columnByKey}
           currentEmail={currentEmail}
           canReviewDone={
             (openTask.status === "done" || openTask.status === "cancel") &&

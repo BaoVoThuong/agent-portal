@@ -64,6 +64,7 @@ export function NewTaskDialog({
   configuredColumnKeys,
   visibleColumnKeys,
   requiredColumnKeys,
+  columnByKey,
   onClose,
   onCreate,
 }: {
@@ -82,6 +83,7 @@ export function NewTaskDialog({
   configuredColumnKeys: ReadonlySet<string>;
   visibleColumnKeys: ReadonlySet<string>;
   requiredColumnKeys: ReadonlySet<string>;
+  columnByKey: ReadonlyMap<string, { label: string }>;
   onClose: () => void;
   onCreate: (payload: NewTaskPayload) => Promise<void>;
 }) {
@@ -254,7 +256,7 @@ export function NewTaskDialog({
             <section className="min-w-0 space-y-3 px-6 py-5">
               <label className={PRIMARY_FIELD_CLASS}>
                 <span className={PRIMARY_LABEL_CLASS}>
-                  Client Name
+                  {columnByKey.get("summary")?.label ?? "Client Name"}
                   {requiredColumnKeys.has("summary") ? REQUIRED_MARK : null}
                 </span>
                 <input
@@ -269,7 +271,7 @@ export function NewTaskDialog({
               {showFubLink ? (
                 <label className={PRIMARY_FIELD_CLASS}>
                   <span className={PRIMARY_LABEL_CLASS}>
-                    FUB Link
+                    {columnByKey.get("fub")?.label ?? "FUB Link"}
                     {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
                   </span>
                   <input
@@ -284,7 +286,7 @@ export function NewTaskDialog({
               {showDescription ? (
                 <label className={PRIMARY_FIELD_CLASS}>
                   <span className={PRIMARY_LABEL_CLASS}>
-                    Description
+                    {columnByKey.get("description")?.label ?? "Description"}
                     {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
                   </span>
                   <textarea
@@ -308,7 +310,10 @@ export function NewTaskDialog({
                 </span>
               </div>
               {showPriority ? (
-                <MetaField label="Priority" required={requiredColumnKeys.has("priority")}>
+                <MetaField
+                  label={columnByKey.get("priority")?.label ?? "Priority"}
+                  required={requiredColumnKeys.has("priority")}
+                >
                   <TaskPrioritySelect
                     value={priority}
                     onChange={setPriority}
@@ -319,9 +324,12 @@ export function NewTaskDialog({
               ) : null}
 
               {showCategory ? (
-                <MetaField label="Category" required={requiredColumnKeys.has("category")}>
+                <MetaField
+                  label={columnByKey.get("category")?.label ?? "Category"}
+                  required={requiredColumnKeys.has("category")}
+                >
                   <TaskSelect
-                    label="Category"
+                    label={columnByKey.get("category")?.label ?? "Category"}
                     value={categoryId}
                     options={categoryOptions}
                     placeholder="Select category"
@@ -333,9 +341,12 @@ export function NewTaskDialog({
               ) : null}
 
               {showAgent ? (
-                <MetaField label="Agent" required={requiredColumnKeys.has("agent")}>
+                <MetaField
+                  label={columnByKey.get("agent")?.label ?? "Agent"}
+                  required={requiredColumnKeys.has("agent")}
+                >
                   <TaskSelect
-                    label="Agent"
+                    label={columnByKey.get("agent")?.label ?? "Agent"}
                     value={agentEmail}
                     options={agentOptions}
                     placeholder="Select agent"
@@ -347,7 +358,10 @@ export function NewTaskDialog({
               ) : null}
 
               {showAssignee ? (
-                <MetaField label="Assignee" required={requiredColumnKeys.has("assignee")}>
+                <MetaField
+                  label={columnByKey.get("assignee")?.label ?? "Assignee"}
+                  required={requiredColumnKeys.has("assignee")}
+                >
                   {canPickAssignee ? (
                     <TaskAssigneeDropdown
                       assignees={assignees}
@@ -364,10 +378,10 @@ export function NewTaskDialog({
               ) : null}
 
               {showStage ? (
-                <MetaField label="Stage">
+                <MetaField label={columnByKey.get("status")?.label ?? "Stage"}>
                   {isAssigned ? (
                     <TaskSelect
-                      label="Stage"
+                      label={columnByKey.get("status")?.label ?? "Stage"}
                       value={status}
                       options={ASSIGNED_STATUS_OPTIONS.map((s) => ({
                         value: s,

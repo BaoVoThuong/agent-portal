@@ -151,20 +151,24 @@ export function TaskToolbar({
   hiddenListColumnKeys: ReadonlySet<TaskListColumnKey>;
   onToggleListColumn: (key: TaskListColumnKey) => void;
 }) {
+  // Label source for the filter dropdowns below — built from listColumns
+  // (already the live, resolved column config used for the List headers),
+  // not a second independent derivation.
+  const columnByKey = new Map(listColumns.map((column) => [column.key, column]));
   const agentOptions = [
-    { value: ALL_AGENTS, label: "Agent" },
+    { value: ALL_AGENTS, label: columnByKey.get("agent")?.label ?? "Agent" },
     ...agentStats.map((s) => ({ value: s.key, label: s.label })),
   ];
   const categoryOptions = [
-    { value: "", label: "Category" },
+    { value: "", label: columnByKey.get("category")?.label ?? "Category" },
     ...categories.map((c) => ({ value: c.id, label: c.name })),
   ];
   const statusOptions = [
-    { value: "", label: "Status" },
+    { value: "", label: columnByKey.get("status")?.label ?? "Status" },
     ...TASK_STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
   ];
   const priorityOptions = [
-    { value: "", label: "Priority" },
+    { value: "", label: columnByKey.get("priority")?.label ?? "Priority" },
     ...TASK_PRIORITIES.map((p) => ({
       value: p,
       label: p.charAt(0).toUpperCase() + p.slice(1),

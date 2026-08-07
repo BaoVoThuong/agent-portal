@@ -2585,7 +2585,7 @@ where not exists (
 with system_column_seed(scope, key, label, type, position, hidden_default) as (
   values
     ('cs', 'key', 'Key', 'text', 10, false),
-    ('cs', 'summary', 'Task', 'text', 20, false),
+    ('cs', 'summary', 'Client Name', 'text', 20, false),
     ('cs', 'assignee', 'Assignee', 'person', 30, false),
     ('cs', 'category', 'Category', 'dropdown', 40, false),
     ('cs', 'status', 'Stage', 'dropdown', 50, false),

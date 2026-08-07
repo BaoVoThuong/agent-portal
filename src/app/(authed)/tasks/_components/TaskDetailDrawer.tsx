@@ -65,6 +65,7 @@ export function TaskDetailDrawer({
   configuredColumnKeys,
   visibleColumnKeys,
   requiredColumnKeys,
+  columnByKey,
   tableColumnOptions,
   currentEmail,
   canReviewDone,
@@ -93,6 +94,7 @@ export function TaskDetailDrawer({
   configuredColumnKeys: ReadonlySet<string>;
   visibleColumnKeys: ReadonlySet<string>;
   requiredColumnKeys: ReadonlySet<string>;
+  columnByKey: ReadonlyMap<string, { label: string }>;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   canReviewDone: boolean;
@@ -266,7 +268,7 @@ export function TaskDetailDrawer({
               {showTitle ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>
-                    Client Name
+                    {columnByKey.get("summary")?.label ?? "Client Name"}
                     {requiredColumnKeys.has("summary") ? REQUIRED_MARK : null}
                   </span>
                   <input
@@ -296,7 +298,7 @@ export function TaskDetailDrawer({
               {showFub ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>
-                    FUB Link
+                    {columnByKey.get("fub")?.label ?? "FUB Link"}
                     {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
                   </span>
                   <div className="flex gap-1.5">
@@ -340,7 +342,7 @@ export function TaskDetailDrawer({
               {showDescription ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>
-                    Description
+                    {columnByKey.get("description")?.label ?? "Description"}
                     {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
                   </span>
                   <textarea
@@ -433,7 +435,7 @@ export function TaskDetailDrawer({
                 {showPriority ? (
                   <div className="space-y-1.5">
                     <span className={LABEL_CLASS}>
-                      Priority
+                      {columnByKey.get("priority")?.label ?? "Priority"}
                       {requiredColumnKeys.has("priority") ? REQUIRED_MARK : null}
                     </span>
                     <TaskPrioritySelect
@@ -450,11 +452,11 @@ export function TaskDetailDrawer({
                 {showCategory ? (
                   <div className="space-y-1.5">
                     <span className={LABEL_CLASS}>
-                      Category
+                      {columnByKey.get("category")?.label ?? "Category"}
                       {requiredColumnKeys.has("category") ? REQUIRED_MARK : null}
                     </span>
                     <TaskSelect
-                      label="Category"
+                      label={columnByKey.get("category")?.label ?? "Category"}
                       value={task.category_id ?? ""}
                       disabled={!canEdit}
                       options={categoryOptions}
@@ -468,11 +470,11 @@ export function TaskDetailDrawer({
                 {showAgent ? (
                   <div className="space-y-1.5">
                     <span className={LABEL_CLASS}>
-                      Agent
+                      {columnByKey.get("agent")?.label ?? "Agent"}
                       {requiredColumnKeys.has("agent") ? REQUIRED_MARK : null}
                     </span>
                     <TaskSelect
-                      label="Agent"
+                      label={columnByKey.get("agent")?.label ?? "Agent"}
                       value={task.agent_email ?? ""}
                       disabled={!canEdit}
                       options={agentOptions}
@@ -485,7 +487,9 @@ export function TaskDetailDrawer({
 
                 {showCreatedBy ? (
                   <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>Created by</span>
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("reporter")?.label ?? "Created by"}
+                    </span>
                     <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
                       {task.reporter_email
                         ? personLabelByEmail.get(task.reporter_email) ??
@@ -497,7 +501,9 @@ export function TaskDetailDrawer({
 
                 {showAssignees ? (
                   <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>Assignees</span>
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("assignee")?.label ?? "Assignees"}
+                    </span>
                     {canAssign ? (
                       <TaskAssigneeDropdown
                         assignees={assignees}
@@ -527,7 +533,9 @@ export function TaskDetailDrawer({
 
                 {showStage ? (
                   <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>Stage</span>
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("status")?.label ?? "Stage"}
+                    </span>
                     <StatusPill
                       size="field"
                       status={task.status}
@@ -565,7 +573,9 @@ export function TaskDetailDrawer({
 
                 {showQcReview ? (
                   <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>QC Review</span>
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("review")?.label ?? "QC Review"}
+                    </span>
                     <DoneReviewPanel
                       task={task}
                       canReviewDone={canReviewDone}

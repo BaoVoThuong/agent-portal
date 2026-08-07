@@ -37,6 +37,7 @@ export function TaskCard({
   useAssigneeTodoClock = false,
   onUnlockOverdue,
   onReopenRequest,
+  visibleColumnKeys,
 }: {
   task: TaskRow;
   category?: TaskCategory | null;
@@ -51,6 +52,7 @@ export function TaskCard({
   useAssigneeTodoClock?: boolean;
   onUnlockOverdue?: (id: string) => void;
   onReopenRequest?: (id: string) => void;
+  visibleColumnKeys: ReadonlySet<string>;
 }) {
   const isTerminal = task.status === "done" || task.status === "cancel";
   const primaryAssigneeEmail = task.assignees[0] ?? null;
@@ -104,7 +106,9 @@ export function TaskCard({
         </div>
 
         <div className="relative flex shrink-0 items-start gap-1.5">
-          <PriorityMarker priority={task.priority} />
+          {visibleColumnKeys.has("priority") ? (
+            <PriorityMarker priority={task.priority} />
+          ) : null}
           <span
             className="relative shrink-0"
             title={assigneeTitle || undefined}
@@ -122,18 +126,22 @@ export function TaskCard({
       </div>
 
       <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5">
-        {category ? (
-          <CategoryBadge category={category} />
-        ) : (
-          <span className="rounded bg-[#ebecf0] px-1.5 py-0.5 text-[11px] font-bold uppercase text-[#42526e]">
-            General
-          </span>
-        )}
-        <DoneReviewBadge
-          task={task}
-          canReviewDone={canReviewDone}
-          onReviewDone={onReviewDone}
-        />
+        {visibleColumnKeys.has("category") ? (
+          category ? (
+            <CategoryBadge category={category} />
+          ) : (
+            <span className="rounded bg-[#ebecf0] px-1.5 py-0.5 text-[11px] font-bold uppercase text-[#42526e]">
+              General
+            </span>
+          )
+        ) : null}
+        {visibleColumnKeys.has("review") ? (
+          <DoneReviewBadge
+            task={task}
+            canReviewDone={canReviewDone}
+            onReviewDone={onReviewDone}
+          />
+        ) : null}
         {task.status === "todo" ? (
           <StageElapsedBadge label="To do" seconds={todoElapsedSeconds} />
         ) : null}

@@ -431,6 +431,7 @@ function ConfigTableSection({
   const [newLabel, setNewLabel] = useState("");
   const [newType, setNewType] = useState<ColumnType>("text");
   const [dragReady, setDragReady] = useState(false);
+  const [confirmArchiveColumnId, setConfirmArchiveColumnId] = useState<string | null>(null);
   const sortedColumns = useMemo(
     () =>
       [...columns].sort(
@@ -520,7 +521,21 @@ function ConfigTableSection({
     }, "Column order updated for everyone.");
   }
 
+  const confirmArchiveColumn =
+    localColumns.find((column) => column.id === confirmArchiveColumnId) ?? null;
+
+  function archiveConfirmedColumn() {
+    if (!confirmArchiveColumn) return;
+    const columnId = confirmArchiveColumn.id;
+    setConfirmArchiveColumnId(null);
+    void run(async () => {
+      await requestJson(`/api/config/columns/${columnId}`, { method: "DELETE" });
+      await refreshScope(scope);
+    }, "Column archived.");
+  }
+
   return (
+    <>
     <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
       <div className="border-b border-[#dfe1e6] px-6 py-4">
         <h2 className="text-lg font-bold">Table columns</h2>
@@ -594,14 +609,7 @@ function ConfigTableSection({
                 onPatch={(patch) =>
                   run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
                 }
-                onArchive={() =>
-                  run(async () => {
-                    await requestJson(`/api/config/columns/${column.id}`, {
-                      method: "DELETE",
-                    });
-                    await refreshScope(scope);
-                  }, "Column archived.")
-                }
+                onArchive={() => setConfirmArchiveColumnId(column.id)}
               />
             ))}
           </SortableContext>
@@ -617,19 +625,22 @@ function ConfigTableSection({
               onPatch={(patch) =>
                 run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
               }
-              onArchive={() =>
-                run(async () => {
-                  await requestJson(`/api/config/columns/${column.id}`, {
-                    method: "DELETE",
-                  });
-                  await refreshScope(scope);
-                }, "Column archived.")
-              }
+              onArchive={() => setConfirmArchiveColumnId(column.id)}
             />
           ))}
         </div>
       )}
     </section>
+    {confirmArchiveColumn ? (
+      <ConfirmDialog
+        title={`Archive "${confirmArchiveColumn.label}"?`}
+        description="The column will stop appearing anywhere in Create, Detail, List, and Board. This can't be undone from the UI."
+        confirmLabel="Archive"
+        onCancel={() => setConfirmArchiveColumnId(null)}
+        onConfirm={archiveConfirmedColumn}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -676,7 +687,7 @@ function SortableColumnRow({
   index: number;
   busy: boolean;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
-  onArchive: () => Promise<void>;
+  onArchive: () => void;
 }) {
   const {
     attributes,
@@ -805,7 +816,7 @@ function StaticColumnRow({
   index: number;
   busy: boolean;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
-  onArchive: () => Promise<void>;
+  onArchive: () => void;
 }) {
   return (
     <div className="grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_104px_112px_120px] items-center border-b border-[#ebecf0] bg-white px-4 py-2.5 last:border-b-0">

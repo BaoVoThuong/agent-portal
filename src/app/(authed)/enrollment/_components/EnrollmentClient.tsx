@@ -474,6 +474,13 @@ export function EnrollmentClient({
     () => enrollmentColumnsForProgram(program, layoutTableColumns),
     [program, layoutTableColumns]
   );
+  // Label source for surfaces that don't get the per-user-filtered list —
+  // built from `columns` (already resolves live label/position/Medicare
+  // overrides over defaults), never from a second independent derivation.
+  const columnByKey = useMemo(
+    () => new Map(columns.map((column) => [column.key, column])),
+    [columns]
+  );
   const [hiddenColumnKeys, toggleColumn, setHiddenColumnKeys] =
     useHiddenEnrollmentColumns(program, columns);
   const visibleColumns = useMemo(
@@ -943,6 +950,7 @@ export function EnrollmentClient({
           detailColumns={detailCustomColumns}
           visibleColumnKeys={adminVisibleColumnKeys}
           requiredColumnKeys={requiredColumnKeys}
+          columnByKey={columnByKey}
           tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           isManager={canManageOptions}
@@ -960,6 +968,7 @@ export function EnrollmentClient({
           optionsBySet={optionsBySet}
           visibleColumnKeys={adminVisibleColumnKeys}
           requiredColumnKeys={requiredColumnKeys}
+          columnByKey={columnByKey}
           currentEmail={currentEmail}
           onClose={() => setCreating(false)}
           onCreate={async (payload) => {
@@ -1095,6 +1104,9 @@ function EnrollmentToolbar({
   totalCount: number;
 }) {
   const isMedicare = program === "medicare";
+  // Label source for the filter dropdowns below — built from the already
+  // resolved `columns` prop, not a second independent derivation.
+  const columnByKey = new Map(columns.map((column) => [column.key, column]));
   const hasActiveFilters =
     filters.query.trim() !== "" ||
     filters.stage.length > 0 ||
@@ -1165,11 +1177,14 @@ function EnrollmentToolbar({
       {view === "list" ? (
       <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
         <TaskSelect
-          label="Stage"
+          label={columnByKey.get("stage")?.label ?? "Stage"}
           multi
           values={filters.stage}
-          options={[{ value: "", label: "Stage" }, ...selectOptions(optionsBySet.stage)]}
-          placeholder="Stage"
+          options={[
+            { value: "", label: columnByKey.get("stage")?.label ?? "Stage" },
+            ...selectOptions(optionsBySet.stage),
+          ]}
+          placeholder={columnByKey.get("stage")?.label ?? "Stage"}
           allValue=""
           summaryLabel="stages"
           className="w-max min-w-[8.75rem]"
@@ -1178,11 +1193,11 @@ function EnrollmentToolbar({
         />
 
         <TaskSelect
-          label="Agent"
+          label={columnByKey.get("agent")?.label ?? "Agent"}
           multi
           values={filters.agent}
           options={[{ value: "", label: "All Agents" }, ...agentOptions(agents)]}
-          placeholder="Agent"
+          placeholder={columnByKey.get("agent")?.label ?? "Agent"}
           allValue=""
           summaryLabel="agents"
           className="w-max min-w-[10rem]"
@@ -1192,11 +1207,11 @@ function EnrollmentToolbar({
 
         {!isMedicare ? (
           <TaskSelect
-            label="Caller"
+            label={columnByKey.get("caller")?.label ?? "Caller"}
             multi
             values={filters.caller}
             options={[{ value: "", label: "All Callers" }, ...peopleOptions(people)]}
-            placeholder="Caller"
+            placeholder={columnByKey.get("caller")?.label ?? "Caller"}
             allValue=""
             summaryLabel="callers"
             className="w-max min-w-[10rem]"
@@ -1208,14 +1223,18 @@ function EnrollmentToolbar({
         ) : null}
 
         <TaskSelect
-          label={isMedicare ? "Assignee" : "Responsible"}
+          label={
+            columnByKey.get("responsible")?.label ?? (isMedicare ? "Assignee" : "Responsible")
+          }
           multi
           values={filters.responsible}
           options={[
             { value: "", label: isMedicare ? "All Assignees" : "All Responsible" },
             ...peopleOptions(people),
           ]}
-          placeholder={isMedicare ? "Assignee" : "Responsible"}
+          placeholder={
+            columnByKey.get("responsible")?.label ?? (isMedicare ? "Assignee" : "Responsible")
+          }
           allValue=""
           summaryLabel="people"
           className="w-max min-w-[11rem]"
@@ -1226,11 +1245,14 @@ function EnrollmentToolbar({
         />
 
         <TaskSelect
-          label="Carrier"
+          label={columnByKey.get("carrier")?.label ?? "Carrier"}
           multi
           values={filters.carrier}
-          options={[{ value: "", label: "Carrier" }, ...selectOptions(optionsBySet.carrier)]}
-          placeholder="Carrier"
+          options={[
+            { value: "", label: columnByKey.get("carrier")?.label ?? "Carrier" },
+            ...selectOptions(optionsBySet.carrier),
+          ]}
+          placeholder={columnByKey.get("carrier")?.label ?? "Carrier"}
           allValue=""
           summaryLabel="carriers"
           className="w-max min-w-[10rem]"
@@ -1242,11 +1264,14 @@ function EnrollmentToolbar({
 
         {!isMedicare ? (
           <TaskSelect
-            label="Payment"
+            label={columnByKey.get("payment")?.label ?? "Payment"}
             multi
             values={filters.payment}
-            options={[{ value: "", label: "Payment" }, ...selectOptions(optionsBySet.payment_status)]}
-            placeholder="Payment"
+            options={[
+              { value: "", label: columnByKey.get("payment")?.label ?? "Payment" },
+              ...selectOptions(optionsBySet.payment_status),
+            ]}
+            placeholder={columnByKey.get("payment")?.label ?? "Payment"}
             allValue=""
             summaryLabel="payments"
             className="w-max min-w-[10rem]"
@@ -1747,7 +1772,12 @@ function EnrollmentRowItem({
           className={cellClassName("pcp2026", "flex shrink-0 items-center px-3 py-2.5")}
         >
           <EditableCustomCell
-            column={{ id: "pcp_2026", type: "text", key: "pcp_2026", label: "PCP 2026" }}
+            column={{
+              id: "pcp_2026",
+              type: "text",
+              key: "pcp_2026",
+              label: columnByKey.get("pcp2026")?.label ?? "PCP 2026",
+            }}
             value={record.pcp_2026}
             canEdit={canEditRecord}
             onSave={(next) => onPatch(record.id, { pcp_2026: next })}
@@ -1763,7 +1793,12 @@ function EnrollmentRowItem({
           className={cellClassName("due", "flex shrink-0 items-center px-3 py-2.5")}
         >
           <EditableCustomCell
-            column={{ id: "due_date", type: "date", key: "due_date", label: "Due Date" }}
+            column={{
+              id: "due_date",
+              type: "date",
+              key: "due_date",
+              label: columnByKey.get("due")?.label ?? "Due Date",
+            }}
             value={record.due_date}
             canEdit={canEditRecord}
             onSave={(next) => onPatch(record.id, { due_date: next })}
@@ -2336,6 +2371,7 @@ function EnrollmentDrawer({
   detailColumns,
   visibleColumnKeys,
   requiredColumnKeys,
+  columnByKey,
   tableColumnOptions,
   currentEmail,
   isManager,
@@ -2352,6 +2388,7 @@ function EnrollmentDrawer({
   detailColumns: TableColumn[];
   visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
   requiredColumnKeys: ReadonlySet<string>;
+  columnByKey: ReadonlyMap<string, { label: string }>;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   isManager: boolean;
@@ -2483,7 +2520,7 @@ function EnrollmentDrawer({
               {showClient ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>
-                    Client Name
+                    {columnByKey.get("client")?.label ?? "Client Name"}
                     {requiredColumnKeys.has("client") ? REQUIRED_MARK : null}
                   </span>
                   <EditableInput
@@ -2502,7 +2539,7 @@ function EnrollmentDrawer({
               {showFub ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>
-                    FUB Link
+                    {columnByKey.get("fub")?.label ?? "FUB Link"}
                     {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
                   </span>
                   <div className="flex gap-1.5">
@@ -2533,7 +2570,7 @@ function EnrollmentDrawer({
 
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
                 <span className={LABEL_CLASS}>
-                  Description
+                  {columnByKey.get("description")?.label ?? "Description"}
                   {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
                 </span>
                 <EditableTextarea
@@ -2598,7 +2635,10 @@ function EnrollmentDrawer({
           <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
             <div className="space-y-3">
               {showStage ? (
-                <FieldBlock label="Stage" required={requiredColumnKeys.has("stage")}>
+                <FieldBlock
+                  label={columnByKey.get("stage")?.label ?? "Stage"}
+                  required={requiredColumnKeys.has("stage")}
+                >
                   <EnrollmentStagePill
                     stageId={record.stage_id}
                     stages={optionsBySet.stage}
@@ -2609,7 +2649,10 @@ function EnrollmentDrawer({
               ) : null}
 
               {showDue ? (
-                <FieldBlock label="Due date" required={requiredColumnKeys.has("due")}>
+                <FieldBlock
+                  label={columnByKey.get("due")?.label ?? "Due date"}
+                  required={requiredColumnKeys.has("due")}
+                >
                   <input
                     type="date"
                     value={formatDateInput(record.due_date)}
@@ -2622,7 +2665,10 @@ function EnrollmentDrawer({
               ) : null}
 
               {showPayment ? (
-                <FieldBlock label="Payment" required={requiredColumnKeys.has("payment")}>
+                <FieldBlock
+                  label={columnByKey.get("payment")?.label ?? "Payment"}
+                  required={requiredColumnKeys.has("payment")}
+                >
                   <EnrollmentOptionMenu
                     optionId={record.payment_status_id}
                     options={optionsBySet.payment_status}
@@ -2634,7 +2680,10 @@ function EnrollmentDrawer({
               ) : null}
 
               {showCarrier ? (
-                <FieldBlock label="Carrier" required={requiredColumnKeys.has("carrier")}>
+                <FieldBlock
+                  label={columnByKey.get("carrier")?.label ?? "Carrier"}
+                  required={requiredColumnKeys.has("carrier")}
+                >
                   <EnrollmentOptionMenu
                     optionId={record.carrier_id}
                     options={optionsBySet.carrier}
@@ -2646,7 +2695,10 @@ function EnrollmentDrawer({
               ) : null}
 
               {showAca ? (
-                  <FieldBlock label="AC" required={requiredColumnKeys.has("aca")}>
+                  <FieldBlock
+                    label={columnByKey.get("aca")?.label ?? "AC"}
+                    required={requiredColumnKeys.has("aca")}
+                  >
                     <EnrollmentOptionMenu
                       optionId={record.aca_status_id}
                       options={optionsBySet.aca_status}
@@ -2658,7 +2710,10 @@ function EnrollmentDrawer({
               ) : null}
 
               {showConsent ? (
-                  <FieldBlock label="Consent" required={requiredColumnKeys.has("consent")}>
+                  <FieldBlock
+                    label={columnByKey.get("consent")?.label ?? "Consent"}
+                    required={requiredColumnKeys.has("consent")}
+                  >
                     <EnrollmentConsentToggle
                       optionId={record.consent_id}
                       options={optionsBySet.consent}
@@ -2669,7 +2724,10 @@ function EnrollmentDrawer({
               ) : null}
 
               {showPlatform ? (
-                  <FieldBlock label="Platform" required={requiredColumnKeys.has("platform")}>
+                  <FieldBlock
+                    label={columnByKey.get("platform")?.label ?? "Platform"}
+                    required={requiredColumnKeys.has("platform")}
+                  >
                     <EnrollmentOptionMenu
                       optionId={record.platform_id}
                       options={optionsBySet.platform}
@@ -2681,7 +2739,11 @@ function EnrollmentDrawer({
               ) : null}
 
               {showAgent ? (
-                <FieldBlock label="Agent" required={requiredColumnKeys.has("agent")} invalid={isInvalid("agent")}>
+                <FieldBlock
+                  label={columnByKey.get("agent")?.label ?? "Agent"}
+                  required={requiredColumnKeys.has("agent")}
+                  invalid={isInvalid("agent")}
+                >
                   <EnrollmentPersonMenu
                     value={record.agent_email}
                     peopleByEmail={agentsByEmail}
@@ -2700,7 +2762,10 @@ function EnrollmentDrawer({
               ) : null}
 
               {showCaller ? (
-                <FieldBlock label="Caller" required={requiredColumnKeys.has("caller")}>
+                <FieldBlock
+                  label={columnByKey.get("caller")?.label ?? "Caller"}
+                  required={requiredColumnKeys.has("caller")}
+                >
                   <EnrollmentPersonMenu
                     value={record.caller_email}
                     peopleByEmail={peopleByEmail}
@@ -2713,7 +2778,10 @@ function EnrollmentDrawer({
 
               {showResponsible ? (
                 <FieldBlock
-                  label={isMedicare ? "Assignee" : "Responsible enroll"}
+                  label={
+                    columnByKey.get("responsible")?.label ??
+                    (isMedicare ? "Assignee" : "Responsible enroll")
+                  }
                   required={requiredColumnKeys.has("responsible")}
                 >
                   <EnrollmentPersonMenu
@@ -2729,7 +2797,7 @@ function EnrollmentDrawer({
               ) : null}
 
               {showCreatedBy ? (
-                <FieldBlock label="Created by">
+                <FieldBlock label={columnByKey.get("createdBy")?.label ?? "Created by"}>
                   <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
                     {personLabel(record.created_by_email, peopleByEmail)}
                   </div>
@@ -2737,7 +2805,12 @@ function EnrollmentDrawer({
               ) : null}
 
               {showPcp2025 ? (
-                <FieldBlock label={isMedicare ? "PCP" : "PCP 2025"} required={requiredColumnKeys.has("pcp2025")}>
+                <FieldBlock
+                  label={
+                    columnByKey.get("pcp2025")?.label ?? (isMedicare ? "PCP" : "PCP 2025")
+                  }
+                  required={requiredColumnKeys.has("pcp2025")}
+                >
                   <EditableInput
                     value={record.pcp_2025 ?? ""}
                     placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
@@ -2752,7 +2825,10 @@ function EnrollmentDrawer({
               ) : null}
 
               {showPcp2026 ? (
-                <FieldBlock label="PCP 2026" required={requiredColumnKeys.has("pcp2026")}>
+                <FieldBlock
+                  label={columnByKey.get("pcp2026")?.label ?? "PCP 2026"}
+                  required={requiredColumnKeys.has("pcp2026")}
+                >
                   <EditableInput
                     value={record.pcp_2026 ?? ""}
                     placeholder="No PCP 2026"
@@ -2784,7 +2860,7 @@ function EnrollmentDrawer({
               ))}
 
               {showQc ? (
-                <FieldBlock label="QC Review">
+                <FieldBlock label={columnByKey.get("qc")?.label ?? "QC Review"}>
                   <EnrollmentQCPanel
                     record={record}
                     stage={stage}
@@ -2866,6 +2942,7 @@ function NewEnrollmentDialog({
   optionsBySet,
   visibleColumnKeys,
   requiredColumnKeys,
+  columnByKey,
   currentEmail,
   onClose,
   onCreate,
@@ -2876,6 +2953,7 @@ function NewEnrollmentDialog({
   optionsBySet: EnrollmentOptionsBySet;
   visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
   requiredColumnKeys: ReadonlySet<string>;
+  columnByKey: ReadonlyMap<string, { label: string }>;
   currentEmail: string;
   onClose: () => void;
   onCreate: (payload: Record<string, unknown>) => Promise<void>;
@@ -3000,7 +3078,7 @@ function NewEnrollmentDialog({
             <main className="min-w-0 space-y-3 px-6 py-5">
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
                 <span className={LABEL_CLASS}>
-                  Client Name
+                  {columnByKey.get("client")?.label ?? "Client Name"}
                   {requiredColumnKeys.has("client") ? REQUIRED_MARK : null}
                 </span>
                 <input
@@ -3015,7 +3093,7 @@ function NewEnrollmentDialog({
               {showFub ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>
-                    FUB Link
+                    {columnByKey.get("fub")?.label ?? "FUB Link"}
                     {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
                   </span>
                   <input
@@ -3029,7 +3107,7 @@ function NewEnrollmentDialog({
 
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
                 <span className={LABEL_CLASS}>
-                  Description
+                  {columnByKey.get("description")?.label ?? "Description"}
                   {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
                 </span>
                 <textarea
@@ -3064,7 +3142,11 @@ function NewEnrollmentDialog({
               {showPipelineSection ? (
                 <CreatePropertySection>
                   {showStage ? (
-                    <CreatePropertyField label="Stage" required={requiredColumnKeys.has("stage")} invalid={isInvalid("stage")}>
+                    <CreatePropertyField
+                      label={columnByKey.get("stage")?.label ?? "Stage"}
+                      required={requiredColumnKeys.has("stage")}
+                      invalid={isInvalid("stage")}
+                    >
                       <EnrollmentStagePill
                         stageId={form.stage_id || null}
                         stages={optionsBySet.stage}
@@ -3075,7 +3157,7 @@ function NewEnrollmentDialog({
 
                   {showDue ? (
                     <CreatePropertyInput
-                      label="Due date"
+                      label={columnByKey.get("due")?.label ?? "Due date"}
                       type="date"
                       value={form.due_date}
                       required={requiredColumnKeys.has("due")}
@@ -3089,7 +3171,11 @@ function NewEnrollmentDialog({
               {showPlanSection ? (
                 <CreatePropertySection>
                   {showPayment ? (
-                    <CreatePropertyField label="Payment" required={requiredColumnKeys.has("payment")} invalid={isInvalid("payment")}>
+                    <CreatePropertyField
+                      label={columnByKey.get("payment")?.label ?? "Payment"}
+                      required={requiredColumnKeys.has("payment")}
+                      invalid={isInvalid("payment")}
+                    >
                       <EnrollmentOptionMenu
                         optionId={form.payment_status_id || null}
                         options={optionsBySet.payment_status}
@@ -3100,7 +3186,11 @@ function NewEnrollmentDialog({
                   ) : null}
 
                   {showCarrier ? (
-                    <CreatePropertyField label="Carrier" required={requiredColumnKeys.has("carrier")} invalid={isInvalid("carrier")}>
+                    <CreatePropertyField
+                      label={columnByKey.get("carrier")?.label ?? "Carrier"}
+                      required={requiredColumnKeys.has("carrier")}
+                      invalid={isInvalid("carrier")}
+                    >
                       <EnrollmentOptionMenu
                         optionId={form.carrier_id || null}
                         options={optionsBySet.carrier}
@@ -3111,7 +3201,11 @@ function NewEnrollmentDialog({
                   ) : null}
 
                   {showAca ? (
-                    <CreatePropertyField label="ACA" required={requiredColumnKeys.has("aca")} invalid={isInvalid("aca")}>
+                    <CreatePropertyField
+                      label={columnByKey.get("aca")?.label ?? "AC"}
+                      required={requiredColumnKeys.has("aca")}
+                      invalid={isInvalid("aca")}
+                    >
                       <EnrollmentOptionMenu
                         optionId={form.aca_status_id || null}
                         options={optionsBySet.aca_status}
@@ -3122,7 +3216,11 @@ function NewEnrollmentDialog({
                   ) : null}
 
                   {showConsent ? (
-                    <CreatePropertyField label="Consent" required={requiredColumnKeys.has("consent")} invalid={isInvalid("consent")}>
+                    <CreatePropertyField
+                      label={columnByKey.get("consent")?.label ?? "Consent"}
+                      required={requiredColumnKeys.has("consent")}
+                      invalid={isInvalid("consent")}
+                    >
                       <EnrollmentConsentToggle
                         optionId={form.consent_id || null}
                         options={optionsBySet.consent}
@@ -3132,7 +3230,11 @@ function NewEnrollmentDialog({
                   ) : null}
 
                   {showPlatform ? (
-                    <CreatePropertyField label="Platform" required={requiredColumnKeys.has("platform")} invalid={isInvalid("platform")}>
+                    <CreatePropertyField
+                      label={columnByKey.get("platform")?.label ?? "Platform"}
+                      required={requiredColumnKeys.has("platform")}
+                      invalid={isInvalid("platform")}
+                    >
                       <EnrollmentOptionMenu
                         optionId={form.platform_id || null}
                         options={optionsBySet.platform}
@@ -3147,7 +3249,11 @@ function NewEnrollmentDialog({
               {showOwnershipSection ? (
                 <CreatePropertySection>
                   {showAgent ? (
-                    <CreatePropertyField label="Agent" required={requiredColumnKeys.has("agent")} invalid={isInvalid("agent")}>
+                    <CreatePropertyField
+                      label={columnByKey.get("agent")?.label ?? "Agent"}
+                      required={requiredColumnKeys.has("agent")}
+                      invalid={isInvalid("agent")}
+                    >
                       <EnrollmentPersonMenu
                         value={form.agent_email || null}
                         peopleByEmail={agentsByEmail}
@@ -3158,7 +3264,11 @@ function NewEnrollmentDialog({
                   ) : null}
 
                   {showCaller ? (
-                    <CreatePropertyField label="Caller" required={requiredColumnKeys.has("caller")} invalid={isInvalid("caller")}>
+                    <CreatePropertyField
+                      label={columnByKey.get("caller")?.label ?? "Caller"}
+                      required={requiredColumnKeys.has("caller")}
+                      invalid={isInvalid("caller")}
+                    >
                       <EnrollmentPersonMenu
                         value={form.caller_email || null}
                         peopleByEmail={peopleByEmail}
@@ -3170,7 +3280,10 @@ function NewEnrollmentDialog({
 
                   {showResponsible ? (
                     <CreatePropertyField
-                      label={isMedicare ? "Assignee" : "Responsible enroll"}
+                      label={
+                        columnByKey.get("responsible")?.label ??
+                        (isMedicare ? "Assignee" : "Responsible enroll")
+                      }
                       required={requiredColumnKeys.has("responsible")}
                       invalid={isInvalid("responsible")}
                     >
@@ -3189,7 +3302,9 @@ function NewEnrollmentDialog({
                 <CreatePropertySection>
                   {showPcp2025 ? (
                     <CreatePropertyInput
-                      label={isMedicare ? "PCP" : "PCP 2025"}
+                      label={
+                        columnByKey.get("pcp2025")?.label ?? (isMedicare ? "PCP" : "PCP 2025")
+                      }
                       value={form.pcp_2025}
                       placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
                       required={requiredColumnKeys.has("pcp2025")}
@@ -3200,7 +3315,7 @@ function NewEnrollmentDialog({
 
                   {showPcp2026 ? (
                     <CreatePropertyInput
-                      label="PCP 2026"
+                      label={columnByKey.get("pcp2026")?.label ?? "PCP 2026"}
                       value={form.pcp_2026}
                       placeholder="No PCP 2026"
                       required={requiredColumnKeys.has("pcp2026")}

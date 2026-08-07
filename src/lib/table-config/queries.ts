@@ -11,7 +11,7 @@ const TABLE_COLUMN_SELECT =
 const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
   cs: [
     col("cs", "key", "Key", "text", 10, false, true),
-    col("cs", "summary", "Task", "text", 20, false, true),
+    col("cs", "summary", "Client Name", "text", 20, false, true),
     col("cs", "assignee", "Assignee", "person", 30),
     col("cs", "category", "Category", "dropdown", 40),
     col("cs", "status", "Stage", "dropdown", 50),
