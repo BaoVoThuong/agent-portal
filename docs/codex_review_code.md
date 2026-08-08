@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 20:42 Asia/Ho_Chi_Minh**
-Reviewed source through: **`fac06e7`** (execution log commits follow)
+Last Updated: **2026-08-08 20:44 Asia/Ho_Chi_Minh**
+Reviewed source through: **`c6dfc3d`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -327,7 +327,7 @@ Status: **IMPLEMENTED — deployed scheduler evidence pending**
 
 ## Fixes Applied
 
-T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`), T-10 dirty-aware drawer drafts (`e77cb78`), T-11 archive confirmation semantics (`16203e3`), T-12 escaped permission filter identities (`d6fbe37`), T-13 Bearer-only cron authentication (`17b86e2`), T-14 scheduler ownership documentation alignment (`bb6dca3`), T-15 shared Toast export failures (`fac06e7`).
+T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`), T-10 dirty-aware drawer drafts (`e77cb78`), T-11 archive confirmation semantics (`16203e3`), T-12 escaped permission filter identities (`d6fbe37`), T-13 Bearer-only cron authentication (`17b86e2`), T-14 scheduler ownership documentation alignment (`bb6dca3`), T-15 shared Toast export failures (`fac06e7`), X-02 strict Config scope boundaries (`c6dfc3d`).
 
 ## Verification
 
@@ -1217,10 +1217,10 @@ Expected: 400 with no read/write.
 Actual: CS definitions are returned or the user's CS layout is deleted.  
 Root Cause: UI default coercion is reused as API validation, the same class as A-02.  
 Impact: Wrong schema consumption and silent preference deletion.  
-Fix: Strict boundary parser; keep UI defaults outside APIs.  
+Fix: Reject missing/mistyped API scopes with 400 through a strict boundary parser; keep UI defaults outside APIs.
 Regression Risk: Low–medium.  
-Verification: Direct helper/route trace.  
-Status: **OPEN**
+Verification: `parseTableScope` regression tests cover all supported scopes plus null, undefined, empty, invalid, and object values. Layout GET/DELETE and scoped columns GET validate before querying; typecheck, targeted ESLint, and table-config tests (8 files / 39 tests) pass. Authenticated route checks remain.
+Status: **IMPLEMENTED — route/auth verification pending**
 
 ## Shared Async / Invalidation
 
@@ -1455,6 +1455,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **T-13 — cron secret transport hardening.** Centralized the three cron routes on a shared authorization helper, removed `?secret=` acceptance, and retained only the `Authorization: Bearer` credential path. The `sync-data?config=` selector remains unchanged because it is not a credential. | `17b86e2` | `cron-auth.test.ts` PASS (4 tests) for missing config, valid Bearer, wrong/missing Bearer, and query-string rejection; `npm run typecheck` PASS; targeted ESLint PASS for helper/test and all three routes. Repository scheduler workflow sends the Bearer header; deployed scheduler ownership/log evidence remains under T-14. |
 | 2026-08-08 | **T-14 — scheduler ownership documentation alignment.** Corrected the overdue route comment to reference the GitHub Actions scheduler instead of `vercel.json`, which owns the other cron jobs. No production scheduler was changed because hosting-plan, deployed-run, and alerting evidence require environment access. | `bb6dca3` | Static comparison confirms one in-repo `check-overdue` scheduler and no duplicate Vercel entry. Production cadence, recent successful run, missed-run alert, and ownership confirmation remain mandatory before Go-Live. |
 | 2026-08-08 | **T-15 — shared Toast for Tasks export failures.** Replaced both native `window.alert` branches in the visible Tasks export handler with the existing screen-level error Toast and consistent Vietnamese fallback copy. | `fac06e7` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskBoardClient.tsx`; Tasks tests PASS (21 files / 243 tests). Browser Toast/accessibility verification remains. |
+| 2026-08-08 | **X-02 — strict Config scope boundary.** Added `parseTableScope` and made layout GET/DELETE plus scoped columns GET reject missing or invalid scopes with 400 instead of silently targeting CS. The no-scope aggregate columns response remains unchanged. | `c6dfc3d` | Table-config tests PASS (8 files / 39 tests), `npm run typecheck` PASS, and targeted ESLint PASS for parser and affected routes. Authenticated direct-route checks remain. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1590,10 +1591,11 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 Verification recorded across the execution commits through `17b86e2`:
 
-- `npm run typecheck`: **PASS after T-15**.
+- `npm run typecheck`: **PASS after X-02**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
 - `npm run test:run -- src/lib/tasks`: **PASS — 21 files / 243 tests**.
 - `npm run test:run -- src/lib/cron-auth.test.ts`: **PASS — 4 tests**.
+- `npm run test:run -- src/lib/table-config`: **PASS — 8 files / 39 tests** after X-02.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
