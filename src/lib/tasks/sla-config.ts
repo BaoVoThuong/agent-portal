@@ -1,6 +1,6 @@
 // Presentation + validation constants for the SLA admin UI.
 //
-// These used to live as bare literals inside SlaRulesModal.tsx, which meant
+// These used to live as bare literals inside the old SLA modal, which meant
 // three business rules (SLA caps at one week, SLA is set in 5-minute steps,
 // and these reminder fields are editable) existed only inside a component.
 //

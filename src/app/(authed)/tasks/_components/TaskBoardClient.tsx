@@ -8,7 +8,7 @@ import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
 import { TABLE_CONFIG_TOPIC } from "@/lib/table-config/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
-import { ChevronDown, Clock, Download, Loader2, Plus } from "lucide-react";
+import { ChevronDown, Download, Loader2, Plus } from "lucide-react";
 import type {
   TaskCategory,
   TaskPriority,
@@ -46,7 +46,6 @@ import {
 } from "./TaskToolbar";
 import { NewTaskDialog, type NewTaskPayload } from "./NewTaskDialog";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
-import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
 import { Toast } from "../../_shared/Toast";
@@ -140,7 +139,6 @@ export function TaskBoardClient({
   const [creating, setCreating] = useState(false);
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
   const [taskLayoutColumns, setTaskLayoutColumns] = useState<TableColumn[]>(tableColumns);
-  const [managingSlaRules, setManagingSlaRules] = useState(false);
   const [slaRules, setSlaRules] = useState<TaskSlaRule[]>([]);
   const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
   const [reopeningTaskId, setReopeningTaskId] = useState<string | null>(null);
@@ -1520,18 +1518,6 @@ export function TaskBoardClient({
 
             {!overviewHeader ? (
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {isManager && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setManagingSlaRules(true)}
-                      className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#d8dee8] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                    >
-                      <Clock className="h-4 w-4" />
-                      SLA Times
-                    </button>
-                  </>
-                )}
                 {canExport ? (
                   <ExportMenu onExport={exportVisibleTasks} />
                 ) : null}
@@ -1751,14 +1737,6 @@ export function TaskBoardClient({
           onDelete={() => deleteTask(openTask.id)}
         />
       )}
-
-      <SlaRulesModal
-        open={managingSlaRules}
-        categories={categories}
-        rules={slaRules}
-        onRulesChange={setSlaRules}
-        onClose={() => setManagingSlaRules(false)}
-      />
 
       <ReasonModal
         open={unlockingTaskId !== null}

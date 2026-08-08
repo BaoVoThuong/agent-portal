@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Di chuyển cấu hình SLA vào Health Table Configuration
+- **Loại**: feat, fix, refactor-logic, breaking
+- **Cái gì**: Chuyển giao diện quản trị `SLA Times` từ modal trên CS Task Board sang tab `SLA Times` trong `/config`; gom các constant UI/validation vào `src/lib/tasks/sla-config.ts`; xoá `SlaRulesModal.tsx`. API `POST /api/admin/task-sla-rules` nay từ chối `duration_minutes` ngoài khoảng 1–10080 phút (tối đa 168 giờ). Thêm test khóa `DEFAULT_SLA_MINUTES` và `DEFAULT_REMINDER_SETTINGS` đồng bộ với `supabase/schema.sql`.
+- **Vì sao**: Tập trung toàn bộ cấu hình quản trị vào `/config`, tránh hardcode SLA trong component UI và tránh API chấp nhận giá trị mà UI không thể hiển thị/chỉnh sửa lại.
+- **File**: `src/lib/tasks/sla-config.ts`, `src/lib/tasks/sla-config.test.ts`, `src/app/api/admin/task-sla-rules/route.ts`, `src/app/(authed)/config/page.tsx`, `src/app/(authed)/config/_components/ConfigClient.tsx`, `src/app/(authed)/config/_components/ConfigSlaSection.tsx`, `src/app/(authed)/tasks/_components/TaskBoardClient.tsx`, `src/app/(authed)/tasks/_components/SlaRulesModal.tsx`
+- **Ảnh hưởng**: Admin quản lý SLA tại `/config`; quyền truy cập vẫn do `loadConfigAdmin()`/manager gate quyết định. Người dùng Task Board vẫn đọc `slaRules` để hiển thị overdue/countdown; không đổi SLA computation, storage shape hoặc read permission. Direct API caller lưu SLA trên 168 giờ sẽ nhận `400` thay vì `200`.
+- **Ref**: `docs/superpowers/plans/2026-08-07-sla-config-section.md`; source commits `3ec0616`, `36e41cc`, `30746ba`
+
 ## 2026-08-08 — Fix bug UI nhảy A→B→A→B (race condition) ở Enrollment + Config + CS [Phase 0]
 - **Loại**: fix, breaking (tăng khả năng gặp 409 khi có người comment — xem Ảnh hưởng)
 - **Cái gì**: Review toàn bộ module Task (CS/Enroll/Config) bằng 2 agent độc lập + 1 vòng debate đối kháng. **Phát hiện quan trọng: 1 triệu chứng nhưng 3 nguyên nhân khác nhau**, không phải 1 root cause chung như giả định ban đầu:
