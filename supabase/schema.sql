@@ -2589,7 +2589,7 @@ as $$
     select payment_status_id from enrollment_records where archived_at is null
     union all
     select aca_status_id from enrollment_records where archived_at is null
-  ) references
+  ) as option_references
   where option_id is not null
   group by option_id;
 $$;
