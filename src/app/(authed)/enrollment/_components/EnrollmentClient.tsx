@@ -1928,6 +1928,7 @@ function EnrollmentRowItem({
             optionId={record.payment_status_id}
             options={optionsBySet.payment_status}
             emptyLabel="No payment"
+            surface="list"
             canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { payment_status_id: value })}
           />
@@ -1944,6 +1945,7 @@ function EnrollmentRowItem({
             optionId={record.carrier_id}
             options={optionsBySet.carrier}
             emptyLabel="No carrier"
+            surface="list"
             canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { carrier_id: value })}
           />
@@ -1960,6 +1962,7 @@ function EnrollmentRowItem({
             optionId={record.aca_status_id}
             options={optionsBySet.aca_status}
             emptyLabel="No AC status"
+            surface="list"
             canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { aca_status_id: value })}
           />
@@ -1991,6 +1994,7 @@ function EnrollmentRowItem({
             optionId={record.platform_id}
             options={optionsBySet.platform}
             emptyLabel="No platform"
+            surface="list"
             canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { platform_id: value })}
           />
@@ -2215,7 +2219,7 @@ function EnrollmentConsentToggle({
         optionId={optionId}
         options={options}
         emptyLabel="No consent"
-        field={field}
+        surface={field ? "form-field" : "form-bare"}
         canEdit={canEdit}
         onChange={onChange}
       />
@@ -2262,20 +2266,24 @@ function EnrollmentOptionMenu({
   optionId,
   options,
   emptyLabel,
-  field = false,
+  surface = "form-bare",
   canEdit = true,
   onChange,
 }: {
   optionId: string | null;
   options: EnrollmentOption[];
   emptyLabel: string;
-  field?: boolean;
+  surface?: "list" | "form-bare" | "form-field";
   canEdit?: boolean;
   onChange: (value: string) => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
   const option = optionId ? options.find((item) => item.id === optionId) ?? null : null;
+  const drawsOwnChrome = surface === "form-field";
+  const rendersIdentityBadge = surface === "list";
+  const showsChevron = surface !== "list";
+  const menuLabel = emptyLabel.replace(/^No\s+/i, "");
   // Identity badge (CS CategoryBadge language): these values describe what
   // the record is, so each option keeps its own solid colour. Stage remains
   // distinguishable through its tinted workflow-state badge.
@@ -2294,28 +2302,30 @@ function EnrollmentOptionMenu({
         aria-expanded={isOpen}
         title={option?.label ?? emptyLabel}
         className={
-          field
+          drawsOwnChrome
             ? DETAIL_FIELD_BUTTON_CLASS
-            : "flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide disabled:cursor-not-allowed disabled:opacity-60"
+            : rendersIdentityBadge
+              ? "flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide disabled:cursor-not-allowed disabled:opacity-60"
+              : "flex w-full min-w-0 items-center disabled:cursor-not-allowed disabled:opacity-60"
         }
         style={
-          field
-            ? undefined
-            : {
+          rendersIdentityBadge
+            ? {
                 backgroundColor: style.bg,
                 color: style.fg,
               }
+            : undefined
         }
       >
         <span
           className={`min-w-0 flex-1 truncate text-left ${
-            field && !option ? "font-normal text-[#97a0af]" : ""
+            !rendersIdentityBadge && !option ? "font-normal text-[#97a0af]" : ""
           }`}
         >
           {option?.label ?? emptyLabel}
         </span>
         {/* Identity badges match CS CategoryBadge: no chevron in List. */}
-        {field ? <ChevronDown className="h-4 w-4 shrink-0 opacity-60" /> : null}
+        {showsChevron ? <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" /> : null}
       </button>
       {isOpen
         ? createPortal(
@@ -2323,30 +2333,37 @@ function EnrollmentOptionMenu({
               ref={menuRef}
               role="listbox"
               style={menuStyle}
-              className="z-[100] max-h-64 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+              className="z-[100] min-w-[16rem] rounded border border-[#dfe1e6] bg-white p-2 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
             >
-              {options.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="option"
-                  aria-selected={item.id === optionId}
-                  onClick={() => {
-                    onChange(item.id);
-                    setIsOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition ${
-                    item.id === optionId
-                      ? "bg-[#e9f2ff] text-[#0c66e4]"
-                      : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                  }`}
-                >
-                  <span className="min-w-0 truncate">{item.label}</span>
-                  {item.id === optionId ? (
-                    <Check className="h-4 w-4 text-[#0c66e4]" />
-                  ) : null}
-                </button>
-              ))}
+              <div className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+                {menuLabel}
+              </div>
+              <div className="max-h-56 overflow-auto">
+                {options.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="option"
+                    aria-selected={item.id === optionId}
+                    onClick={() => {
+                      onChange(item.id);
+                      setIsOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-2 text-left text-sm transition ${
+                      item.id === optionId
+                        ? "bg-[#e9f2ff] text-[#172b4d]"
+                        : "text-[#172b4d] hover:bg-[#f4f5f7]"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                      {item.label}
+                    </span>
+                    {item.id === optionId ? (
+                      <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                    ) : null}
+                  </button>
+                ))}
+              </div>
             </div>,
             document.body
           )
@@ -2986,7 +3003,7 @@ function EnrollmentDrawer({
                     optionId={record.payment_status_id}
                     options={optionsBySet.payment_status}
                     emptyLabel="No payment"
-                    field
+                    surface="form-field"
                     canEdit={canEditRecord}
                     onChange={(value) => void onPatch({ payment_status_id: value })}
                   />
@@ -3002,7 +3019,7 @@ function EnrollmentDrawer({
                     optionId={record.carrier_id}
                     options={optionsBySet.carrier}
                     emptyLabel="No carrier"
-                    field
+                    surface="form-field"
                     canEdit={canEditRecord}
                     onChange={(value) => void onPatch({ carrier_id: value })}
                   />
@@ -3018,7 +3035,7 @@ function EnrollmentDrawer({
                       optionId={record.aca_status_id}
                       options={optionsBySet.aca_status}
                       emptyLabel="No AC status"
-                      field
+                      surface="form-field"
                       canEdit={canEditRecord}
                       onChange={(value) => void onPatch({ aca_status_id: value })}
                     />
@@ -3049,7 +3066,7 @@ function EnrollmentDrawer({
                       optionId={record.platform_id}
                       options={optionsBySet.platform}
                       emptyLabel="No platform"
-                      field
+                      surface="form-field"
                       canEdit={canEditRecord}
                       onChange={(value) => void onPatch({ platform_id: value })}
                     />
@@ -3541,6 +3558,7 @@ function NewEnrollmentDialog({
                         optionId={form.payment_status_id || null}
                         options={optionsBySet.payment_status}
                         emptyLabel="No payment"
+                        surface="form-bare"
                         onChange={(value) => update("payment_status_id", value)}
                       />
                     </CreatePropertyField>
@@ -3556,6 +3574,7 @@ function NewEnrollmentDialog({
                         optionId={form.carrier_id || null}
                         options={optionsBySet.carrier}
                         emptyLabel="No carrier"
+                        surface="form-bare"
                         onChange={(value) => update("carrier_id", value)}
                       />
                     </CreatePropertyField>
@@ -3571,6 +3590,7 @@ function NewEnrollmentDialog({
                         optionId={form.aca_status_id || null}
                         options={optionsBySet.aca_status}
                         emptyLabel="No ACA status"
+                        surface="form-bare"
                         onChange={(value) => update("aca_status_id", value)}
                       />
                     </CreatePropertyField>
@@ -3600,6 +3620,7 @@ function NewEnrollmentDialog({
                         optionId={form.platform_id || null}
                         options={optionsBySet.platform}
                         emptyLabel="No platform"
+                        surface="form-bare"
                         onChange={(value) => update("platform_id", value)}
                       />
                     </CreatePropertyField>
