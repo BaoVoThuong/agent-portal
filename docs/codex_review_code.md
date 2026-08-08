@@ -4,10 +4,67 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-09 00:55 Asia/Ho_Chi_Minh**
-Reviewed source through: **`7c7341e`** (execution log commits follow)
+Last Updated: **2026-08-09 00:50 Asia/Ho_Chi_Minh**
+Reviewed source through: **`5886f10`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
+
+### SLA Times configuration move — implementation log
+
+The SLA admin plan in `docs/superpowers/plans/2026-08-07-sla-config-section.md` was executed. The implementation does not change SLA calculation, storage shape, read permissions, or the Task Board's overdue/countdown read path.
+
+#### SLA-01 — SLA API accepted values the UI could not represent
+
+Issue: `POST /api/admin/task-sla-rules` accepted any positive `duration_minutes`, while the admin UI only exposed a 0–168 hour range.
+Severity: **P2 — HIGH**
+Location: `src/app/api/admin/task-sla-rules/route.ts`
+Affected Module: Config / Tasks SLA
+Trigger: An authenticated manager submits `duration_minutes` above 10080 (168 hours).
+Expected: API and UI enforce the same maximum.
+Actual: API stored arbitrarily large positive values that the UI could not select or edit back.
+Root Cause: The server checked only `> 0`; the maximum existed only in a UI array length.
+Impact: Uneditable SLA rows and inconsistent behavior between direct API callers and `/config`.
+Fix: Shared `SLA_DURATION_BOUNDS` and `isSlaDurationInBounds()` now validate and store one rounded value; values outside 1–10080 minutes return `400`.
+Regression Risk: Low; existing UI values are inside the range. Direct callers using larger values intentionally receive a breaking `400`.
+Verification: `npx tsc --noEmit`, full Vitest suite, and targeted ESLint passed; manual API 999999-minute request remains to be run against the authorized dev/staging environment.
+Status: **IMPLEMENTED — manual API/browser verification pending**
+Commit: `36e41cc`
+
+#### SLA-02 — SLA UI rules were scattered hardcoded literals
+
+Issue: Duration bounds/options, priority labels, reminder rows, and the default-category sentinel lived inside the modal component; TS/SQL defaults had no drift test.
+Severity: **P3 — MEDIUM**
+Location: `src/app/(authed)/tasks/_components/SlaRulesModal.tsx` (removed), `src/lib/tasks/sla-config.ts`, `src/lib/tasks/sla-config.test.ts`
+Affected Module: Config / Tasks SLA
+Trigger: A developer changes `ReminderSettings`, a database default, or an SLA UI rule without updating a second independent literal.
+Expected: One named source for UI/validation constants and tests that fail loudly on TS/SQL drift or omitted reminder fields.
+Actual: A new/changed field could be persisted but invisible in the admin UI, and fallback/database defaults could silently diverge.
+Root Cause: Constants were colocated with modal presentation and duplicated across TypeScript and `supabase/schema.sql`.
+Impact: Hidden admin configuration and environment-dependent SLA behavior.
+Fix: Added `sla-config.ts`; added tests for SQL seed/column defaults, priority-label coverage, reminder-field coverage, option derivation, and bounds.
+Regression Risk: Low; SLA math remains in `sla.ts` and existing defaults are unchanged.
+Verification: `src/lib/tasks/sla-config.test.ts` passed; full suite passed at 61 files / 466 tests.
+Status: **IMPLEMENTED**
+Commit: `3ec0616`
+
+#### SLA-03 — SLA editing was located on the Task Board instead of admin Config
+
+Issue: SLA editing lived in a manager-only modal on `/tasks`, separate from the rest of Health Table Configuration.
+Severity: **P4 — LOW**
+Location: `src/app/(authed)/config/page.tsx`, `config/_components/ConfigClient.tsx`, `config/_components/ConfigSlaSection.tsx`, `tasks/_components/TaskBoardClient.tsx`
+Affected Module: Config / Tasks UI
+Trigger: A manager needs to find or maintain SLA duration/reminder settings.
+Expected: Admin configuration is centralized under `/config`; `/tasks` keeps only SLA read behavior.
+Actual: The Task Board exposed the edit modal while `/config` had no SLA tab.
+Root Cause: Admin editor and runtime read path were coupled in the Task Board shell.
+Impact: Inconsistent admin navigation and risk of accidentally removing SLA read logic while moving the editor.
+Fix: SSR-fetch rules in `/config`, added `ConfigSlaSection` and `SLA Times` tab, removed the modal and header trigger, and preserved `slaRules`, `reloadSlaRules()`, `isTaskOverdue`, and `rules={slaRules}` reads on `/tasks`.
+Regression Risk: Medium; browser verification must confirm the new tab saves/resets and overdue/countdown badges still render.
+Verification: Typecheck, full Vitest suite (61 files / 466 tests), targeted ESLint, and no `SlaRulesModal` references in `src/` passed.
+Status: **IMPLEMENTED — browser/permission verification pending**
+Commits: `30746ba`, `5886f10`
+
+SLA implementation status: **READY FOR MANUAL VERIFICATION; DOES NOT CHANGE THE OVERALL GO-LIVE STATUS**. Existing P0/P1, production schema/ACL, failure-injection, scheduler, and browser gates listed below remain open.
 
 ### Final reconciliation decisions
 
