@@ -270,7 +270,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
   );
 
   if (Object.keys(sanitizedPatch).length === 0) {
-    return NextResponse.json({ record: { ...current, comment_count: 0, attachment_count: 0 } });
+    const canonical = await fetchEnrollmentRecordById(id);
+    return NextResponse.json({
+      record: canonical ?? { ...current, comment_count: 0, attachment_count: 0 },
+    });
   }
 
   sanitizedPatch.updated_by_email = actorResult.actor.email;
