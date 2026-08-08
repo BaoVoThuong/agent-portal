@@ -1040,6 +1040,8 @@ function ConfigDropdownValuesSection({
   const selected = groups.find((g) => g.key === selectedKey) ?? groups[0];
   const isStageGroup = selected?.kind === "optionSet" && selected.setKey === "stage";
   const isConsentGroup = selected?.kind === "optionSet" && selected.setKey === "consent";
+  const protectsLabelIdentity =
+    selected?.kind === "optionSet" && (selected.setKey === "stage" || selected.setKey === "consent");
 
   const [label, setLabel] = useState("");
   const [color, setColor] = useState("");
@@ -1314,11 +1316,18 @@ function ConfigDropdownValuesSection({
                         <td className="border-b border-r border-[#dfe1e6] px-3 py-2">
                           <input
                             defaultValue={row.label}
+                            disabled={protectsLabelIdentity}
+                            title={
+                              protectsLabelIdentity
+                                ? "Stage and Consent labels are protected workflow identities."
+                                : undefined
+                            }
                             onBlur={(event) => {
+                              if (protectsLabelIdentity) return;
                               const value = event.target.value.trim();
                               if (value && value !== row.label) void run(() => renameValue(row.id, value), "Option updated.");
                             }}
-                            className="h-8 w-full rounded border border-[#dfe1e6] px-2 font-semibold outline-none focus:border-[#0c66e4]"
+                            className="h-8 w-full rounded border border-[#dfe1e6] px-2 font-semibold outline-none focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#6b778c]"
                           />
                         </td>
                         <td className="border-b border-r border-[#dfe1e6] px-3 py-2">

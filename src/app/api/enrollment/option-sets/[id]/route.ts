@@ -28,6 +28,32 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Invalid body." }, { status: 400 });
   }
 
+  const supabase = getSupabaseAdmin();
+  if ("label" in body) {
+    const { data: option, error: optionError } = await supabase
+      .from("enrollment_options")
+      .select("set_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (optionError) return NextResponse.json({ error: optionError.message }, { status: 500 });
+    if (!option) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const { data: optionSet, error: optionSetError } = await supabase
+      .from("enrollment_option_sets")
+      .select("key")
+      .eq("id", option.set_id)
+      .maybeSingle();
+    if (optionSetError) {
+      return NextResponse.json({ error: optionSetError.message }, { status: 500 });
+    }
+    if (optionSet?.key === "stage" || optionSet?.key === "consent") {
+      return NextResponse.json(
+        { error: "Stage and Consent option labels are protected workflow identities." },
+        { status: 409 }
+      );
+    }
+  }
+
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if ("label" in body) {
     const label = typeof body.label === "string" ? body.label.trim() : "";
@@ -41,7 +67,6 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if ("is_terminal" in body) patch.is_terminal = Boolean(body.is_terminal);
   if ("triggers_qc" in body) patch.triggers_qc = Boolean(body.triggers_qc);
 
-  const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("enrollment_options")
     .update(patch)
