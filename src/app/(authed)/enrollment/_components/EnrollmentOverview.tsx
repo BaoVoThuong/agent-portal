@@ -25,10 +25,12 @@ export function EnrollmentOverview({
   program,
   onOpenRecord,
   onAssign,
+  canAssignRecord,
 }: {
   program: EnrollmentProgram;
   onOpenRecord: (id: string) => void;
   onAssign: (recordId: string, email: string) => Promise<void>;
+  canAssignRecord: (recordId: string) => boolean;
 }) {
   const [snapshot, setSnapshot] = useState<EnrollmentOverviewSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -221,20 +223,22 @@ export function EnrollmentOverview({
               >
                 {record.clientName || "Unnamed client"}
               </button>
-              <button
-                type="button"
-                onClick={() => setRecommendFor((current) => (current === record.id ? null : record.id))}
-                className="shrink-0 rounded border border-[#cfd8e5] bg-white px-2 py-1 text-xs font-bold text-[#344054] hover:bg-[#f8fafc]"
-              >
-                Recommend
-              </button>
+              {canAssignRecord(record.id) ? (
+                <button
+                  type="button"
+                  onClick={() => setRecommendFor((current) => (current === record.id ? null : record.id))}
+                  className="shrink-0 rounded border border-[#cfd8e5] bg-white px-2 py-1 text-xs font-bold text-[#344054] hover:bg-[#f8fafc]"
+                >
+                  Recommend
+                </button>
+              ) : null}
             </li>
           ))}
           {snapshot.unassigned.length === 0 ? (
             <li className="px-4 py-6 text-center text-sm text-[#97a0af]">Nothing unassigned.</li>
           ) : null}
         </ul>
-        {recommendFor ? (
+        {recommendFor && canAssignRecord(recommendFor) ? (
           <RecommendationPanel
             snapshot={snapshot}
             recordId={recommendFor}

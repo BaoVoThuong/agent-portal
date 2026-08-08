@@ -961,8 +961,25 @@ export function EnrollmentClient({
               key={program}
               program={program}
               onOpenRecord={openRecordById}
+              canAssignRecord={(recordId) => {
+                const record = records.find((candidate) => candidate.id === recordId);
+                return Boolean(
+                  record &&
+                    canEditEnrollmentRecordClient(record, currentEmail, canManageOptions)
+                );
+              }}
               onAssign={(recordId, email) =>
-                patchRecord(recordId, { responsible_enroll_email: email })
+                (async () => {
+                  const record = records.find((candidate) => candidate.id === recordId);
+                  if (
+                    !record ||
+                    !canEditEnrollmentRecordClient(record, currentEmail, canManageOptions)
+                  ) {
+                    setError("You cannot edit this enrollment record.");
+                    return;
+                  }
+                  await patchRecord(recordId, { responsible_enroll_email: email });
+                })()
               }
             />
           </div>
@@ -1661,6 +1678,7 @@ function EnrollmentRowItem({
           <EnrollmentStagePill
             stageId={record.stage_id}
             stages={optionsBySet.stage}
+            canEdit={canEditRecord}
             onChange={(value) => onPatch(record.id, { stage_id: value })}
           />
         </div>
@@ -1675,6 +1693,7 @@ function EnrollmentRowItem({
             value={record.agent_email}
             peopleByEmail={agentsByEmail}
             emptyLabel="No agent"
+            canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { agent_email: value })}
           />
         </div>
@@ -1690,6 +1709,7 @@ function EnrollmentRowItem({
             value={record.caller_email}
             peopleByEmail={peopleByEmail}
             emptyLabel="No caller"
+            canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { caller_email: value })}
           />
         </div>
@@ -1705,6 +1725,7 @@ function EnrollmentRowItem({
             value={record.responsible_enroll_email}
             peopleByEmail={peopleByEmail}
             emptyLabel="Unassigned"
+            canEdit={canEditRecord}
             onChange={(value) =>
               void onPatch(record.id, { responsible_enroll_email: value })
             }
@@ -1722,6 +1743,7 @@ function EnrollmentRowItem({
             optionId={record.payment_status_id}
             options={optionsBySet.payment_status}
             emptyLabel="No payment"
+            canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { payment_status_id: value })}
           />
         </div>
@@ -1737,6 +1759,7 @@ function EnrollmentRowItem({
             optionId={record.carrier_id}
             options={optionsBySet.carrier}
             emptyLabel="No carrier"
+            canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { carrier_id: value })}
           />
         </div>
@@ -1752,6 +1775,7 @@ function EnrollmentRowItem({
             optionId={record.aca_status_id}
             options={optionsBySet.aca_status}
             emptyLabel="No AC status"
+            canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { aca_status_id: value })}
           />
         </div>
@@ -1766,6 +1790,7 @@ function EnrollmentRowItem({
           <EnrollmentConsentToggle
             optionId={record.consent_id}
             options={optionsBySet.consent}
+            canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { consent_id: value })}
           />
         </div>
@@ -1781,6 +1806,7 @@ function EnrollmentRowItem({
             optionId={record.platform_id}
             options={optionsBySet.platform}
             emptyLabel="No platform"
+            canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { platform_id: value })}
           />
         </div>
@@ -1969,6 +1995,7 @@ function EnrollmentRowItem({
           <QCCheckButton
             record={record}
             stage={stage}
+            canEdit={canEditRecord}
             onToggle={() => onPatch(record.id, { qc_checked: !record.qc_checked_at })}
           />
         </div>
@@ -1985,11 +2012,13 @@ function EnrollmentConsentToggle({
   optionId,
   options,
   field = false,
+  canEdit = true,
   onChange,
 }: {
   optionId: string | null;
   options: EnrollmentOption[];
   field?: boolean;
+  canEdit?: boolean;
   onChange: (value: string) => void;
 }) {
   const yesOption =
@@ -2002,6 +2031,7 @@ function EnrollmentConsentToggle({
         options={options}
         emptyLabel="No consent"
         field={field}
+        canEdit={canEdit}
         onChange={onChange}
       />
     );
@@ -2014,6 +2044,7 @@ function EnrollmentConsentToggle({
   return (
     <button
       type="button"
+      disabled={!canEdit}
       onClick={(event) => {
         event.stopPropagation();
         onChange(checked ? otherOption.id : yesOption.id);
@@ -2024,7 +2055,7 @@ function EnrollmentConsentToggle({
       className={
         field
           ? DETAIL_FIELD_BUTTON_CLASS
-          : "inline-flex h-7 w-7 items-center justify-center rounded text-[#42526e] transition hover:bg-[#f4f5f7] hover:text-[#172b4d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#deebff]"
+          : "inline-flex h-7 w-7 items-center justify-center rounded text-[#42526e] transition hover:bg-[#f4f5f7] hover:text-[#172b4d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#deebff] disabled:cursor-not-allowed disabled:opacity-60"
       }
     >
       <span
@@ -2047,12 +2078,14 @@ function EnrollmentOptionMenu({
   options,
   emptyLabel,
   field = false,
+  canEdit = true,
   onChange,
 }: {
   optionId: string | null;
   options: EnrollmentOption[];
   emptyLabel: string;
   field?: boolean;
+  canEdit?: boolean;
   onChange: (value: string) => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
@@ -2067,6 +2100,7 @@ function EnrollmentOptionMenu({
       <button
         ref={triggerRef}
         type="button"
+        disabled={!canEdit}
         onClick={(event) => {
           event.stopPropagation();
           toggle();
@@ -2076,7 +2110,7 @@ function EnrollmentOptionMenu({
         className={
           field
             ? DETAIL_FIELD_BUTTON_CLASS
-            : "flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium"
+            : "flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60"
         }
         style={
           field
@@ -2139,12 +2173,14 @@ function EnrollmentPersonMenu({
   peopleByEmail,
   emptyLabel,
   field = false,
+  canEdit = true,
   onChange,
 }: {
   value: string | null;
   peopleByEmail: Map<string, string>;
   emptyLabel: string;
   field?: boolean;
+  canEdit?: boolean;
   onChange: (value: string | null) => void;
 }) {
   const { isOpen, toggle, triggerRef, menuRef, menuStyle, setIsOpen } =
@@ -2161,13 +2197,14 @@ function EnrollmentPersonMenu({
       <button
         ref={triggerRef}
         type="button"
+        disabled={!canEdit}
         onClick={(event) => {
           event.stopPropagation();
           toggle();
         }}
         aria-expanded={isOpen}
         title={selectedLabel}
-        className={field ? DETAIL_FIELD_BUTTON_CLASS : "flex w-full min-w-0 items-center"}
+        className={field ? `${DETAIL_FIELD_BUTTON_CLASS} disabled:cursor-not-allowed disabled:opacity-60` : "flex w-full min-w-0 items-center disabled:cursor-not-allowed disabled:opacity-60"}
       >
         {value ? (
           <span
@@ -2250,10 +2287,12 @@ function EnrollmentPersonMenu({
 function QCCheckButton({
   record,
   stage,
+  canEdit = true,
   onToggle,
 }: {
   record: EnrollmentRecordWithStats;
   stage: EnrollmentOption | null;
+  canEdit?: boolean;
   onToggle: () => Promise<void>;
 }) {
   if (!stage?.triggers_qc) {
@@ -2268,11 +2307,12 @@ function QCCheckButton({
   return (
     <button
       type="button"
+      disabled={!canEdit}
       onClick={(event) => {
         event.stopPropagation();
         void onToggle();
       }}
-      className={`${className} transition hover:brightness-95`}
+      className={`${className} transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60`}
       aria-label={checked ? "Clear QC check" : "Mark QC checked"}
       title={checked ? "QC checked" : "Needs QC"}
     >
@@ -2285,11 +2325,13 @@ function EnrollmentStagePill({
   stageId,
   stages,
   field = false,
+  canEdit = true,
   onChange,
 }: {
   stageId: string | null;
   stages: EnrollmentOption[];
   field?: boolean;
+  canEdit?: boolean;
   onChange: (stageId: string) => Promise<void>;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
@@ -2321,13 +2363,14 @@ function EnrollmentStagePill({
       <button
         ref={triggerRef}
         type="button"
+        disabled={!canEdit}
         onClick={(event) => {
           event.stopPropagation();
           toggle();
         }}
         aria-expanded={isOpen}
         title={label}
-        className="block w-full min-w-0"
+        className="block w-full min-w-0 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pill}
       </button>
@@ -2524,7 +2567,7 @@ function EnrollmentDrawer({
   }, [reload]);
 
   function reopen() {
-    if (!reopenTarget) return;
+    if (!reopenTarget || !canEditRecord) return;
     const reason = window.prompt(`Reason to reopen to ${reopenTarget.label}`);
     if (!reason?.trim()) return;
     void onPatch({ stage_id: reopenTarget.id, reopen_reason: reason.trim() });
@@ -2570,6 +2613,7 @@ function EnrollmentDrawer({
                   <EditableInput
                     value={record.client_name ?? ""}
                     placeholder="Client name"
+                    canEdit={canEditRecord}
                     className={COMPACT_DETAIL_INPUT_CLASS}
                     required={requiredColumnKeys.has("client")}
                     invalid={isInvalid("client")}
@@ -2590,6 +2634,7 @@ function EnrollmentDrawer({
                     <EditableInput
                       value={record.fub_link ?? ""}
                       placeholder="No FUB link"
+                      canEdit={canEditRecord}
                       className={COMPACT_DETAIL_INPUT_CLASS}
                       required={requiredColumnKeys.has("fub")}
                       invalid={isInvalid("fub")}
@@ -2620,6 +2665,7 @@ function EnrollmentDrawer({
                 <EditableTextarea
                   value={record.description ?? ""}
                   placeholder="No description"
+                  canEdit={canEditRecord}
                   className={COMPACT_DESCRIPTION_CLASS}
                   onSave={(value) => onPatch({ description: value })}
                 />
@@ -2688,6 +2734,7 @@ function EnrollmentDrawer({
                     stageId={record.stage_id}
                     stages={optionsBySet.stage}
                     field
+                    canEdit={canEditRecord}
                     onChange={(value) => onPatch({ stage_id: value })}
                   />
                 </FieldBlock>
@@ -2701,10 +2748,11 @@ function EnrollmentDrawer({
                   <input
                     type="date"
                     value={formatDateInput(record.due_date)}
+                    disabled={!canEditRecord}
                     onChange={(event) =>
                       void onPatch({ due_date: event.target.value || null })
                     }
-                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
+                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
                   />
                 </FieldBlock>
               ) : null}
@@ -2719,6 +2767,7 @@ function EnrollmentDrawer({
                     options={optionsBySet.payment_status}
                     emptyLabel="No payment"
                     field
+                    canEdit={canEditRecord}
                     onChange={(value) => void onPatch({ payment_status_id: value })}
                   />
                 </FieldBlock>
@@ -2734,6 +2783,7 @@ function EnrollmentDrawer({
                     options={optionsBySet.carrier}
                     emptyLabel="No carrier"
                     field
+                    canEdit={canEditRecord}
                     onChange={(value) => void onPatch({ carrier_id: value })}
                   />
                 </FieldBlock>
@@ -2749,6 +2799,7 @@ function EnrollmentDrawer({
                       options={optionsBySet.aca_status}
                       emptyLabel="No AC status"
                       field
+                      canEdit={canEditRecord}
                       onChange={(value) => void onPatch({ aca_status_id: value })}
                     />
                   </FieldBlock>
@@ -2763,6 +2814,7 @@ function EnrollmentDrawer({
                       optionId={record.consent_id}
                       options={optionsBySet.consent}
                       field
+                      canEdit={canEditRecord}
                       onChange={(value) => void onPatch({ consent_id: value })}
                     />
                   </FieldBlock>
@@ -2778,6 +2830,7 @@ function EnrollmentDrawer({
                       options={optionsBySet.platform}
                       emptyLabel="No platform"
                       field
+                      canEdit={canEditRecord}
                       onChange={(value) => void onPatch({ platform_id: value })}
                     />
                   </FieldBlock>
@@ -2794,6 +2847,7 @@ function EnrollmentDrawer({
                     peopleByEmail={agentsByEmail}
                     emptyLabel="No agent"
                     field
+                    canEdit={canEditRecord}
                     onChange={(value) => {
                       if (requiredColumnKeys.has("agent") && !value) {
                         markInvalid("agent");
@@ -2816,6 +2870,7 @@ function EnrollmentDrawer({
                     peopleByEmail={peopleByEmail}
                     emptyLabel="No caller"
                     field
+                    canEdit={canEditRecord}
                     onChange={(value) => void onPatch({ caller_email: value })}
                   />
                 </FieldBlock>
@@ -2834,6 +2889,7 @@ function EnrollmentDrawer({
                     peopleByEmail={peopleByEmail}
                     emptyLabel="Unassigned"
                     field
+                    canEdit={canEditRecord}
                     onChange={(value) =>
                       void onPatch({ responsible_enroll_email: value })
                     }
@@ -2859,6 +2915,7 @@ function EnrollmentDrawer({
                   <EditableInput
                     value={record.pcp_2025 ?? ""}
                     placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                    canEdit={canEditRecord}
                     className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
                     required={requiredColumnKeys.has("pcp2025")}
                     invalid={isInvalid("pcp2025")}
@@ -2877,6 +2934,7 @@ function EnrollmentDrawer({
                   <EditableInput
                     value={record.pcp_2026 ?? ""}
                     placeholder="No PCP 2026"
+                    canEdit={canEditRecord}
                     className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
                     required={requiredColumnKeys.has("pcp2026")}
                     invalid={isInvalid("pcp2026")}
@@ -2909,13 +2967,14 @@ function EnrollmentDrawer({
                   <EnrollmentQCPanel
                     record={record}
                     stage={stage}
+                    canEdit={canEditRecord}
                     onToggle={() => onPatch({ qc_checked: !record.qc_checked_at })}
                   />
                 </FieldBlock>
               ) : null}
             </div>
 
-            {stage?.is_terminal && reopenTarget ? (
+            {canEditRecord && stage?.is_terminal && reopenTarget ? (
               <div className="border-t border-[#dfe1e6] pt-3">
                 <button
                   type="button"
@@ -3399,6 +3458,7 @@ function EditableInput({
   value,
   placeholder,
   className = `${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`,
+  canEdit = true,
   required,
   invalid,
   onRejectEmpty,
@@ -3408,6 +3468,7 @@ function EditableInput({
   value: string;
   placeholder: string;
   className?: string;
+  canEdit?: boolean;
   required?: boolean;
   invalid?: boolean;
   onRejectEmpty?: () => void;
@@ -3423,6 +3484,7 @@ function EditableInput({
       key={`${value}-${revertNonce}`}
       defaultValue={value}
       placeholder={placeholder}
+      disabled={!canEdit}
       onClick={(event) => event.stopPropagation()}
       onFocus={() => onEditStart?.()}
       onBlur={(event) => {
@@ -3434,7 +3496,7 @@ function EditableInput({
         }
         if (next !== value.trim()) void onSave(next || null);
       }}
-      className={`${className} ${invalid ? INVALID_RING_CLASS : ""}`}
+      className={`${className} ${invalid ? INVALID_RING_CLASS : ""} disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
     />
   );
 }
@@ -3443,11 +3505,13 @@ function EditableTextarea({
   value,
   placeholder,
   className = COMPACT_DESCRIPTION_CLASS,
+  canEdit = true,
   onSave,
 }: {
   value: string;
   placeholder: string;
   className?: string;
+  canEdit?: boolean;
   onSave: (value: string | null) => Promise<void>;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -3462,6 +3526,7 @@ function EditableTextarea({
       key={value}
       defaultValue={value}
       placeholder={placeholder}
+      disabled={!canEdit}
       onClick={(event) => event.stopPropagation()}
       onInput={(event) => autosizeTextarea(event.currentTarget)}
       onBlur={(event) => {
@@ -3469,7 +3534,7 @@ function EditableTextarea({
         if (next !== value.trim()) void onSave(next || null);
       }}
       rows={2}
-      className={className}
+      className={`${className} disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
     />
   );
 }
@@ -3549,10 +3614,12 @@ function EnrollmentDetailCustomFieldControl({
 function EnrollmentQCPanel({
   record,
   stage,
+  canEdit = true,
   onToggle,
 }: {
   record: EnrollmentRecordWithStats;
   stage: EnrollmentOption | null;
+  canEdit?: boolean;
   onToggle: () => Promise<void>;
 }) {
   const reviewed = Boolean(record.qc_checked_at);
@@ -3566,7 +3633,7 @@ function EnrollmentQCPanel({
   return (
     <button
       type="button"
-      disabled={!required}
+      disabled={!required || !canEdit}
       aria-pressed={reviewed}
       aria-label={reviewed ? "Clear QC check" : "Mark QC checked"}
       onClick={() => void onToggle()}
