@@ -36,7 +36,7 @@ function isHexColor(value: string): boolean {
   return /^#[0-9a-f]{6}$/i.test(value);
 }
 
-function readableTextColor(background: string): string {
+export function readableTextColor(background: string): string {
   const red = Number.parseInt(background.slice(1, 3), 16);
   const green = Number.parseInt(background.slice(3, 5), 16);
   const blue = Number.parseInt(background.slice(5, 7), 16);

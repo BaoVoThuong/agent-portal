@@ -1,0 +1,52 @@
+// Health CS uses two badge languages, and which one a column gets depends on
+// what the value means:
+//
+//   Identity (CS: CategoryBadge)
+//     solid full-opacity background = the value's colour identity,
+//     contrast-computed foreground, and no chevron.
+//
+//   Workflow state (CS: StatusPill)
+//     pale tinted background, colour as foreground, and a chevron only when
+//     the control is actionable. Enrollment's Stage uses this language.
+import { readableTextColor } from "@/lib/tasks/category-colors";
+import type { EnrollmentOption } from "./types";
+
+/** Tint opacity for workflow-state badges (Stage). */
+export const ENROLLMENT_STATE_BADGE_ALPHA = 0.14;
+
+/** Neutral badge for no selected option or invalid stored colour. */
+export const ENROLLMENT_BADGE_EMPTY = {
+  bg: "#f4f5f7",
+  fg: "#5e6c84",
+} as const;
+
+export function hexToRgba(hex: string, alpha: number): string | null {
+  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
+  if (!match) return null;
+  const [, red, green, blue] = match;
+  return `rgba(${parseInt(red, 16)}, ${parseInt(green, 16)}, ${parseInt(blue, 16)}, ${alpha})`;
+}
+
+/** Identity badge: solid background with a readable foreground. */
+export function enrollmentIdentityBadgeStyle(
+  option: EnrollmentOption | null
+): { bg: string; fg: string } {
+  if (!option?.color) return { ...ENROLLMENT_BADGE_EMPTY };
+  if (!hexToRgba(option.color, 1)) return { ...ENROLLMENT_BADGE_EMPTY };
+  return {
+    bg: option.color,
+    fg: readableTextColor(option.color),
+  };
+}
+
+/** Workflow-state badge: pale tint with the option colour as foreground. */
+export function enrollmentStateBadgeStyle(
+  option: EnrollmentOption | null,
+  alpha: number = ENROLLMENT_STATE_BADGE_ALPHA
+): { bg: string; fg: string } {
+  if (!option?.color) return { ...ENROLLMENT_BADGE_EMPTY };
+  return {
+    bg: hexToRgba(option.color, alpha) ?? "#dfe1e6",
+    fg: option.color,
+  };
+}
