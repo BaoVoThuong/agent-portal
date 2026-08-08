@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 23:31 Asia/Ho_Chi_Minh**
-Reviewed source through: **`310ec87`** (execution log commits follow)
+Last Updated: **2026-08-08 23:35 Asia/Ho_Chi_Minh**
+Reviewed source through: **`2461470`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -829,10 +829,10 @@ Expected: Display labels are presentation only.
 Actual: Label-only edits change business order/defaults, disable notifications, or change control type.  
 Root Cause: Editable text doubles as stable business identity.  
 Impact: Silent workflow/notification/UI behavior changes.  
-Fix: Stable keys/flags and explicit initial/reopen/notification semantics.  
+Fix: Protect stage/Consent label renames at both UI and API boundaries; stable keys/flags and explicit initial/reopen/notification semantics remain follow-up work.
 Regression Risk: High for migration, low for blocking protected label edits temporarily.  
-Verification: Static label-consumer trace; independently confirmed exact notification labels.  
-Status: **OPEN**
+Verification: Enrollment + table-config tests PASS (21 files / 92 tests), `npm run typecheck` PASS, targeted ESLint PASS, and `git diff --check` PASS. Direct protected-rename route/UI verification remains.
+Status: **PARTIAL — protected label containment implemented; stable identity migration remains open**
 
 ## Performance / Lag
 
@@ -1010,7 +1010,7 @@ Status: **IMPLEMENTED — direct-route verification pending**
 
 ## Fixes Applied
 
-Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Program-scoped Enrollment realtime (`261901a`). Latest-request-wins Enrollment reloads (`973c63a`). Enrollment list truncation containment (`f7c1d94`). Config success/error Toast tones (`1b8de1d`). Config custom-column invariant enforcement (`e93a24c`). Config per-column PATCH serialization/reconciliation (`6b0023b`). Config scope-local draft/refresh isolation (`165e448`). Config stage-rule toggle serialization/feedback (`0255bd3`). Config custom Required semantics disclosure (`1cfccb0`). Config scoped column reads (`a318646`). C-05 last-active-stage archive guard (`310ec87`, partial). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
+Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Program-scoped Enrollment realtime (`261901a`). Latest-request-wins Enrollment reloads (`973c63a`). Enrollment list truncation containment (`f7c1d94`). Config success/error Toast tones (`1b8de1d`). Config custom-column invariant enforcement (`e93a24c`). Config per-column PATCH serialization/reconciliation (`6b0023b`). Config scope-local draft/refresh isolation (`165e448`). Config stage-rule toggle serialization/feedback (`0255bd3`). Config custom Required semantics disclosure (`1cfccb0`). Config scoped column reads (`a318646`). C-05 last-active-stage archive guard (`310ec87`, partial). C-08 protected workflow label containment (`2461470`, partial). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
 
 ## Verification
 
@@ -1483,6 +1483,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **C-15 — Config custom Enrollment Required disclosure.** ACA/Medicare custom Required toggles now explain that Create has no custom input yet, preserving the deliberate post-create validation semantics without silently overstating the contract. | `1cfccb0` | Table-config tests PASS (9 files / 42 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Browser copy verification remains. |
 | 2026-08-08 | **C-16 — Config scoped column reads.** The columns GET route now requires an explicit valid `scope`; repository inventory found no aggregate client caller, while the page's all-scope loader remains server-side. | `a318646` | Table-config tests PASS (9 files / 42 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Direct 400/authorized scoped-route verification remains. |
 | 2026-08-08 | **C-05 — Enrollment stage cardinality containment (partial).** Option archive now checks the option set and rejects archiving the final active stage for a program with 409. Terminal/QC changes and in-use record migration remain open. | `310ec87` | Enrollment suite PASS (12 files / 50 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Direct last-stage archive and in-use-stage browser/DB verification remains. |
+| 2026-08-08 | **C-08 — Protected workflow label containment (partial).** Stage and Consent option labels are now read-only in Config and rejected by the API, preventing label-only edits from changing identity-dependent behavior. Stable identity migration remains open. | `2461470` | Enrollment + table-config tests PASS (21 files / 92 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Direct protected-rename route/UI verification remains. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1616,7 +1617,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `310ec87`:
+Verification recorded across the execution commits through `2461470`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1649,6 +1650,7 @@ Verification recorded across the execution commits through `310ec87`:
 - Config custom Required semantics disclosure: **table-config tests (9 files / 42 tests), typecheck, targeted ESLint, and diff-check PASS**; browser copy proof remains.
 - Config scoped column reads: **repository caller inventory, table-config tests (9 files / 42 tests), typecheck, targeted ESLint, and diff-check PASS**; direct-route proof remains.
 - C-05 stage cardinality containment: **Enrollment tests (12 files / 50 tests), typecheck, targeted ESLint, and diff-check PASS**; direct archive/in-use-stage proof remains and semantic migration is still open.
+- C-08 protected workflow label containment: **Enrollment + table-config tests (21 files / 92 tests), typecheck, targeted ESLint, and diff-check PASS**; direct protected-rename proof remains and stable identity migration is still open.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
