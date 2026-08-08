@@ -4,7 +4,7 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-09 00:45 Asia/Ho_Chi_Minh**
+Last Updated: **2026-08-09 00:55 Asia/Ho_Chi_Minh**
 Reviewed source through: **`7c7341e`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
@@ -1502,6 +1502,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-09 | **Claude P0 — SECURITY DEFINER RPC ACL hardening.** Confirmed that the schema's privileged SECURITY DEFINER functions had the default PUBLIC EXECUTE grant; added a final schema ACL pass that revokes `public`/`anon`/`authenticated` and grants only `service_role` for every current SECURITY DEFINER routine. The finding predates the new atomic RPC for several routines; `patch_task_atomic` is included. | `42a9db7` | `npm run typecheck` PASS; table-config/enrollment tests PASS (21 files / 92 tests); deployed `pg_proc.proacl` verification and schema apply remain mandatory. |
 | 2026-08-09 | **Claude P2 — Enrollment archive network-failure rollback.** Confirmed the missing `catch`: a rejected DELETE fetch previously removed the row optimistically without restoring it or showing an error. The catch now restores only that row at its prior index and reports the connection failure. | `08e3538` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; table-config/enrollment tests PASS (21 files / 92 tests). Authenticated browser failure-injection remains. |
 | 2026-08-09 | **Claude P2 — Config column/option broadcast fan-out containment.** Partially confirmed. Column layout/column-option mutations now publish only the Config invalidation topic; agent/assistant membership mutations intentionally retain the full Tasks/Enrollment broadcast because they change assignment scope and visible data. | `7c7341e` | `npm run typecheck` PASS; targeted ESLint PASS for five Config column/option routes; table-config/enrollment tests PASS (21 files / 92 tests). Multi-tab request-count verification remains. |
+| 2026-08-09 | **Full regression after Claude adjudication fixes.** | `7c7341e` | `npm run lint` PASS; `npm run test:run` PASS (**60 files / 458 tests**); `npm run build` PASS. Production schema/ACL, authenticated browser, failure-injection, scheduler, and volume gates remain open. |
 
 ## Claude review adjudication — Codex
 
