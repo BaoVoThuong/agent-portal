@@ -1,5 +1,10 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { fetchTaskListMetadata, isMissingTaskListMetadataRpc } from "./queries";
+import {
+  assertTaskListComplete,
+  fetchTaskListMetadata,
+  isMissingTaskListMetadataRpc,
+  TaskListTruncatedError,
+} from "./queries";
 
 afterEach(() => {
   vi.doUnmock("@/lib/supabase");
@@ -67,6 +72,25 @@ describe("fetchTaskListMetadata", () => {
         attachment_count: 2,
       },
     ]);
+  });
+});
+
+describe("assertTaskListComplete", () => {
+  it("fails closed when PostgREST returns fewer rows than the exact count", () => {
+    expect(() => assertTaskListComplete([{ id: "task-1" }], 2)).toThrow(
+      TaskListTruncatedError
+    );
+    try {
+      assertTaskListComplete([{ id: "task-1" }], 2);
+    } catch (error) {
+      expect(error).toMatchObject({ total: 2, loaded: 1 });
+    }
+  });
+
+  it("accepts complete and countless responses", () => {
+    expect(() => assertTaskListComplete([{ id: "task-1" }], 1)).not.toThrow();
+    expect(() => assertTaskListComplete([{ id: "task-1" }], null)).not.toThrow();
+    expect(() => assertTaskListComplete(null, undefined)).not.toThrow();
   });
 });
 

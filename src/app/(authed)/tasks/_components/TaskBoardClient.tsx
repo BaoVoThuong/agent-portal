@@ -379,7 +379,13 @@ export function TaskBoardClient({
     const writeVersionAtStart = tasksWriteVersionRef.current;
     try {
       const res = await fetch("/api/tasks");
-      if (!res.ok) return;
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        if (data?.error) setError(data.error);
+        return;
+      }
       const data = await res.json();
       // A newer refetch, a local write, or an in-flight direct mutation means
       // this full-list payload may be older than what the user just did.

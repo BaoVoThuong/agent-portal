@@ -9,6 +9,8 @@ import { fetchAgentsForCs, fetchAssistantAgentsForCs } from "./membership";
 import { fetchParticipantTaskIds } from "./participants";
 import type { TaskActor, TaskRow } from "./types";
 
+export const TASK_LIST_COUNT_MODE = "exact" as const;
+
 export const TASK_COLUMNS =
   "id,title,description,fub_link,status,priority,category_id,custom_values,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,qc_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
 const TASK_COLUMNS_LEGACY =
@@ -18,7 +20,7 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   const supabase = getSupabaseAdmin();
   let query = supabase
     .from("tasks")
-    .select(TASK_COLUMNS)
+    .select(TASK_COLUMNS, { count: TASK_LIST_COUNT_MODE })
     .is("archived_at", null)
     .order("position", { ascending: true })
     .order("created_at", { ascending: true })
@@ -68,7 +70,7 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   if (isMissingTaskCustomValuesColumn(queryError)) {
     let fallback = supabase
       .from("tasks")
-      .select(TASK_COLUMNS_LEGACY)
+      .select(TASK_COLUMNS_LEGACY, { count: TASK_LIST_COUNT_MODE })
       .is("archived_at", null)
       .order("position", { ascending: true })
       .order("created_at", { ascending: true })
@@ -83,6 +85,9 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
     const fallbackResult = await fallback;
     rows = fallbackResult.data as unknown[] | null;
     queryError = fallbackResult.error as { code?: string; message?: string } | null;
+    assertTaskListComplete(rows, fallbackResult.count);
+  } else {
+    assertTaskListComplete(rows, result.count);
   }
   if (queryError) throw new Error(queryError.message);
   const tasks = await attachAssigneesToTasks(
@@ -121,6 +126,35 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
     });
 
   return attachTaskListMetadata(visibleTasks, supabase);
+}
+
+export class TaskListTruncatedError extends Error {
+  readonly total: number;
+  readonly loaded: number;
+
+  constructor(total: number, loaded: number) {
+    super(
+      `Tasks list is larger than the server response limit (${loaded} of ${total} rows loaded).`
+    );
+    this.name = "TaskListTruncatedError";
+    this.total = total;
+    this.loaded = loaded;
+  }
+}
+
+/**
+ * PostgREST can cap an un-ranged response without returning an error. Exact
+ * count lets us fail closed instead of presenting a silently incomplete task
+ * board or export. Pagination/windowing is a separate, measured follow-up.
+ */
+export function assertTaskListComplete(
+  rows: unknown[] | null,
+  count: number | null | undefined
+): void {
+  const loaded = rows?.length ?? 0;
+  if (typeof count === "number" && count > loaded) {
+    throw new TaskListTruncatedError(count, loaded);
+  }
 }
 
 type TaskActivityListRow = {

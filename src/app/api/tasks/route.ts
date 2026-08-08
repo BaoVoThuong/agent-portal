@@ -13,7 +13,10 @@ import {
   findIneligibleTaskAssigneeEmail,
   isTaskAssigneesMissingError,
 } from "@/lib/tasks/assignees";
-import { fetchTasksForActor } from "@/lib/tasks/queries";
+import {
+  fetchTasksForActor,
+  TaskListTruncatedError,
+} from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskRow } from "@/lib/tasks/types";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
@@ -69,8 +72,26 @@ export async function GET() {
   if (!canAccessBoard(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const tasks = await fetchTasksForActor(actor);
-  return NextResponse.json({ tasks });
+  try {
+    const tasks = await fetchTasksForActor(actor);
+    return NextResponse.json({ tasks });
+  } catch (error) {
+    if (error instanceof TaskListTruncatedError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: "TASK_LIST_TRUNCATED",
+          total: error.total,
+          loaded: error.loaded,
+        },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not load tasks." },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(request: Request) {
