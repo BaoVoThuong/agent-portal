@@ -2913,9 +2913,11 @@ function EnrollmentDrawer({
                     type="date"
                     value={formatDateInput(record.due_date)}
                     disabled={!canEditRecord}
-                    onChange={(event) =>
-                      void onPatch({ due_date: event.target.value || null })
-                    }
+                    onChange={(event) => {
+                      const nextDueDate = event.target.value || null;
+                      if (nextDueDate === formatDateInput(record.due_date)) return;
+                      void onPatch({ due_date: nextDueDate });
+                    }}
                     className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
                   />
                 </FieldBlock>
