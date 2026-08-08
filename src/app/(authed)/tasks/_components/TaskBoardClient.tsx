@@ -71,6 +71,18 @@ function browserStorage() {
   return typeof window === "undefined" ? undefined : window.localStorage;
 }
 
+type PendingTaskPatch = {
+  sequence: number;
+  patch: Record<string, unknown>;
+};
+
+type TaskMutationState = {
+  confirmed: TaskRow;
+  pending: PendingTaskPatch[];
+  nextSequence: number;
+  tail: Promise<void>;
+};
+
 export function TaskBoardClient({
   initialTasks,
   initialNowIso,
@@ -108,6 +120,8 @@ export function TaskBoardClient({
   const deepLinkId = searchParams.get("task");
   const deepLinkCommentId = searchParams.get("comment");
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
+  const taskRowsRef = useRef(new Map(initialTasks.map((task) => [task.id, task])));
+  const taskMutationStatesRef = useRef(new Map<string, TaskMutationState>());
   const [view, setView] = useState<BoardView>("list");
   const [overviewSnapshot, setOverviewSnapshot] = useState<OverviewSnapshot | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
@@ -393,8 +407,7 @@ export function TaskBoardClient({
         return;
       }
       tasksRefetchDirtyRef.current = false;
-      tasksWriteVersionRef.current += 1;
-      setTasks((prev) => mergeRefetchedTasks(prev, data.tasks as TaskRow[], recentTaskWritesRef));
+      updateTasks((prev) => mergeRefetchedTasks(prev, data.tasks as TaskRow[], recentTaskWritesRef));
       void loadUnreadAssignedTaskIds();
     } catch {
       // ignore; the next ping or reconnect retries
@@ -910,6 +923,7 @@ export function TaskBoardClient({
     setTasks((prev) => {
       const next = updater(prev);
       if (next !== prev) {
+        taskRowsRef.current = new Map(next.map((task) => [task.id, task]));
         const prevById = new Map(prev.map((t) => [t.id, t]));
         const now = Date.now();
         for (const task of next) {
@@ -967,46 +981,117 @@ export function TaskBoardClient({
     void patchTask(id, { done_reviewed: reviewed });
   }
 
-  async function patchTask(id: string, patch: Record<string, unknown>) {
-    // Snapshot only the affected task so a failed update reverts just this card,
-    // never clobbering other concurrent optimistic moves.
-    const before = tasks.find((t) => t.id === id) ?? null;
+  function applyLocalTask(task: TaskRow) {
+    taskRowsRef.current.set(task.id, task);
+    updateTasks((current) =>
+      current.map((candidate) => (candidate.id === task.id ? task : candidate))
+    );
+  }
+
+  async function fetchCanonicalTask(id: string): Promise<TaskRow | null> {
+    try {
+      const response = await fetch(`/api/tasks/${id}`);
+      if (!response.ok) return null;
+      const data = (await response.json()) as { task?: TaskRow };
+      return data.task?.id === id ? data.task : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function rebasePendingTaskPatches(id: string, state: TaskMutationState) {
+    let next = state.confirmed;
+    for (const pending of state.pending) {
+      next = {
+        ...next,
+        ...buildOptimisticTaskPatch(pending.patch, currentEmail, next),
+      } as TaskRow;
+    }
+    applyLocalTask(next);
+    if (state.pending.length === 0) {
+      taskMutationStatesRef.current.delete(id);
+    }
+  }
+
+  function patchTask(id: string, patch: Record<string, unknown>): Promise<void> {
+    const before = taskRowsRef.current.get(id) ?? tasks.find((task) => task.id === id) ?? null;
     if (!before) {
       setError("Task is no longer available. Refresh and try again.");
-      return;
+      return Promise.resolve();
     }
-    const revert = () => {
-      updateTasks((cur) => cur.map((t) => (t.id === id ? before : t)));
-    };
-    const finishPendingMutation = beginTaskMutation(id);
-    const optimisticPatch = buildOptimisticTaskPatch(patch, currentEmail, before);
-    updateTasks((cur) =>
-      cur.map((t) => (t.id === id ? ({ ...t, ...optimisticPatch } as TaskRow) : t))
-    );
 
-    let res: Response;
-    try {
-      res = await fetch(`/api/tasks/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...patch, expected_updated_at: before.updated_at }),
+    const state =
+      taskMutationStatesRef.current.get(id) ??
+      ({
+        confirmed: before,
+        pending: [],
+        nextSequence: 0,
+        tail: Promise.resolve(),
+      } satisfies TaskMutationState);
+    taskMutationStatesRef.current.set(id, state);
+    const sequence = state.nextSequence++;
+    state.pending.push({ sequence, patch });
+
+    const optimistic = {
+      ...before,
+      ...buildOptimisticTaskPatch(patch, currentEmail, before),
+    } as TaskRow;
+    applyLocalTask(optimistic);
+    const finishPendingMutation = beginTaskMutation(id);
+
+    const operation = state.tail
+      .then(async () => {
+        let response: Response;
+        try {
+          response = await fetch(`/api/tasks/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...patch,
+              expected_updated_at: state.confirmed.updated_at,
+            }),
+          });
+        } catch {
+          setError("Mất kết nối — không lưu được thay đổi.");
+          return;
+        }
+
+        if (!response.ok) {
+          const data = (await response.json().catch(() => null)) as
+            | { error?: string }
+            | null;
+          if (response.status === 409) {
+            const canonical = await fetchCanonicalTask(id);
+            if (canonical) {
+              state.confirmed = canonical;
+              setError("Task đã thay đổi ở nơi khác; đã tải lại bản ghi chuẩn.");
+            } else {
+              setError("Task đã thay đổi ở nơi khác; hãy tải lại để tiếp tục.");
+            }
+          } else {
+            setError(data?.error ?? "Không cập nhật được task.");
+          }
+          return;
+        }
+
+        const data = (await response.json()) as { task?: TaskRow };
+        if (data.task?.id === id) {
+          state.confirmed = data.task;
+        } else {
+          setError("Server không trả về task sau khi cập nhật.");
+        }
+      })
+      .catch(() => {
+        setError("Không cập nhật được task.");
+      })
+      .finally(() => {
+        state.pending = state.pending.filter((pending) => pending.sequence !== sequence);
+        rebasePendingTaskPatches(id, state);
+        finishPendingMutation();
       });
-    } catch {
-      finishPendingMutation();
-      revert();
-      setError("Mất kết nối — không lưu được thay đổi.");
-      return;
-    }
-    if (!res.ok) {
-      finishPendingMutation();
-      revert();
-      const data = (await res.json().catch(() => null)) as { error?: string } | null;
-      setError(data?.error ?? "Không cập nhật được task.");
-      return;
-    }
-    const data = await res.json();
-    replaceTask(data.task as TaskRow);
-    finishPendingMutation();
+
+    state.tail = operation;
+    return operation;
   }
 
   function moveTask(id: string, change: { status: TaskStatus; position: number }) {
@@ -1675,7 +1760,6 @@ function buildOptimisticTaskPatch(
   // clears stale active-overdue markers; SLA itself is disabled after Waiting.
   if (typeof optimistic.status === "string" && before && optimistic.status !== before.status) {
     const nowIso = new Date().toISOString();
-    optimistic.updated_at = nowIso;
     optimistic.done_reviewed_by_email = null;
     optimistic.done_reviewed_at = null;
 
