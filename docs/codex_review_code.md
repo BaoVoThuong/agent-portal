@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 20:50 Asia/Ho_Chi_Minh**
-Reviewed source through: **`38e6409`** (execution log commits follow)
+Last Updated: **2026-08-08 20:55 Asia/Ho_Chi_Minh**
+Reviewed source through: **`c816ed9`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -327,7 +327,7 @@ Status: **IMPLEMENTED — deployed scheduler evidence pending**
 
 ## Fixes Applied
 
-T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`), T-10 dirty-aware drawer drafts (`e77cb78`), T-11 archive confirmation semantics (`16203e3`), T-12 escaped permission filter identities (`d6fbe37`), T-13 Bearer-only cron authentication (`17b86e2`), T-14 scheduler ownership documentation alignment (`bb6dca3`), T-15 shared Toast export failures (`fac06e7`), X-01 versioned layout writes (`38e6409`), X-02 strict Config scope boundaries (`c6dfc3d`).
+T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`), T-10 dirty-aware drawer drafts (`e77cb78`), T-11 archive confirmation semantics (`16203e3`), T-12 escaped permission filter identities (`d6fbe37`), T-13 Bearer-only cron authentication (`17b86e2`), T-14 scheduler ownership documentation alignment (`bb6dca3`), T-15 shared Toast export failures (`fac06e7`), X-01 versioned layout writes (`38e6409`), X-02 strict Config scope boundaries (`c6dfc3d`), X-03 table-shaped loading boundaries (`c0abf16`), X-04 Config input contrast (`c816ed9`).
 
 ## Verification
 
@@ -1291,10 +1291,10 @@ Expected: Skeleton approximates the incoming header/toolbar/table geometry.
 Actual: Dashboard-shaped blocks are replaced by tables, producing misleading layout shift.  
 Root Cause: One generic authenticated loading boundary serves unrelated page shapes.  
 Impact: Visible loading inconsistency; no state loss.  
-Fix: Add route-level table skeletons or a shared table-shaped fallback.  
+Fix: Add route-level table skeletons backed by one shared table-shaped fallback, while retaining the generic dashboard fallback for unrelated routes.
 Regression Risk: Low.  
-Verification: Static route/loading hierarchy comparison.  
-Status: **OPEN**
+Verification: Added loading boundaries for Tasks, Enrollment, and Config; each renders the table toolbar/header/rows geometry. Typecheck, targeted ESLint, and diff-check pass. Browser navigation/layout-shift verification remains.
+Status: **IMPLEMENTED — browser verification pending**
 
 ### X-04 — Global dark preference conflicts with light-only module controls
 
@@ -1307,10 +1307,10 @@ Expected: Readable contrast or an explicitly light application theme.
 Actual: At least the new-column label input can render near-light text on a light field.  
 Root Cause: Global theme variables and hardcoded light module styles are mixed.  
 Impact: Input readability/accessibility defect.  
-Fix: Give affected controls explicit light text/background or remove unsupported global dark override until a real theme exists.  
+Fix: Give the Config new-column label input explicit light text/background and placeholder colors without changing the global theme contract.
 Regression Risk: Low for targeted contrast fix.  
-Verification: Static CSS cascade trace; visual browser check still required.  
-Status: **OPEN**
+Verification: The input now explicitly sets `bg-white`, `text-[#172b4d]`, and placeholder color. Typecheck and targeted ESLint pass; visual dark-preference contrast check remains.
+Status: **IMPLEMENTED — visual verification pending**
 
 ### X-05 — Detail deep-link behavior is inconsistent
 
@@ -1365,7 +1365,7 @@ Active P2 findings remain. T-04 (`16ad882`), T-05 (`82885a3`), T-06 (`ff87eaf`),
 
 ## P3
 
-**17 issue groups:** T-10 through T-14; M-13 through M-17; C-13 through C-16; X-03 through X-05. T-10, T-11, T-12, and T-13 are implemented pending browser/deployed evidence; the remaining P3 groups are open.
+**17 issue groups:** T-10 through T-14; M-13 through M-17; C-13 through C-16; X-03 through X-05. T-10 through T-15 and X-03/X-04 are implemented pending browser/deployed evidence; the remaining P3 groups are open.
 
 ## P4
 
@@ -1457,6 +1457,8 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **T-15 — shared Toast for Tasks export failures.** Replaced both native `window.alert` branches in the visible Tasks export handler with the existing screen-level error Toast and consistent Vietnamese fallback copy. | `fac06e7` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskBoardClient.tsx`; Tasks tests PASS (21 files / 243 tests). Browser Toast/accessibility verification remains. |
 | 2026-08-08 | **X-02 — strict Config scope boundary.** Added `parseTableScope` and made layout GET/DELETE plus scoped columns GET reject missing or invalid scopes with 400 instead of silently targeting CS. The no-scope aggregate columns response remains unchanged. | `c6dfc3d` | Table-config tests PASS (8 files / 39 tests), `npm run typecheck` PASS, and targeted ESLint PASS for parser and affected routes. Authenticated direct-route checks remain. |
 | 2026-08-08 | **X-01 — versioned layout writes.** Tasks and Enrollment now queue/coalesce layout PUTs and carry the server's `updated_at`; the layout route conditionally updates an existing version or inserts only when the client observed no row, returning 409 for stale tabs or reset races. Legacy unversioned PUTs remain accepted for compatibility during rollout. | `38e6409` | Tasks + table-config tests PASS (29 files / 282 tests), `npm run typecheck` PASS, targeted ESLint PASS, and diff-check PASS. Slow/reordered two-tab and admin-reset staging verification remains. |
+| 2026-08-08 | **X-03 — module-specific loading geometry.** Added a shared table-shaped skeleton and route-level loading boundaries for Tasks, Enrollment, and Config so navigation no longer shows dashboard cards before those table pages. | `c0abf16` | `npm run typecheck` PASS; targeted ESLint PASS for the shared skeleton and three route boundaries; diff-check PASS. Browser navigation/layout-shift verification remains. |
+| 2026-08-08 | **X-04 — Config dark-preference input contrast.** Added explicit light background, foreground, and placeholder colors to the new-column label input so the global dark media rule cannot make typed text unreadable. | `c816ed9` | `npm run typecheck` PASS; targeted ESLint PASS for `ConfigClient.tsx`; diff-check PASS. Visual `prefers-color-scheme: dark` check remains. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1590,7 +1592,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `17b86e2`:
+Verification recorded across the execution commits through `c816ed9`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1598,6 +1600,7 @@ Verification recorded across the execution commits through `17b86e2`:
 - `npm run test:run -- src/lib/cron-auth.test.ts`: **PASS — 4 tests**.
 - `npm run test:run -- src/lib/table-config`: **PASS — 8 files / 39 tests** after X-02.
 - Combined Tasks + table-config regression run after X-01: **29 files / 282 tests PASS**.
+- Route-level loading skeleton and Config contrast fixes: **typecheck, targeted ESLint, and diff-check PASS**.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
