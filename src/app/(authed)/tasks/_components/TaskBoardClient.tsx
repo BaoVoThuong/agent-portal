@@ -1279,7 +1279,9 @@ export function TaskBoardClient({
   }
 
   async function deleteTask(id: string) {
-    const prev = tasks;
+    const before = taskRowsRef.current.get(id) ?? tasks.find((task) => task.id === id);
+    if (!before) return;
+    const beforeIndex = tasks.findIndex((task) => task.id === id);
     const finishPendingMutation = beginTaskMutation(id);
     updateTasks((cur) => cur.filter((t) => t.id !== id));
     setOpenId(null);
@@ -1288,13 +1290,23 @@ export function TaskBoardClient({
       res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
     } catch {
       finishPendingMutation();
-      updateTasks(() => prev);
+      updateTasks((current) => {
+        if (current.some((task) => task.id === id)) return current;
+        const restored = [...current];
+        restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
+        return restored;
+      });
       setError("Mất kết nối — không xoá được task.");
       return;
     }
     if (!res.ok) {
       finishPendingMutation();
-      updateTasks(() => prev);
+      updateTasks((current) => {
+        if (current.some((task) => task.id === id)) return current;
+        const restored = [...current];
+        restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
+        return restored;
+      });
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       setError(data?.error ?? "Không xoá được task.");
       return;
