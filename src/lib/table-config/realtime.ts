@@ -23,10 +23,14 @@ async function broadcastConfigInvalidation(): Promise<void> {
   }
 }
 
+export async function broadcastTableConfigInvalidation(): Promise<void> {
+  await broadcastConfigInvalidation();
+}
+
 export async function broadcastTableConfigChanged(): Promise<void> {
   await Promise.all([
     broadcastEnrollmentChanged(),
     broadcastTasksChanged(),
-    broadcastConfigInvalidation(),
+    broadcastTableConfigInvalidation(),
   ]);
 }
