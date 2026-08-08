@@ -1835,19 +1835,17 @@ function EnrollmentRowItem({
             "flex shrink-0 items-center px-3 py-2.5"
           )}
         >
-          <EditableCustomCell
-            column={{
-              id: "client_name",
-              type: "text",
-              key: "client_name",
-              label: columnByKey.get("client")?.label ?? "Client Name",
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen(record.id);
             }}
-            value={record.client_name}
-            canEdit={canEditRecord}
-            onSave={(next) => onPatch(record.id, { client_name: next })}
-            emptyLabel="Unnamed client"
-            className="w-full !text-sm !font-medium !text-[#172b4d]"
-          />
+            className="w-full min-w-0 truncate rounded px-1.5 py-1 text-left text-sm font-medium text-[#172b4d] transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
+            title={record.client_name || "Unnamed client"}
+          >
+            <span className="block truncate">{record.client_name || "Unnamed client"}</span>
+          </button>
         </div>
       ) : null}
 

@@ -328,13 +328,17 @@ export function TaskRowItem({
             `flex ${summaryClassName} items-center gap-1.5`
           )}
         >
-          <EditableCustomCell
-            column={{ id: "summary", type: "text", key: "summary", label: "Client Name" }}
-            value={task.title}
-            canEdit={canEditContent}
-            onSave={(next) => onPatch(task.id, { title: next })}
-            className="w-full !text-sm !font-medium !text-[#172b4d]"
-          />
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen(task.id);
+            }}
+            className="w-full min-w-0 truncate rounded px-1.5 py-1 text-left text-sm font-medium text-[#172b4d] transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
+            title={task.title || "Unnamed task"}
+          >
+            <span className="block truncate">{task.title || "Unnamed task"}</span>
+          </button>
           {isNewAssigned ? <NewAssignedBadge /> : null}
           <TaskRowFlags task={task} isOverdue={isOverdue} />
           <TaskFubLink href={task.fub_link} />
@@ -417,13 +421,17 @@ export function TaskRowItem({
 
       {!configuredColumns && hasColumn("summary") ? (
         <div className={`flex ${summaryClassName} items-center gap-1.5`}>
-          <EditableCustomCell
-            column={{ id: "summary", type: "text", key: "summary", label: "Client Name" }}
-            value={task.title}
-            canEdit={canEditContent}
-            onSave={(next) => onPatch(task.id, { title: next })}
-            className="w-full !text-sm !font-medium !text-[#172b4d]"
-          />
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen(task.id);
+            }}
+            className="w-full min-w-0 truncate rounded px-1.5 py-1 text-left text-sm font-medium text-[#172b4d] transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
+            title={task.title || "Unnamed task"}
+          >
+            <span className="block truncate">{task.title || "Unnamed task"}</span>
+          </button>
           {isNewAssigned ? <NewAssignedBadge /> : null}
           <TaskRowFlags task={task} isOverdue={isOverdue} />
         </div>
