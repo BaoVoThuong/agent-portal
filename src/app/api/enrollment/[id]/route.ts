@@ -24,6 +24,10 @@ import {
 } from "@/lib/enrollment/realtime";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
 import { parseEnrollmentDate } from "@/lib/enrollment/dates";
+import {
+  enrollmentOwnershipFieldLabel,
+  validateEnrollmentOwnership,
+} from "@/lib/enrollment/ownership";
 import { fetchAdminEmails } from "@/lib/tasks/membership";
 import {
   findMissingRequiredFields,
@@ -224,6 +228,29 @@ export async function PATCH(request: Request, { params }: Ctx) {
       ...cleanCustomValues(body.custom_values),
     };
     changedFields.push("custom_values");
+  }
+
+  try {
+    const invalidOwner = await validateEnrollmentOwnership({
+      agent_email: patch.agent_email as string | null | undefined,
+      caller_email: patch.caller_email as string | null | undefined,
+      responsible_enroll_email: patch.responsible_enroll_email as string | null | undefined,
+    });
+    if (invalidOwner) {
+      return NextResponse.json(
+        {
+          error: `${enrollmentOwnershipFieldLabel(invalidOwner.field)} must be an active account${
+            invalidOwner.field === "agent_email" ? " selected as a task agent" : ""
+          }.`,
+        },
+        { status: 400 }
+      );
+    }
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not validate enrollment ownership." },
+      { status: 500 }
+    );
   }
 
   // findMissingRequiredFields() keys fieldValues by table_column.key, which
