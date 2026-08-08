@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canAccessBoard, isTaskViewAdmin } from "@/lib/tasks/access";
+import { SLA_DURATION_BOUNDS, isSlaDurationInBounds } from "@/lib/tasks/sla-config";
 import { TASK_PRIORITIES } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -48,9 +49,14 @@ export async function POST(req: Request) {
     typeof body?.category_id === "string" && body.category_id.trim() !== ""
       ? body.category_id.trim()
       : null;
-  const durationMinutes = Number(body?.duration_minutes);
-  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
-    return NextResponse.json({ error: "Invalid duration." }, { status: 400 });
+  const durationMinutes = Math.round(Number(body?.duration_minutes));
+  if (!isSlaDurationInBounds(durationMinutes)) {
+    return NextResponse.json(
+      {
+        error: `duration_minutes must be between ${SLA_DURATION_BOUNDS.minMinutes} and ${SLA_DURATION_BOUNDS.maxMinutes} minutes.`,
+      },
+      { status: 400 }
+    );
   }
 
   const supabase = getSupabaseAdmin();
@@ -72,7 +78,7 @@ export async function POST(req: Request) {
   const patch = {
     priority,
     category_id: categoryId,
-    duration_minutes: Math.round(durationMinutes),
+    duration_minutes: durationMinutes,
     updated_at: new Date().toISOString(),
   };
 
