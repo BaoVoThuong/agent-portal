@@ -3,8 +3,14 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumns } from "./queries";
 import type { ColumnType, TableScope } from "./types";
 
-function isValueFilled(type: ColumnType, value: unknown): boolean {
-  if (type === "checkbox") return true;
+export function isRequiredValueFilled(type: ColumnType, value: unknown): boolean {
+  // A checkbox's `false` value is a deliberate answer and therefore counts as
+  // filled. Null/undefined/empty values are still missing, which matters for
+  // ACA Consent: it is rendered as a checkbox but stored as a nullable option
+  // id, so the server must agree with the form's Required check.
+  if (type === "checkbox") {
+    return value !== null && value !== undefined && value !== "";
+  }
   if (value === null || value === undefined) return false;
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "number") return Number.isFinite(value);
@@ -58,7 +64,7 @@ export async function findMissingRequiredFields(
 
     if (column.is_system) {
       if (options.partial && !(column.key in options.fieldValues)) continue;
-      if (!isValueFilled(column.type, options.fieldValues[column.key])) {
+      if (!isRequiredValueFilled(column.type, options.fieldValues[column.key])) {
         missing.push({ key: column.key, label: column.label });
       }
       continue;
@@ -67,7 +73,7 @@ export async function findMissingRequiredFields(
     if (options.checkCustom === false) continue;
     const customValues = options.customValues ?? {};
     if (options.partial && !(column.key in customValues)) continue;
-    if (!isValueFilled(column.type, customValues[column.key])) {
+    if (!isRequiredValueFilled(column.type, customValues[column.key])) {
       missing.push({ key: column.key, label: column.label });
     }
   }
