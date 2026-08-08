@@ -49,6 +49,7 @@ import {
   sortEnrollmentOptionsByLabel,
   type EnrollmentOptionsBySet,
 } from "@/lib/enrollment/options";
+import { findInvalidEnrollmentOptionFields } from "@/lib/enrollment/form-options";
 import {
   ENROLLMENT_PROGRAMS,
   ENROLLMENT_PROGRAM_LABELS,
@@ -3276,6 +3277,22 @@ function NewEnrollmentDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
+
+  useEffect(() => {
+    const removedFields = findInvalidEnrollmentOptionFields(form, optionsBySet);
+    if (removedFields.length === 0) return;
+
+    const timer = window.setTimeout(() => {
+      setForm((current) => {
+        const next = { ...current };
+        for (const field of removedFields) next[field] = "";
+        return next;
+      });
+      setInvalidKeys((current) => new Set([...current, ...removedFields]));
+      setError("An option used by this form was archived. Please choose a replacement.");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [form, optionsBySet]);
 
   useEffect(() => {
     ticketInputRef.current?.focus();
