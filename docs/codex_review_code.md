@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 21:08 Asia/Ho_Chi_Minh**
-Reviewed source through: **`ef50046`** (execution log commits follow)
+Last Updated: **2026-08-08 21:10 Asia/Ho_Chi_Minh**
+Reviewed source through: **`8a4155f`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -1010,7 +1010,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
+Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
 
 ## Verification
 
@@ -1075,10 +1075,10 @@ Expected: Matching record appears.
 Actual: It is absent.  
 Root Cause: UI copy and search fields diverged.  
 Impact: Records cannot be found by an advertised identifier.  
-Fix: Include normalized FUB value and tests.  
+Fix: Added the normalized `fub_link` value to a shared Enrollment search haystack helper and covered it with a regression test.
 Regression Risk: Low.  
-Verification: Direct placeholder/haystack comparison.  
-Status: **OPEN**
+Verification: FUB search helper test (1 test), `npm run typecheck`, targeted ESLint, and diff-check PASS. Authenticated toolbar search verification remains.
+Status: **IMPLEMENTED — browser verification pending**
 
 ### A-04 — Archived option leaves an invisible stale value in an open form
 
@@ -1466,6 +1466,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **M-16 — shared Enrollment reopen reason modal.** Replaced native `window.prompt` with the shared `ReasonModal`, preserving required reason validation and the existing `reopen_reason` PATCH. | `55177af` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; diff-check PASS. Medicare/ACA modal and accessibility verification remains. |
 | 2026-08-08 | **M-15 — unified Enrollment due-date validation.** Added one strict calendar-date parser and used it for both create and update, so malformed dates now return the same 400 instead of create silently storing null. | `68cdb53` | Date helper tests PASS (3 tests); Enrollment suite PASS (5 files / 36 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated route status verification remains. |
 | 2026-08-08 | **A-02 — strict Enrollment program boundary parsing.** Added `parseEnrollmentProgram` and applied it to list/create/export/options/overview APIs. Missing, invalid, or mistyped values now return 400 instead of silently selecting ACA; page navigation keeps its explicit default separately. | `ef50046` | Parser tests PASS (3 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated invalid-program route status verification remains. |
+| 2026-08-08 | **A-03 — FUB-aware Enrollment search.** Moved the search haystack into a shared helper and included normalized `fub_link`, so the toolbar's advertised FUB lookup returns link-only matches. | `8a4155f` | FUB search helper test PASS (1 test); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated toolbar search verification remains. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1599,7 +1600,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `ef50046`:
+Verification recorded across the execution commits through `8a4155f`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1615,6 +1616,7 @@ Verification recorded across the execution commits through `ef50046`:
 - Enrollment reopen modal: **typecheck, targeted ESLint, and diff-check PASS**; browser accessibility proof remains.
 - Enrollment due-date parser: **date tests (3), Enrollment suite (5 files / 36 tests), typecheck, targeted ESLint, and diff-check PASS**; route status proof remains.
 - Enrollment program parser/API boundary: **parser tests (3), typecheck, targeted ESLint, and diff-check PASS**; authenticated invalid-program route status proof remains.
+- Enrollment FUB search helper: **1 test, typecheck, targeted ESLint, and diff-check PASS**; authenticated toolbar search proof remains.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
