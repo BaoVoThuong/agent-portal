@@ -29,15 +29,8 @@ import {
   attachAssigneesToTasks,
   fetchTaskAssigneeEmails,
   isEligibleTaskAssigneeEmail,
-  isTaskAssigneesMissingError,
   isTaskAssignee,
 } from "@/lib/tasks/assignees";
-import {
-  recordStageTransition,
-  resolveOverdueEvent,
-  syncAssignmentCycles,
-} from "@/lib/tasks/history";
-import { touchLastActivity } from "@/lib/tasks/last-activity";
 import {
   findMissingRequiredFields,
   missingRequiredFieldsMessage,
@@ -356,54 +349,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
     resolved.patch.overdue_flagged_at = nowIso;
   }
 
-  const { data, error } = await r.supabase
-    .from("tasks")
-    .update({ ...resolved.patch, updated_at: nowIso })
-    .eq("id", id)
-    .eq("updated_at", expectedUpdatedAt)
-    .select("*")
-    .maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) {
-    return NextResponse.json(
-      { error: "Task was updated by someone else. Refresh and try again." },
-      { status: 409 }
-    );
-  }
-
-  // The canonical task update above is already committed. Side effects below
-  // must therefore not turn a committed mutation into a retryable 5xx: the
-  // client would optimistically roll back and a retry could apply a different
-  // transition. Keep the response truthful and leave an observable warning
-  // until these writes move into a transactional RPC/repair queue.
+  // Recipient lookup is non-authoritative and may fail independently. Keep
+  // the warning but still let the atomic task command commit below.
   const mutationWarnings: string[] = [];
 
-  if (replaceAssigneesWith) {
-    const { error: deleteAssigneesError } = await r.supabase
-      .from("task_assignees")
-      .delete()
-      .eq("task_id", id);
-    if (deleteAssigneesError && !isTaskAssigneesMissingError(deleteAssigneesError)) {
-      mutationWarnings.push(`task_assignees delete failed: ${deleteAssigneesError.message}`);
-    }
-    if (replaceAssigneesWith.length > 0) {
-      const { error: insertAssigneeError } = await r.supabase
-        .from("task_assignees")
-        .insert(
-          replaceAssigneesWith.map((email) => ({ task_id: id, email, created_at: nowIso }))
-        );
-      if (insertAssigneeError && !isTaskAssigneesMissingError(insertAssigneeError)) {
-        mutationWarnings.push(`task_assignees insert failed: ${insertAssigneeError.message}`);
-      }
-    }
-  }
-
-  // Everything below writes audit/history tables that don't depend on each
-  // other's results — running them concurrently (instead of one after another)
-  // meaningfully shortens the response time, which matters here: a slow
-  // response widens the window where a realtime-triggered refetch on the
-  // client can race the confirm and flash stale data (see updateTasks/
-  // refetchTasks in TaskBoardClient.tsx for the client-side half of this).
+  // Build required audit rows before entering the database transaction. The
+  // command below commits these rows together with the canonical task state.
   const entries = buildActivityEntries(
     {
       status: r.task.status,
@@ -496,53 +447,52 @@ export async function PATCH(req: Request, { params }: Ctx) {
     })),
   ]);
 
-  const sideEffectResults = await Promise.allSettled([
-    leavingOverdueInProgress
-      ? resolveOverdueEvent(r.supabase, {
-          task: r.task,
-          dueAt: (currentStintDueAt(r.task, slaRules) ?? new Date(nowIso)).toISOString(),
-          resolvedAt: nowIso,
-          actorEmail: r.actor.email,
-          reason: `Status changed to ${resolved.patch.status}`,
-          slaMinutes: effectiveSlaMinutes(r.task, slaRules),
-        })
-      : null,
-    recordStageTransition(r.supabase, {
-      task: r.task,
-      patch: resolved.patch,
-      actorEmail: r.actor.email,
-      nowIso,
-    }),
-    syncAssignmentCycles(r.supabase, {
-      taskId: id,
-      beforeEmails: beforeAssigneesForHistory,
-      afterEmails: nextAssigneesForHistory,
-      actorEmail: r.actor.email,
-      nowIso,
-      source: "patch",
-    }),
-    touchLastActivity(r.supabase, id, nowIso),
-    entries.length > 0
-      ? r.supabase
-          .from("task_activity")
-          .insert(
-            entries.map((e) => ({
-              task_id: id,
-              actor_email: r.actor.email,
-              type: e.type,
-              meta: e.meta,
-            }))
-          )
-          .then(({ error: activityError }) => {
-            if (activityError) throw new Error(activityError.message);
-          })
-      : null,
+  const { data: atomicData, error: atomicError } = await r.supabase.rpc(
+    "patch_task_atomic",
+    {
+      p_task_id: id,
+      p_expected_updated_at: expectedUpdatedAt,
+      p_patch: resolved.patch,
+      p_before_assignees: beforeAssigneesForHistory,
+      p_next_assignees: replaceAssigneesWith,
+      p_actor_email: r.actor.email,
+      p_activity: entries,
+      p_overdue: leavingOverdueInProgress
+        ? {
+            due_at: (currentStintDueAt(r.task, slaRules) ?? new Date(nowIso)).toISOString(),
+            resolved_at: nowIso,
+            reason: `Status changed to ${resolved.patch.status}`,
+            sla_minutes: effectiveSlaMinutes(r.task, slaRules),
+          }
+        : null,
+      p_now: nowIso,
+    }
+  );
+  if (atomicError) {
+    if (atomicError.message.includes("TASK_CONFLICT")) {
+      return NextResponse.json(
+        { error: "Task was updated by someone else. Refresh and try again." },
+        { status: 409 }
+      );
+    }
+    if (atomicError.message.includes("TASK_NOT_FOUND")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ error: atomicError.message }, { status: 500 });
+  }
+  if (!atomicData || typeof atomicData !== "object") {
+    return NextResponse.json({ error: "Atomic task mutation returned no task." }, { status: 500 });
+  }
+
+  const data = atomicData as TaskRow;
+
+  const notificationResults = await Promise.allSettled([
     notificationRows.length > 0 ? insertNotifications(notificationRows) : null,
   ]);
-  for (const result of sideEffectResults) {
+  for (const result of notificationResults) {
     if (result.status === "rejected") {
       mutationWarnings.push(
-        result.reason instanceof Error ? result.reason.message : "Task side effect failed."
+        result.reason instanceof Error ? result.reason.message : "Task notification write failed."
       );
     }
   }
