@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Chuẩn hóa empty state person field trong Enrollment Create
+- **Loại**: fix
+- **Cái gì**: `EnrollmentPersonMenu` đổi từ boolean `field` sang surface union `list | form-bare | form-field`. ACA và Medicare Create dùng `form-bare`, nên Agent / Caller / Responsible không còn render pill `Assign` nét đứt của List bên trong border của `CreatePropertyField`; List vẫn giữ CTA `Assign`, Detail vẫn giữ control có border và chevron.
+- **Vì sao**: một prop boolean đang gộp hai trách nhiệm khác nhau: surface và border chrome. Empty state List đúng nhưng bị dùng nhầm trong Create.
+- **File**: `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx`
+- **Ảnh hưởng**: chỉ thay đổi presentation/affordance của person fields; không đổi payload, permission, required validation hoặc cardinality. `agent_email`, `caller_email`, `responsible_enroll_email` vẫn là single-person text fields.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-task-ui-standardization.md`; source commit `c51691f`
+
 ## 2026-08-09 — Di chuyển cấu hình SLA vào Health Table Configuration
 - **Loại**: feat, fix, refactor-logic, breaking
 - **Cái gì**: Chuyển giao diện quản trị `SLA Times` từ modal trên CS Task Board sang tab `SLA Times` trong `/config`; gom các constant UI/validation vào `src/lib/tasks/sla-config.ts`; xoá `SlaRulesModal.tsx`. API `POST /api/admin/task-sla-rules` nay từ chối `duration_minutes` ngoài khoảng 1–10080 phút (tối đa 168 giờ). Thêm test khóa `DEFAULT_SLA_MINUTES` và `DEFAULT_REMINDER_SETTINGS` đồng bộ với `supabase/schema.sql`.
