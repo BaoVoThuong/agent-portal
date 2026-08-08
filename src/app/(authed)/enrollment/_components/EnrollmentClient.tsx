@@ -497,6 +497,7 @@ export function EnrollmentClient({
   const enrollmentLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const enrollmentLayoutSaveSequenceRef = useRef(0);
   const enrollmentLayoutProgramRef = useRef(program);
+  const enrollmentLayoutBaselineRef = useRef<string | null>(null);
 
   function updateRecords(updater: (current: EnrollmentRecordWithStats[]) => EnrollmentRecordWithStats[]) {
     setRecords((current) => {
@@ -579,6 +580,7 @@ export function EnrollmentClient({
     let alive = true;
     enrollmentLayoutProgramRef.current = program;
     enrollmentLayoutUpdatedAtRef.current = null;
+    enrollmentLayoutBaselineRef.current = null;
     enrollmentLayoutSaveSequenceRef.current += 1;
     enrollmentLayoutHydratedRef.current = false;
     const resetTimer = window.setTimeout(() => {
@@ -630,7 +632,7 @@ export function EnrollmentClient({
   }, [program, setHiddenColumnKeys, tableColumns]);
 
   const saveEnrollmentLayout = useCallback(
-    (layout: ReturnType<typeof serializeLayout>) => {
+    (layout: ReturnType<typeof serializeLayout>, signature: string) => {
       const sequence = ++enrollmentLayoutSaveSequenceRef.current;
       const saveProgram = program;
       const save = async () => {
@@ -660,6 +662,9 @@ export function EnrollmentClient({
           ) {
             enrollmentLayoutUpdatedAtRef.current = payload.updated_at;
           }
+          if (saveProgram === enrollmentLayoutProgramRef.current) {
+            enrollmentLayoutBaselineRef.current = signature;
+          }
           return;
         }
         if (saveProgram !== enrollmentLayoutProgramRef.current) return;
@@ -688,8 +693,14 @@ export function EnrollmentClient({
           hiddenColumnKeys.has(column.key as EnrollmentColumnKey),
       }))
     );
+    const signature = JSON.stringify(layout);
+    if (enrollmentLayoutBaselineRef.current === null) {
+      enrollmentLayoutBaselineRef.current = signature;
+      return;
+    }
+    if (enrollmentLayoutBaselineRef.current === signature) return;
     const timer = window.setTimeout(() => {
-      saveEnrollmentLayout(layout);
+      saveEnrollmentLayout(layout, signature);
     }, 250);
     return () => window.clearTimeout(timer);
   }, [hiddenColumnKeys, layoutTableColumns, program, saveEnrollmentLayout]);
