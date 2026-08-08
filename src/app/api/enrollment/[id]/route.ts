@@ -23,6 +23,7 @@ import {
   broadcastEnrollmentRoom,
 } from "@/lib/enrollment/realtime";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
+import { parseEnrollmentDate } from "@/lib/enrollment/dates";
 import { fetchAdminEmails } from "@/lib/tasks/membership";
 import {
   findMissingRequiredFields,
@@ -141,7 +142,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   if ("due_date" in body) {
-    const nextDueDate = parseDate(body.due_date);
+    const nextDueDate = parseEnrollmentDate(body.due_date);
     if (nextDueDate.error) {
       return NextResponse.json({ error: nextDueDate.error }, { status: 400 });
     }
@@ -615,14 +616,4 @@ function cleanCustomValues(values: Record<string, unknown>): Record<string, unkn
     }
   }
   return next;
-}
-
-function parseDate(value: unknown): { value: string | null; error?: string } {
-  if (value === null || value === undefined || value === "") return { value: null };
-  if (typeof value !== "string") return { value: null, error: "Invalid due date." };
-  const trimmed = value.trim().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return { value: null, error: "Invalid due date." };
-  }
-  return { value: trimmed };
 }

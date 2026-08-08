@@ -21,6 +21,7 @@ import {
   type EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
+import { parseEnrollmentDate } from "@/lib/enrollment/dates";
 import {
   findMissingRequiredFields,
   missingRequiredFieldsMessage,
@@ -86,8 +87,11 @@ export async function POST(request: Request) {
     patch[field] = cleanText(body[field]);
   }
 
-  const dueDate = cleanDate(body.due_date);
-  patch.due_date = dueDate;
+  const dueDate = parseEnrollmentDate(body.due_date);
+  if (dueDate.error) {
+    return NextResponse.json({ error: dueDate.error }, { status: 400 });
+  }
+  patch.due_date = dueDate.value;
 
   const { optionsBySet } = await fetchEnrollmentOptionData(program);
   const fallbackStage = firstStageOption(optionsBySet);
@@ -316,10 +320,4 @@ export async function POST(request: Request) {
 
 function cleanText(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
-}
-
-function cleanDate(value: unknown): string | null {
-  if (typeof value !== "string" || value.trim() === "") return null;
-  const trimmed = value.trim().slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
