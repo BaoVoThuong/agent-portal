@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-09 00:50 Asia/Ho_Chi_Minh**
-Reviewed source through: **`5886f10`** (execution log commits follow)
+Last Updated: **2026-08-09 01:02 Asia/Ho_Chi_Minh**
+Reviewed source through: **`b86ffbb`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -65,6 +65,72 @@ Status: **IMPLEMENTED — browser/permission verification pending**
 Commits: `30746ba`, `5886f10`
 
 SLA implementation status: **READY FOR MANUAL VERIFICATION; DOES NOT CHANGE THE OVERALL GO-LIVE STATUS**. Existing P0/P1, production schema/ACL, failure-injection, scheduler, and browser gates listed below remain open.
+
+### Enrollment UI standardization — implementation log
+
+The plan in `docs/superpowers/plans/2026-08-09-enrollment-task-ui-standardization.md` was executed against the shared ACA/Medicare Enrollment implementation, using Health CS as the presentation baseline. No request payload, database field, permission, required-field rule, or cardinality changed.
+
+#### EUI-01 — Enrollment Create rendered the List-only dashed Assign CTA inside a form border
+
+Issue: Empty single-person fields in Enrollment Create displayed the List-view dashed `Assign` pill inside `CreatePropertyField`'s own border.
+Severity: **P2 — HIGH**
+Location: `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx` (`EnrollmentPersonMenu` and its nine call sites)
+Affected Module: ACA Enrollment / Medicare Enrollment Create
+Trigger: Open New enrollment with an empty Agent, Caller, or Responsible/Assignee field.
+Expected: One form border owned by `CreatePropertyField`, with a plain empty placeholder and an opening dropdown.
+Actual: Create reused the List empty-state CTA, producing an inner dashed bordered pill and inconsistent affordance.
+Root Cause: The `field` boolean conflated surface selection with border ownership; the List branch was reused by Create.
+Impact: Visible UI inconsistency and misleading nested affordance in both ACA and Medicare Create.
+Fix: Replaced the boolean with `surface: "list" | "form-bare" | "form-field"`; Create uses `form-bare`, List keeps dashed `Assign`, and Detail keeps its bordered `form-field` control.
+Regression Risk: Medium; all nine call sites had to be explicit, while single-person text payloads and `canEditRecord` behavior must remain unchanged.
+Verification: TypeScript caught exactly nine missing surface values before wiring; after wiring, typecheck, full Vitest (62 files / 480 tests), and targeted ESLint passed.
+Status: **IMPLEMENTED — browser/manual verification pending**
+Commit: `c51691f`; changelog `f7601b3`
+
+#### EUI-02 — Enrollment identity option badges did not match Health CS CategoryBadge
+
+Issue: Carrier, Payment, AC, Platform, and Consent List values used pale 0.08 chips, regular-case typography, and unconditional chevrons instead of the CS CategoryBadge language.
+Severity: **P2 — HIGH**
+Location: `EnrollmentOptionMenu`, `EnrollmentStagePill`, `src/lib/enrollment/option-badge.ts`
+Affected Module: ACA Enrollment / Medicare Enrollment List
+Trigger: View a configured option value or a read-only record in Enrollment List.
+Expected: Identity attributes use solid option colours, contrast-safe text, compact uppercase CS badge typography, and no chevron; Stage remains a tinted workflow-state pill.
+Actual: Attribute chips were dimmed and always displayed a dropdown affordance; Stage showed a chevron even when read-only.
+Root Cause: One `optionPillStyle` helper and one generic render path did not encode the semantic difference between identity and workflow state.
+Impact: Enrollment List did not visually scan like Health CS and could imply editability to read-only users.
+Fix: Added tested `enrollmentIdentityBadgeStyle` and `enrollmentStateBadgeStyle` helpers; reused CS `readableTextColor`; identity badges are solid/no-chevron, Stage retains tint `0.14` and only shows its List chevron when editable.
+Regression Risk: Medium; Stage appearance must remain unchanged, malformed colors need a safe fallback, and ACA/Medicare conditional columns must remain intact.
+Verification: 14 helper tests, full suite 62 files / 480 tests, repository ESLint, no `optionPillStyle` references, and static ACA/Medicare condition/payload audit passed.
+Status: **IMPLEMENTED — browser/read-only visual verification pending**
+Commits: `f20392e`, `912bb00`; changelog `9369b9e`
+
+#### EUI-03 — Empty option style was computed but overridden to transparent
+
+Issue: The new identity helper returned the neutral empty style, but the List JSX replaced it with `transparent` whenever no option was selected.
+Severity: **P3 — MEDIUM**
+Location: `EnrollmentOptionMenu` List style branch
+Affected Module: ACA Enrollment / Medicare Enrollment List
+Trigger: A Carrier/Payment/AC/Platform/Consent field has no selected option.
+Expected: Neutral compact badge (`#f4f5f7` / `#5e6c84`) that is visibly distinct from a colored option.
+Actual: Empty value rendered with no badge background.
+Root Cause: Conditional style assignment bypassed the shared empty-state result.
+Impact: Empty option presentation remained inconsistent after EUI-02.
+Fix: Apply the helper's `bg` and `fg` for both selected and empty option states.
+Regression Risk: Low; only List presentation changes.
+Verification: Typecheck, full Vitest 62/480, and targeted ESLint passed.
+Status: **IMPLEMENTED — browser visual verification pending**
+Commit: `b86ffbb`; changelog `9cb8375`
+
+#### EUI verification matrix
+
+| Comparison | Result | Reason for any intentional difference |
+|---|---|---|
+| ACA Create ↔ ACA Detail | PASS | Same single-person/option values; Create uses wrapper-owned form controls, Detail uses editable bordered controls. |
+| ACA Detail ↔ ACA List | PASS | Detail is a form surface; List is compact avatar/badge surface. Values and permissions remain shared. |
+| ACA ↔ Medicare | PASS | Shared components; Medicare hides Caller/Payment/AC/Consent/Platform/PCP 2026 by program rule. |
+| Enrollment ↔ Health CS | PASS | Single-person Enrollment fields retain single cardinality; CS multi-person Assignee remains intentionally different. Identity and workflow badge languages now match. |
+
+Automated gate: typecheck, repository ESLint, and 62 files / 480 tests pass. `npm run build` and authenticated browser checks remain open because `next dev` is active and no manager browser session is available in this execution context.
 
 ### Final reconciliation decisions
 
