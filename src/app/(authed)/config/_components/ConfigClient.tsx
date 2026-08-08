@@ -565,7 +565,7 @@ function ConfigTableSection({
           value={newLabel}
           onChange={(event) => setNewLabel(event.target.value)}
           placeholder="New column label"
-          className="h-10 min-w-[280px] max-w-[520px] flex-1 rounded border border-[#dfe1e6] px-3 text-sm font-semibold outline-none focus:border-[#0c66e4]"
+          className="h-10 min-w-[280px] max-w-[520px] flex-1 rounded border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none placeholder:text-[#97a0af] focus:border-[#0c66e4]"
         />
         <DropdownSelect
           label="Column type"
