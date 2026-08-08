@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 20:30 Asia/Ho_Chi_Minh**  
-Reviewed source through: **`036984e`** (execution log commits follow)
+Last Updated: **2026-08-08 20:35 Asia/Ho_Chi_Minh**  
+Reviewed source through: **`e77cb78`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -234,10 +234,10 @@ Expected: Untouched fields refresh, while any field actively being edited preser
 Actual: Drawer can keep old text; a later blur submits it and receives 409.  
 Root Cause: Local draft state has no dirty-aware prop reconciliation.  
 Impact: Confusing stale display; server OCC prevents silent data overwrite.  
-Fix: Reconcile only pristine/unfocused fields and surface external-change state.  
+Fix: Track each drawer draft's dirty/base value; sync only pristine fields, preserve active input, and show a conflict warning when the server value changes during editing.  
 Regression Risk: Medium; an unconditional sync would overwrite typing.  
-Verification: Static prop/state trace; no two-session component test.  
-Status: **OPEN — defer until P0/P1 fixes are stable**
+Verification: Typecheck, targeted ESLint, and Tasks tests (21 files / 242 tests) pass; static dirty/base transition trace covers pristine sync, active-input preservation, and conflict warning. Authenticated two-session drawer verification remains.  
+Status: **IMPLEMENTED — two-session browser verification pending**
 
 ## UI/UX Issues
 
@@ -327,7 +327,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`).
+T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`), T-10 dirty-aware drawer drafts (`e77cb78`).
 
 ## Verification
 
@@ -1365,7 +1365,7 @@ Active P2 findings remain. T-04 (`16ad882`), T-05 (`82885a3`), T-06 (`ff87eaf`),
 
 ## P3
 
-**17 issue groups:** T-10 through T-14; M-13 through M-17; C-13 through C-16; X-03 through X-05.
+**17 issue groups:** T-10 through T-14; M-13 through M-17; C-13 through C-16; X-03 through X-05. T-10 is implemented pending two-session browser evidence; the remaining P3 groups are open.
 
 ## P4
 
@@ -1449,6 +1449,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **T-06 — task detail metadata reconciliation.** Added a shared canonical task-list metadata loader (RPC with the existing schema fallback), returned counts/latest activity from task detail, and pushed confirmed metadata into the board row after comment/file reloads. Equal metadata is ignored so opening a drawer does not create a synthetic local write or refetch race. | `ff87eaf` | `npm run typecheck` PASS; targeted ESLint PASS; Tasks tests PASS (21 files / 240 tests), including the metadata RPC contract test. Authenticated comment/file mutation and slow-refetch browser verification remains required. |
 | 2026-08-08 | **T-08 — Tasks response truncation containment.** Added exact row counts to the Tasks query (including the legacy-column fallback), fail-closed detection when PostgREST returns fewer rows than the count, a structured 503 for board reloads, and visible refetch error handling. Export now also refuses to operate on an incomplete source set. | `a52156e` | `npm run typecheck` PASS; targeted ESLint PASS; Tasks tests PASS (21 files / 242 tests), including complete/countless and truncated-response cases. Production volume, API/SSR overflow behavior, server-window pagination, and render benchmark remain required. |
 | 2026-08-08 | **T-09 — Tasks realtime subscription churn.** Stabilized the Tasks channel effect so view/date-dependent loaders are read through refs and the channel is not torn down/rejoined when the user changes view or Overview date range. Category reload remains a stable callback and refetch continues through the existing ref. | `036984e` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskBoardClient.tsx`; Tasks tests PASS (21 files / 242 tests). Browser WS join count, two-tab broadcast delivery, and Overview refresh behavior remain required. |
+| 2026-08-08 | **T-10 — stale Task drawer drafts.** Added dirty/base tracking for title, description, and FUB drafts. Pristine fields now follow external task updates; active input is preserved and a conflict warning appears if the server value changes while editing. | `e77cb78` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskDetailDrawer.tsx`; Tasks tests PASS (21 files / 242 tests). Two-session drawer editing and conflict-copy verification remain required. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1582,7 +1583,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `036984e`:
+Verification recorded across the execution commits through `e77cb78`:
 
 - `npm run typecheck`: **PASS after T-09**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, including `TaskBoardClient.tsx`: **PASS**.
