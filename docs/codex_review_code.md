@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 20:55 Asia/Ho_Chi_Minh**
-Reviewed source through: **`68cdb53`** (execution log commits follow)
+Last Updated: **2026-08-08 21:08 Asia/Ho_Chi_Minh**
+Reviewed source through: **`ef50046`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -1010,7 +1010,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-Import code-surface removal and Export helper preservation (`4fdac30`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
+Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
 
 ## Verification
 
@@ -1057,12 +1057,12 @@ Affected Module: ACA / Medicare / integrations
 Trigger: Missing, typo, whitespace, or case-variant program.  
 Expected: APIs return 400; navigation default is explicit and separate.  
 Actual: Reads open ACA, and a malformed direct API client can write ACA. Official in-repo Create currently sends a normalized valid program, so P1 was not retained.  
-Root Cause: UI convenience coercion doubles as boundary validation.  
+Root Cause: UI convenience coercion doubled as boundary validation.
 Impact: Wrong program view/export and unsafe integration semantics.  
-Fix: Strict API parser; deliberate page redirect/default for bare navigation.  
+Fix: Added `parseEnrollmentProgram` and applied it to Enrollment list/create/export/options/overview API routes; invalid or missing values now return 400 while page navigation retains an explicit ACA default.
 Regression Risk: Medium for legacy bare links.  
-Verification: Static parser/caller trace; no invalid-program route test.  
-Status: **OPEN**
+Verification: Parser tests (3 tests), `npm run typecheck`, targeted ESLint, and diff-check PASS. Authenticated invalid-program route status verification remains.
+Status: **IMPLEMENTED — route/browser verification pending**
 
 ### A-03 — Enrollment search advertises FUB lookup but omits `fub_link`
 
@@ -1465,6 +1465,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **M-14 — visible Enrollment create validation.** Required-field failures now render an alert summary in the create dialog, API/create errors are visible in the same surface, and the first invalid control is marked and focused/scrolled. | `92bf839` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; diff-check PASS. Keyboard/screen-reader browser verification remains. |
 | 2026-08-08 | **M-16 — shared Enrollment reopen reason modal.** Replaced native `window.prompt` with the shared `ReasonModal`, preserving required reason validation and the existing `reopen_reason` PATCH. | `55177af` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; diff-check PASS. Medicare/ACA modal and accessibility verification remains. |
 | 2026-08-08 | **M-15 — unified Enrollment due-date validation.** Added one strict calendar-date parser and used it for both create and update, so malformed dates now return the same 400 instead of create silently storing null. | `68cdb53` | Date helper tests PASS (3 tests); Enrollment suite PASS (5 files / 36 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated route status verification remains. |
+| 2026-08-08 | **A-02 — strict Enrollment program boundary parsing.** Added `parseEnrollmentProgram` and applied it to list/create/export/options/overview APIs. Missing, invalid, or mistyped values now return 400 instead of silently selecting ACA; page navigation keeps its explicit default separately. | `ef50046` | Parser tests PASS (3 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated invalid-program route status verification remains. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1598,7 +1599,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `68cdb53`:
+Verification recorded across the execution commits through `ef50046`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1613,6 +1614,7 @@ Verification recorded across the execution commits through `68cdb53`:
 - Enrollment create validation/error summary: **typecheck, targeted ESLint, and diff-check PASS**; browser accessibility proof remains.
 - Enrollment reopen modal: **typecheck, targeted ESLint, and diff-check PASS**; browser accessibility proof remains.
 - Enrollment due-date parser: **date tests (3), Enrollment suite (5 files / 36 tests), typecheck, targeted ESLint, and diff-check PASS**; route status proof remains.
+- Enrollment program parser/API boundary: **parser tests (3), typecheck, targeted ESLint, and diff-check PASS**; authenticated invalid-program route status proof remains.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
