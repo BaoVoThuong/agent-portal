@@ -2302,8 +2302,8 @@ function EnrollmentOptionMenu({
           field
             ? undefined
             : {
-                backgroundColor: option ? style.bg : "transparent",
-                color: option ? style.fg : "#97a0af",
+                backgroundColor: style.bg,
+                color: style.fg,
               }
         }
       >
