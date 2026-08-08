@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Đồng bộ badge option Enrollment theo hai ngôn ngữ của Health CS
+- **Loại**: fix, refactor-logic
+- **Cái gì**: Enrollment List phân biệt hai loại badge: Carrier / Payment / AC / Platform / Consent dùng identity badge solid theo màu option, chữ uppercase và không có chevron; Stage giữ workflow-state badge nền tint 0.14 và chỉ hiện chevron khi record editable. Palette và contrast logic dùng `src/lib/enrollment/option-badge.ts`, tái sử dụng `readableTextColor` của CS.
+- **Vì sao**: Enrollment option chip nhạt 0.08, chữ thường và chevron luôn hiện nên không cùng design language với CS `CategoryBadge`; Stage lại bị hiển thị affordance dù read-only.
+- **File**: `src/lib/enrollment/option-badge.ts`, `src/lib/enrollment/option-badge.test.ts`, `src/lib/tasks/category-colors.ts`, `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx`
+- **Ảnh hưởng**: chỉ thay đổi List presentation/affordance; Detail form controls, payload, permission, validation và program-specific fields không đổi. ACA và Medicare dùng chung implementation.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-task-ui-standardization.md`; source commits `f20392e`, `912bb00`
+
 ## 2026-08-09 — Chuẩn hóa empty state person field trong Enrollment Create
 - **Loại**: fix
 - **Cái gì**: `EnrollmentPersonMenu` đổi từ boolean `field` sang surface union `list | form-bare | form-field`. ACA và Medicare Create dùng `form-bare`, nên Agent / Caller / Responsible không còn render pill `Assign` nét đứt của List bên trong border của `CreatePropertyField`; List vẫn giữ CTA `Assign`, Detail vẫn giữ control có border và chevron.
