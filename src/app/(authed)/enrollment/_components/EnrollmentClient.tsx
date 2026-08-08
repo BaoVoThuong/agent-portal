@@ -78,6 +78,7 @@ import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
 import { AttachmentPanel } from "../../tasks/_components/AttachmentPanel";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import { DateRangeFilter } from "../../tasks/_components/TaskToolbar";
+import { ReasonModal } from "../../tasks/_components/ReasonModal";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { Initials } from "../../tasks/_components/board-ui";
 import { EnrollmentOverview } from "./EnrollmentOverview";
@@ -2650,6 +2651,7 @@ function EnrollmentDrawer({
   const [detail, setDetail] = useState<EnrollmentDetail | null>(null);
   const [tab, setTab] = useState<"comments" | "activity" | "files">("comments");
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [reopenReasonOpen, setReopenReasonOpen] = useState(false);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
   const reopenTarget = getReopenStage(stage, optionsBySet.stage);
@@ -2732,9 +2734,18 @@ function EnrollmentDrawer({
 
   function reopen() {
     if (!reopenTarget || !canEditRecord) return;
-    const reason = window.prompt(`Reason to reopen to ${reopenTarget.label}`);
-    if (!reason?.trim()) return;
-    void onPatch({ stage_id: reopenTarget.id, reopen_reason: reason.trim() });
+    setReopenReasonOpen(true);
+  }
+
+  async function submitReopen(reason: string): Promise<boolean> {
+    if (!reopenTarget || !canEditRecord) return false;
+    try {
+      await onPatch({ stage_id: reopenTarget.id, reopen_reason: reason });
+      setReopenReasonOpen(false);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   return (
@@ -3180,6 +3191,20 @@ function EnrollmentDrawer({
           }}
         />
       ) : null}
+
+      <ReasonModal
+        open={reopenReasonOpen}
+        title="Reopen enrollment"
+        description={
+          reopenTarget
+            ? `Enter a reason to reopen this record to ${reopenTarget.label}.`
+            : "Enter a reason to reopen this record."
+        }
+        placeholder="Reason for reopening..."
+        submitLabel="Reopen"
+        onClose={() => setReopenReasonOpen(false)}
+        onSubmit={submitReopen}
+      />
     </div>
   );
 }
