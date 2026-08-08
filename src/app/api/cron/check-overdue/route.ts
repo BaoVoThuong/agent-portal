@@ -23,7 +23,8 @@ export const dynamic = "force-dynamic";
 
 // Proactive overdue detection: the board computes "is this task overdue" live,
 // but the audit/reminder trail still needs a durable server-side marker. This
-// runs on a schedule (see vercel.json) and stamps `overdue_flagged_at` + logs a
+// runs on a schedule (see .github/workflows/task-reminders.yml) and stamps
+// `overdue_flagged_at` + logs a
 // `went_overdue` activity entry the moment it first detects a breach,
 // independent of anyone looking at the board.
 export async function GET(request: Request) {
