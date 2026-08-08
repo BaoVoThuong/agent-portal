@@ -117,7 +117,6 @@ type Filters = {
   responsible: string[];
   mineOnly: boolean;
   carrier: string[];
-  payment: string[];
   attention: boolean;
   qcNeeded: boolean;
   unowned: boolean;
@@ -145,7 +144,6 @@ const DEFAULT_FILTERS: Filters = {
   responsible: [],
   mineOnly: false,
   carrier: [],
-  payment: [],
   attention: false,
   qcNeeded: false,
   unowned: false,
@@ -1366,7 +1364,6 @@ function EnrollmentToolbar({
     filters.caller.length > 0 ||
     filters.responsible.length > 0 ||
     filters.carrier.length > 0 ||
-    filters.payment.length > 0 ||
     filters.attention ||
     filters.qcNeeded ||
     filters.unowned ||
@@ -1513,26 +1510,6 @@ function EnrollmentToolbar({
             setFilters((current) => ({ ...current, carrier }))
           }
         />
-
-        {!isMedicare ? (
-          <TaskSelect
-            label={columnByKey.get("payment")?.label ?? "Payment"}
-            multi
-            values={filters.payment}
-            options={[
-              { value: "", label: columnByKey.get("payment")?.label ?? "Payment" },
-              ...selectOptions(optionsBySet.payment_status),
-            ]}
-            placeholder={columnByKey.get("payment")?.label ?? "Payment"}
-            allValue=""
-            summaryLabel="payments"
-            className="w-max min-w-[10rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={(payment) =>
-              setFilters((current) => ({ ...current, payment }))
-            }
-          />
-        ) : null}
 
         <ColumnVisibilityButton
           columns={columns}
@@ -4133,12 +4110,6 @@ function filterRecords(
       return false;
     }
     if (filters.carrier.length > 0 && !filters.carrier.includes(record.carrier_id ?? "")) return false;
-    if (
-      filters.payment.length > 0 &&
-      !filters.payment.includes(record.payment_status_id ?? "")
-    ) {
-      return false;
-    }
     const createdDate = record.created_at.slice(0, 10);
     if (filters.createdFrom && createdDate < filters.createdFrom) return false;
     if (filters.createdTo && createdDate > filters.createdTo) return false;
