@@ -6,6 +6,7 @@ import {
 } from "@/lib/enrollment/access";
 import {
   buildEnrollmentStoragePath,
+  removeTaskFile,
   signTaskFile,
   uploadTaskFile,
 } from "@/lib/enrollment/storage";
@@ -114,9 +115,22 @@ export async function POST(request: Request, { params }: Ctx) {
   }
 
   const storagePath = buildEnrollmentStoragePath(id, file.name);
+  let signedUrl: string;
   try {
     await uploadTaskFile(storagePath, dataBuffer, validation.contentType);
+    // Sign before creating metadata so a signing failure cannot leave a DB row
+    // that makes the next upload appear to have failed and invites duplicates.
+    signedUrl = await signTaskFile(storagePath);
   } catch (error) {
+    try {
+      await removeTaskFile(storagePath);
+    } catch (cleanupError) {
+      console.error("Enrollment attachment cleanup failed after upload error", {
+        recordId: id,
+        storagePath,
+        error: cleanupError,
+      });
+    }
     return NextResponse.json(
       {
         error:
@@ -139,37 +153,77 @@ export async function POST(request: Request, { params }: Ctx) {
     })
     .select("id,file_name,mime_type,size_bytes,created_at")
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    try {
+      await removeTaskFile(storagePath);
+    } catch (cleanupError) {
+      console.error("Enrollment attachment cleanup failed after metadata error", {
+        recordId: id,
+        storagePath,
+        error: cleanupError,
+      });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
+  const mutationWarnings: string[] = [];
   if (!commentId) {
-    await context.supabase.from("enrollment_activity").insert({
+    const { error: activityError } = await context.supabase.from("enrollment_activity").insert({
       record_id: id,
       actor_email: context.actor.email,
       type: "attachment_added",
       meta: { file_name: file.name },
     });
+    if (activityError) mutationWarnings.push(`Attachment activity failed: ${activityError.message}`);
     const recipients = uniqueEnrollmentNotificationRecipients(
       [context.record.caller_email, context.record.responsible_enroll_email],
       [context.actor.email]
     );
-    await insertEnrollmentNotifications(
-      recipients.map((recipient) => ({
-        recipient_email: recipient,
-        record_id: id,
-        type: "attachment_added",
-        actor_email: context.actor.email,
-        detail: file.name,
-      }))
-    );
+    try {
+      await insertEnrollmentNotifications(
+        recipients.map((recipient) => ({
+          recipient_email: recipient,
+          record_id: id,
+          type: "attachment_added",
+          actor_email: context.actor.email,
+          detail: file.name,
+        }))
+      );
+    } catch (notificationError) {
+      mutationWarnings.push(
+        `Attachment notification failed: ${notificationError instanceof Error ? notificationError.message : "unknown error"}`
+      );
+    }
   }
 
-  await broadcastEnrollmentRoom(id);
+  try {
+    await broadcastEnrollmentRoom(id);
+  } catch (broadcastError) {
+    mutationWarnings.push(
+      `Attachment broadcast failed: ${broadcastError instanceof Error ? broadcastError.message : "unknown error"}`
+    );
+  }
+  let canonicalRecord: Awaited<ReturnType<typeof fetchEnrollmentRecordById>> = null;
+  try {
+    canonicalRecord = await fetchEnrollmentRecordById(id);
+  } catch (reloadError) {
+    mutationWarnings.push(
+      `Attachment parent reload failed: ${reloadError instanceof Error ? reloadError.message : "unknown error"}`
+    );
+  }
+  if (mutationWarnings.length > 0) {
+    console.error("Enrollment attachment committed with side-effect warnings", {
+      recordId: id,
+      warnings: mutationWarnings,
+    });
+  }
   return NextResponse.json({
     attachment: {
       ...(data as object),
-      url: await signTaskFile(storagePath),
+      url: signedUrl,
     },
-    record: await fetchEnrollmentRecordById(id),
+    record: canonicalRecord,
+    warnings: mutationWarnings,
   });
 }
 

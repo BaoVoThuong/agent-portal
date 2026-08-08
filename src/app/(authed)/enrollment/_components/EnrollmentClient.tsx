@@ -1208,6 +1208,7 @@ export function EnrollmentClient({
               )
             )
           }
+          onParentRefresh={() => refetch()}
         />
       ) : null}
 
@@ -2631,6 +2632,7 @@ function EnrollmentDrawer({
   onPatch,
   onArchive,
   onParentUpdatedAt,
+  onParentRefresh,
 }: {
   record: EnrollmentRecordWithStats;
   peopleByEmail: Map<string, string>;
@@ -2649,6 +2651,7 @@ function EnrollmentDrawer({
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
   onArchive: () => Promise<void>;
   onParentUpdatedAt?: (updatedAt: string) => void;
+  onParentRefresh?: () => Promise<void> | void;
 }) {
   const [detail, setDetail] = useState<EnrollmentDetail | null>(null);
   const [tab, setTab] = useState<"comments" | "activity" | "files">("comments");
@@ -2725,6 +2728,11 @@ function EnrollmentDrawer({
     if (!response.ok) return;
     setDetail((await response.json()) as EnrollmentDetail);
   }, [record.id]);
+
+  const reloadDetailAndParent = useCallback(async () => {
+    await reload();
+    await onParentRefresh?.();
+  }, [onParentRefresh, reload]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2880,7 +2888,7 @@ function EnrollmentDrawer({
                     currentEmail={currentEmail}
                     members={mentionMembers}
                     comments={detail.comments}
-                    onReload={reload}
+                    onReload={reloadDetailAndParent}
                     onParentUpdatedAt={onParentUpdatedAt}
                   />
                 ) : tab === "activity" ? (
@@ -2894,7 +2902,7 @@ function EnrollmentDrawer({
                     taskId={record.id}
                     apiBase="/api/enrollment"
                     canEdit={canEditRecord}
-                    onReload={reload}
+                    onReload={reloadDetailAndParent}
                   />
                 )}
               </section>

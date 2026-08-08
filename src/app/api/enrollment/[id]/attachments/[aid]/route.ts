@@ -47,10 +47,39 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  await removeTaskFile(attachmentRow.storage_path);
-  const { error } = await supabase.from("enrollment_attachments").delete().eq("id", aid);
+  // Remove metadata first so a storage failure cannot leave a visible broken
+  // attachment row. A failed cleanup is returned as a repair warning instead
+  // of turning a committed delete into a retryable 5xx.
+  const { data: deleted, error } = await supabase
+    .from("enrollment_attachments")
+    .delete()
+    .eq("id", aid)
+    .select("id")
+    .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!deleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await broadcastEnrollmentRoom(id);
-  return NextResponse.json({ ok: true });
+  const warnings: string[] = [];
+  try {
+    await removeTaskFile(attachmentRow.storage_path);
+  } catch (storageError) {
+    warnings.push(
+      `Attachment storage cleanup failed: ${storageError instanceof Error ? storageError.message : "unknown error"}`
+    );
+  }
+  try {
+    await broadcastEnrollmentRoom(id);
+  } catch (broadcastError) {
+    warnings.push(
+      `Attachment broadcast failed: ${broadcastError instanceof Error ? broadcastError.message : "unknown error"}`
+    );
+  }
+  if (warnings.length > 0) {
+    console.error("Enrollment attachment delete committed with warnings", {
+      recordId: id,
+      attachmentId: aid,
+      warnings,
+    });
+  }
+  return NextResponse.json({ ok: true, warnings });
 }
