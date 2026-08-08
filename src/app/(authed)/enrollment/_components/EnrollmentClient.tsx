@@ -493,6 +493,10 @@ export function EnrollmentClient({
   // Lets refetch re-run itself without a self-referencing useCallback.
   const refetchRef = useRef<(() => void) | null>(null);
   const enrollmentLayoutHydratedRef = useRef(false);
+  const enrollmentLayoutUpdatedAtRef = useRef<string | null>(null);
+  const enrollmentLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const enrollmentLayoutSaveSequenceRef = useRef(0);
+  const enrollmentLayoutProgramRef = useRef(program);
 
   function updateRecords(updater: (current: EnrollmentRecordWithStats[]) => EnrollmentRecordWithStats[]) {
     setRecords((current) => {
@@ -573,14 +577,19 @@ export function EnrollmentClient({
 
   useEffect(() => {
     let alive = true;
+    enrollmentLayoutProgramRef.current = program;
+    enrollmentLayoutUpdatedAtRef.current = null;
+    enrollmentLayoutSaveSequenceRef.current += 1;
     enrollmentLayoutHydratedRef.current = false;
     const resetTimer = window.setTimeout(() => {
       if (alive) setLayoutTableColumns(tableColumns);
     }, 0);
     void fetch(`/api/config/layout?scope=${program}`)
       .then((response) => (response.ok ? response.json() : null))
-      .then((payload: { layout?: unknown } | null) => {
+      .then((payload: { layout?: unknown; updated_at?: unknown } | null) => {
         if (!alive) return;
+        enrollmentLayoutUpdatedAtRef.current =
+          typeof payload?.updated_at === "string" ? payload.updated_at : null;
         if (Array.isArray(payload?.layout)) {
           const resolved = resolveLayout(tableColumns, payload.layout as LayoutEntry[]);
           setLayoutTableColumns(
@@ -620,6 +629,54 @@ export function EnrollmentClient({
     };
   }, [program, setHiddenColumnKeys, tableColumns]);
 
+  const saveEnrollmentLayout = useCallback(
+    (layout: ReturnType<typeof serializeLayout>) => {
+      const sequence = ++enrollmentLayoutSaveSequenceRef.current;
+      const saveProgram = program;
+      const save = async () => {
+        if (
+          sequence !== enrollmentLayoutSaveSequenceRef.current ||
+          saveProgram !== enrollmentLayoutProgramRef.current
+        ) {
+          return;
+        }
+
+        const response = await fetch("/api/config/layout", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scope: saveProgram,
+            layout,
+            expected_updated_at: enrollmentLayoutUpdatedAtRef.current,
+          }),
+        }).catch(() => null);
+        if (response?.ok) {
+          const payload = (await response.json().catch(() => null)) as
+            | { updated_at?: unknown }
+            | null;
+          if (
+            saveProgram === enrollmentLayoutProgramRef.current &&
+            typeof payload?.updated_at === "string"
+          ) {
+            enrollmentLayoutUpdatedAtRef.current = payload.updated_at;
+          }
+          return;
+        }
+        if (saveProgram !== enrollmentLayoutProgramRef.current) return;
+        const data = (await response?.json().catch(() => null)) as
+          | { error?: string }
+          | null
+          | undefined;
+        setError(data?.error ?? "Không lưu được cấu hình bảng.");
+      };
+
+      const queued = enrollmentLayoutSaveQueueRef.current.then(save, save);
+      enrollmentLayoutSaveQueueRef.current = queued.catch(() => undefined);
+      void queued;
+    },
+    [program]
+  );
+
   useEffect(() => {
     if (!enrollmentLayoutHydratedRef.current) return;
     const layout = serializeLayout(
@@ -632,20 +689,10 @@ export function EnrollmentClient({
       }))
     );
     const timer = window.setTimeout(() => {
-      void fetch("/api/config/layout", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: program, layout }),
-      }).then(async (response) => {
-        if (response.ok) return;
-        const data = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        setError(data?.error ?? "Không lưu được cấu hình bảng.");
-      });
+      saveEnrollmentLayout(layout);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [hiddenColumnKeys, layoutTableColumns, program]);
+  }, [hiddenColumnKeys, layoutTableColumns, program, saveEnrollmentLayout]);
 
   const peopleByEmail = useMemo(() => {
     const map = new Map<string, string>();

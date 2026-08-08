@@ -192,6 +192,9 @@ export function TaskBoardClient({
   const refetchTasksRef = useRef<(() => void) | null>(null);
   const overviewRangeKeyRef = useRef<string | null>(null);
   const taskLayoutHydratedRef = useRef(false);
+  const taskLayoutUpdatedAtRef = useRef<string | null>(null);
+  const taskLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const taskLayoutSaveSequenceRef = useRef(0);
   // Per-task safety net on top of the version/pending guards above: even if a
   // background refetch's response somehow reflects a slightly-behind snapshot
   // (a race the in-flight/version checks don't fully rule out — e.g. a
@@ -228,8 +231,10 @@ export function TaskBoardClient({
       setDateRange(resolveTaskDateRangeDefault(storedDefault));
       void fetch("/api/config/layout?scope=cs")
         .then((response) => (response.ok ? response.json() : null))
-        .then((payload: { layout?: unknown } | null) => {
+        .then((payload: { layout?: unknown; updated_at?: unknown } | null) => {
           if (!alive) return;
+          taskLayoutUpdatedAtRef.current =
+            typeof payload?.updated_at === "string" ? payload.updated_at : null;
           if (Array.isArray(payload?.layout)) {
             const resolved = resolveLayout(tableColumns, payload.layout as LayoutEntry[]);
             setTaskLayoutColumns(
@@ -1406,29 +1411,52 @@ export function TaskBoardClient({
     });
   }
 
-  async function saveTaskTableLayout(hiddenKeys: ReadonlySet<TaskListColumnKey>) {
-    const layout = serializeLayout(
-      taskLayoutColumns.map((column) => ({
-        ...column,
-        width: null,
-        hidden:
-          !column.pinned &&
-          !TASK_LIST_LOCKED_COLUMN_KEYS.has(column.key) &&
-          hiddenKeys.has(column.key as TaskListColumnKey),
-      }))
-    );
-    const response = await fetch("/api/config/layout", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scope: "cs", layout }),
-    }).catch(() => null);
-    if (!response?.ok) {
+  function saveTaskTableLayout(hiddenKeys: ReadonlySet<TaskListColumnKey>) {
+    const sequence = ++taskLayoutSaveSequenceRef.current;
+    const save = async () => {
+      // If another toggle arrived while an older request was in flight, only
+      // persist the newest intent. The older request may finish, but it cannot
+      // be followed by an older snapshot after the newest request.
+      if (sequence !== taskLayoutSaveSequenceRef.current) return;
+
+      const layout = serializeLayout(
+        taskLayoutColumns.map((column) => ({
+          ...column,
+          width: null,
+          hidden:
+            !column.pinned &&
+            !TASK_LIST_LOCKED_COLUMN_KEYS.has(column.key) &&
+            hiddenKeys.has(column.key as TaskListColumnKey),
+        }))
+      );
+      const response = await fetch("/api/config/layout", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: "cs",
+          layout,
+          expected_updated_at: taskLayoutUpdatedAtRef.current,
+        }),
+      }).catch(() => null);
+      if (response?.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { updated_at?: unknown }
+          | null;
+        if (typeof payload?.updated_at === "string") {
+          taskLayoutUpdatedAtRef.current = payload.updated_at;
+        }
+        return;
+      }
       const data = (await response?.json().catch(() => null)) as
         | { error?: string }
         | null
         | undefined;
       setError(data?.error ?? "Không lưu được cấu hình bảng.");
-    }
+    };
+
+    const queued = taskLayoutSaveQueueRef.current.then(save, save);
+    taskLayoutSaveQueueRef.current = queued.catch(() => undefined);
+    void queued;
   }
 
   function saveDefaultDateRange(nextDefault: TaskDateRangeDefault) {

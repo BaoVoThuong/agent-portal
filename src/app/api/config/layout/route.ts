@@ -56,6 +56,16 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
   }
 
+  const hasExpectedVersion =
+    body && Object.prototype.hasOwnProperty.call(body, "expected_updated_at");
+  if (
+    hasExpectedVersion &&
+    body.expected_updated_at !== null &&
+    typeof body.expected_updated_at !== "string"
+  ) {
+    return NextResponse.json({ error: "Invalid layout version." }, { status: 400 });
+  }
+
   const scope = body.scope;
   const layout = normalizeLayout(body?.layout);
   if (!layout) {
@@ -79,20 +89,59 @@ export async function PUT(request: Request) {
   );
 
   const nowIso = new Date().toISOString();
-  const { data, error } = await getSupabaseAdmin()
-    .from("user_table_layout")
-    .upsert(
-      {
-        user_email: actorResult.actor.email,
-        scope,
-        layout: filteredLayout,
-        updated_at: nowIso,
-      },
-      { onConflict: "user_email,scope" }
-    )
-    .select("layout,updated_at")
-    .single();
+  const supabase = getSupabaseAdmin();
+  const layoutRow = {
+    user_email: actorResult.actor.email,
+    scope,
+    layout: filteredLayout,
+    updated_at: nowIso,
+  };
+  type LayoutWriteRow = { layout: unknown; updated_at: string };
+  let data: LayoutWriteRow | null = null;
+  let error: { code?: string; message?: string } | null = null;
+
+  if (!hasExpectedVersion) {
+    const result = await supabase
+      .from("user_table_layout")
+      .upsert(layoutRow, { onConflict: "user_email,scope" })
+      .select("layout,updated_at")
+      .single();
+    data = result.data as LayoutWriteRow | null;
+    error = result.error;
+  } else if (body.expected_updated_at === null) {
+    const result = await supabase
+      .from("user_table_layout")
+      .insert(layoutRow)
+      .select("layout,updated_at")
+      .maybeSingle();
+    data = result.data as LayoutWriteRow | null;
+    error = result.error;
+  } else {
+    const result = await supabase
+      .from("user_table_layout")
+      .update(layoutRow)
+      .eq("user_email", actorResult.actor.email)
+      .eq("scope", scope)
+      .eq("updated_at", body.expected_updated_at)
+      .select("layout,updated_at")
+      .maybeSingle();
+    data = result.data as LayoutWriteRow | null;
+    error = result.error;
+  }
+
+  if (error?.code === "23505") {
+    return NextResponse.json(
+      { error: "Layout changed elsewhere. Reload before saving again." },
+      { status: 409 }
+    );
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) {
+    return NextResponse.json(
+      { error: "Layout changed elsewhere. Reload before saving again." },
+      { status: 409 }
+    );
+  }
 
   return NextResponse.json({ scope, layout: data.layout, updated_at: data.updated_at });
 }
