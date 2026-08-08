@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-09 00:20 Asia/Ho_Chi_Minh**
-Reviewed source through: **`2537db1`** (execution log commits follow)
+Last Updated: **2026-08-09 00:30 Asia/Ho_Chi_Minh**
+Reviewed source through: **`3334b1c`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -1498,6 +1498,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **T-07 — Tasks archive failure rollback.** Failed archive requests now restore only the target task at its prior position, preserving concurrent changes to other tasks instead of restoring a collection-wide snapshot. | `f9c1643` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskBoardClient.tsx`. Two-tab archive failure/realtime regression remains to be exercised. |
 | 2026-08-09 | **Enrollment create dialog — remove redundant Properties copy.** Removed the `Properties` heading and explanatory sentence from the Enrollment create dialog while keeping the program badge and right-side Enrollment fields unchanged for fast scanning. | `82e6107` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; `git diff --check` PASS. Browser visual/accessibility verification remains. |
 | 2026-08-09 | **ACA Enrollment — remove Payment status filter.** Removed the Payment status filter from Enrollment filter state, toolbar, active-filter detection, and client-side filtering. The Payment status table column, inline editing, and create/edit field remain unchanged. | `2537db1` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; `git diff --check` PASS. Browser toolbar and clear-filter verification remains. |
+| 2026-08-09 | **Tasks — inline Client Name editing.** The Tasks list summary/Client Name cell now uses the shared inline text editor in both configured and legacy layouts, sending the existing title PATCH while preserving row double-click navigation to detail and the existing edit permission gate. | `3334b1c` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskRowItem.tsx`; `git diff --check` PASS. Browser edit/blur/Enter and permission verification remains. |
 
 ### Phase 0 — Remove Import, enforce Config control, and run preflight
 
