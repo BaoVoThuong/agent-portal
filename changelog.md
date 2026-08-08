@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Hiển thị neutral state cho option Enrollment chưa chọn
+- **Loại**: fix
+- **Cái gì**: Các identity option badge chưa có giá trị trong Enrollment List dùng neutral background `#f4f5f7` và foreground `#5e6c84`, thay vì bị JSX ghi đè thành nền trong suốt.
+- **Vì sao**: Helper palette đã có empty-state trung tính nhưng render path bỏ qua nó khi `option` là `null`, khiến empty value không đồng nhất với badge đã chọn.
+- **File**: `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx`
+- **Ảnh hưởng**: Chỉ hiển thị List; không đổi option value, payload, permission hay validation.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-task-ui-standardization.md`; source commit `b86ffbb`
+
 ## 2026-08-09 — Đồng bộ badge option Enrollment theo hai ngôn ngữ của Health CS
 - **Loại**: fix, refactor-logic
 - **Cái gì**: Enrollment List phân biệt hai loại badge: Carrier / Payment / AC / Platform / Consent dùng identity badge solid theo màu option, chữ uppercase và không có chevron; Stage giữ workflow-state badge nền tint 0.14 và chỉ hiện chevron khi record editable. Palette và contrast logic dùng `src/lib/enrollment/option-badge.ts`, tái sử dụng `readableTextColor` của CS.
