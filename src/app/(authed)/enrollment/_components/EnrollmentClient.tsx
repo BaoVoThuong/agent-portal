@@ -120,6 +120,18 @@ type Filters = {
   createdTo: string;
 };
 
+type PendingEnrollmentPatch = {
+  sequence: number;
+  patch: Record<string, unknown>;
+};
+
+type EnrollmentMutationState = {
+  confirmed: EnrollmentRecordWithStats;
+  pending: PendingEnrollmentPatch[];
+  nextSequence: number;
+  tail: Promise<void>;
+};
+
 const DEFAULT_FILTERS: Filters = {
   query: "",
   stage: [],
@@ -463,7 +475,9 @@ export function EnrollmentClient({
   const [creating, setCreating] = useState(false);
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
-  const pendingRef = useRef(new Set<string>());
+  const recordRowsRef = useRef(new Map(initialRecords.map((record) => [record.id, record])));
+  const recordMutationStatesRef = useRef(new Map<string, EnrollmentMutationState>());
+  const pendingRef = useRef(new Map<string, number>());
   // Refetch sequencing. A GET issued BEFORE a write commits can resolve AFTER
   // it, and would then overwrite the fresh row with a pre-write snapshot —
   // the A→B→A→B revert. Two rules close it, both evaluated against state
@@ -477,6 +491,26 @@ export function EnrollmentClient({
   // Lets refetch re-run itself without a self-referencing useCallback.
   const refetchRef = useRef<(() => void) | null>(null);
   const enrollmentLayoutHydratedRef = useRef(false);
+
+  function updateRecords(updater: (current: EnrollmentRecordWithStats[]) => EnrollmentRecordWithStats[]) {
+    setRecords((current) => {
+      const next = updater(current);
+      if (next !== current) {
+        recordRowsRef.current = new Map(next.map((record) => [record.id, record]));
+      }
+      return next;
+    });
+  }
+
+  function beginPending(key: string) {
+    pendingRef.current.set(key, (pendingRef.current.get(key) ?? 0) + 1);
+    return () => {
+      const remaining = (pendingRef.current.get(key) ?? 1) - 1;
+      if (remaining > 0) pendingRef.current.set(key, remaining);
+      else pendingRef.current.delete(key);
+      flushDeferredRefetch();
+    };
+  }
 
   const optionsById = useMemo(() => optionById(options), [options]);
   const optionsBySet = useMemo(() => groupOptions(options), [options]);
@@ -718,7 +752,7 @@ export function EnrollmentClient({
         return;
       }
       refetchDirtyRef.current = false;
-      setRecords(data.records);
+      updateRecords(() => data.records);
     } catch {
       // The next realtime ping or manual refresh will retry.
     }
@@ -799,10 +833,56 @@ export function EnrollmentClient({
     };
   }, [refetch, reloadOptions]);
 
-  async function patchRecord(id: string, patch: Record<string, unknown>) {
-    const before = records.find((record) => record.id === id);
-    if (!before) return;
-    pendingRef.current.add(id);
+  async function fetchCanonicalRecord(id: string): Promise<EnrollmentRecordWithStats | null> {
+    try {
+      const response = await fetch(`/api/enrollment/${id}`, { cache: "no-store" });
+      if (!response.ok) return null;
+      const data = (await response.json()) as { record?: EnrollmentRecordWithStats };
+      return data.record?.id === id ? data.record : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function rebasePendingEnrollmentPatches(id: string, state: EnrollmentMutationState) {
+    let next = state.confirmed;
+    for (const pending of state.pending) {
+      const optimisticPatch = isPlainRecord(pending.patch.custom_values)
+        ? {
+            ...pending.patch,
+            custom_values: {
+              ...(isPlainRecord(next.custom_values) ? next.custom_values : {}),
+              ...pending.patch.custom_values,
+            },
+          }
+        : pending.patch;
+      next = { ...next, ...optimisticPatch } as EnrollmentRecordWithStats;
+    }
+    recordRowsRef.current.set(id, next);
+    updateRecords((current) =>
+      current.map((record) => (record.id === id ? next : record))
+    );
+    if (state.pending.length === 0) {
+      recordMutationStatesRef.current.delete(id);
+    }
+  }
+
+  function patchRecord(id: string, patch: Record<string, unknown>): Promise<void> {
+    const before = recordRowsRef.current.get(id) ?? records.find((record) => record.id === id);
+    if (!before) return Promise.resolve();
+
+    const state =
+      recordMutationStatesRef.current.get(id) ??
+      ({
+        confirmed: before,
+        pending: [],
+        nextSequence: 0,
+        tail: Promise.resolve(),
+      } satisfies EnrollmentMutationState);
+    recordMutationStatesRef.current.set(id, state);
+    const sequence = state.nextSequence++;
+    state.pending.push({ sequence, patch });
+
     const optimisticPatch = isPlainRecord(patch.custom_values)
       ? {
           ...patch,
@@ -812,38 +892,57 @@ export function EnrollmentClient({
           },
         }
       : patch;
-    setRecords((current) =>
-      current.map((record) =>
-        record.id === id
-          ? ({ ...record, ...optimisticPatch } as EnrollmentRecordWithStats)
-          : record
-      )
+    const optimistic = { ...before, ...optimisticPatch } as EnrollmentRecordWithStats;
+    recordRowsRef.current.set(id, optimistic);
+    updateRecords((current) =>
+      current.map((record) => (record.id === id ? optimistic : record))
     );
+    const finishPendingMutation = beginPending(id);
 
-    try {
-      const response = await fetch(`/api/enrollment/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...patch, expected_updated_at: before.updated_at }),
+    const operation = state.tail
+      .then(async () => {
+        let response: Response;
+        try {
+          response = await fetch(`/api/enrollment/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...patch, expected_updated_at: state.confirmed.updated_at }),
+          });
+        } catch {
+          setError("Connection lost — could not update enrollment record.");
+          return;
+        }
+
+        const data = (await response.json().catch(() => null)) as
+          | { record?: EnrollmentRecordWithStats; error?: string }
+          | null;
+        if (!response.ok || !data?.record) {
+          if (response.status === 409) {
+            const canonical = await fetchCanonicalRecord(id);
+            if (canonical) {
+              state.confirmed = canonical;
+              setError("Enrollment record changed elsewhere; canonical data was reloaded.");
+            } else {
+              setError("Enrollment record changed elsewhere; refresh before editing again.");
+            }
+          } else {
+            setError(data?.error ?? "Could not update enrollment record.");
+          }
+          return;
+        }
+        state.confirmed = data.record;
+      })
+      .catch(() => {
+        setError("Could not update enrollment record.");
+      })
+      .finally(() => {
+        state.pending = state.pending.filter((pending) => pending.sequence !== sequence);
+        rebasePendingEnrollmentPatches(id, state);
+        finishPendingMutation();
       });
-      const data = (await response.json().catch(() => null)) as
-        | { record?: EnrollmentRecordWithStats; error?: string }
-        | null;
-      if (!response.ok || !data?.record) {
-        throw new Error(data?.error ?? "Could not update enrollment record.");
-      }
-      setRecords((current) =>
-        current.map((record) => (record.id === id ? data.record! : record))
-      );
-    } catch (updateError) {
-      setRecords((current) =>
-        current.map((record) => (record.id === id ? before : record))
-      );
-      setError(updateError instanceof Error ? updateError.message : "Could not update record.");
-    } finally {
-      pendingRef.current.delete(id);
-      flushDeferredRefetch();
-    }
+
+    state.tail = operation;
+    return operation;
   }
 
   async function createRecord(payload: Record<string, unknown>) {
@@ -853,7 +952,7 @@ export function EnrollmentClient({
     // The id isn't known yet, so use a placeholder key — pendingRef is only
     // ever checked for emptiness.
     const pendingKey = `create:${Date.now()}`;
-    pendingRef.current.add(pendingKey);
+    const finishPendingMutation = beginPending(pendingKey);
     try {
       const response = await fetch("/api/enrollment", {
         method: "POST",
@@ -866,12 +965,11 @@ export function EnrollmentClient({
       if (!response.ok || !data?.record) {
         throw new Error(data?.error ?? "Could not create enrollment record.");
       }
-      setRecords((current) => [data.record!, ...current]);
+      updateRecords((current) => [data.record!, ...current]);
       setOpenId(data.record.id);
       writeEnrollmentDeepLink(data.record.id, "push");
     } finally {
-      pendingRef.current.delete(pendingKey);
-      flushDeferredRefetch();
+      finishPendingMutation();
     }
   }
 
@@ -879,20 +977,19 @@ export function EnrollmentClient({
     const before = records;
     // Same reason as createRecord: an unguarded refetch would resurrect the
     // row we just removed.
-    pendingRef.current.add(id);
-    setRecords((current) => current.filter((record) => record.id !== id));
+    const finishPendingMutation = beginPending(id);
+    updateRecords((current) => current.filter((record) => record.id !== id));
     setOpenId(null);
     writeEnrollmentDeepLink(null);
     try {
       const response = await fetch(`/api/enrollment/${id}`, { method: "DELETE" });
       if (!response.ok) {
-        setRecords(before);
+        updateRecords(() => before);
         const data = (await response.json().catch(() => null)) as { error?: string } | null;
         setError(data?.error ?? "Could not archive record.");
       }
     } finally {
-      pendingRef.current.delete(id);
-      flushDeferredRefetch();
+      finishPendingMutation();
     }
   }
 
@@ -1033,7 +1130,7 @@ export function EnrollmentClient({
           onPatch={(patch) => patchRecord(openRecord.id, patch)}
           onArchive={() => archiveRecord(openRecord.id)}
           onParentUpdatedAt={(updatedAt) =>
-            setRecords((current) =>
+            updateRecords((current) =>
               current.map((record) =>
                 record.id === openRecord.id
                   ? { ...record, updated_at: updatedAt }
