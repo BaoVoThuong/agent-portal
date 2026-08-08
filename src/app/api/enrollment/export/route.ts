@@ -7,6 +7,7 @@ import {
 import {
   fetchEnrollmentPeople,
   fetchEnrollmentRecords,
+  EnrollmentListTruncatedError,
 } from "@/lib/enrollment/queries";
 import {
   parseEnrollmentProgram,
@@ -76,8 +77,27 @@ async function exportEnrollment({
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const [records, optionData, people, columns, customOptions] = await Promise.all([
-    fetchEnrollmentRecords(program),
+  let records: EnrollmentRecordWithStats[];
+  try {
+    records = await fetchEnrollmentRecords(program);
+  } catch (error) {
+    if (error instanceof EnrollmentListTruncatedError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: "ENROLLMENT_LIST_TRUNCATED",
+          total: error.total,
+          loaded: error.loaded,
+        },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not load enrollment records." },
+      { status: 500 }
+    );
+  }
+  const [optionData, people, columns, customOptions] = await Promise.all([
     fetchEnrollmentOptionData(program),
     fetchEnrollmentPeople(),
     fetchTableColumns(program),

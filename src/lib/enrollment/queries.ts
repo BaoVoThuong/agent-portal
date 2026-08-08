@@ -20,13 +20,17 @@ type SupabaseLikeError = { code?: string; message?: string } | null | undefined;
 type LooseSupabaseRowsResult = {
   data: unknown[] | null;
   error: SupabaseLikeError;
+  count?: number | null;
 };
 type LooseSupabaseRowResult = {
   data: unknown | null;
   error: SupabaseLikeError;
 };
 type LooseSupabaseQueryBuilder = {
-  select: (columns: string) => LooseSupabaseQueryBuilder;
+  select: (
+    columns: string,
+    options?: { count?: "exact" }
+  ) => LooseSupabaseQueryBuilder;
   eq: (column: string, value: unknown) => LooseSupabaseQueryBuilder;
   is: (column: string, value: unknown) => LooseSupabaseQueryBuilder;
   order: (
@@ -66,23 +70,25 @@ export async function fetchEnrollmentRecords(
 ): Promise<EnrollmentRecordWithStats[]> {
   const supabase = getSupabaseAdmin();
   const queryClient = supabase as unknown as LooseSupabaseClient;
-  const { data, error } = await queryClient
+  const { data, error, count } = await queryClient
     .from("enrollment_records")
-    .select(ENROLLMENT_RECORD_COLUMNS)
+    .select(ENROLLMENT_RECORD_COLUMNS, { count: "exact" })
     .eq("program", program)
     .is("archived_at", null)
     .order("updated_at", { ascending: false });
   let rows: unknown[] | null = data;
   let queryError: SupabaseLikeError = error;
+  let rowCount: number | null | undefined = count;
   if (isMissingEnrollmentDescriptionColumn(error)) {
     const fallback = await queryClient
       .from("enrollment_records")
-      .select(ENROLLMENT_RECORD_COLUMNS_WITHOUT_DESCRIPTION)
+      .select(ENROLLMENT_RECORD_COLUMNS_WITHOUT_DESCRIPTION, { count: "exact" })
       .eq("program", program)
       .is("archived_at", null)
       .order("updated_at", { ascending: false });
     rows = fallback.data;
     queryError = fallback.error;
+    rowCount = fallback.count;
   }
   if (isMissingEnrollmentCustomValuesColumn(queryError)) {
     const legacyColumns = isMissingEnrollmentDescriptionColumn(queryError)
@@ -90,14 +96,16 @@ export async function fetchEnrollmentRecords(
       : ENROLLMENT_RECORD_COLUMNS_LEGACY;
     const fallback = await queryClient
       .from("enrollment_records")
-      .select(legacyColumns)
+      .select(legacyColumns, { count: "exact" })
       .eq("program", program)
       .is("archived_at", null)
       .order("updated_at", { ascending: false });
     rows = fallback.data;
     queryError = fallback.error;
+    rowCount = fallback.count;
   }
   if (queryError) throw new Error(queryError.message ?? "Could not fetch records.");
+  assertEnrollmentRecordsComplete(rows, rowCount);
 
   const records = (rows ?? []).map(coerceEnrollmentRecord);
   const ids = records.map((record) => record.id);
@@ -126,6 +134,30 @@ export async function fetchEnrollmentRecords(
     comment_search_text: commentText.get(record.id) ?? "",
     attachment_count: attachmentCounts.get(record.id) ?? 0,
   }));
+}
+
+export class EnrollmentListTruncatedError extends Error {
+  readonly total: number;
+  readonly loaded: number;
+
+  constructor(total: number, loaded: number) {
+    super(
+      `Enrollment list is larger than the server response limit (${loaded} of ${total} rows loaded).`
+    );
+    this.name = "EnrollmentListTruncatedError";
+    this.total = total;
+    this.loaded = loaded;
+  }
+}
+
+export function assertEnrollmentRecordsComplete(
+  rows: unknown[] | null,
+  count: number | null | undefined
+): void {
+  const loaded = rows?.length ?? 0;
+  if (typeof count === "number" && count > loaded) {
+    throw new EnrollmentListTruncatedError(count, loaded);
+  }
 }
 
 export async function fetchEnrollmentRecordById(

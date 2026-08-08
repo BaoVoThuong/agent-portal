@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import {
   fetchEnrollmentRecords,
+  EnrollmentListTruncatedError,
   isMissingEnrollmentDescriptionColumn,
 } from "@/lib/enrollment/queries";
 import {
@@ -70,8 +71,26 @@ export async function GET(request: Request) {
   if (!program) {
     return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
   }
-  const records = await fetchEnrollmentRecords(program);
-  return NextResponse.json({ records });
+  try {
+    const records = await fetchEnrollmentRecords(program);
+    return NextResponse.json({ records });
+  } catch (error) {
+    if (error instanceof EnrollmentListTruncatedError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: "ENROLLMENT_LIST_TRUNCATED",
+          total: error.total,
+          loaded: error.loaded,
+        },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not load enrollment records." },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(request: Request) {
