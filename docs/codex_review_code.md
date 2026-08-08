@@ -1437,6 +1437,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | Date | Fix | Commit | Verification / remaining work |
 | --- | --- | --- | --- |
 | 2026-08-08 | **Import removal — Phase 0A code-surface portion.** Removed the Config Import Review tab, Tasks/ACA Import UI and dialogs, Import submit/review/approve/reject API routes, Import classifier/types/tests, and spreadsheet read path. Renamed the shared authorization helper to `canActorExport`; Tasks/ACA/Medicare Export routes and export tests remain in place. Historical `import_request`/staging tables were intentionally left read-only in the schema. | `4fdac30` | `npm run typecheck` PASS after regenerating Next route types; targeted Export tests PASS (2 files / 2 tests). Remaining Phase 0A evidence: production reconciliation of existing pending/processing/failed rows, direct old-URL 404 check, and Tasks/ACA/Medicare Export staging smoke tests. |
+| 2026-08-08 | **T-01 — Tasks layout hydration loop.** Added a per-board hydration guard and derived fallback sets from the initial server columns so the layout GET/effect cannot restart when the effect updates its own layout state. | `cdd06de` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskBoardClient.tsx`. Browser request-count/stable-render verification remains required before marking T-01 closed. |
 
 ### Phase 0 — Remove Import, enforce Config control, and run preflight
 
