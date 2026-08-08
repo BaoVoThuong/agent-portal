@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-09 00:10 Asia/Ho_Chi_Minh**
-Reviewed source through: **`82e6107`** (execution log commits follow)
+Last Updated: **2026-08-09 00:20 Asia/Ho_Chi_Minh**
+Reviewed source through: **`2537db1`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -1497,6 +1497,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
 | 2026-08-08 | **T-07 — Tasks archive failure rollback.** Failed archive requests now restore only the target task at its prior position, preserving concurrent changes to other tasks instead of restoring a collection-wide snapshot. | `f9c1643` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskBoardClient.tsx`. Two-tab archive failure/realtime regression remains to be exercised. |
 | 2026-08-09 | **Enrollment create dialog — remove redundant Properties copy.** Removed the `Properties` heading and explanatory sentence from the Enrollment create dialog while keeping the program badge and right-side Enrollment fields unchanged for fast scanning. | `82e6107` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; `git diff --check` PASS. Browser visual/accessibility verification remains. |
+| 2026-08-09 | **ACA Enrollment — remove Payment status filter.** Removed the Payment status filter from Enrollment filter state, toolbar, active-filter detection, and client-side filtering. The Payment status table column, inline editing, and create/edit field remain unchanged. | `2537db1` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; `git diff --check` PASS. Browser toolbar and clear-filter verification remains. |
 
 ### Phase 0 — Remove Import, enforce Config control, and run preflight
 
