@@ -712,7 +712,7 @@ export function TaskDetailDrawer({
                     onClick={() => setConfirmingDelete(true)}
                     className="text-sm font-semibold text-[#bf2600] transition hover:underline"
                   >
-                    Delete task
+                    Archive task
                   </button>
                 </div>
               )}
@@ -730,11 +730,12 @@ export function TaskDetailDrawer({
             className="w-full max-w-sm rounded-lg bg-white p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-lg font-semibold text-[#172b4d]">Delete task?</h2>
+            <h2 className="text-lg font-semibold text-[#172b4d]">Archive task?</h2>
             <p className="mt-2 text-sm leading-6 text-[#5e6c84]">
-              Xoá vĩnh viễn{" "}
+              Lưu trữ{" "}
               <span className="font-semibold text-[#172b4d]">{task.title}</span> kèm
-              toàn bộ comment và file đính kèm. Không thể hoàn tác.
+              toàn bộ comment và file đính kèm. Task sẽ bị ẩn khỏi danh sách active;
+              dữ liệu không bị xoá vĩnh viễn.
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -752,7 +753,7 @@ export function TaskDetailDrawer({
                 }}
                 className="rounded bg-[#ca3521] px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#ae2a19]"
               >
-                Delete task
+                Archive task
               </button>
             </div>
           </div>
