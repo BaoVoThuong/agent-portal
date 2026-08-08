@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Làm drift test SLA kiểm tra mọi khai báo SQL
+- **Loại**: test, refactor-logic
+- **Cái gì**: Các test đồng bộ SLA đọc toàn bộ SQL matches bằng `matchAll`, thay vì chỉ kiểm tra match đầu tiên; mọi khai báo default tìm được phải khớp với TypeScript constant.
+- **Vì sao**: `task_reminder_settings.todo_hours` có cả CREATE và ALTER declaration, nên đọc một match có thể bỏ sót drift ở declaration còn lại.
+- **File**: `src/lib/tasks/sla-config.test.ts`
+- **Ảnh hưởng**: Chỉ tăng độ tin cậy verification; không thay đổi runtime/API.
+- **Ref**: `docs/superpowers/plans/2026-08-07-sla-config-section.md`; finding B-02
+
 ## 2026-08-09 — Rollback SLA editor sau save lỗi và Reset
 - **Loại**: fix
 - **Cái gì**: SLA row đồng bộ lại hour/minute khi rule prop thay đổi (bao gồm Reset), và khôi phục giá trị trước đó nếu POST save thất bại; các commit UI cũ hơn bị bỏ qua khi đã có commit mới.

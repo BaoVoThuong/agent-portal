@@ -27,9 +27,13 @@ const schemaSql = readFileSync(
 describe("SLA defaults stay in sync with the database", () => {
   it("DEFAULT_SLA_MINUTES matches the task_sla_rules seed", () => {
     for (const priority of TASK_PRIORITIES) {
-      const seeded = new RegExp(`\\('${priority}',\\s*(\\d+)\\)`).exec(schemaSql);
-      expect(seeded, `no seed row found for priority "${priority}"`).not.toBeNull();
-      expect(Number(seeded![1])).toBe(DEFAULT_SLA_MINUTES[priority]);
+      const seeded = [
+        ...schemaSql.matchAll(new RegExp(`\\('${priority}',\\s*(\\d+)\\)`, "g")),
+      ];
+      expect(seeded.length, `no seed row found for priority "${priority}"`).toBeGreaterThan(0);
+      for (const match of seeded) {
+        expect(Number(match[1])).toBe(DEFAULT_SLA_MINUTES[priority]);
+      }
     }
   });
 
@@ -46,11 +50,15 @@ describe("SLA defaults stay in sync with the database", () => {
     for (const [field, column] of Object.entries(columnByField) as Array<
       [keyof ReminderSettings, string]
     >) {
-      const declared = new RegExp(
-        `${column}\\s+integer\\s+not null\\s+default\\s+(\\d+)`
-      ).exec(schemaSql);
-      expect(declared, `no column default found for "${column}"`).not.toBeNull();
-      expect(Number(declared![1])).toBe(DEFAULT_REMINDER_SETTINGS[field]);
+      const declared = [
+        ...schemaSql.matchAll(
+          new RegExp(`${column}\\s+integer\\s+not null\\s+default\\s+(\\d+)`, "g")
+        ),
+      ];
+      expect(declared.length, `no column default found for "${column}"`).toBeGreaterThan(0);
+      for (const match of declared) {
+        expect(Number(match[1])).toBe(DEFAULT_REMINDER_SETTINGS[field]);
+      }
     }
   });
 
