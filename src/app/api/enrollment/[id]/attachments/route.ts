@@ -19,7 +19,10 @@ import {
   insertEnrollmentNotifications,
   uniqueEnrollmentNotificationRecipients,
 } from "@/lib/enrollment/notifications";
-import { broadcastEnrollmentRoom } from "@/lib/enrollment/realtime";
+import {
+  broadcastEnrollmentChanged,
+  broadcastEnrollmentRoom,
+} from "@/lib/enrollment/realtime";
 import { fetchEnrollmentRecordById } from "@/lib/enrollment/queries";
 import type { EnrollmentRecord } from "@/lib/enrollment/types";
 
@@ -197,6 +200,7 @@ export async function POST(request: Request, { params }: Ctx) {
   }
 
   try {
+    await broadcastEnrollmentChanged(context.record.program);
     await broadcastEnrollmentRoom(id);
   } catch (broadcastError) {
     mutationWarnings.push(

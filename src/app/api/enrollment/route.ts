@@ -333,7 +333,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    await broadcastEnrollmentChanged();
+    await broadcastEnrollmentChanged(program);
   } catch (error) {
     mutationWarnings.push(
       `Enrollment broadcast failed: ${error instanceof Error ? error.message : "unknown error"}`

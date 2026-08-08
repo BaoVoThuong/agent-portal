@@ -1,6 +1,11 @@
-import { ENROLLMENT_TOPIC, enrollmentRoomTopic } from "./realtime-topics";
+import {
+  ENROLLMENT_TOPIC,
+  enrollmentRoomTopic,
+  enrollmentTopic,
+} from "./realtime-topics";
+import type { EnrollmentProgram } from "./types";
 
-export { ENROLLMENT_TOPIC, enrollmentRoomTopic };
+export { ENROLLMENT_TOPIC, enrollmentRoomTopic, enrollmentTopic };
 
 type RealtimeMessage = {
   topic: string;
@@ -28,8 +33,15 @@ async function sendBroadcast(messages: RealtimeMessage[]): Promise<void> {
   }
 }
 
-export async function broadcastEnrollmentChanged(): Promise<void> {
-  await sendBroadcast([{ topic: ENROLLMENT_TOPIC, event: "changed", payload: {} }]);
+export async function broadcastEnrollmentChanged(
+  program?: EnrollmentProgram
+): Promise<void> {
+  const topics = program
+    ? [enrollmentTopic(program), ENROLLMENT_TOPIC]
+    : [enrollmentTopic("aca"), enrollmentTopic("medicare"), ENROLLMENT_TOPIC];
+  await sendBroadcast(
+    topics.map((topic) => ({ topic, event: "changed", payload: {} }))
+  );
 }
 
 export async function broadcastEnrollmentRoom(recordId: string): Promise<void> {

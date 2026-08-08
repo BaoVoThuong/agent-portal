@@ -164,7 +164,7 @@ export async function POST(request: Request, { params }: Ctx) {
   }
 
   try {
-    await broadcastEnrollmentChanged();
+    await broadcastEnrollmentChanged(loaded.record.program);
     await broadcastEnrollmentRoom(id);
   } catch (error) {
     mutationWarnings.push(

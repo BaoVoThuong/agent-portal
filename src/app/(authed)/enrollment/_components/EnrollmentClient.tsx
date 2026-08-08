@@ -33,8 +33,8 @@ import {
   writeEnrollmentDeepLink,
 } from "@/lib/enrollment/client-events";
 import {
-  ENROLLMENT_TOPIC,
   enrollmentRoomTopic,
+  enrollmentTopic,
 } from "@/lib/enrollment/realtime-topics";
 import {
   enrollmentKey,
@@ -885,7 +885,7 @@ export function EnrollmentClient({
       }, 300);
     };
     const channel = sb
-      .channel(ENROLLMENT_TOPIC)
+      .channel(enrollmentTopic(program))
       .on("broadcast", { event: "changed" }, schedule)
       .subscribe((status) => {
         if (status === "SUBSCRIBED") void refetch();
@@ -894,7 +894,7 @@ export function EnrollmentClient({
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
-  }, [refetch, reloadOptions]);
+  }, [program, refetch, reloadOptions]);
 
   async function fetchCanonicalRecord(id: string): Promise<EnrollmentRecordWithStats | null> {
     try {

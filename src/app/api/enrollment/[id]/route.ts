@@ -525,7 +525,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     );
   }
   try {
-    await broadcastEnrollmentChanged();
+    await broadcastEnrollmentChanged(current.program);
     await broadcastEnrollmentRoom(id);
   } catch (error) {
     mutationWarnings.push(
@@ -567,7 +567,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   const nowIso = new Date().toISOString();
   const { data: currentData, error: currentError } = await supabase
     .from("enrollment_records")
-    .select("id,caller_email,responsible_enroll_email,created_by_email")
+    .select("id,program,caller_email,responsible_enroll_email,created_by_email")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
@@ -600,7 +600,9 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (activityError) {
     console.error("Failed to write enrollment archive activity", activityError);
   }
-  await broadcastEnrollmentChanged();
+  await broadcastEnrollmentChanged(
+    (currentData as { program: "aca" | "medicare" }).program
+  );
   await broadcastEnrollmentRoom(id);
   return NextResponse.json({ ok: true });
 }

@@ -112,7 +112,7 @@ export async function POST(request: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  await broadcastEnrollmentChanged();
+  await broadcastEnrollmentChanged(program);
   return NextResponse.json({ option: data });
 }
 
