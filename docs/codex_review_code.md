@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 23:28 Asia/Ho_Chi_Minh**
-Reviewed source through: **`1cfccb0`** (execution log commits follow)
+Last Updated: **2026-08-08 23:29 Asia/Ho_Chi_Minh**
+Reviewed source through: **`a318646`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -997,10 +997,10 @@ Expected: Require/authorize explicit scope or deliberately document aggregate ac
 Actual: All table structures are returned.  
 Root Cause: Optional scope convenience branch.  
 Impact: Structural information exposure, not customer-record disclosure.  
-Fix: Require scope or filter scopes by actor permissions.  
+Fix: Require an explicit scope on the API; the Config page's aggregate server-side loader remains direct and is not exposed through this route.
 Regression Risk: Low–medium; inventory aggregate callers.  
-Verification: Static route branch trace.  
-Status: **OPEN — hardening**
+Verification: Repository caller inventory found no client aggregate caller; `npm run typecheck` PASS, targeted ESLint PASS, table-config tests PASS (9 files / 42 tests), and `git diff --check` PASS.
+Status: **IMPLEMENTED — direct-route verification pending**
 
 ## Regression Risks
 
@@ -1010,7 +1010,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Program-scoped Enrollment realtime (`261901a`). Latest-request-wins Enrollment reloads (`973c63a`). Enrollment list truncation containment (`f7c1d94`). Config success/error Toast tones (`1b8de1d`). Config custom-column invariant enforcement (`e93a24c`). Config per-column PATCH serialization/reconciliation (`6b0023b`). Config scope-local draft/refresh isolation (`165e448`). Config stage-rule toggle serialization/feedback (`0255bd3`). Config custom Required semantics disclosure (`1cfccb0`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
+Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Program-scoped Enrollment realtime (`261901a`). Latest-request-wins Enrollment reloads (`973c63a`). Enrollment list truncation containment (`f7c1d94`). Config success/error Toast tones (`1b8de1d`). Config custom-column invariant enforcement (`e93a24c`). Config per-column PATCH serialization/reconciliation (`6b0023b`). Config scope-local draft/refresh isolation (`165e448`). Config stage-rule toggle serialization/feedback (`0255bd3`). Config custom Required semantics disclosure (`1cfccb0`). Config scoped column reads (`a318646`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
 
 ## Verification
 
@@ -1455,7 +1455,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **T-13 — cron secret transport hardening.** Centralized the three cron routes on a shared authorization helper, removed `?secret=` acceptance, and retained only the `Authorization: Bearer` credential path. The `sync-data?config=` selector remains unchanged because it is not a credential. | `17b86e2` | `cron-auth.test.ts` PASS (4 tests) for missing config, valid Bearer, wrong/missing Bearer, and query-string rejection; `npm run typecheck` PASS; targeted ESLint PASS for helper/test and all three routes. Repository scheduler workflow sends the Bearer header; deployed scheduler ownership/log evidence remains under T-14. |
 | 2026-08-08 | **T-14 — scheduler ownership documentation alignment.** Corrected the overdue route comment to reference the GitHub Actions scheduler instead of `vercel.json`, which owns the other cron jobs. No production scheduler was changed because hosting-plan, deployed-run, and alerting evidence require environment access. | `bb6dca3` | Static comparison confirms one in-repo `check-overdue` scheduler and no duplicate Vercel entry. Production cadence, recent successful run, missed-run alert, and ownership confirmation remain mandatory before Go-Live. |
 | 2026-08-08 | **T-15 — shared Toast for Tasks export failures.** Replaced both native `window.alert` branches in the visible Tasks export handler with the existing screen-level error Toast and consistent Vietnamese fallback copy. | `fac06e7` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskBoardClient.tsx`; Tasks tests PASS (21 files / 243 tests). Browser Toast/accessibility verification remains. |
-| 2026-08-08 | **X-02 — strict Config scope boundary.** Added `parseTableScope` and made layout GET/DELETE plus scoped columns GET reject missing or invalid scopes with 400 instead of silently targeting CS. The no-scope aggregate columns response remains unchanged. | `c6dfc3d` | Table-config tests PASS (8 files / 39 tests), `npm run typecheck` PASS, and targeted ESLint PASS for parser and affected routes. Authenticated direct-route checks remain. |
+| 2026-08-08 | **X-02 — strict Config scope boundary.** Added `parseTableScope` and made layout GET/DELETE plus scoped columns GET reject missing or invalid scopes with 400 instead of silently targeting CS. The later C-16 hardening closes the no-scope aggregate columns branch because no runtime caller requires it. | `c6dfc3d` | Table-config tests PASS (8 files / 39 tests), `npm run typecheck` PASS, and targeted ESLint PASS for parser and affected routes. Authenticated direct-route checks remain. |
 | 2026-08-08 | **X-01 — versioned layout writes.** Tasks and Enrollment now queue/coalesce layout PUTs and carry the server's `updated_at`; the layout route conditionally updates an existing version or inserts only when the client observed no row, returning 409 for stale tabs or reset races. Legacy unversioned PUTs remain accepted for compatibility during rollout. | `38e6409` | Tasks + table-config tests PASS (29 files / 282 tests), `npm run typecheck` PASS, targeted ESLint PASS, and diff-check PASS. Slow/reordered two-tab and admin-reset staging verification remains. |
 | 2026-08-08 | **X-03 — module-specific loading geometry.** Added a shared table-shaped skeleton and route-level loading boundaries for Tasks, Enrollment, and Config so navigation no longer shows dashboard cards before those table pages. | `c0abf16` | `npm run typecheck` PASS; targeted ESLint PASS for the shared skeleton and three route boundaries; diff-check PASS. Browser navigation/layout-shift verification remains. |
 | 2026-08-08 | **X-04 — Config dark-preference input contrast.** Added explicit light background, foreground, and placeholder colors to the new-column label input so the global dark media rule cannot make typed text unreadable. | `c816ed9` | `npm run typecheck` PASS; targeted ESLint PASS for `ConfigClient.tsx`; diff-check PASS. Visual `prefers-color-scheme: dark` check remains. |
@@ -1481,6 +1481,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **C-11 — Config scope-local drafts and stale refreshes.** Scope-keyed Config sections now reset local selection/drafts, and same-scope column/option refreshes ignore older responses and errors. | `165e448` | Table-config tests PASS (9 files / 42 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Scope-switch/reordered-response browser verification remains. |
 | 2026-08-08 | **C-12 — Config stage-rule toggle safety.** Terminal/QC updates now serialize per option, disable the row controls while pending, reconcile option data, and surface typed success/error feedback. | `0255bd3` | Table-config tests PASS (9 files / 42 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Stage-rule failure/double-toggle browser verification remains. |
 | 2026-08-08 | **C-15 — Config custom Enrollment Required disclosure.** ACA/Medicare custom Required toggles now explain that Create has no custom input yet, preserving the deliberate post-create validation semantics without silently overstating the contract. | `1cfccb0` | Table-config tests PASS (9 files / 42 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Browser copy verification remains. |
+| 2026-08-08 | **C-16 — Config scoped column reads.** The columns GET route now requires an explicit valid `scope`; repository inventory found no aggregate client caller, while the page's all-scope loader remains server-side. | `a318646` | Table-config tests PASS (9 files / 42 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Direct 400/authorized scoped-route verification remains. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1614,7 +1615,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `1cfccb0`:
+Verification recorded across the execution commits through `a318646`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1645,6 +1646,7 @@ Verification recorded across the execution commits through `1cfccb0`:
 - Config scope-local draft/refresh isolation: **table-config tests (9 files / 42 tests), typecheck, targeted ESLint, and diff-check PASS**; scope-switch/reordered-response browser proof remains.
 - Config stage-rule toggle safety: **table-config tests (9 files / 42 tests), typecheck, targeted ESLint, and diff-check PASS**; stage-rule failure/double-toggle browser proof remains.
 - Config custom Required semantics disclosure: **table-config tests (9 files / 42 tests), typecheck, targeted ESLint, and diff-check PASS**; browser copy proof remains.
+- Config scoped column reads: **repository caller inventory, table-config tests (9 files / 42 tests), typecheck, targeted ESLint, and diff-check PASS**; direct-route proof remains.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
