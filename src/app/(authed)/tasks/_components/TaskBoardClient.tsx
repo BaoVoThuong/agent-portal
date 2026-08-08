@@ -175,6 +175,7 @@ export function TaskBoardClient({
   // Lets refetchTasks re-run itself without a self-referencing useCallback.
   const refetchTasksRef = useRef<(() => void) | null>(null);
   const overviewRangeKeyRef = useRef<string | null>(null);
+  const taskLayoutHydratedRef = useRef(false);
   // Per-task safety net on top of the version/pending guards above: even if a
   // background refetch's response somehow reflects a slightly-behind snapshot
   // (a race the in-flight/version checks don't fully rule out — e.g. a
@@ -188,23 +189,19 @@ export function TaskBoardClient({
     () => taskListColumnsFromConfig(taskLayoutColumns),
     [taskLayoutColumns]
   );
-  const taskListColumnKeySet = useMemo(
-    () => new Set(taskListColumnConfig.map((column) => column.key)),
-    [taskListColumnConfig]
-  );
-  const taskListDefaultHiddenKeys = useMemo(
-    () =>
-      new Set<TaskListColumnKey>([
-        ...TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
-        ...taskLayoutColumns
-          .filter((column) => column.hidden_default)
-          .map((column) => column.key as TaskListColumnKey),
-      ]),
-    [taskLayoutColumns]
-  );
 
   useEffect(() => {
+    if (taskLayoutHydratedRef.current) return;
+    taskLayoutHydratedRef.current = true;
     let alive = true;
+    const initialTaskListColumns = taskListColumnsFromConfig(tableColumns);
+    const initialTaskListColumnKeySet = new Set(initialTaskListColumns.map((column) => column.key));
+    const initialTaskListDefaultHiddenKeys = new Set<TaskListColumnKey>([
+      ...TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
+      ...tableColumns
+        .filter((column) => column.hidden_default)
+        .map((column) => column.key as TaskListColumnKey),
+    ]);
     const timer = window.setTimeout(() => {
       const storedDefault = readTaskDateRangeDefault();
       setDateRangeDefault(storedDefault);
@@ -246,9 +243,9 @@ export function TaskBoardClient({
           setHiddenTaskListColumnKeys(
             readHiddenTaskListColumns(
               browserStorage(),
-              taskListColumnKeySet,
+              initialTaskListColumnKeySet,
               TASK_LIST_LOCKED_COLUMN_KEYS,
-              taskListDefaultHiddenKeys
+              initialTaskListDefaultHiddenKeys
             ) as Set<TaskListColumnKey>
           );
         })
@@ -258,9 +255,9 @@ export function TaskBoardClient({
           setHiddenTaskListColumnKeys(
             readHiddenTaskListColumns(
               browserStorage(),
-              taskListColumnKeySet,
+              initialTaskListColumnKeySet,
               TASK_LIST_LOCKED_COLUMN_KEYS,
-              taskListDefaultHiddenKeys
+              initialTaskListDefaultHiddenKeys
             ) as Set<TaskListColumnKey>
           );
         });
@@ -270,7 +267,7 @@ export function TaskBoardClient({
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [tableColumns, taskListColumnKeySet, taskListDefaultHiddenKeys]);
+  }, [tableColumns]);
 
   // Auto-dismiss the error toast so it doesn't linger.
   useEffect(() => {
