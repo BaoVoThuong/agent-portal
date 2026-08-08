@@ -3295,6 +3295,14 @@ function NewEnrollmentDialog({
     });
     if (missing.length > 0) {
       setInvalidKeys(new Set(missing));
+      setError(`Please complete the required fields: ${missing.join(", ")}.`);
+      window.setTimeout(() => {
+        const firstInvalid = document.querySelector<HTMLElement>(
+          '[data-enrollment-invalid="true"] input, [data-enrollment-invalid="true"] textarea, [data-enrollment-invalid="true"] button'
+        );
+        firstInvalid?.scrollIntoView({ block: "center", behavior: "smooth" });
+        firstInvalid?.focus();
+      }, 0);
       return;
     }
     setInvalidKeys(new Set());
@@ -3333,6 +3341,11 @@ function NewEnrollmentDialog({
             <p className="text-sm font-medium text-[#6b778c]">
               Capture the client first, then set ownership and enrollment details.
             </p>
+            {error ? (
+              <p role="alert" className="mt-2 text-sm font-semibold text-[#bf2600]">
+                {error}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -3885,7 +3898,10 @@ function FieldBlock({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div
+      className="space-y-1.5"
+      data-enrollment-invalid={invalid ? "true" : undefined}
+    >
       <span className={LABEL_CLASS}>
         {label}
         {required ? REQUIRED_MARK : null}
@@ -3921,7 +3937,10 @@ function CreatePropertyField({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div
+      className="space-y-1.5"
+      data-enrollment-invalid={invalid ? "true" : undefined}
+    >
       <span className={LABEL_CLASS}>
         {label}
         {required ? REQUIRED_MARK : null}
