@@ -179,5 +179,11 @@ export async function POST(req: Request, { params }: Ctx) {
   await touchLastActivity(r.supabase, id, nowIso);
   await broadcastTasksChanged();
   await broadcastTaskRoom(id);
-  return NextResponse.json({ comment });
+  // touchLastActivity moves the task's updated_at, which is the token every
+  // PATCH sends back as expected_updated_at for the 409 concurrency check.
+  // Hand it to the client so the board can keep its copy current — otherwise
+  // commenting and then editing the same task within the refetch window
+  // fails with "Task was updated by someone else." Named parent_updated_at so
+  // the shared CommentThread reads one field for both tasks and enrollment.
+  return NextResponse.json({ comment, parent_updated_at: nowIso });
 }

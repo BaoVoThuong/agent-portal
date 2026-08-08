@@ -147,6 +147,11 @@ export async function POST(request: Request, { params }: Ctx) {
   return NextResponse.json({
     comment: { ...(comment as object), attachments: [] },
     record: await fetchEnrollmentRecordById(id),
+    // The comment moved the record's updated_at above, which is the token
+    // PATCH sends as expected_updated_at for the 409 concurrency check. Same
+    // field name as the CS comments route so the shared CommentThread reads
+    // one field for both.
+    parent_updated_at: nowIso,
   });
 }
 

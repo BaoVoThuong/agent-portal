@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Toast } from "../_shared/Toast";
 import { can } from "@/lib/rbac/client";
 import {
   normalizeExclusivePermissionKeys,
@@ -290,21 +291,6 @@ export default function RoleManagerClient({
           </button>
         )}
       </header>
-
-      {(error || message) && (
-        <div className="mb-4">
-          {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-          {message && (
-            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              {message}
-            </div>
-          )}
-        </div>
-      )}
 
       <section className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white">
         <div className="border-b border-[#e4e9f2] px-5 py-4">
@@ -657,6 +643,14 @@ export default function RoleManagerClient({
           </div>
         </div>
       )}
+
+      <Toast message={error} tone="error" onDismiss={() => setError(null)} />
+      <Toast
+        message={message}
+        tone="success"
+        onDismiss={() => setMessage(null)}
+        stackIndex={error ? 1 : 0}
+      />
     </div>
   );
 }

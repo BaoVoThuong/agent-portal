@@ -220,6 +220,7 @@ export function CommentThread({
   comments,
   highlightCommentId,
   onReload,
+  onParentUpdatedAt,
 }: {
   taskId: string;
   apiBase?: string;
@@ -229,6 +230,10 @@ export function CommentThread({
   comments: CommentWithAttachments[];
   highlightCommentId?: string | null;
   onReload: () => Promise<void> | void;
+  /** Receives the parent task/record's new updated_at after a comment is
+   * posted, so the owning list can keep its optimistic-concurrency token
+   * current instead of 409-ing on the user's next edit. */
+  onParentUpdatedAt?: (updatedAt: string) => void;
 }) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
@@ -332,7 +337,15 @@ export function CommentThread({
         throw new Error(await readResponseError(res, "Failed to create comment."));
       }
 
-      const { comment } = (await res.json()) as { comment: { id: string } };
+      const { comment, parent_updated_at: parentUpdatedAt } =
+        (await res.json()) as {
+          comment: { id: string };
+          parent_updated_at?: string;
+        };
+      // Posting a comment bumps the parent task/record's updated_at server
+      // side. Push it up so the board's copy stays current — otherwise the
+      // next edit sends a stale expected_updated_at and 409s.
+      if (parentUpdatedAt) onParentUpdatedAt?.(parentUpdatedAt);
       // Link this optimistic row to its real row now, so if a reload lands
       // mid-upload the duplicate is filtered out instead of rendering twice.
       setOptimisticComments((current) =>

@@ -73,6 +73,7 @@ import {
   type LayoutEntry,
 } from "@/lib/table-config/layout";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
+import { Toast } from "../../_shared/Toast";
 import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
 import { AttachmentPanel } from "../../tasks/_components/AttachmentPanel";
@@ -466,6 +467,18 @@ export function EnrollmentClient({
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(new Set<string>());
+  // Refetch sequencing. A GET issued BEFORE a write commits can resolve AFTER
+  // it, and would then overwrite the fresh row with a pre-write snapshot —
+  // the A→B→A→B revert. Two rules close it, both evaluated against state
+  // captured at ISSUE time rather than at response time:
+  //   1. only the newest refetch may apply (refetchSeqRef),
+  //   2. a refetch issued while any write was in flight can never apply.
+  // When a refetch is dropped we set refetchDirtyRef so the update is
+  // re-run once writes settle, instead of being silently discarded.
+  const refetchSeqRef = useRef(0);
+  const refetchDirtyRef = useRef(false);
+  // Lets refetch re-run itself without a self-referencing useCallback.
+  const refetchRef = useRef<(() => void) | null>(null);
   const enrollmentLayoutHydratedRef = useRef(false);
 
   const optionsById = useMemo(() => optionById(options), [options]);
@@ -678,17 +691,54 @@ export function EnrollmentClient({
   }, [exportColumnKeys, exportRecordIds, program]);
 
   const refetch = useCallback(async () => {
+    const seq = ++refetchSeqRef.current;
+    // Captured BEFORE the request goes out: if a write is already in flight,
+    // whatever the server returns cannot include it, so this snapshot is
+    // stale-by-construction no matter what pendingRef looks like later.
+    const hadPendingAtIssue = pendingRef.current.size > 0;
     try {
       const response = await fetch(`/api/enrollment?program=${program}`, {
         cache: "no-store",
       });
       if (!response.ok) return;
       const data = (await response.json()) as { records: EnrollmentRecordWithStats[] };
-      if (pendingRef.current.size === 0) setRecords(data.records);
+      // A newer refetch already superseded this one — dropping it is correct
+      // and needs no re-run, the newer one carries at least as much.
+      if (seq !== refetchSeqRef.current) return;
+      if (hadPendingAtIssue || pendingRef.current.size > 0) {
+        // Withheld, not discarded — this payload may carry other people's
+        // changes. Re-run it. In the common case the write has ALREADY
+        // settled by the time this response lands (the mutation is faster
+        // than the refetch it raced), so the mutation's flush already ran and
+        // will never run again — re-run right here instead of waiting for a
+        // future mutation that may never come.
+        if (pendingRef.current.size === 0) {
+          refetchDirtyRef.current = false;
+          refetchRef.current?.();
+          return;
+        }
+        refetchDirtyRef.current = true;
+        return;
+      }
+      refetchDirtyRef.current = false;
+      setRecords(data.records);
     } catch {
       // The next realtime ping or manual refresh will retry.
     }
   }, [program]);
+
+  useEffect(() => {
+    refetchRef.current = () => void refetch();
+  }, [refetch]);
+
+  // Re-run an update that was dropped because a write was in flight, so we
+  // never trade "UI reverts" for "UI silently stale".
+  const flushDeferredRefetch = useCallback(() => {
+    if (pendingRef.current.size > 0) return;
+    if (!refetchDirtyRef.current) return;
+    refetchDirtyRef.current = false;
+    void refetch();
+  }, [refetch]);
 
   const reloadOptions = useCallback(async () => {
     const response = await fetch(
@@ -700,11 +750,8 @@ export function EnrollmentClient({
     setOptions(data.options);
   }, [program]);
 
-  useEffect(() => {
-    if (!error) return;
-    const timer = window.setTimeout(() => setError(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [error]);
+  // Auto-dismiss now lives in <Toast>; keeping a second timer here would be
+  // duplicated logic that can drift out of sync with it.
 
   useEffect(() => {
     const initialRecordTimer = window.setTimeout(() => {
@@ -798,36 +845,57 @@ export function EnrollmentClient({
       setError(updateError instanceof Error ? updateError.message : "Could not update record.");
     } finally {
       pendingRef.current.delete(id);
+      flushDeferredRefetch();
     }
   }
 
   async function createRecord(payload: Record<string, unknown>) {
-    const response = await fetch("/api/enrollment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, program }),
-    });
-    const data = (await response.json().catch(() => null)) as
-      | { record?: EnrollmentRecordWithStats; error?: string }
-      | null;
-    if (!response.ok || !data?.record) {
-      throw new Error(data?.error ?? "Could not create enrollment record.");
+    // Registered in pendingRef like any other write: without it a refetch
+    // that raced this POST is treated as clean and applied, and the record
+    // the user just created disappears from the list until the next ping.
+    // The id isn't known yet, so use a placeholder key — pendingRef is only
+    // ever checked for emptiness.
+    const pendingKey = `create:${Date.now()}`;
+    pendingRef.current.add(pendingKey);
+    try {
+      const response = await fetch("/api/enrollment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, program }),
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { record?: EnrollmentRecordWithStats; error?: string }
+        | null;
+      if (!response.ok || !data?.record) {
+        throw new Error(data?.error ?? "Could not create enrollment record.");
+      }
+      setRecords((current) => [data.record!, ...current]);
+      setOpenId(data.record.id);
+      writeEnrollmentDeepLink(data.record.id, "push");
+    } finally {
+      pendingRef.current.delete(pendingKey);
+      flushDeferredRefetch();
     }
-    setRecords((current) => [data.record!, ...current]);
-    setOpenId(data.record.id);
-    writeEnrollmentDeepLink(data.record.id, "push");
   }
 
   async function archiveRecord(id: string) {
     const before = records;
+    // Same reason as createRecord: an unguarded refetch would resurrect the
+    // row we just removed.
+    pendingRef.current.add(id);
     setRecords((current) => current.filter((record) => record.id !== id));
     setOpenId(null);
     writeEnrollmentDeepLink(null);
-    const response = await fetch(`/api/enrollment/${id}`, { method: "DELETE" });
-    if (!response.ok) {
-      setRecords(before);
-      const data = (await response.json().catch(() => null)) as { error?: string } | null;
-      setError(data?.error ?? "Could not archive record.");
+    try {
+      const response = await fetch(`/api/enrollment/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        setRecords(before);
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        setError(data?.error ?? "Could not archive record.");
+      }
+    } finally {
+      pendingRef.current.delete(id);
+      flushDeferredRefetch();
     }
   }
 
@@ -933,11 +1001,7 @@ export function EnrollmentClient({
         </div>
       )}
 
-      {error ? (
-        <div className="fixed bottom-4 right-4 z-[200] rounded-lg border border-[#ffbdad] bg-white px-4 py-3 text-sm font-bold text-[#bf2600] shadow-xl">
-          {error}
-        </div>
-      ) : null}
+      <Toast message={error} tone="error" onDismiss={() => setError(null)} />
 
       {openRecord ? (
         <EnrollmentDrawer
@@ -957,6 +1021,15 @@ export function EnrollmentClient({
           onClose={closeRecord}
           onPatch={(patch) => patchRecord(openRecord.id, patch)}
           onArchive={() => archiveRecord(openRecord.id)}
+          onParentUpdatedAt={(updatedAt) =>
+            setRecords((current) =>
+              current.map((record) =>
+                record.id === openRecord.id
+                  ? { ...record, updated_at: updatedAt }
+                  : record
+              )
+            )
+          }
         />
       ) : null}
 
@@ -2378,6 +2451,7 @@ function EnrollmentDrawer({
   onClose,
   onPatch,
   onArchive,
+  onParentUpdatedAt,
 }: {
   record: EnrollmentRecordWithStats;
   peopleByEmail: Map<string, string>;
@@ -2395,6 +2469,7 @@ function EnrollmentDrawer({
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
   onArchive: () => Promise<void>;
+  onParentUpdatedAt?: (updatedAt: string) => void;
 }) {
   const [detail, setDetail] = useState<EnrollmentDetail | null>(null);
   const [tab, setTab] = useState<"comments" | "activity" | "files">("comments");
@@ -2614,6 +2689,7 @@ function EnrollmentDrawer({
                     members={mentionMembers}
                     comments={detail.comments}
                     onReload={reload}
+                    onParentUpdatedAt={onParentUpdatedAt}
                   />
                 ) : tab === "activity" ? (
                   <ActivityFeed

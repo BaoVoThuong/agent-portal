@@ -7,7 +7,19 @@ export async function touchLastActivity(
 ): Promise<void> {
   const { error } = await supabase
     .from("tasks")
-    .update({ last_activity_at: nowIso, stale_reminded_at: null })
+    // updated_at must move too. `last_activity_at` is a rendered List column,
+    // so a comment/attachment genuinely changes what the row displays — and
+    // `updated_at` is the token every PATCH sends back as
+    // `expected_updated_at` for the 409 concurrency check. Leaving it behind
+    // means the row's visible content and its version disagree: clients that
+    // refresh see new content at an unchanged version, and any staleness
+    // check keyed on the version silently drops the update. There is no DB
+    // trigger maintaining this column — every route sets it by hand.
+    .update({
+      last_activity_at: nowIso,
+      stale_reminded_at: null,
+      updated_at: nowIso,
+    })
     .eq("id", taskId);
   if (error) throw new Error(error.message);
 }

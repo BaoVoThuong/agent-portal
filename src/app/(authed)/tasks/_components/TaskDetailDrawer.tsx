@@ -78,6 +78,7 @@ export function TaskDetailDrawer({
   onDelete,
   onReopenRequest,
   onUnlockOverdueRequest,
+  onParentUpdatedAt,
 }: {
   task: TaskRow;
   canEdit: boolean;
@@ -107,6 +108,7 @@ export function TaskDetailDrawer({
   onDelete: () => Promise<void>;
   onReopenRequest: () => void;
   onUnlockOverdueRequest: () => void;
+  onParentUpdatedAt?: (updatedAt: string) => void;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -410,6 +412,7 @@ export function TaskDetailDrawer({
                         comments={detail.comments}
                         highlightCommentId={highlightCommentId}
                         onReload={reload}
+                        onParentUpdatedAt={onParentUpdatedAt}
                       />
                     )}
                     {tab === "activity" && canViewNonCommentDetail && (

@@ -32,6 +32,27 @@ export function sortColumns<T extends Pick<TableColumn, "position" | "label" | "
   );
 }
 
+// Invariants the server enforces on every column PATCH. Exported so the
+// client's optimistic update applies the SAME derived fields the server will,
+// instead of showing a partial state that visibly corrects itself ~1s later
+// when the echo arrives (e.g. "In detail" switching itself on after you set
+// Required). Server and client must call this one function — duplicating the
+// rules is how they drift.
+export function applyColumnPatchInvariants(
+  column: Pick<TableColumn, "pinned" | "required" | "is_system">,
+  patch: Record<string, unknown>
+): Record<string, unknown> {
+  const next = { ...patch };
+  const willBePinned = "pinned" in next ? next.pinned === true : column.pinned;
+  const willBeRequired = "required" in next ? next.required === true : column.required;
+  // Required/Pinned fields must always reach the form, so they can never be Hidden.
+  if (willBePinned || willBeRequired) next.hidden_default = false;
+  // Required means "must appear on the form", which is meaningless for a
+  // custom column if its form opt-in is off.
+  if (willBeRequired && !column.is_system) next.show_in_detail = true;
+  return next;
+}
+
 // The ONLY thing this list encodes is "does this system column key have a
 // real, editable Create-time input at all" — it does NOT translate key names
 // to request/DB field names. Callers building a Required-check payload key

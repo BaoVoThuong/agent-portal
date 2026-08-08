@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Toast } from "../_shared/Toast";
 import type { AccountUser } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -340,20 +341,6 @@ export default function AccountManagerClient({
             )}
           </div>
         </div>
-        {(error || message) && (
-          <div className="border-b border-[#e4e9f2] px-5 py-3">
-            {error && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-            {message && (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                {message}
-              </div>
-            )}
-          </div>
-        )}
         <div className="w-full overflow-visible">
           <table className="w-full table-fixed border-collapse text-left">
             <thead className="bg-[#f8fafc] text-xs uppercase tracking-wide text-[#667085]">
@@ -831,6 +818,14 @@ export default function AccountManagerClient({
           </div>
         </div>
       )}
+
+      <Toast message={error} tone="error" onDismiss={() => setError(null)} />
+      <Toast
+        message={message}
+        tone="success"
+        onDismiss={() => setMessage(null)}
+        stackIndex={error ? 1 : 0}
+      />
     </div>
   );
 }

@@ -49,6 +49,7 @@ import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
 import { HealthTableImportDialog } from "../../_components/HealthTableImportDialog";
+import { Toast } from "../../_shared/Toast";
 import { useAnchoredMenu } from "./use-anchored-menu";
 import {
   TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
@@ -169,6 +170,12 @@ export function TaskBoardClient({
   const tasksWriteVersionRef = useRef(0);
   const tasksRefetchRequestRef = useRef(0);
   const pendingTaskMutationsRef = useRef(new Map<string, number>());
+  // Set when a refetch response was withheld because a local write was in
+  // flight. Those responses can carry OTHER people's updates, so they must be
+  // re-run once writes settle rather than discarded until the next ping.
+  const tasksRefetchDirtyRef = useRef(false);
+  // Lets refetchTasks re-run itself without a self-referencing useCallback.
+  const refetchTasksRef = useRef<(() => void) | null>(null);
   const overviewRangeKeyRef = useRef<string | null>(null);
   // Per-task safety net on top of the version/pending guards above: even if a
   // background refetch's response somehow reflects a slightly-behind snapshot
@@ -367,9 +374,30 @@ export function TaskBoardClient({
       const data = await res.json();
       // A newer refetch, a local write, or an in-flight direct mutation means
       // this full-list payload may be older than what the user just did.
+      // A superseded request needs no re-run — the newer one carries at least
+      // as much. The other two DO: they mean this payload had real updates
+      // (possibly other people's tasks) that we are choosing not to apply
+      // right now, so mark it dirty and re-run once writes settle instead of
+      // dropping those updates on the floor until some unrelated ping arrives.
       if (tasksRefetchRequestRef.current !== requestId) return;
-      if (tasksWriteVersionRef.current !== writeVersionAtStart) return;
-      if (pendingTaskMutationsRef.current.size > 0) return;
+      if (
+        tasksWriteVersionRef.current !== writeVersionAtStart ||
+        pendingTaskMutationsRef.current.size > 0
+      ) {
+        // In the common case the mutation has ALREADY settled by the time
+        // this response lands, so its flush already ran and will never run
+        // again — re-run right here instead of waiting for a future mutation
+        // that may never come. Only park the flag while a write is genuinely
+        // still open.
+        if (pendingTaskMutationsRef.current.size === 0) {
+          tasksRefetchDirtyRef.current = false;
+          refetchTasksRef.current?.();
+          return;
+        }
+        tasksRefetchDirtyRef.current = true;
+        return;
+      }
+      tasksRefetchDirtyRef.current = false;
       tasksWriteVersionRef.current += 1;
       setTasks((prev) => mergeRefetchedTasks(prev, data.tasks as TaskRow[], recentTaskWritesRef));
       void loadUnreadAssignedTaskIds();
@@ -377,6 +405,20 @@ export function TaskBoardClient({
       // ignore; the next ping or reconnect retries
     }
   }, [loadUnreadAssignedTaskIds]);
+
+  useEffect(() => {
+    refetchTasksRef.current = () => void refetchTasks();
+  }, [refetchTasks]);
+
+  // Re-run an update that was dropped because a local write was in flight, so
+  // we never trade "UI reverts" for "UI silently stale". Called when a
+  // mutation settles.
+  const flushDeferredTaskRefetch = useCallback(() => {
+    if (pendingTaskMutationsRef.current.size > 0) return;
+    if (!tasksRefetchDirtyRef.current) return;
+    tasksRefetchDirtyRef.current = false;
+    void refetchTasks();
+  }, [refetchTasks]);
 
   const loadOverview = useCallback(async (background = false) => {
     if (!isManager) return;
@@ -859,6 +901,7 @@ export function TaskBoardClient({
       } else {
         pendingTaskMutationsRef.current.delete(id);
       }
+      flushDeferredTaskRefetch();
     };
   }
 
@@ -1452,6 +1495,13 @@ export function TaskBoardClient({
           isOverdue={overdueIds.has(openTask.id)}
           onReopenRequest={() => setReopeningTaskId(openTask.id)}
           onUnlockOverdueRequest={() => setUnlockingTaskId(openTask.id)}
+          onParentUpdatedAt={(updatedAt) =>
+            updateTasks((current) =>
+              current.map((task) =>
+                task.id === openTask.id ? { ...task, updated_at: updatedAt } : task
+              )
+            )
+          }
           assignees={assignees}
           agentMembersByAgent={agentMembersByAgent}
           agents={agents}
@@ -1510,22 +1560,7 @@ export function TaskBoardClient({
         onSubmit={submitReopen}
       />
 
-      {error && (
-        <div
-          role="alert"
-          className="fixed bottom-5 left-1/2 z-[200] flex max-w-md -translate-x-1/2 items-center gap-3 rounded bg-[#172b4d] px-4 py-2.5 text-sm font-medium text-white shadow-[0_8px_24px_rgba(9,30,66,0.32)]"
-        >
-          <span className="min-w-0">{error}</span>
-          <button
-            type="button"
-            onClick={() => setError(null)}
-            aria-label="Dismiss"
-            className="shrink-0 rounded p-0.5 text-white/70 transition hover:text-white"
-          >
-            ✕
-          </button>
-        </div>
-      )}
+      <Toast message={error} tone="error" onDismiss={() => setError(null)} />
     </div>
   );
 }
