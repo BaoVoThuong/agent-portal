@@ -218,7 +218,7 @@ export async function POST(request: Request) {
     created_at: nowIso,
     updated_at: nowIso,
   };
-  let insertResult = await supabase
+  const insertResult = await supabase
     .from("enrollment_records")
     .insert({
       ...sanitizedPatch,
@@ -227,16 +227,13 @@ export async function POST(request: Request) {
     .select("*")
     .single();
   if (isMissingEnrollmentDescriptionColumn(insertResult.error)) {
-    const patchWithoutDescription = { ...sanitizedPatch };
-    delete patchWithoutDescription.description;
-    insertResult = await supabase
-      .from("enrollment_records")
-      .insert({
-        ...patchWithoutDescription,
-        ...insertBase,
-      })
-      .select("*")
-      .single();
+    return NextResponse.json(
+      {
+        error: "Database migration missing: enrollment_records.description.",
+        code: "SCHEMA_OUT_OF_DATE",
+      },
+      { status: 503 }
+    );
   }
   const { data, error } = insertResult;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

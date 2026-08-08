@@ -307,8 +307,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   sanitizedPatch.updated_by_email = actorResult.actor.email;
   sanitizedPatch.updated_at = nowIso;
 
-  let descriptionSkipped = false;
-  let updateResult = await supabase
+  const updateResult = await supabase
     .from("enrollment_records")
     .update(sanitizedPatch)
     .eq("id", id)
@@ -316,25 +315,13 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .select("*")
     .maybeSingle();
   if (isMissingEnrollmentDescriptionColumn(updateResult.error) && "description" in sanitizedPatch) {
-    const patchWithoutDescription = { ...sanitizedPatch };
-    delete patchWithoutDescription.description;
-    const hasPersistableField = Object.keys(patchWithoutDescription).some(
-      (key) => key !== "updated_by_email" && key !== "updated_at"
+    return NextResponse.json(
+      {
+        error: "Database migration missing: enrollment_records.description.",
+        code: "SCHEMA_OUT_OF_DATE",
+      },
+      { status: 503 }
     );
-    if (!hasPersistableField) {
-      return NextResponse.json(
-        { error: "Database migration missing: enrollment_records.description." },
-        { status: 500 }
-      );
-    }
-    descriptionSkipped = true;
-    updateResult = await supabase
-      .from("enrollment_records")
-      .update(patchWithoutDescription)
-      .eq("id", id)
-      .eq("updated_at", expectedUpdatedAt)
-      .select("*")
-      .maybeSingle();
   }
   const { data: updatedData, error: updateError } = updateResult;
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
@@ -351,9 +338,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   // client can roll back and submit the same mutation twice. Return the
   // committed row with observable warnings until transactional repair exists.
   const mutationWarnings: string[] = [];
-  const persistedChangedFields = descriptionSkipped
-    ? changedFields.filter((field) => field !== "description")
-    : changedFields;
+  const persistedChangedFields = changedFields;
   const activityRows: {
     record_id: string;
     actor_email: string;
