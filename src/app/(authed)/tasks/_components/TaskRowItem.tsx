@@ -325,14 +325,13 @@ export function TaskRowItem({
             `flex ${summaryClassName} items-center gap-1.5`
           )}
         >
-          <button
-            type="button"
-            onClick={() => onOpen(task.id)}
-            className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]"
-            title={task.title}
-          >
-            <span className="min-w-0 flex-1 truncate">{task.title}</span>
-          </button>
+          <EditableCustomCell
+            column={{ id: "summary", type: "text", key: "summary", label: "Client Name" }}
+            value={task.title}
+            canEdit={canEditContent}
+            onSave={(next) => onPatch(task.id, { title: next })}
+            className="w-full !text-sm !font-medium !text-[#172b4d]"
+          />
           {isNewAssigned ? <NewAssignedBadge /> : null}
           <TaskRowFlags task={task} isOverdue={isOverdue} />
           <TaskFubLink href={task.fub_link} />
@@ -414,16 +413,17 @@ export function TaskRowItem({
       ) : null}
 
       {!configuredColumns && hasColumn("summary") ? (
-        <button
-          type="button"
-          onClick={() => onOpen(task.id)}
-          className={`flex ${summaryClassName} items-center gap-1.5 truncate text-left text-sm font-medium text-[#172b4d] hover:text-[#0c66e4]`}
-          title={task.title}
-        >
-          <span className="min-w-0 flex-1 truncate">{task.title}</span>
+        <div className={`flex ${summaryClassName} items-center gap-1.5`}>
+          <EditableCustomCell
+            column={{ id: "summary", type: "text", key: "summary", label: "Client Name" }}
+            value={task.title}
+            canEdit={canEditContent}
+            onSave={(next) => onPatch(task.id, { title: next })}
+            className="w-full !text-sm !font-medium !text-[#172b4d]"
+          />
           {isNewAssigned ? <NewAssignedBadge /> : null}
           <TaskRowFlags task={task} isOverdue={isOverdue} />
-        </button>
+        </div>
       ) : null}
 
       {hasColumn("description") ? (
