@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin, loadConfigActor } from "@/lib/table-config/access";
-import { nextPosition, slugifyColumnKey } from "@/lib/table-config/columns";
+import {
+  applyColumnPatchInvariants,
+  nextPosition,
+  slugifyColumnKey,
+} from "@/lib/table-config/columns";
 import {
   fetchAllTableColumns,
   fetchTableColumnOptions,
@@ -65,6 +69,15 @@ export async function POST(request: Request) {
     typeof body?.position === "number"
       ? Math.round(body.position)
       : nextPosition(columns);
+  const columnConfig = applyColumnPatchInvariants(
+    { pinned: false, required: false, is_system: false },
+    {
+      pinned: Boolean(body?.pinned),
+      hidden_default: Boolean(body?.hidden_default),
+      show_in_detail: Boolean(body?.show_in_detail),
+      required: Boolean(body?.required),
+    }
+  );
 
   const { data, error } = await supabase
     .from("table_column")
@@ -75,10 +88,7 @@ export async function POST(request: Request) {
       type,
       is_system: false,
       position,
-      pinned: Boolean(body?.pinned),
-      hidden_default: Boolean(body?.pinned) ? false : Boolean(body?.hidden_default),
-      show_in_detail: Boolean(body?.show_in_detail),
-      required: Boolean(body?.required),
+      ...columnConfig,
       created_by_email: admin.actor.email,
     })
     .select(
