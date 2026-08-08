@@ -48,10 +48,11 @@ export function taskCategoryBadgePalette(
   };
 }
 
-function lightenHexColor(hex: string, amount: number): string {
-  const red = Number.parseInt(hex.slice(1, 3), 16);
-  const green = Number.parseInt(hex.slice(3, 5), 16);
-  const blue = Number.parseInt(hex.slice(5, 7), 16);
+export function lightenHexColor(hex: string, amount: number): string {
+  const normalized = hex.startsWith("#") ? hex.slice(1) : hex;
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
   const blend = (channel: number) => Math.round(channel + (255 - channel) * amount);
   return `#${[blend(red), blend(green), blend(blue)]
     .map((channel) => channel.toString(16).padStart(2, "0"))

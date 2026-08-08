@@ -3,6 +3,7 @@ import { readableTextColor } from "@/lib/tasks/category-colors";
 import type { EnrollmentOption } from "./types";
 import {
   ENROLLMENT_BADGE_EMPTY,
+  ENROLLMENT_IDENTITY_BADGE_LIGHTEN,
   ENROLLMENT_STATE_BADGE_ALPHA,
   enrollmentIdentityBadgeStyle,
   enrollmentStateBadgeStyle,
@@ -40,19 +41,23 @@ describe("hexToRgba", () => {
 });
 
 describe("enrollmentIdentityBadgeStyle", () => {
-  it("uses the stored colour at full opacity", () => {
-    expect(enrollmentIdentityBadgeStyle(option("#36b37e")).bg).toBe("#36b37e");
+  it("softens the stored colour for a calmer identity badge", () => {
+    const style = enrollmentIdentityBadgeStyle(option("#36b37e"));
+    expect(style.bg).not.toBe("#36b37e");
+    expect(style.bg).toMatch(/^#[0-9a-f]{6}$/i);
   });
 
   it("computes a readable foreground rather than reusing the background", () => {
     const style = enrollmentIdentityBadgeStyle(option("#36b37e"));
-    expect(style.fg).toBe(readableTextColor("#36b37e"));
+    expect(style.fg).toBe(readableTextColor(style.bg));
     expect(style.fg).not.toBe(style.bg);
   });
 
-  it("matches the CS CategoryBadge contract for the same colour", () => {
+  it("uses the same softened treatment for the same colour", () => {
     const style = enrollmentIdentityBadgeStyle(option("#6554c0"));
-    expect(style).toEqual({ bg: "#6554c0", fg: readableTextColor("#6554c0") });
+    expect(style.fg).toBe(readableTextColor(style.bg));
+    expect(style.bg).not.toBe("#6554c0");
+    expect(ENROLLMENT_IDENTITY_BADGE_LIGHTEN).toBe(0.16);
   });
 
   it("falls back to the neutral empty style with no option or no colour", () => {
@@ -95,7 +100,7 @@ describe("enrollmentStateBadgeStyle", () => {
 });
 
 describe("the two languages are actually different", () => {
-  it("identity is solid where state is tinted", () => {
+  it("identity stays opaque where state is tinted", () => {
     const identity = enrollmentIdentityBadgeStyle(option("#36b37e"));
     const state = enrollmentStateBadgeStyle(option("#36b37e"));
     expect(identity.bg).not.toBe(state.bg);

@@ -2,17 +2,23 @@
 // what the value means:
 //
 //   Identity (CS: CategoryBadge)
-//     solid full-opacity background = the value's colour identity,
-//     contrast-computed foreground, and no chevron.
+//     softened value-colour background, contrast-computed foreground, and no
+//     chevron.
 //
 //   Workflow state (CS: StatusPill)
 //     pale tinted background, colour as foreground, and a chevron only when
 //     the control is actionable. Enrollment's Stage uses this language.
-import { readableTextColor } from "@/lib/tasks/category-colors";
+import {
+  lightenHexColor,
+  readableTextColor,
+} from "@/lib/tasks/category-colors";
 import type { EnrollmentOption } from "./types";
 
 /** Tint opacity for workflow-state badges (Stage). */
 export const ENROLLMENT_STATE_BADGE_ALPHA = 0.14;
+
+/** Keep identity badges readable without using the raw saturated colour. */
+export const ENROLLMENT_IDENTITY_BADGE_LIGHTEN = 0.16;
 
 /** Neutral badge for no selected option or invalid stored colour. */
 export const ENROLLMENT_BADGE_EMPTY = {
@@ -27,15 +33,19 @@ export function hexToRgba(hex: string, alpha: number): string | null {
   return `rgba(${parseInt(red, 16)}, ${parseInt(green, 16)}, ${parseInt(blue, 16)}, ${alpha})`;
 }
 
-/** Identity badge: solid background with a readable foreground. */
+/** Identity badge: softened value colour with a readable foreground. */
 export function enrollmentIdentityBadgeStyle(
   option: EnrollmentOption | null
 ): { bg: string; fg: string } {
   if (!option?.color) return { ...ENROLLMENT_BADGE_EMPTY };
   if (!hexToRgba(option.color, 1)) return { ...ENROLLMENT_BADGE_EMPTY };
+  const normalizedColor = option.color.startsWith("#")
+    ? option.color
+    : `#${option.color}`;
+  const bg = lightenHexColor(normalizedColor, ENROLLMENT_IDENTITY_BADGE_LIGHTEN);
   return {
-    bg: option.color,
-    fg: readableTextColor(option.color),
+    bg,
+    fg: readableTextColor(bg),
   };
 }
 
