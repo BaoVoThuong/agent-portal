@@ -62,6 +62,10 @@ import {
   type EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
 import {
+  enrollmentIdentityBadgeStyle,
+  enrollmentStateBadgeStyle,
+} from "@/lib/enrollment/option-badge";
+import {
   readHiddenColumns,
   toggleHiddenColumn,
   writeHiddenColumns,
@@ -2272,9 +2276,10 @@ function EnrollmentOptionMenu({
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
   const option = optionId ? options.find((item) => item.id === optionId) ?? null : null;
-  // Calmer than the Stage pill on purpose: these are attributes, not the
-  // record's primary status, so they shouldn't compete visually with Stage.
-  const style = optionPillStyle(option, 0.08);
+  // Identity badge (CS CategoryBadge language): these values describe what
+  // the record is, so each option keeps its own solid colour. Stage remains
+  // distinguishable through its tinted workflow-state badge.
+  const style = enrollmentIdentityBadgeStyle(option);
 
   return (
     <span className="block min-w-0">
@@ -2291,7 +2296,7 @@ function EnrollmentOptionMenu({
         className={
           field
             ? DETAIL_FIELD_BUTTON_CLASS
-            : "flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60"
+            : "flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide disabled:cursor-not-allowed disabled:opacity-60"
         }
         style={
           field
@@ -2309,7 +2314,8 @@ function EnrollmentOptionMenu({
         >
           {option?.label ?? emptyLabel}
         </span>
-        <ChevronDown className={`${field ? "h-4 w-4" : "h-3 w-3"} shrink-0 opacity-60`} />
+        {/* Identity badges match CS CategoryBadge: no chevron in List. */}
+        {field ? <ChevronDown className="h-4 w-4 shrink-0 opacity-60" /> : null}
       </button>
       {isOpen
         ? createPortal(
@@ -2528,7 +2534,8 @@ function EnrollmentStagePill({
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
   const stage = stageId ? stages.find((option) => option.id === stageId) ?? null : null;
-  const style = optionPillStyle(stage);
+  // Workflow-state badge (CS StatusPill language): tinted, not solid.
+  const style = enrollmentStateBadgeStyle(stage);
   const label = stage?.label ?? "No stage";
   const pill = field ? (
     <span className={DETAIL_FIELD_BUTTON_CLASS}>
@@ -2545,7 +2552,7 @@ function EnrollmentStagePill({
       style={{ backgroundColor: style.bg, color: style.fg }}
     >
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-      <ChevronDown className="h-3 w-3 shrink-0" />
+      {canEdit ? <ChevronDown className="h-3 w-3 shrink-0" /> : null}
     </span>
   );
 
@@ -4262,27 +4269,6 @@ function enrollmentAttentionScore(
   if (record.program !== "medicare" && !record.caller_email) score += 400;
   if (!record.due_date) score += 300;
   return score;
-}
-
-function optionPillStyle(
-  option: EnrollmentOption | null,
-  alpha = 0.14
-): {
-  bg: string;
-  fg: string;
-} {
-  if (!option?.color) return { bg: "#f4f5f7", fg: "#5e6c84" };
-  return {
-    bg: hexToRgba(option.color, alpha) ?? "#dfe1e6",
-    fg: option.color,
-  };
-}
-
-function hexToRgba(hex: string, alpha: number): string | null {
-  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
-  if (!match) return null;
-  const [, r, g, b] = match;
-  return `rgba(${parseInt(r, 16)}, ${parseInt(g, 16)}, ${parseInt(b, 16)}, ${alpha})`;
 }
 
 function groupOptions(options: EnrollmentOption[]): EnrollmentOptionsBySet {
