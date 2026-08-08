@@ -186,6 +186,11 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const record = { description: null, ...data } as EnrollmentRecordWithStats;
+  // The canonical record is committed before audit/notification fan-out. Do
+  // not return a retryable 5xx for a post-commit side-effect failure: callers
+  // would retry and create duplicates. Keep the committed response truthful,
+  // log warnings, and leave durable transaction/repair work explicit.
+  const mutationWarnings: string[] = [];
   const activityRows: {
     record_id: string;
     actor_email: string;
@@ -208,52 +213,104 @@ export async function POST(request: Request) {
     });
   }
 
-  await Promise.all([
-    supabase.from("enrollment_activity").insert(activityRows),
+  const auditResults = await Promise.allSettled([
+    supabase.from("enrollment_activity").insert(activityRows).then(({ error: activityError }) => {
+      if (activityError) throw new Error(`enrollment_activity: ${activityError.message}`);
+    }),
     record.stage_id
-      ? supabase.from("enrollment_stage_history").insert({
-          record_id: record.id,
-          from_option_id: null,
-          to_option_id: record.stage_id,
-          changed_by_email: actorResult.actor.email,
-          changed_at: nowIso,
-        })
+      ? supabase
+          .from("enrollment_stage_history")
+          .insert({
+            record_id: record.id,
+            from_option_id: null,
+            to_option_id: record.stage_id,
+            changed_by_email: actorResult.actor.email,
+            changed_at: nowIso,
+          })
+          .then(({ error: historyError }) => {
+            if (historyError) throw new Error(`enrollment_stage_history: ${historyError.message}`);
+          })
       : null,
   ]);
+  for (const result of auditResults) {
+    if (result.status === "rejected") {
+      mutationWarnings.push(
+        result.reason instanceof Error ? result.reason.message : "Enrollment audit write failed."
+      );
+    }
+  }
 
   const recipients = uniqueEnrollmentNotificationRecipients(
     [record.caller_email, record.responsible_enroll_email],
     [actorResult.actor.email]
   );
-  await insertEnrollmentNotifications(
-    recipients.map((recipient) => ({
-      recipient_email: recipient,
-      record_id: record.id,
-      type: "assigned",
-      actor_email: actorResult.actor.email,
-      detail: "New enrollment record",
-    }))
-  );
-
-  if (selectedStage?.triggers_qc) {
-    const qcRecipients = uniqueEnrollmentNotificationRecipients(
-      [record.caller_email, record.responsible_enroll_email, ...(await fetchAdminEmails())],
-      [actorResult.actor.email]
-    );
-    await insertEnrollmentNotifications(
-      qcRecipients.map((recipient) => ({
+  const notificationPromises: Promise<void>[] = [
+    insertEnrollmentNotifications(
+      recipients.map((recipient) => ({
         recipient_email: recipient,
         record_id: record.id,
-        type: "qc_needed",
+        type: "assigned",
         actor_email: actorResult.actor.email,
-        detail: selectedStage.label,
+        detail: "New enrollment record",
       }))
+    ),
+  ];
+
+  if (selectedStage?.triggers_qc) {
+    notificationPromises.push(
+      (async () => {
+        let adminEmails: string[] = [];
+        try {
+          adminEmails = await fetchAdminEmails();
+        } catch (error) {
+          throw new Error(
+            `Enrollment QC recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+          );
+        }
+        const qcRecipients = uniqueEnrollmentNotificationRecipients(
+          [record.caller_email, record.responsible_enroll_email, ...adminEmails],
+          [actorResult.actor.email]
+        );
+        await insertEnrollmentNotifications(
+          qcRecipients.map((recipient) => ({
+            recipient_email: recipient,
+            record_id: record.id,
+            type: "qc_needed",
+            actor_email: actorResult.actor.email,
+            detail: selectedStage.label,
+          }))
+        );
+      })()
     );
   }
 
-  await broadcastEnrollmentChanged();
+  const notificationResults = await Promise.allSettled(notificationPromises);
+  for (const result of notificationResults) {
+    if (result.status === "rejected") {
+      mutationWarnings.push(
+        result.reason instanceof Error
+          ? result.reason.message
+          : "Enrollment notification write failed."
+      );
+    }
+  }
+
+  try {
+    await broadcastEnrollmentChanged();
+  } catch (error) {
+    mutationWarnings.push(
+      `Enrollment broadcast failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  if (mutationWarnings.length > 0) {
+    console.error("Enrollment create committed with side-effect warnings", {
+      recordId: record.id,
+      warnings: mutationWarnings,
+    });
+  }
   return NextResponse.json({
     record: { ...record, comment_count: 0, attachment_count: 0 },
+    warnings: mutationWarnings,
   });
 }
 

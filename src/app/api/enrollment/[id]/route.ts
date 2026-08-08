@@ -32,6 +32,7 @@ import type {
   EnrollmentOption,
   EnrollmentOptionSetKey,
   EnrollmentRecord,
+  EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
 
 export const dynamic = "force-dynamic";
@@ -314,6 +315,11 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   const updated = { description: null, ...updatedData } as EnrollmentRecord;
+  // The canonical update is committed before audit/notification fan-out. A
+  // post-commit side-effect failure must not become a retryable 5xx, or the
+  // client can roll back and submit the same mutation twice. Return the
+  // committed row with observable warnings until transactional repair exists.
+  const mutationWarnings: string[] = [];
   const persistedChangedFields = descriptionSkipped
     ? changedFields.filter((field) => field !== "description")
     : changedFields;
@@ -326,13 +332,16 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const notifications: EnrollmentNotificationInsertInput[] = [];
 
   if (stageChanged) {
-    await supabase.from("enrollment_stage_history").insert({
+    const { error: stageHistoryError } = await supabase.from("enrollment_stage_history").insert({
       record_id: id,
       from_option_id: current.stage_id,
       to_option_id: updated.stage_id,
       changed_by_email: actorResult.actor.email,
       changed_at: nowIso,
     });
+    if (stageHistoryError) {
+      mutationWarnings.push(`enrollment_stage_history: ${stageHistoryError.message}`);
+    }
     activityRows.push({
       record_id: id,
       actor_email: actorResult.actor.email,
@@ -369,8 +378,16 @@ export async function PATCH(request: Request, { params }: Ctx) {
         type: "qc_needed",
         meta: { stage: toStage.label },
       });
+      let adminEmails: string[] = [];
+      try {
+        adminEmails = await fetchAdminEmails();
+      } catch (error) {
+        mutationWarnings.push(
+          `Enrollment QC recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+        );
+      }
       const qcRecipients = uniqueEnrollmentNotificationRecipients(
-        [updated.caller_email, updated.responsible_enroll_email, ...(await fetchAdminEmails())],
+        [updated.caller_email, updated.responsible_enroll_email, ...adminEmails],
         [actorResult.actor.email]
       );
       for (const recipient of qcRecipients) {
@@ -462,14 +479,47 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   if (activityRows.length > 0) {
-    await supabase.from("enrollment_activity").insert(activityRows);
+    const { error: activityError } = await supabase
+      .from("enrollment_activity")
+      .insert(activityRows);
+    if (activityError) {
+      mutationWarnings.push(`enrollment_activity: ${activityError.message}`);
+    }
   }
-  await insertEnrollmentNotifications(notifications);
-  await broadcastEnrollmentChanged();
-  await broadcastEnrollmentRoom(id);
+  try {
+    await insertEnrollmentNotifications(notifications);
+  } catch (error) {
+    mutationWarnings.push(
+      error instanceof Error ? error.message : "Enrollment notification write failed."
+    );
+  }
+  try {
+    await broadcastEnrollmentChanged();
+    await broadcastEnrollmentRoom(id);
+  } catch (error) {
+    mutationWarnings.push(
+      `Enrollment broadcast failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
 
-  const record = await fetchEnrollmentRecordById(id);
-  return NextResponse.json({ record: record ?? { ...updated, comment_count: 0, attachment_count: 0 } });
+  let record: EnrollmentRecordWithStats | null = null;
+  try {
+    record = await fetchEnrollmentRecordById(id);
+  } catch (error) {
+    mutationWarnings.push(
+      `Enrollment canonical reload failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  if (mutationWarnings.length > 0) {
+    console.error("Enrollment update committed with side-effect warnings", {
+      recordId: id,
+      warnings: mutationWarnings,
+    });
+  }
+  return NextResponse.json({
+    record: record ?? { ...updated, comment_count: 0, attachment_count: 0 },
+    warnings: mutationWarnings,
+  });
 }
 
 export async function DELETE(_request: Request, { params }: Ctx) {
