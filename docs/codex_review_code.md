@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 20:25 Asia/Ho_Chi_Minh**  
-Reviewed source through: **`a52156e`** (execution log commits follow)
+Last Updated: **2026-08-08 20:30 Asia/Ho_Chi_Minh**  
+Reviewed source through: **`036984e`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -208,10 +208,10 @@ Expected: One stable channel subscription for the page lifetime.
 Actual: Channel churn and extra unbounded GETs; a small unsubscribe gap can miss a broadcast until later reconciliation.  
 Root Cause: Values read inside handlers are effect dependencies even though channel identity does not depend on them.  
 Impact: Avoidable network/database load and connection churn.  
-Fix: Keep current view/overview loader in refs or separate stable record subscription from overview refresh behavior.  
+Fix: Keep the Tasks channel mounted for the board lifetime; read the current view, overview loader, and refetch function through refs so date/view changes do not recreate the subscription.  
 Regression Risk: Low–medium; two-tab realtime and Overview refresh must be tested.  
-Verification: Static dependency trace; WS join/refetch count was not browser-measured.  
-Status: **OPEN**
+Verification: Static dependency trace confirms the channel effect no longer depends on `view` or date-bound `loadOverview`; typecheck, targeted ESLint, and Tasks tests (21 files / 242 tests) pass. Browser WS join/refetch count and Overview realtime behavior remain.  
+Status: **IMPLEMENTED — browser realtime verification pending**
 
 ## Race Conditions / Async Issues
 
@@ -327,7 +327,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`).
+T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`).
 
 ## Verification
 
@@ -1361,7 +1361,7 @@ Remaining P1 gates after implementation:
 
 ## P2
 
-Active P2 findings remain. T-04 (`16ad882`), T-05 (`82885a3`), T-06 (`ff87eaf`), T-07 (`f9c1643`), and T-08 truncation containment (`a52156e`) are implemented pending browser/route evidence; T-08 server-window/render work and other Tasks/Enrollment/Config/ACA/cross-module P2s remain open or require production-volume/operational measurements.
+Active P2 findings remain. T-04 (`16ad882`), T-05 (`82885a3`), T-06 (`ff87eaf`), T-07 (`f9c1643`), T-08 truncation containment (`a52156e`), and T-09 subscription stabilization (`036984e`) are implemented pending browser/route evidence; T-08 server-window/render work and other Tasks/Enrollment/Config/ACA/cross-module P2s remain open or require production-volume/operational measurements.
 
 ## P3
 
@@ -1388,6 +1388,7 @@ Active P2 findings remain. T-04 (`16ad882`), T-05 (`82885a3`), T-06 (`ff87eaf`),
 - ACA/Medicare stakeholder default visibility: `2c7b96e`
 - Tasks atomic canonical/history command: `4f59280` (deployment/failure-injection gate remains)
 - Tasks truncation containment: `a52156e` (server-window/volume gate remains)
+- Tasks realtime subscription lifecycle: `036984e` (browser WS/refetch gate remains)
 - Post-commit warning truthfulness: `e219c91`, `f95ebbe` (partial gates remain)
 
 ## Performance Risks
@@ -1447,6 +1448,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **T-05 — visible search pagination and file hits.** Replaced the fixed pre-authorization candidate limit with paginated visibility filtering (up to a bounded 1,000-row scan per result type), preserving the six-result groups after scope resolution. Added file results to keyboard navigation and the dropdown, including task/comment deep links. | `82885a3` | `npm run typecheck` PASS; targeted ESLint PASS; Tasks/search helper tests PASS (21 files / 239 tests). Staging verification remains for common terms with >40 hidden matches, permission parity, and attachment-only results. |
 | 2026-08-08 | **T-06 — task detail metadata reconciliation.** Added a shared canonical task-list metadata loader (RPC with the existing schema fallback), returned counts/latest activity from task detail, and pushed confirmed metadata into the board row after comment/file reloads. Equal metadata is ignored so opening a drawer does not create a synthetic local write or refetch race. | `ff87eaf` | `npm run typecheck` PASS; targeted ESLint PASS; Tasks tests PASS (21 files / 240 tests), including the metadata RPC contract test. Authenticated comment/file mutation and slow-refetch browser verification remains required. |
 | 2026-08-08 | **T-08 — Tasks response truncation containment.** Added exact row counts to the Tasks query (including the legacy-column fallback), fail-closed detection when PostgREST returns fewer rows than the count, a structured 503 for board reloads, and visible refetch error handling. Export now also refuses to operate on an incomplete source set. | `a52156e` | `npm run typecheck` PASS; targeted ESLint PASS; Tasks tests PASS (21 files / 242 tests), including complete/countless and truncated-response cases. Production volume, API/SSR overflow behavior, server-window pagination, and render benchmark remain required. |
+| 2026-08-08 | **T-09 — Tasks realtime subscription churn.** Stabilized the Tasks channel effect so view/date-dependent loaders are read through refs and the channel is not torn down/rejoined when the user changes view or Overview date range. Category reload remains a stable callback and refetch continues through the existing ref. | `036984e` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskBoardClient.tsx`; Tasks tests PASS (21 files / 242 tests). Browser WS join count, two-tab broadcast delivery, and Overview refresh behavior remain required. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1580,10 +1582,10 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `a52156e`:
+Verification recorded across the execution commits through `036984e`:
 
-- `npm run typecheck`: **PASS after T-08**.
-- Targeted ESLint for the changed Tasks/detail/query routes and components: **PASS**.
+- `npm run typecheck`: **PASS after T-09**.
+- Targeted ESLint for the changed Tasks/detail/query routes and components, including `TaskBoardClient.tsx`: **PASS**.
 - `npm run test:run -- src/lib/tasks`: **PASS — 21 files / 242 tests**.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
