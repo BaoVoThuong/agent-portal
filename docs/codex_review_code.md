@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 23:10 Asia/Ho_Chi_Minh**
-Reviewed source through: **`c0960cd`** (execution log commits follow)
+Last Updated: **2026-08-08 23:13 Asia/Ho_Chi_Minh**
+Reviewed source through: **`261901a`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -519,12 +519,12 @@ Affected Module: Medicare ↔ ACA
 Trigger: Any record mutation in one program.  
 Expected: Only the affected program invalidates.  
 Actual: The other program reloads its full M-07 payload/options without useful change.  
-Root Cause: Topic has no program dimension.  
+Root Cause: Topic had no program dimension.
 Impact: Cross-program request amplification.  
-Fix: Versioned two-phase migration to program-scoped topics; avoid a mixed old/new deployment losing realtime.  
+Fix: Added program-scoped topics and subscriptions; known program mutations target only that topic, while config/cron fan-out remains explicit and the legacy topic is retained during rollout.
 Regression Risk: Medium.  
-Verification: Static topic trace; multi-tab request count not measured.  
-Status: **OPEN**
+Verification: Realtime topic tests (2), `npm run typecheck`, targeted ESLint, and diff-check PASS. Two-tab ACA/Medicare WebSocket/refetch-count verification remains.
+Status: **IMPLEMENTED — browser realtime verification pending**
 
 ## Race Conditions / Async Issues
 
@@ -1010,7 +1010,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
+Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Program-scoped Enrollment realtime (`261901a`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
 
 ## Verification
 
@@ -1472,6 +1472,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **A-06 — Required checkbox/Consent validation alignment.** Shared server validation now distinguishes deliberate `false` from an unset checkbox value, so ACA Consent's nullable option id follows the same Required semantics as the form. | `a974000` | Required-value tests PASS (3) and table-column tests PASS (16); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated ACA Required Consent create/update verification remains. |
 | 2026-08-08 | **M-05 — canonical Enrollment comment parent version.** Comment creation now checks parent/activity writes, contains notification/broadcast failures as warnings, refetches the canonical record, and returns only a persisted `parent_updated_at` token. | `fc88006` | Parent-version resolution tests PASS (3); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated comment failure-injection and next-edit verification remains. |
 | 2026-08-08 | **M-06 — Enrollment attachment/storage/count reconciliation.** Uploads clean up storage when signing or metadata insertion fails; deletes remove metadata before storage and report cleanup warnings; post-commit side effects are contained; the drawer refetches the parent list after detail mutations so counts reconcile. | `c0960cd` | `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated upload/delete failure-injection, storage cleanup, and list-count browser verification remains. |
+| 2026-08-08 | **M-11 — program-scoped Enrollment realtime.** ACA and Medicare list clients now subscribe to separate topics; known program mutations target only the affected topic, while config/cron fan-out remains explicit and the legacy topic keeps mixed-version sessions safe. | `261901a` | Realtime topic tests PASS (2); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Two-tab ACA/Medicare WebSocket/refetch-count verification remains. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1605,7 +1606,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `c0960cd`:
+Verification recorded across the execution commits through `261901a`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1627,6 +1628,7 @@ Verification recorded across the execution commits through `c0960cd`:
 - Required checkbox/Consent validation: **3 required-value tests, 16 table-column tests, typecheck, targeted ESLint, and diff-check PASS**; authenticated ACA Required Consent proof remains.
 - Enrollment comment canonical version: **3 parent-version tests, typecheck, targeted ESLint, and diff-check PASS**; authenticated failure-injection/next-edit proof remains.
 - Enrollment attachment/storage/count reconciliation: **typecheck, targeted ESLint, and diff-check PASS**; authenticated failure-injection and list-count proof remains.
+- Enrollment realtime topic scoping: **2 topic tests, typecheck, targeted ESLint, and diff-check PASS**; two-tab cross-program refetch proof remains.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
