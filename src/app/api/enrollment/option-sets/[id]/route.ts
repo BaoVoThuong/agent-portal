@@ -4,7 +4,7 @@ import {
   canManageEnrollmentOptions,
   loadEnrollmentActor,
 } from "@/lib/enrollment/access";
-import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
+import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +76,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await broadcastEnrollmentChanged();
+  await broadcastTableConfigChanged();
   return NextResponse.json({ option: data });
 }
 
@@ -135,7 +135,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await broadcastEnrollmentChanged();
+  await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
 }
 

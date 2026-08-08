@@ -8,7 +8,7 @@ import {
   ENROLLMENT_OPTION_LABELS,
   fetchEnrollmentOptionData,
 } from "@/lib/enrollment/options";
-import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
+import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 import {
   ENROLLMENT_OPTION_SET_KEYS,
   enrollmentOptionSetKeysForProgram,
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  await broadcastEnrollmentChanged(program);
+  await broadcastTableConfigChanged();
   return NextResponse.json({ option: data });
 }
 
