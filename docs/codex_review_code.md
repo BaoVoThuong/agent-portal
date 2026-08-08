@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 18:45 Asia/Ho_Chi_Minh**  
-Reviewed source through: **`fb6c2a7`** (execution log commits follow)
+Last Updated: **2026-08-08 19:55 Asia/Ho_Chi_Minh**  
+Reviewed source through: **`4f59280`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -112,8 +112,8 @@ Root Cause: One business transition spans independent Supabase statements withou
 Impact: UI/server disagreement, assignment drift, missing history/notifications, and confusing retries.  
 Fix: Move canonical state plus required audit/junction writes into atomic commands; make non-critical side effects idempotent and non-authoritative for the HTTP result.  
 Regression Risk: High; transitions, SLA history, assignment cycles, notifications, and imports depend on these rules.  
-Verification: Static control-flow trace confirms earlier writes before later error returns; no route failure-injection test exists.  
-Status: **PARTIAL — P1 OPEN pending transactional/repair design**
+Verification: Local PostgreSQL schema replay and RPC commit/rollback smoke checks pass; authenticated staging failure-injection and deployed-schema verification remain.  
+Status: **IMPLEMENTED — atomic core writes committed; deployment/failure-injection pending**
 
 ### T-04 — Special actions and archive lack optimistic concurrency
 
@@ -323,11 +323,11 @@ Status: **OPEN — hardening**
 
 - T-01 requires saved-layout/no-layout/localStorage/archived-column cases.
 - T-02 requires rapid A→B→C, two-user 409, slow network, and canonical version checks.
-- Mutation atomicity work touches SLA/history/rotation/notifications and needs failure injection after every write.
+- T-03's atomic command touches SLA/history/assignment/notifications and needs deployed-schema failure injection after every write.
 
 ## Fixes Applied
 
-T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling (`e219c91`, partial), T-07 row-scoped archive rollback (`f9c1643`).
+T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-07 row-scoped archive rollback (`f9c1643`).
 
 ## Verification
 
@@ -1354,7 +1354,7 @@ T-01 implementation is committed in `cdd06de`; saved-layout browser request-coun
 
 Remaining P1 gates after implementation:
 
-- **Partial/open:** T-03 (`e219c91`) and M-03 (`f95ebbe`) still require transactional or durable idempotent repair semantics.
+- **Verification pending:** T-03 (`4f59280`) requires deployed-schema/failure-injection proof; M-03 (`f95ebbe`) still requires transactional or durable idempotent repair semantics.
 - **Conditional/open:** C-04/C-05 require an explicit Config freeze or a safe live-config implementation.
 - **Verification pending:** T-02 (`81e8562`), M-01 (`d608d9c`), M-02 (`fc00dbe`), and A-01 (`2c7b96e`).
 - C-01/C-02/C-03 are no longer reachable because Import was removed; reconciliation/direct-route/export evidence is still required before closing them.
@@ -1374,7 +1374,7 @@ Active P2 findings remain. M-04 (`802493a`), M-09 (`373a4dc`), and T-07 (`f9c164
 ## Critical Bugs
 
 - T-01 browser proof is still required for the saved-layout hydration blocker.
-- Task/Enrollment canonical writes can still commit before required related work is repaired (T-03/M-03).
+- Enrollment canonical writes can still commit before required related work is repaired (M-03); Tasks core state/history now use the atomic command but deployment/failure-injection evidence is pending (T-03).
 - Live Config/workflow changes can leave active clients stale or invalidate stage state (C-04/C-05).
 - Import runtime paths are removed; historical-request reconciliation and Export regression evidence remain.
 
@@ -1386,6 +1386,7 @@ Active P2 findings remain. M-04 (`802493a`), M-09 (`373a4dc`), and T-07 (`f9c164
 - Enrollment permission affordances: `d608d9c`
 - Enrollment serialized PATCH/rebase: `fc00dbe`
 - ACA/Medicare stakeholder default visibility: `2c7b96e`
+- Tasks atomic canonical/history command: `4f59280` (deployment/failure-injection gate remains)
 - Post-commit warning truthfulness: `e219c91`, `f95ebbe` (partial gates remain)
 
 ## Performance Risks
@@ -1440,6 +1441,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **M-02 — Enrollment overlapping PATCH race.** Replaced boolean pending tracking with counted pending writes, added per-record serialized PATCH queues with immediate optimistic rendering, rebased later edits after canonical responses, and fetched the canonical row on 409 instead of restoring a stale whole-record snapshot. Create/archive/refetch pending tracking now shares the counter. | `fc00dbe` | `npm run typecheck` PASS; targeted ESLint PASS; Enrollment + table-config tests PASS (11 files / 70 tests). Slow-network/two-user conflict and deferred-refetch browser verification remains required. |
 | 2026-08-08 | **A-01 — ACA new-record visibility.** Added an explicit “mine” predicate to the non-manager default view: creator, Caller, or Responsible records remain visible. The UI still shows the selected Responsible filter, while changing that filter or clearing filters returns to the explicit user-selected behavior. | `2c7b96e` | `npm run typecheck` PASS; targeted ESLint PASS. Product/browser check remains required for ACA create → close drawer → default list and cleared-filter behavior; Medicare uses the same stakeholder predicate for parity. |
 | 2026-08-08 | **T-03 — committed task mutation truthfulness (partial).** Canonical task PATCHes no longer return retryable 5xx solely because assignee/history/activity/notification/broadcast/assignee-reload side effects fail after commit. Results are checked with `Promise.allSettled`, logged, and returned as `warnings`; the client can keep the committed row. | `e219c91` | `npm run typecheck` PASS; targeted ESLint PASS. T-03 remains **OPEN/P1** until canonical task + assignee junction + required history are transactionally atomic or have a durable idempotent repair queue; this commit only removes false-failure/retry behavior. |
+| 2026-08-08 | **T-03 — atomic task mutation command.** Added `patch_task_atomic` to the Supabase schema and routed generic task PATCH through it. The task row, assignee junction/cycles, stage/overdue history, activity rows, and last-activity token now commit or roll back together; notifications and realtime remain non-authoritative warnings. | `4f59280` | `npm run typecheck` PASS; targeted ESLint PASS; Tasks tests PASS (21 files / 239 tests); PostgreSQL 16 schema replay PASS; local RPC commit/rollback smoke checks PASS. Deployment of the function, authenticated failure-injection, and broader route regression remain required before closing T-03. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1482,10 +1484,10 @@ T-03 and M-03 cannot be removed from the release gate by Config/import controls 
 
 | Finding | Owner | Required design decision | Exit criteria |
 | --- | --- | --- | --- |
-| **T-03** | Backend/DB | Classify each post-task write as transactional-required versus retryable best-effort. Canonical task, assignment junction, and required history must commit atomically. Notification/broadcast failure must not make a committed canonical mutation look uncommitted; it needs observable retry/repair semantics. | Failure injection after every statement proves either full rollback or truthful committed response plus repair record; retries are idempotent; history/assignment/SLA invariants hold. |
+| **T-03** | Backend/DB | Deploy and verify `patch_task_atomic` for generic task PATCHes. Keep notification/broadcast failure non-authoritative and observable. Audit special-action routes separately for their own transaction boundaries. | Failure injection after every atomic statement proves full rollback; retries are OCC/idempotent; history/assignment/SLA invariants hold; deployed RPC and route regression pass. |
 | **M-03** | Backend/DB | Make Enrollment canonical record plus required stage/activity audit atomic; explicitly inspect every Supabase result. Make notification delivery idempotent/non-authoritative for the mutation response. | Create/update failure injection cannot return failure after hidden canonical commit or success with missing required audit; duplicate retry is prevented; both programs pass. |
 
-If an atomic RPC cannot be implemented safely in the release window, status remains **NOT READY**. “No incident observed yet” is not evidence that a deterministic failure boundary is safe.
+Until the RPC is deployed and failure-injection evidence exists, status remains **NOT READY**. “No incident observed yet” is not evidence that a deterministic failure boundary is safe.
 
 ### Phase 4 — Resolve conditional Config/import blockers
 
@@ -1573,19 +1575,18 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `fb6c2a7`:
+Verification recorded across the execution commits through `4f59280`:
 
-- `npm run typecheck`: **PASS**.
-- `npm run lint`: **PASS**.
-- `npm run test:run`: **PASS — 50 files / 431 tests**.
-- `npm run build`: **PASS — production build and routes compiled**.
-- Targeted historical runs: Tasks **21 files / 239 tests**; Enrollment + table-config **12 files / 73 tests**; table-config **8 files / 40 tests**.
-- Claude independently recorded matching full test/build results.
-- These results prove compile/static/unit health only. They do not prove component effect stability, route atomicity, browser behavior, database schema parity, or async ordering. A final full-suite/build run is still required after the execution batch.
+- `npm run typecheck`: **PASS after T-03**.
+- `npx eslint 'src/app/api/tasks/[id]/route.ts'`: **PASS**.
+- `npm run test:run -- src/lib/tasks`: **PASS — 21 files / 239 tests**.
+- PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic RPC commit/rollback smoke checks passed.
+- Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
+- These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
 
 ## Overall Risk
 
-**CRITICAL.** Client P0/P1 fixes are committed but browser verification is pending; T-03/M-03 still need transactional or durable repair semantics, and C-04/C-05 still need a Config decision.
+**CRITICAL.** Client P0/P1 fixes are committed but browser/deployed-schema verification is pending; M-03 still needs transactional or durable repair semantics, T-03 needs failure-injection proof, and C-04/C-05 still need a Config decision.
 
 ## Go-Live Recommendation
 
