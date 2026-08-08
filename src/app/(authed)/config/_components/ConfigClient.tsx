@@ -426,6 +426,10 @@ function ConfigTableSection({
   // Counts column PATCHes still in flight. Only the last one to settle
   // refreshes from the server — see patchColumn for why.
   const pendingColumnPatchesRef = useRef(0);
+  // PATCHes for one column must be sent in intent order. Otherwise an older
+  // response/failure can overwrite a newer optimistic toggle or skip the
+  // final canonical refresh entirely.
+  const columnPatchQueuesRef = useRef(new Map<string, Promise<void>>());
   // Plain position order — the editor deliberately does NOT sink hidden
   // columns to the bottom. It used to, and that made toggling Hidden teleport
   // the row out from under the cursor (rows only animate while dnd-kit is
@@ -469,7 +473,6 @@ function ConfigTableSection({
   }
 
   async function patchColumn(id: string, patch: Record<string, unknown>) {
-    const previousColumn = localColumns.find((column) => column.id === id) ?? null;
     setLocalColumns((current) =>
       current.map((column) => {
         if (column.id !== id) return column;
@@ -482,30 +485,29 @@ function ConfigTableSection({
       })
     );
     pendingColumnPatchesRef.current += 1;
+    const previous = columnPatchQueuesRef.current.get(id) ?? Promise.resolve();
+    const operation = previous
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await updateColumn(id, patch);
+        } finally {
+          pendingColumnPatchesRef.current -= 1;
+          // Reconcile even when the final PATCH fails. Without this in
+          // finally, the optimistic value can remain visible while the
+          // server still holds the previous canonical value.
+          if (pendingColumnPatchesRef.current === 0) {
+            await refreshScope(scope);
+          }
+        }
+      });
+    columnPatchQueuesRef.current.set(id, operation);
     try {
-      await updateColumn(id, patch);
-    } catch (error) {
-      // Roll back ONLY this column. A whole-array snapshot restore would also
-      // wipe any edit made to a different column while this one was in flight.
-      if (previousColumn) {
-        setLocalColumns((current) =>
-          current.map((column) => (column.id === id ? previousColumn : column))
-        );
-      }
-      throw error;
+      await operation;
     } finally {
-      pendingColumnPatchesRef.current -= 1;
-    }
-    // Two reasons this sits outside the try:
-    //   1. the write already succeeded, so a failed REFRESH must not roll the
-    //      switch back and claim the change was lost while the server holds it;
-    //   2. if another patch is still in flight, the server's snapshot cannot
-    //      contain it yet — applying it here would revert that other toggle.
-    //      The last patch to settle does the refresh for everyone. This is why
-    //      the toggles do NOT need to be disabled while saving: swallowing the
-    //      second click would be a worse fix than making concurrent edits safe.
-    if (pendingColumnPatchesRef.current === 0) {
-      await refreshScope(scope);
+      if (columnPatchQueuesRef.current.get(id) === operation) {
+        columnPatchQueuesRef.current.delete(id);
+      }
     }
   }
 
