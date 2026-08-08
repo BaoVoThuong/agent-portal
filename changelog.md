@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Rollback SLA editor sau save lỗi và Reset
+- **Loại**: fix
+- **Cái gì**: SLA row đồng bộ lại hour/minute khi rule prop thay đổi (bao gồm Reset), và khôi phục giá trị trước đó nếu POST save thất bại; các commit UI cũ hơn bị bỏ qua khi đã có commit mới.
+- **Vì sao**: trước đây local state chỉ khởi tạo một lần, nên Reset thành công vẫn hiển thị override cũ; network/API failure cũng để UI hiển thị giá trị chưa được lưu.
+- **File**: `src/app/(authed)/config/_components/ConfigSlaSection.tsx`
+- **Ảnh hưởng**: Chỉ hiển thị/trạng thái SLA admin editor; không đổi giá trị đã lưu hoặc API contract.
+- **Ref**: `docs/superpowers/plans/2026-08-07-sla-config-section.md`; findings stale Reset/save failure
+
 ## 2026-08-09 — Serialize SLA rule saves per row
 - **Loại**: fix
 - **Cái gì**: SLA rule dropdowns và Reset bị khóa theo từng row trong lúc request đang bay; parent dùng functional state update để các row khác nhau không ghi đè lẫn nhau khi save đồng thời.

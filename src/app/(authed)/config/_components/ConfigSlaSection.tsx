@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Loader2, RotateCcw } from "lucide-react";
 import type { TaskCategory, TaskPriority, TaskSlaRule } from "@/lib/tasks/types";
@@ -114,10 +114,14 @@ export function ConfigSlaSection({
     return rules.some((r) => r.priority === priority && r.category_id === categoryId);
   }
 
-  async function save(categoryId: string | null, totalMinutes: number, key: string) {
+  async function save(
+    categoryId: string | null,
+    totalMinutes: number,
+    key: string
+  ): Promise<boolean> {
     if (!isSlaDurationInBounds(totalMinutes)) {
       setError("Duration must be between 1 minute and 168 hours.");
-      return;
+      return false;
     }
     markSaving(key, true);
     setError(null);
@@ -142,8 +146,10 @@ export function ConfigSlaSection({
         ),
         data.rule!,
       ]);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save this rule.");
+      return false;
     } finally {
       markSaving(key, false);
     }
@@ -272,7 +278,7 @@ export function ConfigSlaSection({
                   const saving = savingKeys.has(key);
                   return (
                     <SlaRuleRow
-                      key={key}
+                      key={`${key}:${minutesFor(categoryId)}`}
                       label={row.name}
                       color={row.color}
                       minutes={minutesFor(categoryId)}
@@ -407,15 +413,23 @@ function SlaRuleRow({
 }) {
   const [hours, setHours] = useState(Math.floor(minutes / 60));
   const [mins, setMins] = useState(minutes % 60);
+  const commitVersionRef = useRef(0);
   const minuteOptions = slaMinuteOptionsForHours(hours);
   const palette = color
     ? taskCategoryPalette({ id: label, name: label, color })
     : null;
 
-  function commit(nextHours: number, nextMins: number) {
+  async function commit(nextHours: number, nextMins: number) {
+    if (saving) return;
+    const previousHours = hours;
+    const previousMins = mins;
+    const commitVersion = ++commitVersionRef.current;
     setHours(nextHours);
     setMins(nextMins);
-    onSave(nextHours * 60 + nextMins);
+    const saved = await onSave(nextHours * 60 + nextMins);
+    if (commitVersion !== commitVersionRef.current || saved) return;
+    setHours(previousHours);
+    setMins(previousMins);
   }
 
   return (
