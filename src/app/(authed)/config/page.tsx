@@ -12,7 +12,7 @@ import {
   fetchAllTableColumns,
 } from "@/lib/table-config/queries";
 import { fetchEnrollmentOptionData } from "@/lib/enrollment/options";
-import type { TaskCategory } from "@/lib/tasks/types";
+import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import { ConfigClient } from "./_components/ConfigClient";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +36,7 @@ export default async function ConfigPage() {
     assignees,
     memberResult,
     categoriesResult,
+    slaRulesResult,
     acaOptionData,
     medicareOptionData,
     usageCountResult,
@@ -54,6 +55,9 @@ export default async function ConfigPage() {
       .select("id,name,color")
       .eq("is_active", true)
       .order("position", { ascending: true }),
+    supabase
+      .from("task_sla_rules")
+      .select("id,priority,category_id,duration_minutes"),
     fetchEnrollmentOptionData("aca"),
     fetchEnrollmentOptionData("medicare"),
     supabase.rpc("enrollment_option_usage_counts"),
@@ -64,6 +68,9 @@ export default async function ConfigPage() {
   }
   if (categoriesResult.error) {
     throw new Error(categoriesResult.error.message);
+  }
+  if (slaRulesResult.error) {
+    throw new Error(slaRulesResult.error.message);
   }
   if (usageCountResult.error) {
     throw new Error(usageCountResult.error.message);
@@ -96,6 +103,7 @@ export default async function ConfigPage() {
         return member;
       })}
       initialCategories={(categoriesResult.data ?? []) as TaskCategory[]}
+      initialSlaRules={(slaRulesResult.data ?? []) as TaskSlaRule[]}
       initialOptionData={{ aca: acaOptionData, medicare: medicareOptionData }}
       enrollmentUsageCounts={{ aca: buildUsageCounts(), medicare: buildUsageCounts() }}
     />

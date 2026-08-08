@@ -22,6 +22,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronDown,
   Check,
+  Clock,
   GripVertical,
   Plus,
   Settings2,
@@ -31,7 +32,7 @@ import {
 } from "lucide-react";
 import { Toast, type ToastTone } from "../../_shared/Toast";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
-import type { TaskCategory } from "@/lib/tasks/types";
+import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import {
   COLUMN_TYPES,
   TABLE_SCOPES,
@@ -55,6 +56,7 @@ import type {
   EnrollmentOptionSet,
   EnrollmentOptionSetKey,
 } from "@/lib/enrollment/types";
+import { ConfigSlaSection } from "./ConfigSlaSection";
 
 type AssistantMember = {
   agent_email: string;
@@ -62,7 +64,7 @@ type AssistantMember = {
   is_assistant: boolean;
 };
 
-type Tab = "table" | "value" | "assistant";
+type Tab = "table" | "value" | "assistant" | "sla";
 type SelectOption<T extends string> = { value: T; label: string };
 
 const SCOPE_LABEL: Record<TableScope, string> = {
@@ -105,6 +107,7 @@ export function ConfigClient({
   assignees,
   initialMembers,
   initialCategories,
+  initialSlaRules,
   initialOptionData,
   enrollmentUsageCounts,
 }: {
@@ -115,6 +118,7 @@ export function ConfigClient({
   assignees: TaskAssignee[];
   initialMembers: AssistantMember[];
   initialCategories: TaskCategory[];
+  initialSlaRules: TaskSlaRule[];
   initialOptionData: Record<"aca" | "medicare", EnrollmentOptionData>;
   enrollmentUsageCounts: Record<"aca" | "medicare", Record<string, number>>;
 }) {
@@ -125,6 +129,7 @@ export function ConfigClient({
   const [agents, setAgents] = useState(initialAgents);
   const [members, setMembers] = useState(initialMembers);
   const [categories, setCategories] = useState(initialCategories);
+  const [slaRules, setSlaRules] = useState(initialSlaRules);
   const [optionData, setOptionData] = useState(initialOptionData);
   const [notice, setNotice] = useState<string | null>(null);
   const [noticeTone, setNoticeTone] = useState<ToastTone>("info");
@@ -210,6 +215,9 @@ export function ConfigClient({
           <TabButton active={tab === "assistant"} onClick={() => setTab("assistant")}>
             <UserRoundCog className="h-4 w-4" /> Assistant Membership
           </TabButton>
+          <TabButton active={tab === "sla"} onClick={() => setTab("sla")}>
+            <Clock className="h-4 w-4" /> SLA Times
+          </TabButton>
         </div>
 
         {tab === "table" ? (
@@ -259,6 +267,13 @@ export function ConfigClient({
             run={run}
             setMembers={setMembers}
             onAgentsChange={setAgents}
+          />
+        ) : null}
+        {tab === "sla" ? (
+          <ConfigSlaSection
+            categories={categories}
+            rules={slaRules}
+            onRulesChange={setSlaRules}
           />
         ) : null}
       </div>
