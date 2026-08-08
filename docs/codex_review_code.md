@@ -4,10 +4,10 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 18:22 Asia/Ho_Chi_Minh**  
-Reviewed HEAD: **`df561ef`**
+Last Updated: **2026-08-08 18:45 Asia/Ho_Chi_Minh**  
+Reviewed source through: **`fb6c2a7`** (execution log commits follow)
 
-Audit mode: review and verification only. No application source code, schema, or tests were changed. This final version reconciles the independent Codex audit with `docs/claude_golive-review.md`; reviewer comments and contradictory interim totals have been resolved into one finding set.
+Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
 ### Final reconciliation decisions
 
@@ -81,7 +81,7 @@ Impact: Unbounded `/api/config/layout` traffic and repeated whole-board renderin
 Fix: Use a one-time hydration guard or stable dependencies/ref snapshots, following the existing Enrollment hydration pattern.  
 Regression Risk: Low–medium; saved layout, no-layout/localStorage fallback, hidden defaults, archived columns, and post-reload persistence must remain correct.  
 Verification: Static cycle trace is deterministic; Claude's helper-level runtime reproduction showed dependencies never stabilize. A component/browser test must assert one GET after hydration.  
-Status: **OPEN — immediate release blocker**
+Status: **IMPLEMENTED — browser verification pending; release gate remains open**
 
 ### T-02 — Status edits create a non-canonical version and later edits can revert confirmed state
 
@@ -97,7 +97,7 @@ Impact: Ordinary rapid edits can show A → B → A, lose the visible confirmed 
 Fix: Never synthesize `updated_at`; serialize/rebase per task; on 409 fetch/accept the canonical row; do not protect failed rollback snapshots as recent writes.  
 Regression Risk: High; Kanban drag, inline/drawer edits, QC, reopen, unlock, and realtime anti-flicker behavior share this state machinery.  
 Verification: Static one-user status timeline and two-request interleaving confirm both deterministic and race paths. No component regression test exists.  
-Status: **OPEN**
+Status: **IMPLEMENTED — slow-network/two-user verification pending**
 
 ### T-03 — Multi-write task mutations can partially commit and then return failure
 
@@ -113,7 +113,7 @@ Impact: UI/server disagreement, assignment drift, missing history/notifications,
 Fix: Move canonical state plus required audit/junction writes into atomic commands; make non-critical side effects idempotent and non-authoritative for the HTTP result.  
 Regression Risk: High; transitions, SLA history, assignment cycles, notifications, and imports depend on these rules.  
 Verification: Static control-flow trace confirms earlier writes before later error returns; no route failure-injection test exists.  
-Status: **OPEN**
+Status: **PARTIAL — P1 OPEN pending transactional/repair design**
 
 ### T-04 — Special actions and archive lack optimistic concurrency
 
@@ -177,7 +177,7 @@ Impact: Multi-card visible reversion and stale unrelated state.
 Fix: Restore only the target entity at a deterministic position and refetch on conflict/failure.  
 Regression Risk: Low–medium.  
 Verification: Direct error-branch trace; no archive concurrency test exists.  
-Status: **OPEN**
+Status: **IMPLEMENTED — two-tab verification pending**
 
 ## Performance / Lag
 
@@ -327,7 +327,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-None; review-only.
+T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling (`e219c91`, partial), T-07 row-scoped archive rollback (`f9c1643`).
 
 ## Verification
 
@@ -378,7 +378,7 @@ Impact: Normal user action produces guaranteed visible flicker and repeated impo
 Fix: Give every shared control one explicit `canEdit` contract while keeping New Enrollment controls enabled and retaining server checks.  
 Regression Risk: Medium-high; cover managers, creators, Caller/Responsible/Assignee, read-only workers, both programs, and New Enrollment.  
 Verification: Static control-by-control permission trace; independently confirmed by Claude. No component authorization test exists.  
-Status: **OPEN**
+Status: **IMPLEMENTED — read-only browser verification pending**
 
 ### M-02 — Concurrent edits can erase a confirmed Enrollment value
 
@@ -394,7 +394,7 @@ Impact: Confirmed values disappear, concurrency token becomes stale, and A → B
 Fix: Serialize/count per record or journal field mutations; on 409 accept/refetch canonical state.  
 Regression Risk: High; all Enrollment fields/programs share this path.  
 Verification: Deterministic two-request static interleaving; no component async test exists.  
-Status: **OPEN**
+Status: **IMPLEMENTED — slow-network/two-user verification pending**
 
 ### M-03 — Enrollment create/update can commit data and then report failure or omit audit rows
 
@@ -410,7 +410,7 @@ Impact: UI/server disagreement, duplicate create retry, missing history/activity
 Fix: Atomic canonical+audit command; explicit result checks; idempotent non-authoritative notifications.  
 Regression Risk: High; both programs, stage/QC automation, and notifications depend on this path.  
 Verification: Static write/error trace; no route failure injection exists.  
-Status: **OPEN**
+Status: **PARTIAL — P1 OPEN pending transactional/repair design**
 
 ### M-04 — Archive failure can hide the target and revert unrelated records
 
@@ -426,7 +426,7 @@ Impact: False archive display and unrelated visible state loss.
 Fix: Row-scoped rollback, catch/reconcile, expected version.  
 Regression Risk: Medium.  
 Verification: Direct branch/predicate trace.  
-Status: **OPEN**
+Status: **IMPLEMENTED — two-tab verification pending**
 
 ### M-05 — Comment response can return an unpersisted parent version
 
@@ -474,7 +474,7 @@ Impact: Visible false counts and wrong sort.
 Fix: Ignore truly empty client patches or return the canonical row/stats.  
 Regression Risk: Low.  
 Verification: Static response/client replacement trace; independently confirmed.  
-Status: **OPEN**
+Status: **IMPLEMENTED — route-level verification pending**
 
 ### M-10 — Due-date input writes immediately without equality or request-order control
 
@@ -684,7 +684,7 @@ Status: **OPEN — test debt**
 
 ## Fixes Applied
 
-None; review-only.
+M-01 read-only control contract (`d608d9c`), M-02 serialized record PATCH/rebase (`fc00dbe`), M-03 post-commit warning handling (`f95ebbe`, partial), M-04 row-scoped archive rollback (`802493a`), M-09 canonical no-op stats (`373a4dc`).
 
 ## Verification
 
@@ -720,7 +720,7 @@ Impact: Partially mutated production data with no safe UI repair path.
 Fix: **Containment:** disable/gate import or lower a measured limit and configure supported duration. **Permanent:** transactional or durable idempotent per-row job with resume/rollback and broadcasts.  
 Regression Risk: High for permanent redesign; low for disabling/gating.  
 Verification: Static failure boundaries; no large staging import was run.  
-Status: **OPEN**
+Status: **REMOVED WITH IMPORT FEATURE — historical-request reconciliation/evidence pending**
 
 ### C-02 — Import bypasses normal domain validation and transition behavior
 
@@ -736,7 +736,7 @@ Impact: Wrong workflow state, missing audit/notifications, and misleading “app
 Fix: Define/sign off historical-import semantics; otherwise route through transaction-safe domain commands with contract tests.  
 Regression Risk: High; existing spreadsheet behavior may depend on current coercions.  
 Verification: Field-by-field static comparison; no product sign-off was present.  
-Status: **OPEN**
+Status: **REMOVED WITH IMPORT FEATURE — direct-route/export evidence pending**
 
 ### C-03 — Import approval can overwrite newer records or wipe custom values
 
@@ -752,7 +752,7 @@ Impact: Silent lost updates and direct data loss.
 Fix: Fail closed on read error immediately; capture/compare target version; use atomic JSON merge where valid.  
 Regression Risk: Medium for fail-closed patch, high for full conflict workflow.  
 Verification: Direct static branch confirmed independently by both reviews.  
-Status: **OPEN**
+Status: **REMOVED WITH IMPORT FEATURE — historical-request reconciliation pending**
 
 ### C-04 — Open clients receive record pings but not changed column configuration
 
@@ -800,7 +800,7 @@ Impact: A mandatory second-admin control cannot catch correctly typed but incorr
 Fix: Paginated staged rows/diffs and revision-bound final confirmation.  
 Regression Risk: Medium.  
 Verification: Static UI/API usage trace.  
-Status: **OPEN**
+Status: **REMOVED WITH IMPORT FEATURE — direct-route verification pending**
 
 ### C-07 — Global Config mutations can partially commit
 
@@ -1010,7 +1010,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-None; review-only.
+Import code-surface removal and Export helper preservation (`4fdac30`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
 
 ## Verification
 
@@ -1046,7 +1046,7 @@ Impact: Core create looks lost; users can retry and create duplicates.
 Fix: Define one product-approved “My records” predicate or intentionally require/assign Responsible.  
 Regression Risk: Medium-high; test manager/global views, Caller, creator, Responsible, Medicare terminology, and cleared filters.  
 Verification: Deterministic client-state trace; independently confirmed.  
-Status: **OPEN**
+Status: **IMPLEMENTED — create/list verification pending**
 
 ### A-02 — Invalid or missing program values silently become ACA
 
@@ -1168,7 +1168,7 @@ Status: **OPEN**
 
 ## Fixes Applied
 
-None; review-only.
+A-01 stakeholder-based default “mine” predicate (`2c7b96e`).
 
 ## Verification
 
@@ -1348,26 +1348,20 @@ Status: **NOT READY**
 
 ## P0
 
-**1 open:** T-01 — infinite saved-layout hydration request/render loop on `/tasks`.
+T-01 implementation is committed in `cdd06de`; saved-layout browser request-count verification is still a release gate. No other code-level P0 was found.
 
 ## P1
 
-**11 unique open findings:**
+Remaining P1 gates after implementation:
 
-- Tasks: T-02, T-03.
-- Shared Enrollment: M-01, M-02, M-03.
-- Config: C-01, C-02, C-03, C-04, C-05.
-- ACA-specific: A-01.
+- **Partial/open:** T-03 (`e219c91`) and M-03 (`f95ebbe`) still require transactional or durable idempotent repair semantics.
+- **Conditional/open:** C-04/C-05 require an explicit Config freeze or a safe live-config implementation.
+- **Verification pending:** T-02 (`81e8562`), M-01 (`d608d9c`), M-02 (`fc00dbe`), and A-01 (`2c7b96e`).
+- C-01/C-02/C-03 are no longer reachable because Import was removed; reconciliation/direct-route/export evidence is still required before closing them.
 
 ## P2
 
-**29 unique open findings:**
-
-- Tasks: T-04 through T-09.
-- Shared Enrollment: M-04 through M-12.
-- Config: C-06 through C-12.
-- ACA-specific: A-02 through A-06.
-- Cross-module: X-01, X-02.
+Active P2 findings remain. M-04 (`802493a`), M-09 (`373a4dc`), and T-07 (`f9c1643`) are implemented pending browser/route evidence; other Tasks/Enrollment/Config/ACA/cross-module P2s remain open or require production-volume/operational measurements.
 
 ## P3
 
@@ -1379,17 +1373,20 @@ Status: **NOT READY**
 
 ## Critical Bugs
 
-- T-01 can continuously flood layout requests and rerender the board.
-- T-02 turns ordinary sequential task status edits into false conflicts/reverts.
-- Task/Enrollment canonical writes can commit before required related work fails (T-03/M-03).
-- Read-only Enrollment controls guarantee user-visible A → B → A (M-01); overlapping record edits can erase confirmed state (M-02).
-- Import can partially commit, bypass domain rules, overwrite newer rows, or wipe custom data (C-01/C-02/C-03).
+- T-01 browser proof is still required for the saved-layout hydration blocker.
+- Task/Enrollment canonical writes can still commit before required related work is repaired (T-03/M-03).
 - Live Config/workflow changes can leave active clients stale or invalidate stage state (C-04/C-05).
-- A successful ACA create can immediately disappear from the creator's default list (A-01).
+- Import runtime paths are removed; historical-request reconciliation and Export regression evidence remain.
 
 ## Critical Fixes
 
-None applied. Review-only instruction remains in force.
+- Import removal/Export preservation: `4fdac30`
+- Tasks layout hydration: `cdd06de`
+- Tasks serialized canonical PATCH/rebase: `81e8562`
+- Enrollment permission affordances: `d608d9c`
+- Enrollment serialized PATCH/rebase: `fc00dbe`
+- ACA/Medicare stakeholder default visibility: `2c7b96e`
+- Post-commit warning truthfulness: `e219c91`, `f95ebbe` (partial gates remain)
 
 ## Performance Risks
 
@@ -1422,7 +1419,7 @@ High. Shared client/routes mean a local-looking change can affect Tasks, ACA, Me
 
 ## Final Execution Plan
 
-This section supersedes earlier Recommended Actions in both review documents. It is a release plan, not authorization to modify source in the current review-only engagement.
+This section supersedes earlier Recommended Actions in both review documents. It is the active release execution plan and evidence log.
 
 ### Plan rules
 
@@ -1576,7 +1573,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded on `df561ef` before this document-only reconciliation:
+Verification recorded across the execution commits through `fb6c2a7`:
 
 - `npm run typecheck`: **PASS**.
 - `npm run lint`: **PASS**.
@@ -1584,11 +1581,11 @@ Verification recorded on `df561ef` before this document-only reconciliation:
 - `npm run build`: **PASS — production build and routes compiled**.
 - Targeted historical runs: Tasks **21 files / 239 tests**; Enrollment + table-config **12 files / 73 tests**; table-config **8 files / 40 tests**.
 - Claude independently recorded matching full test/build results.
-- These results prove compile/static/unit health only. They do not prove component effect stability, route atomicity, browser behavior, database schema parity, or async ordering.
+- These results prove compile/static/unit health only. They do not prove component effect stability, route atomicity, browser behavior, database schema parity, or async ordering. A final full-suite/build run is still required after the execution batch.
 
 ## Overall Risk
 
-**CRITICAL.** One P0 and eleven P1 issue families remain open. Several P1s are containable only by disabling import or freezing Config; core Tasks/Enrollment correctness findings still require code fixes and deterministic verification.
+**CRITICAL.** Client P0/P1 fixes are committed but browser verification is pending; T-03/M-03 still need transactional or durable repair semantics, and C-04/C-05 still need a Config decision.
 
 ## Go-Live Recommendation
 
