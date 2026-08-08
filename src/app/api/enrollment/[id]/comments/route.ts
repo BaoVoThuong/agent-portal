@@ -10,6 +10,7 @@ import {
   broadcastEnrollmentRoom,
 } from "@/lib/enrollment/realtime";
 import { fetchEnrollmentRecordById } from "@/lib/enrollment/queries";
+import { resolveEnrollmentParentUpdatedAt } from "@/lib/enrollment/comments";
 import { parseMentions } from "@/lib/tasks/mentions";
 import type { EnrollmentRecord } from "@/lib/enrollment/types";
 
@@ -86,16 +87,30 @@ export async function POST(request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const nowIso = new Date().toISOString();
-  await loaded.supabase.from("enrollment_records").update({
-    updated_at: nowIso,
-    updated_by_email: loaded.actor.email,
-  }).eq("id", id);
-  await loaded.supabase.from("enrollment_activity").insert({
+  const mutationWarnings: string[] = [];
+  const { data: touchedParent, error: parentError } = await loaded.supabase
+    .from("enrollment_records")
+    .update({
+      updated_at: nowIso,
+      updated_by_email: loaded.actor.email,
+    })
+    .eq("id", id)
+    .select("updated_at")
+    .maybeSingle();
+  if (parentError) {
+    mutationWarnings.push(`Enrollment parent update failed: ${parentError.message}`);
+  } else if (!touchedParent) {
+    mutationWarnings.push("Enrollment parent update returned no row.");
+  }
+  const { error: activityError } = await loaded.supabase.from("enrollment_activity").insert({
     record_id: id,
     actor_email: loaded.actor.email,
     type: "comment_added",
     meta: null,
   });
+  if (activityError) {
+    mutationWarnings.push(`Enrollment comment activity failed: ${activityError.message}`);
+  }
 
   const [peopleRes, authorsRes] = await Promise.all([
     loaded.supabase.from("portal_account").select("email").eq("is_active", true),
@@ -125,33 +140,64 @@ export async function POST(request: Request, { params }: Ctx) {
     loaded.actor.email,
   ]);
 
-  await insertEnrollmentNotifications([
-    ...mentionRecipients.map((recipient) => ({
-      recipient_email: recipient,
-      record_id: id,
-      type: "mentioned" as const,
-      actor_email: loaded.actor.email,
-      comment_id: (comment as { id: string }).id,
-    })),
-    ...baseRecipients.map((recipient) => ({
-      recipient_email: recipient,
-      record_id: id,
-      type: mentionSet.has(recipient) ? ("mentioned" as const) : ("commented" as const),
-      actor_email: loaded.actor.email,
-      comment_id: (comment as { id: string }).id,
-    })),
-  ]);
+  try {
+    await insertEnrollmentNotifications([
+      ...mentionRecipients.map((recipient) => ({
+        recipient_email: recipient,
+        record_id: id,
+        type: "mentioned" as const,
+        actor_email: loaded.actor.email,
+        comment_id: (comment as { id: string }).id,
+      })),
+      ...baseRecipients.map((recipient) => ({
+        recipient_email: recipient,
+        record_id: id,
+        type: mentionSet.has(recipient) ? ("mentioned" as const) : ("commented" as const),
+        actor_email: loaded.actor.email,
+        comment_id: (comment as { id: string }).id,
+      })),
+    ]);
+  } catch (error) {
+    mutationWarnings.push(
+      `Enrollment comment notification failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
 
-  await broadcastEnrollmentChanged();
-  await broadcastEnrollmentRoom(id);
+  try {
+    await broadcastEnrollmentChanged();
+    await broadcastEnrollmentRoom(id);
+  } catch (error) {
+    mutationWarnings.push(
+      `Enrollment comment broadcast failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  let canonicalRecord: EnrollmentRecord | null = null;
+  try {
+    canonicalRecord = await fetchEnrollmentRecordById(id);
+  } catch (error) {
+    mutationWarnings.push(
+      `Enrollment canonical reload failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  const canonicalParentUpdatedAt = resolveEnrollmentParentUpdatedAt(
+    canonicalRecord?.updated_at,
+    (touchedParent as { updated_at?: string | null } | null)?.updated_at
+  );
+  if (mutationWarnings.length > 0) {
+    console.error("Enrollment comment committed with side-effect warnings", {
+      recordId: id,
+      warnings: mutationWarnings,
+    });
+  }
   return NextResponse.json({
     comment: { ...(comment as object), attachments: [] },
-    record: await fetchEnrollmentRecordById(id),
+    record: canonicalRecord,
     // The comment moved the record's updated_at above, which is the token
     // PATCH sends as expected_updated_at for the 409 concurrency check. Same
     // field name as the CS comments route so the shared CommentThread reads
     // one field for both.
-    parent_updated_at: nowIso,
+    parent_updated_at: canonicalParentUpdatedAt,
+    warnings: mutationWarnings,
   });
 }
 
