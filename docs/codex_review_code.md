@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 21:10 Asia/Ho_Chi_Minh**
-Reviewed source through: **`8a4155f`** (execution log commits follow)
+Last Updated: **2026-08-08 21:13 Asia/Ho_Chi_Minh**
+Reviewed source through: **`6feda4a`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -1010,7 +1010,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
+Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
 
 ## Verification
 
@@ -1084,17 +1084,17 @@ Status: **IMPLEMENTED — browser verification pending**
 
 Issue: Option reload removes the selected option object but does not reconcile stored form id.  
 Severity: **P2 — HIGH**  
-Location: Enrollment Create form state/options/reload and create route option validation  
+Location: `NewEnrollmentDialog` form state/options reload; `form-options.ts`; create route option validation
 Affected Module: ACA primarily; shared option behavior affects Medicare stage/carrier  
 Trigger: User selects option; admin archives it; form remains open; user submits.  
 Expected: Selection is visibly invalidated with explanation while unrelated input remains.  
 Actual: Control appears empty but hidden id remains; client Required may pass and server rejects archived id.  
-Root Cause: Live options and form ids are independent sources of truth.  
+Root Cause: Live options and form ids were independent sources of truth.
 Impact: Background Config change makes a valid-looking form fail.  
-Fix: Mark removed selection invalid and require explicit replacement without resetting other fields.  
+Fix: Added option/form reconciliation that clears removed ids, marks the field invalid, and displays a replacement message without resetting unrelated input.
 Regression Risk: Medium-high.  
-Verification: Static Config-delete → broadcast → reload → form-submit trace.  
-Status: **OPEN**
+Verification: Form-option helper test (1 test), `npm run typecheck`, targeted ESLint, and diff-check PASS. Authenticated archive/reload/create browser verification remains.
+Status: **IMPLEMENTED — browser verification pending**
 
 ### A-05 — Server accepts arbitrary owner/agent emails
 
@@ -1467,6 +1467,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **M-15 — unified Enrollment due-date validation.** Added one strict calendar-date parser and used it for both create and update, so malformed dates now return the same 400 instead of create silently storing null. | `68cdb53` | Date helper tests PASS (3 tests); Enrollment suite PASS (5 files / 36 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated route status verification remains. |
 | 2026-08-08 | **A-02 — strict Enrollment program boundary parsing.** Added `parseEnrollmentProgram` and applied it to list/create/export/options/overview APIs. Missing, invalid, or mistyped values now return 400 instead of silently selecting ACA; page navigation keeps its explicit default separately. | `ef50046` | Parser tests PASS (3 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated invalid-program route status verification remains. |
 | 2026-08-08 | **A-03 — FUB-aware Enrollment search.** Moved the search haystack into a shared helper and included normalized `fub_link`, so the toolbar's advertised FUB lookup returns link-only matches. | `8a4155f` | FUB search helper test PASS (1 test); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated toolbar search verification remains. |
+| 2026-08-08 | **A-04 — archived option/form reconciliation.** New Enrollment now detects option ids removed by live Config reload, clears only those fields, marks them invalid, and tells the user to choose a replacement while preserving unrelated input. | `6feda4a` | Form-option helper test PASS (1 test); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated archive/reload/create browser verification remains. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1600,7 +1601,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `8a4155f`:
+Verification recorded across the execution commits through `6feda4a`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1617,6 +1618,7 @@ Verification recorded across the execution commits through `8a4155f`:
 - Enrollment due-date parser: **date tests (3), Enrollment suite (5 files / 36 tests), typecheck, targeted ESLint, and diff-check PASS**; route status proof remains.
 - Enrollment program parser/API boundary: **parser tests (3), typecheck, targeted ESLint, and diff-check PASS**; authenticated invalid-program route status proof remains.
 - Enrollment FUB search helper: **1 test, typecheck, targeted ESLint, and diff-check PASS**; authenticated toolbar search proof remains.
+- Enrollment archived option/form reconciliation: **1 helper test, typecheck, targeted ESLint, and diff-check PASS**; authenticated archive/reload/create proof remains.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
