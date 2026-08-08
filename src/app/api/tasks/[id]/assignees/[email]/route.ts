@@ -11,9 +11,6 @@ import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { TASK_COLUMNS } from "@/lib/tasks/queries";
-import { recordStageTransition, syncAssignmentCycles } from "@/lib/tasks/history";
-import { touchLastActivity } from "@/lib/tasks/last-activity";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -48,11 +45,20 @@ async function loadContext(id: string) {
   return { actor, supabase, task };
 }
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export async function DELETE(req: Request, { params }: Ctx) {
   const { id, email: rawEmail } = await params;
   const email = decodeURIComponent(rawEmail).trim();
   if (!email) {
     return NextResponse.json({ error: "email is required." }, { status: 400 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const expectedUpdatedAt =
+    typeof body?.expected_updated_at === "string" && body.expected_updated_at.trim() !== ""
+      ? body.expected_updated_at.trim()
+      : "";
+  if (!expectedUpdatedAt) {
+    return NextResponse.json({ error: "expected_updated_at is required." }, { status: 400 });
   }
 
   const ctx = await loadContext(id);
@@ -74,21 +80,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   );
   const nowIso = new Date().toISOString();
 
-  const { error: deleteError } = await ctx.supabase
-    .from("task_assignees")
-    .delete()
-    .eq("task_id", id)
-    .eq("email", email);
-  if (deleteError) {
-    if (isTaskAssigneesMissingError(deleteError)) {
-      return NextResponse.json(
-        { error: "task_assignees table is not migrated yet." },
-        { status: 503 }
-      );
-    }
-    return NextResponse.json({ error: deleteError.message }, { status: 500 });
-  }
-
   const legacyAssignee = next.assignees[0] ?? null;
   const taskPatch: Record<string, unknown> = {
     assignee_email: legacyAssignee,
@@ -101,64 +92,84 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     }
   }
 
-  const { error: updateError } = await ctx.supabase
-    .from("tasks")
-    .update(taskPatch)
-    .eq("id", id);
+  const { data: updated, error: updateError } = await ctx.supabase.rpc("patch_task_atomic", {
+    p_task_id: id,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_patch: taskPatch,
+    p_before_assignees: current,
+    p_next_assignees: wasAssigned ? next.assignees : null,
+    p_actor_email: ctx.actor.email,
+    p_activity: wasAssigned
+      ? [{ type: "assigned", meta: { removed: email, to: legacyAssignee } }]
+      : [],
+    p_now: nowIso,
+  });
   if (updateError) {
+    if (updateError.message.includes("TASK_CONFLICT")) {
+      return NextResponse.json(
+        { error: "Task was updated by someone else. Refresh and try again." },
+        { status: 409 }
+      );
+    }
+    if (isTaskAssigneesMissingError(updateError)) {
+      return NextResponse.json(
+        { error: "task_assignees table is not migrated yet." },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+  if (!updated || typeof updated !== "object") {
+    return NextResponse.json({ error: "Atomic task mutation returned no task." }, { status: 500 });
+  }
 
+  const mutationWarnings: string[] = [];
   if (wasAssigned) {
-    await ctx.supabase.from("task_activity").insert({
-      task_id: id,
-      actor_email: ctx.actor.email,
-      type: "assigned",
-      meta: { removed: email, to: legacyAssignee },
-    });
     if (email !== ctx.actor.email) {
-      await insertNotifications([
-        {
-          recipient_email: email,
-          task_id: id,
-          type: "unassigned",
-          actor_email: ctx.actor.email,
-        },
+      const notificationResult = await Promise.allSettled([
+        insertNotifications([
+          {
+            recipient_email: email,
+            task_id: id,
+            type: "unassigned",
+            actor_email: ctx.actor.email,
+          },
+        ]),
       ]);
+      if (notificationResult[0]?.status === "rejected") {
+        mutationWarnings.push(
+          notificationResult[0].reason instanceof Error
+            ? notificationResult[0].reason.message
+            : "Task unassignment notification failed."
+        );
+      }
     }
   }
 
-  await recordStageTransition(ctx.supabase, {
-    task: ctx.task,
-    patch: taskPatch,
-    actorEmail: ctx.actor.email,
-    nowIso,
-  });
-  await syncAssignmentCycles(ctx.supabase, {
-    taskId: id,
-    beforeEmails: current,
-    afterEmails: next.assignees,
-    actorEmail: ctx.actor.email,
-    nowIso,
-    source: "unassign",
-  });
-  await touchLastActivity(ctx.supabase, id, nowIso);
+  const taskData = updated as TaskRow;
 
-  const { data: taskData, error: taskError } = await ctx.supabase
-    .from("tasks")
-    .select(TASK_COLUMNS)
-    .eq("id", id)
-    .single();
-  if (taskError) {
-    return NextResponse.json({ error: taskError.message }, { status: 500 });
+  const broadcastResults = await Promise.allSettled([
+    broadcastTasksChanged(),
+    broadcastTaskRoom(id),
+  ]);
+  for (const result of broadcastResults) {
+    if (result.status === "rejected") {
+      mutationWarnings.push(
+        result.reason instanceof Error ? result.reason.message : "Task broadcast failed."
+      );
+    }
   }
-
-  await broadcastTasksChanged();
-  await broadcastTaskRoom(id);
-  const [task] = await attachAssigneesToTasks(
-    [taskData as unknown as TaskRow],
-    ctx.supabase,
-    { currentEmail: ctx.actor.email }
-  );
-  return NextResponse.json({ task });
+  let task = taskData as TaskRow;
+  try {
+    [task] = await attachAssigneesToTasks(
+      [taskData as unknown as TaskRow],
+      ctx.supabase,
+      { currentEmail: ctx.actor.email }
+    );
+  } catch (error) {
+    mutationWarnings.push(
+      `Task assignee reload failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  return NextResponse.json({ task, warnings: mutationWarnings });
 }

@@ -532,7 +532,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   return NextResponse.json({ task, warnings: mutationWarnings });
 }
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export async function DELETE(req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
@@ -542,16 +542,46 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if (!canDeleteTask(r.actor, isAgentOwner))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
+  const body = await req.json().catch(() => null);
+  const expectedUpdatedAt =
+    typeof body?.expected_updated_at === "string" && body.expected_updated_at.trim() !== ""
+      ? body.expected_updated_at.trim()
+      : "";
+  if (!expectedUpdatedAt) {
+    return NextResponse.json({ error: "expected_updated_at is required." }, { status: 400 });
+  }
+
   // Soft-delete (archive), not a hard delete: a hard delete would cascade away
   // task_activity — including the overdue/reopen history now used for KPI
   // reporting. Archived tasks are already excluded from board queries
   // (fetchTasksForActor filters `archived_at is null`); nothing else changes.
-  const { error } = await r.supabase
+  const nowIso = new Date().toISOString();
+  const { data, error } = await r.supabase
     .from("tasks")
-    .update({ archived_at: new Date().toISOString() })
-    .eq("id", id);
+    .update({
+      archived_at: nowIso,
+      updated_at: nowIso,
+    })
+    .eq("id", id)
+    .eq("updated_at", expectedUpdatedAt)
+    .select("id")
+    .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) {
+    return NextResponse.json(
+      { error: "Task was updated by someone else. Refresh and try again." },
+      { status: 409 }
+    );
+  }
 
-  await broadcastTasksChanged();
-  return NextResponse.json({ ok: true });
+  const warnings: string[] = [];
+  const broadcastResult = await Promise.allSettled([broadcastTasksChanged()]);
+  if (broadcastResult[0]?.status === "rejected") {
+    warnings.push(
+      broadcastResult[0].reason instanceof Error
+        ? broadcastResult[0].reason.message
+        : "Task broadcast failed."
+    );
+  }
+  return NextResponse.json({ ok: true, warnings });
 }

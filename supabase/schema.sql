@@ -1951,6 +1951,7 @@ begin
     sla_minutes = case when p_patch ? 'sla_minutes' then (p_patch->>'sla_minutes')::integer else sla_minutes end,
     overdue_count = case when p_patch ? 'overdue_count' then (p_patch->>'overdue_count')::integer else overdue_count end,
     closed_at = case when p_patch ? 'closed_at' then (p_patch->>'closed_at')::timestamptz else closed_at end,
+    reopened_at = case when p_patch ? 'reopened_at' then (p_patch->>'reopened_at')::timestamptz else reopened_at end,
     updated_at = p_now,
     last_activity_at = p_now,
     stale_reminded_at = null

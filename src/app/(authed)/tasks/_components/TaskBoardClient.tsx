@@ -1101,13 +1101,18 @@ export function TaskBoardClient({
   async function submitOverdueUnlock(reason: string): Promise<boolean> {
     const id = unlockingTaskId;
     if (!id) return false;
+    const before = taskRowsRef.current.get(id) ?? tasks.find((task) => task.id === id);
+    if (!before) {
+      setError("Task is no longer available. Refresh and try again.");
+      return false;
+    }
     const finishPendingMutation = beginTaskMutation(id);
     let res: Response;
     try {
       res = await fetch(`/api/tasks/${id}/overdue-unlock`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ reason, expected_updated_at: before.updated_at }),
       });
     } catch {
       finishPendingMutation();
@@ -1117,6 +1122,10 @@ export function TaskBoardClient({
     if (!res.ok) {
       finishPendingMutation();
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (res.status === 409) {
+        const canonical = await fetchCanonicalTask(id);
+        if (canonical) replaceTask(canonical);
+      }
       setError(data?.error ?? "Could not unlock the overdue task.");
       return false;
     }
@@ -1130,13 +1139,18 @@ export function TaskBoardClient({
   async function submitReopen(reason: string): Promise<boolean> {
     const id = reopeningTaskId;
     if (!id) return false;
+    const before = taskRowsRef.current.get(id) ?? tasks.find((task) => task.id === id);
+    if (!before) {
+      setError("Task is no longer available. Refresh and try again.");
+      return false;
+    }
     const finishPendingMutation = beginTaskMutation(id);
     let res: Response;
     try {
       res = await fetch(`/api/tasks/${id}/reopen`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ reason, expected_updated_at: before.updated_at }),
       });
     } catch {
       finishPendingMutation();
@@ -1146,6 +1160,10 @@ export function TaskBoardClient({
     if (!res.ok) {
       finishPendingMutation();
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (res.status === 409) {
+        const canonical = await fetchCanonicalTask(id);
+        if (canonical) replaceTask(canonical);
+      }
       setError(data?.error ?? "Could not reopen the task.");
       return false;
     }
@@ -1191,8 +1209,8 @@ export function TaskBoardClient({
           : `/api/tasks/${id}/assignees/${encodeURIComponent(email)}`,
         {
           method: assigned ? "POST" : "DELETE",
-          headers: assigned ? { "Content-Type": "application/json" } : undefined,
-          body: assigned ? JSON.stringify({ email }) : undefined,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, expected_updated_at: before.updated_at }),
         }
       );
     } catch {
@@ -1204,8 +1222,17 @@ export function TaskBoardClient({
 
     if (!res.ok) {
       finishPendingMutation();
-      updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (res.status === 409) {
+        const canonical = await fetchCanonicalTask(id);
+        if (canonical) {
+          replaceTask(canonical);
+        } else {
+          updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
+        }
+      } else {
+        updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
+      }
       setError(data?.error ?? "Không cập nhật được assignee.");
       return;
     }
@@ -1287,7 +1314,11 @@ export function TaskBoardClient({
     setOpenId(null);
     let res: Response;
     try {
-      res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      res = await fetch(`/api/tasks/${id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expected_updated_at: before.updated_at }),
+      });
     } catch {
       finishPendingMutation();
       updateTasks((current) => {
@@ -1301,13 +1332,29 @@ export function TaskBoardClient({
     }
     if (!res.ok) {
       finishPendingMutation();
-      updateTasks((current) => {
-        if (current.some((task) => task.id === id)) return current;
-        const restored = [...current];
-        restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
-        return restored;
-      });
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (res.status === 409) {
+        const canonical = await fetchCanonicalTask(id);
+        if (canonical?.archived_at) {
+          updateTasks((current) => current.filter((task) => task.id !== id));
+        } else if (canonical) {
+          replaceTask(canonical);
+        } else {
+          updateTasks((current) => {
+            if (current.some((task) => task.id === id)) return current;
+            const restored = [...current];
+            restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
+            return restored;
+          });
+        }
+      } else {
+        updateTasks((current) => {
+          if (current.some((task) => task.id === id)) return current;
+          const restored = [...current];
+          restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
+          return restored;
+        });
+      }
       setError(data?.error ?? "Không xoá được task.");
       return;
     }

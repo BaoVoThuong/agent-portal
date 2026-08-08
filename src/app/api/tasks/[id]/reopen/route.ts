@@ -7,8 +7,6 @@ import {
   fetchTaskAssigneeEmails,
   isTaskAssignee,
 } from "@/lib/tasks/assignees";
-import { recordStageTransition } from "@/lib/tasks/history";
-import { touchLastActivity } from "@/lib/tasks/last-activity";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
@@ -33,8 +31,15 @@ export async function POST(req: Request, { params }: Ctx) {
 
   const body = await req.json().catch(() => null);
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  const expectedUpdatedAt =
+    typeof body?.expected_updated_at === "string" && body.expected_updated_at.trim() !== ""
+      ? body.expected_updated_at.trim()
+      : "";
   if (!reason) {
     return NextResponse.json({ error: "A reason is required." }, { status: 400 });
+  }
+  if (!expectedUpdatedAt) {
+    return NextResponse.json({ error: "expected_updated_at is required." }, { status: 400 });
   }
 
   const supabase = getSupabaseAdmin();
@@ -76,35 +81,46 @@ export async function POST(req: Request, { params }: Ctx) {
     done_reviewed_at: null,
     closed_at: null,
     reopened_at: nowIso,
-    updated_at: nowIso,
   };
-  const { data: updated, error: updateError } = await supabase
-    .from("tasks")
-    .update(patch)
-    .eq("id", id)
-    .select("*")
-    .single();
+  const { data: updated, error: updateError } = await supabase.rpc("patch_task_atomic", {
+    p_task_id: id,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_patch: patch,
+    p_before_assignees: [],
+    p_next_assignees: null,
+    p_actor_email: actor.email,
+    p_activity: [
+      {
+        type: "task_reopened",
+        meta: { reason, from_status: task.status, to_status: "todo" },
+      },
+    ],
+    p_now: nowIso,
+  });
   if (updateError) {
+    if (updateError.message.includes("TASK_CONFLICT")) {
+      return NextResponse.json(
+        { error: "Task was updated by someone else. Refresh and try again." },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+  if (!updated || typeof updated !== "object") {
+    return NextResponse.json({ error: "Atomic task mutation returned no task." }, { status: 500 });
+  }
 
-  const assignees = await fetchTaskAssigneeEmails(id, supabase);
-  const reopenedRecipients = assignees.filter((assignee) => assignee !== actor.email);
-
-  await Promise.all([
-    recordStageTransition(supabase, {
-      task,
-      patch,
-      actorEmail: actor.email,
-      nowIso,
-    }),
-    touchLastActivity(supabase, id, nowIso),
-    supabase.from("task_activity").insert({
-      task_id: id,
-      actor_email: actor.email,
-      type: "task_reopened",
-      meta: { reason, from_status: task.status, to_status: "todo" },
-    }),
+  const mutationWarnings: string[] = [];
+  let reopenedRecipients: string[] = [];
+  try {
+    const assignees = await fetchTaskAssigneeEmails(id, supabase);
+    reopenedRecipients = assignees.filter((assignee) => assignee !== actor.email);
+  } catch (error) {
+    mutationWarnings.push(
+      `Task assignee lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  const notificationResult = await Promise.allSettled([
     insertNotifications(
       reopenedRecipients.map((recipient) => ({
         recipient_email: recipient,
@@ -114,12 +130,35 @@ export async function POST(req: Request, { params }: Ctx) {
       }))
     ),
   ]);
+  if (notificationResult[0]?.status === "rejected") {
+    mutationWarnings.push(
+      notificationResult[0].reason instanceof Error
+        ? notificationResult[0].reason.message
+        : "Task reopen notification failed."
+    );
+  }
 
-  await broadcastTasksChanged();
-  await broadcastTaskRoom(id);
+  const broadcastResults = await Promise.allSettled([
+    broadcastTasksChanged(),
+    broadcastTaskRoom(id),
+  ]);
+  for (const result of broadcastResults) {
+    if (result.status === "rejected") {
+      mutationWarnings.push(
+        result.reason instanceof Error ? result.reason.message : "Task broadcast failed."
+      );
+    }
+  }
 
-  const [task2] = await attachAssigneesToTasks([updated as TaskRow], supabase, {
-    currentEmail: actor.email,
-  });
-  return NextResponse.json({ task: task2 });
+  let task2 = updated as TaskRow;
+  try {
+    [task2] = await attachAssigneesToTasks([updated as TaskRow], supabase, {
+      currentEmail: actor.email,
+    });
+  } catch (error) {
+    mutationWarnings.push(
+      `Task assignee reload failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  return NextResponse.json({ task: task2, warnings: mutationWarnings });
 }
