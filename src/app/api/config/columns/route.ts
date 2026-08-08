@@ -8,7 +8,7 @@ import {
   fetchTableColumns,
 } from "@/lib/table-config/queries";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
-import { isColumnType, isTableScope, toTableScope } from "@/lib/table-config/types";
+import { isColumnType, isTableScope, parseTableScope } from "@/lib/table-config/types";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ columns });
   }
 
-  const scope = toTableScope(scopeParam);
+  const scope = parseTableScope(scopeParam);
+  if (!scope) {
+    return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
+  }
   const [columns, options] = await Promise.all([
     fetchTableColumns(scope),
     fetchTableColumnOptions(scope),

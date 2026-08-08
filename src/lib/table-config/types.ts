@@ -48,6 +48,10 @@ export function isTableScope(value: unknown): value is TableScope {
   );
 }
 
+export function parseTableScope(value: unknown): TableScope | null {
+  return isTableScope(value) ? value : null;
+}
+
 export function toTableScope(value: unknown): TableScope {
   return isTableScope(value) ? value : "cs";
 }

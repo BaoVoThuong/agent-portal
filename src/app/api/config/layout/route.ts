@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigActor } from "@/lib/table-config/access";
 import { serializeLayout, type LayoutEntry } from "@/lib/table-config/layout";
 import { fetchTableColumns } from "@/lib/table-config/queries";
-import { isTableScope, toTableScope } from "@/lib/table-config/types";
+import { isTableScope, parseTableScope } from "@/lib/table-config/types";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,10 @@ export async function GET(request: Request) {
     );
   }
 
-  const scope = toTableScope(new URL(request.url).searchParams.get("scope"));
+  const scope = parseTableScope(new URL(request.url).searchParams.get("scope"));
+  if (!scope) {
+    return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
+  }
   const { data, error } = await getSupabaseAdmin()
     .from("user_table_layout")
     .select("layout,updated_at")
@@ -103,7 +106,10 @@ export async function DELETE(request: Request) {
     );
   }
 
-  const scope = toTableScope(new URL(request.url).searchParams.get("scope"));
+  const scope = parseTableScope(new URL(request.url).searchParams.get("scope"));
+  if (!scope) {
+    return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
+  }
   const { error } = await getSupabaseAdmin()
     .from("user_table_layout")
     .delete()
