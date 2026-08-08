@@ -976,7 +976,9 @@ export function EnrollmentClient({
   }
 
   async function archiveRecord(id: string) {
-    const before = records;
+    const before = recordRowsRef.current.get(id) ?? records.find((record) => record.id === id);
+    if (!before) return;
+    const beforeIndex = records.findIndex((record) => record.id === id);
     // Same reason as createRecord: an unguarded refetch would resurrect the
     // row we just removed.
     const finishPendingMutation = beginPending(id);
@@ -986,7 +988,12 @@ export function EnrollmentClient({
     try {
       const response = await fetch(`/api/enrollment/${id}`, { method: "DELETE" });
       if (!response.ok) {
-        updateRecords(() => before);
+        updateRecords((current) => {
+          if (current.some((record) => record.id === id)) return current;
+          const restored = [...current];
+          restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
+          return restored;
+        });
         const data = (await response.json().catch(() => null)) as { error?: string } | null;
         setError(data?.error ?? "Could not archive record.");
       }
