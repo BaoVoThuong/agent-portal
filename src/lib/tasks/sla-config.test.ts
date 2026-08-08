@@ -14,6 +14,8 @@ import {
   SLA_MINUTE_STEP,
   TASK_PRIORITY_LABEL,
   isSlaDurationInBounds,
+  normalizeSlaMinutesForHours,
+  slaMinuteOptionsForHours,
 } from "./sla-config";
 import { TASK_PRIORITIES } from "./types";
 
@@ -83,6 +85,24 @@ describe("SLA config constants are derived, not re-typed", () => {
     expect(SLA_MINUTE_OPTIONS[0]).toBe(0);
     expect(SLA_MINUTE_OPTIONS.at(-1)).toBe(60 - SLA_MINUTE_STEP);
     for (const minute of SLA_MINUTE_OPTIONS) expect(minute % SLA_MINUTE_STEP).toBe(0);
+  });
+
+  it("keeps every composed hour/minute choice inside the duration bounds", () => {
+    for (const hours of SLA_HOUR_OPTIONS) {
+      for (const minute of slaMinuteOptionsForHours(hours)) {
+        expect(isSlaDurationInBounds(hours * 60 + minute)).toBe(true);
+      }
+    }
+  });
+
+  it("clamps the minute choices at both duration boundaries", () => {
+    expect(slaMinuteOptionsForHours(167)).toEqual([...SLA_MINUTE_OPTIONS]);
+    expect(slaMinuteOptionsForHours(168)).toEqual([0]);
+    expect(slaMinuteOptionsForHours(0)).toEqual(
+      SLA_MINUTE_OPTIONS.filter((minute) => minute > 0)
+    );
+    expect(normalizeSlaMinutesForHours(168, 55)).toBe(0);
+    expect(normalizeSlaMinutesForHours(0, 0)).toBe(5);
   });
 
   it("rejects out-of-bounds durations", () => {

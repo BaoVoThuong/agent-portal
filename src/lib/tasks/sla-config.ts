@@ -30,6 +30,25 @@ export const SLA_MINUTE_OPTIONS: readonly number[] = Array.from(
   (_, index) => index * SLA_MINUTE_STEP
 );
 
+/**
+ * Minute choices that keep a composed hour/minute value inside the allowed
+ * duration bounds. The lower bound matters for the 0h row; 0h 0m is not a
+ * valid SLA even though zero is a valid minute choice for every other hour.
+ */
+export function slaMinuteOptionsForHours(hours: number): readonly number[] {
+  const minMinutes = Math.max(0, SLA_DURATION_BOUNDS.minMinutes - hours * 60);
+  const maxMinutes = SLA_DURATION_BOUNDS.maxMinutes - hours * 60;
+  return SLA_MINUTE_OPTIONS.filter(
+    (minute) => minute >= minMinutes && minute <= maxMinutes
+  );
+}
+
+/** Keep the current minute value valid when the hour selection changes. */
+export function normalizeSlaMinutesForHours(hours: number, minutes: number): number {
+  const options = slaMinuteOptionsForHours(hours);
+  return options.includes(minutes) ? minutes : (options[0] ?? 0);
+}
+
 /** React key for the priority-only (no category) SLA rule row. */
 export const SLA_DEFAULT_CATEGORY_ROW_KEY = "__default__";
 

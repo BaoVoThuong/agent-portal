@@ -13,10 +13,11 @@ import {
   REMINDER_FIELDS,
   SLA_DEFAULT_CATEGORY_ROW_KEY,
   SLA_HOUR_OPTIONS,
-  SLA_MINUTE_OPTIONS,
   SLA_PRIORITY_ORDER,
   TASK_PRIORITY_LABEL,
   isSlaDurationInBounds,
+  normalizeSlaMinutesForHours,
+  slaMinuteOptionsForHours,
 } from "@/lib/tasks/sla-config";
 import { taskCategoryPalette } from "@/lib/tasks/category-colors";
 import {
@@ -391,6 +392,7 @@ function SlaRuleRow({
 }) {
   const [hours, setHours] = useState(Math.floor(minutes / 60));
   const [mins, setMins] = useState(minutes % 60);
+  const minuteOptions = slaMinuteOptionsForHours(hours);
   const palette = color
     ? taskCategoryPalette({ id: label, name: label, color })
     : null;
@@ -418,11 +420,11 @@ function SlaRuleRow({
           options={SLA_HOUR_OPTIONS}
           suffix="h"
           ariaLabel={`${label} — hours`}
-          onChange={(next) => commit(next, mins)}
+          onChange={(next) => commit(next, normalizeSlaMinutesForHours(next, mins))}
         />
         <DurationDropdown
           value={mins}
-          options={SLA_MINUTE_OPTIONS}
+          options={minuteOptions}
           suffix="m"
           ariaLabel={`${label} — minutes`}
           onChange={(next) => commit(hours, next)}

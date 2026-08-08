@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Giới hạn lựa chọn phút theo bounds SLA
+- **Loại**: fix
+- **Cái gì**: SLA editor lọc minute options theo hour selection, không còn offer `0h 0m` hoặc các tổ hợp vượt quá `168h`; khi đổi giờ, phút hiện tại được clamp về lựa chọn hợp lệ gần nhất.
+- **Vì sao**: UI trước đó cho chọn `168h 55m` dù API từ chối trên 10,080 phút, khiến giá trị hiển thị khác giá trị lưu.
+- **File**: `src/lib/tasks/sla-config.ts`, `src/lib/tasks/sla-config.test.ts`, `src/app/(authed)/config/_components/ConfigSlaSection.tsx`
+- **Ảnh hưởng**: Chỉ SLA admin editor; API bounds, storage và overdue computation không đổi.
+- **Ref**: `docs/superpowers/plans/2026-08-07-sla-config-section.md`; finding B-01
+
 ## 2026-08-09 — Hiển thị neutral state cho option Enrollment chưa chọn
 - **Loại**: fix
 - **Cái gì**: Các identity option badge chưa có giá trị trong Enrollment List dùng neutral background `#f4f5f7` và foreground `#5e6c84`, thay vì bị JSX ghi đè thành nền trong suốt.
