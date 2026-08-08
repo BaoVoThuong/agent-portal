@@ -174,7 +174,7 @@ The `// Calmer than the Stage pill on purpose` comment at `:2272` explains the 0
 
 This replaces `optionPillStyle` + `hexToRgba` (currently `EnrollmentClient.tsx:4251-4270`) with **two** named functions, one per badge language from Finding B, so a call site has to state which language it means instead of passing an unexplained alpha.
 
-- [ ] **Step 0: Export `readableTextColor` so contrast logic exists once**
+- [x] **Step 0: Export `readableTextColor` so contrast logic exists once**
 
 `src/lib/tasks/category-colors.ts:39` currently declares it module-private:
 ```ts
@@ -188,7 +188,7 @@ Nothing else in that file changes. Re-implementing contrast maths in `option-bad
 
 Run: `npx tsc --noEmit` → no errors. Run: `npx vitest run` → unchanged totals.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // src/lib/enrollment/option-badge.test.ts
@@ -303,12 +303,12 @@ describe("the two languages are actually different", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run src/lib/enrollment/option-badge.test.ts`
 Expected: FAIL — `Failed to resolve import "./option-badge"`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```ts
 // src/lib/enrollment/option-badge.ts
@@ -388,7 +388,7 @@ export function enrollmentStateBadgeStyle(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run src/lib/enrollment/option-badge.test.ts`
 Expected: PASS — 10 tests.
@@ -401,7 +401,7 @@ Run: `rtk proxy npx eslint "src/lib/enrollment/option-badge.ts" "src/lib/enrollm
 
 ⚠️ If the `EnrollmentOption` literal in the test fails to type-check, open `src/lib/enrollment/types.ts` and match its actual fields — do **not** loosen the test with `as any`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/enrollment/option-badge.ts src/lib/enrollment/option-badge.test.ts
@@ -424,7 +424,7 @@ git commit -m "refactor(enrollment): extract option badge palette into a tested 
 
 Replacing the boolean with a 3-value union means **`tsc` fails on any call site not updated** — the compiler enumerates the work instead of a human grepping for it.
 
-- [ ] **Step 1: Change the component signature and the two branches**
+- [x] **Step 1: Change the component signature and the two branches**
 
 In `EnrollmentPersonMenu` (`:2349`), replace the `field?: boolean;` prop with:
 
@@ -489,14 +489,14 @@ and the trailing chevron (`:2410`):
         {drawsOwnChrome ? <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" /> : null}
 ```
 
-- [ ] **Step 2: Run typecheck to enumerate every call site**
+- [x] **Step 2: Run typecheck to enumerate every call site**
 
 Run: `npx tsc --noEmit`
 Expected: FAIL — one error per `EnrollmentPersonMenu` usage, `Property 'surface' is missing`. There should be **nine**: `:1870`, `:1886`, `:1902` (List row), `:3045`, `:3068`, `:3087` (Detail drawer), `:3598`, `:3613`, `:3631` (Create dialog).
 
 ⚠️ If the count is not nine, **stop and re-grep** (`rtk proxy grep -n "EnrollmentPersonMenu" src/app/\(authed\)/enrollment/_components/EnrollmentClient.tsx`) — a call site was added or moved since this plan was written, and it needs a deliberate surface value rather than a guess.
 
-- [ ] **Step 3: Update the call sites**
+- [x] **Step 3: Update the call sites**
 
 - List row (`:1870`, `:1886`, `:1902`) — had no `field`: add `surface="list"`.
 - Detail drawer (`:3045`, `:3068`, `:3087`) — had bare `field`: replace it with `surface="form-field"`.
@@ -531,7 +531,7 @@ Example, Detail's Responsible field (`:3087`):
 
 Do **not** touch `value`, `peopleByEmail`, `emptyLabel`, `canEdit`, or `onChange` at any call site. `canEdit` stays omitted in Create (it defaults to `true` — Create has no record to check permissions against, which is intentional; see the go-live review's M-34 note).
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `npx tsc --noEmit` → `No errors found`.
 Run: `npx vitest run` → same totals as Task 1, `FAIL (0)`.
@@ -551,14 +551,14 @@ Run: `rtk proxy grep -n "field={\|field$" src/app/\(authed\)/enrollment/_compone
 
 **Detail drawer** (both programs): person fields still render as full-width bordered controls with a chevron — unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add "src/app/(authed)/enrollment/_components/EnrollmentClient.tsx"
 git commit -m "fix(enrollment): use a surface-aware empty state for person fields"
 ```
 
-- [ ] **Step 7: Changelog**
+- [x] **Step 7: Changelog**
 
 Add an entry at the top of `## Unreleased` in `agent-portal/changelog.md` (follow the file's own format block) recording: Enrollment Create person fields (Agent / Caller / Responsible, ACA + Medicare) no longer render the List-view dashed "Assign" pill inside `CreatePropertyField`'s border; `EnrollmentPersonMenu`'s boolean `field` prop became `surface: "list" | "form-bare" | "form-field"` so each surface is explicit and the compiler enforces coverage. No payload, permission, validation, or cardinality change — these remain single-person `text` columns.
 
@@ -591,7 +591,7 @@ git commit -m "docs(changelog): record enrollment person field surface fix"
 
 Only the **List** (`field={false}`) presentation changes. The Detail-drawer (`field`) presentation is a form control and keeps its `DETAIL_FIELD_BUTTON_CLASS` + chevron — a form field must still look operable.
 
-- [ ] **Step 1: Switch both components onto the shared helpers**
+- [x] **Step 1: Switch both components onto the shared helpers**
 
 Add to the `@/lib/enrollment/...` import block in `EnrollmentClient.tsx`:
 
@@ -638,7 +638,7 @@ rtk proxy grep -n "optionPillStyle\|hexToRgba" "src/app/(authed)/enrollment/_com
 ```
 Every remaining caller must be moved to whichever helper matches its language. Only delete the two functions once that grep returns nothing but their own definitions.
 
-- [ ] **Step 2: Give identity badges the CS typography**
+- [x] **Step 2: Give identity badges the CS typography**
 
 `EnrollmentOptionMenu`'s non-`field` className (`:2291`) is currently:
 
@@ -654,7 +654,7 @@ Replace with (matches `CategoryBadge` at `TaskRowItem.tsx:1549`, plus the button
 
 Leave the `field` branch (`DETAIL_FIELD_BUTTON_CLASS`) untouched — the drawer is a form, not a badge.
 
-- [ ] **Step 3: Remove the chevron from identity badges**
+- [x] **Step 3: Remove the chevron from identity badges**
 
 `:2309` currently renders unconditionally:
 
@@ -671,7 +671,7 @@ Replace with:
         {field ? <ChevronDown className="h-4 w-4 shrink-0 opacity-60" /> : null}
 ```
 
-- [ ] **Step 4: Make the Stage chevron conditional on editability**
+- [x] **Step 4: Make the Stage chevron conditional on editability**
 
 CS shows the status chevron only when the pill can actually do something (`TaskRowItem.tsx:1260`, `:1346-1348`). `EnrollmentStagePill` currently always shows it.
 
@@ -691,11 +691,11 @@ Leave the `field` variant's chevron (`:2527`) as-is — that is the drawer form 
 
 ⚠️ `canEdit` defaults to `true` (`:2506`), so List rows for editable records are unchanged; only read-only rows lose the misleading affordance.
 
-- [ ] **Step 5: Delete the superseded helpers**
+- [x] **Step 5: Delete the superseded helpers**
 
 Remove `optionPillStyle` (`:4251-4263`) and `hexToRgba` (`:4265-4270`) from `EnrollmentClient.tsx`. `hexToRgba` now lives in `option-badge.ts` and is exported from there.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `npx tsc --noEmit` → `No errors found`.
 Run: `npx vitest run` → `FAIL (0)`, totals from Task 1.
@@ -717,14 +717,14 @@ On `/enrollment?program=aca` List, with a record that has Carrier, Payment, AC, 
 
 Repeat on `?program=medicare` — Carrier and Stage only; Payment/AC/Platform/Consent are Medicare-inapplicable and must not appear.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add "src/app/(authed)/enrollment/_components/EnrollmentClient.tsx" src/lib/tasks/category-colors.ts
 git commit -m "fix(enrollment): apply CS identity/state badge languages in list view"
 ```
 
-- [ ] **Step 9: Changelog**
+- [x] **Step 9: Changelog**
 
 Add an entry at the top of `## Unreleased` recording: Enrollment List now distinguishes **identity** badges (Carrier / Payment / AC / Platform / Consent — solid option colour, no chevron, CS `CategoryBadge` typography) from **workflow-state** badges (Stage — pale tint, chevron only when editable), matching Health CS. Stage's colour and typography are unchanged. Badge palettes moved to `src/lib/enrollment/option-badge.ts` with tests; `readableTextColor` is now exported from `src/lib/tasks/category-colors.ts` so contrast logic exists once. No payload, permission, or validation change.
 
@@ -742,7 +742,7 @@ git commit -m "docs(changelog): record enrollment list badge language split"
 
 This is the spec's Phase 5 + Phase 6, with the audit already done so it is a check rather than a discovery exercise.
 
-- [ ] **Step 1: Full automated suite**
+- [x] **Step 1: Full automated suite**
 
 ```bash
 npx tsc --noEmit
@@ -753,7 +753,7 @@ npm run build
 
 Expected: typecheck 0 errors · lint "No issues found" · vitest `FAIL (0)` with a total **≥ 469** · build exit 0. **Record the actual numbers.** Do not write "passed" for a command that was not run.
 
-- [ ] **Step 2: Data-type matrix walkthrough**
+- [x] **Step 2: Data-type matrix walkthrough**
 
 For each pair below, confirm the same data type looks and behaves the same, and write one line per row stating pass or the remaining difference plus its business reason:
 
@@ -769,7 +769,7 @@ Known-and-accepted differences that must **not** be "fixed":
 - Medicare hides Caller / Payment / AC / Consent / Platform / PCP 2026. Program rule, enforced in five places (see the go-live review's M-31).
 - Stage keeps its own pill treatment, distinct from attribute badges.
 
-- [ ] **Step 3: Regression checklist from the spec's §9**
+- [x] **Step 3: Regression checklist from the spec's §9**
 
 Confirm each, on **both** programs:
 - No single-person field became multi-person — `agent_email`, `caller_email`, `responsible_enroll_email` still send a single string.
@@ -781,7 +781,7 @@ Confirm each, on **both** programs:
 - Dropdowns still open above/below correctly inside the Create dialog and the Detail drawer, and still scroll.
 - Large List still scrolls smoothly — Tasks 2–3 changed only className/style resolution, added no per-row state.
 
-- [ ] **Step 4: Record the result**
+- [x] **Step 4: Record the result**
 
 Append a section to `docs/codex_review_code.md` following the format the spec's §8 requires — issue and affected surfaces, root cause, exact change, regression risk, verification performed, source commit IDs. Reference Findings A and B from this plan for root cause rather than restating them.
 
