@@ -52,12 +52,17 @@ export async function POST(request: Request) {
   }
 
   const resetResult = await resetTableLayoutsForScope(scope, supabase);
+  const warnings: string[] = [];
   if (!resetResult.ok) {
-    return NextResponse.json({ error: resetResult.error }, { status: 500 });
+    warnings.push(`Layout reset failed after the column order commit: ${resetResult.error}`);
+    console.error("Config column layout reset failed after reorder commit", {
+      scope,
+      error: resetResult.error,
+    });
   }
 
   await broadcastTableConfigChanged();
-  return NextResponse.json({ ok: true, scope });
+  return NextResponse.json({ ok: true, scope, ...(warnings.length > 0 ? { warnings } : {}) });
 }
 
 function normalizeStringArray(value: unknown): string[] | null {

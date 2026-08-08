@@ -100,6 +100,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Column not found." }, { status: 404 });
+  const warnings: string[] = [];
 
   // hidden_default/pinned are meant to apply to everyone, same as reordering
   // — but resolveLayout() prefers a user's saved layout entry over
@@ -112,12 +113,17 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if ("hidden_default" in finalPatch || "pinned" in finalPatch) {
     const resetResult = await resetTableLayoutsForScope(column.scope, supabase);
     if (!resetResult.ok) {
-      return NextResponse.json({ error: resetResult.error }, { status: 500 });
+      warnings.push(`Layout reset failed after the column commit: ${resetResult.error}`);
+      console.error("Config column layout reset failed after commit", {
+        columnId: column.id,
+        scope: column.scope,
+        error: resetResult.error,
+      });
     }
   }
 
   await broadcastTableConfigChanged();
-  return NextResponse.json({ column: data });
+  return NextResponse.json({ column: data, ...(warnings.length > 0 ? { warnings } : {}) });
 }
 
 export async function DELETE(_request: Request, { params }: Ctx) {
