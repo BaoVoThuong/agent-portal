@@ -1,277 +1,415 @@
-import { sortEnrollmentOptionsByLabel } from "./options";
+import { compareEnrollmentOptionLabels } from "./options";
 import type { EnrollmentOption, EnrollmentProgram } from "./types";
 import {
-  ENROLLMENT_OVERVIEW_RISK_FLAGS,
   type EnrollmentOverviewAccount,
-  type EnrollmentOverviewAttentionBar,
-  type EnrollmentOverviewKpis,
+  type EnrollmentOverviewCollectableKey,
+  type EnrollmentOverviewCycleMetric,
+  type EnrollmentOverviewFunnelStage,
+  type EnrollmentOverviewMissingItem,
+  type EnrollmentOverviewNeed,
   type EnrollmentOverviewRecordInput,
+  type EnrollmentOverviewRecordSummary,
+  type EnrollmentOverviewRequiredColumn,
   type EnrollmentOverviewRiskFlag,
-  type EnrollmentOverviewRow,
   type EnrollmentOverviewSnapshot,
-  type EnrollmentOverviewStageBucket,
-  type EnrollmentOverviewStatus,
   type EnrollmentOverviewThresholds,
-  type EnrollmentOverviewWorkMix,
-  type EnrollmentRecommendationCandidate,
-  type EnrollmentUnassignedOverviewRecord,
+  type EnrollmentOverviewWeeklyPoint,
 } from "./overview-types";
 
-export type AggregateEnrollmentOverviewInput = {
+export const ENROLLMENT_OVERVIEW_THRESHOLDS: EnrollmentOverviewThresholds = {
+  dueSoonDays: 3,
+  defaultPeriod: "thisMonth",
+};
+
+const COLLECTABLE_LABELS: Record<EnrollmentOverviewCollectableKey, string> = {
+  carrier: "Carrier",
+  payment: "Payment status",
+  aca: "AC status",
+  consent: "Consent",
+  platform: "Platform",
+  pcp2025: "PCP 2025",
+  pcp2026: "PCP 2026",
+};
+
+const NEED_LABELS: Record<EnrollmentOverviewRiskFlag, string> = {
+  overdue: "Overdue",
+  due_soon: "Due soon",
+  missing_required: "Missing required info",
+  qc_pending: "QC pending",
+  unowned: "Unowned",
+  blocking_stage: "Blocking stage",
+};
+
+const ACA_COLLECTABLE_KEYS: EnrollmentOverviewCollectableKey[] = [
+  "carrier",
+  "payment",
+  "aca",
+  "consent",
+  "platform",
+  "pcp2025",
+  "pcp2026",
+];
+const MEDICARE_COLLECTABLE_KEYS: EnrollmentOverviewCollectableKey[] = ["carrier", "pcp2025"];
+
+function normalizeLabel(label: string | null | undefined): string {
+  return (label ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function dateKey(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function parseDateKey(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function addDays(value: Date, days: number): Date {
+  const result = new Date(value);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+
+export function defaultEnrollmentOverviewPeriod(now: Date): { from: string; to: string } {
+  const today = dateKey(now);
+  const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  return { from: dateKey(first), to: today };
+}
+
+function isInPeriod(value: string | null | undefined, period: { from: string; to: string }): boolean {
+  if (!value) return false;
+  if (!period.from && !period.to) return true;
+  const key = value.slice(0, 10);
+  return (!period.from || key >= period.from) && (!period.to || key <= period.to);
+}
+
+function daysBetween(start: string, end: Date): number {
+  return Math.max(0, (end.getTime() - new Date(start).getTime()) / 86_400_000);
+}
+
+function valueForCollectable(
+  record: EnrollmentOverviewRecordInput,
+  key: EnrollmentOverviewCollectableKey
+): unknown {
+  switch (key) {
+    case "carrier":
+      return record.carrier_id;
+    case "payment":
+      return record.payment_status_id;
+    case "aca":
+      return record.aca_status_id;
+    case "consent":
+      return record.consent_id;
+    case "platform":
+      return record.platform_id;
+    case "pcp2025":
+      return record.pcp_2025;
+    case "pcp2026":
+      return record.pcp_2026;
+  }
+}
+
+function isFilled(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+function valueForRequiredColumn(
+  record: EnrollmentOverviewRecordInput,
+  column: EnrollmentOverviewRequiredColumn
+): unknown {
+  if (!column.is_system) return record.custom_values?.[column.key];
+  const map: Record<string, unknown> = {
+    client: record.client_name,
+    client_name: record.client_name,
+    description: record.description,
+    fub: record.fub_link,
+    fub_link: record.fub_link,
+    due: record.due_date,
+    due_date: record.due_date,
+    stage: record.stage_id,
+    stage_id: record.stage_id,
+    carrier: record.carrier_id,
+    carrier_id: record.carrier_id,
+    platform: record.platform_id,
+    platform_id: record.platform_id,
+    consent: record.consent_id,
+    consent_id: record.consent_id,
+    payment: record.payment_status_id,
+    payment_status_id: record.payment_status_id,
+    aca: record.aca_status_id,
+    aca_status_id: record.aca_status_id,
+    pcp2025: record.pcp_2025,
+    pcp_2025: record.pcp_2025,
+    pcp2026: record.pcp_2026,
+    pcp_2026: record.pcp_2026,
+    agent: record.agent_email,
+    agent_email: record.agent_email,
+    caller: record.caller_email,
+    caller_email: record.caller_email,
+    responsible: record.responsible_enroll_email,
+    responsible_enroll_email: record.responsible_enroll_email,
+  };
+  return map[column.key];
+}
+
+function requiredMissingItems(
+  record: EnrollmentOverviewRecordInput,
+  requiredColumns: EnrollmentOverviewRequiredColumn[]
+): string[] {
+  return requiredColumns
+    .filter((column) => !isFilled(valueForRequiredColumn(record, column)))
+    .map((column) => column.label);
+}
+
+function stageIsBlocking(program: EnrollmentProgram, stage: EnrollmentOption | null): boolean {
+  if (!stage) return false;
+  const blocking =
+    program === "aca"
+      ? ["can't contact", "can not get id card", "need call to renewal"]
+      : ["e- id card unavailable"];
+  return blocking.includes(normalizeLabel(stage.label));
+}
+
+function summaryFor(
+  record: EnrollmentOverviewRecordInput,
+  stage: EnrollmentOption | null,
+  riskFlags: EnrollmentOverviewRiskFlag[],
+  missingItems: string[]
+): EnrollmentOverviewRecordSummary {
+  return {
+    id: record.id,
+    clientName: record.client_name,
+    stageId: record.stage_id,
+    stageLabel: stage?.label ?? null,
+    stageColor: stage?.color ?? null,
+    responsibleEmail: record.responsible_enroll_email,
+    dueDate: record.due_date,
+    createdAt: record.created_at,
+    closedAt: record.closed_at,
+    riskFlags,
+    missingItems,
+  };
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+}
+
+function percentile(values: number[], percentileValue: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.ceil((percentileValue / 100) * sorted.length) - 1);
+  return sorted[Math.max(0, index)];
+}
+
+function weekStartKey(value: Date): string {
+  const day = value.getUTCDay();
+  return dateKey(addDays(value, -day));
+}
+
+function formatWeekLabel(value: string): string {
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(
+    parseDateKey(value)
+  );
+}
+
+function buildWeeklySeries(
+  records: EnrollmentOverviewRecordInput[],
+  now: Date,
+  period: { from: string; to: string }
+): EnrollmentOverviewWeeklyPoint[] {
+  const end = period.to ? parseDateKey(period.to) : now;
+  const start = period.from ? parseDateKey(period.from) : addDays(end, -83);
+  const firstWeek = parseDateKey(weekStartKey(start));
+  const lastWeek = parseDateKey(weekStartKey(end));
+  const weeks: EnrollmentOverviewWeeklyPoint[] = [];
+  for (let cursor = firstWeek; cursor <= lastWeek; cursor = addDays(cursor, 7)) {
+    const key = dateKey(cursor);
+    weeks.push({ weekStart: key, label: formatWeekLabel(key), newCount: 0, closedCount: 0 });
+  }
+  const boundedWeeks = weeks.length > 12 ? weeks.slice(-12) : weeks;
+  const byWeek = new Map(boundedWeeks.map((week) => [week.weekStart, week]));
+  for (const record of records) {
+    if (isInPeriod(record.created_at, period)) {
+      const bucket = byWeek.get(weekStartKey(new Date(record.created_at)));
+      if (bucket) bucket.newCount += 1;
+    }
+    if (isInPeriod(record.closed_at, period)) {
+      const bucket = byWeek.get(weekStartKey(new Date(record.closed_at!)));
+      if (bucket) bucket.closedCount += 1;
+    }
+  }
+  return boundedWeeks;
+}
+
+function buildCycleMetrics(
+  records: EnrollmentOverviewRecordInput[],
+  stageById: Map<string, EnrollmentOption>,
+  period: { from: string; to: string }
+): EnrollmentOverviewCycleMetric[] {
+  const values = new Map<string, { stageId: string | null; label: string; days: number[] }>();
+  for (const record of records) {
+    if (!record.closed_at || !isInPeriod(record.closed_at, period)) continue;
+    const stage = record.stage_id ? stageById.get(record.stage_id) ?? null : null;
+    const key = record.stage_id ?? "__unknown__";
+    const bucket = values.get(key) ?? {
+      stageId: record.stage_id,
+      label: stage?.label ?? "Unknown outcome",
+      days: [],
+    };
+    bucket.days.push(daysBetween(record.created_at, new Date(record.closed_at)));
+    values.set(key, bucket);
+  }
+  return [...values.values()]
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+    .map((bucket) => ({
+      stageId: bucket.stageId,
+      stageLabel: bucket.label,
+      count: bucket.days.length,
+      medianDays: median(bucket.days),
+      p90Days: percentile(bucket.days, 90),
+    }));
+}
+
+export function aggregateEnrollmentOverview(input: {
   now: Date;
   program: EnrollmentProgram;
+  period: { from: string; to: string };
   accounts: EnrollmentOverviewAccount[];
   stageOptions: EnrollmentOption[];
   records: EnrollmentOverviewRecordInput[];
-  thresholds: EnrollmentOverviewThresholds;
-  qcStaleHours: number;
-};
-
-const ATTENTION_LABELS: Record<EnrollmentOverviewRiskFlag, string> = {
-  qc_stale: "QC stale",
-  missing_owner: "No owner",
-  no_due_date: "No due date",
-};
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
-function ageSeconds(iso: string, now: Date): number {
-  return Math.max(0, Math.floor((now.getTime() - new Date(iso).getTime()) / 1000));
-}
-
-type Derived = {
-  record: EnrollmentOverviewRecordInput;
-  isOpen: boolean;
-  riskFlags: EnrollmentOverviewRiskFlag[];
-};
-
-function deriveRecord(
-  record: EnrollmentOverviewRecordInput,
-  stageById: Map<string, EnrollmentOption>,
-  now: Date,
-  qcStaleHours: number
-): Derived {
-  const isOpen = !record.closed_at;
-  const stage = record.stage_id ? stageById.get(record.stage_id) ?? null : null;
-  const flags: EnrollmentOverviewRiskFlag[] = [];
-
-  if (isOpen) {
-    if (!record.responsible_enroll_email) flags.push("missing_owner");
-    if (!record.due_date) flags.push("no_due_date");
-  }
-
-  // QC-stale applies to closed records still needing QC — mirrors the cron's
-  // qcCutoff logic exactly (src/app/api/cron/check-enrollment-due/route.ts)
-  // so the Overview flags precisely the records that would get a qc_stale
-  // notification, not a second, drifting definition of "stale."
-  if (!isOpen && stage?.triggers_qc && !record.qc_checked_at && record.closed_at) {
-    const staleCutoff = now.getTime() - qcStaleHours * 3600_000;
-    if (new Date(record.closed_at).getTime() <= staleCutoff) flags.push("qc_stale");
-  }
-
-  return { record, isOpen, riskFlags: flags };
-}
-
-function statusFromOpenCount(
-  openCount: number,
-  thresholds: EnrollmentOverviewThresholds
-): EnrollmentOverviewStatus {
-  if (openCount === 0) return "free";
-  if (openCount >= thresholds.openOverloaded) return "overloaded";
-  if (openCount >= thresholds.openBusy) return "busy";
-  return "ok";
-}
-
-export function aggregateEnrollmentOverview(
-  input: AggregateEnrollmentOverviewInput
-): EnrollmentOverviewSnapshot {
-  const { now, program, accounts, stageOptions, records, thresholds, qcStaleHours } = input;
-  const stageById = new Map(stageOptions.map((option) => [option.id, option]));
-  const sortedStages = sortEnrollmentOptionsByLabel(stageOptions);
-
-  const derived = records
-    .filter((record) => !record.archived_at)
-    .map((record) => deriveRecord(record, stageById, now, qcStaleHours));
-
-  type Bucket = {
-    account: EnrollmentOverviewAccount;
-    openRecords: Derived[];
-    qcStale: Derived[];
-    done7dCount: number;
-  };
-  const buckets = new Map<string, Bucket>();
-  for (const account of accounts) {
-    buckets.set(normalizeEmail(account.email), { account, openRecords: [], qcStale: [], done7dCount: 0 });
-  }
-  const unassigned: EnrollmentUnassignedOverviewRecord[] = [];
-  const sevenDaysAgo = now.getTime() - 7 * 24 * 3600_000;
-
-  for (const item of derived) {
-    const owner = item.record.responsible_enroll_email
-      ? normalizeEmail(item.record.responsible_enroll_email)
-      : null;
-
-    if (item.isOpen) {
-      if (!owner) {
-        const stage = item.record.stage_id ? stageById.get(item.record.stage_id) ?? null : null;
-        unassigned.push({
-          id: item.record.id,
-          clientName: item.record.client_name,
-          stageId: item.record.stage_id,
-          stageLabel: stage?.label ?? null,
-          stageColor: stage?.color ?? null,
-          dueDate: item.record.due_date,
-          createdAt: item.record.created_at,
-          ageSeconds: ageSeconds(item.record.created_at, now),
-        });
-      } else {
-        const bucket = buckets.get(owner);
-        if (bucket) bucket.openRecords.push(item);
-        // else: assigned to someone outside the resolved pool — out of scope
-        // for v1 (CS's Overview has a dedicated "outside pool" panel; add one
-        // here only if this turns out to happen in practice).
-      }
-    } else if (owner) {
-      const bucket = buckets.get(owner);
-      if (bucket && item.riskFlags.includes("qc_stale")) bucket.qcStale.push(item);
-      if (bucket && new Date(item.record.closed_at ?? item.record.updated_at).getTime() >= sevenDaysAgo) {
-        bucket.done7dCount += 1;
-      }
-    }
-  }
-
-  const rows: EnrollmentOverviewRow[] = [...buckets.values()].map(
-    ({ account, openRecords, qcStale, done7dCount }) => {
-      const openCount = openRecords.length;
-      const riskFlags = [
-        ...new Set(
-          openRecords.flatMap((r) => r.riskFlags).concat(qcStale.length > 0 ? (["qc_stale"] as const) : [])
-        ),
-      ];
-      const oldest = openRecords.map((r) => r.record.created_at).sort((a, b) => a.localeCompare(b))[0] ?? null;
-
-      return {
-        email: account.email,
-        name: account.name,
-        openCount,
-        qcStaleCount: qcStale.length,
-        riskFlags,
-        oldestOpenCreatedAt: oldest,
-        oldestOpenAgeSeconds: oldest ? ageSeconds(oldest, now) : null,
-        done7d: done7dCount,
-        status: statusFromOpenCount(openCount, thresholds),
-        records: openRecords.map((r) => ({
-          id: r.record.id,
-          clientName: r.record.client_name,
-          stageId: r.record.stage_id,
-          createdAt: r.record.created_at,
-          dueDate: r.record.due_date,
-          riskFlags: r.riskFlags,
-        })),
-      };
-    }
-  );
-
-  const attention: EnrollmentOverviewAttentionBar[] = ENROLLMENT_OVERVIEW_RISK_FLAGS.map((flag) => {
-    const recordIds = new Set<string>();
-    const people = new Set<string>();
-    for (const row of rows) {
-      for (const record of row.records) {
-        if (record.riskFlags.includes(flag)) {
-          recordIds.add(record.id);
-          people.add(row.email);
-        }
-      }
-      if (flag === "qc_stale" && row.qcStaleCount > 0) {
-        people.add(row.email);
-      }
-    }
-    const qcStaleExtra = flag === "qc_stale" ? rows.reduce((sum, row) => sum + row.qcStaleCount, 0) : 0;
+  requiredColumns: EnrollmentOverviewRequiredColumn[];
+  thresholds?: EnrollmentOverviewThresholds;
+}): EnrollmentOverviewSnapshot {
+  const thresholds = input.thresholds ?? ENROLLMENT_OVERVIEW_THRESHOLDS;
+  const period = input.period;
+  const stageById = new Map(input.stageOptions.map((option) => [option.id, option]));
+  const sortedStages = [...input.stageOptions].sort(compareEnrollmentOptionLabels);
+  const activeRecords = input.records.filter((record) => !record.archived_at);
+  const today = dateKey(input.now);
+  const dueSoonEnd = dateKey(addDays(parseDateKey(today), thresholds.dueSoonDays));
+  const collectables =
+    input.program === "aca" ? ACA_COLLECTABLE_KEYS : MEDICARE_COLLECTABLE_KEYS;
+  const derived = activeRecords.map((record) => {
+    const stage = record.stage_id ? stageById.get(record.stage_id) ?? null : null;
+    const open = !record.closed_at;
+    const requiredMissing = requiredMissingItems(record, input.requiredColumns);
+    const missingItems = [
+      ...collectables
+        .filter((key) => !isFilled(valueForCollectable(record, key)))
+        .map((key) => COLLECTABLE_LABELS[key]),
+      ...input.requiredColumns
+        .filter((column) => !column.is_system)
+        .filter((column) => !isFilled(valueForRequiredColumn(record, column)))
+        .map((column) => column.label),
+    ];
+    const uniqueMissingItems = [...new Set(missingItems)];
+    const overdue = Boolean(open && record.due_date && record.due_date < today);
+    const dueSoon = Boolean(
+      open && record.due_date && record.due_date >= today && record.due_date <= dueSoonEnd
+    );
+    const qcPending = Boolean(stage?.triggers_qc && !record.qc_checked_at);
+    const unowned = Boolean(open && !record.responsible_enroll_email);
+    const blockingStage = Boolean(open && stageIsBlocking(input.program, stage));
+    const riskFlags: EnrollmentOverviewRiskFlag[] = [];
+    if (overdue) riskFlags.push("overdue");
+    if (dueSoon) riskFlags.push("due_soon");
+    if (requiredMissing.length > 0) riskFlags.push("missing_required");
+    if (qcPending) riskFlags.push("qc_pending");
+    if (unowned) riskFlags.push("unowned");
+    if (blockingStage) riskFlags.push("blocking_stage");
     return {
-      key: flag,
-      label: ATTENTION_LABELS[flag],
-      recordCount: recordIds.size + qcStaleExtra,
-      affectedPeopleCount: people.size,
+      record,
+      stage,
+      open,
+      missingItems: uniqueMissingItems,
+      riskFlags,
+      summary: summaryFor(record, stage, riskFlags, uniqueMissingItems),
     };
   });
 
-  const stageBuckets: EnrollmentOverviewStageBucket[] = [];
-  for (const stage of sortedStages) {
-    const stageOpen = derived.filter((item) => item.isOpen && item.record.stage_id === stage.id);
-    if (stageOpen.length === 0) continue;
-    const warning = stageOpen.filter(
-      (r) =>
-        r.riskFlags.includes("missing_owner") ||
-        r.riskFlags.includes("no_due_date")
-    ).length;
-    stageBuckets.push({
-      stageId: stage.id,
-      stageLabel: stage.label,
-      stageColor: stage.color,
-      total: stageOpen.length,
-      danger: 0,
-      warning,
-      ok: stageOpen.length - warning,
-    });
-  }
-  const workMix: EnrollmentOverviewWorkMix = { stages: stageBuckets };
+  const openRecords = derived.filter((item) => item.open);
+  const periodNew = activeRecords.filter((record) => isInPeriod(record.created_at, period.from ? period : { from: "", to: "" })).length;
+  const periodClosed = activeRecords.filter((record) => isInPeriod(record.closed_at, period.from ? period : { from: "", to: "" })).length;
+  const needsCareIds = new Set(
+    derived.filter((item) => item.riskFlags.length > 0).map((item) => item.record.id)
+  );
 
-  const kpis: EnrollmentOverviewKpis = {
-    peopleCount: accounts.length,
-    zeroLoadCount: rows.filter((row) => row.openCount === 0).length,
-    openRecordCount: rows.reduce((sum, row) => sum + row.openCount, 0),
-    needsAttentionCount: rows.filter((row) => row.riskFlags.length > 0).length,
-    unassignedCount: unassigned.length,
+  const needsCare: EnrollmentOverviewNeed[] = (Object.keys(NEED_LABELS) as EnrollmentOverviewRiskFlag[]).map(
+    (key) => {
+      const records = derived.filter((item) => item.riskFlags.includes(key)).map((item) => item.summary);
+      return { key, label: NEED_LABELS[key], count: records.length, records };
+    }
+  );
+
+  const funnel: EnrollmentOverviewFunnelStage[] = sortedStages.map((stage) => ({
+    stageId: stage.id,
+    stageLabel: stage.label,
+    stageColor: stage.color,
+    openCount: openRecords.filter((item) => item.record.stage_id === stage.id).length,
+  }));
+  const noStageCount = openRecords.filter((item) => !item.record.stage_id).length;
+  if (noStageCount > 0) {
+    funnel.push({ stageId: "__none__", stageLabel: "No stage", stageColor: null, openCount: noStageCount });
+  }
+
+  const applicableCount = openRecords.length * (collectables.length + input.requiredColumns.filter((column) => !column.is_system).length);
+  const missingItems: EnrollmentOverviewMissingItem[] = [
+    ...collectables.map((key) => {
+      const missingCount = openRecords.filter((item) => !isFilled(valueForCollectable(item.record, key))).length;
+      return { key, label: COLLECTABLE_LABELS[key], missingCount, applicableCount: openRecords.length };
+    }),
+    ...input.requiredColumns
+      .filter((column) => !column.is_system)
+      .map((column) => ({
+        key: column.key,
+        label: column.label,
+        missingCount: openRecords.filter((item) => !isFilled(valueForRequiredColumn(item.record, column))).length,
+        applicableCount: openRecords.length,
+      })),
+  ];
+  const missingValueCount = missingItems.reduce((sum, item) => sum + item.missingCount, 0);
+  const totalValues = applicableCount;
+  const completeness = {
+    percentage: totalValues === 0 ? null : Math.round(((totalValues - missingValueCount) / totalValues) * 100),
+    filledCount: totalValues - missingValueCount,
+    applicableCount: totalValues,
   };
+
+  const terminalClosed = activeRecords.filter(
+    (record) => record.closed_at && isInPeriod(record.closed_at, period) && record.stage_id
+  );
+  const successCount = terminalClosed.filter((record) => normalizeLabel(stageById.get(record.stage_id!)?.label) === "10-done").length;
+  const lostCount = terminalClosed.filter((record) => normalizeLabel(stageById.get(record.stage_id!)?.label) === "11-terminated").length;
 
   return {
-    program,
-    generatedAt: now.toISOString(),
+    program: input.program,
+    generatedAt: input.now.toISOString(),
+    period,
     thresholds,
-    kpis,
-    attention,
-    workMix,
-    rows: rows.sort((a, b) => b.openCount - a.openCount),
-    unassigned: unassigned.sort((a, b) => b.ageSeconds - a.ageSeconds),
+    kpis: {
+      openCount: openRecords.length,
+      newCount: periodNew,
+      closedCount: periodClosed,
+      netChange: periodNew - periodClosed,
+      needsCareCount: needsCareIds.size,
+      overdueCount: derived.filter((item) => item.riskFlags.includes("overdue")).length,
+    },
+    funnel,
+    weekly: buildWeeklySeries(activeRecords, input.now, period),
+    cycleTime: buildCycleMetrics(activeRecords, stageById, period),
+    needsCare,
+    missingItems,
+    completeness,
+    outcome:
+      input.program === "aca"
+        ? { successCount, lostCount, closedCount: terminalClosed.length }
+        : null,
+    stageOptions: sortedStages,
   };
-}
-
-// Ranks the workload pool for a single unassigned record by projected load
-// after adding it. Deliberately simple (count-only tuple) vs CS's
-// multi-signal comparator — Enrollment has no priority/SLA-load axes to
-// balance against, so open-count is the whole signal.
-export function rankEnrollmentRecommendation(
-  snapshot: EnrollmentOverviewSnapshot,
-  targetRecordId: string
-): EnrollmentRecommendationCandidate[] {
-  void targetRecordId; // reserved for future per-record weighting (e.g. by stage)
-  return snapshot.rows
-    .map((row) => {
-      const projectedOpenCount = row.openCount + 1;
-      const projectedStatus = statusFromOpenCount(projectedOpenCount, snapshot.thresholds);
-      const hasRiskFlag = row.riskFlags.length > 0;
-      return {
-        email: row.email,
-        name: row.name,
-        currentStatus: row.status,
-        projectedStatus,
-        openCount: row.openCount,
-        projectedOpenCount,
-        hasRiskFlag,
-        why: hasRiskFlag
-          ? `Has ${row.riskFlags.length} active risk flag(s)`
-          : `${row.openCount} open -> ${projectedOpenCount} after assignment`,
-      };
-    })
-    .sort((a, b) => {
-      if (a.hasRiskFlag !== b.hasRiskFlag) return a.hasRiskFlag ? 1 : -1;
-      if (a.projectedOpenCount !== b.projectedOpenCount) return a.projectedOpenCount - b.projectedOpenCount;
-      return a.email.localeCompare(b.email);
-    });
-}
-
-export function enrollmentOverviewRecordStatuses(): readonly EnrollmentOverviewStatus[] {
-  return ["free", "ok", "busy", "overloaded"];
 }

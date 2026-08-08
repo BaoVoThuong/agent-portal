@@ -15,6 +15,17 @@ export async function GET(request: Request) {
   if (!program) {
     return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
   }
-  const snapshot = await fetchEnrollmentOverview(program);
-  return NextResponse.json(snapshot);
+  try {
+    const searchParams = new URL(request.url).searchParams;
+    const snapshot = await fetchEnrollmentOverview(program, {
+      from: searchParams.has("from") ? searchParams.get("from") : undefined,
+      to: searchParams.has("to") ? searchParams.get("to") : undefined,
+    });
+    return NextResponse.json(snapshot);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not load enrollment overview." },
+      { status: 500 }
+    );
+  }
 }

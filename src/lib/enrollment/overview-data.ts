@@ -1,133 +1,83 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
-import { aggregateEnrollmentOverview } from "./overview";
+import { fetchTableColumns } from "@/lib/table-config/queries";
+import { aggregateEnrollmentOverview, defaultEnrollmentOverviewPeriod } from "./overview";
 import { sortEnrollmentOptionsByLabel } from "./options";
 import {
-  ENROLLMENT_OVERVIEW_THRESHOLDS,
-  type EnrollmentOverviewAccount,
   type EnrollmentOverviewRecordInput,
+  type EnrollmentOverviewRequiredColumn,
   type EnrollmentOverviewSnapshot,
 } from "./overview-types";
 import type { EnrollmentOption, EnrollmentProgram } from "./types";
 
 const OVERVIEW_RECORD_COLUMNS =
-  "id,program,client_name,stage_id,caller_email,responsible_enroll_email,created_by_email,due_date,qc_checked_at,closed_at,created_at,updated_at,archived_at";
+  "id,program,client_name,description,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_at,closed_at,created_at,updated_at,archived_at";
 
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
+function parseDateParam(value: string | null): string | null {
+  if (value === null) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
 }
 
 export async function fetchEnrollmentOverview(
   program: EnrollmentProgram,
+  periodParams?: { from?: string | null; to?: string | null },
   now = new Date()
 ): Promise<EnrollmentOverviewSnapshot> {
   const supabase = getSupabaseAdmin();
-  const [accountsResult, rolesResult, rolePermissionsResult, userRolesResult, stageSetResult, recordsResult, reminderResult] =
-    await Promise.all([
-      supabase.from("portal_account").select("id,email,name,is_active,role"),
-      supabase.from("roles").select("id,name,is_active"),
-      supabase
-        .from("role_permissions")
-        .select("role_id,permission_key")
-        .in("permission_key", ["task.work", "task.manage"]),
-      supabase.from("user_roles").select("user_id,role_id"),
-      supabase
-        .from("enrollment_option_sets")
-        .select("id")
-        .eq("program", program)
-        .eq("key", "stage")
-        .maybeSingle(),
-      supabase
-        .from("enrollment_records")
-        .select(OVERVIEW_RECORD_COLUMNS)
-        .eq("program", program)
-        .is("archived_at", null),
-      supabase.from("task_reminder_settings").select("*").maybeSingle(),
-    ]);
+  const defaultPeriod = defaultEnrollmentOverviewPeriod(now);
+  const hasExplicitPeriod =
+    periodParams && (periodParams.from !== undefined || periodParams.to !== undefined);
+  const from = hasExplicitPeriod ? parseDateParam(periodParams?.from ?? "") ?? "" : defaultPeriod.from;
+  const to = hasExplicitPeriod ? parseDateParam(periodParams?.to ?? "") ?? "" : defaultPeriod.to;
 
-  const firstError = [
-    accountsResult.error,
-    rolesResult.error,
-    rolePermissionsResult.error,
-    userRolesResult.error,
-    stageSetResult.error,
-    recordsResult.error,
-    reminderResult.error,
-  ].find(Boolean);
-  if (firstError) throw new Error(firstError.message);
+  const [stageSetResult, recordsResult, tableColumns] = await Promise.all([
+    supabase
+      .from("enrollment_option_sets")
+      .select("id")
+      .eq("program", program)
+      .eq("key", "stage")
+      .maybeSingle(),
+    supabase
+      .from("enrollment_records")
+      .select(OVERVIEW_RECORD_COLUMNS)
+      .eq("program", program)
+      .is("archived_at", null),
+    fetchTableColumns(program),
+  ]);
 
-  const accounts = (accountsResult.data ?? []) as Array<{
-    id: string;
-    email: string;
-    name: string | null;
-    is_active: boolean;
-    role: string;
-  }>;
-  const roles = (rolesResult.data ?? []) as Array<{ id: string; name: string; is_active: boolean }>;
-  const rolePermissions = (rolePermissionsResult.data ?? []) as Array<{
-    role_id: string;
-    permission_key: string;
-  }>;
-  const userRoles = (userRolesResult.data ?? []) as Array<{ user_id: string; role_id: string }>;
-
-  const activeRoleIds = new Set(roles.filter((role) => role.is_active).map((role) => role.id));
-  const workRoleIds = new Set(
-    rolePermissions
-      .filter((row) => row.permission_key === "task.work" && activeRoleIds.has(row.role_id))
-      .map((row) => row.role_id)
-  );
-  const activeAdminRoleIds = new Set(
-    roles
-      .filter((role) => role.is_active && (role.name === "Admin" || role.name === "Super Admin"))
-      .map((role) => role.id)
-  );
-  const workUserIds = new Set(userRoles.filter((row) => workRoleIds.has(row.role_id)).map((row) => row.user_id));
-  const adminUserIds = new Set(
-    userRoles.filter((row) => activeAdminRoleIds.has(row.role_id)).map((row) => row.user_id)
-  );
-
-  const normalizedAccounts: EnrollmentOverviewAccount[] = accounts
-    .filter((account) => account.is_active)
-    .map((account) => ({
-      email: normalizeEmail(account.email),
-      name: account.name,
-      isActive: account.is_active,
-      canWork: workUserIds.has(account.id),
-      isAdmin: account.role === "admin" || adminUserIds.has(account.id),
-    }))
-    .filter((account) => account.canWork || account.isAdmin);
+  if (stageSetResult.error) throw new Error(stageSetResult.error.message);
+  if (recordsResult.error) throw new Error(recordsResult.error.message);
 
   const stageSet = stageSetResult.data as { id: string } | null;
   let stageOptions: EnrollmentOption[] = [];
   if (stageSet) {
-    const { data: stageOptionRows, error: stageOptionsError } = await supabase
+    const { data, error } = await supabase
       .from("enrollment_options")
       .select("id,set_id,label,color,position,is_terminal,triggers_qc,archived_at")
       .eq("set_id", stageSet.id)
-      .is("archived_at", null)
-      .order("label", { ascending: true });
-    if (stageOptionsError) throw new Error(stageOptionsError.message);
+      .is("archived_at", null);
+    if (error) throw new Error(error.message);
     stageOptions = sortEnrollmentOptionsByLabel(
-      (stageOptionRows ?? []).map((option) => ({ ...option, set_key: "stage" as const }))
+      (data ?? []).map((option) => ({ ...option, set_key: "stage" as const }))
     );
   }
 
-  const records = ((recordsResult.data ?? []) as EnrollmentOverviewRecordInput[]).map((record) => ({
-    ...record,
-    responsible_enroll_email: record.responsible_enroll_email
-      ? normalizeEmail(record.responsible_enroll_email)
-      : null,
-  }));
-
-  const reminderSettings = resolveReminderSettings(reminderResult.data);
+  const records = (recordsResult.data ?? []) as EnrollmentOverviewRecordInput[];
+  const requiredColumns: EnrollmentOverviewRequiredColumn[] = tableColumns
+    .filter((column) => column.required && !column.archived_at)
+    .map((column) => ({
+      key: column.key,
+      label: column.label,
+      type: column.type,
+      is_system: column.is_system,
+    }));
 
   return aggregateEnrollmentOverview({
     now,
     program,
-    accounts: normalizedAccounts,
+    period: { from, to },
+    accounts: [],
     stageOptions,
     records,
-    thresholds: ENROLLMENT_OVERVIEW_THRESHOLDS,
-    qcStaleHours: reminderSettings.qcHours,
+    requiredColumns,
   });
 }
