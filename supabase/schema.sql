@@ -2593,6 +2593,8 @@ as $$
   where option_id is not null
   group by option_id;
 $$;
+revoke all on function enrollment_option_usage_counts() from public, anon, authenticated;
+grant execute on function enrollment_option_usage_counts() to service_role;
 
 -- Program split for records: backfill existing rows as ACA, scope list queries.
 alter table enrollment_records
