@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 19:55 Asia/Ho_Chi_Minh**  
-Reviewed source through: **`4f59280`** (execution log commits follow)
+Last Updated: **2026-08-08 20:05 Asia/Ho_Chi_Minh**  
+Reviewed source through: **`16ad882`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -128,8 +128,8 @@ Root Cause: OCC exists only in generic PATCH and one overview path.
 Impact: Lost status/assignment intent or stale archive. The interactive reason modal narrows some race windows, so this is P2 rather than P1.  
 Fix: Add version tokens to every mutation and enforce them inside the same atomic transition boundary.  
 Regression Risk: Medium-high; all clients must handle 409 consistently.  
-Verification: Repository trace finds no version predicate on the listed endpoints.  
-Status: **OPEN**
+Verification: Typecheck, targeted ESLint, Tasks tests, PostgreSQL schema replay, and stale-token RPC smoke checks pass; authenticated two-tab action/archive verification remains.  
+Status: **IMPLEMENTED — browser concurrency verification pending**
 
 ### T-05 — Search scope, candidate limiting, and rendered result types disagree
 
@@ -327,7 +327,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-07 row-scoped archive rollback (`f9c1643`).
+T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-07 row-scoped archive rollback (`f9c1643`).
 
 ## Verification
 
@@ -1361,7 +1361,7 @@ Remaining P1 gates after implementation:
 
 ## P2
 
-Active P2 findings remain. M-04 (`802493a`), M-09 (`373a4dc`), and T-07 (`f9c1643`) are implemented pending browser/route evidence; other Tasks/Enrollment/Config/ACA/cross-module P2s remain open or require production-volume/operational measurements.
+Active P2 findings remain. T-04 (`16ad882`), M-04 (`802493a`), M-09 (`373a4dc`), and T-07 (`f9c1643`) are implemented pending browser/route evidence; other Tasks/Enrollment/Config/ACA/cross-module P2s remain open or require production-volume/operational measurements.
 
 ## P3
 
@@ -1442,6 +1442,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **A-01 — ACA new-record visibility.** Added an explicit “mine” predicate to the non-manager default view: creator, Caller, or Responsible records remain visible. The UI still shows the selected Responsible filter, while changing that filter or clearing filters returns to the explicit user-selected behavior. | `2c7b96e` | `npm run typecheck` PASS; targeted ESLint PASS. Product/browser check remains required for ACA create → close drawer → default list and cleared-filter behavior; Medicare uses the same stakeholder predicate for parity. |
 | 2026-08-08 | **T-03 — committed task mutation truthfulness (partial).** Canonical task PATCHes no longer return retryable 5xx solely because assignee/history/activity/notification/broadcast/assignee-reload side effects fail after commit. Results are checked with `Promise.allSettled`, logged, and returned as `warnings`; the client can keep the committed row. | `e219c91` | `npm run typecheck` PASS; targeted ESLint PASS. T-03 remains **OPEN/P1** until canonical task + assignee junction + required history are transactionally atomic or have a durable idempotent repair queue; this commit only removes false-failure/retry behavior. |
 | 2026-08-08 | **T-03 — atomic task mutation command.** Added `patch_task_atomic` to the Supabase schema and routed generic task PATCH through it. The task row, assignee junction/cycles, stage/overdue history, activity rows, and last-activity token now commit or roll back together; notifications and realtime remain non-authoritative warnings. | `4f59280` | `npm run typecheck` PASS; targeted ESLint PASS; Tasks tests PASS (21 files / 239 tests); PostgreSQL 16 schema replay PASS; local RPC commit/rollback smoke checks PASS. Deployment of the function, authenticated failure-injection, and broader route regression remain required before closing T-03. |
+| 2026-08-08 | **T-04 — special-action optimistic concurrency.** Added `expected_updated_at` to reopen, overdue-unlock, assignee add/remove, and archive requests; moved the core action writes through the atomic task command or guarded version predicate; clients send the token and reconcile canonical state on 409 instead of restoring stale intent. Post-commit notification/rotation/broadcast failures are returned as warnings. | `16ad882` | `npm run typecheck` PASS; targeted ESLint PASS for routes and `TaskBoardClient`; Tasks tests PASS (21 files / 239 tests); PostgreSQL 16 schema replay and stale-token RPC smoke PASS. Authenticated two-tab action/archive verification remains required. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1575,12 +1576,12 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `4f59280`:
+Verification recorded across the execution commits through `16ad882`:
 
-- `npm run typecheck`: **PASS after T-03**.
-- `npx eslint 'src/app/api/tasks/[id]/route.ts'`: **PASS**.
+- `npm run typecheck`: **PASS after T-04**.
+- Targeted ESLint for Tasks routes and `TaskBoardClient.tsx`: **PASS**.
 - `npm run test:run -- src/lib/tasks`: **PASS — 21 files / 239 tests**.
-- PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic RPC commit/rollback smoke checks passed.
+- PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
 
