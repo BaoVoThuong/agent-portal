@@ -7,6 +7,7 @@ import {
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import { fetchAdminEmails } from "@/lib/tasks/membership";
 import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
+import { checkCronAuthorization } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -25,18 +26,8 @@ type DueRecord = {
   stage_id: string | null;
 };
 
-function checkAuthorization(request: Request): "ok" | "misconfigured" | "unauthorized" {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return "misconfigured";
-  const url = new URL(request.url);
-  const authHeader = request.headers.get("authorization");
-  const ok =
-    authHeader === `Bearer ${cronSecret}` || url.searchParams.get("secret") === cronSecret;
-  return ok ? "ok" : "unauthorized";
-}
-
 export async function GET(request: Request) {
-  const authResult = checkAuthorization(request);
+  const authResult = checkCronAuthorization(request);
   if (authResult === "misconfigured") {
     return NextResponse.json({ error: "CRON_SECRET is not configured" }, { status: 500 });
   }

@@ -17,6 +17,7 @@ import {
 import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
 import { intervalDue, isDueSoon, isStale } from "@/lib/tasks/reminders";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
+import { checkCronAuthorization } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -25,18 +26,8 @@ export const dynamic = "force-dynamic";
 // runs on a schedule (see vercel.json) and stamps `overdue_flagged_at` + logs a
 // `went_overdue` activity entry the moment it first detects a breach,
 // independent of anyone looking at the board.
-function checkAuthorization(request: Request): "ok" | "misconfigured" | "unauthorized" {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return "misconfigured";
-  const url = new URL(request.url);
-  const authHeader = request.headers.get("authorization");
-  const ok =
-    authHeader === `Bearer ${cronSecret}` || url.searchParams.get("secret") === cronSecret;
-  return ok ? "ok" : "unauthorized";
-}
-
 export async function GET(request: Request) {
-  const authResult = checkAuthorization(request);
+  const authResult = checkCronAuthorization(request);
   if (authResult === "misconfigured") {
     return NextResponse.json({ error: "CRON_SECRET is not configured" }, { status: 500 });
   }

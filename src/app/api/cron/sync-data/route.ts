@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { NextResponse } from "next/server";
+import { checkCronAuthorization } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -17,21 +18,6 @@ const { syncConfig } = require("../../../../../datasync/lib/sync-runner") as {
   syncConfig: (config: SyncConfig) => Promise<void>;
 };
 
-type AuthResult = "ok" | "misconfigured" | "unauthorized";
-
-function checkAuthorization(request: Request): AuthResult {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return "misconfigured";
-
-  const url = new URL(request.url);
-  const authHeader = request.headers.get("authorization");
-  const ok =
-    authHeader === `Bearer ${cronSecret}` ||
-    url.searchParams.get("secret") === cronSecret;
-
-  return ok ? "ok" : "unauthorized";
-}
-
 function getConfigNames(request: Request) {
   const url = new URL(request.url);
   const configParam = url.searchParams.get("config")?.trim();
@@ -44,7 +30,7 @@ function getConfigNames(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const authResult = checkAuthorization(request);
+  const authResult = checkCronAuthorization(request);
   if (authResult === "misconfigured") {
     return NextResponse.json(
       { error: "CRON_SECRET is not configured" },
