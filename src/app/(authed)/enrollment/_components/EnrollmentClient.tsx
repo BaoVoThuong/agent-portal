@@ -3489,13 +3489,7 @@ function NewEnrollmentDialog({
             </main>
 
             <aside className="min-w-0 space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-bold text-[#172b4d]">Properties</h3>
-                  <p className="text-xs font-medium text-[#6b778c]">
-                    Enrollment fields stay on the right for fast scanning.
-                  </p>
-                </div>
+              <div className="flex justify-end">
                 <span className="shrink-0 rounded bg-[#e9f2ff] px-2 py-1 text-[11px] font-bold text-[#0c66e4]">
                   {ENROLLMENT_PROGRAM_LABELS[program].replace("Health ", "")}
                 </span>
