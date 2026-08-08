@@ -123,6 +123,8 @@ export function TaskBoardClient({
   const taskRowsRef = useRef(new Map(initialTasks.map((task) => [task.id, task])));
   const taskMutationStatesRef = useRef(new Map<string, TaskMutationState>());
   const [view, setView] = useState<BoardView>("list");
+  const viewRef = useRef(view);
+  const loadOverviewRef = useRef<((background?: boolean) => Promise<void>) | null>(null);
   const [overviewSnapshot, setOverviewSnapshot] = useState<OverviewSnapshot | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewRefreshing, setOverviewRefreshing] = useState(false);
@@ -198,6 +200,10 @@ export function TaskBoardClient({
   // value instead of being overwritten by that refetch. This is what stops a
   // just-moved card from flashing back to its old column for ~1s.
   const recentTaskWritesRef = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   const taskListColumnConfig = useMemo(
     () => taskListColumnsFromConfig(taskLayoutColumns),
@@ -434,6 +440,11 @@ export function TaskBoardClient({
     void refetchTasks();
   }, [refetchTasks]);
 
+  const reloadCategories = useCallback(async () => {
+    const res = await fetch("/api/tasks/categories");
+    if (res.ok) setCategories((await res.json()).categories as TaskCategory[]);
+  }, []);
+
   const loadOverview = useCallback(async (background = false) => {
     if (!isManager) return;
     if (background) setOverviewRefreshing(true);
@@ -465,6 +476,10 @@ export function TaskBoardClient({
       else setOverviewLoading(false);
     }
   }, [dateRange.from, dateRange.to, isManager]);
+
+  useEffect(() => {
+    loadOverviewRef.current = loadOverview;
+  }, [loadOverview]);
 
   const changeAssignmentQueueMember = useCallback(
     async (email: string, enabled: boolean) => {
@@ -523,12 +538,17 @@ export function TaskBoardClient({
     const sb = getBrowserSupabase();
     if (!sb) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    const refreshOverviewIfVisible = () => {
+      if (isManager && viewRef.current === "overview") {
+        void loadOverviewRef.current?.(true);
+      }
+    };
     const schedule = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        void refetchTasks();
+        refetchTasksRef.current?.();
         void reloadCategories();
-        if (isManager && view === "overview") void loadOverview(true);
+        refreshOverviewIfVisible();
       }, 300);
     };
     const channel = sb
@@ -536,15 +556,15 @@ export function TaskBoardClient({
       .on("broadcast", { event: "changed" }, schedule)
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          void refetchTasks();
-          if (isManager && view === "overview") void loadOverview(true);
+          refetchTasksRef.current?.();
+          refreshOverviewIfVisible();
         }
       });
     return () => {
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
-  }, [isManager, loadOverview, refetchTasks, view]);
+  }, [isManager, reloadCategories]);
 
   useEffect(() => {
     if (!openId) {
@@ -560,11 +580,6 @@ export function TaskBoardClient({
     const timer = window.setTimeout(() => void refetchTasks(), 0);
     return () => window.clearTimeout(timer);
   }, [openId, tasks, refetchTasks]);
-
-  const reloadCategories = async () => {
-    const res = await fetch("/api/tasks/categories");
-    if (res.ok) setCategories((await res.json()).categories as TaskCategory[]);
-  };
 
   const reloadSlaRules = useCallback(async () => {
     const res = await fetch("/api/admin/task-sla-rules");
