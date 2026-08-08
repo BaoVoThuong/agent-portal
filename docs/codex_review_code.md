@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 20:45 Asia/Ho_Chi_Minh**  
-Reviewed source through: **`d6fbe37`** (execution log commits follow)
+Last Updated: **2026-08-08 20:40 Asia/Ho_Chi_Minh**
+Reviewed source through: **`17b86e2`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -314,10 +314,10 @@ Expected: Secrets travel only in authorization headers.
 Actual: Secret can appear in access/proxy/platform logs and browser history.  
 Root Cause: Legacy convenience authentication path.  
 Impact: Increased credential exposure surface.  
-Fix: Remove query-string secret support after confirming all schedulers use Authorization headers.  
+Fix: Centralize cron authentication and accept only the `Authorization: Bearer` header; retain `config=` as a non-secret `sync-data` selector.
 Regression Risk: Low; external callers must be inventoried.  
-Verification: Static route/workflow comparison.  
-Status: **OPEN — hardening**
+Verification: `cron-auth.test.ts` covers missing configuration, valid Bearer, wrong/missing Bearer, and query-string rejection. All three routes import the helper; the repository scheduler uses the Bearer header and no `secret=` scheduler URL was found. Typecheck and targeted ESLint pass. Deployed scheduler evidence remains part of T-14.
+Status: **IMPLEMENTED — deployed scheduler evidence pending**
 
 ## Regression Risks
 
@@ -327,11 +327,11 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`), T-10 dirty-aware drawer drafts (`e77cb78`), T-11 archive confirmation semantics (`16203e3`), T-12 escaped permission filter identities (`d6fbe37`).
+T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`), T-10 dirty-aware drawer drafts (`e77cb78`), T-11 archive confirmation semantics (`16203e3`), T-12 escaped permission filter identities (`d6fbe37`), T-13 Bearer-only cron authentication (`17b86e2`).
 
 ## Verification
 
-- Tasks helper suites previously passed: **21 files / 239 tests**.
+- Tasks helper suites previously passed: **21 files / 243 tests**; cron authentication regression suite passes **4 tests**.
 - No authenticated component/browser/database failure-injection harness covered T-01/T-02/T-03.
 
 ## Remaining Risks
@@ -1365,7 +1365,7 @@ Active P2 findings remain. T-04 (`16ad882`), T-05 (`82885a3`), T-06 (`ff87eaf`),
 
 ## P3
 
-**17 issue groups:** T-10 through T-14; M-13 through M-17; C-13 through C-16; X-03 through X-05. T-10, T-11, and T-12 are implemented pending browser evidence; the remaining P3 groups are open.
+**17 issue groups:** T-10 through T-14; M-13 through M-17; C-13 through C-16; X-03 through X-05. T-10, T-11, T-12, and T-13 are implemented pending browser/deployed evidence; the remaining P3 groups are open.
 
 ## P4
 
@@ -1452,6 +1452,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **T-10 — stale Task drawer drafts.** Added dirty/base tracking for title, description, and FUB drafts. Pristine fields now follow external task updates; active input is preserved and a conflict warning appears if the server value changes while editing. | `e77cb78` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskDetailDrawer.tsx`; Tasks tests PASS (21 files / 242 tests). Two-session drawer editing and conflict-copy verification remain required. |
 | 2026-08-08 | **T-11 — archive confirmation semantics.** Renamed the task action and confirmation dialog from Delete to Archive and clarified that the active-board entry is hidden while comments/files remain stored rather than permanently deleted. | `16203e3` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskDetailDrawer.tsx`; task detail tests PASS (3 tests). Browser copy/accessibility verification remains. |
 | 2026-08-08 | **T-12 — permission filter identity escaping.** Quoted and escaped session/agent/assignment/participant values before composing PostgREST `.or()`/`.in()` expressions, preserving identity values as data even when they contain grammar delimiters. | `d6fbe37` | `npm run typecheck` PASS; targeted ESLint PASS for `queries.ts` and `queries.test.ts`; Tasks tests PASS (21 files / 243 tests), including malicious delimiter coverage. Authenticated agent/assistant/plain-CS visibility checks remain. |
+| 2026-08-08 | **T-13 — cron secret transport hardening.** Centralized the three cron routes on a shared authorization helper, removed `?secret=` acceptance, and retained only the `Authorization: Bearer` credential path. The `sync-data?config=` selector remains unchanged because it is not a credential. | `17b86e2` | `cron-auth.test.ts` PASS (4 tests) for missing config, valid Bearer, wrong/missing Bearer, and query-string rejection; `npm run typecheck` PASS; targeted ESLint PASS for helper/test and all three routes. Repository scheduler workflow sends the Bearer header; deployed scheduler ownership/log evidence remains under T-14. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1585,11 +1586,12 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `d6fbe37`:
+Verification recorded across the execution commits through `17b86e2`:
 
-- `npm run typecheck`: **PASS after T-12**.
-- Targeted ESLint for the changed Tasks/detail/query routes and components, including `TaskBoardClient.tsx`: **PASS**.
+- `npm run typecheck`: **PASS after T-13**.
+- Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
 - `npm run test:run -- src/lib/tasks`: **PASS — 21 files / 243 tests**.
+- `npm run test:run -- src/lib/cron-auth.test.ts`: **PASS — 4 tests**.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
