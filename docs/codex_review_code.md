@@ -5,7 +5,7 @@
 Status: **NOT READY**  
 Current Module: **Complete**  
 Last Updated: **2026-08-08 20:55 Asia/Ho_Chi_Minh**
-Reviewed source through: **`92bf839`** (execution log commits follow)
+Reviewed source through: **`55177af`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -327,7 +327,7 @@ Status: **IMPLEMENTED — deployed scheduler evidence pending**
 
 ## Fixes Applied
 
-T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`), T-10 dirty-aware drawer drafts (`e77cb78`), T-11 archive confirmation semantics (`16203e3`), T-12 escaped permission filter identities (`d6fbe37`), T-13 Bearer-only cron authentication (`17b86e2`), T-14 scheduler ownership documentation alignment (`bb6dca3`), T-15 shared Toast export failures (`fac06e7`), X-01 versioned layout writes (`38e6409`), X-02 strict Config scope boundaries (`c6dfc3d`), X-03 table-shaped loading boundaries (`c0abf16`), X-04 Config input contrast (`c816ed9`), X-05 detail deep-link history (`3a5bd97`), M-10 due-date equality guard (`10ddc43`), M-13 skip unchanged Enrollment layout autosaves (`054c11e`), M-14 create validation/error summary (`92bf839`).
+T-01 layout hydration guard (`cdd06de`), T-02 serialized canonical task PATCH/rebase (`81e8562`), T-03 post-commit warning handling plus atomic canonical/history command (`e219c91`, `4f59280`), T-04 special-action OCC (`16ad882`), T-05 paginated visible search and file rendering (`82885a3`), T-06 canonical detail metadata reconciliation (`ff87eaf`), T-07 row-scoped archive rollback (`f9c1643`), T-08 truncation containment (`a52156e`), T-09 stable realtime lifecycle (`036984e`), T-10 dirty-aware drawer drafts (`e77cb78`), T-11 archive confirmation semantics (`16203e3`), T-12 escaped permission filter identities (`d6fbe37`), T-13 Bearer-only cron authentication (`17b86e2`), T-14 scheduler ownership documentation alignment (`bb6dca3`), T-15 shared Toast export failures (`fac06e7`), X-01 versioned layout writes (`38e6409`), X-02 strict Config scope boundaries (`c6dfc3d`), X-03 table-shaped loading boundaries (`c0abf16`), X-04 Config input contrast (`c816ed9`), X-05 detail deep-link history (`3a5bd97`), M-10 due-date equality guard (`10ddc43`), M-13 skip unchanged Enrollment layout autosaves (`054c11e`), M-14 create validation/error summary (`92bf839`), M-16 shared reopen reason modal (`55177af`).
 
 ## Verification
 
@@ -627,10 +627,10 @@ Expected: Accessible, validated, consistently styled reason collection.
 Actual: Native prompt cannot share validation/style/interaction patterns.  
 Root Cause: Enrollment implemented the interaction independently.  
 Impact: Accessibility and behavior inconsistency. A production iframe/webview blocker was not established, so this remains P3.  
-Fix: Reuse `ReasonModal` without changing server business rules.  
+Fix: Reuse the shared `ReasonModal` without changing the required reason or server `reopen_reason` contract.
 Regression Risk: Low; verify reason remains mandatory and New/terminal flows.  
-Verification: Static interaction comparison.  
-Status: **OPEN**
+Verification: Enrollment reopen now uses the shared validated modal with required reason, loading/close behavior, and the existing PATCH payload. Typecheck, targeted ESLint, and diff-check pass. Medicare/ACA browser accessibility verification remains.
+Status: **IMPLEMENTED — browser verification pending**
 
 ### M-18 — Enrollment mixes blur-save and immediate-save controls
 
@@ -1463,6 +1463,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **M-13 — skip unchanged Enrollment layout autosaves.** Recorded the first post-hydration layout signature and ignored identical effect runs; successful user changes update the baseline after the existing versioned queue completes. | `054c11e` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; diff-check PASS. Browser request-count verification remains. |
 | 2026-08-08 | **M-10 — due-date equality guard.** Enrollment drawer date changes now compare the normalized selected date with the current record before enqueuing a PATCH; actual changes still use the serialized per-record mutation path. | `10ddc43` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; diff-check PASS. Picker/manual-entry and rapid-network browser verification remain. |
 | 2026-08-08 | **M-14 — visible Enrollment create validation.** Required-field failures now render an alert summary in the create dialog, API/create errors are visible in the same surface, and the first invalid control is marked and focused/scrolled. | `92bf839` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; diff-check PASS. Keyboard/screen-reader browser verification remains. |
+| 2026-08-08 | **M-16 — shared Enrollment reopen reason modal.** Replaced native `window.prompt` with the shared `ReasonModal`, preserving required reason validation and the existing `reopen_reason` PATCH. | `55177af` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; diff-check PASS. Medicare/ACA modal and accessibility verification remains. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1596,7 +1597,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `92bf839`:
+Verification recorded across the execution commits through `55177af`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1609,6 +1610,7 @@ Verification recorded across the execution commits through `92bf839`:
 - Enrollment layout autosave guard: **typecheck, targeted ESLint, and diff-check PASS**; browser request-count proof remains.
 - Enrollment due-date equality guard: **typecheck, targeted ESLint, and diff-check PASS**; browser event-count proof remains.
 - Enrollment create validation/error summary: **typecheck, targeted ESLint, and diff-check PASS**; browser accessibility proof remains.
+- Enrollment reopen modal: **typecheck, targeted ESLint, and diff-check PASS**; browser accessibility proof remains.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
