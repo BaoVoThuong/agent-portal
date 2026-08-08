@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { fetchTableColumns, resetTableLayoutsForScope } from "@/lib/table-config/queries";
-import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
+import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { isTableScope } from "@/lib/table-config/types";
 
 export const dynamic = "force-dynamic";
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     });
   }
 
-  await broadcastTableConfigChanged();
+  await broadcastTableConfigInvalidation();
   return NextResponse.json({ ok: true, scope, ...(warnings.length > 0 ? { warnings } : {}) });
 }
 

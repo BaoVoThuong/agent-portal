@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { fetchTableColumnById } from "@/lib/table-config/queries";
-import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
+import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +54,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Option not found." }, { status: 404 });
 
-  await broadcastTableConfigChanged();
+  await broadcastTableConfigInvalidation();
   return NextResponse.json({ option: data });
 }
 
@@ -86,7 +86,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Option not found." }, { status: 404 });
 
-  await broadcastTableConfigChanged();
+  await broadcastTableConfigInvalidation();
   return NextResponse.json({ ok: true });
 }
 

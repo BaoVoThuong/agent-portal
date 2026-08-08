@@ -10,7 +10,7 @@ import {
   fetchTableColumnById,
   resetTableLayoutsForScope,
 } from "@/lib/table-config/queries";
-import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
+import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { isColumnType, isTableScope } from "@/lib/table-config/types";
 
 export const dynamic = "force-dynamic";
@@ -122,7 +122,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
   }
 
-  await broadcastTableConfigChanged();
+  await broadcastTableConfigInvalidation();
   return NextResponse.json({ column: data, ...(warnings.length > 0 ? { warnings } : {}) });
 }
 
@@ -156,7 +156,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Column not found." }, { status: 404 });
 
-  await broadcastTableConfigChanged();
+  await broadcastTableConfigInvalidation();
   return NextResponse.json({ ok: true });
 }
 

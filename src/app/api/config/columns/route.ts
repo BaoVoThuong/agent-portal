@@ -10,7 +10,7 @@ import {
   fetchTableColumnOptions,
   fetchTableColumns,
 } from "@/lib/table-config/queries";
-import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
+import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { isColumnType, isTableScope, parseTableScope } from "@/lib/table-config/types";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  await broadcastTableConfigChanged();
+  await broadcastTableConfigInvalidation();
   return NextResponse.json({ column: data });
 }
 
