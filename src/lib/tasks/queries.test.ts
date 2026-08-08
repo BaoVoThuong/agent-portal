@@ -3,6 +3,7 @@ import {
   assertTaskListComplete,
   fetchTaskListMetadata,
   isMissingTaskListMetadataRpc,
+  quotePostgrestFilterValue,
   TaskListTruncatedError,
 } from "./queries";
 
@@ -91,6 +92,14 @@ describe("assertTaskListComplete", () => {
     expect(() => assertTaskListComplete([{ id: "task-1" }], 1)).not.toThrow();
     expect(() => assertTaskListComplete([{ id: "task-1" }], null)).not.toThrow();
     expect(() => assertTaskListComplete(null, undefined)).not.toThrow();
+  });
+});
+
+describe("quotePostgrestFilterValue", () => {
+  it("escapes grammar delimiters while keeping the value quoted", () => {
+    expect(quotePostgrestFilterValue('a"x\\@b.com,role.eq.admin')).toBe(
+      '"a\\"x\\\\@b.com,role.eq.admin"'
+    );
   });
 });
 

@@ -16,6 +16,12 @@ export const TASK_COLUMNS =
 const TASK_COLUMNS_LEGACY =
   "id,title,description,fub_link,status,priority,category_id,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,qc_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
 
+// Values inside PostgREST `.or()`/`.in()` expressions are still parsed as
+// filter grammar. Quote and escape them so session/DB identities remain data.
+export function quotePostgrestFilterValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   const supabase = getSupabaseAdmin();
   let query = supabase
@@ -52,11 +58,26 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
         fetchParticipantTaskIds(actor.email),
       ]);
       workerScope = { agents, assistantAgents, assignedIds, participantIds };
-      const ors: string[] = [`assignee_email.eq."${actor.email}"`];
-      ors.push(`agent_email.eq."${actor.email}"`);
-      if (agents.length > 0) ors.push(`agent_email.in.(${agents.map((a) => `"${a}"`).join(",")})`);
-      if (assignedIds.length > 0) ors.push(`id.in.(${assignedIds.join(",")})`);
-      if (participantIds.length > 0) ors.push(`id.in.(${participantIds.join(",")})`);
+      const quotedEmail = quotePostgrestFilterValue(actor.email);
+      const ors: string[] = [
+        `assignee_email.eq.${quotedEmail}`,
+        `agent_email.eq.${quotedEmail}`,
+      ];
+      if (agents.length > 0) {
+        ors.push(
+          `agent_email.in.(${agents.map(quotePostgrestFilterValue).join(",")})`
+        );
+      }
+      if (assignedIds.length > 0) {
+        ors.push(
+          `id.in.(${assignedIds.map(quotePostgrestFilterValue).join(",")})`
+        );
+      }
+      if (participantIds.length > 0) {
+        ors.push(
+          `id.in.(${participantIds.map(quotePostgrestFilterValue).join(",")})`
+        );
+      }
       query =
         ors.length > 0
           ? query.or(ors.join(","))
@@ -334,16 +355,26 @@ function buildWorkerTaskOrs(
       }
     | null
 ): string[] {
-  const ors: string[] = [`assignee_email.eq."${email}"`, `agent_email.eq."${email}"`];
+  const quotedEmail = quotePostgrestFilterValue(email);
+  const ors: string[] = [
+    `assignee_email.eq.${quotedEmail}`,
+    `agent_email.eq.${quotedEmail}`,
+  ];
   if (!workerScope) return ors;
   if (workerScope.agents.length > 0) {
-    ors.push(`agent_email.in.(${workerScope.agents.map((agent) => `"${agent}"`).join(",")})`);
+    ors.push(
+      `agent_email.in.(${workerScope.agents.map(quotePostgrestFilterValue).join(",")})`
+    );
   }
   if (workerScope.participantIds.length > 0) {
-    ors.push(`id.in.(${workerScope.participantIds.join(",")})`);
+    ors.push(
+      `id.in.(${workerScope.participantIds.map(quotePostgrestFilterValue).join(",")})`
+    );
   }
   if (workerScope.assignedIds.length > 0) {
-    ors.push(`id.in.(${workerScope.assignedIds.join(",")})`);
+    ors.push(
+      `id.in.(${workerScope.assignedIds.map(quotePostgrestFilterValue).join(",")})`
+    );
   }
   return ors;
 }
