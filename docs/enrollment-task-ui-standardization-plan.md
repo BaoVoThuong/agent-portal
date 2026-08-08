@@ -252,6 +252,7 @@ audited and fixed in isolated commits.
 | Enrollment List categorical/single-option badges | Confirmed, pending | — | — | Health CS Category is the visual baseline |
 | Enrollment List person display | Pending audit | — | — | Change only if a confirmed mismatch remains |
 | Enrollment option-field surface (Create/List/Detail) | Completed | `6b7ca86`, `3500586`, `ed5bf0c` | `npx tsc --noEmit`; targeted ESLint; `npx vitest run`; `git diff --check` | Removed nested Create badges, restored CS-style chevrons/menu spacing, kept list badges/detail controls surface-specific, changed Create placeholders from `No ...` to `Select ...`, and removed the redundant Create program badge |
+| Client Name list navigation (Enrollment + Health CS) | Completed | `8e6a549` | `npx tsc --noEmit`; targeted ESLint; `npx vitest run`; `git diff --check` | Client Name is now read-only in both lists and opens the corresponding detail/task drawer on click; inline editing remains available inside detail/create forms |
 | Other data-type consistency fixes | Pending audit | — | — | One independent issue per commit |
 | Cross-module regression verification | Pending | — | — | ACA, Medicare, and Health CS |
 | Go-Live review log update | Pending | — | — | Separate documentation commit |
