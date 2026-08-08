@@ -1035,6 +1035,9 @@ function ConfigDropdownValuesSection({
   const [isTerminal, setIsTerminal] = useState(false);
   const [triggersQc, setTriggersQc] = useState(false);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
+  const [pendingStageRuleIds, setPendingStageRuleIds] = useState<Set<string>>(new Set());
+  const stageRuleQueuesRef = useRef(new Map<string, Promise<void>>());
+  const pendingStageRuleCountsRef = useRef(new Map<string, number>());
 
   const valueRows: DropdownValueRow[] = !selected
     ? []
@@ -1123,8 +1126,39 @@ function ConfigDropdownValuesSection({
   }
 
   async function toggleStageRule(id: string, patch: { is_terminal?: boolean; triggers_qc?: boolean }) {
-    await requestJson(`/api/enrollment/option-sets/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-    await onOptionDataChange();
+    const pendingCount = (pendingStageRuleCountsRef.current.get(id) ?? 0) + 1;
+    pendingStageRuleCountsRef.current.set(id, pendingCount);
+    setPendingStageRuleIds((current) => new Set(current).add(id));
+
+    const previous = stageRuleQueuesRef.current.get(id) ?? Promise.resolve();
+    const operation = previous
+      .catch(() => undefined)
+      .then(async () => {
+        await requestJson(`/api/enrollment/option-sets/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify(patch),
+        });
+        await onOptionDataChange();
+      });
+    stageRuleQueuesRef.current.set(id, operation);
+    try {
+      await operation;
+    } finally {
+      const remaining = (pendingStageRuleCountsRef.current.get(id) ?? 1) - 1;
+      if (remaining > 0) {
+        pendingStageRuleCountsRef.current.set(id, remaining);
+      } else {
+        pendingStageRuleCountsRef.current.delete(id);
+        setPendingStageRuleIds((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+      }
+      if (stageRuleQueuesRef.current.get(id) === operation) {
+        stageRuleQueuesRef.current.delete(id);
+      }
+    }
   }
 
   async function archiveValue(id: string) {
@@ -1290,16 +1324,28 @@ function ConfigDropdownValuesSection({
                               <label className="flex items-center gap-1.5">
                                 <input
                                   type="checkbox"
+                                  disabled={busy || pendingStageRuleIds.has(row.id)}
                                   checked={Boolean(row.isTerminal)}
-                                  onChange={(event) => void toggleStageRule(row.id, { is_terminal: event.target.checked })}
+                                  onChange={(event) =>
+                                    void run(
+                                      () => toggleStageRule(row.id, { is_terminal: event.target.checked }),
+                                      "Option updated."
+                                    )
+                                  }
                                 />
                                 Terminal
                               </label>
                               <label className="flex items-center gap-1.5">
                                 <input
                                   type="checkbox"
+                                  disabled={busy || pendingStageRuleIds.has(row.id)}
                                   checked={Boolean(row.triggersQc)}
-                                  onChange={(event) => void toggleStageRule(row.id, { triggers_qc: event.target.checked })}
+                                  onChange={(event) =>
+                                    void run(
+                                      () => toggleStageRule(row.id, { triggers_qc: event.target.checked }),
+                                      "Option updated."
+                                    )
+                                  }
                                 />
                                 QC
                               </label>
