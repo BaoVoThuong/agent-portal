@@ -7,7 +7,6 @@ import {
   slugifyColumnKey,
 } from "@/lib/table-config/columns";
 import {
-  fetchAllTableColumns,
   fetchTableColumnOptions,
   fetchTableColumns,
 } from "@/lib/table-config/queries";
@@ -26,10 +25,7 @@ export async function GET(request: Request) {
   }
 
   const scopeParam = new URL(request.url).searchParams.get("scope");
-  if (!scopeParam) {
-    const columns = await fetchAllTableColumns();
-    return NextResponse.json({ columns });
-  }
+  if (!scopeParam) return NextResponse.json({ error: "Table scope is required." }, { status: 400 });
 
   const scope = parseTableScope(scopeParam);
   if (!scope) {
