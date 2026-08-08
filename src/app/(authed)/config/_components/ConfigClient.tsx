@@ -129,26 +129,35 @@ export function ConfigClient({
   const [notice, setNotice] = useState<string | null>(null);
   const [noticeTone, setNoticeTone] = useState<ToastTone>("info");
   const [busy, setBusy] = useState(false);
+  const scopeRefreshSequenceRef = useRef(new Map<TableScope, number>());
+  const optionRefreshSequenceRef = useRef(new Map<"aca" | "medicare", number>());
 
   async function refreshScope(nextScope = scope) {
+    const requestSequence = (scopeRefreshSequenceRef.current.get(nextScope) ?? 0) + 1;
+    scopeRefreshSequenceRef.current.set(nextScope, requestSequence);
     const response = await fetch(`/api/config/columns?scope=${nextScope}`, {
       cache: "no-store",
     });
     const payload = await response.json();
+    if (scopeRefreshSequenceRef.current.get(nextScope) !== requestSequence) return;
     if (!response.ok) throw new Error(payload.error ?? "Could not load columns.");
     setColumns((current) => ({ ...current, [nextScope]: payload.columns }));
     setOptions((current) => ({ ...current, [nextScope]: payload.options }));
   }
 
   async function refreshOptionData(program: "aca" | "medicare") {
+    const requestSequence = (optionRefreshSequenceRef.current.get(program) ?? 0) + 1;
+    optionRefreshSequenceRef.current.set(program, requestSequence);
     const response = await fetch(`/api/enrollment/option-sets?program=${program}`, {
       cache: "no-store",
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (optionRefreshSequenceRef.current.get(program) !== requestSequence) return;
       throw new Error(payload?.error ?? "Could not refresh enrollment options.");
     }
     const data = (await response.json()) as EnrollmentOptionData;
+    if (optionRefreshSequenceRef.current.get(program) !== requestSequence) return;
     setOptionData((current) => ({ ...current, [program]: data }));
   }
 
@@ -205,6 +214,7 @@ export function ConfigClient({
 
         {tab === "table" ? (
           <ConfigTableSection
+            key={scope}
             scope={scope}
             columns={activeColumns}
             busy={busy}
@@ -214,6 +224,7 @@ export function ConfigClient({
         ) : null}
         {tab === "value" ? (
           <ConfigDropdownValuesSection
+            key={scope}
             scope={scope}
             columns={activeColumns}
             options={activeOptions}
@@ -1133,6 +1144,14 @@ function ConfigDropdownValuesSection({
   const confirmRow = valueRows.find((r) => r.id === confirmArchiveId) ?? null;
   const wouldDropConsentBelowTwo = isConsentGroup && activeConsentCount <= 2;
 
+  function resetValueDraft() {
+    setLabel("");
+    setColor("");
+    setIsTerminal(false);
+    setTriggersQc(false);
+    setConfirmArchiveId(null);
+  }
+
   return (
     <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
       <div className="border-b border-[#dfe1e6] px-6 py-4">
@@ -1151,7 +1170,10 @@ function ConfigDropdownValuesSection({
               <button
                 key={group.key}
                 type="button"
-                onClick={() => setSelectedKey(group.key)}
+                onClick={() => {
+                  setSelectedKey(group.key);
+                  resetValueDraft();
+                }}
                 className={`mb-1 flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm font-bold transition ${
                   group.key === selected?.key ? "bg-[#e9f2ff] text-[#0c66e4]" : "text-[#42526e] hover:bg-white"
                 }`}
