@@ -119,7 +119,12 @@ export function isHitVisible(
 }
 
 const GROUP_LIMIT = 6;
-const CANDIDATE_LIMIT = 40;
+const SEARCH_PAGE_SIZE = 50;
+// Visibility is resolved after joining task membership, so a fixed raw
+// candidate limit can hide the first visible hit behind many out-of-scope
+// matches. Page until the visible group is complete, with a safety ceiling so
+// a hostile/common query cannot make the search unbounded.
+const MAX_SEARCH_SCAN = 1000;
 
 type TaskMetaRow = {
   id: string;
@@ -145,12 +150,149 @@ type FileSearchRow = {
   file_name: string;
 };
 
+type SearchMembership =
+  | null
+  | [string[], string[], string[], string[]];
+
+type SearchPage<Row> = {
+  data: Row[] | null;
+  error: { message: string } | null;
+};
+
 function emptySearchResults(): SearchResults {
   return {
     tasks: [],
     comments: [],
     files: [],
     truncated: { tasks: false, comments: false, files: false },
+  };
+}
+
+async function loadSearchVisibility(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  taskIds: string[],
+  membership: SearchMembership
+): Promise<{
+  metaById: Map<string, TaskMetaRow>;
+  scope: VisibilityScope | null;
+}> {
+  const [metaRes, assigneeRes] = await Promise.all([
+    taskIds.length > 0
+      ? supabase
+          .from("tasks")
+          .select("id,title,agent_email,assignee_email,status,archived_at")
+          .in("id", taskIds)
+          .is("archived_at", null)
+      : Promise.resolve({ data: [], error: null }),
+    membership && taskIds.length > 0
+      ? supabase
+          .from("task_assignees")
+          .select("task_id,email")
+          .in("task_id", taskIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (metaRes.error) throw new Error(metaRes.error.message);
+  if (assigneeRes.error) throw new Error(assigneeRes.error.message);
+
+  const metaById = new Map<string, TaskMetaRow>();
+  for (const row of (metaRes.data ?? []) as unknown as TaskMetaRow[]) {
+    metaById.set(row.id, row);
+  }
+
+  if (!membership) return { metaById, scope: null };
+
+  const [agents, assistantAgents, assignedIds, participantIds] = membership;
+  const assigneeByTask = new Map<string, string[]>();
+  for (const row of (assigneeRes.data ?? []) as unknown as {
+    task_id: string;
+    email: string;
+  }[]) {
+    const emails = assigneeByTask.get(row.task_id) ?? [];
+    emails.push(row.email);
+    assigneeByTask.set(row.task_id, emails);
+  }
+
+  return {
+    metaById,
+    scope: {
+      agents,
+      assistantAgents,
+      assignedIds: new Set(assignedIds),
+      participantIds: new Set(participantIds),
+      assigneeByTask,
+    },
+  };
+}
+
+async function collectVisibleHits<Row, Hit>(params: {
+  actor: TaskActor;
+  membership: SearchMembership;
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  fetchPage: (offset: number, limit: number) => PromiseLike<SearchPage<Row>>;
+  taskIdOf: (row: Row) => string;
+  buildHit: (row: Row, meta: TaskMetaRow) => Hit;
+}): Promise<{ hits: Hit[]; truncated: boolean }> {
+  const hits: Hit[] = [];
+  let offset = 0;
+  let scanned = 0;
+  let hasMoreRows = false;
+
+  while (hits.length <= GROUP_LIMIT && scanned < MAX_SEARCH_SCAN) {
+    const page = await params.fetchPage(offset, SEARCH_PAGE_SIZE);
+    if (page.error) throw new Error(page.error.message);
+    const rows = page.data ?? [];
+    if (rows.length === 0) break;
+
+    offset += rows.length;
+    scanned += rows.length;
+    const taskIds = [...new Set(rows.map(params.taskIdOf))];
+    const { metaById, scope } = await loadSearchVisibility(
+      params.supabase,
+      taskIds,
+      params.membership
+    );
+
+    for (const row of rows) {
+      const taskId = params.taskIdOf(row);
+      const meta = metaById.get(taskId);
+      if (!meta) continue;
+      if (
+        !isHitVisible(
+          params.actor,
+          {
+            task_id: taskId,
+            agent_email: meta.agent_email,
+            assignee_email: meta.assignee_email,
+          },
+          scope ?? {
+            agents: [],
+            assistantAgents: [],
+            assignedIds: new Set(),
+            participantIds: new Set(),
+            assigneeByTask: new Map(),
+          }
+        )
+      ) {
+        continue;
+      }
+      hits.push(params.buildHit(row, meta));
+      if (hits.length > GROUP_LIMIT) break;
+    }
+
+    if (hits.length > GROUP_LIMIT) {
+      hasMoreRows = true;
+      break;
+    }
+    if (rows.length < SEARCH_PAGE_SIZE) break;
+    if (scanned >= MAX_SEARCH_SCAN) {
+      hasMoreRows = true;
+      break;
+    }
+  }
+
+  return {
+    hits: hits.slice(0, GROUP_LIMIT),
+    truncated: hasMoreRows || hits.length > GROUP_LIMIT,
   };
 }
 
@@ -168,8 +310,9 @@ export async function runTaskSearch(
   const supabase = getSupabaseAdmin();
   const pattern = `%${escapeIlike(query)}%`;
 
-  // Scope membership depends only on actor.email (not on the search rows) — run
-  // it in PARALLEL with the ILIKE queries instead of in a later wave.
+  // Scope membership depends only on actor.email. It must be known before
+  // applying the visible-group limit, otherwise hidden rows can crowd out
+  // valid results.
   const membershipPromise = actor.isManager
     ? Promise.resolve(null)
     : Promise.all([
@@ -179,179 +322,81 @@ export async function runTaskSearch(
         fetchParticipantTaskIds(actor.email),
       ]);
 
-  const [titleRows, commentRows, fileRows, membership] = await Promise.all([
-    supabase
-      .from("tasks")
-      .select("id,title,agent_email,assignee_email,status,archived_at")
-      .ilike("title", pattern)
-      .is("archived_at", null)
-      .limit(CANDIDATE_LIMIT + 1),
-    supabase
-      .from("task_comments")
-      .select("id,task_id,body,author_email,created_at")
-      .ilike("body", pattern)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(CANDIDATE_LIMIT + 1),
-    supabase
-      .from("task_attachments")
-      .select("id,task_id,comment_id,file_name")
-      .ilike("file_name", pattern)
-      .limit(CANDIDATE_LIMIT + 1),
-    membershipPromise,
-  ]);
-
-  if (titleRows.error) throw new Error(titleRows.error.message);
-  if (commentRows.error) throw new Error(commentRows.error.message);
-  if (fileRows.error) throw new Error(fileRows.error.message);
-
-  const titles = ((titleRows.data ?? []) as unknown as TaskMetaRow[]).slice(
-    0,
-    CANDIDATE_LIMIT
-  );
-  const comments = (
-    (commentRows.data ?? []) as unknown as CommentSearchRow[]
-  ).slice(0, CANDIDATE_LIMIT);
-  const files = ((fileRows.data ?? []) as unknown as FileSearchRow[]).slice(
-    0,
-    CANDIDATE_LIMIT
-  );
-
-  const taskIds = [
-    ...new Set([
-      ...titles.map((task) => task.id),
-      ...comments.map((comment) => comment.task_id),
-      ...files.map((file) => file.task_id),
-    ]),
-  ];
-
-  // Final wave — task meta + (non-managers) the assignees of the hit tasks,
-  // both of which need taskIds. Membership is already resolved above.
-  const [metaRes, assigneeRes] = await Promise.all([
-    taskIds.length > 0
-      ? supabase
+  const membership = await membershipPromise;
+  const [taskResult, commentResult, fileResult] = await Promise.all([
+    collectVisibleHits<TaskMetaRow, TaskHit>({
+      actor,
+      membership,
+      supabase,
+      fetchPage: (offset, limit) =>
+        supabase
           .from("tasks")
           .select("id,title,agent_email,assignee_email,status,archived_at")
-          .in("id", taskIds)
+          .ilike("title", pattern)
           .is("archived_at", null)
-      : null,
-    membership && taskIds.length > 0
-      ? supabase
-          .from("task_assignees")
-          .select("task_id,email")
-          .in("task_id", taskIds)
-      : null,
-  ]);
-  if (metaRes?.error) throw new Error(metaRes.error.message);
-  if (assigneeRes?.error) throw new Error(assigneeRes.error.message);
-
-  const metaById = new Map<string, TaskMetaRow>();
-  for (const row of (metaRes?.data ?? []) as unknown as TaskMetaRow[]) {
-    metaById.set(row.id, row);
-  }
-
-  let scope: VisibilityScope | null = null;
-  if (membership) {
-    const [agents, assistantAgents, assignedIds, participantIds] = membership;
-    const assigneeByTask = new Map<string, string[]>();
-    for (const row of (assigneeRes?.data ?? []) as unknown as {
-      task_id: string;
-      email: string;
-    }[]) {
-      const emails = assigneeByTask.get(row.task_id) ?? [];
-      emails.push(row.email);
-      assigneeByTask.set(row.task_id, emails);
-    }
-    scope = {
-      agents,
-      assistantAgents,
-      assignedIds: new Set(assignedIds),
-      participantIds: new Set(participantIds),
-      assigneeByTask,
-    };
-  }
-
-  const visible = (meta: TaskVisibilityMeta) =>
-    !scope || isHitVisible(actor, meta, scope);
-
-  const taskHits: TaskHit[] = [];
-  for (const task of titles) {
-    const meta = metaById.get(task.id);
-    if (!meta) continue;
-    if (
-      !visible({
-        task_id: task.id,
+          .order("updated_at", { ascending: false })
+          .range(offset, offset + limit - 1),
+      taskIdOf: (task) => task.id,
+      buildHit: (task, meta) => ({
+        id: task.id,
+        key: taskKey(task.id),
+        title: meta.title,
         agent_email: meta.agent_email,
-        assignee_email: meta.assignee_email,
-      })
-    ) {
-      continue;
-    }
-
-    taskHits.push({
-      id: task.id,
-      key: taskKey(task.id),
-      title: meta.title,
-      agent_email: meta.agent_email,
-      status: meta.status,
-    });
-  }
-
-  const commentHits: CommentHit[] = [];
-  for (const comment of comments) {
-    const meta = metaById.get(comment.task_id);
-    if (!meta) continue;
-    if (
-      !visible({
+        status: meta.status,
+      }),
+    }),
+    collectVisibleHits<CommentSearchRow, CommentHit>({
+      actor,
+      membership,
+      supabase,
+      fetchPage: (offset, limit) =>
+        supabase
+          .from("task_comments")
+          .select("id,task_id,body,author_email,created_at")
+          .ilike("body", pattern)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .range(offset, offset + limit - 1),
+      taskIdOf: (comment) => comment.task_id,
+      buildHit: (comment, meta) => ({
+        comment_id: comment.id,
         task_id: comment.task_id,
-        agent_email: meta.agent_email,
-        assignee_email: meta.assignee_email,
-      })
-    ) {
-      continue;
-    }
-
-    commentHits.push({
-      comment_id: comment.id,
-      task_id: comment.task_id,
-      task_title: meta.title,
-      snippet: buildSnippet(comment.body, query),
-      author_email: comment.author_email,
-      created_at: comment.created_at,
-    });
-  }
-
-  const fileHits: FileHit[] = [];
-  for (const file of files) {
-    const meta = metaById.get(file.task_id);
-    if (!meta) continue;
-    if (
-      !visible({
+        task_title: meta.title,
+        snippet: buildSnippet(comment.body, query),
+        author_email: comment.author_email,
+        created_at: comment.created_at,
+      }),
+    }),
+    collectVisibleHits<FileSearchRow, FileHit>({
+      actor,
+      membership,
+      supabase,
+      fetchPage: (offset, limit) =>
+        supabase
+          .from("task_attachments")
+          .select("id,task_id,comment_id,file_name,created_at")
+          .ilike("file_name", pattern)
+          .order("created_at", { ascending: false })
+          .range(offset, offset + limit - 1),
+      taskIdOf: (file) => file.task_id,
+      buildHit: (file, meta) => ({
+        attachment_id: file.id,
         task_id: file.task_id,
-        agent_email: meta.agent_email,
-        assignee_email: meta.assignee_email,
-      })
-    ) {
-      continue;
-    }
-
-    fileHits.push({
-      attachment_id: file.id,
-      task_id: file.task_id,
-      task_title: meta.title,
-      comment_id: file.comment_id,
-      file_name: file.file_name,
-    });
-  }
+        task_title: meta.title,
+        comment_id: file.comment_id,
+        file_name: file.file_name,
+      }),
+    }),
+  ]);
 
   return {
-    tasks: taskHits.slice(0, GROUP_LIMIT),
-    comments: commentHits.slice(0, GROUP_LIMIT),
-    files: fileHits.slice(0, GROUP_LIMIT),
+    tasks: taskResult.hits,
+    comments: commentResult.hits,
+    files: fileResult.hits,
     truncated: {
-      tasks: taskHits.length > GROUP_LIMIT,
-      comments: commentHits.length > GROUP_LIMIT,
-      files: fileHits.length > GROUP_LIMIT,
+      tasks: taskResult.truncated,
+      comments: commentResult.truncated,
+      files: fileResult.truncated,
     },
   };
 }
