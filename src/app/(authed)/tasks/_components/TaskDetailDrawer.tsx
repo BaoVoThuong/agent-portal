@@ -48,6 +48,7 @@ function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
 }
 
 type DetailTab = "comments" | "activity" | "overdue";
+type DraftKey = "summary" | "description" | "fub";
 
 export function TaskDetailDrawer({
   task,
@@ -115,6 +116,14 @@ export function TaskDetailDrawer({
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [fubLink, setFubLink] = useState(task.fub_link ?? "");
+  const draftStateRef = useRef<Record<DraftKey, { dirty: boolean; base: string }>>({
+    summary: { dirty: false, base: task.title },
+    description: { dirty: false, base: task.description ?? "" },
+    fub: { dirty: false, base: task.fub_link ?? "" },
+  });
+  const [draftConflictKeys, setDraftConflictKeys] = useState<ReadonlySet<DraftKey>>(
+    new Set()
+  );
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
   const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(
@@ -143,6 +152,52 @@ export function TaskDetailDrawer({
   useEffect(() => {
     autosizeTextarea(descriptionRef.current);
   }, [description]);
+
+  useEffect(() => {
+    const draft = draftStateRef.current.summary;
+    if (draft.dirty) {
+      if (draft.base !== task.title) {
+        setDraftConflictKeys((current) =>
+          current.has("summary") ? current : new Set([...current, "summary"])
+        );
+      }
+      return;
+    }
+    draft.base = task.title;
+    setTitle(task.title);
+  }, [task.title]);
+
+  useEffect(() => {
+    const nextDescription = task.description ?? "";
+    const draft = draftStateRef.current.description;
+    if (draft.dirty) {
+      if (draft.base !== nextDescription) {
+        setDraftConflictKeys((current) =>
+          current.has("description")
+            ? current
+            : new Set([...current, "description"])
+        );
+      }
+      return;
+    }
+    draft.base = nextDescription;
+    setDescription(nextDescription);
+  }, [task.description]);
+
+  useEffect(() => {
+    const nextFubLink = task.fub_link ?? "";
+    const draft = draftStateRef.current.fub;
+    if (draft.dirty) {
+      if (draft.base !== nextFubLink) {
+        setDraftConflictKeys((current) =>
+          current.has("fub") ? current : new Set([...current, "fub"])
+        );
+      }
+      return;
+    }
+    draft.base = nextFubLink;
+    setFubLink(nextFubLink);
+  }, [task.fub_link]);
 
   useEffect(() => {
     const timer = setTimeout(() => void reload(), 0);
@@ -243,6 +298,25 @@ export function TaskDetailDrawer({
   }
   const isInvalid = (key: string) => invalidKeys.has(key);
 
+  function beginDraft(key: DraftKey, base: string) {
+    const draft = draftStateRef.current[key];
+    if (draft.dirty) return;
+    draft.dirty = true;
+    draft.base = base;
+  }
+
+  function finishDraft(key: DraftKey) {
+    draftStateRef.current[key].dirty = false;
+    setDraftConflictKeys((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  }
+
+  const hasDraftConflict = (key: DraftKey) => draftConflictKeys.has(key);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6"
@@ -284,6 +358,7 @@ export function TaskDetailDrawer({
                     value={title}
                     disabled={!canEdit}
                     onChange={(e) => {
+                      beginDraft("summary", task.title);
                       setTitle(e.target.value);
                       clearInvalid("summary");
                     }}
@@ -292,15 +367,22 @@ export function TaskDetailDrawer({
                       const trimmed = title.trim();
                       if (requiredColumnKeys.has("summary") && !trimmed) {
                         setTitle(task.title);
+                        finishDraft("summary");
                         markInvalid("summary");
                         return;
                       }
                       if (trimmed && title !== task.title) {
                         onPatch({ title: trimmed });
                       }
+                      finishDraft("summary");
                     }}
                     className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("summary") ? INVALID_RING_CLASS : ""}`}
                   />
+                  {hasDraftConflict("summary") ? (
+                    <span role="alert" className="text-xs font-semibold text-[#bf2600]">
+                      This value changed elsewhere while you were editing. Review before saving.
+                    </span>
+                  ) : null}
                 </label>
               ) : null}
 
@@ -315,6 +397,7 @@ export function TaskDetailDrawer({
                       value={fubLink}
                       disabled={!canEdit}
                       onChange={(e) => {
+                        beginDraft("fub", task.fub_link ?? "");
                         setFubLink(e.target.value);
                         clearInvalid("fub");
                       }}
@@ -323,12 +406,14 @@ export function TaskDetailDrawer({
                         const next = fubLink.trim();
                         if (requiredColumnKeys.has("fub") && !next) {
                           setFubLink(task.fub_link ?? "");
+                          finishDraft("fub");
                           markInvalid("fub");
                           return;
                         }
                         if (next !== (task.fub_link ?? "")) {
                           onPatch({ fub_link: next || null });
                         }
+                        finishDraft("fub");
                       }}
                       placeholder="No FUB link"
                       className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("fub") ? INVALID_RING_CLASS : ""}`}
@@ -345,6 +430,11 @@ export function TaskDetailDrawer({
                       </a>
                     ) : null}
                   </div>
+                  {hasDraftConflict("fub") ? (
+                    <span role="alert" className="text-xs font-semibold text-[#bf2600]">
+                      This value changed elsewhere while you were editing. Review before saving.
+                    </span>
+                  ) : null}
                 </label>
               ) : null}
 
@@ -359,6 +449,7 @@ export function TaskDetailDrawer({
                     value={description}
                     disabled={!canEdit}
                     onChange={(e) => {
+                      beginDraft("description", task.description ?? "");
                       setDescription(e.target.value);
                       autosizeTextarea(e.currentTarget);
                       clearInvalid("description");
@@ -367,17 +458,24 @@ export function TaskDetailDrawer({
                       if (!canEdit) return;
                       if (requiredColumnKeys.has("description") && !description.trim()) {
                         setDescription(task.description ?? "");
+                        finishDraft("description");
                         markInvalid("description");
                         return;
                       }
                       if (description !== (task.description ?? "")) {
                         onPatch({ description });
                       }
+                      finishDraft("description");
                     }}
                     rows={2}
                     placeholder="Add a description…"
                     className={`${COMPACT_DESCRIPTION_CLASS} ${isInvalid("description") ? INVALID_RING_CLASS : ""}`}
                   />
+                  {hasDraftConflict("description") ? (
+                    <span role="alert" className="text-xs font-semibold text-[#bf2600]">
+                      This value changed elsewhere while you were editing. Review before saving.
+                    </span>
+                  ) : null}
                 </label>
               ) : null}
 
