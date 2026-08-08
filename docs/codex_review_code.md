@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-09 00:30 Asia/Ho_Chi_Minh**
-Reviewed source through: **`3334b1c`** (execution log commits follow)
+Last Updated: **2026-08-09 00:45 Asia/Ho_Chi_Minh**
+Reviewed source through: **`7c7341e`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -1499,6 +1499,21 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-09 | **Enrollment create dialog — remove redundant Properties copy.** Removed the `Properties` heading and explanatory sentence from the Enrollment create dialog while keeping the program badge and right-side Enrollment fields unchanged for fast scanning. | `82e6107` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; `git diff --check` PASS. Browser visual/accessibility verification remains. |
 | 2026-08-09 | **ACA Enrollment — remove Payment status filter.** Removed the Payment status filter from Enrollment filter state, toolbar, active-filter detection, and client-side filtering. The Payment status table column, inline editing, and create/edit field remain unchanged. | `2537db1` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; `git diff --check` PASS. Browser toolbar and clear-filter verification remains. |
 | 2026-08-09 | **Tasks — inline Client Name editing.** The Tasks list summary/Client Name cell now uses the shared inline text editor in both configured and legacy layouts, sending the existing title PATCH while preserving row double-click navigation to detail and the existing edit permission gate. | `3334b1c` | `npm run typecheck` PASS; targeted ESLint PASS for `TaskRowItem.tsx`; `git diff --check` PASS. Browser edit/blur/Enter and permission verification remains. |
+| 2026-08-09 | **Claude P0 — SECURITY DEFINER RPC ACL hardening.** Confirmed that the schema's privileged SECURITY DEFINER functions had the default PUBLIC EXECUTE grant; added a final schema ACL pass that revokes `public`/`anon`/`authenticated` and grants only `service_role` for every current SECURITY DEFINER routine. The finding predates the new atomic RPC for several routines; `patch_task_atomic` is included. | `42a9db7` | `npm run typecheck` PASS; table-config/enrollment tests PASS (21 files / 92 tests); deployed `pg_proc.proacl` verification and schema apply remain mandatory. |
+| 2026-08-09 | **Claude P2 — Enrollment archive network-failure rollback.** Confirmed the missing `catch`: a rejected DELETE fetch previously removed the row optimistically without restoring it or showing an error. The catch now restores only that row at its prior index and reports the connection failure. | `08e3538` | `npm run typecheck` PASS; targeted ESLint PASS for `EnrollmentClient.tsx`; table-config/enrollment tests PASS (21 files / 92 tests). Authenticated browser failure-injection remains. |
+| 2026-08-09 | **Claude P2 — Config column/option broadcast fan-out containment.** Partially confirmed. Column layout/column-option mutations now publish only the Config invalidation topic; agent/assistant membership mutations intentionally retain the full Tasks/Enrollment broadcast because they change assignment scope and visible data. | `7c7341e` | `npm run typecheck` PASS; targeted ESLint PASS for five Config column/option routes; table-config/enrollment tests PASS (21 files / 92 tests). Multi-tab request-count verification remains. |
+
+## Claude review adjudication — Codex
+
+This section records which claims in the appended Claude post-fix review were accepted, narrowed, or rejected after source inspection.
+
+| Claude claim | Adjudication | Action / evidence |
+| --- | --- | --- |
+| **P0: SECURITY DEFINER routines were callable through the default PUBLIC EXECUTE grant.** | **CONFIRMED.** The risk was broader than Claude's “newly introduced by `4f59280`” wording: existing role-management, mart, metadata, rotation, and assignment routines were also security-definer functions without an explicit ACL. | Fixed in `42a9db7` with a schema-wide fail-closed ACL block. Production must apply the schema and verify `pg_proc.proacl`; local PostgreSQL was unavailable. |
+| **P1: `patch_task_atomic` makes schema deployment a prerequisite.** | **CONFIRMED as a release-sequencing gate, not a source-only bug.** The task mutation routes intentionally fail closed when the RPC is absent; adding a legacy fallback would reintroduce the partial-write/data-loss risk. | No fallback added. Apply `supabase/schema.sql`, verify the function and ACLs, then deploy code. Until that evidence exists, Go-Live remains NOT READY. |
+| **P2: `archiveRecord` loses the optimistic row when `fetch()` rejects.** | **CONFIRMED.** The response-error branch restored the row, but network/DNS/CORS rejection skipped it because only `finally` ran. | Fixed in `08e3538`; browser failure-injection still required. |
+| **P2: remove all Tasks/Enrollment fan-out from `broadcastTableConfigChanged()`.** | **PARTIALLY CORRECT.** It is wasteful for column/layout and custom column-option mutations, but unsafe for agent/assistant membership changes that alter assignment scope and visible data. | Fixed selectively in `7c7341e`: column/option routes use Config invalidation only; agents/assistants retain the full data broadcast. |
+| **Claude baseline says the full 60-file/458-test/build run is current proof.** | **NOT CURRENT FOR THIS FOLLOW-UP.** That run predates the three adjudication commits; only the targeted verification listed above was rerun here. | A fresh full lint/test/build plus deployed ACL/browser evidence remains a release gate. |
 
 ### Phase 0 — Remove Import, enforce Config control, and run preflight
 
