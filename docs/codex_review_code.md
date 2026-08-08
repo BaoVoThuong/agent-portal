@@ -113,7 +113,7 @@ Impact: UI/server disagreement, assignment drift, missing history/notifications,
 Fix: Move canonical state plus required audit/junction writes into atomic commands; make non-critical side effects idempotent and non-authoritative for the HTTP result.  
 Regression Risk: High; transitions, SLA history, assignment cycles, notifications, and imports depend on these rules.  
 Verification: Local PostgreSQL schema replay and RPC commit/rollback smoke checks pass; authenticated staging failure-injection and deployed-schema verification remain.  
-Status: **IMPLEMENTED — atomic core writes committed; deployment/failure-injection pending**
+Status: **PARTIAL — generic PATCH atomic; special-action/deployment verification pending**
 
 ### T-04 — Special actions and archive lack optimistic concurrency
 
@@ -1354,7 +1354,7 @@ T-01 implementation is committed in `cdd06de`; saved-layout browser request-coun
 
 Remaining P1 gates after implementation:
 
-- **Verification pending:** T-03 (`4f59280`) requires deployed-schema/failure-injection proof; M-03 (`f95ebbe`) still requires transactional or durable idempotent repair semantics.
+- **Verification pending:** T-03 (`4f59280`) now makes generic PATCH atomic, but special-action routes and deployed-schema/failure-injection proof remain; M-03 (`f95ebbe`) still requires transactional or durable idempotent repair semantics.
 - **Conditional/open:** C-04/C-05 require an explicit Config freeze or a safe live-config implementation.
 - **Verification pending:** T-02 (`81e8562`), M-01 (`d608d9c`), M-02 (`fc00dbe`), and A-01 (`2c7b96e`).
 - C-01/C-02/C-03 are no longer reachable because Import was removed; reconciliation/direct-route/export evidence is still required before closing them.
