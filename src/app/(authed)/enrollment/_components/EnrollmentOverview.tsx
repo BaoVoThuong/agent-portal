@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { rankEnrollmentRecommendation } from "@/lib/enrollment/overview";
 import type {
@@ -38,50 +38,33 @@ export function EnrollmentOverview({
   const [focusedFlag, setFocusedFlag] = useState<EnrollmentOverviewRiskFlag | null>(null);
   const [expandedEmail, setExpandedEmail] = useState<string | null>(null);
   const [recommendFor, setRecommendFor] = useState<string | null>(null);
+  const requestSequenceRef = useRef(0);
 
-  async function load() {
+  const load = useCallback(async () => {
+    const sequence = ++requestSequenceRef.current;
     setLoading(true);
     setError(null);
     try {
       const response = await fetch(`/api/enrollment/overview?program=${program}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Could not load overview.");
-      setSnapshot((await response.json()) as EnrollmentOverviewSnapshot);
+      const nextSnapshot = (await response.json()) as EnrollmentOverviewSnapshot;
+      if (sequence !== requestSequenceRef.current) return;
+      setSnapshot(nextSnapshot);
     } catch (loadError) {
+      if (sequence !== requestSequenceRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Could not load overview.");
     } finally {
-      setLoading(false);
+      if (sequence === requestSequenceRef.current) setLoading(false);
     }
-  }
+  }, [program]);
 
   // Program-scoped state (snapshot/focus/expand/recommend) resets for free
   // because the call site keys this component by `program` (full remount) —
   // this effect only needs to trigger the initial fetch, not reset state.
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadInitial() {
-      try {
-        const response = await fetch(`/api/enrollment/overview?program=${program}`, {
-          cache: "no-store",
-        });
-        if (!response.ok) throw new Error("Could not load overview.");
-        const data = (await response.json()) as EnrollmentOverviewSnapshot;
-        if (!cancelled) setSnapshot(data);
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Could not load overview.");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void loadInitial();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
 
   if (loading && !snapshot) {
     return (

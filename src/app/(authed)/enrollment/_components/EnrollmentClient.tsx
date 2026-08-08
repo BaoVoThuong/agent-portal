@@ -501,6 +501,7 @@ export function EnrollmentClient({
   const enrollmentLayoutSaveSequenceRef = useRef(0);
   const enrollmentLayoutProgramRef = useRef(program);
   const enrollmentLayoutBaselineRef = useRef<string | null>(null);
+  const optionsRequestSequenceRef = useRef(0);
 
   function updateRecords(updater: (current: EnrollmentRecordWithStats[]) => EnrollmentRecordWithStats[]) {
     setRecords((current) => {
@@ -835,12 +836,14 @@ export function EnrollmentClient({
   }, [refetch]);
 
   const reloadOptions = useCallback(async () => {
+    const sequence = ++optionsRequestSequenceRef.current;
     const response = await fetch(
       `/api/enrollment/option-sets?program=${program}`,
       { cache: "no-store" }
     );
     if (!response.ok) return;
     const data = (await response.json()) as { options: EnrollmentOption[] };
+    if (sequence !== optionsRequestSequenceRef.current) return;
     setOptions(data.options);
   }, [program]);
 
@@ -2654,6 +2657,7 @@ function EnrollmentDrawer({
   onParentRefresh?: () => Promise<void> | void;
 }) {
   const [detail, setDetail] = useState<EnrollmentDetail | null>(null);
+  const detailRequestSequenceRef = useRef(0);
   const [tab, setTab] = useState<"comments" | "activity" | "files">("comments");
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [reopenReasonOpen, setReopenReasonOpen] = useState(false);
@@ -2722,10 +2726,12 @@ function EnrollmentDrawer({
   const isInvalid = (key: string) => invalidKeys.has(key);
 
   const reload = useCallback(async () => {
+    const sequence = ++detailRequestSequenceRef.current;
     const response = await fetch(`/api/enrollment/${record.id}/detail`, {
       cache: "no-store",
     });
     if (!response.ok) return;
+    if (sequence !== detailRequestSequenceRef.current) return;
     setDetail((await response.json()) as EnrollmentDetail);
   }, [record.id]);
 
