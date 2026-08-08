@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 23:42 Asia/Ho_Chi_Minh**
-Reviewed source through: **`f1eef1f`** (execution log commits follow)
+Last Updated: **2026-08-08 23:46 Asia/Ho_Chi_Minh**
+Reviewed source through: **`76ef352`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -765,10 +765,10 @@ Expected: Scoped config revision reload or mandatory reload before continued edi
 Actual: Clients keep stale controls while the server enforces fresh Required/config rules; expensive full-record refetches do not repair config.  
 Root Cause: Config invalidation reuses untyped entity topics and clients have no live config state/revision.  
 Impact: Valid-looking submit can fail, archived controls remain visible, and every Config click can amplify full-list traffic.  
-Fix: **Containment:** formal config freeze plus forced reload/banner. **Permanent:** scoped config revision and latest-wins reconciliation that does not overwrite active input. Fix T-01 first.  
+Fix: Added a dedicated Config invalidation broadcast and non-destructive reload banner to Tasks/Enrollment; scoped config revision and automatic latest-wins hydration remain follow-up work.
 Regression Risk: High for live hydration; low–medium for banner/freeze control.  
-Verification: End-to-end static broadcast/subscriber trace; no multi-session browser test.  
-Status: **OPEN**
+Verification: Tasks + Enrollment + table-config tests PASS (42 files / 335 tests), `npm run typecheck` PASS, targeted ESLint PASS, and `git diff --check` PASS. Multi-session Config-change banner/reload verification remains; freeze policy is still required for safe release.
+Status: **PARTIAL — stale-client banner containment implemented; automatic config hydration remains open**
 
 ### C-05 — Stage configuration can invalidate Enrollment workflow state
 
@@ -1010,7 +1010,7 @@ Status: **IMPLEMENTED — direct-route verification pending**
 
 ## Fixes Applied
 
-Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Program-scoped Enrollment realtime (`261901a`). Latest-request-wins Enrollment reloads (`973c63a`). Enrollment list truncation containment (`f7c1d94`). Config success/error Toast tones (`1b8de1d`). Config custom-column invariant enforcement (`e93a24c`). Config per-column PATCH serialization/reconciliation (`6b0023b`). Config scope-local draft/refresh isolation (`165e448`). Config stage-rule toggle serialization/feedback (`0255bd3`). Config custom Required semantics disclosure (`1cfccb0`). Config scoped column reads (`a318646`). C-05 last-active-stage archive guard (`310ec87`, partial). C-08 protected workflow label containment (`2461470`, partial). C-09 grouped option usage RPC (`3ea385e`, SQL alias correction `d19dbb5`). C-07 post-commit Config layout warning containment (`f867c15`, partial). M-12 enrollment write schema fail-closed (`f1eef1f`, partial). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
+Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Program-scoped Enrollment realtime (`261901a`). Latest-request-wins Enrollment reloads (`973c63a`). Enrollment list truncation containment (`f7c1d94`). Config success/error Toast tones (`1b8de1d`). Config custom-column invariant enforcement (`e93a24c`). Config per-column PATCH serialization/reconciliation (`6b0023b`). Config scope-local draft/refresh isolation (`165e448`). Config stage-rule toggle serialization/feedback (`0255bd3`). Config custom Required semantics disclosure (`1cfccb0`). Config scoped column reads (`a318646`). C-05 last-active-stage archive guard (`310ec87`, partial). C-08 protected workflow label containment (`2461470`, partial). C-09 grouped option usage RPC (`3ea385e`, SQL alias correction `d19dbb5`). C-07 post-commit Config layout warning containment (`f867c15`, partial). M-12 enrollment write schema fail-closed (`f1eef1f`, partial). C-04 stale-client Config invalidation banner (`76ef352`, partial). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
 
 ## Verification
 
@@ -1487,6 +1487,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **C-09 — Config grouped Enrollment option usage.** Added a DB aggregate RPC and replaced the page's full active-record transfer with compact option usage counts. The follow-up `d19dbb5` correction avoids a reserved SQL alias in the function body. | `3ea385e`, `d19dbb5` | Enrollment + table-config tests PASS (21 files / 92 tests); `npm run typecheck` PASS; Config ESLint and diff-check PASS. Applying the RPC and production volume/TTFB benchmark remain required; local PostgreSQL was unavailable for replay. |
 | 2026-08-08 | **C-07 — Config post-commit layout warning containment (partial).** Column PATCH/reorder now return committed state with warnings when layout reset fails, avoiding false retryable errors; atomic multi-write transactions remain open. | `f867c15` | Table-config tests PASS (9 files / 42 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Failure-injection and multi-admin atomicity proof remains. |
 | 2026-08-08 | **M-12 — Enrollment write-side schema fail-closed (partial).** Create/update now return 503 `SCHEMA_OUT_OF_DATE` instead of dropping `description` when the production column is missing; read fallbacks remain compatibility-only. | `f1eef1f` | Enrollment tests PASS (12 files / 50 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Production schema/RPC parity and migration health proof remain. |
+| 2026-08-08 | **C-04 — Config stale-client invalidation banner (partial).** Config writes now broadcast a dedicated topic; open Tasks/Enrollment pages show a non-destructive reload banner instead of silently keeping stale columns/options or resetting active input. | `76ef352` | Tasks + Enrollment + table-config tests PASS (42 files / 335 tests); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Multi-session banner/reload verification and automatic scoped hydration remain. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1620,7 +1621,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `f1eef1f`:
+Verification recorded across the execution commits through `76ef352`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1658,6 +1659,7 @@ Verification recorded across the execution commits through `f1eef1f`:
 - C-07 Config post-commit warning containment: **table-config tests (9 files / 42 tests), typecheck, targeted ESLint, and diff-check PASS**; failure-injection/atomicity proof remains.
 - C-09 SQL alias correction: **typecheck and diff-check PASS**; local PostgreSQL replay was unavailable, so schema apply remains a release gate.
 - M-12 Enrollment write schema fail-closed: **Enrollment tests (12 files / 50 tests), typecheck, targeted ESLint, and diff-check PASS**; production schema/RPC parity remains a release gate.
+- C-04 stale-client Config invalidation: **Tasks + Enrollment + table-config tests (42 files / 335 tests), typecheck, targeted ESLint, and diff-check PASS**; multi-session banner/reload proof and automatic hydration remain.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
