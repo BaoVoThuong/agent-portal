@@ -29,7 +29,7 @@ import {
   Trash2,
   UserRoundCog,
 } from "lucide-react";
-import { Toast } from "../../_shared/Toast";
+import { Toast, type ToastTone } from "../../_shared/Toast";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskCategory } from "@/lib/tasks/types";
 import {
@@ -127,6 +127,7 @@ export function ConfigClient({
   const [categories, setCategories] = useState(initialCategories);
   const [optionData, setOptionData] = useState(initialOptionData);
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticeTone, setNoticeTone] = useState<ToastTone>("info");
   const [busy, setBusy] = useState(false);
 
   async function refreshScope(nextScope = scope) {
@@ -143,7 +144,10 @@ export function ConfigClient({
     const response = await fetch(`/api/enrollment/option-sets?program=${program}`, {
       cache: "no-store",
     });
-    if (!response.ok) return;
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? "Could not refresh enrollment options.");
+    }
     const data = (await response.json()) as EnrollmentOptionData;
     setOptionData((current) => ({ ...current, [program]: data }));
   }
@@ -151,10 +155,13 @@ export function ConfigClient({
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
     setNotice(null);
+    setNoticeTone("info");
     try {
       await action();
+      setNoticeTone("success");
       setNotice(success);
     } catch (error) {
+      setNoticeTone("error");
       setNotice(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
       setBusy(false);
@@ -245,7 +252,11 @@ export function ConfigClient({
         ) : null}
       </div>
 
-      <Toast message={notice} onDismiss={() => setNotice(null)} />
+      <Toast
+        message={notice}
+        tone={noticeTone}
+        onDismiss={() => setNotice(null)}
+      />
     </main>
   );
 }
