@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
+import { TABLE_CONFIG_TOPIC } from "@/lib/table-config/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
 import { ChevronDown, Clock, Download, Loader2, Plus } from "lucide-react";
 import type {
@@ -176,6 +177,7 @@ export function TaskBoardClient({
     resolveTaskDateRangeDefault(initialDateRangeDefault)
   );
   const [error, setError] = useState<string | null>(null);
+  const [configStale, setConfigStale] = useState(false);
   const missingOpenRefetchId = useRef<string | null>(null);
   // Full-list refetches race with direct mutations (drag status PATCH,
   // assign, reopen, delete). Keep separate clocks so a realtime/refetch
@@ -570,6 +572,18 @@ export function TaskBoardClient({
       void sb.removeChannel(channel);
     };
   }, [isManager, reloadCategories]);
+
+  useEffect(() => {
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+    const channel = sb
+      .channel(TABLE_CONFIG_TOPIC)
+      .on("broadcast", { event: "changed" }, () => setConfigStale(true))
+      .subscribe();
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, []);
 
   useEffect(() => {
     if (!openId) {
@@ -1481,6 +1495,14 @@ export function TaskBoardClient({
 
   return (
     <div className={shellClassName}>
+      {configStale ? (
+        <div className="flex items-center justify-between gap-3 border-b border-[#ffab00] bg-[#fff7d6] px-6 py-2 text-sm font-semibold text-[#7f5f00]" role="alert">
+          <span>Table configuration changed. Reload before editing tasks.</span>
+          <button type="button" className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      ) : null}
       {exporting ? (
         <div className="notif-toast fixed bottom-4 right-4 z-[200] flex items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-4 py-3 text-sm font-bold text-[#172b4d] shadow-xl">
           <Loader2 className="h-4 w-4 animate-spin text-[#0c66e4]" />

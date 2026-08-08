@@ -36,6 +36,7 @@ import {
   enrollmentRoomTopic,
   enrollmentTopic,
 } from "@/lib/enrollment/realtime-topics";
+import { TABLE_CONFIG_TOPIC } from "@/lib/table-config/realtime-topics";
 import {
   enrollmentKey,
   formatDateInput,
@@ -480,6 +481,7 @@ export function EnrollmentClient({
   const [creating, setCreating] = useState(false);
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
+  const [configStale, setConfigStale] = useState(false);
   const recordRowsRef = useRef(new Map(initialRecords.map((record) => [record.id, record])));
   const recordMutationStatesRef = useRef(new Map<string, EnrollmentMutationState>());
   const pendingRef = useRef(new Map<string, number>());
@@ -899,6 +901,18 @@ export function EnrollmentClient({
     };
   }, [program, refetch, reloadOptions]);
 
+  useEffect(() => {
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+    const channel = sb
+      .channel(TABLE_CONFIG_TOPIC)
+      .on("broadcast", { event: "changed" }, () => setConfigStale(true))
+      .subscribe();
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, []);
+
   async function fetchCanonicalRecord(id: string): Promise<EnrollmentRecordWithStats | null> {
     try {
       const response = await fetch(`/api/enrollment/${id}`, { cache: "no-store" });
@@ -1083,6 +1097,14 @@ export function EnrollmentClient({
 
   return (
     <div className={shellClassName}>
+      {configStale ? (
+        <div className="flex items-center justify-between gap-3 border-b border-[#ffab00] bg-[#fff7d6] px-6 py-2 text-sm font-semibold text-[#7f5f00]" role="alert">
+          <span>Table configuration changed. Reload before editing enrollments.</span>
+          <button type="button" className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      ) : null}
       <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
           <header className="flex flex-wrap items-end justify-between gap-3">
