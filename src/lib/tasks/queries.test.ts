@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { isMissingTaskListMetadataRpc } from "./queries";
+import { fetchTaskListMetadata, isMissingTaskListMetadataRpc } from "./queries";
 
 afterEach(() => {
   vi.doUnmock("@/lib/supabase");
@@ -37,6 +37,36 @@ describe("isMissingTaskListMetadataRpc", () => {
     ).toBe(false);
     expect(isMissingTaskListMetadataRpc({ message: "permission denied" })).toBe(false);
     expect(isMissingTaskListMetadataRpc(null)).toBe(false);
+  });
+});
+
+describe("fetchTaskListMetadata", () => {
+  it("returns canonical counters and latest actor from the metadata RPC", async () => {
+    const rpc = vi.fn(async () => ({
+      data: [
+        {
+          task_id: "task-1",
+          last_activity_by_email: "owner@example.com",
+          comment_count: 3,
+          attachment_count: 2,
+        },
+      ],
+      error: null,
+    }));
+
+    const rows = await fetchTaskListMetadata(["task-1"], { rpc } as never);
+
+    expect(rpc).toHaveBeenCalledWith("task_list_metadata", {
+      task_ids: ["task-1"],
+    });
+    expect(rows).toEqual([
+      {
+        task_id: "task-1",
+        last_activity_by_email: "owner@example.com",
+        comment_count: 3,
+        attachment_count: 2,
+      },
+    ]);
   });
 });
 

@@ -5,7 +5,7 @@ import { Check, CheckCircle2, Circle, ExternalLink, X } from "lucide-react";
 import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
-import type { TaskDetail } from "@/lib/tasks/detail";
+import type { TaskDetail, TaskDetailMetadata } from "@/lib/tasks/detail";
 import {
   getCachedTaskDetail,
   setCachedTaskDetail,
@@ -79,6 +79,7 @@ export function TaskDetailDrawer({
   onReopenRequest,
   onUnlockOverdueRequest,
   onParentUpdatedAt,
+  onMetadataUpdated,
 }: {
   task: TaskRow;
   canEdit: boolean;
@@ -109,6 +110,7 @@ export function TaskDetailDrawer({
   onReopenRequest: () => void;
   onUnlockOverdueRequest: () => void;
   onParentUpdatedAt?: (updatedAt: string) => void;
+  onMetadataUpdated?: (metadata: TaskDetailMetadata) => void;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -120,6 +122,10 @@ export function TaskDetailDrawer({
   );
   const [tab, setTab] = useState<DetailTab>("comments");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const onMetadataUpdatedRef = useRef(onMetadataUpdated);
+  useEffect(() => {
+    onMetadataUpdatedRef.current = onMetadataUpdated;
+  }, [onMetadataUpdated]);
 
   const reload = useCallback(async () => {
     try {
@@ -128,6 +134,7 @@ export function TaskDetailDrawer({
       const data = (await res.json()) as TaskDetail;
       setCachedTaskDetail(task.id, data);
       setDetail(data);
+      if (data.metadata) onMetadataUpdatedRef.current?.(data.metadata);
     } catch {
       // The next mutation/realtime ping retries.
     }

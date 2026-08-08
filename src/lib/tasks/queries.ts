@@ -128,7 +128,7 @@ type TaskActivityListRow = {
   actor_email: string;
   created_at: string;
 };
-type TaskListMetadataRow = {
+export type TaskListMetadataRow = {
   task_id: string;
   last_activity_by_email: string | null;
   comment_count: number | null;
@@ -143,18 +143,8 @@ async function attachTaskListMetadata(
   if (tasks.length === 0) return tasks;
 
   const ids = tasks.map((task) => task.id);
-  const { data, error } = await supabase.rpc("task_list_metadata", {
-    task_ids: ids,
-  });
-  if (error) {
-    if (isMissingTaskListMetadataRpc(error)) {
-      return attachTaskListMetadataLegacy(tasks, supabase);
-    }
-    throw new Error(error.message);
-  }
-
   const metadataByTask = new Map(
-    ((data ?? []) as unknown as TaskListMetadataRow[]).map((row) => [
+    (await fetchTaskListMetadata(ids, supabase)).map((row) => [
       row.task_id,
       row,
     ])
@@ -171,13 +161,26 @@ async function attachTaskListMetadata(
   });
 }
 
-async function attachTaskListMetadataLegacy(
-  tasks: TaskRow[],
+/**
+ * Load the same metadata shown by the task list for a small set of task ids.
+ * Detail views use this after comment/file mutations so the list row can
+ * reconcile its counters and latest activity without waiting for a later
+ * board refetch. Keep the legacy fallback shared with the initial list load
+ * because deployments can be upgraded before the RPC exists in the schema.
+ */
+export async function fetchTaskListMetadata(
+  taskIds: string[],
   supabase = getSupabaseAdmin()
-): Promise<TaskRow[]> {
-  if (tasks.length === 0) return tasks;
+): Promise<TaskListMetadataRow[]> {
+  const ids = [...new Set(taskIds.filter(Boolean))];
+  if (ids.length === 0) return [];
 
-  const ids = tasks.map((task) => task.id);
+  const { data, error } = await supabase.rpc("task_list_metadata", {
+    task_ids: ids,
+  });
+  if (!error) return (data ?? []) as unknown as TaskListMetadataRow[];
+  if (!isMissingTaskListMetadataRpc(error)) throw new Error(error.message);
+
   const [activityRows, commentRows, attachmentRows] = await Promise.all([
     fetchTaskActivityRows(ids, supabase),
     fetchTaskCommentRows(ids, supabase),
@@ -190,15 +193,14 @@ async function attachTaskListMetadataLegacy(
       lastActivityByTask.set(row.task_id, row.actor_email);
     }
   }
-
   const commentCountByTask = countRowsByTask(commentRows);
   const attachmentCountByTask = countRowsByTask(attachmentRows);
 
-  return tasks.map((task) => ({
-    ...task,
-    last_activity_by_email: lastActivityByTask.get(task.id) ?? null,
-    comment_count: commentCountByTask.get(task.id) ?? 0,
-    attachment_count: attachmentCountByTask.get(task.id) ?? 0,
+  return ids.map((task_id) => ({
+    task_id,
+    last_activity_by_email: lastActivityByTask.get(task_id) ?? null,
+    comment_count: commentCountByTask.get(task_id) ?? 0,
+    attachment_count: attachmentCountByTask.get(task_id) ?? 0,
   }));
 }
 

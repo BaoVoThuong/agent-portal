@@ -22,10 +22,17 @@ export type ActivityRow = {
   created_at: string;
 };
 
+export type TaskDetailMetadata = {
+  last_activity_by_email: string | null;
+  comment_count: number;
+  attachment_count: number;
+};
+
 export type TaskDetail = {
   comments: CommentWithAttachments[];
   activity: ActivityRow[];
   attachments: SignedAttachment[];
+  metadata?: TaskDetailMetadata;
 };
 
 export const TASK_ACTIVITY_LIMIT = 200;

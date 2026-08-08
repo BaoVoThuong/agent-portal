@@ -1630,6 +1630,29 @@ export function TaskBoardClient({
               )
             )
           }
+          onMetadataUpdated={(metadata) =>
+            updateTasks((current) => {
+              let changed = false;
+              const next = current.map((task) => {
+                if (task.id !== openTask.id) return task;
+                if (
+                  task.last_activity_by_email === metadata.last_activity_by_email &&
+                  task.comment_count === metadata.comment_count &&
+                  task.attachment_count === metadata.attachment_count
+                ) {
+                  return task;
+                }
+                changed = true;
+                return {
+                  ...task,
+                  last_activity_by_email: metadata.last_activity_by_email,
+                  comment_count: metadata.comment_count,
+                  attachment_count: metadata.attachment_count,
+                };
+              });
+              return changed ? next : current;
+            })
+          }
           assignees={assignees}
           agentMembersByAgent={agentMembersByAgent}
           agents={agents}

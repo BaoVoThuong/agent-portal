@@ -8,6 +8,7 @@ import {
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
+import { fetchTaskListMetadata } from "@/lib/tasks/queries";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskRow } from "@/lib/tasks/types";
@@ -45,10 +46,25 @@ export async function GET(_req: Request, { params }: Ctx) {
     // every task file is attached through a comment. Skip signing them.
     includeTaskAttachments: false,
   } as const;
+  const loadDetailAndMetadata = async () => {
+    const [detail, metadataRows] = await Promise.all([
+      loadTaskDetail(supabase, id, detailOpts),
+      fetchTaskListMetadata([id], supabase),
+    ]);
+    const metadata = metadataRows[0];
+    return {
+      ...detail,
+      metadata: {
+        last_activity_by_email: metadata?.last_activity_by_email ?? null,
+        comment_count: metadata?.comment_count ?? 0,
+        attachment_count: metadata?.attachment_count ?? 0,
+      },
+    };
+  };
 
   try {
     if (actor.isManager) {
-      return NextResponse.json(await loadTaskDetail(supabase, id, detailOpts));
+      return NextResponse.json(await loadDetailAndMetadata());
     }
 
     // Non-manager: scope checks and the detail load run together (one wave).
@@ -61,7 +77,7 @@ export async function GET(_req: Request, { params }: Ctx) {
         isTaskParticipant(id, actor.email),
         isTaskAssignee(id, actor.email, supabase),
         fetchAgentsForCs(actor.email),
-        loadTaskDetail(supabase, id, detailOpts),
+        loadDetailAndMetadata(),
         actorSeesAllTasks(actor),
       ]);
     const isAgentMember = Boolean(
