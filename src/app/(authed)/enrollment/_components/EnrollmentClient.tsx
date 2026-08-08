@@ -111,6 +111,7 @@ type Filters = {
   agent: string[];
   caller: string[];
   responsible: string[];
+  mineOnly: boolean;
   carrier: string[];
   payment: string[];
   attention: boolean;
@@ -138,6 +139,7 @@ const DEFAULT_FILTERS: Filters = {
   agent: [],
   caller: [],
   responsible: [],
+  mineOnly: false,
   carrier: [],
   payment: [],
   attention: false,
@@ -465,7 +467,7 @@ export function EnrollmentClient({
   const [filters, setFilters] = useState<Filters>(() =>
     canManageOptions
       ? DEFAULT_FILTERS
-      : { ...DEFAULT_FILTERS, responsible: [currentEmail] }
+      : { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
   );
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
     key: "attention",
@@ -672,12 +674,12 @@ export function EnrollmentClient({
   const visibleRecords = useMemo(
     () =>
       sortRecords(
-        filterRecords(records, filters, optionsById),
+        filterRecords(records, filters, optionsById, currentEmail),
         sort,
         optionsById,
         peopleByEmail
       ),
-    [records, filters, optionsById, peopleByEmail, sort]
+    [records, filters, optionsById, peopleByEmail, sort, currentEmail]
   );
   const exportColumnKeys = useMemo(
     () =>
@@ -1396,7 +1398,7 @@ function EnrollmentToolbar({
           className="w-max min-w-[11rem]"
           buttonClassName={FILTER_SELECT_BUTTON_CLASS}
           onValuesChange={(responsible) =>
-            setFilters((current) => ({ ...current, responsible }))
+            setFilters((current) => ({ ...current, responsible, mineOnly: false }))
           }
         />
 
@@ -3938,9 +3940,11 @@ function ConfirmDialog({
 function filterRecords(
   records: EnrollmentRecordWithStats[],
   filters: Filters,
-  optionsById: Map<string, EnrollmentOption>
+  optionsById: Map<string, EnrollmentOption>,
+  currentEmail: string
 ) {
   const query = filters.query.trim().toLowerCase();
+  const normalizedCurrentEmail = normalizeEnrollmentEmail(currentEmail);
   return records.filter((record) => {
     const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
     if (filters.attention && !enrollmentNeedsAttention(record, optionsById)) return false;
@@ -3953,6 +3957,17 @@ function filterRecords(
     if (filters.agent.length > 0 && !filters.agent.includes(record.agent_email ?? "")) return false;
     if (filters.caller.length > 0 && !filters.caller.includes(record.caller_email ?? "")) return false;
     if (
+      filters.mineOnly &&
+      ![
+        record.created_by_email,
+        record.caller_email,
+        record.responsible_enroll_email,
+      ].some((email) => normalizeEnrollmentEmail(email) === normalizedCurrentEmail)
+    ) {
+      return false;
+    }
+    if (
+      !filters.mineOnly &&
       filters.responsible.length > 0 &&
       !filters.responsible.includes(record.responsible_enroll_email ?? "")
     ) {
