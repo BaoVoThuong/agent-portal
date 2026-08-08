@@ -1073,6 +1073,14 @@ export function EnrollmentClient({
         const data = (await response.json().catch(() => null)) as { error?: string } | null;
         setError(data?.error ?? "Could not archive record.");
       }
+    } catch {
+      updateRecords((current) => {
+        if (current.some((record) => record.id === id)) return current;
+        const restored = [...current];
+        restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
+        return restored;
+      });
+      setError("Connection lost — could not archive record.");
     } finally {
       finishPendingMutation();
     }
