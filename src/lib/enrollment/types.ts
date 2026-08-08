@@ -10,6 +10,14 @@ export function isEnrollmentProgram(value: unknown): value is EnrollmentProgram 
   return value === "aca" || value === "medicare";
 }
 
+/**
+ * Parse an enrollment program at an API boundary without silently choosing a
+ * different product when the caller omitted or mistyped the value.
+ */
+export function parseEnrollmentProgram(value: unknown): EnrollmentProgram | null {
+  return isEnrollmentProgram(value) ? value : null;
+}
+
 export function toEnrollmentProgram(value: unknown): EnrollmentProgram {
   return isEnrollmentProgram(value) ? value : "aca";
 }

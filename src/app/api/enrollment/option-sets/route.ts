@@ -12,7 +12,7 @@ import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import {
   ENROLLMENT_OPTION_SET_KEYS,
   enrollmentOptionSetKeysForProgram,
-  toEnrollmentProgram,
+  parseEnrollmentProgram,
   type EnrollmentOptionSetKey,
 } from "@/lib/enrollment/types";
 
@@ -27,9 +27,12 @@ export async function GET(request: Request) {
     );
   }
 
-  const program = toEnrollmentProgram(
+  const program = parseEnrollmentProgram(
     new URL(request.url).searchParams.get("program")
   );
+  if (!program) {
+    return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
+  }
   const data = await fetchEnrollmentOptionData(program);
   return NextResponse.json(data);
 }
@@ -59,7 +62,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const program = toEnrollmentProgram(body?.program);
+  const program = parseEnrollmentProgram(body?.program);
+  if (!program) {
+    return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
+  }
   if (!enrollmentOptionSetKeysForProgram(program).includes(setKey)) {
     return NextResponse.json(
       { error: "Option set is not available for this enrollment program." },

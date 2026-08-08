@@ -17,7 +17,7 @@ import {
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import { fetchAdminEmails } from "@/lib/tasks/membership";
 import {
-  toEnrollmentProgram,
+  parseEnrollmentProgram,
   type EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
@@ -60,9 +60,12 @@ export async function GET(request: Request) {
     );
   }
 
-  const program = toEnrollmentProgram(
+  const program = parseEnrollmentProgram(
     new URL(request.url).searchParams.get("program")
   );
+  if (!program) {
+    return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
+  }
   const records = await fetchEnrollmentRecords(program);
   return NextResponse.json({ records });
 }
@@ -81,7 +84,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid body." }, { status: 400 });
   }
 
-  const program = toEnrollmentProgram(body.program);
+  const program = parseEnrollmentProgram(body.program);
+  if (!program) {
+    return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
+  }
   const patch: Record<string, unknown> = { program };
   for (const field of STRING_FIELDS) {
     patch[field] = cleanText(body[field]);

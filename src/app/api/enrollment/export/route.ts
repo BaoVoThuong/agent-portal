@@ -9,8 +9,9 @@ import {
   fetchEnrollmentRecords,
 } from "@/lib/enrollment/queries";
 import {
-  toEnrollmentProgram,
+  parseEnrollmentProgram,
   type EnrollmentRecordWithStats,
+  type EnrollmentProgram,
 } from "@/lib/enrollment/types";
 import { buildExportMatrix } from "@/lib/table-config/export";
 import { canActorExport } from "@/lib/table-config/export-access";
@@ -26,8 +27,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const program = parseEnrollmentProgram(url.searchParams.get("program"));
+  if (!program) {
+    return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
+  }
   return exportEnrollment({
-    program: toEnrollmentProgram(url.searchParams.get("program")),
+    program,
     requestedKeys: parseColumnKeys(url.searchParams.get("columns")),
     requestedIds: parseColumnKeys(url.searchParams.get("ids")),
   });
@@ -39,9 +44,13 @@ export async function POST(request: Request) {
     columns?: unknown;
     ids?: unknown;
   };
+  const program = parseEnrollmentProgram(body?.program);
+  if (!program) {
+    return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
+  }
 
   return exportEnrollment({
-    program: toEnrollmentProgram(body.program),
+    program,
     requestedKeys: parseColumnKeyInput(body.columns),
     requestedIds: parseColumnKeyInput(body.ids),
   });
@@ -52,7 +61,7 @@ async function exportEnrollment({
   requestedKeys,
   requestedIds,
 }: {
-  program: ReturnType<typeof toEnrollmentProgram>;
+  program: EnrollmentProgram;
   requestedKeys: ReadonlySet<string>;
   requestedIds: ReadonlySet<string>;
 }) {
