@@ -2266,6 +2266,7 @@ function EnrollmentOptionMenu({
   optionId,
   options,
   emptyLabel,
+  placeholderLabel,
   surface = "form-bare",
   canEdit = true,
   onChange,
@@ -2273,6 +2274,7 @@ function EnrollmentOptionMenu({
   optionId: string | null;
   options: EnrollmentOption[];
   emptyLabel: string;
+  placeholderLabel?: string;
   surface?: "list" | "form-bare" | "form-field";
   canEdit?: boolean;
   onChange: (value: string) => void;
@@ -2283,7 +2285,8 @@ function EnrollmentOptionMenu({
   const drawsOwnChrome = surface === "form-field";
   const rendersIdentityBadge = surface === "list";
   const showsChevron = surface !== "list";
-  const menuLabel = emptyLabel.replace(/^No\s+/i, "");
+  const emptyDisplayLabel = placeholderLabel ?? emptyLabel;
+  const menuLabel = emptyDisplayLabel.replace(/^(No|Select)\s+/i, "");
   // Identity badge (CS CategoryBadge language): these values describe what
   // the record is, so each option keeps its own solid colour. Stage remains
   // distinguishable through its tinted workflow-state badge.
@@ -2300,7 +2303,7 @@ function EnrollmentOptionMenu({
           toggle();
         }}
         aria-expanded={isOpen}
-        title={option?.label ?? emptyLabel}
+        title={option?.label ?? emptyDisplayLabel}
         className={
           drawsOwnChrome
             ? DETAIL_FIELD_BUTTON_CLASS
@@ -2322,7 +2325,7 @@ function EnrollmentOptionMenu({
             !rendersIdentityBadge && !option ? "font-normal text-[#97a0af]" : ""
           }`}
         >
-          {option?.label ?? emptyLabel}
+          {option?.label ?? emptyDisplayLabel}
         </span>
         {/* Identity badges match CS CategoryBadge: no chevron in List. */}
         {showsChevron ? <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" /> : null}
@@ -3558,6 +3561,7 @@ function NewEnrollmentDialog({
                         optionId={form.payment_status_id || null}
                         options={optionsBySet.payment_status}
                         emptyLabel="No payment"
+                        placeholderLabel="Select payment"
                         surface="form-bare"
                         onChange={(value) => update("payment_status_id", value)}
                       />
@@ -3574,6 +3578,7 @@ function NewEnrollmentDialog({
                         optionId={form.carrier_id || null}
                         options={optionsBySet.carrier}
                         emptyLabel="No carrier"
+                        placeholderLabel="Select carrier"
                         surface="form-bare"
                         onChange={(value) => update("carrier_id", value)}
                       />
@@ -3590,6 +3595,7 @@ function NewEnrollmentDialog({
                         optionId={form.aca_status_id || null}
                         options={optionsBySet.aca_status}
                         emptyLabel="No ACA status"
+                        placeholderLabel="Select ACA status"
                         surface="form-bare"
                         onChange={(value) => update("aca_status_id", value)}
                       />
@@ -3620,6 +3626,7 @@ function NewEnrollmentDialog({
                         optionId={form.platform_id || null}
                         options={optionsBySet.platform}
                         emptyLabel="No platform"
+                        placeholderLabel="Select platform"
                         surface="form-bare"
                         onChange={(value) => update("platform_id", value)}
                       />
