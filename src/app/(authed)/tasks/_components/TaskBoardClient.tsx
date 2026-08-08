@@ -917,7 +917,7 @@ export function TaskBoardClient({
     }
     setOpenId(id);
     setOpenCommentId(null);
-    writeTaskDeepLink(null);
+    writeTaskDeepLink(id, "push");
   }
   function closeTask() {
     setOpenId(null);
