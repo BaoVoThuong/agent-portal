@@ -1390,6 +1390,9 @@ Active P2 findings remain. T-04 (`16ad882`), T-05 (`82885a3`), T-06 (`ff87eaf`),
 - Tasks truncation containment: `a52156e` (server-window/volume gate remains)
 - Tasks realtime subscription lifecycle: `036984e` (browser WS/refetch gate remains)
 - Post-commit warning truthfulness: `e219c91`, `f95ebbe` (partial gates remain)
+- Config grouped usage counts: `3ea385e`, `d19dbb5` (schema apply/volume gate remains)
+- Config stale-client invalidation banner: `76ef352` (automatic hydration/freeze gate remains)
+- Enrollment schema fail-closed writes: `f1eef1f` (production parity gate remains)
 
 ## Performance Risks
 
@@ -1401,11 +1404,11 @@ Confirmed static interleavings include client-generated task version conflicts, 
 
 ## UI/UX Risks
 
-Read-only controls look editable, successful ACA creation looks lost, advertised search fields are missing, stale options look empty, and Config errors look like success. Core visual language is consistent; behavior/error semantics are not.
+Read-only controls look editable, successful ACA creation looks lost, and stale options/config can remain visible until the new reload banner is acted on. Core visual language is consistent; behavior/error semantics are not.
 
 ## Duplicate Logic
 
-Config import is the most dangerous duplicate. Task assignment and workflow identity also have multiple implementations. Do not spend the release week consolidating cosmetic duplication; fix concrete invariants first.
+The removed Config Import implementation was the most dangerous duplicate; historical rows still need reconciliation. Task assignment and workflow identity also have multiple implementations. Do not spend the release week consolidating cosmetic duplication; fix concrete invariants first.
 
 ## Regression Risks
 
