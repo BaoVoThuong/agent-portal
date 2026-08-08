@@ -371,13 +371,20 @@ export async function PATCH(req: Request, { params }: Ctx) {
     );
   }
 
+  // The canonical task update above is already committed. Side effects below
+  // must therefore not turn a committed mutation into a retryable 5xx: the
+  // client would optimistically roll back and a retry could apply a different
+  // transition. Keep the response truthful and leave an observable warning
+  // until these writes move into a transactional RPC/repair queue.
+  const mutationWarnings: string[] = [];
+
   if (replaceAssigneesWith) {
     const { error: deleteAssigneesError } = await r.supabase
       .from("task_assignees")
       .delete()
       .eq("task_id", id);
     if (deleteAssigneesError && !isTaskAssigneesMissingError(deleteAssigneesError)) {
-      return NextResponse.json({ error: deleteAssigneesError.message }, { status: 500 });
+      mutationWarnings.push(`task_assignees delete failed: ${deleteAssigneesError.message}`);
     }
     if (replaceAssigneesWith.length > 0) {
       const { error: insertAssigneeError } = await r.supabase
@@ -386,7 +393,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
           replaceAssigneesWith.map((email) => ({ task_id: id, email, created_at: nowIso }))
         );
       if (insertAssigneeError && !isTaskAssigneesMissingError(insertAssigneeError)) {
-        return NextResponse.json({ error: insertAssigneeError.message }, { status: 500 });
+        mutationWarnings.push(`task_assignees insert failed: ${insertAssigneeError.message}`);
       }
     }
   }
@@ -430,11 +437,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
     typeof resolved.patch.agent_email === "string"
       ? resolved.patch.agent_email
       : r.task.agent_email;
-  const qcRecipients = shouldNotifyQcNeeded
-    ? (await fetchAgentOwnerAndAssistantEmails(qcAgentEmail)).filter(
+  let qcRecipients: string[] = [];
+  if (shouldNotifyQcNeeded) {
+    try {
+      qcRecipients = (await fetchAgentOwnerAndAssistantEmails(qcAgentEmail)).filter(
         (recipient) => recipient !== r.actor.email
-      )
-    : [];
+      );
+    } catch (error) {
+      mutationWarnings.push(
+        `QC recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+      );
+    }
+  }
   const qcReviewedRecipients =
     resolved.patch.done_reviewed_at && !r.task.done_reviewed_at
       ? uniqueNotificationRecipients(
@@ -482,7 +496,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     })),
   ]);
 
-  await Promise.all([
+  const sideEffectResults = await Promise.allSettled([
     leavingOverdueInProgress
       ? resolveOverdueEvent(r.supabase, {
           task: r.task,
@@ -509,24 +523,63 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }),
     touchLastActivity(r.supabase, id, nowIso),
     entries.length > 0
-      ? r.supabase.from("task_activity").insert(
-          entries.map((e) => ({
-            task_id: id,
-            actor_email: r.actor.email,
-            type: e.type,
-            meta: e.meta,
-          }))
-        )
+      ? r.supabase
+          .from("task_activity")
+          .insert(
+            entries.map((e) => ({
+              task_id: id,
+              actor_email: r.actor.email,
+              type: e.type,
+              meta: e.meta,
+            }))
+          )
+          .then(({ error: activityError }) => {
+            if (activityError) throw new Error(activityError.message);
+          })
       : null,
     notificationRows.length > 0 ? insertNotifications(notificationRows) : null,
   ]);
+  for (const result of sideEffectResults) {
+    if (result.status === "rejected") {
+      mutationWarnings.push(
+        result.reason instanceof Error ? result.reason.message : "Task side effect failed."
+      );
+    }
+  }
 
-  await broadcastTasksChanged();
-  await broadcastTaskRoom(id);
-  const [task] = await attachAssigneesToTasks([data as TaskRow], r.supabase, {
-    currentEmail: r.actor.email,
-  });
-  return NextResponse.json({ task });
+  const broadcastResults = await Promise.allSettled([
+    broadcastTasksChanged(),
+    broadcastTaskRoom(id),
+  ]);
+  for (const result of broadcastResults) {
+    if (result.status === "rejected") {
+      mutationWarnings.push(
+        result.reason instanceof Error ? result.reason.message : "Task broadcast failed."
+      );
+    }
+  }
+
+  let task: TaskRow & { assignees: string[]; assignee_started_at: string | null } = {
+    ...(data as TaskRow),
+    assignees: nextAssigneesForHistory,
+    assignee_started_at: null,
+  };
+  try {
+    [task] = await attachAssigneesToTasks([data as TaskRow], r.supabase, {
+      currentEmail: r.actor.email,
+    });
+  } catch (error) {
+    mutationWarnings.push(
+      `Task assignee reload failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  if (mutationWarnings.length > 0) {
+    console.error("Task mutation committed with side-effect warnings", {
+      taskId: id,
+      warnings: mutationWarnings,
+    });
+  }
+  return NextResponse.json({ task, warnings: mutationWarnings });
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
