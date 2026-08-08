@@ -41,6 +41,7 @@ import {
   formatDateInput,
   optionLabel,
 } from "@/lib/enrollment/helpers";
+import { buildEnrollmentSearchHaystack } from "@/lib/enrollment/filtering";
 import {
   compareEnrollmentOptionText,
   emptyEnrollmentOptionsBySet,
@@ -4096,14 +4097,7 @@ function filterRecords(
     if (filters.createdTo && createdDate > filters.createdTo) return false;
     if (!query) return true;
 
-    const haystack = [
-      record.client_name ?? "",
-      record.description ?? "",
-      record.comment_search_text ?? "",
-    ]
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(query);
+    return buildEnrollmentSearchHaystack(record).includes(query);
   });
 }
 
