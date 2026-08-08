@@ -68,8 +68,40 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const supabase = getSupabaseAdmin();
+  const { data: option, error: optionError } = await supabase
+    .from("enrollment_options")
+    .select("set_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (optionError) return NextResponse.json({ error: optionError.message }, { status: 500 });
+  if (!option) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const { data: optionSet, error: optionSetError } = await supabase
+    .from("enrollment_option_sets")
+    .select("key,is_stage")
+    .eq("id", option.set_id)
+    .maybeSingle();
+  if (optionSetError) {
+    return NextResponse.json({ error: optionSetError.message }, { status: 500 });
+  }
+  if (optionSet?.is_stage && optionSet.key === "stage") {
+    const { count, error: countError } = await supabase
+      .from("enrollment_options")
+      .select("id", { count: "exact", head: true })
+      .eq("set_id", option.set_id)
+      .is("archived_at", null);
+    if (countError) return NextResponse.json({ error: countError.message }, { status: 500 });
+    if ((count ?? 0) <= 1) {
+      return NextResponse.json(
+        { error: "At least one active stage is required for this program." },
+        { status: 409 }
+      );
+    }
+  }
+
   const nowIso = new Date().toISOString();
-  const { data, error } = await getSupabaseAdmin()
+  const { data, error } = await supabase
     .from("enrollment_options")
     .update({ archived_at: nowIso, updated_at: nowIso })
     .eq("id", id)
