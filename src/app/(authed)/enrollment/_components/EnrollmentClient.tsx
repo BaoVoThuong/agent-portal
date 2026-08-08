@@ -1871,6 +1871,7 @@ function EnrollmentRowItem({
             value={record.agent_email}
             peopleByEmail={agentsByEmail}
             emptyLabel="No agent"
+            surface="list"
             canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { agent_email: value })}
           />
@@ -1887,6 +1888,7 @@ function EnrollmentRowItem({
             value={record.caller_email}
             peopleByEmail={peopleByEmail}
             emptyLabel="No caller"
+            surface="list"
             canEdit={canEditRecord}
             onChange={(value) => void onPatch(record.id, { caller_email: value })}
           />
@@ -1903,6 +1905,7 @@ function EnrollmentRowItem({
             value={record.responsible_enroll_email}
             peopleByEmail={peopleByEmail}
             emptyLabel="Unassigned"
+            surface="list"
             canEdit={canEditRecord}
             onChange={(value) =>
               void onPatch(record.id, { responsible_enroll_email: value })
@@ -2350,19 +2353,21 @@ function EnrollmentPersonMenu({
   value,
   peopleByEmail,
   emptyLabel,
-  field = false,
+  surface,
   canEdit = true,
   onChange,
 }: {
   value: string | null;
   peopleByEmail: Map<string, string>;
   emptyLabel: string;
-  field?: boolean;
+  surface: "list" | "form-bare" | "form-field";
   canEdit?: boolean;
   onChange: (value: string | null) => void;
 }) {
   const { isOpen, toggle, triggerRef, menuRef, menuStyle, setIsOpen } =
     useAnchoredMenu();
+  const drawsOwnChrome = surface === "form-field";
+  const showsAssignCallToAction = surface === "list";
   const options = [...peopleByEmail.entries()]
     .map(([email, name]) => ({ email, name }))
     .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
@@ -2382,12 +2387,18 @@ function EnrollmentPersonMenu({
         }}
         aria-expanded={isOpen}
         title={selectedLabel}
-        className={field ? `${DETAIL_FIELD_BUTTON_CLASS} disabled:cursor-not-allowed disabled:opacity-60` : "flex w-full min-w-0 items-center disabled:cursor-not-allowed disabled:opacity-60"}
+        className={
+          drawsOwnChrome
+            ? `${DETAIL_FIELD_BUTTON_CLASS} disabled:cursor-not-allowed disabled:opacity-60`
+            : "flex w-full min-w-0 items-center disabled:cursor-not-allowed disabled:opacity-60"
+        }
       >
         {value ? (
           <span
             className={`flex min-w-0 items-center gap-1.5 text-left font-semibold transition ${
-              field ? "flex-1 text-sm text-[#172b4d]" : "text-xs text-[#42526e] hover:text-[#0c66e4]"
+              drawsOwnChrome
+                ? "flex-1 text-sm text-[#172b4d]"
+                : "text-xs text-[#42526e] hover:text-[#0c66e4]"
             }`}
           >
             <Initials email={value} label={selectedLabel} />
@@ -2398,16 +2409,18 @@ function EnrollmentPersonMenu({
         ) : (
           <span
             className={
-              field
-                ? "inline-flex min-w-0 items-center gap-1.5 text-sm font-normal text-[#97a0af]"
-                : "inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]"
+              showsAssignCallToAction
+                ? "inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]"
+                : "inline-flex min-w-0 items-center gap-1.5 text-sm font-normal text-[#97a0af]"
             }
           >
-            <UserPlus className={field ? "h-4 w-4" : "h-3 w-3"} />
-            {field ? emptyLabel : "Assign"}
+            <UserPlus className={showsAssignCallToAction ? "h-3 w-3" : "h-4 w-4"} />
+            {showsAssignCallToAction ? "Assign" : emptyLabel}
           </span>
         )}
-        {field ? <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" /> : null}
+        {drawsOwnChrome ? (
+          <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" />
+        ) : null}
       </button>
       {isOpen
         ? createPortal(
@@ -3046,7 +3059,7 @@ function EnrollmentDrawer({
                     value={record.agent_email}
                     peopleByEmail={agentsByEmail}
                     emptyLabel="No agent"
-                    field
+                    surface="form-field"
                     canEdit={canEditRecord}
                     onChange={(value) => {
                       if (requiredColumnKeys.has("agent") && !value) {
@@ -3069,7 +3082,7 @@ function EnrollmentDrawer({
                     value={record.caller_email}
                     peopleByEmail={peopleByEmail}
                     emptyLabel="No caller"
-                    field
+                    surface="form-field"
                     canEdit={canEditRecord}
                     onChange={(value) => void onPatch({ caller_email: value })}
                   />
@@ -3088,7 +3101,7 @@ function EnrollmentDrawer({
                     value={record.responsible_enroll_email}
                     peopleByEmail={peopleByEmail}
                     emptyLabel="Unassigned"
-                    field
+                    surface="form-field"
                     canEdit={canEditRecord}
                     onChange={(value) =>
                       void onPatch({ responsible_enroll_email: value })
@@ -3599,6 +3612,7 @@ function NewEnrollmentDialog({
                         value={form.agent_email || null}
                         peopleByEmail={agentsByEmail}
                         emptyLabel="No agent"
+                        surface="form-bare"
                         onChange={(value) => update("agent_email", value)}
                       />
                     </CreatePropertyField>
@@ -3614,6 +3628,7 @@ function NewEnrollmentDialog({
                         value={form.caller_email || null}
                         peopleByEmail={peopleByEmail}
                         emptyLabel="No caller"
+                        surface="form-bare"
                         onChange={(value) => update("caller_email", value)}
                       />
                     </CreatePropertyField>
@@ -3632,6 +3647,7 @@ function NewEnrollmentDialog({
                         value={form.responsible_enroll_email || null}
                         peopleByEmail={peopleByEmail}
                         emptyLabel="Unassigned"
+                        surface="form-bare"
                         onChange={(value) => update("responsible_enroll_email", value)}
                       />
                     </CreatePropertyField>
