@@ -6,7 +6,7 @@ import type {
   SyntheticEvent,
 } from "react";
 import { stageElapsedSeconds } from "@/lib/tasks/sla";
-import { taskCategoryPalette } from "@/lib/tasks/category-colors";
+import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import {
@@ -258,7 +258,7 @@ function DoneReviewBadge({
 }
 
 function CategoryBadge({ category }: { category: TaskCategory }) {
-  const palette = taskCategoryPalette(category);
+  const palette = taskCategoryBadgePalette(category);
 
   return (
     <span

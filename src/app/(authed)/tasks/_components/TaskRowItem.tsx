@@ -37,7 +37,10 @@ import {
 } from "@/lib/tasks/sla";
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
-import { taskCategoryPalette } from "@/lib/tasks/category-colors";
+import {
+  taskCategoryBadgePalette,
+  taskCategoryPalette,
+} from "@/lib/tasks/category-colors";
 import type { TableColumnOption } from "@/lib/table-config/types";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 import { Initials, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
@@ -1542,7 +1545,7 @@ function CategoryMenu({
 }
 
 function CategoryBadge({ category }: { category: TaskCategory }) {
-  const palette = taskCategoryPalette(category);
+  const palette = taskCategoryBadgePalette(category);
 
   return (
     <span

@@ -32,6 +32,32 @@ export function taskCategoryPalette(
   };
 }
 
+/**
+ * Category badges use a softer version of the configured colour so the list
+ * stays easy to scan. Keep the raw palette above for configuration swatches
+ * and option menus; only the rendered badge background is lightened here.
+ */
+export function taskCategoryBadgePalette(
+  category: Pick<TaskCategory, "id" | "name" | "color">
+) {
+  const palette = taskCategoryPalette(category);
+  const background = lightenHexColor(palette.background, 0.16);
+  return {
+    background,
+    foreground: readableTextColor(background),
+  };
+}
+
+function lightenHexColor(hex: string, amount: number): string {
+  const red = Number.parseInt(hex.slice(1, 3), 16);
+  const green = Number.parseInt(hex.slice(3, 5), 16);
+  const blue = Number.parseInt(hex.slice(5, 7), 16);
+  const blend = (channel: number) => Math.round(channel + (255 - channel) * amount);
+  return `#${[blend(red), blend(green), blend(blue)]
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
 function isHexColor(value: string): boolean {
   return /^#[0-9a-f]{6}$/i.test(value);
 }
