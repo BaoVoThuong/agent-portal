@@ -887,12 +887,12 @@ export function TaskBoardClient({
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as { error?: string } | null;
-        window.alert(data?.error ?? "Could not export tasks.");
+        setError(data?.error ?? "Không thể xuất task.");
         return;
       }
       await downloadResponseFile(response, "health-tasks.xlsx");
     } catch {
-      window.alert("Could not export tasks.");
+      setError("Không thể xuất task.");
     } finally {
       setExporting(false);
     }
