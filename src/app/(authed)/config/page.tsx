@@ -56,11 +56,7 @@ export default async function ConfigPage() {
       .order("position", { ascending: true }),
     fetchEnrollmentOptionData("aca"),
     fetchEnrollmentOptionData("medicare"),
-    // Đếm usage TỐI GIẢN — KHÔNG load nguyên enrollment records.
-    supabase
-      .from("enrollment_records")
-      .select("program,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id")
-      .is("archived_at", null),
+    supabase.rpc("enrollment_option_usage_counts"),
   ]);
 
   if (memberResult.error) {
@@ -73,28 +69,13 @@ export default async function ConfigPage() {
     throw new Error(usageCountResult.error.message);
   }
 
-  function buildUsageCounts(program: "aca" | "medicare"): Record<string, number> {
+  function buildUsageCounts(): Record<string, number> {
     const counts: Record<string, number> = {};
-    const bump = (id: string | null) => {
-      if (id) counts[id] = (counts[id] ?? 0) + 1;
-    };
-    for (const row of usageCountResult.data ?? []) {
-      const record = row as {
-        program: string;
-        stage_id: string | null;
-        carrier_id: string | null;
-        platform_id: string | null;
-        consent_id: string | null;
-        payment_status_id: string | null;
-        aca_status_id: string | null;
-      };
-      if (record.program !== program) continue;
-      bump(record.stage_id);
-      bump(record.carrier_id);
-      bump(record.platform_id);
-      bump(record.consent_id);
-      bump(record.payment_status_id);
-      bump(record.aca_status_id);
+    for (const row of (usageCountResult.data ?? []) as Array<{
+      option_id: string;
+      usage_count: number | string;
+    }>) {
+      counts[row.option_id] = Number(row.usage_count) || 0;
     }
     return counts;
   }
@@ -116,7 +97,7 @@ export default async function ConfigPage() {
       })}
       initialCategories={(categoriesResult.data ?? []) as TaskCategory[]}
       initialOptionData={{ aca: acaOptionData, medicare: medicareOptionData }}
-      enrollmentUsageCounts={{ aca: buildUsageCounts("aca"), medicare: buildUsageCounts("medicare") }}
+      enrollmentUsageCounts={{ aca: buildUsageCounts(), medicare: buildUsageCounts() }}
     />
   );
 }

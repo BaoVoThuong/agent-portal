@@ -2566,6 +2566,34 @@ create index if not exists enrollment_records_responsible_idx
 create index if not exists enrollment_records_updated_idx
   on enrollment_records (archived_at, updated_at desc);
 
+create or replace function enrollment_option_usage_counts()
+returns table (
+  option_id uuid,
+  usage_count bigint
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select option_id, count(*)::bigint as usage_count
+  from (
+    select stage_id as option_id from enrollment_records where archived_at is null
+    union all
+    select carrier_id from enrollment_records where archived_at is null
+    union all
+    select platform_id from enrollment_records where archived_at is null
+    union all
+    select consent_id from enrollment_records where archived_at is null
+    union all
+    select payment_status_id from enrollment_records where archived_at is null
+    union all
+    select aca_status_id from enrollment_records where archived_at is null
+  ) references
+  where option_id is not null
+  group by option_id;
+$$;
+
 -- Program split for records: backfill existing rows as ACA, scope list queries.
 alter table enrollment_records
   add column if not exists program text not null default 'aca';
