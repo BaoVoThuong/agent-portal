@@ -20,7 +20,6 @@ import {
   Circle,
   Download,
   ExternalLink,
-  FileUp,
   Plus,
   Search,
   Settings2,
@@ -81,7 +80,6 @@ import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import { DateRangeFilter } from "../../tasks/_components/TaskToolbar";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { Initials } from "../../tasks/_components/board-ui";
-import { HealthTableImportDialog } from "../../_components/HealthTableImportDialog";
 import { EnrollmentOverview } from "./EnrollmentOverview";
 
 type SortKey =
@@ -436,7 +434,7 @@ export function EnrollmentClient({
   tableColumnOptions,
   currentEmail,
   canManageOptions,
-  canExportImport,
+  canExport,
 }: {
   program: EnrollmentProgram;
   initialRecords: EnrollmentRecordWithStats[];
@@ -447,7 +445,7 @@ export function EnrollmentClient({
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   canManageOptions: boolean;
-  canExportImport: boolean;
+  canExport: boolean;
 }) {
   const [records, setRecords] = useState(initialRecords);
   const [options, setOptions] = useState(initialOptions);
@@ -463,7 +461,6 @@ export function EnrollmentClient({
   });
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(new Set<string>());
@@ -925,11 +922,8 @@ export function EnrollmentClient({
               </h1>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {canExportImport ? (
-                <EnrollmentImportExportMenu
-                  onExport={exportVisibleRecords}
-                  onImport={() => setImporting(true)}
-                />
+              {canExport ? (
+                <EnrollmentExportMenu onExport={exportVisibleRecords} />
               ) : null}
               <button
                 type="button"
@@ -1051,24 +1045,11 @@ export function EnrollmentClient({
         />
       ) : null}
 
-      {importing ? (
-        <HealthTableImportDialog
-          scope={program}
-          columns={tableColumns}
-          onClose={() => setImporting(false)}
-        />
-      ) : null}
     </div>
   );
 }
 
-function EnrollmentImportExportMenu({
-  onExport,
-  onImport,
-}: {
-  onExport: () => void;
-  onImport: () => void;
-}) {
+function EnrollmentExportMenu({ onExport }: { onExport: () => void }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
 
@@ -1085,7 +1066,7 @@ function EnrollmentImportExportMenu({
         }`}
       >
         <Download className="h-4 w-4" />
-        Import / Export
+        Export
         <ChevronDown className="h-4 w-4 text-[#6b778c]" />
       </button>
 
@@ -1097,18 +1078,6 @@ function EnrollmentImportExportMenu({
               role="menu"
               className="dashboard-filter-menu z-[140] w-[min(17rem,calc(100vw-1rem))] overflow-hidden p-1.5"
             >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setIsOpen(false);
-                  onImport();
-                }}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm font-semibold text-[#172b4d] transition hover:bg-[#f4f5f7]"
-              >
-                <FileUp className="h-4 w-4 text-[#0c66e4]" />
-                Import table data
-              </button>
               <button
                 type="button"
                 role="menuitem"

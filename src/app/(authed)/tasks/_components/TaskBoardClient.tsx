@@ -7,7 +7,7 @@ import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
-import { ChevronDown, Clock, Download, FileUp, Loader2, Plus } from "lucide-react";
+import { ChevronDown, Clock, Download, Loader2, Plus } from "lucide-react";
 import type {
   TaskCategory,
   TaskPriority,
@@ -48,7 +48,6 @@ import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { SlaRulesModal } from "./SlaRulesModal";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
-import { HealthTableImportDialog } from "../../_components/HealthTableImportDialog";
 import { Toast } from "../../_shared/Toast";
 import { useAnchoredMenu } from "./use-anchored-menu";
 import {
@@ -87,7 +86,7 @@ export function TaskBoardClient({
   initialCategories,
   tableColumns,
   tableColumnOptions,
-  canExportImport,
+  canExport,
 }: {
   initialTasks: TaskRow[];
   initialNowIso: string;
@@ -103,7 +102,7 @@ export function TaskBoardClient({
   initialCategories: TaskCategory[];
   tableColumns: TableColumn[];
   tableColumnOptions: TableColumnOption[];
-  canExportImport: boolean;
+  canExport: boolean;
 }) {
   const searchParams = useSearchParams();
   const deepLinkId = searchParams.get("task");
@@ -122,7 +121,6 @@ export function TaskBoardClient({
     () => deepLinkCommentId
   );
   const [creating, setCreating] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [categories, setCategories] = useState<TaskCategory[]>(initialCategories);
   const [taskLayoutColumns, setTaskLayoutColumns] = useState<TableColumn[]>(tableColumns);
   const [managingSlaRules, setManagingSlaRules] = useState(false);
@@ -1322,11 +1320,8 @@ export function TaskBoardClient({
                     </button>
                   </>
                 )}
-                {canExportImport ? (
-                  <ImportExportMenu
-                    onExport={exportVisibleTasks}
-                    onImport={() => setImporting(true)}
-                  />
+                {canExport ? (
+                  <ExportMenu onExport={exportVisibleTasks} />
                 ) : null}
                 {canCreateTasks && (
                   <button
@@ -1476,14 +1471,6 @@ export function TaskBoardClient({
         />
       ) : null}
 
-      {importing ? (
-        <HealthTableImportDialog
-          scope="cs"
-          columns={tableColumns}
-          onClose={() => setImporting(false)}
-        />
-      ) : null}
-
       {openTask && (
         <TaskDetailDrawer
           key={openTask.id}
@@ -1579,13 +1566,7 @@ async function downloadResponseFile(response: Response, fallback: string) {
   URL.revokeObjectURL(url);
 }
 
-function ImportExportMenu({
-  onExport,
-  onImport,
-}: {
-  onExport: () => void;
-  onImport: () => void;
-}) {
+function ExportMenu({ onExport }: { onExport: () => void }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
 
@@ -1602,7 +1583,7 @@ function ImportExportMenu({
         }`}
       >
         <Download className="h-4 w-4" />
-        Import / Export
+        Export
         <ChevronDown className="h-4 w-4 text-[#6b778c]" />
       </button>
 
@@ -1614,18 +1595,6 @@ function ImportExportMenu({
               role="menu"
               className="dashboard-filter-menu z-[140] w-[min(17rem,calc(100vw-1rem))] overflow-hidden p-1.5"
             >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setIsOpen(false);
-                  onImport();
-                }}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm font-semibold text-[#172b4d] transition hover:bg-[#f4f5f7]"
-              >
-                <FileUp className="h-4 w-4 text-[#0c66e4]" />
-                Import table data
-              </button>
               <button
                 type="button"
                 role="menuitem"

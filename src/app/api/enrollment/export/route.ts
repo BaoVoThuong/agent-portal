@@ -13,7 +13,7 @@ import {
   type EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
 import { buildExportMatrix } from "@/lib/table-config/export";
-import { canActorExportImport } from "@/lib/table-config/export-access";
+import { canActorExport } from "@/lib/table-config/export-access";
 import {
   fetchTableColumnOptions,
   fetchTableColumns,
@@ -63,7 +63,7 @@ async function exportEnrollment({
       { status: actorResult.status }
     );
   }
-  if (!(await canActorExportImport(actorResult.actor))) {
+  if (!(await canActorExport(actorResult.actor))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { canActorExportImport } from "./export-access";
+import { canActorExport } from "./export-access";
 
-describe("canActorExportImport", () => {
+describe("canActorExport", () => {
   it("allows managers only", async () => {
     await expect(
-      canActorExportImport({
+      canActorExport({
         email: "manager@example.com",
         isManager: true,
         isWorker: true,
       })
     ).resolves.toBe(true);
     await expect(
-      canActorExportImport({
+      canActorExport({
         email: "worker@example.com",
         isManager: false,
         isWorker: true,

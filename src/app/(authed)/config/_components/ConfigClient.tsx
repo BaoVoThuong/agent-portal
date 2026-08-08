@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
   closestCenter,
@@ -22,14 +22,12 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronDown,
   Check,
-  FileCheck2,
   GripVertical,
   Plus,
   Settings2,
   SlidersHorizontal,
   Trash2,
   UserRoundCog,
-  X,
 } from "lucide-react";
 import { Toast } from "../../_shared/Toast";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
@@ -64,20 +62,7 @@ type AssistantMember = {
   is_assistant: boolean;
 };
 
-type ImportRequestListRow = {
-  id: string;
-  scope: TableScope;
-  submitted_by_email: string;
-  status: "pending" | "processing" | "approved" | "rejected" | "failed";
-  match_column_key: string;
-  summary: { addCount?: number; updateCount?: number; errorCount?: number };
-  reviewed_by_email: string | null;
-  reviewed_at: string | null;
-  reject_reason: string | null;
-  created_at: string;
-};
-
-type Tab = "table" | "value" | "assistant" | "imports";
+type Tab = "table" | "value" | "assistant";
 type SelectOption<T extends string> = { value: T; label: string };
 
 const SCOPE_LABEL: Record<TableScope, string> = {
@@ -209,9 +194,6 @@ export function ConfigClient({
           <TabButton active={tab === "assistant"} onClick={() => setTab("assistant")}>
             <UserRoundCog className="h-4 w-4" /> Assistant Membership
           </TabButton>
-          <TabButton active={tab === "imports"} onClick={() => setTab("imports")}>
-            <FileCheck2 className="h-4 w-4" /> Data Import Review
-          </TabButton>
         </div>
 
         {tab === "table" ? (
@@ -260,9 +242,6 @@ export function ConfigClient({
             setMembers={setMembers}
             onAgentsChange={setAgents}
           />
-        ) : null}
-        {tab === "imports" ? (
-          <ImportReviewSection scope={scope} busy={busy} run={run} />
         ) : null}
       </div>
 
@@ -1603,176 +1582,6 @@ function ConfigAssistantSection({
       ))}
       </section>
     </>
-  );
-}
-
-function ImportReviewSection({
-  scope,
-  busy,
-  run,
-}: {
-  scope: TableScope;
-  busy: boolean;
-  run: (action: () => Promise<void>, success: string) => Promise<void>;
-}) {
-  const [requests, setRequests] = useState<ImportRequestListRow[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const refreshRequests = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/config/imports?scope=${scope}`, {
-        cache: "no-store",
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? "Could not load imports.");
-      setRequests(payload.requests ?? []);
-    } finally {
-      setLoading(false);
-    }
-  }, [scope]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void refreshRequests();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [refreshRequests]);
-
-  return (
-    <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
-      <div className="border-b border-[#dfe1e6] px-6 py-4">
-        <h2 className="text-lg font-bold">Import review</h2>
-        <p className="mt-1 text-sm text-[#6b778c]">
-          Review staged imports before they write into the live health tables.
-        </p>
-      </div>
-      {loading ? (
-        <div className="px-6 py-8 text-sm font-semibold text-[#6b778c]">
-          Loading imports...
-        </div>
-      ) : requests.length === 0 ? (
-        <div className="px-6 py-8 text-sm font-semibold text-[#6b778c]">
-          No import requests for this table.
-        </div>
-      ) : (
-        <div className="divide-y divide-[#ebecf0]">
-          {requests.map((request) => {
-            const pending = request.status === "pending";
-            const recoverable =
-              request.status === "failed" || request.status === "processing";
-            const summary = request.summary ?? {};
-            return (
-              <div
-                key={request.id}
-                className="grid gap-3 px-6 py-4 md:grid-cols-[1.1fr_1fr_160px_220px]"
-              >
-                <div>
-                  <p className="text-sm font-bold text-[#172b4d]">
-                    {request.scope.toUpperCase()} import
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-[#6b778c]">
-                    Submitted by {request.submitted_by_email}
-                  </p>
-                  <p className="mt-1 text-xs text-[#6b778c]">
-                    Match column: {request.match_column_key}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
-                  <span className="rounded bg-[#e3fcef] px-2 py-1 text-[#00875a]">
-                    {summary.addCount ?? 0} add
-                  </span>
-                  <span className="rounded bg-[#deebff] px-2 py-1 text-[#0c66e4]">
-                    {summary.updateCount ?? 0} update
-                  </span>
-                  <span className="rounded bg-[#ffebe6] px-2 py-1 text-[#bf2600]">
-                    {summary.errorCount ?? 0} error
-                  </span>
-                </div>
-                <div>
-                  <span
-                    className={`inline-flex rounded px-2 py-1 text-xs font-bold uppercase ${
-                      pending
-                        ? "bg-[#fff7d6] text-[#946f00]"
-                        : request.status === "processing"
-                          ? "bg-[#deebff] text-[#0c66e4]"
-                          : request.status === "approved"
-                            ? "bg-[#e3fcef] text-[#00875a]"
-                            : "bg-[#ffebe6] text-[#bf2600]"
-                    }`}
-                  >
-                    {request.status}
-                  </span>
-                  {request.reviewed_by_email ? (
-                    <p className="mt-1 text-xs text-[#6b778c]">
-                      By {request.reviewed_by_email}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex items-center justify-end gap-2">
-                  {pending ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void run(async () => {
-                            await requestJson(`/api/config/imports/${request.id}`, {
-                              method: "POST",
-                            });
-                            await refreshRequests();
-                          }, "Import approved.")
-                        }
-                        className="inline-flex h-9 items-center gap-2 rounded bg-[#00875a] px-3 text-sm font-bold text-white disabled:opacity-50"
-                      >
-                        <Check className="h-4 w-4" /> Approve
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void run(async () => {
-                            await requestJson(`/api/config/imports/${request.id}`, {
-                              method: "DELETE",
-                              body: JSON.stringify({
-                                reject_reason: "Rejected in config.",
-                              }),
-                            });
-                            await refreshRequests();
-                          }, "Import rejected.")
-                        }
-                        className="inline-flex h-9 items-center gap-2 rounded border border-[#ffbdad] bg-white px-3 text-sm font-bold text-[#bf2600] disabled:opacity-50"
-                      >
-                        <X className="h-4 w-4" /> Reject
-                      </button>
-                    </>
-                  ) : recoverable ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          await requestJson(`/api/config/imports/${request.id}`, {
-                            method: "DELETE",
-                            body: JSON.stringify({
-                              reject_reason: "Closed in config.",
-                            }),
-                          });
-                          await refreshRequests();
-                        }, "Import closed.")
-                      }
-                      className="inline-flex h-9 items-center gap-2 rounded border border-[#c1c7d0] bg-white px-3 text-sm font-bold text-[#42526e] disabled:opacity-50"
-                    >
-                      <X className="h-4 w-4" /> Close
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
   );
 }
 
