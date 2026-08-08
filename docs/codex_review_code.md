@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-08 23:17 Asia/Ho_Chi_Minh**
-Reviewed source through: **`973c63a`** (execution log commits follow)
+Last Updated: **2026-08-08 23:21 Asia/Ho_Chi_Minh**
+Reviewed source through: **`f7c1d94`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -503,12 +503,12 @@ Affected Module: Medicare and ACA
 Trigger: Growing record/comment volume and any enrollment broadcast.  
 Expected: Bounded list payload/render work.  
 Actual: DB rows, comment text, JSON, filter/sort, DOM, and timers grow with the full active corpus.  
-Root Cause: No paging/windowing/server search aggregation; comment search text rides every list response.  
+Root Cause: No paging/windowing/server search aggregation; comment search text rides every list response.
 Impact: Increasing TTFB, bandwidth, memory, and UI lag.  
-Fix: Establish thresholds, detect truncation, paginate/window, move comment search server-side, and consolidate timers where measured.  
+Fix: Added exact-count truncation detection for Enrollment list/export and fail-closed 503 responses; pagination/windowing, server-side comment search, payload thresholds, and measured timer/render work remain open.
 Regression Risk: High; filters, export, search, realtime, and deep links assume full data.  
-Verification: Static data/render trace; no production-sized benchmark.  
-Status: **OPEN**
+Verification: Truncation helper tests (2), `npm run typecheck`, targeted ESLint, and diff-check PASS. Production volume benchmark and full pagination/windowing/render verification remain.
+Status: **PARTIAL — truncation containment implemented; volume/windowing remains open**
 
 ### M-11 — ACA and Medicare share one global realtime topic
 
@@ -1010,7 +1010,7 @@ Status: **OPEN — hardening**
 
 ## Fixes Applied
 
-Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Program-scoped Enrollment realtime (`261901a`). Latest-request-wins Enrollment reloads (`973c63a`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
+Import code-surface removal and Export helper preservation (`4fdac30`). Strict Enrollment program boundary parsing (`ef50046`). FUB-aware Enrollment search (`8a4155f`). Archived option/form reconciliation (`6feda4a`). Enrollment ownership email validation (`dcec66f`). Required checkbox/Consent validation alignment (`a974000`). Canonical Enrollment comment parent versions (`fc88006`). Enrollment attachment/storage/count reconciliation (`c0960cd`). Program-scoped Enrollment realtime (`261901a`). Latest-request-wins Enrollment reloads (`973c63a`). Enrollment list truncation containment (`f7c1d94`). Config live-mutation freeze/transaction work is not applied; C-04/C-05 remain decision-gated.
 
 ## Verification
 
@@ -1474,6 +1474,7 @@ This section supersedes earlier Recommended Actions in both review documents. It
 | 2026-08-08 | **M-06 — Enrollment attachment/storage/count reconciliation.** Uploads clean up storage when signing or metadata insertion fails; deletes remove metadata before storage and report cleanup warnings; post-commit side effects are contained; the drawer refetches the parent list after detail mutations so counts reconcile. | `c0960cd` | `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Authenticated upload/delete failure-injection, storage cleanup, and list-count browser verification remains. |
 | 2026-08-08 | **M-11 — program-scoped Enrollment realtime.** ACA and Medicare list clients now subscribe to separate topics; known program mutations target only the affected topic, while config/cron fan-out remains explicit and the legacy topic keeps mixed-version sessions safe. | `261901a` | Realtime topic tests PASS (2); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Two-tab ACA/Medicare WebSocket/refetch-count verification remains. |
 | 2026-08-08 | **M-08 — latest-request-wins Enrollment reloads.** Drawer detail, option reload, and Overview initial/manual/assignment loads now ignore older responses via per-loader request sequence guards. | `973c63a` | `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Rapid refresh/assignment/reordered-network browser verification remains. |
+| 2026-08-08 | **M-07 — Enrollment list truncation containment.** List/export queries now request an exact row count and fail closed with `ENROLLMENT_LIST_TRUNCATED`/503 when the response is capped; pagination/windowing and volume/render optimization remain open. | `f7c1d94` | Truncation helper tests PASS (2); `npm run typecheck` PASS; targeted ESLint and diff-check PASS. Production volume benchmark and pagination/windowing verification remain. |
 | 2026-08-08 | **M-03 — committed enrollment mutation truthfulness (partial).** Enrollment create/update now check audit/history results, contain notification/recipient/broadcast/reload failures, return the committed record with `warnings`, and log the repair signal instead of falsely returning a retryable 5xx. | `f95ebbe` | `npm run typecheck` PASS; targeted ESLint PASS for both enrollment mutation routes. M-03 remains **OPEN/P1** until canonical record plus required audit is transactional or backed by durable idempotent repair; failure-injection evidence is still required. |
 | 2026-08-08 | **M-04 — archive failure rollback.** Failed Enrollment archive requests now restore only the archived row at its prior position, preserving concurrent changes to other records instead of replacing the entire collection snapshot. | `802493a` | `npm run typecheck` PASS; targeted ESLint PASS. A two-tab archive-failure/realtime browser scenario remains useful regression evidence. |
 | 2026-08-08 | **M-09 — Enrollment no-op response.** PATCH requests that produce no persisted field change now reload and return the canonical record with comment/attachment stats instead of manufacturing zero counts. | `373a4dc` | `npm run typecheck` PASS; targeted ESLint PASS for the Enrollment PATCH route. Route-level no-op stats test remains to be added. |
@@ -1607,7 +1608,7 @@ Relative sizing only: T-01 is small; T-02/M-01/A-01 are small-to-medium with pro
 
 ## Verification Summary
 
-Verification recorded across the execution commits through `973c63a`:
+Verification recorded across the execution commits through `f7c1d94`:
 
 - `npm run typecheck`: **PASS after X-01**.
 - Targeted ESLint for the changed Tasks/detail/query routes and components, `TaskBoardClient.tsx`, and all three cron routes plus `src/lib/cron-auth*`: **PASS**.
@@ -1631,6 +1632,7 @@ Verification recorded across the execution commits through `973c63a`:
 - Enrollment attachment/storage/count reconciliation: **typecheck, targeted ESLint, and diff-check PASS**; authenticated failure-injection and list-count proof remains.
 - Enrollment realtime topic scoping: **2 topic tests, typecheck, targeted ESLint, and diff-check PASS**; two-tab cross-program refetch proof remains.
 - Enrollment latest-request-wins reloads: **typecheck, targeted ESLint, and diff-check PASS**; reordered-network browser proof remains.
+- Enrollment list truncation containment: **2 helper tests, typecheck, targeted ESLint, and diff-check PASS**; volume benchmark and pagination/windowing proof remain.
 - PostgreSQL 16 replay of `supabase/schema.sql`: **PASS**; atomic commit/rollback and stale-token RPC smoke checks passed.
 - Baseline full `npm run lint`, `npm run test:run` (50 files / 431 tests), and `npm run build` passed on `df561ef` before this execution batch; they must be rerun after the batch.
 - These results do not prove authenticated browser behavior, deployed-schema parity, route failure injection, or slow/reordered network behavior. A final full-suite/build run remains required.
