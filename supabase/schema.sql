@@ -2596,6 +2596,36 @@ $$;
 revoke all on function enrollment_option_usage_counts() from public, anon, authenticated;
 grant execute on function enrollment_option_usage_counts() to service_role;
 
+-- All SECURITY DEFINER routines in this schema are server-only RPCs. Their
+-- callers perform authentication/authorization in Next.js before using the
+-- service-role client; leaving the default PUBLIC EXECUTE grant would expose
+-- privileged writes (or protected metadata reads) through PostgREST's RPC
+-- endpoint and bypass that application boundary. Keep the ACL fail-closed for
+-- every current SECURITY DEFINER function, including functions added earlier
+-- in this schema and the atomic task mutation command above.
+do $$
+declare
+  routine record;
+begin
+  for routine in
+    select p.oid::regprocedure::text as signature
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.prosecdef
+  loop
+    execute format(
+      'revoke all on function %s from public, anon, authenticated',
+      routine.signature
+    );
+    execute format(
+      'grant execute on function %s to service_role',
+      routine.signature
+    );
+  end loop;
+end
+$$;
+
 -- Program split for records: backfill existing rows as ACA, scope list queries.
 alter table enrollment_records
   add column if not exists program text not null default 'aca';
