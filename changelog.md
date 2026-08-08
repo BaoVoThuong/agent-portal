@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Serialize SLA rule saves per row
+- **Loại**: fix
+- **Cái gì**: SLA rule dropdowns và Reset bị khóa theo từng row trong lúc request đang bay; parent dùng functional state update để các row khác nhau không ghi đè lẫn nhau khi save đồng thời.
+- **Vì sao**: trước đây `savingKey` chỉ theo dõi một row và callback save dùng snapshot `rules` cũ, nên thao tác nhanh hoặc save hai row cùng lúc có thể để response cũ xoá mất thay đổi mới.
+- **File**: `src/app/(authed)/config/_components/ConfigSlaSection.tsx`
+- **Ảnh hưởng**: Chỉ SLA admin editor; mỗi row vẫn có thể save độc lập, không đổi API/storage.
+- **Ref**: `docs/superpowers/plans/2026-08-07-sla-config-section.md`; finding SLA save race
+
 ## 2026-08-09 — Giới hạn lựa chọn phút theo bounds SLA
 - **Loại**: fix
 - **Cái gì**: SLA editor lọc minute options theo hour selection, không còn offer `0h 0m` hoặc các tổ hợp vượt quá `168h`; khi đổi giờ, phút hiện tại được clamp về lựa chọn hợp lệ gần nhất.

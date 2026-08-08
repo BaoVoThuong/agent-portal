@@ -44,11 +44,13 @@ export function ConfigSlaSection({
 }: {
   categories: TaskCategory[];
   rules: TaskSlaRule[];
-  onRulesChange: (rules: TaskSlaRule[]) => void;
+  onRulesChange: (
+    next: TaskSlaRule[] | ((currentRules: TaskSlaRule[]) => TaskSlaRule[])
+  ) => void;
 }) {
   const [view, setView] = useState<SettingsView>("priority");
   const [priority, setPriority] = useState<TaskPriority>("urgent");
-  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(() => new Set());
   const [reminderSettings, setReminderSettings] = useState<ReminderSettings>(
     DEFAULT_REMINDER_SETTINGS
   );
@@ -57,6 +59,15 @@ export function ConfigSlaSection({
     keyof ReminderSettings | null
   >(null);
   const [error, setError] = useState<string | null>(null);
+
+  function markSaving(key: string, saving: boolean) {
+    setSavingKeys((current) => {
+      const next = new Set(current);
+      if (saving) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
 
   const rows = [
     { id: SLA_DEFAULT_CATEGORY_ROW_KEY, name: "Default (no category)", color: null },
@@ -108,7 +119,7 @@ export function ConfigSlaSection({
       setError("Duration must be between 1 minute and 168 hours.");
       return;
     }
-    setSavingKey(key);
+    markSaving(key, true);
     setError(null);
     try {
       const res = await fetch("/api/admin/task-sla-rules", {
@@ -125,19 +136,21 @@ export function ConfigSlaSection({
         | null;
       if (!res.ok || !data?.rule) throw new Error(data?.error ?? "Save failed");
 
-      const next = rules.filter(
-        (r) => !(r.priority === priority && r.category_id === categoryId)
-      );
-      onRulesChange([...next, data.rule]);
+      onRulesChange((currentRules) => [
+        ...currentRules.filter(
+          (r) => !(r.priority === priority && r.category_id === categoryId)
+        ),
+        data.rule!,
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save this rule.");
     } finally {
-      setSavingKey(null);
+      markSaving(key, false);
     }
   }
 
   async function reset(categoryId: string | null, key: string) {
-    setSavingKey(key);
+    markSaving(key, true);
     setError(null);
     try {
       const res = await fetch("/api/admin/task-sla-rules", {
@@ -149,13 +162,15 @@ export function ConfigSlaSection({
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(data?.error ?? "Reset failed");
       }
-      onRulesChange(
-        rules.filter((r) => !(r.priority === priority && r.category_id === categoryId))
+      onRulesChange((currentRules) =>
+        currentRules.filter(
+          (r) => !(r.priority === priority && r.category_id === categoryId)
+        )
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not reset this rule.");
     } finally {
-      setSavingKey(null);
+      markSaving(key, false);
     }
   }
 
@@ -254,7 +269,7 @@ export function ConfigSlaSection({
                   const categoryId =
                     row.id === SLA_DEFAULT_CATEGORY_ROW_KEY ? null : row.id;
                   const key = `${priority}:${row.id}`;
-                  const saving = savingKey === key;
+                  const saving = savingKeys.has(key);
                   return (
                     <SlaRuleRow
                       key={key}
@@ -420,6 +435,7 @@ function SlaRuleRow({
           options={SLA_HOUR_OPTIONS}
           suffix="h"
           ariaLabel={`${label} — hours`}
+          disabled={saving}
           onChange={(next) => commit(next, normalizeSlaMinutesForHours(next, mins))}
         />
         <DurationDropdown
@@ -427,6 +443,7 @@ function SlaRuleRow({
           options={minuteOptions}
           suffix="m"
           ariaLabel={`${label} — minutes`}
+          disabled={saving}
           onChange={(next) => commit(hours, next)}
         />
       </div>
@@ -435,6 +452,7 @@ function SlaRuleRow({
           type="button"
           title="Reset to default"
           onClick={onReset}
+          disabled={saving}
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[#6b778c] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]"
         >
           <RotateCcw className="h-3.5 w-3.5" />
@@ -456,12 +474,14 @@ function DurationDropdown({
   options,
   suffix,
   ariaLabel,
+  disabled = false,
   onChange,
 }: {
   value: number;
   options: readonly number[];
   suffix: string;
   ariaLabel: string;
+  disabled?: boolean;
   onChange: (value: number) => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
@@ -472,6 +492,7 @@ function DurationDropdown({
         ref={triggerRef}
         type="button"
         onClick={toggle}
+        disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-label={ariaLabel}
@@ -479,7 +500,7 @@ function DurationDropdown({
           isOpen
             ? "border-[#0c66e4] text-[#172b4d]"
             : "border-[#dfe1e6] text-[#172b4d] hover:border-[#c1c7d0]"
-        }`}
+          } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
       >
         <span>
           {value}
