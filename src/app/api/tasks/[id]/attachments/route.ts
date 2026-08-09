@@ -3,7 +3,12 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask, canMutateTask } from "@/lib/tasks/access";
 import { fetchTaskAssigneeEmails, isTaskAssignee } from "@/lib/tasks/assignees";
-import { buildStoragePath, uploadTaskFile, signTaskFile } from "@/lib/tasks/storage";
+import {
+  buildStoragePath,
+  uploadTaskFile,
+  signTaskFile,
+  removeTaskFile,
+} from "@/lib/tasks/storage";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
   actorSeesAllTasks,
@@ -11,7 +16,8 @@ import {
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
-import { broadcastTaskRoom } from "@/lib/tasks/realtime";
+import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import {
   insertNotifications,
   uniqueNotificationRecipients,
@@ -26,6 +32,8 @@ import {
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // View access including agent membership and participants.
 async function canViewResolved(
@@ -119,6 +127,11 @@ export async function POST(req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
+
+  // Reject an unauthorised upload before parsing/buffering its multipart body.
+  if (!(await canViewResolved(r.actor, r.task, id)))
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File))
@@ -132,10 +145,15 @@ export async function POST(req: Request, { params }: Ctx) {
   const rawCid = form?.get("comment_id");
   const commentId = typeof rawCid === "string" && rawCid ? rawCid : null;
 
+  const rawRequestId = form?.get("client_request_id");
+  const requestId =
+    typeof rawRequestId === "string" && rawRequestId ? rawRequestId : null;
+  if (requestId !== null && !UUID_RE.test(requestId)) {
+    return NextResponse.json({ error: "Invalid request id." }, { status: 400 });
+  }
+
   if (commentId) {
     // Comment attachment: any viewer (incl. participants) may attach to their OWN comment.
-    if (!(await canViewResolved(r.actor, r.task, id)))
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     const { data: c } = await r.supabase
       .from("task_comments")
       .select("id,task_id,author_email")
@@ -174,50 +192,141 @@ export async function POST(req: Request, { params }: Ctx) {
     );
   }
 
-  const { data, error } = await r.supabase
-    .from("task_attachments")
-    .insert({
-      task_id: id,
-      comment_id: commentId,
-      storage_path: path,
-      file_name: file.name,
-      mime_type: validation.contentType,
-      size_bytes: file.size,
-      uploaded_by: r.actor.email,
-    })
-    .select("id,file_name,mime_type,size_bytes,created_at")
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  if (commentId) {
-    await broadcastTaskRoom(id);
-  } else {
-    await r.supabase.from("task_activity").insert({
-      task_id: id,
-      actor_email: r.actor.email,
-      type: "attachment_added",
-      meta: { file_name: file.name },
-    });
-    const [assignees, agentRecipients] = await Promise.all([
-      fetchTaskAssigneeEmails(id, r.supabase),
-      fetchAgentOwnerAndAssistantEmails(r.task.agent_email),
-    ]);
-    const recipients = uniqueNotificationRecipients(
-      [...assignees, r.task.reporter_email, ...agentRecipients],
-      [r.actor.email]
+  // Sign before the metadata transaction. A signing outage must not leave a
+  // durable row followed by a misleading 500 response.
+  let uploadedUrl: string;
+  try {
+    uploadedUrl = await signTaskFile(path);
+  } catch {
+    await removeTaskFile(path).catch((cleanupError) =>
+      console.warn("[attachment] failed to compensate unsigned upload", cleanupError)
     );
-    await insertNotifications(
-      recipients.map((recipient) => ({
-        recipient_email: recipient,
-        task_id: id,
-        type: "attachment_added",
-        actor_email: r.actor.email,
-        detail: file.name,
-      }))
+    return NextResponse.json(
+      { error: "Could not prepare the attachment link. Please try again." },
+      { status: 500 }
     );
   }
 
+  const { data: created, error } = await r.supabase
+    .rpc("create_task_attachment_atomic", {
+      p_task_id: id,
+      p_comment_id: commentId,
+      p_storage_path: path,
+      p_file_name: file.name,
+      p_mime_type: validation.contentType,
+      p_size_bytes: file.size,
+      p_uploaded_by: r.actor.email,
+      p_client_request_id: requestId,
+    })
+    .single();
+  if (error) {
+    await removeTaskFile(path).catch((cleanupError) =>
+      console.warn("[attachment] failed to compensate uncommitted upload", cleanupError)
+    );
+    if (error.message.includes("INVALID_COMMENT")) {
+      return NextResponse.json({ error: "Invalid comment." }, { status: 400 });
+    }
+    if (error.message.includes("TASK_NOT_FOUND")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const result = created as {
+    attachment: {
+      id: string;
+      file_name: string;
+      mime_type: string | null;
+      size_bytes: number | null;
+      created_at: string;
+      storage_path?: string;
+    };
+    was_created: boolean;
+    replayed_path: string | null;
+  };
+  const warnings = [] as { code: string; message: string }[];
+  let url: string | null = uploadedUrl;
+  if (!result.was_created) {
+    const replayedPath = result.replayed_path;
+    if (replayedPath && replayedPath !== path) {
+      warnings.push(
+        ...(await settleSideEffects([
+          {
+            code: "duplicate_upload_cleanup_failed",
+            message: "The original attachment was kept, but the retried upload could not be cleaned up.",
+            run: () => removeTaskFile(path),
+          },
+        ])),
+      );
+      try {
+        url = await signTaskFile(replayedPath);
+      } catch {
+        url = null;
+        warnings.push({
+          code: "attachment_sign_failed",
+          message: "The attachment was saved but its download link is temporarily unavailable.",
+        });
+      }
+    }
+    return NextResponse.json({
+      attachment: {
+        id: result.attachment.id,
+        file_name: result.attachment.file_name,
+        mime_type: result.attachment.mime_type,
+        size_bytes: result.attachment.size_bytes,
+        created_at: result.attachment.created_at,
+        url,
+      },
+      warnings,
+    });
+  }
+
+  const sideEffects = [
+    {
+      code: "broadcast_failed",
+      message: "Other open tabs may need a refresh to see this attachment.",
+      run: async () => {
+        await broadcastTaskRoom(id);
+        await broadcastTasksChanged();
+      },
+    },
+  ];
+  if (!commentId) {
+    sideEffects.push({
+      code: "notification_failed",
+      message: "The attachment was saved but some people may not have been notified.",
+      run: async () => {
+        const [assignees, agentRecipients] = await Promise.all([
+          fetchTaskAssigneeEmails(id, r.supabase),
+          fetchAgentOwnerAndAssistantEmails(r.task.agent_email),
+        ]);
+        const recipients = uniqueNotificationRecipients(
+          [...assignees, r.task.reporter_email, ...agentRecipients],
+          [r.actor.email]
+        );
+        await insertNotifications(
+          recipients.map((recipient) => ({
+            recipient_email: recipient,
+            task_id: id,
+            type: "attachment_added",
+            actor_email: r.actor.email,
+            detail: file.name,
+          }))
+        );
+      },
+    });
+  }
+  warnings.push(...(await settleSideEffects(sideEffects)));
+
   return NextResponse.json({
-    attachment: { ...(data as object), url: await signTaskFile(path) },
+    attachment: {
+      id: result.attachment.id,
+      file_name: result.attachment.file_name,
+      mime_type: result.attachment.mime_type,
+      size_bytes: result.attachment.size_bytes,
+      created_at: result.attachment.created_at,
+      url,
+    },
+    warnings,
   });
 }

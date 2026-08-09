@@ -322,6 +322,7 @@ export function CommentThread({
   // id so they can be revoked once the real (signed) URLs replace them.
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
   const optimisticFilesRef = useRef(new Map<string, Map<string, File>>());
+  const optimisticFileRequestIdsRef = useRef(new Map<string, Map<string, string>>());
 
   // Live thread: refetch when the task room pings (someone commented/attached).
   useEffect(() => {
@@ -352,6 +353,7 @@ export function CommentThread({
       }
       optimisticUrlsRef.current.clear();
       optimisticFilesRef.current.clear();
+      optimisticFileRequestIdsRef.current.clear();
     };
   }, [taskId]);
 
@@ -368,6 +370,7 @@ export function CommentThread({
       optimisticUrlsRef.current.delete(id);
     }
     optimisticFilesRef.current.delete(id);
+    optimisticFileRequestIdsRef.current.delete(id);
     setOptimisticComments((current) =>
       current.filter((comment) => comment.id !== id),
     );
@@ -394,12 +397,14 @@ export function CommentThread({
     const urls: string[] = [];
     const fileStates: FileState[] = [];
     const fileMap = new Map<string, File>();
+    const fileRequestIds = new Map<string, string>();
     const attachments = files.map((file, index) => {
       const url = URL.createObjectURL(file);
       urls.push(url);
       const fileId = `${tempId}-file-${index}`;
       fileStates.push({ id: fileId, status: "pending" });
       fileMap.set(fileId, file);
+      fileRequestIds.set(fileId, crypto.randomUUID());
       return {
         id: fileId,
         file_name: file.name,
@@ -410,6 +415,7 @@ export function CommentThread({
     });
     optimisticUrlsRef.current.set(tempId, urls);
     optimisticFilesRef.current.set(tempId, fileMap);
+    optimisticFileRequestIdsRef.current.set(tempId, fileRequestIds);
     setOptimisticComments((current) => [
       ...current,
       {
@@ -509,6 +515,8 @@ export function CommentThread({
         const form = new FormData();
         form.append("file", file);
         form.append("comment_id", comment.id);
+        const requestIdForFile = optimisticFileRequestIdsRef.current.get(tempId)?.get(fileId);
+        if (requestIdForFile) form.append("client_request_id", requestIdForFile);
         const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
           method: "POST",
           body: form,
@@ -587,6 +595,8 @@ export function CommentThread({
       const form = new FormData();
       form.append("file", file);
       form.append("comment_id", realId);
+      const requestIdForFile = optimisticFileRequestIdsRef.current.get(tempId)?.get(fileId);
+      if (requestIdForFile) form.append("client_request_id", requestIdForFile);
       const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
         method: "POST",
         body: form,

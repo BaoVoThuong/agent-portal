@@ -463,3 +463,7 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   comment no longer becomes failed because one file or a reload fails; failed
   files expose their own retry state, and preview blob URLs are revoked on
   discard, task change, and unmount.
+- Hardened attachment upload: authorization now runs before multipart buffering;
+  storage upload, signing, and atomic metadata/audit commit have explicit
+  compensation/idempotency boundaries, and activity metadata stores identifiers
+  rather than customer-controlled filenames.
