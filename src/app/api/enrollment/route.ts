@@ -7,8 +7,8 @@ import {
 import {
   fetchEnrollmentRecords,
   EnrollmentListTruncatedError,
-  isMissingEnrollmentDescriptionColumn,
 } from "@/lib/enrollment/queries";
+import { enrollmentSchemaErrorResponse } from "@/lib/enrollment/schema-errors";
 import {
   assertEnrollmentOptionSet,
   fetchEnrollmentOptionData,
@@ -83,6 +83,8 @@ export async function GET(request: Request) {
     const records = await fetchEnrollmentRecords(program, scope);
     return NextResponse.json({ records });
   } catch (error) {
+    const schemaResponse = enrollmentSchemaErrorResponse(error);
+    if (schemaResponse) return schemaResponse;
     if (error instanceof EnrollmentListTruncatedError) {
       return NextResponse.json(
         {
@@ -239,86 +241,28 @@ export async function POST(request: Request) {
   const sanitizedPatch = sanitizeEnrollmentPatchForProgram(program, patch);
 
   const supabase = getSupabaseAdmin();
-  const insertBase = {
-    created_by_email: actorResult.actor.email,
-    updated_by_email: actorResult.actor.email,
-    created_at: nowIso,
-    updated_at: nowIso,
-  };
-  const insertResult = await supabase
-    .from("enrollment_records")
-    .insert({
-      ...sanitizedPatch,
-      ...insertBase,
-    })
-    .select("*")
-    .single();
-  if (isMissingEnrollmentDescriptionColumn(insertResult.error)) {
-    return NextResponse.json(
-      {
-        error: "Database migration missing: enrollment_records.description.",
-        code: "SCHEMA_OUT_OF_DATE",
-      },
-      { status: 503 }
-    );
-  }
-  const { data, error } = insertResult;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const record = { description: null, ...data } as EnrollmentRecordWithStats;
-  // The canonical record is committed before audit/notification fan-out. Do
-  // not return a retryable 5xx for a post-commit side-effect failure: callers
-  // would retry and create duplicates. Keep the committed response truthful,
-  // log warnings, and leave durable transaction/repair work explicit.
-  const mutationWarnings: string[] = [];
   const activityRows: {
-    record_id: string;
-    actor_email: string;
     type: string;
     meta: Record<string, unknown> | null;
   }[] = [
-    {
-      record_id: record.id,
-      actor_email: actorResult.actor.email,
-      type: "created",
-      meta: null,
-    },
+    { type: "created", meta: null },
   ];
   if (selectedStage?.triggers_qc) {
-    activityRows.push({
-      record_id: record.id,
-      actor_email: actorResult.actor.email,
-      type: "qc_needed",
-      meta: { stage: selectedStage.label },
-    });
+    activityRows.push({ type: "qc_needed", meta: { stage: selectedStage.label } });
   }
+  const { data, error } = await supabase.rpc("create_enrollment_atomic", {
+    p_record: sanitizedPatch,
+    p_actor_email: actorResult.actor.email,
+    p_activity: activityRows,
+    p_now: nowIso,
+  });
+  const schemaResponse = enrollmentSchemaErrorResponse(error);
+  if (schemaResponse) return schemaResponse;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "Could not create enrollment record." }, { status: 500 });
 
-  const auditResults = await Promise.allSettled([
-    supabase.from("enrollment_activity").insert(activityRows).then(({ error: activityError }) => {
-      if (activityError) throw new Error(`enrollment_activity: ${activityError.message}`);
-    }),
-    record.stage_id
-      ? supabase
-          .from("enrollment_stage_history")
-          .insert({
-            record_id: record.id,
-            from_option_id: null,
-            to_option_id: record.stage_id,
-            changed_by_email: actorResult.actor.email,
-            changed_at: nowIso,
-          })
-          .then(({ error: historyError }) => {
-            if (historyError) throw new Error(`enrollment_stage_history: ${historyError.message}`);
-          })
-      : null,
-  ]);
-  for (const result of auditResults) {
-    if (result.status === "rejected") {
-      mutationWarnings.push(
-        result.reason instanceof Error ? result.reason.message : "Enrollment audit write failed."
-      );
-    }
-  }
+  const record = { description: null, ...(data as Record<string, unknown>) } as EnrollmentRecordWithStats;
+  const mutationWarnings: string[] = [];
 
   const recipients = uniqueEnrollmentNotificationRecipients(
     [record.caller_email, record.responsible_enroll_email],

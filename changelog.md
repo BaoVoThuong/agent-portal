@@ -19,6 +19,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ---
 
+## 2026-08-10 — Route Enrollment mutations through atomic stage tracking RPCs
+- **Loại**: feat, fix
+- **Cái gì**: Enrollment create, patch, and archive now call the atomic RPCs so record updates, stage cycles, stage history, and mutation activities share one transaction. Comment and attachment mutations use `enrollment_touch_activity` and retain their existing activity/notification behavior.
+- **Vì sao**: The previous routes committed the record first and wrote stage history/activity best-effort afterward, allowing stage-time invariants and audit history to drift when a side effect failed.
+- **File**: `src/app/api/enrollment/route.ts`, `src/app/api/enrollment/[id]/route.ts`, `src/app/api/enrollment/[id]/comments/route.ts`, `src/app/api/enrollment/[id]/comments/[cid]/route.ts`, `src/app/api/enrollment/[id]/attachments/route.ts`, `src/app/api/enrollment/[id]/attachments/[aid]/route.ts`
+- **Ảnh hưởng**: Enrollment mutation conflict/schema errors are surfaced explicitly; notifications, broadcasts, storage cleanup, and existing permission checks remain best-effort/unchanged outside the durable mutation transaction.
+
+
 ## 2026-08-10 — Expose Enrollment stage-time fields and fail closed on schema drift
 - **Loại**: feat, fix
 - **Cái gì**: Enrollment queries now select the four stage-time/activity tracking columns, shared schema-drift errors return an explicit 503, and missing-column fallbacks only apply to the specific legacy columns they name. Added pure helpers/tests for current-stage dwell and duration summaries.

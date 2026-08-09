@@ -190,6 +190,12 @@ export async function POST(request: Request, { params }: Ctx) {
   }
 
   const mutationWarnings: string[] = [];
+  const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
+    p_record_id: id,
+    p_actor_email: context.actor.email,
+    p_now: new Date().toISOString(),
+  });
+  if (touchError) mutationWarnings.push(`Attachment activity touch failed: ${touchError.message}`);
   if (!commentId) {
     const { error: activityError } = await context.supabase.from("enrollment_activity").insert({
       record_id: id,

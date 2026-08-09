@@ -56,6 +56,12 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (!deleted) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const warnings: string[] = [];
+  const { error: touchError } = await supabase.rpc("enrollment_touch_activity", {
+    p_record_id: id,
+    p_actor_email: actorResult.actor.email,
+    p_now: new Date().toISOString(),
+  });
+  if (touchError) warnings.push(`Attachment activity touch failed: ${touchError.message}`);
   try {
     await removeTaskFile(attachmentRow.storage_path);
   } catch (storageError) {

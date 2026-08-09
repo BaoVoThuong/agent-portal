@@ -38,6 +38,13 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
+    p_record_id: id,
+    p_actor_email: context.email,
+    p_now: new Date().toISOString(),
+  });
+  if (touchError) console.error("Enrollment comment edit activity touch failed", touchError);
+
   await broadcastEnrollmentRoom(id);
   return NextResponse.json({ comment: data });
 }
@@ -54,6 +61,13 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     .update({ body: "", deleted_at: new Date().toISOString() })
     .eq("id", cid);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
+    p_record_id: id,
+    p_actor_email: context.email,
+    p_now: new Date().toISOString(),
+  });
+  if (touchError) console.error("Enrollment comment delete activity touch failed", touchError);
 
   await broadcastEnrollmentRoom(id);
   return NextResponse.json({ ok: true });

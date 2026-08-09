@@ -87,31 +87,20 @@ export async function POST(request: Request, { params }: Ctx) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const nowIso = new Date().toISOString();
   const mutationWarnings: string[] = [];
-  const { data: touchedParent, error: parentError } = await loaded.supabase
-    .from("enrollment_records")
-    .update({
-      updated_at: nowIso,
-      updated_by_email: loaded.actor.email,
-    })
-    .eq("id", id)
-    .select("updated_at")
-    .maybeSingle();
-  if (parentError) {
-    mutationWarnings.push(`Enrollment parent update failed: ${parentError.message}`);
-  } else if (!touchedParent) {
-    mutationWarnings.push("Enrollment parent update returned no row.");
-  }
+  const { error: touchError } = await loaded.supabase.rpc("enrollment_touch_activity", {
+    p_record_id: id,
+    p_actor_email: loaded.actor.email,
+    p_now: new Date().toISOString(),
+  });
+  if (touchError) mutationWarnings.push(`Enrollment activity touch failed: ${touchError.message}`);
   const { error: activityError } = await loaded.supabase.from("enrollment_activity").insert({
     record_id: id,
     actor_email: loaded.actor.email,
     type: "comment_added",
     meta: null,
   });
-  if (activityError) {
-    mutationWarnings.push(`Enrollment comment activity failed: ${activityError.message}`);
-  }
+  if (activityError) mutationWarnings.push(`Enrollment comment activity failed: ${activityError.message}`);
 
   const [peopleRes, authorsRes] = await Promise.all([
     loaded.supabase.from("portal_account").select("email").eq("is_active", true),
@@ -182,7 +171,7 @@ export async function POST(request: Request, { params }: Ctx) {
   }
   const canonicalParentUpdatedAt = resolveEnrollmentParentUpdatedAt(
     canonicalRecord?.updated_at,
-    (touchedParent as { updated_at?: string | null } | null)?.updated_at
+    null
   );
   if (mutationWarnings.length > 0) {
     console.error("Enrollment comment committed with side-effect warnings", {

@@ -11,8 +11,8 @@ import {
 } from "@/lib/enrollment/options";
 import {
   fetchEnrollmentRecordById,
-  isMissingEnrollmentDescriptionColumn,
 } from "@/lib/enrollment/queries";
+import { enrollmentSchemaErrorResponse } from "@/lib/enrollment/schema-errors";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import {
   insertEnrollmentNotifications,
@@ -386,33 +386,33 @@ export async function PATCH(request: Request, { params }: Ctx) {
     });
   }
 
-  sanitizedPatch.updated_by_email = actorResult.actor.email;
-  sanitizedPatch.updated_at = nowIso;
+  const rpcActivityRows: { type: string; meta: Record<string, unknown> | null }[] = [];
+  if (stageChanged) {
+    rpcActivityRows.push({ type: "stage_changed", meta: { from: fromStage?.label ?? "No stage", to: toStage?.label ?? "No stage" } });
+    if (reopening) rpcActivityRows.push({ type: "reopened", meta: { reason: reopenReason, from: fromStage?.label ?? "No stage" } });
+    else if (toStage?.triggers_qc) rpcActivityRows.push({ type: "qc_needed", meta: { stage: toStage.label } });
+  }
+  if (touchesPeople) rpcActivityRows.push({ type: "people_changed", meta: { caller: patch.caller_email ?? current.caller_email, responsible_enroll: patch.responsible_enroll_email ?? current.responsible_enroll_email } });
+  if (qcChecked !== null) rpcActivityRows.push({ type: qcChecked ? "qc_reviewed" : "qc_review_cleared", meta: null });
+  const rpcGenericChangedFields = changedFields.filter((field) => !["stage_id", "caller_email", "responsible_enroll_email", "qc_checked", "qc_cleared"].includes(field));
+  if (rpcGenericChangedFields.length > 0) rpcActivityRows.push({ type: "field_changed", meta: { fields: rpcGenericChangedFields } });
 
-  const updateResult = await supabase
-    .from("enrollment_records")
-    .update(sanitizedPatch)
-    .eq("id", id)
-    .eq("updated_at", expectedUpdatedAt)
-    .select("*")
-    .maybeSingle();
-  if (isMissingEnrollmentDescriptionColumn(updateResult.error) && "description" in sanitizedPatch) {
-    return NextResponse.json(
-      {
-        error: "Database migration missing: enrollment_records.description.",
-        code: "SCHEMA_OUT_OF_DATE",
-      },
-      { status: 503 }
-    );
+  const { data: updatedData, error: updateError } = await supabase.rpc("patch_enrollment_atomic", {
+    p_record_id: id,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_patch: sanitizedPatch,
+    p_actor_email: actorResult.actor.email,
+    p_activity: rpcActivityRows,
+    p_now: nowIso,
+  });
+  const schemaResponse = enrollmentSchemaErrorResponse(updateError);
+  if (schemaResponse) return schemaResponse;
+  if (updateError) {
+    if (updateError.message?.includes("ENROLLMENT_CONFLICT")) return NextResponse.json({ error: "Enrollment record was updated by someone else. Refresh and try again." }, { status: 409 });
+    if (updateError.message?.includes("ENROLLMENT_NOT_FOUND")) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
-  const { data: updatedData, error: updateError } = updateResult;
-  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
-  if (!updatedData) {
-    return NextResponse.json(
-      { error: "Enrollment record was updated by someone else. Refresh and try again." },
-      { status: 409 }
-    );
-  }
+  if (!updatedData) return NextResponse.json({ error: "Could not update enrollment record." }, { status: 500 });
 
   const updated = { description: null, ...updatedData } as EnrollmentRecord;
   // The canonical update is committed before audit/notification fan-out. A
@@ -430,16 +430,6 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const notifications: EnrollmentNotificationInsertInput[] = [];
 
   if (stageChanged) {
-    const { error: stageHistoryError } = await supabase.from("enrollment_stage_history").insert({
-      record_id: id,
-      from_option_id: current.stage_id,
-      to_option_id: updated.stage_id,
-      changed_by_email: actorResult.actor.email,
-      changed_at: nowIso,
-    });
-    if (stageHistoryError) {
-      mutationWarnings.push(`enrollment_stage_history: ${stageHistoryError.message}`);
-    }
     activityRows.push({
       record_id: id,
       actor_email: actorResult.actor.email,
@@ -576,14 +566,6 @@ export async function PATCH(request: Request, { params }: Ctx) {
     });
   }
 
-  if (activityRows.length > 0) {
-    const { error: activityError } = await supabase
-      .from("enrollment_activity")
-      .insert(activityRows);
-    if (activityError) {
-      mutationWarnings.push(`enrollment_activity: ${activityError.message}`);
-    }
-  }
   try {
     await insertEnrollmentNotifications(notifications);
   } catch (error) {
@@ -648,29 +630,16 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { data, error } = await supabase
-    .from("enrollment_records")
-    .update({
-      archived_at: nowIso,
-      updated_at: nowIso,
-      updated_by_email: actorResult.actor.email,
-    })
-    .eq("id", id)
-    .is("archived_at", null)
-    .select("id")
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("archive_enrollment_atomic", {
+    p_record_id: id,
+    p_actor_email: actorResult.actor.email,
+    p_activity: [{ type: "archived", meta: null }],
+    p_now: nowIso,
+  });
+  const schemaResponse = enrollmentSchemaErrorResponse(error);
+  if (schemaResponse) return schemaResponse;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const { error: activityError } = await supabase.from("enrollment_activity").insert({
-    record_id: id,
-    actor_email: actorResult.actor.email,
-    type: "archived",
-    meta: null,
-  });
-  if (activityError) {
-    console.error("Failed to write enrollment archive activity", activityError);
-  }
   await broadcastEnrollmentChanged(
     (currentData as { program: "aca" | "medicare" }).program
   );
