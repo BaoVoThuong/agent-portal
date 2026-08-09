@@ -3771,7 +3771,7 @@ one task, or once the 200-row activity cap is actually reached.
 | 3. Typed contracts | A | — | Implemented | `TBD` | Targeted tests + typecheck passed | Vocabulary matches the current SQL constraint, including the existing `agent_changed` event; unknown historical values remain tolerated. |
 | 4. Signing isolation | B | **P1** | Implemented | `TBD` | Detail test + typecheck passed | Added per-file signing fallback and unavailable UI; browser/storage corruption check still pending. |
 | 5. Delete ordering | B | **P1** | Implemented | `fb7fd68` | Typecheck passed | Metadata/audit commit now precedes best-effort storage cleanup; DB/storage fault injection pending. |
-| 6. Atomic comment create | B | **P1** | Implemented | `TBD` | Typecheck + targeted tests passed | Comment/idempotency/participant writes are atomic; notification and realtime are warning-only after commit. Added the task actor column early so Task 12 can complete without a schema dependency. Live RPC/concurrency fault injection pending. |
+| 6. Atomic comment create | B | **P1** | Implemented | `f48e1e1` | Typecheck + targeted tests passed | Comment/idempotency/participant writes are atomic; notification and realtime are warning-only after commit. Added the task actor column early so Task 12 can complete without a schema dependency. Live RPC/concurrency fault injection pending. |
 | 7. Submission guard | C | P2 | Pending | — | — | F4. Includes Enrollment parity |
 | 8. Comment/file state split | C | P2 | Pending | — | — | F5 |
 | 9. Attachment idempotency | C | P2 | Pending | — | — | F6 |
