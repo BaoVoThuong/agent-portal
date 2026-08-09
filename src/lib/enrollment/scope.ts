@@ -4,6 +4,7 @@ import {
   fetchAssistantAgentsForCs,
 } from "@/lib/tasks/membership";
 import type { EnrollmentActor } from "./access";
+import type { EnrollmentRecordWithStats } from "./types";
 
 export type EnrollmentScope =
   | { seeAll: true }
@@ -81,4 +82,28 @@ export function applyEnrollmentScope<TQuery>(
     return query.eq("id", NO_SCOPE_RECORD_ID);
   }
   return query.in("agent_email", scope.agentEmails);
+}
+
+/**
+ * Loads one canonical record and hides both missing and out-of-scope IDs behind
+ * a 404 so callers cannot use the API to confirm that another agent's UUID
+ * exists. The dynamic import avoids a module cycle once queries.ts consumes the
+ * pure query-scoping helper above.
+ */
+export async function loadScopedEnrollmentRecord(
+  id: string,
+  actor: EnrollmentActor
+): Promise<
+  | { ok: true; record: EnrollmentRecordWithStats; scope: EnrollmentScope }
+  | { ok: false; status: 404; error: "Not found" }
+> {
+  const [{ fetchEnrollmentRecordById }, scope] = await Promise.all([
+    import("./queries"),
+    resolveEnrollmentScope(actor),
+  ]);
+  const record = await fetchEnrollmentRecordById(id);
+  if (!record || !isRecordInScope(scope, record.agent_email)) {
+    return { ok: false, status: 404, error: "Not found" };
+  }
+  return { ok: true, record, scope };
 }

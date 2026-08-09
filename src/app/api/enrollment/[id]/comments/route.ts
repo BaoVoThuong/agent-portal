@@ -11,6 +11,7 @@ import {
 } from "@/lib/enrollment/realtime";
 import { fetchEnrollmentRecordById } from "@/lib/enrollment/queries";
 import { resolveEnrollmentParentUpdatedAt } from "@/lib/enrollment/comments";
+import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import { parseMentions } from "@/lib/tasks/mentions";
 import type { EnrollmentRecord } from "@/lib/enrollment/types";
 
@@ -207,19 +208,15 @@ async function loadContext(id: string) {
     return { error: actorResult.error, status: actorResult.status } as const;
   }
 
+  const scoped = await loadScopedEnrollmentRecord(id, actorResult.actor);
+  if (!scoped.ok) {
+    return { error: scoped.error, status: scoped.status } as const;
+  }
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("enrollment_records")
-    .select("*")
-    .eq("id", id)
-    .is("archived_at", null)
-    .maybeSingle();
-  if (error) return { error: error.message, status: 500 } as const;
-  if (!data) return { error: "Not found", status: 404 } as const;
 
   return {
     actor: actorResult.actor,
     supabase,
-    record: data as EnrollmentRecord,
+    record: scoped.record as EnrollmentRecord,
   };
 }

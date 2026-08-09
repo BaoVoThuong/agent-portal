@@ -19,6 +19,10 @@ import {
   fetchTableColumns,
 } from "@/lib/table-config/queries";
 import { canActorExport } from "@/lib/table-config/export-access";
+import {
+  isRecordInScope,
+  resolveEnrollmentScope,
+} from "@/lib/enrollment/scope";
 import { EnrollmentClient } from "./_components/EnrollmentClient";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +46,7 @@ export default async function EnrollmentPage({
   const actor = buildTaskActor(session.user.permissions, email, {
     isAdmin: isTaskViewAdmin(session.user),
   });
+  const scope = await resolveEnrollmentScope(actor);
 
   const [
     records,
@@ -62,9 +67,14 @@ export default async function EnrollmentPage({
   ]);
 
   if (recordId) {
+    const fallbackRecord = records.some((record) => record.id === recordId)
+      ? null
+      : await fetchEnrollmentRecordById(recordId);
     const linkedRecord =
       records.find((record) => record.id === recordId) ??
-      (await fetchEnrollmentRecordById(recordId));
+      (fallbackRecord && isRecordInScope(scope, fallbackRecord.agent_email)
+        ? fallbackRecord
+        : null);
     if (linkedRecord && linkedRecord.program !== program) {
       const nextParams = new URLSearchParams();
       for (const [key, value] of Object.entries(params)) {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { broadcastEnrollmentRoom } from "@/lib/enrollment/realtime";
+import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -64,22 +65,18 @@ async function loadAuthorContext(id: string, cid: string) {
     return { error: actorResult.error, status: actorResult.status } as const;
   }
 
+  const scoped = await loadScopedEnrollmentRecord(id, actorResult.actor);
+  if (!scoped.ok) {
+    return { error: scoped.error, status: scoped.status } as const;
+  }
   const supabase = getSupabaseAdmin();
-  const [{ data: record }, { data: comment, error: commentError }] = await Promise.all([
-    supabase
-      .from("enrollment_records")
-      .select("id")
-      .eq("id", id)
-      .is("archived_at", null)
-      .maybeSingle(),
-    supabase
-      .from("enrollment_comments")
-      .select("id,record_id,author_email,body")
-      .eq("id", cid)
-      .maybeSingle(),
-  ]);
+  const { data: comment, error: commentError } = await supabase
+    .from("enrollment_comments")
+    .select("id,record_id,author_email,body")
+    .eq("id", cid)
+    .maybeSingle();
   if (commentError) return { error: commentError.message, status: 500 } as const;
-  if (!record || !comment) return { error: "Not found", status: 404 } as const;
+  if (!comment) return { error: "Not found", status: 404 } as const;
 
   const commentRow = comment as {
     record_id: string;

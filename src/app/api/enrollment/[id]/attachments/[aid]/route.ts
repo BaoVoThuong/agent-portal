@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { removeTaskFile } from "@/lib/enrollment/storage";
 import { broadcastEnrollmentRoom } from "@/lib/enrollment/realtime";
+import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -18,28 +19,23 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     );
   }
 
+  const scoped = await loadScopedEnrollmentRecord(id, actorResult.actor);
+  if (!scoped.ok) {
+    return NextResponse.json({ error: scoped.error }, { status: scoped.status });
+  }
   const supabase = getSupabaseAdmin();
-  const [{ data: record }, { data: attachment, error: attachmentError }] =
-    await Promise.all([
-      supabase
-        .from("enrollment_records")
-        .select("id")
-        .eq("id", id)
-        .is("archived_at", null)
-        .maybeSingle(),
-      supabase
-        .from("enrollment_attachments")
-        .select("id,record_id,storage_path,uploaded_by")
-        .eq("id", aid)
-        .maybeSingle(),
-    ]);
+  const { data: attachment, error: attachmentError } = await supabase
+    .from("enrollment_attachments")
+    .select("id,record_id,storage_path,uploaded_by")
+    .eq("id", aid)
+    .maybeSingle();
   if (attachmentError) {
     return NextResponse.json({ error: attachmentError.message }, { status: 500 });
   }
   const attachmentRow = attachment as
     | { record_id: string; storage_path: string; uploaded_by: string }
     | null;
-  if (!record || !attachmentRow || attachmentRow.record_id !== id) {
+  if (!attachmentRow || attachmentRow.record_id !== id) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

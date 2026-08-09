@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { loadEnrollmentDetail } from "@/lib/enrollment/detail";
+import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -17,17 +18,13 @@ export async function GET(_request: Request, { params }: Ctx) {
     );
   }
 
-  const supabase = getSupabaseAdmin();
-  const { data: record, error } = await supabase
-    .from("enrollment_records")
-    .select("id")
-    .eq("id", id)
-    .is("archived_at", null)
-    .maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!record) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const scoped = await loadScopedEnrollmentRecord(id, actorResult.actor);
+  if (!scoped.ok) {
+    return NextResponse.json({ error: scoped.error }, { status: scoped.status });
+  }
 
   try {
+    const supabase = getSupabaseAdmin();
     return NextResponse.json(await loadEnrollmentDetail(supabase, id));
   } catch (detailError) {
     return NextResponse.json(

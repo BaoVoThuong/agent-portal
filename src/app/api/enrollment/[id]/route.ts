@@ -13,6 +13,7 @@ import {
   fetchEnrollmentRecordById,
   isMissingEnrollmentDescriptionColumn,
 } from "@/lib/enrollment/queries";
+import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import {
   insertEnrollmentNotifications,
   uniqueEnrollmentNotificationRecipients,
@@ -80,9 +81,11 @@ export async function GET(_request: Request, { params }: Ctx) {
     );
   }
 
-  const record = await fetchEnrollmentRecordById(id);
-  if (!record) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ record });
+  const scoped = await loadScopedEnrollmentRecord(id, actorResult.actor);
+  if (!scoped.ok) {
+    return NextResponse.json({ error: scoped.error }, { status: scoped.status });
+  }
+  return NextResponse.json({ record: scoped.record });
 }
 
 export async function PATCH(request: Request, { params }: Ctx) {
@@ -108,18 +111,12 @@ export async function PATCH(request: Request, { params }: Ctx) {
     );
   }
 
-  const supabase = getSupabaseAdmin();
-  const { data: currentData, error: currentError } = await supabase
-    .from("enrollment_records")
-    .select("*")
-    .eq("id", id)
-    .is("archived_at", null)
-    .maybeSingle();
-  if (currentError) {
-    return NextResponse.json({ error: currentError.message }, { status: 500 });
+  const scoped = await loadScopedEnrollmentRecord(id, actorResult.actor);
+  if (!scoped.ok) {
+    return NextResponse.json({ error: scoped.error }, { status: scoped.status });
   }
-  if (!currentData) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const current = currentData as EnrollmentRecord;
+  const supabase = getSupabaseAdmin();
+  const current = scoped.record as EnrollmentRecord;
   if (!canMutateEnrollmentRecord(actorResult.actor, current)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -550,14 +547,11 @@ export async function DELETE(_request: Request, { params }: Ctx) {
 
   const supabase = getSupabaseAdmin();
   const nowIso = new Date().toISOString();
-  const { data: currentData, error: currentError } = await supabase
-    .from("enrollment_records")
-    .select("id,program,caller_email,responsible_enroll_email,created_by_email")
-    .eq("id", id)
-    .is("archived_at", null)
-    .maybeSingle();
-  if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
-  if (!currentData) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const scoped = await loadScopedEnrollmentRecord(id, actorResult.actor);
+  if (!scoped.ok) {
+    return NextResponse.json({ error: scoped.error }, { status: scoped.status });
+  }
+  const currentData = scoped.record;
   if (!canArchiveEnrollmentRecord(actorResult.actor, currentData)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
