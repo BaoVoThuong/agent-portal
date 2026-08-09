@@ -10,6 +10,9 @@ export const TASK_CATEGORY_COLORS = [
   "#5e6c84",
 ] as const;
 
+/** Shared pastel treatment for identity/category badges in list surfaces. */
+export const TASK_CATEGORY_BADGE_LIGHTEN = 0.72;
+
 export function taskCategoryPalette(
   category: Pick<TaskCategory, "id" | "name" | "color">
 ) {
@@ -41,7 +44,10 @@ export function taskCategoryBadgePalette(
   category: Pick<TaskCategory, "id" | "name" | "color">
 ) {
   const palette = taskCategoryPalette(category);
-  const background = lightenHexColor(palette.background, 0.16);
+  const background = lightenHexColor(
+    palette.background,
+    TASK_CATEGORY_BADGE_LIGHTEN
+  );
   return {
     background,
     foreground: readableTextColor(background),

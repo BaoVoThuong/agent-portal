@@ -11,6 +11,7 @@
 import {
   lightenHexColor,
   readableTextColor,
+  TASK_CATEGORY_BADGE_LIGHTEN,
 } from "@/lib/tasks/category-colors";
 import type { EnrollmentOption } from "./types";
 
@@ -18,7 +19,7 @@ import type { EnrollmentOption } from "./types";
 export const ENROLLMENT_STATE_BADGE_ALPHA = 0.14;
 
 /** Keep identity badges readable without using the raw saturated colour. */
-export const ENROLLMENT_IDENTITY_BADGE_LIGHTEN = 0.16;
+export const ENROLLMENT_IDENTITY_BADGE_LIGHTEN = TASK_CATEGORY_BADGE_LIGHTEN;
 
 /** Neutral badge for no selected option or invalid stored colour. */
 export const ENROLLMENT_BADGE_EMPTY = {

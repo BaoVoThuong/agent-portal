@@ -1557,7 +1557,7 @@ function CategoryBadge({ category }: { category: TaskCategory }) {
 
   return (
     <span
-      className="inline-flex max-w-full items-center truncate rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide"
+      className="inline-flex max-w-full items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
       title={category.name}
       style={{
         backgroundColor: palette.background,

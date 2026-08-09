@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { readableTextColor } from "@/lib/tasks/category-colors";
+import {
+  readableTextColor,
+  TASK_CATEGORY_BADGE_LIGHTEN,
+  taskCategoryBadgePalette,
+} from "@/lib/tasks/category-colors";
 import type { EnrollmentOption } from "./types";
 import {
   ENROLLMENT_BADGE_EMPTY,
@@ -55,9 +59,20 @@ describe("enrollmentIdentityBadgeStyle", () => {
 
   it("uses the same softened treatment for the same colour", () => {
     const style = enrollmentIdentityBadgeStyle(option("#6554c0"));
+    const csStyle = taskCategoryBadgePalette({
+      id: "category-1",
+      name: "Category",
+      color: "#6554c0",
+    });
     expect(style.fg).toBe(readableTextColor(style.bg));
     expect(style.bg).not.toBe("#6554c0");
-    expect(ENROLLMENT_IDENTITY_BADGE_LIGHTEN).toBe(0.16);
+    expect(style).toEqual({
+      bg: csStyle.background,
+      fg: csStyle.foreground,
+    });
+    expect(ENROLLMENT_IDENTITY_BADGE_LIGHTEN).toBe(
+      TASK_CATEGORY_BADGE_LIGHTEN
+    );
   });
 
   it("falls back to the neutral empty style with no option or no colour", () => {

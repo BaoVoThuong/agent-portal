@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  TASK_CATEGORY_BADGE_LIGHTEN,
   taskCategoryBadgePalette,
   taskCategoryPalette,
 } from "./category-colors";
@@ -13,6 +14,7 @@ describe("task category badge palette", () => {
     expect(badge.background).not.toBe(raw.background);
     expect(badge.background).toMatch(/^#[0-9a-f]{6}$/i);
     expect(badge.foreground).toBe("#172b4d");
+    expect(TASK_CATEGORY_BADGE_LIGHTEN).toBe(0.72);
   });
 
   it("uses the same softened treatment for fallback colours", () => {

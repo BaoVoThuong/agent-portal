@@ -2335,7 +2335,7 @@ function EnrollmentOptionMenu({
           drawsOwnChrome
             ? DETAIL_FIELD_BUTTON_CLASS
             : rendersIdentityBadge
-              ? "flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide disabled:cursor-not-allowed disabled:opacity-60"
+              ? "flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em] disabled:cursor-not-allowed disabled:opacity-60"
               : "flex w-full min-w-0 items-center disabled:cursor-not-allowed disabled:opacity-60"
         }
         style={
