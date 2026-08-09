@@ -3626,18 +3626,30 @@ git commit -m "fix(comments): harden attachment presentation and preview"
 
 ## Task 25: Final reconciliation and go-live record
 
-- [ ] Re-run `npx tsx scripts/audit-task-collaboration.ts` and diff against Task 1's baseline.
-- [ ] Confirm `last_activity_actor_mismatch` is **0** (11 at audit time).
-- [ ] Confirm `overdue_gaps` is **0** (11 activity gaps, 8 event gaps at audit time).
-- [ ] Confirm `comment_activity_gaps` is **0** and `unsignable_attachments` is **0**.
-- [ ] Report `duplicate_comment_candidates` for owner review. **Never auto-delete** — identical text
+- [ ] Re-run `npx tsx scripts/audit-task-collaboration.ts` and diff against Task 1's baseline. **Blocked:** this environment has no `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`.
+- [ ] Confirm `last_activity_actor_mismatch` is **0** (11 at audit time). **Pending production audit.**
+- [ ] Confirm `overdue_gaps` is **0** (11 activity gaps, 8 event gaps at audit time). **Pending production audit.**
+- [ ] Confirm `comment_activity_gaps` is **0** and `unsignable_attachments` is **0**. **Pending production audit.**
+- [ ] Report `duplicate_comment_candidates` for owner review. **Pending production audit; never auto-delete** — identical text
       is a legitimate user action, and only the request id can distinguish intent.
-- [ ] Run `npx vitest run && npm run typecheck && npm run lint && npm run build`.
+- [x] Run `npx vitest run && npm run typecheck && npm run lint && npm run build`. 560 tests passed; typecheck passed after the build-generated `.next` types completed; lint passed with three existing ref-cleanup warnings; build passed.
 - [ ] Walk the full manual matrix in §9 on Health CS, ACA, **and** Medicare.
-- [ ] Run a text scan proving no comment card, deleted placeholder, edit form, edit history, `title`,
-      or accessibility label renders a raw email.
-- [ ] Record accepted residual P3 risks — especially the F17 malware decision — with a named owner.
-- [ ] Record the final go-live status in the Execution Log.
+- [x] Run a static text scan of `CommentThread.tsx`: email values remain identity keys/search inputs only; comment cards, deleted placeholders, edit forms/history, titles, and accessibility labels render canonical names or generic labels. Browser accessibility-tree verification remains pending.
+- [ ] Record accepted residual P3 risks — especially the F17 malware decision — with a named owner. **Owner sign-off pending:** Security/Product must accept the authenticated Office/PDF malware-scanning gap; Engineering must run production SQL/audits and the browser matrix.
+- [x] Record the final go-live status in the Execution Log: **NOT READY for production until the pending production SQL/audit, role/browser matrix, and risk sign-offs complete; code quality is READY WITH RISKS.**
+
+### Final reconciliation snapshot — 2026-08-10
+
+- **Automated quality:** 560 tests passed; typecheck passed; lint passed with 3 pre-existing
+  `react-hooks/exhaustive-deps` warnings; production build passed.
+- **Production verification:** audit script was attempted and stopped before querying because the
+  environment does not provide Supabase service credentials. SQL migrations, RPCs, live concurrency,
+  storage fault injection, and baseline-vs-postbackfill counts therefore remain unverified.
+- **Residual risks:** browser/screen-reader matrix is still pending; F17 malware scanning remains
+  intentionally out of scope and needs named Security/Product acceptance for Office/PDF uploads.
+- **Go-live recommendation:** **NOT READY** until the production migration/audit and manual matrix
+  pass. Once those are clean and the residual risk is accepted, the implemented code can be promoted
+  as **READY WITH RISKS**; no unresolved P0/P1 code finding remains in this worktree.
 
 ```bash
 git add docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md changelog.md
@@ -3767,10 +3779,10 @@ one task, or once the 200-row activity cap is actually reached.
 
 | Task | Phase | Sev | Status | Commit | Verification | Notes |
 |---|---|---|---|---|---|---|
-| 1. Audit script | A | — | Implemented | `TBD` | `npm run typecheck` passed | Script and restricted audit RPCs added; baseline execution pending because local Postgres is unavailable and `tsx` is not installed. |
-| 2. Version monotonicity | A | P1 | Implemented | `TBD` | Targeted test + typecheck passed | Trigger and committed-token return added; SQL trigger execution remains pending until Postgres is available. |
-| 3. Typed contracts | A | — | Implemented | `TBD` | Targeted tests + typecheck passed | Vocabulary matches the current SQL constraint, including the existing `agent_changed` event; unknown historical values remain tolerated. |
-| 4. Signing isolation | B | **P1** | Implemented | `TBD` | Detail test + typecheck passed | Added per-file signing fallback and unavailable UI; browser/storage corruption check still pending. |
+| 1. Audit script | A | — | Implemented | `e554e91` | `npm run typecheck` passed | Script and restricted audit RPCs added; baseline execution pending because production Supabase credentials are unavailable. |
+| 2. Version monotonicity | A | P1 | Implemented | `24146e8` | Targeted test + typecheck passed | Trigger and committed-token return added; SQL trigger execution remains pending until production migration is applied. |
+| 3. Typed contracts | A | — | Implemented | `e520f0e` | Targeted tests + typecheck passed | Vocabulary matches the current SQL constraint, including the existing `agent_changed` event; unknown historical values remain tolerated. |
+| 4. Signing isolation | B | **P1** | Implemented | `b59131d` | Detail test + typecheck passed | Added per-file signing fallback and unavailable UI; browser/storage corruption check still pending. |
 | 5. Delete ordering | B | **P1** | Implemented | `fb7fd68` | Typecheck passed | Metadata/audit commit now precedes best-effort storage cleanup; DB/storage fault injection pending. |
 | 6. Atomic comment create | B | **P1** | Implemented | `f48e1e1` | Typecheck + targeted tests passed | Comment/idempotency/participant writes are atomic; notification and realtime are warning-only after commit. Added the task actor column early so Task 12 can complete without a schema dependency. Live RPC/concurrency fault injection pending. |
 | 7. Submission guard | C | P2 | Implemented | `9dcf7a1` | Submission unit tests + typecheck passed | Shared ref-based in-flight guard and request token wired into Tasks, ACA, and Medicare; Enrollment has an atomic replay command. Browser double-click and live DB replay pending. |
@@ -3791,4 +3803,4 @@ one task, or once the 200-row activity cap is actually reached.
 | 22. Activity vocabulary | D | P3 | Implemented | `968b093` | Activity vocabulary tests + typecheck + targeted lint passed | F14. Extracted a testable label map covering every allowed task_activity type, added attachment/comment edit/delete labels, routed assignment wording through describeActivity, and removed dead branches for impossible event types. Unknown historical rows still degrade to raw text. |
 | 23. Navigation + feedback | D | P3 | Implemented | `f8af6f1` | `npx vitest run src/lib/tasks/thread-view.test.ts`, `npm run typecheck`, targeted ESLint passed (3 pre-existing ref warnings) | F22 + F23. Remote comments no longer yank readers away from older rows; own sends/bottom-follow and deep links are preserved, with a New comments affordance. One visible-thread clock refreshes relative labels, counters exclude deleted placeholders, and edit-history/delete failures use inline accessible feedback plus focused confirmation. Browser matrix and live reload-failure verification pending. |
 | 24. Attachment UI | D | P3 | Implemented | `b49eeaa` | `npm run typecheck`, targeted ESLint, targeted attachment/thread tests passed (3 pre-existing ref warnings) | F24. Attachment rows now show safe truncated names, full-name titles, sizes, icons, unavailable state, and upload/retry state. Composer uses the shared MIME accept hint and gives duplicate/unsupported/limit feedback while server checks remain authoritative. Image preview now has labelled accessible dialog semantics, focus trap/restore, Escape/backdrop close, scroll lock, loading/error states, and Open/Download actions; text/reply layout is responsive and overflow-safe. Browser matrix on narrow widths, expired/broken links, and screen-reader verification pending. |
-| 25. Final reconciliation | — | — | Pending | — | — | Go-live decision recorded here |
+| 25. Final reconciliation | — | — | Implemented | `TBD` | 560 tests, typecheck, lint, and build passed; audit blocked by missing Supabase credentials | Static identity scan passed. Production audit/backfill, SQL/RPC execution, browser/accessibility matrix, and F17 risk sign-off remain pending. Final status: **NOT READY** until those gates pass; code is **READY WITH RISKS**. |
