@@ -489,6 +489,19 @@ async function main() {
 
   const agentEmails = await loadEligibleAgentEmails(supabase);
 
+  const assistantsArg = process.argv.find((arg) =>
+    arg.startsWith("--seed-assistants=")
+  );
+  if (assistantsArg) {
+    await seedSampleAssistants(
+      supabase,
+      agentEmails,
+      assistantsArg.split("=")[1] ?? "",
+      process.argv.includes("--dry-run")
+    );
+    return;
+  }
+
   if (process.argv.includes("--backfill-agents")) {
     await backfillSampleAgents(supabase, agentEmails);
     return;
@@ -614,6 +627,83 @@ async function backfillSampleAgents(supabase, agentEmails) {
   if (unknown > 0) {
     console.log(`Skipped ${unknown} record(s) with an unrecognised sample link.`);
   }
+}
+
+// Assistant membership is a real permission grant. Pairs must be supplied
+// explicitly and are always printed before any write:
+//   --seed-assistants=cs@x.com:agent@x.com --dry-run
+// The environment confirmation prevents this mode from firing accidentally.
+async function seedSampleAssistants(supabase, agentEmails, pairsArg, dryRun) {
+  if (process.env.SEED_ALLOW_ASSISTANTS !== "1") {
+    throw new Error(
+      "Refusing to modify agent_members: set SEED_ALLOW_ASSISTANTS=1 to confirm this is a non-production database."
+    );
+  }
+
+  const pairs = pairsArg
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [csEmail, agentEmail] = entry
+        .split(":")
+        .map((part) => part?.trim().toLowerCase());
+      if (!csEmail || !agentEmail) {
+        throw new Error(
+          `Bad --seed-assistants entry "${entry}" — expected cs@email:agent@email`
+        );
+      }
+      return { cs_email: csEmail, agent_email: agentEmail };
+    });
+  if (pairs.length === 0) {
+    throw new Error("--seed-assistants needs at least one cs:agent pair.");
+  }
+
+  const agentSet = new Set(agentEmails.map((email) => email.toLowerCase()));
+  const { data: accounts, error } = await supabase
+    .from("portal_account")
+    .select("email")
+    .eq("is_active", true);
+  if (error) throw new Error(`Unable to read portal_account: ${error.message}`);
+  const activeEmails = new Set(
+    (accounts ?? [])
+      .map((row) => row.email?.trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  for (const pair of pairs) {
+    if (!agentSet.has(pair.agent_email)) {
+      throw new Error(`"${pair.agent_email}" is not an eligible agent.`);
+    }
+    if (!activeEmails.has(pair.cs_email)) {
+      throw new Error(`"${pair.cs_email}" is not an active account.`);
+    }
+    if (agentSet.has(pair.cs_email)) {
+      throw new Error(
+        `"${pair.cs_email}" is itself an agent — an assistant must be someone else.`
+      );
+    }
+  }
+
+  console.log(`Target database: ${process.env.SUPABASE_URL}`);
+  for (const pair of pairs) {
+    console.log(`  ${pair.cs_email} → assistant for ${pair.agent_email}`);
+  }
+  if (dryRun) {
+    console.log("--dry-run: nothing written.");
+    return;
+  }
+
+  const { error: upsertError } = await supabase
+    .from("agent_members")
+    .upsert(
+      pairs.map((pair) => ({ ...pair, is_assistant: true })),
+      { onConflict: "agent_email,cs_email" }
+    );
+  if (upsertError) {
+    throw new Error(`Unable to seed agent_members: ${upsertError.message}`);
+  }
+  console.log(`Granted ${pairs.length} assistant relationship(s).`);
 }
 
 // Loads every option set + option across both programs. Returns:

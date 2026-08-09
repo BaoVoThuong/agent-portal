@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Thêm chế độ seed assistant có guard
+- **Loại**: feat, security
+- **Cái gì**: Seed script chỉ tạo assistant membership khi người chạy truyền explicit `cs:agent` allow-list, bật `SEED_ALLOW_ASSISTANTS=1`; hỗ trợ `--dry-run`, in target database và toàn bộ pair trước khi ghi.
+- **Vì sao**: Assistant có quyền ngang agent-owner; tự chọn active account hoặc chạy nhầm production có thể cấp quyền truy cập dữ liệu ngoài ý muốn.
+- **File**: `scripts/seed-enrollment-samples.mjs`
+- **Ảnh hưởng**: Không có write mặc định; chỉ các pair hợp lệ trên môi trường được xác nhận mới được upsert vào `agent_members`.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-permission-final.md`; Phase 0 Task 0.2
+
 ## 2026-08-09 — Gán agent hợp lệ cho enrollment sample
 - **Loại**: feat
 - **Cái gì**: Enrollment sample seed lấy roster từ giao của `task_agents` và active `portal_account`, phân bổ agent round-robin ổn định với cùng roster, ghi `agent_email` cho record mới và hỗ trợ `--backfill-agents` cho sample cũ.
