@@ -3776,7 +3776,7 @@ one task, or once the 200-row activity cap is actually reached.
 | 8. Comment/file state split | C | P2 | Implemented | `19f9f44` | Submission tests + typecheck passed | Durable comment, per-file upload, reload warning, retry state, and blob URL cleanup are separated in the shared Tasks/Enrollment composer. Full browser fault injection pending. |
 | 9. Attachment idempotency | C | P2 | Implemented | `923075b` | Attachment validation tests + typecheck passed | Multipart auth gate, sign-before-commit, atomic metadata/audit, idempotency replay, compensation, and warning-only side effects implemented. Live storage/DB fault injection pending. |
 | 10. Atomic comment edit | C | P2 | Implemented | `c9249a2` | Typecheck + targeted tests passed | Task and Enrollment edits now use locked compare-and-swap RPCs with atomic history/activity; UI keeps drafts and surfaces 409s. Two-tab/browser conflict test pending. |
-| 11. Deletion retention | C | P2 | Implemented | `TBD` | Typecheck + detail tests passed | Task comment/attachment soft-delete RPC, reply-preserving placeholder, search/detail/count filters, confirmation, and warning cleanup implemented. Live storage/search verification pending. |
+| 11. Deletion retention | C | P2 | Implemented | `4ce4f97` | Typecheck + detail tests passed | Task comment/attachment soft-delete RPC, reply-preserving placeholder, search/detail/count filters, confirmation, and warning cleanup implemented. Live storage/search verification pending. |
 | 12. Last-activity pair | C | P2 | Pending | — | — | F10. **Land before Task 6** |
 | 13. Unassigned activity | C | P2 | Pending | — | — | F11 |
 | 14. Atomic task create | C | P2 | Pending | — | — | F12 |
