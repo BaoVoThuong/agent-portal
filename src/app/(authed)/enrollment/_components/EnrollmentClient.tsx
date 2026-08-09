@@ -230,7 +230,6 @@ const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
   { key: "pcp2025", label: "PCP 2025", width: 180, sortable: true },
   { key: "pcp2026", label: "PCP 2026", width: 180, sortable: true },
   { key: "due", label: "Due Date", width: 110, sortable: true },
-  { key: "fub", label: "FUB Link", width: 84, align: "center" },
   { key: "createdBy", label: "Created by", width: 130, sortable: true },
   { key: "createdAt", label: "Created time", width: 120, sortable: true },
   { key: "updatedBy", label: "Last edited by", width: 130, sortable: true },
@@ -551,10 +550,17 @@ export function EnrollmentClient({
   // Label source for surfaces that don't get the per-user-filtered list —
   // built from `columns` (already resolves live label/position/Medicare
   // overrides over defaults), never from a second independent derivation.
-  const columnByKey = useMemo(
-    () => new Map(columns.map((column) => [column.key, column])),
-    [columns]
-  );
+  const columnByKey = useMemo(() => {
+    const labels = new Map<string, { label: string }>(
+      layoutTableColumns.map((column) => [column.key, { label: column.label }])
+    );
+    // Program-specific labels (for example Medicare Assignee/PCP) override
+    // the shared config label. FUB stays in this label map even though its
+    // List presentation is embedded in Client Name rather than a standalone
+    // column.
+    for (const column of columns) labels.set(column.key, { label: column.label });
+    return labels;
+  }, [columns, layoutTableColumns]);
   const [hiddenColumnKeys, toggleColumn, setHiddenColumnKeys] =
     useHiddenEnrollmentColumns(program, columns);
   const visibleColumns = useMemo(
@@ -778,15 +784,19 @@ export function EnrollmentClient({
     [records, filters, optionsById, peopleByEmail, sort, currentEmail]
   );
   const exportColumnKeys = useMemo(
-    () =>
-      columns
+    () => {
+      const keys = columns
         .filter(
           (column) =>
             column.locked || column.sticky || !hiddenColumnKeys.has(column.key)
         )
-        .map((column) => column.key)
-        .join(","),
-    [columns, hiddenColumnKeys]
+        .map((column) => column.key);
+      // The FUB link is visibly embedded in Client Name, so keep exporting it
+      // whenever the admin has not archived that system field.
+      if (adminVisibleColumnKeys.has("fub")) keys.push("fub");
+      return [...new Set(keys)].join(",");
+    },
+    [adminVisibleColumnKeys, columns, hiddenColumnKeys]
   );
   const exportRecordIds = useMemo(
     () => visibleRecords.map((record) => record.id),
@@ -1870,11 +1880,25 @@ function EnrollmentRowItem({
               event.stopPropagation();
               onOpen(record.id);
             }}
-            className="w-full min-w-0 truncate rounded px-1.5 py-1 text-left text-sm font-medium text-[#172b4d] transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
+            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-sm font-medium text-[#172b4d] transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
             title={record.client_name || "Unnamed client"}
           >
             <span className="block truncate">{record.client_name || "Unnamed client"}</span>
           </button>
+          {record.fub_link ? (
+            <a
+              href={formatExternalLink(record.fub_link)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[#b3d4ff] bg-[#deebff] text-[#0055cc] transition hover:bg-[#cce0ff]"
+              title="Open FUB"
+              aria-label="Open FUB"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          ) : null}
         </div>
       ) : null}
 
@@ -2088,30 +2112,6 @@ function EnrollmentRowItem({
             onSave={(next) => onPatch(record.id, { due_date: next })}
             className="w-full !text-xs !font-medium !text-[#6b778c]"
           />
-        </div>
-      ) : null}
-
-      {/* FUB Link */}
-      {has("fub") ? (
-        <div
-          style={cellStyleFor("fub")}
-          className={cellClassName("fub", "flex shrink-0 items-center justify-center px-2 py-2.5")}
-        >
-          {record.fub_link ? (
-            <a
-              href={formatExternalLink(record.fub_link)}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(event) => event.stopPropagation()}
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[#b3d4ff] bg-[#deebff] text-[#0055cc]"
-              title="Open FUB"
-              aria-label="Open FUB"
-            >
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          ) : (
-            <span className="text-xs text-[#97a0af]">-</span>
-          )}
         </div>
       ) : null}
 
