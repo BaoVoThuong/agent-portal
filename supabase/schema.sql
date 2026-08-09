@@ -3088,6 +3088,9 @@ begin
       ) values (new_record.id, new_record.stage_id, new_record.agent_email, new_record.program,
                 'dwell', p_now, actor, 'live');
     end if;
+    insert into enrollment_stage_history (
+      record_id, from_option_id, to_option_id, changed_by_email, changed_at
+    ) values (new_record.id, null, new_record.stage_id, actor, p_now);
   end if;
   perform enrollment_write_activity_internal(new_record.id, actor, p_activity, p_now);
   return to_jsonb(new_record);

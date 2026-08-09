@@ -19,6 +19,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ---
 
+## 2026-08-10 — Preserve initial Enrollment stage history in create RPC
+- **Loại**: fix
+- **Cái gì**: `create_enrollment_atomic` now writes the initial `enrollment_stage_history` row in the same transaction as the record and first stage cycle.
+- **Vì sao**: Moving create out of the route removed the old best-effort history write; without this, newly created records had cycle data but no initial stage transition.
+- **File**: `supabase/schema.sql`, `supabase/rollouts/2026-08-09-enrollment-stage-time-schema.sql`
+- **Ảnh hưởng**: Only new Enrollment records with a stage receive the initial history row; no existing data is changed.
+
 ## 2026-08-10 — Add scoped live stage-dwell metrics to Enrollment Overview
 - **Loại**: feat, perf
 - **Cái gì**: Added a paginated, count-guarded stage-cycle query scoped by visible enrollment record IDs, restricted to completed live dwell cycles from the last 90 days. The Overview now shows median/p75 time-in-stage and an explicit insufficient-sample state; archived stage labels remain readable for historical rows.
