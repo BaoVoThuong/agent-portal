@@ -2085,6 +2085,88 @@ revoke all on function create_task_attachment_atomic(uuid, uuid, text, text, tex
 grant execute on function create_task_attachment_atomic(uuid, uuid, text, text, text, bigint, text, uuid)
   to service_role;
 
+-- Compare-and-swap comment edits. The task lock keeps the returned parent
+-- version aligned with the activity/timestamp update, while the history and
+-- audit inserts remain in the same transaction as the new body.
+create or replace function edit_task_comment_atomic(
+  p_comment_id uuid,
+  p_task_id uuid,
+  p_actor_email text,
+  p_body text,
+  p_expected_updated_at timestamptz,
+  p_new_mentions text[]
+) returns table (comment jsonb, parent_updated_at timestamptz)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_task tasks%rowtype;
+  v_row task_comments%rowtype;
+  v_now timestamptz;
+begin
+  select * into v_task from tasks where id = p_task_id for update;
+  if not found then raise exception 'TASK_NOT_FOUND'; end if;
+
+  select * into v_row
+  from task_comments
+  where id = p_comment_id and task_id = p_task_id
+  for update;
+  if not found then raise exception 'COMMENT_NOT_FOUND'; end if;
+  if v_row.author_email <> p_actor_email then raise exception 'FORBIDDEN'; end if;
+  if v_row.deleted_at is not null then raise exception 'COMMENT_DELETED'; end if;
+  if p_expected_updated_at is not null and v_row.updated_at <> p_expected_updated_at then
+    raise exception 'COMMENT_CONFLICT';
+  end if;
+
+  if v_row.body = p_body then
+    comment := to_jsonb(v_row);
+    parent_updated_at := v_task.updated_at;
+    return next;
+    return;
+  end if;
+
+  insert into task_comment_edits (comment_id, previous_body, edited_by)
+  values (p_comment_id, v_row.body, p_actor_email);
+
+  v_now := greatest(clock_timestamp(), v_row.updated_at + interval '1 microsecond');
+  update task_comments
+  set body = p_body, updated_at = v_now
+  where id = p_comment_id
+  returning * into v_row;
+
+  insert into task_activity (task_id, actor_email, type, meta)
+  values (
+    p_task_id,
+    p_actor_email,
+    'comment_edited',
+    jsonb_build_object('comment_id', p_comment_id)
+  );
+
+  if p_new_mentions is not null and array_length(p_new_mentions, 1) > 0 then
+    insert into task_participants (task_id, email, source)
+    select p_task_id, mention_email, 'mention'
+    from unnest(p_new_mentions) as mention_email
+    where mention_email is not null and btrim(mention_email) <> ''
+    on conflict (task_id, email) do nothing;
+  end if;
+
+  v_now := greatest(clock_timestamp(), v_task.updated_at + interval '1 microsecond');
+  update tasks
+  set updated_at = v_now,
+      last_activity_at = v_now,
+      last_activity_by_email = p_actor_email,
+      stale_reminded_at = null
+  where id = p_task_id;
+
+  comment := to_jsonb(v_row);
+  parent_updated_at := v_now;
+  return next;
+end;
+$$;
+
+revoke all on function edit_task_comment_atomic(uuid, uuid, text, text, timestamptz, text[])
+  from public, anon, authenticated;
+grant execute on function edit_task_comment_atomic(uuid, uuid, text, text, timestamptz, text[])
+  to service_role;
+
 create table if not exists task_notifications (
   id uuid primary key default gen_random_uuid(),
   recipient_email text not null,
@@ -3635,7 +3717,9 @@ create table if not exists enrollment_activity (
       'reopened',
       'archived',
       'due_soon',
-      'went_overdue'
+      'went_overdue',
+      'comment_edited',
+      'comment_deleted'
     )
   ),
   meta jsonb,
@@ -3644,6 +3728,67 @@ create table if not exists enrollment_activity (
 
 create index if not exists enrollment_activity_record_idx
   on enrollment_activity (record_id, created_at desc);
+
+create or replace function edit_enrollment_comment_atomic(
+  p_comment_id uuid,
+  p_record_id uuid,
+  p_actor_email text,
+  p_body text,
+  p_expected_updated_at timestamptz
+) returns table (comment jsonb, parent_updated_at timestamptz)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_record enrollment_records%rowtype;
+  v_comment enrollment_comments%rowtype;
+  v_now timestamptz;
+begin
+  select * into v_record from enrollment_records where id = p_record_id for update;
+  if not found then raise exception 'ENROLLMENT_NOT_FOUND'; end if;
+  select * into v_comment
+  from enrollment_comments
+  where id = p_comment_id and record_id = p_record_id
+  for update;
+  if not found then raise exception 'COMMENT_NOT_FOUND'; end if;
+  if v_comment.author_email <> p_actor_email then raise exception 'FORBIDDEN'; end if;
+  if v_comment.deleted_at is not null then raise exception 'COMMENT_DELETED'; end if;
+  if p_expected_updated_at is not null and v_comment.updated_at <> p_expected_updated_at then
+    raise exception 'COMMENT_CONFLICT';
+  end if;
+
+  if v_comment.body = p_body then
+    comment := to_jsonb(v_comment);
+    parent_updated_at := v_record.updated_at;
+    return next;
+    return;
+  end if;
+
+  insert into enrollment_comment_edits (comment_id, previous_body, edited_by)
+  values (p_comment_id, v_comment.body, p_actor_email);
+  v_now := greatest(clock_timestamp(), v_comment.updated_at + interval '1 microsecond');
+  update enrollment_comments
+  set body = p_body, updated_at = v_now
+  where id = p_comment_id
+  returning * into v_comment;
+  insert into enrollment_activity (record_id, actor_email, type, meta)
+  values (p_record_id, p_actor_email, 'comment_edited',
+          jsonb_build_object('comment_id', p_comment_id));
+  v_now := greatest(clock_timestamp(), v_record.updated_at + interval '1 microsecond');
+  update enrollment_records
+  set updated_at = v_now,
+      updated_by_email = p_actor_email,
+      last_activity_at = v_now,
+      last_activity_by_email = p_actor_email
+  where id = p_record_id;
+  comment := to_jsonb(v_comment);
+  parent_updated_at := v_now;
+  return next;
+end;
+$$;
+
+revoke all on function edit_enrollment_comment_atomic(uuid, uuid, text, text, timestamptz)
+  from public, anon, authenticated;
+grant execute on function edit_enrollment_comment_atomic(uuid, uuid, text, text, timestamptz)
+  to service_role;
 
 create table if not exists enrollment_attachments (
   id uuid primary key default gen_random_uuid(),

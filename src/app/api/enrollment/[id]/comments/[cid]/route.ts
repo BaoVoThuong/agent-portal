@@ -8,9 +8,6 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string; cid: string }> };
 
-const COMMENT_COLUMNS =
-  "id,record_id,parent_id,author_email,body,created_at,updated_at,deleted_at";
-
 export async function PATCH(request: Request, { params }: Ctx) {
   const { id, cid } = await params;
   const context = await loadAuthorContext(id, cid);
@@ -22,31 +19,49 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const text = typeof body?.body === "string" ? body.body.trim() : "";
   if (!text) return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
 
-  if (context.currentBody !== text) {
-    await context.supabase.from("enrollment_comment_edits").insert({
-      comment_id: cid,
-      previous_body: context.currentBody,
-      edited_by: context.email,
-    });
+  const expectedUpdatedAt =
+    typeof body?.expected_updated_at === "string" ? body.expected_updated_at : null;
+  const { data: edited, error } = await context.supabase
+    .rpc("edit_enrollment_comment_atomic", {
+      p_comment_id: cid,
+      p_record_id: id,
+      p_actor_email: context.email,
+      p_body: text,
+      p_expected_updated_at: expectedUpdatedAt,
+    })
+    .single();
+  if (error) {
+    if (error.message.includes("COMMENT_CONFLICT")) {
+      return NextResponse.json(
+        { error: "This comment was edited somewhere else. Refresh to see the latest version." },
+        { status: 409 },
+      );
+    }
+    if (error.message.includes("FORBIDDEN")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (error.message.includes("COMMENT_NOT_FOUND")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (error.message.includes("COMMENT_DELETED")) {
+      return NextResponse.json({ error: "Comment is deleted." }, { status: 409 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const { data, error } = await context.supabase
-    .from("enrollment_comments")
-    .update({ body: text, updated_at: new Date().toISOString() })
-    .eq("id", cid)
-    .select(COMMENT_COLUMNS)
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
-    p_record_id: id,
-    p_actor_email: context.email,
-    p_now: new Date().toISOString(),
-  });
-  if (touchError) console.error("Enrollment comment edit activity touch failed", touchError);
-
-  await broadcastEnrollmentRoom(id);
-  return NextResponse.json({ comment: data });
+  const { comment, parent_updated_at: parentUpdatedAt } = edited as {
+    comment: Record<string, unknown>;
+    parent_updated_at: string;
+  };
+  const warnings: string[] = [];
+  try {
+    await broadcastEnrollmentRoom(id);
+  } catch (broadcastError) {
+    warnings.push(
+      `Enrollment comment broadcast failed: ${broadcastError instanceof Error ? broadcastError.message : "unknown error"}`,
+    );
+  }
+  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings });
 }
 
 export async function DELETE(_request: Request, { params }: Ctx) {
@@ -86,7 +101,7 @@ async function loadAuthorContext(id: string, cid: string) {
   const supabase = getSupabaseAdmin();
   const { data: comment, error: commentError } = await supabase
     .from("enrollment_comments")
-    .select("id,record_id,author_email,body")
+    .select("id,record_id,author_email,body,updated_at,deleted_at")
     .eq("id", cid)
     .maybeSingle();
   if (commentError) return { error: commentError.message, status: 500 } as const;
@@ -96,6 +111,8 @@ async function loadAuthorContext(id: string, cid: string) {
     record_id: string;
     author_email: string;
     body: string;
+    updated_at: string;
+    deleted_at: string | null;
   };
   if (commentRow.record_id !== id) return { error: "Not found", status: 404 } as const;
   if (commentRow.author_email !== actorResult.actor.email) {
@@ -106,5 +123,6 @@ async function loadAuthorContext(id: string, cid: string) {
     supabase,
     email: actorResult.actor.email,
     currentBody: commentRow.body,
+    currentUpdatedAt: commentRow.updated_at,
   };
 }

@@ -51,6 +51,7 @@ type Comment = CommentWithAttachments & {
   author_email: string;
   body: string;
   created_at: string;
+  updated_at?: string;
   deleted_at: string | null;
   optimistic?: boolean;
   failed?: boolean;
@@ -81,6 +82,10 @@ type ActiveMention = {
   start: number;
   end: number;
 };
+
+type EditOutcome =
+  | { ok: true }
+  | { ok: false; kind: "conflict" | "error"; message: string };
 
 type MentionMenuPosition = {
   top: number;
@@ -658,15 +663,39 @@ export function CommentThread({
     if (res.ok) await onReload();
   }
 
-  async function edit(id: string, body: string) {
-    const res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
+  async function edit(
+    id: string,
+    body: string,
+    expectedUpdatedAt: string | null,
+  ): Promise<EditOutcome> {
+    let res: Response;
+    try {
+      res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body }),
-    });
-    if (!res.ok) return false;
-    await onReload();
-    return true;
+        body: JSON.stringify({ body, expected_updated_at: expectedUpdatedAt }),
+      });
+    } catch {
+      return { ok: false, kind: "error", message: "Could not save the edit. Try again." };
+    }
+    if (!res.ok) {
+      const message = await readResponseError(res, "Could not save the edit.");
+      return {
+        ok: false,
+        kind: res.status === 409 ? "conflict" : "error",
+        message,
+      };
+    }
+    const result = (await res.json().catch(() => null)) as {
+      parent_updated_at?: string;
+    } | null;
+    if (result?.parent_updated_at) onParentUpdatedAt?.(result.parent_updated_at);
+    try {
+      await onReload();
+    } catch {
+      return { ok: false, kind: "error", message: "Saved, but the thread could not refresh." };
+    }
+    return { ok: true };
   }
 
   // Posting broadcasts to the room, so a reload can deliver the real comment
@@ -873,7 +902,7 @@ function CommentItem({
   currentEmail: string;
   nameOf: (email: string) => string;
   onDelete: (id: string) => Promise<void> | void;
-  onEdit: (id: string, body: string) => Promise<boolean>;
+  onEdit: (id: string, body: string, expectedUpdatedAt: string | null) => Promise<EditOutcome>;
   onReply?: () => void;
   onRetryFile?: (fileId: string) => void;
   onPreviewImage: (preview: ImagePreview) => void;
@@ -955,7 +984,8 @@ function CommentItem({
             <EditCommentForm
               initialBody={c.body}
               onCancel={() => setIsEditing(false)}
-              onSave={(body) => onEdit(c.id, body)}
+              onSave={(body, expectedUpdatedAt) => onEdit(c.id, body, expectedUpdatedAt)}
+              expectedUpdatedAt={c.updated_at ?? null}
             />
           ) : (
             <>
@@ -1145,18 +1175,21 @@ function CommentItem({
 
 function EditCommentForm({
   initialBody,
+  expectedUpdatedAt,
   onCancel,
   onSave,
 }: {
   initialBody: string;
+  expectedUpdatedAt: string | null;
   onCancel: () => void;
-  onSave: (body: string) => Promise<boolean>;
+  onSave: (body: string, expectedUpdatedAt: string | null) => Promise<EditOutcome>;
 }) {
   const [decodedInitialBody] = useState(() =>
     decodeStoredMentions(initialBody),
   );
   const [body, setBody] = useState(decodedInitialBody.text);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const trimmed = body.trim();
   const encodedBody = encodeDraftMentions(trimmed, decodedInitialBody.mentions);
   const unchanged = encodedBody === initialBody.trim();
@@ -1170,8 +1203,9 @@ function EditCommentForm({
 
     setSaving(true);
     try {
-      const ok = await onSave(encodedBody);
-      if (ok) onCancel();
+      const result = await onSave(encodedBody, expectedUpdatedAt);
+      if (result.ok) onCancel();
+      else setError(result.message);
     } finally {
       setSaving(false);
     }
@@ -1199,6 +1233,11 @@ function EditCommentForm({
         rows={3}
         className="block min-h-[4.5rem] w-full resize-y bg-white px-3 py-2 text-sm leading-5 text-[#172b4d] outline-none"
       />
+      {error ? (
+        <p role="alert" className="border-t border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
+          {error}
+        </p>
+      ) : null}
       <div className="flex items-center justify-end gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-3 py-2">
         <button
           type="button"

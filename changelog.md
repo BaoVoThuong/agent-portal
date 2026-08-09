@@ -467,3 +467,7 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   storage upload, signing, and atomic metadata/audit commit have explicit
   compensation/idempotency boundaries, and activity metadata stores identifiers
   rather than customer-controlled filenames.
+- Made task and enrollment comment edits compare-and-swap operations with
+  transactional edit history/activity and explicit 409 conflict responses;
+  the editor keeps its draft and shows the server error instead of silently
+  closing or overwriting another tab.
