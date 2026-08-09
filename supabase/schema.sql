@@ -1355,6 +1355,27 @@ alter table tasks add column if not exists last_activity_at timestamptz;
 update tasks set last_activity_at = coalesce(updated_at, created_at)
 where last_activity_at is null;
 
+-- Clamp optimistic-concurrency and last-activity tokens at the database
+-- column so application clocks cannot move either value backwards.
+create or replace function tasks_updated_at_monotonic()
+returns trigger language plpgsql as $$
+begin
+  if new.updated_at is null or new.updated_at <= old.updated_at then
+    new.updated_at := old.updated_at + interval '1 microsecond';
+  end if;
+  if new.last_activity_at is not null
+     and old.last_activity_at is not null
+     and new.last_activity_at < old.last_activity_at then
+    new.last_activity_at := old.last_activity_at;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists tasks_updated_at_monotonic on tasks;
+create trigger tasks_updated_at_monotonic
+  before update on tasks
+  for each row execute function tasks_updated_at_monotonic();
+
 -- Anti-duplicate markers for the new cron reminders (mirror the existing
 -- overdue_reminded_at / todo_reminded_at / waiting_reminded_at). Cleared when
 -- the relevant clock restarts so the reminder can re-arm.

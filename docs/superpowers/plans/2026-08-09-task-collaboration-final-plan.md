@@ -3767,7 +3767,7 @@ one task, or once the 200-row activity cap is actually reached.
 | Task | Phase | Sev | Status | Commit | Verification | Notes |
 |---|---|---|---|---|---|---|
 | 1. Audit script | A | — | Implemented | `TBD` | `npm run typecheck` passed | Script and restricted audit RPCs added; baseline execution pending because local Postgres is unavailable and `tsx` is not installed. |
-| 2. Version monotonicity | A | P1 | Pending | — | — | F2 column half |
+| 2. Version monotonicity | A | P1 | Implemented | `TBD` | Targeted test + typecheck passed | Trigger and committed-token return added; SQL trigger execution remains pending until Postgres is available. |
 | 3. Typed contracts | A | — | Pending | — | — | — |
 | 4. Signing isolation | B | **P1** | Pending | — | — | F1 read half |
 | 5. Delete ordering | B | **P1** | Pending | — | — | F1 write half |

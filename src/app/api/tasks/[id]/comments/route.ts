@@ -176,7 +176,7 @@ export async function POST(req: Request, { params }: Ctx) {
     }))
   );
 
-  await touchLastActivity(r.supabase, id, nowIso);
+  const parentUpdatedAt = await touchLastActivity(r.supabase, id, nowIso);
   await broadcastTasksChanged();
   await broadcastTaskRoom(id);
   // touchLastActivity moves the task's updated_at, which is the token every
@@ -185,5 +185,5 @@ export async function POST(req: Request, { params }: Ctx) {
   // commenting and then editing the same task within the refetch window
   // fails with "Task was updated by someone else." Named parent_updated_at so
   // the shared CommentThread reads one field for both tasks and enrollment.
-  return NextResponse.json({ comment, parent_updated_at: nowIso });
+  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt });
 }

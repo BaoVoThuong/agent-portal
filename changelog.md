@@ -19,6 +19,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ---
 
+## 2026-08-10 — Clamp task version and activity timestamps monotonically
+- **Loại**: fix, security
+- **Cái gì**: Added the `tasks_updated_at_monotonic` trigger, made `touchLastActivity` return the committed `updated_at`, and returned that value from the task comment API as the optimistic-concurrency token.
+- **Vì sao**: Slow comment/attachment writers could commit an older application timestamp after a newer PATCH, causing stale tokens and inconsistent last-activity display.
+- **File**: `supabase/schema.sql`, `src/lib/tasks/last-activity.ts`, `src/lib/tasks/last-activity.test.ts`, `src/app/api/tasks/[id]/comments/route.ts`
+- **Ảnh hưởng**: All task writers are protected at the database column; callers that patch after commenting now receive the actual committed version.
+
 ## 2026-08-10 — Add read-only task collaboration reconciliation audit
 - **Loại**: chore, security
 - **Cái gì**: Added a read-only `audit-task-collaboration.ts` report plus restricted Postgres audit functions for comment/activity gaps, unsignable attachments, last-activity actor mismatches, overdue gaps, and duplicate-comment candidates. Extended the task activity constraint with edit/delete event types needed by later atomic commands.
