@@ -3775,7 +3775,7 @@ one task, or once the 200-row activity cap is actually reached.
 | 7. Submission guard | C | P2 | Implemented | `9dcf7a1` | Submission unit tests + typecheck passed | Shared ref-based in-flight guard and request token wired into Tasks, ACA, and Medicare; Enrollment has an atomic replay command. Browser double-click and live DB replay pending. |
 | 8. Comment/file state split | C | P2 | Implemented | `19f9f44` | Submission tests + typecheck passed | Durable comment, per-file upload, reload warning, retry state, and blob URL cleanup are separated in the shared Tasks/Enrollment composer. Full browser fault injection pending. |
 | 9. Attachment idempotency | C | P2 | Implemented | `923075b` | Attachment validation tests + typecheck passed | Multipart auth gate, sign-before-commit, atomic metadata/audit, idempotency replay, compensation, and warning-only side effects implemented. Live storage/DB fault injection pending. |
-| 10. Atomic comment edit | C | P2 | Implemented | `TBD` | Typecheck + targeted tests passed | Task and Enrollment edits now use locked compare-and-swap RPCs with atomic history/activity; UI keeps drafts and surfaces 409s. Two-tab/browser conflict test pending. |
+| 10. Atomic comment edit | C | P2 | Implemented | `c9249a2` | Typecheck + targeted tests passed | Task and Enrollment edits now use locked compare-and-swap RPCs with atomic history/activity; UI keeps drafts and surfaces 409s. Two-tab/browser conflict test pending. |
 | 11. Deletion retention | C | P2 | Pending | — | — | F8. Needs the §3.4 decision |
 | 12. Last-activity pair | C | P2 | Pending | — | — | F10. **Land before Task 6** |
 | 13. Unassigned activity | C | P2 | Pending | — | — | F11 |
