@@ -385,22 +385,22 @@ avoiding nine mechanical import edits is the smaller pre-go-live change.
 
 **Steps**
 
-- [ ] Enable the searchable `TaskSelect` path for dynamic Category and Agent selectors in
+- [x] Enable the searchable `TaskSelect` path for dynamic Category and Agent selectors in
   Create/Detail and for dynamic Agent/Assignee/Category toolbar filters.
-- [ ] Keep fixed Priority and Status controls as simple menus.
-- [ ] Move inline `CategoryMenu` and `AgentMenu` option lists to the shared panel while keeping
+- [x] Keep fixed Priority and Status controls as simple menus.
+- [x] Move inline `CategoryMenu` and `AgentMenu` option lists to the shared panel while keeping
   their current badge/avatar triggers and permission checks.
-- [ ] Remove the migrated menus' current outer `role="listbox"` and local result height/overflow
+- [x] Remove the migrated menus' current outer `role="listbox"` and local result height/overflow
   classes; the shared panel owns ARIA and scrolling.
-- [ ] Keep `AssigneeMenu` / `TaskAssigneePicker` multi-select behavior. It already has a search
+- [x] Keep `AssigneeMenu` / `TaskAssigneePicker` multi-select behavior. It already has a search
   box; reuse the pure normalizer so accented names and email matching follow the same contract.
-- [ ] Remove `role="listbox"` from `AssigneeMenu`'s outer portal root (it currently wraps the
+- [x] Remove `role="listbox"` from `AssigneeMenu`'s outer portal root (it currently wraps the
   picker's search input). Give the existing search input combobox ARIA and its actual results
   container the listbox role/ID without changing selected-first or multi-toggle UI.
-- [ ] Do not change task assignment membership filtering, selected-first ordering, or the
+- [x] Do not change task assignment membership filtering, selected-first ordering, or the
   relation between Agent and eligible Assignees.
-- [ ] Verify CS Create, Detail, List, and filters side by side with Enrollment.
-- [ ] Run verification and make one Task 5 commit.
+- [ ] Verify CS Create, Detail, List, and filters side by side with Enrollment (manual browser gate).
+- [x] Run verification and make one Task 5 commit.
 
 ### Task 6 — Make custom-value equality/commit guards testable (no UI change)
 
@@ -547,7 +547,7 @@ must preserve every one of those semantics; it is not a cosmetic `<select>` subs
 | 2. Shared searchable listbox panel | Completed | `2be5cdb` | 8 tests; targeted ESLint; `tsc --noEmit`; `git diff --check` | Shared panel + focus-aware anchored-menu close helpers; manual browser smoke test remains pending |
 | 3. Enrollment option menus | Completed | `49ec83d` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | Payment/Carrier/ACA/Platform + Stage use shared searchable panel; manual ACA/Medicare browser matrix remains pending |
 | 4. Enrollment people and filters | Completed | `2a76381` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | People menus + searchable TaskSelect with pinned All/multi behavior; manual worker/default-filter and keyboard browser gate remains pending |
-| 5. Health CS dynamic selectors | Pending | — | — | — |
+| 5. Health CS dynamic selectors | Completed | `7fca96c` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | CS Category/Agent + dynamic TaskSelect + Assignee ARIA/normalization; manual side-by-side browser gate remains pending |
 | 6. Custom-value equality preparation | Pending | — | — | No UI change |
 | 7. Custom dropdown/person lifecycle | Pending | — | — | Changelog required |
 | 8. Final regression/a11y pass | Pending | — | — | — |
