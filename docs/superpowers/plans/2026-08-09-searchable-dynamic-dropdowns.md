@@ -328,25 +328,25 @@ avoiding nine mechanical import edits is the smaller pre-go-live change.
 
 **Steps**
 
-- [ ] Replace the option mapping inside `EnrollmentOptionMenu` with the shared panel.
-- [ ] Remove `role="listbox"` from `EnrollmentOptionMenu`'s current outer portal root and
+- [x] Replace the option mapping inside `EnrollmentOptionMenu` with the shared panel.
+- [x] Remove `role="listbox"` from `EnrollmentOptionMenu`'s current outer portal root and
   remove its nested `max-h-56 overflow-auto`; the shared panel owns the inner listbox and sole
   scroll region.
-- [ ] Apply it to Payment, Carrier, AC, and Platform across List, Detail, and Create.
-- [ ] Replace the option mapping inside `EnrollmentStagePill` with the same panel.
-- [ ] Remove `EnrollmentStagePill`'s current outer `role="listbox"` and `max-h-64 overflow-auto`
+- [x] Apply it to Payment, Carrier, AC, and Platform across List, Detail, and Create.
+- [x] Replace the option mapping inside `EnrollmentStagePill` with the same panel.
+- [x] Remove `EnrollmentStagePill`'s current outer `role="listbox"` and `max-h-64 overflow-auto`
   just like `EnrollmentOptionMenu`; the search input must remain outside the inner listbox.
-- [ ] Preserve each upstream `optionsBySet` order and archived-option behavior. If `optionId`
+- [x] Preserve each upstream `optionsBySet` order and archived-option behavior. If `optionId`
   is absent from active `options`, render the parent's current fallback, start with no active
   selected result, and do not synthesize, clear, or save an archived value from the panel.
-- [ ] Preserve the current selected option badge/style and all existing `surface` branches.
-- [ ] Preserve the terminal/reopen and `canEdit` rules for Stage; this plan changes discovery,
+- [x] Preserve the current selected option badge/style and all existing `surface` branches.
+- [x] Preserve the terminal/reopen and `canEdit` rules for Stage; this plan changes discovery,
   not workflow permission.
-- [ ] Verify the `EnrollmentConsentToggle` remains unchanged; only its existing fallback to
+- [x] Verify the `EnrollmentConsentToggle` remains unchanged; only its existing fallback to
   `EnrollmentOptionMenu` becomes searchable.
-- [ ] Verify selecting still sends the same `*_id` payload and typing alone sends nothing.
-- [ ] Test both `?program=aca` and `?program=medicare` in Create, Detail, and List.
-- [ ] Run verification and make one Task 3 commit.
+- [x] Verify selecting still sends the same `*_id` payload and typing alone sends nothing.
+- [ ] Test both `?program=aca` and `?program=medicare` in Create, Detail, and List (manual browser gate).
+- [x] Run verification and make one Task 3 commit.
 
 ### Task 4 — Apply search to Enrollment people and filters
 
@@ -545,7 +545,7 @@ must preserve every one of those semantics; it is not a cosmetic `<select>` subs
 |---|---|---|---|---|
 | 1. Pure matching contract | Completed | `4724042` | 8 tests; ESLint; `tsc --noEmit`; `git diff --check` | Pure search + enabled navigation helpers |
 | 2. Shared searchable listbox panel | Completed | `2be5cdb` | 8 tests; targeted ESLint; `tsc --noEmit`; `git diff --check` | Shared panel + focus-aware anchored-menu close helpers; manual browser smoke test remains pending |
-| 3. Enrollment option menus | Pending | — | — | — |
+| 3. Enrollment option menus | Completed | `49ec83d` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | Payment/Carrier/ACA/Platform + Stage use shared searchable panel; manual ACA/Medicare browser matrix remains pending |
 | 4. Enrollment people and filters | Pending | — | — | — |
 | 5. Health CS dynamic selectors | Pending | — | — | — |
 | 6. Custom-value equality preparation | Pending | — | — | No UI change |
