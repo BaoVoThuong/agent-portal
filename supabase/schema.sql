@@ -1829,6 +1829,40 @@ grant execute on function audit_last_activity_mismatch() to service_role;
 grant execute on function audit_overdue_gaps() to service_role;
 grant execute on function audit_duplicate_comments() to service_role;
 
+-- Commit attachment metadata removal and its required audit event first. The
+-- storage object is returned to the route for best-effort cleanup after the
+-- database transaction, so a storage outage can only leave an orphan object,
+-- never visible metadata pointing at a missing file.
+create or replace function delete_task_attachment_atomic(
+  p_attachment_id uuid,
+  p_actor_email text
+) returns table (storage_path text, task_id uuid, comment_id uuid)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_row task_attachments%rowtype;
+  v_task tasks%rowtype;
+  v_now timestamptz;
+begin
+  select * into v_row from task_attachments where id = p_attachment_id for update;
+  if not found then raise exception 'ATTACHMENT_NOT_FOUND'; end if;
+  select * into v_task from tasks where id = v_row.task_id for update;
+  if not found then raise exception 'TASK_NOT_FOUND'; end if;
+  delete from task_attachments where id = p_attachment_id;
+  insert into task_activity (task_id, actor_email, type, meta)
+  values (v_row.task_id, p_actor_email, 'attachment_deleted',
+    jsonb_build_object('attachment_id', p_attachment_id, 'comment_id', v_row.comment_id));
+  v_now := greatest(clock_timestamp(), v_task.updated_at + interval '1 microsecond');
+  update tasks set updated_at = v_now, last_activity_at = v_now, stale_reminded_at = null
+  where id = v_row.task_id;
+  storage_path := v_row.storage_path;
+  task_id := v_row.task_id;
+  comment_id := v_row.comment_id;
+  return next;
+end $$;
+
+revoke all on function delete_task_attachment_atomic(uuid, text) from public, anon, authenticated;
+grant execute on function delete_task_attachment_atomic(uuid, text) to service_role;
+
 create table if not exists task_notifications (
   id uuid primary key default gen_random_uuid(),
   recipient_email text not null,

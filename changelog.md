@@ -19,6 +19,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ---
 
+## 2026-08-10 — Delete task attachment metadata before storage cleanup
+- **Loại**: fix, security
+- **Cái gì**: Added `delete_task_attachment_atomic`, which removes metadata, records `attachment_deleted`, and bumps task activity in one transaction before best-effort storage cleanup. The DELETE route now returns warnings rather than 500 after a durable metadata commit.
+- **Vì sao**: Removing the object first could leave visible metadata pointing to nothing when the database delete failed.
+- **File**: `supabase/schema.sql`, `src/app/api/tasks/[id]/attachments/[aid]/route.ts`
+- **Ảnh hưởng**: Attachment deletion is durable before storage cleanup; storage or realtime failures no longer turn a successful delete into a retryable error.
+
 ## 2026-08-10 — Isolate unsignable task attachments
 - **Loại**: fix
 - **Cái gì**: Task detail signs each attachment independently and renders unavailable files as a neutral placeholder instead of rejecting the entire comment/activity load.

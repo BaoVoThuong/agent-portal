@@ -6,6 +6,8 @@ import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { removeTaskFile } from "@/lib/tasks/storage";
+import { settleSideEffects } from "@/lib/tasks/mutation-result";
+import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -74,8 +76,34 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if (!actor.isManager && attachment.uploaded_by !== email)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  await removeTaskFile(attachment.storage_path);
-  const { error } = await supabase.from("task_attachments").delete().eq("id", aid);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  const { data: deleted, error } = await supabase
+    .rpc("delete_task_attachment_atomic", {
+      p_attachment_id: aid,
+      p_actor_email: email,
+    })
+    .single();
+  if (error) {
+    if (error.message.includes("ATTACHMENT_NOT_FOUND")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const warnings = await settleSideEffects([
+    {
+      code: "storage_cleanup_failed",
+      message: "The file record was removed but the stored file could not be deleted.",
+      run: () => removeTaskFile((deleted as { storage_path: string }).storage_path),
+    },
+    {
+      code: "broadcast_failed",
+      message: "Other open tabs may show a stale attachment count until they refresh.",
+      run: async () => {
+        await broadcastTaskRoom(id);
+        await broadcastTasksChanged();
+      },
+    },
+  ]);
+
+  return NextResponse.json({ ok: true, warnings });
 }
