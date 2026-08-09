@@ -36,10 +36,7 @@ import {
 } from "@/lib/tasks/mention-draft";
 import { moveEnabledChoiceIndex } from "@/lib/ui/option-search";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
-import {
-  attachmentTooLargeMessage,
-  TASK_ATTACHMENT_MAX_BYTES,
-} from "@/lib/tasks/attachments";
+import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
 import type {
   CommentWithAttachments,
   SignedAttachment,
@@ -1618,13 +1615,16 @@ function Composer({
   function addFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
     const selected = Array.from(list);
-    const accepted = selected.filter((file) => file.size <= TASK_ATTACHMENT_MAX_BYTES);
-    const rejected = selected.find((file) => file.size > TASK_ATTACHMENT_MAX_BYTES);
-
-    setFileError(
-      rejected ? `${rejected.name}: ${attachmentTooLargeMessage()}` : null
-    );
-    if (accepted.length > 0) setFiles((cur) => [...cur, ...accepted]);
+    const limits = checkOperationLimits({
+      textLength: text.length,
+      sizes: [...files.map((file) => file.size), ...selected.map((file) => file.size)],
+    });
+    if (!limits.ok) {
+      setFileError(limits.message);
+      return;
+    }
+    setFileError(null);
+    setFiles((cur) => [...cur, ...selected]);
   }
 
   function clearDraft() {
@@ -1653,6 +1653,14 @@ function Composer({
     const trimmed = text.trim();
     // A comment with only an attachment (no text) is valid.
     if (!trimmed && files.length === 0) return;
+    const limits = checkOperationLimits({
+      textLength: text.length,
+      sizes: files.map((file) => file.size),
+    });
+    if (!limits.ok) {
+      setFileError(limits.message);
+      return;
+    }
 
     const ok = onSubmit(
       encodeMentions({ text, mentions: draftMentions }).trim(),

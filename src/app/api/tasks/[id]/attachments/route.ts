@@ -28,6 +28,7 @@ import {
   TASK_ATTACHMENT_MAX_BYTES,
   validateAttachmentFile,
 } from "@/lib/tasks/attachments";
+import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
 
 export const dynamic = "force-dynamic";
 
@@ -169,6 +170,28 @@ export async function POST(req: Request, { params }: Ctx) {
     })
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
+  // A comment can receive several sequential uploads. Re-check the running
+  // count and aggregate before reading/validating bytes so retries cannot grow
+  // an unbounded thread attachment set.
+  if (commentId) {
+    const { data: existing, error: existingError } = await r.supabase
+      .from("task_attachments")
+      .select("size_bytes")
+      .eq("task_id", id)
+      .eq("comment_id", commentId)
+      .is("deleted_at", null);
+    if (existingError) {
+      return NextResponse.json({ error: existingError.message }, { status: 500 });
+    }
+    const existingSizes = ((existing ?? []) as { size_bytes: number | null }[]).map(
+      (row) => row.size_bytes ?? 0,
+    );
+    const limits = checkOperationLimits({ textLength: 0, sizes: [...existingSizes, file.size] });
+    if (!limits.ok) {
+      return NextResponse.json({ error: limits.message }, { status: 400 });
+    }
   }
 
   const fileData = await file.arrayBuffer();

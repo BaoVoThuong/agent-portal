@@ -41,6 +41,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Hover prefetch and task drawers no longer serve expired cache entries; transient reload failures remain recoverable without falsely marking committed comments/files as failed.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F16
 
+## 2026-08-10 — Enforce comment and attachment operation limits
+- **Loại**: fix, security
+- **Cái gì**: Added shared operation-limit validation for 10,000-character comments, 10 files per comment, a 50MB aggregate attachment cap, and the existing per-file cap. The comment API rejects oversized text before work; attachment uploads re-check the running comment total before reading bytes; the composer mirrors the same messages before upload.
+- **Vì sao**: Per-file checks alone left comment text, file count, and aggregate bytes unbounded, allowing accidental or abusive collaboration operations to consume excessive resources.
+- **File**: `src/lib/tasks/attachment-limits.ts`, `src/lib/tasks/attachment-limits.test.ts`, `src/app/api/tasks/[id]/comments/route.ts`, `src/app/api/tasks/[id]/attachments/route.ts`, `src/app/(authed)/tasks/_components/CommentThread.tsx`
+- **Ảnh hưởng**: Health CS comments and attachments receive deterministic boundary errors on both client and server. This is not malware scanning: magic-byte checks prevent type confusion only; authenticated Office/PDF uploads remain an accepted risk pending owner sign-off.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F17
+
 ## 2026-08-10 — Keep task last-activity actor paired with its timestamp
 - **Loại**: fix, security
 - **Cái gì**: Persisted `last_activity_by_email` from the same locked mutation that updates `last_activity_at`, excluded system activity from the backfill/read path, kept position-only reorder neutral, and made task archive/overview assignment preserve the human actor pair. The database trigger restores the previous actor when a stale timestamp is clamped.

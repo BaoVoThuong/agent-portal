@@ -12,6 +12,7 @@ import { parseMentions } from "@/lib/tasks/mentions";
 import { fetchTaskParticipantEmails, isTaskParticipant } from "@/lib/tasks/participants";
 import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
+import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -107,6 +108,10 @@ export async function POST(req: Request, { params }: Ctx) {
   const hasAttachments = body?.hasAttachments === true;
   if (!text && !hasAttachments)
     return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
+  const limits = checkOperationLimits({ textLength: text.length, sizes: [] });
+  if (!limits.ok && limits.limit === "text") {
+    return NextResponse.json({ error: limits.message }, { status: 400 });
+  }
 
   // Mentions are parsed from the body (server is the source of truth), then
   // validated against board members before the atomic command grants access.
