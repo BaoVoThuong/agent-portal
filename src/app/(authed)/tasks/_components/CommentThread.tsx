@@ -657,6 +657,13 @@ export function CommentThread({
   }
 
   async function remove(id: string) {
+    if (
+      !window.confirm(
+        "Delete this comment? Replies will remain visible, and linked files will be removed."
+      )
+    ) {
+      return;
+    }
     const res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
       method: "DELETE",
     });
@@ -937,10 +944,23 @@ function CommentItem({
 
   if (c.deleted_at) {
     return (
-      <div className="flex gap-2.5">
+      <article className="flex gap-2.5">
         <Initials email={c.author_email} label={nameOf(c.author_email)} />
-        <p className="pt-1 text-xs italic text-[#97a0af]">comment deleted</p>
-      </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-sm font-semibold text-[#172b4d]">
+              {nameOf(c.author_email)}
+            </span>
+            <span
+              className="text-xs font-medium text-[#6b778c]"
+              title={formatExactCommentTime(c.created_at)}
+            >
+              {formatCommentTime(c.created_at)}
+            </span>
+          </div>
+          <p className="pt-0.5 text-xs italic text-[#97a0af]">Comment deleted</p>
+        </div>
+      </article>
     );
   }
 

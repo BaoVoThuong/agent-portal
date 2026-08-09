@@ -102,6 +102,7 @@ export async function loadComments(
     .select("id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at")
     .eq("task_id", taskId)
     .not("comment_id", "is", null)
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
   if (attachmentsError) throw new Error(attachmentsError.message);
 
@@ -139,6 +140,7 @@ export async function loadTaskAttachments(
     .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
     .eq("task_id", taskId)
     .is("comment_id", null)
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
 

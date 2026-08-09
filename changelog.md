@@ -471,3 +471,7 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   transactional edit history/activity and explicit 409 conflict responses;
   the editor keeps its draft and shows the server error instead of silently
   closing or overwriting another tab.
+- Added one retention contract for task comment deletion: comments and linked
+  attachment metadata are soft-deleted atomically, replies remain visible,
+  filename search and counters exclude deleted files, and storage cleanup is
+  best-effort with warnings.

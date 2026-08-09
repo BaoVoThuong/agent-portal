@@ -317,6 +317,7 @@ async function fetchTaskAttachmentRows(
         .from("task_attachments")
         .select("task_id")
         .in("task_id", chunk)
+        .is("deleted_at", null)
     )
   );
   const rows: Array<{ task_id: string }> = [];

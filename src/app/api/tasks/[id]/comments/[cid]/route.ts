@@ -9,6 +9,7 @@ import { isTaskParticipant } from "@/lib/tasks/participants";
 import { parseMentions } from "@/lib/tasks/mentions";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { removeTaskFile } from "@/lib/tasks/storage";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -167,12 +168,42 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if ("error" in ctx)
     return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
-  const { error } = await ctx.supabase
-    .from("task_comments")
-    .update({ deleted_at: new Date().toISOString(), body: "" })
-    .eq("id", cid);
-  if (error)
+  const { data: removed, error } = await ctx.supabase
+    .rpc("delete_task_comment_atomic", {
+      p_comment_id: cid,
+      p_task_id: id,
+      p_actor_email: ctx.email,
+    })
+    .single();
+  if (error) {
+    if (error.message.includes("FORBIDDEN")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (error.message.includes("COMMENT_NOT_FOUND") || error.message.includes("TASK_NOT_FOUND")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
-  await broadcastTaskRoom(id);
-  return NextResponse.json({ ok: true });
+  }
+
+  const { storage_paths: paths } = removed as { storage_paths: string[] };
+  const warnings = await settleSideEffects([
+    {
+      code: "storage_cleanup_failed",
+      message: "The comment was deleted but some stored files could not be removed.",
+      run: async () => {
+        const results = await Promise.allSettled(paths.map((path) => removeTaskFile(path)));
+        const failed = results.find((result) => result.status === "rejected");
+        if (failed?.status === "rejected") throw failed.reason;
+      },
+    },
+    {
+      code: "broadcast_failed",
+      message: "Other open tabs may show a stale comment or attachment count until they refresh.",
+      run: async () => {
+        await broadcastTaskRoom(id);
+        await broadcastTasksChanged();
+      },
+    },
+  ]);
+  return NextResponse.json({ ok: true, warnings });
 }

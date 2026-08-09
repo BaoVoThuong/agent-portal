@@ -1701,10 +1701,15 @@ create table if not exists task_attachments (
 -- attachment instead of creating a second metadata row. Scope it to the task
 -- and uploader so two people can legitimately upload the same file.
 alter table task_attachments add column if not exists client_request_id uuid;
+alter table task_attachments add column if not exists deleted_at timestamptz;
 
 create unique index if not exists task_attachments_client_request_id_key
   on task_attachments (task_id, uploaded_by, client_request_id)
   where client_request_id is not null;
+
+create index if not exists task_attachments_active_idx
+  on task_attachments (task_id)
+  where deleted_at is null;
 
 create index if not exists task_attachments_task_idx on task_attachments (task_id);
 
@@ -1764,6 +1769,7 @@ as $$
       select count(*)::integer
       from task_attachments att
       where att.task_id = t.id
+        and att.deleted_at is null
     ) as attachment_count
   from unnest(task_ids) as t(id);
 $$;
@@ -2165,6 +2171,80 @@ $$;
 revoke all on function edit_task_comment_atomic(uuid, uuid, text, text, timestamptz, text[])
   from public, anon, authenticated;
 grant execute on function edit_task_comment_atomic(uuid, uuid, text, text, timestamptz, text[])
+  to service_role;
+
+-- Soft-delete a comment and all linked attachment metadata in one transaction.
+-- Replies remain under the deleted-parent placeholder. Storage objects are
+-- removed after commit as best-effort, so a storage outage cannot roll back or
+-- leave searchable active metadata behind.
+create or replace function delete_task_comment_atomic(
+  p_comment_id uuid,
+  p_task_id uuid,
+  p_actor_email text
+) returns table (storage_paths text[], attachment_count integer)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_task tasks%rowtype;
+  v_row task_comments%rowtype;
+  v_paths text[];
+  v_now timestamptz;
+begin
+  select * into v_task from tasks where id = p_task_id for update;
+  if not found then raise exception 'TASK_NOT_FOUND'; end if;
+  select * into v_row
+  from task_comments
+  where id = p_comment_id and task_id = p_task_id
+  for update;
+  if not found then raise exception 'COMMENT_NOT_FOUND'; end if;
+  if v_row.author_email <> p_actor_email then raise exception 'FORBIDDEN'; end if;
+
+  if v_row.deleted_at is not null then
+    storage_paths := '{}';
+    attachment_count := 0;
+    return next;
+    return;
+  end if;
+
+  select coalesce(array_agg(storage_path order by created_at), '{}')
+  into v_paths
+  from task_attachments
+  where comment_id = p_comment_id and deleted_at is null;
+
+  v_now := greatest(clock_timestamp(), v_task.updated_at + interval '1 microsecond');
+  update task_comments
+  set deleted_at = v_now, body = ''
+  where id = p_comment_id;
+  update task_attachments
+  set deleted_at = v_now
+  where comment_id = p_comment_id and deleted_at is null;
+
+  insert into task_activity (task_id, actor_email, type, meta)
+  values (
+    p_task_id,
+    p_actor_email,
+    'comment_deleted',
+    jsonb_build_object(
+      'comment_id', p_comment_id,
+      'attachment_count', coalesce(array_length(v_paths, 1), 0)
+    )
+  );
+
+  update tasks
+  set updated_at = v_now,
+      last_activity_at = v_now,
+      last_activity_by_email = p_actor_email,
+      stale_reminded_at = null
+  where id = p_task_id;
+
+  storage_paths := v_paths;
+  attachment_count := coalesce(array_length(v_paths, 1), 0);
+  return next;
+end;
+$$;
+
+revoke all on function delete_task_comment_atomic(uuid, uuid, text)
+  from public, anon, authenticated;
+grant execute on function delete_task_comment_atomic(uuid, uuid, text)
   to service_role;
 
 create table if not exists task_notifications (

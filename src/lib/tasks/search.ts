@@ -376,6 +376,7 @@ export async function runTaskSearch(
           .from("task_attachments")
           .select("id,task_id,comment_id,file_name,created_at")
           .ilike("file_name", pattern)
+          .is("deleted_at", null)
           .order("created_at", { ascending: false })
           .range(offset, offset + limit - 1),
       taskIdOf: (file) => file.task_id,
