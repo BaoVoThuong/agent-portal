@@ -7,6 +7,7 @@ import { fetchTaskAssignees } from "@/lib/tasks/assignees";
 import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { parseMentions } from "@/lib/tasks/mentions";
+import { insertNotifications } from "@/lib/tasks/notifications";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { removeTaskFile } from "@/lib/tasks/storage";
@@ -150,6 +151,22 @@ export async function PATCH(req: Request, { params }: Ctx) {
     parent_updated_at: string;
   };
   const warnings = await settleSideEffects([
+    {
+      code: "mention_notification_failed",
+      message: "The edit was saved but newly mentioned people may not have been notified.",
+      run: async () => {
+        if (newMentions.length === 0) return;
+        await insertNotifications(
+          newMentions.map((recipient) => ({
+            recipient_email: recipient,
+            task_id: id,
+            type: "mentioned" as const,
+            actor_email: ctx.email,
+            comment_id: cid,
+          })),
+        );
+      },
+    },
     {
       code: "broadcast_failed",
       message: "Other open tabs may need a refresh to see this edit.",

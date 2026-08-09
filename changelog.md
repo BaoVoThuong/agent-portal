@@ -17,6 +17,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ref**: doc / finding / commit (nếu có)
 ```
 
+## 2026-08-10 — Unify mentions across comment create, reply, and edit
+- **Loại**: fix, security
+- **Cái gì**: Added a positioned mention draft model shared by the Tasks/Enrollment comment composer and editor. Mention identity is preserved by email/range, search reuses normalized option filtering, and newly added mentions on edits are notified without trusting client-supplied emails.
+- **Vì sao**: The editor previously saved newly typed `@Name` as plain text and could silently sever existing mentions when surrounding text changed; the picker also lacked accent-aware search, responsive sizing, and complete combobox/listbox semantics.
+- **File**: `src/lib/tasks/mention-draft.ts`, `src/lib/tasks/mention-draft.test.ts`, `src/app/(authed)/tasks/_components/CommentThread.tsx`, `src/app/api/tasks/[id]/comments/[cid]/route.ts`, `src/app/api/enrollment/[id]/comments/[cid]/route.ts`
+- **Ảnh hưởng**: Health CS, ACA, and Medicare create/reply/edit flows now keep mention identity stable, show canonical name chips, support keyboard/screen-reader selection, and send edit mention notifications as a warning-only post-commit side effect.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F20/F21
+
 ## 2026-08-10 — Keep task last-activity actor paired with its timestamp
 - **Loại**: fix, security
 - **Cái gì**: Persisted `last_activity_by_email` from the same locked mutation that updates `last_activity_at`, excluded system activity from the backfill/read path, kept position-only reorder neutral, and made task archive/overview assignment preserve the human actor pair. The database trigger restores the previous actor when a stale timestamp is clamped.

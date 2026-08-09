@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { broadcastEnrollmentRoom } from "@/lib/enrollment/realtime";
+import { insertEnrollmentNotifications } from "@/lib/enrollment/notifications";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
+import { parseMentions } from "@/lib/tasks/mentions";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +56,36 @@ export async function PATCH(request: Request, { params }: Ctx) {
     parent_updated_at: string;
   };
   const warnings: string[] = [];
+  try {
+    const { data: people, error: peopleError } = await context.supabase
+      .from("portal_account")
+      .select("email")
+      .eq("is_active", true);
+    if (peopleError) throw new Error(peopleError.message);
+    const activeEmails = new Set(
+      ((people ?? []) as { email: string }[]).map((person) => person.email.trim().toLowerCase()),
+    );
+    const mentionsNow = parseMentions(text).filter((email) => activeEmails.has(email.toLowerCase()));
+    const mentionsBefore = parseMentions(context.currentBody);
+    const newMentions = mentionsNow.filter(
+      (email) => !mentionsBefore.some((previous) => previous.toLowerCase() === email.toLowerCase()),
+    );
+    if (newMentions.length > 0) {
+      await insertEnrollmentNotifications(
+        newMentions.map((recipient) => ({
+          recipient_email: recipient,
+          record_id: id,
+          type: "mentioned" as const,
+          actor_email: context.email,
+          comment_id: cid,
+        })),
+      );
+    }
+  } catch (mentionError) {
+    warnings.push(
+      `Enrollment mention notification failed: ${mentionError instanceof Error ? mentionError.message : "unknown error"}`,
+    );
+  }
   try {
     await broadcastEnrollmentRoom(id);
   } catch (broadcastError) {

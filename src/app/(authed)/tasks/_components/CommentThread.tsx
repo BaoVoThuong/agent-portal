@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type KeyboardEvent,
@@ -19,6 +20,21 @@ import {
 import { createPortal } from "react-dom";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
+import {
+  decodeMentions,
+  diffMentionEmails,
+  encodeMentions,
+  filterMentionCandidates,
+  findActiveMention,
+  mentionLabel,
+  mentionStartsWithQuery,
+  MENTION_TOKEN,
+  rebaseMentions,
+  type ActiveMention,
+  type DraftMention,
+  type MentionPerson,
+} from "@/lib/tasks/mention-draft";
+import { moveEnabledChoiceIndex } from "@/lib/ui/option-search";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import {
   attachmentTooLargeMessage,
@@ -74,17 +90,6 @@ type CommentEdit = {
   edited_by_name?: string;
 };
 
-type DraftMention = {
-  label: string;
-  email: string;
-};
-
-type ActiveMention = {
-  query: string;
-  start: number;
-  end: number;
-};
-
 type EditOutcome =
   | { ok: true }
   | { ok: false; kind: "conflict" | "error"; message: string };
@@ -95,7 +100,6 @@ type MentionMenuPosition = {
   maxHeight: number;
 };
 
-const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
 const MENTION_MENU_WIDTH = 288;
 const MENTION_MENU_MAX_HEIGHT = 224;
 const MENTION_MENU_ROW_HEIGHT = 44;
@@ -144,27 +148,6 @@ function AttachmentLink({ attachment }: { attachment: SignedAttachment }) {
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
-}
-
-function mentionLabel(member: TaskAssignee) {
-  return member.name?.trim() || UNKNOWN_PERSON_LABEL;
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function findActiveMention(value: string, caret: number): ActiveMention | null {
-  const beforeCaret = value.slice(0, caret);
-  const match = beforeCaret.match(/(^|\s)@([^\s@]*)$/);
-  if (!match) return null;
-
-  const tokenLength = match[0].length - match[1].length;
-  return {
-    query: match[2],
-    start: beforeCaret.length - tokenLength,
-    end: caret,
-  };
 }
 
 function measureTextareaCaret(
@@ -256,40 +239,79 @@ function measureTextareaCaret(
   };
 }
 
-function encodeDraftMentions(body: string, mentions: DraftMention[]) {
-  const uniqueMentions = [
-    ...new Map(mentions.map((mention) => [mention.email, mention])).values(),
-  ].sort((a, b) => b.label.length - a.label.length);
-
-  return uniqueMentions.reduce((nextBody, mention) => {
-    const label = mention.label.trim();
-    if (!label) return nextBody;
-
-    const pattern = new RegExp(
-      `(^|\\s)@${escapeRegExp(label)}(?=\\s|$|[.,!?;:])`,
-      "g",
-    );
-    return nextBody.replace(
-      pattern,
-      (_, prefix: string) => `${prefix}@[${label}](${mention.email})`,
-    );
-  }, body);
+function mentionOptionId(listId: string, email: string) {
+  return `${listId}-option-${email.toLowerCase().replace(/[^a-z0-9_-]/g, "_")}`;
 }
 
-function decodeStoredMentions(body: string): {
-  text: string;
-  mentions: DraftMention[];
-} {
-  const mentions: DraftMention[] = [];
-  const text = body.replace(
-    MENTION_TOKEN,
-    (_, label: string, email: string) => {
-      mentions.push({ label, email });
-      return `@${label}`;
-    },
+function MentionPicker({
+  listId,
+  candidates,
+  activeIndex,
+  position,
+  onSelect,
+}: {
+  listId: string;
+  candidates: readonly MentionPerson[];
+  activeIndex: number;
+  position: MentionMenuPosition;
+  onSelect: (person: MentionPerson) => void;
+}) {
+  const noResults = candidates.length === 0;
+  return createPortal(
+    <div
+      id={listId}
+      role="listbox"
+      aria-label="Mention a person"
+      style={{
+        position: "fixed",
+        top: position.top,
+        left: position.left,
+        maxHeight: position.maxHeight,
+        width: "min(288px, calc(100vw - 16px))",
+      }}
+      className="z-[120] overflow-y-auto rounded-lg border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+    >
+      {noResults ? (
+        <div className="px-3 py-3 text-sm font-medium text-[#6b778c]">
+          No matching people
+        </div>
+      ) : (
+        candidates.map((person, index) => {
+          const optionId = mentionOptionId(listId, person.email);
+          const secondary = person.roles?.[0]?.label || "Team member";
+          return (
+            <button
+              key={person.email}
+              id={optionId}
+              type="button"
+              role="option"
+              aria-selected={index === activeIndex}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onSelect(person);
+              }}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
+                index === activeIndex
+                  ? "bg-[#e9f2ff] text-[#0c66e4]"
+                  : "text-[#172b4d] hover:bg-[#f4f5f7]"
+              }`}
+            >
+              <Initials email={person.email} label={mentionLabel(person)} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-semibold">
+                  {mentionLabel(person)}
+                </span>
+                <span className="block truncate text-xs font-medium text-[#8993a4]">
+                  {secondary}
+                </span>
+              </span>
+            </button>
+          );
+        })
+      )}
+    </div>,
+    document.body,
   );
-
-  return { text, mentions };
 }
 
 export function CommentThread({
@@ -679,13 +701,18 @@ export function CommentThread({
     id: string,
     body: string,
     expectedUpdatedAt: string | null,
+    newMentions: string[] = [],
   ): Promise<EditOutcome> {
     let res: Response;
     try {
       res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body, expected_updated_at: expectedUpdatedAt }),
+        body: JSON.stringify({
+          body,
+          expected_updated_at: expectedUpdatedAt,
+          new_mentions: newMentions,
+        }),
       });
     } catch {
       return { ok: false, kind: "error", message: "Could not save the edit. Try again." };
@@ -779,6 +806,7 @@ export function CommentThread({
                   taskId={taskId}
                   apiBase={apiBase}
                   currentEmail={currentEmail}
+                  members={members}
                   nameOf={nameOf}
                   onDelete={c.optimistic ? releaseOptimistic : remove}
                   onEdit={edit}
@@ -794,6 +822,7 @@ export function CommentThread({
                         taskId={taskId}
                         apiBase={apiBase}
                         currentEmail={currentEmail}
+                        members={members}
                         nameOf={nameOf}
                         onDelete={rc.optimistic ? releaseOptimistic : remove}
                         onEdit={edit}
@@ -875,19 +904,21 @@ export function CommentThread({
   );
 }
 
-function renderBody(body: string): ReactNode[] {
+function renderBody(body: string, names?: ReadonlyMap<string, string>): ReactNode[] {
   const nodes: ReactNode[] = [];
   let last = 0;
   let key = 0;
   for (const m of body.matchAll(MENTION_TOKEN)) {
     const idx = m.index ?? 0;
     if (idx > last) nodes.push(body.slice(last, idx));
+    const email = m[2].trim().toLowerCase();
+    const label = names?.get(email) || m[1] || UNKNOWN_PERSON_LABEL;
     nodes.push(
       <span
         key={`m${key++}`}
-        className="rounded bg-[#deebff] px-1 font-medium text-[#0c66e4]"
+        className="inline-flex rounded-md bg-[#e9f2ff] px-1.5 py-0.5 font-semibold text-[#0c66e4]"
       >
-        @{m[1]}
+        @{label}
       </span>,
     );
     last = idx + m[0].length;
@@ -901,6 +932,7 @@ function CommentItem({
   taskId,
   apiBase,
   currentEmail,
+  members,
   nameOf,
   onDelete,
   onEdit,
@@ -912,9 +944,10 @@ function CommentItem({
   taskId: string;
   apiBase: string;
   currentEmail: string;
+  members: TaskAssignee[];
   nameOf: (email: string, canonicalName?: string | null) => string;
   onDelete: (id: string) => Promise<void> | void;
-  onEdit: (id: string, body: string, expectedUpdatedAt: string | null) => Promise<EditOutcome>;
+  onEdit: (id: string, body: string, expectedUpdatedAt: string | null, newMentions?: string[]) => Promise<EditOutcome>;
   onReply?: () => void;
   onRetryFile?: (fileId: string) => void;
   onPreviewImage: (preview: ImagePreview) => void;
@@ -927,6 +960,9 @@ function CommentItem({
   const canDelete =
     c.author_email === currentEmail && (!c.optimistic || c.failed);
   const hasMenu = canEdit || canDelete;
+  const mentionNames = new Map(
+    members.map((member) => [member.email.trim().toLowerCase(), mentionLabel(member)]),
+  );
   const editedAt = (c as { updated_at?: string | null }).updated_at;
   const wasEdited =
     !c.optimistic &&
@@ -1008,15 +1044,18 @@ function CommentItem({
           {isEditing ? (
             <EditCommentForm
               initialBody={c.body}
+              members={members}
               onCancel={() => setIsEditing(false)}
-              onSave={(body, expectedUpdatedAt) => onEdit(c.id, body, expectedUpdatedAt)}
+              onSave={(body, expectedUpdatedAt, newMentions) =>
+                onEdit(c.id, body, expectedUpdatedAt, newMentions)
+              }
               expectedUpdatedAt={c.updated_at ?? null}
             />
           ) : (
             <>
               <div className="mt-0.5 text-sm leading-5 text-[#172b4d]">
                 {c.body ? (
-                  <p className="whitespace-pre-wrap">{renderBody(c.body)}</p>
+                  <p className="whitespace-pre-wrap">{renderBody(c.body, mentionNames)}</p>
                 ) : null}
               </div>
 
@@ -1033,7 +1072,7 @@ function CommentItem({
                     edits.map((e) => (
                       <div key={e.id} className="rounded bg-white p-1.5">
                         <p className="whitespace-pre-wrap break-words text-[#42526e]">
-                          {e.previous_body}
+                          {renderBody(e.previous_body, mentionNames)}
                         </p>
                         <div className="mt-0.5 text-[10px] text-[#97a0af]">
                           {nameOf(e.edited_by, e.edited_by_name)} ·{" "}
@@ -1200,23 +1239,122 @@ function CommentItem({
 
 function EditCommentForm({
   initialBody,
+  members,
   expectedUpdatedAt,
   onCancel,
   onSave,
 }: {
   initialBody: string;
+  members: TaskAssignee[];
   expectedUpdatedAt: string | null;
   onCancel: () => void;
-  onSave: (body: string, expectedUpdatedAt: string | null) => Promise<EditOutcome>;
+  onSave: (
+    body: string,
+    expectedUpdatedAt: string | null,
+    newMentions: string[],
+  ) => Promise<EditOutcome>;
 }) {
   const [decodedInitialBody] = useState(() =>
-    decodeStoredMentions(initialBody),
+    decodeMentions(initialBody),
   );
   const [body, setBody] = useState(decodedInitialBody.text);
+  const bodyRef = useRef(decodedInitialBody.text);
+  const [draftMentions, setDraftMentions] = useState<DraftMention[]>(
+    decodedInitialBody.mentions,
+  );
+  const [query, setQuery] = useState<string | null>(null);
+  const [mentionPosition, setMentionPosition] =
+    useState<MentionMenuPosition | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeMentionRef = useRef<ActiveMention | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const listId = useId();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const matches =
+    query === null
+      ? []
+      : filterMentionCandidates(members, query).sort((a, b) => {
+          const aStarts = mentionStartsWithQuery(a, query);
+          const bStarts = mentionStartsWithQuery(b, query);
+          if (aStarts !== bStarts) return aStarts ? -1 : 1;
+          return mentionLabel(a).localeCompare(mentionLabel(b));
+        });
+  const highlightedMatch = matches[activeIndex] ?? matches[0];
+
+  useEffect(() => {
+    if (query === null || !mentionPosition) return;
+    const updatePosition = () => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const caret = textarea.selectionStart ?? textarea.value.length;
+      setMentionPosition(
+        measureTextareaCaret(textarea, caret, Math.max(1, matches.length), false),
+      );
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    document.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      document.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [matches.length, mentionPosition, query]);
+
+  function onChange(value: string, caret: number, textarea: HTMLTextAreaElement) {
+    const nextMentions = rebaseMentions(bodyRef.current, value, draftMentions);
+    bodyRef.current = value;
+    setBody(value);
+    setDraftMentions(nextMentions);
+    const active = findActiveMention(value, caret);
+    activeMentionRef.current = active;
+    if (!active) {
+      setQuery(null);
+      setMentionPosition(null);
+      return;
+    }
+    setQuery(active.query);
+    setActiveIndex(0);
+    setMentionPosition(
+      measureTextareaCaret(textarea, caret, Math.max(1, filterMentionCandidates(members, active.query).length), false),
+    );
+  }
+
+  function pick(person: MentionPerson) {
+    const textarea = textareaRef.current;
+    const currentText = textarea?.value ?? body;
+    const caret = textarea?.selectionStart ?? currentText.length;
+    const active = activeMentionRef.current ?? findActiveMention(currentText, caret);
+    const start = active?.start ?? caret;
+    const end = active?.end ?? caret;
+    const label = mentionLabel(person);
+    const visibleToken = `@${label}`;
+    const nextText = currentText.slice(0, start) + visibleToken + " " + currentText.slice(end);
+    const rebased = rebaseMentions(currentText, nextText, draftMentions).filter(
+      (mention) => mention.email.toLowerCase() !== person.email.toLowerCase(),
+    );
+    setDraftMentions([
+      ...rebased,
+      { label, email: person.email, start, end: start + visibleToken.length },
+    ]);
+    bodyRef.current = nextText;
+    setBody(nextText);
+    setQuery(null);
+    setMentionPosition(null);
+    activeMentionRef.current = null;
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(start + visibleToken.length + 1, start + visibleToken.length + 1);
+    });
+  }
+
   const trimmed = body.trim();
-  const encodedBody = encodeDraftMentions(trimmed, decodedInitialBody.mentions);
+  const encodedBody = encodeMentions({ text: body, mentions: draftMentions }).trim();
+  const beforeEmails = decodedInitialBody.mentions.map((mention) => mention.email);
+  const afterEmails = draftMentions
+    .filter((mention) => body.slice(mention.start, mention.end) === `@${mention.label}`)
+    .map((mention) => mention.email);
+  const newMentions = diffMentionEmails(beforeEmails, afterEmails);
   const unchanged = encodedBody === initialBody.trim();
 
   async function save() {
@@ -1228,7 +1366,7 @@ function EditCommentForm({
 
     setSaving(true);
     try {
-      const result = await onSave(encodedBody, expectedUpdatedAt);
+      const result = await onSave(encodedBody, expectedUpdatedAt, newMentions);
       if (result.ok) onCancel();
       else setError(result.message);
     } finally {
@@ -1237,6 +1375,37 @@ function EditCommentForm({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (query !== null) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveIndex((index) =>
+          moveEnabledChoiceIndex(
+            matches.map((match) => ({ value: match.email, label: mentionLabel(match) })),
+            index,
+            event.key === "ArrowDown" ? 1 : -1,
+          ),
+        );
+        return;
+      }
+      if (event.key === "Enter") {
+        if (highlightedMatch) {
+          event.preventDefault();
+          pick(highlightedMatch);
+          return;
+        }
+      }
+      if (event.key === "Tab") {
+        setQuery(null);
+        setMentionPosition(null);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setQuery(null);
+        setMentionPosition(null);
+        return;
+      }
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       onCancel();
@@ -1252,12 +1421,32 @@ function EditCommentForm({
   return (
     <div className="mt-1.5 overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_1px_rgba(9,30,66,0.08)] focus-within:border-[#0c66e4] focus-within:shadow-[0_0_0_1px_#0c66e4]">
       <textarea
+        ref={textareaRef}
         value={body}
-        onChange={(event) => setBody(event.target.value)}
+        role="combobox"
+        aria-expanded={query !== null}
+        aria-controls={query !== null ? listId : undefined}
+        aria-activedescendant={
+          query !== null && highlightedMatch
+            ? mentionOptionId(listId, highlightedMatch.email)
+            : undefined
+        }
+        onChange={(event) =>
+          onChange(event.target.value, event.target.selectionStart, event.target)
+        }
         onKeyDown={onKeyDown}
         rows={3}
         className="block min-h-[4.5rem] w-full resize-y bg-white px-3 py-2 text-sm leading-5 text-[#172b4d] outline-none"
       />
+      {query !== null && mentionPosition ? (
+        <MentionPicker
+          listId={listId}
+          candidates={matches}
+          activeIndex={activeIndex}
+          position={mentionPosition}
+          onSelect={pick}
+        />
+      ) : null}
       {error ? (
         <p role="alert" className="border-t border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
           {error}
@@ -1308,6 +1497,7 @@ function Composer({
   placeholder: string;
 }) {
   const [text, setText] = useState("");
+  const textRef = useRef("");
   const [files, setFiles] = useState<File[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(initiallyExpanded || alwaysOpen);
@@ -1320,6 +1510,7 @@ function Composer({
   const caretRef = useRef<number | null>(null);
   const activeMentionRef = useRef<ActiveMention | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
 
   // Apply a programmatic caret position after a mention insert.
   useEffect(() => {
@@ -1343,69 +1534,53 @@ function Composer({
   const matches =
     query === null
       ? []
-      : [...members]
-          .filter((m) => {
-            const q = query.trim().toLowerCase();
-            return (
-              mentionLabel(m).toLowerCase().includes(q) ||
-              m.email.toLowerCase().includes(q)
-            );
-          })
-          .sort((a, b) => {
-            const q = query.trim().toLowerCase();
-            const aLabel = mentionLabel(a).toLowerCase();
-            const bLabel = mentionLabel(b).toLowerCase();
-            const aStarts = aLabel.startsWith(q) || a.email.toLowerCase().startsWith(q);
-            const bStarts = bLabel.startsWith(q) || b.email.toLowerCase().startsWith(q);
-            if (aStarts !== bStarts) return aStarts ? -1 : 1;
-            return mentionLabel(a).localeCompare(mentionLabel(b));
-          });
+      : filterMentionCandidates(members, query).sort((a, b) => {
+          const aStarts = mentionStartsWithQuery(a, query);
+          const bStarts = mentionStartsWithQuery(b, query);
+          if (aStarts !== bStarts) return aStarts ? -1 : 1;
+          return mentionLabel(a).localeCompare(mentionLabel(b));
+        });
   const highlightedMatch = matches[hi] ?? matches[0];
 
-  const updateMentionPosition = useCallback(() => {
-    const textarea = taRef.current;
-    if (!textarea || query === null || matches.length === 0) return;
-    const caret = textarea.selectionStart ?? textarea.value.length;
-    setMentionPosition(
-      measureTextareaCaret(textarea, caret, matches.length, alwaysOpen),
-    );
-  }, [alwaysOpen, matches.length, query]);
-
   useEffect(() => {
-    if (query === null || matches.length === 0) return;
-    updateMentionPosition();
-
+    if (query === null || !mentionPosition) return;
     const textarea = taRef.current;
-    const observer = textarea ? new ResizeObserver(updateMentionPosition) : null;
+    const updatePosition = () => {
+      const element = taRef.current;
+      if (!element) return;
+      const caret = element.selectionStart ?? element.value.length;
+      setMentionPosition(
+        measureTextareaCaret(element, caret, Math.max(1, matches.length), alwaysOpen),
+      );
+    };
+    const observer = textarea ? new ResizeObserver(updatePosition) : null;
     if (textarea) observer?.observe(textarea);
-    window.addEventListener("resize", updateMentionPosition);
-    document.addEventListener("scroll", updateMentionPosition, true);
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    document.addEventListener("scroll", updatePosition, true);
     return () => {
       observer?.disconnect();
-      window.removeEventListener("resize", updateMentionPosition);
-      document.removeEventListener("scroll", updateMentionPosition, true);
+      window.removeEventListener("resize", updatePosition);
+      document.removeEventListener("scroll", updatePosition, true);
     };
-  }, [matches.length, query, updateMentionPosition]);
+  }, [alwaysOpen, matches.length, mentionPosition, query]);
 
   function onChange(
     value: string,
     caret: number,
     textarea: HTMLTextAreaElement,
   ) {
+    const nextMentions = rebaseMentions(textRef.current, value, draftMentions);
+    textRef.current = value;
     setText(value);
+    setDraftMentions(nextMentions);
     const activeMention = findActiveMention(value, caret);
     activeMentionRef.current = activeMention;
     if (activeMention) {
       setQuery(activeMention.query);
-      const nextMatchCount = members.filter((member) => {
-        const nextQuery = activeMention.query.trim().toLowerCase();
-        return (
-          mentionLabel(member).toLowerCase().includes(nextQuery) ||
-          member.email.toLowerCase().includes(nextQuery)
-        );
-      }).length;
+      const nextMatchCount = filterMentionCandidates(members, activeMention.query).length;
       setMentionPosition(
-        measureTextareaCaret(textarea, caret, nextMatchCount, alwaysOpen),
+        measureTextareaCaret(textarea, caret, Math.max(1, nextMatchCount), alwaysOpen),
       );
       setHi(0);
     } else {
@@ -1414,7 +1589,7 @@ function Composer({
     }
   }
 
-  function pick(member: TaskAssignee) {
+  function pick(member: MentionPerson) {
     const el = taRef.current;
     const currentText = el?.value ?? text;
     const caret = el?.selectionStart ?? currentText.length;
@@ -1426,10 +1601,14 @@ function Composer({
     const token = `@${label} `;
     const next = currentText.slice(0, start) + token + currentText.slice(end);
     setText(next);
-    setDraftMentions((current) => [
-      ...current.filter((mention) => mention.email !== member.email),
-      { label, email: member.email },
+    const rebased = rebaseMentions(currentText, next, draftMentions).filter(
+      (mention) => mention.email.toLowerCase() !== member.email.toLowerCase(),
+    );
+    setDraftMentions([
+      ...rebased,
+      { label, email: member.email, start, end: start + label.length + 1 },
     ]);
+    textRef.current = next;
     caretRef.current = start + token.length;
     activeMentionRef.current = null;
     setQuery(null);
@@ -1449,6 +1628,7 @@ function Composer({
   }
 
   function clearDraft() {
+    textRef.current = "";
     setText("");
     setFiles([]);
     setFileError(null);
@@ -1474,7 +1654,10 @@ function Composer({
     // A comment with only an attachment (no text) is valid.
     if (!trimmed && files.length === 0) return;
 
-    const ok = onSubmit(encodeDraftMentions(trimmed, draftMentions), files);
+    const ok = onSubmit(
+      encodeMentions({ text, mentions: draftMentions }).trim(),
+      files,
+    );
     if (ok) {
       clearDraft();
       if (onCancel) {
@@ -1486,23 +1669,30 @@ function Composer({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (query !== null && matches.length > 0) {
-      if (e.key === "ArrowDown") {
+    if (query !== null) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
-        setHi((i) => (i + 1) % matches.length);
+        setHi((i) =>
+          moveEnabledChoiceIndex(
+            matches.map((match) => ({ value: match.email, label: mentionLabel(match) })),
+            i,
+            e.key === "ArrowDown" ? 1 : -1,
+          ),
+        );
         return;
       }
-      if (e.key === "ArrowUp") {
+      if (e.key === "Enter" && highlightedMatch) {
         e.preventDefault();
-        setHi((i) => (i - 1 + matches.length) % matches.length);
+        pick(highlightedMatch);
         return;
       }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        if (highlightedMatch) pick(highlightedMatch);
+      if (e.key === "Tab") {
+        setQuery(null);
+        setMentionPosition(null);
         return;
       }
       if (e.key === "Escape") {
+        e.preventDefault();
         setQuery(null);
         setMentionPosition(null);
         return;
@@ -1541,6 +1731,14 @@ function Composer({
         <textarea
           ref={taRef}
           value={text}
+          role="combobox"
+          aria-expanded={query !== null}
+          aria-controls={query !== null ? listId : undefined}
+          aria-activedescendant={
+            query !== null && highlightedMatch
+              ? mentionOptionId(listId, highlightedMatch.email)
+              : undefined
+          }
           onChange={(e) =>
             onChange(e.target.value, e.target.selectionStart, e.target)
           }
@@ -1550,45 +1748,15 @@ function Composer({
           className="block min-h-[2.25rem] w-full resize-y bg-white px-3 py-2 text-sm leading-5 text-[#172b4d] outline-none placeholder:text-[#7a869a]"
         />
 
-        {query !== null && matches.length > 0 && mentionPosition
-          ? createPortal(
-              <div
-                role="listbox"
-                aria-label="Mention a person"
-                style={{
-                  position: "fixed",
-                  top: mentionPosition.top,
-                  left: mentionPosition.left,
-                  maxHeight: mentionPosition.maxHeight,
-                }}
-                className="z-[120] w-72 overflow-y-auto rounded border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
-              >
-                {matches.map((m, i) => (
-                  <button
-                    key={m.email}
-                    type="button"
-                    role="option"
-                    aria-selected={i === hi}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      pick(m);
-                    }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
-                      i === hi
-                        ? "bg-[#e9f2ff] text-[#0c66e4]"
-                        : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                    }`}
-                  >
-                    <Initials email={m.email} label={mentionLabel(m)} />
-                    <span className="min-w-0 flex-1 truncate font-semibold">
-                      {mentionLabel(m)}
-                    </span>
-                  </button>
-                ))}
-              </div>,
-              document.body,
-            )
-          : null}
+        {query !== null && mentionPosition ? (
+          <MentionPicker
+            listId={listId}
+            candidates={matches}
+            activeIndex={hi}
+            position={mentionPosition}
+            onSelect={pick}
+          />
+        ) : null}
 
         {fileError ? (
           <div className="border-t border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
