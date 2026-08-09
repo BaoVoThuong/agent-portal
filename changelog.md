@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Add Enrollment stage-time RPC scratch assertions
+- **Loại**: test
+- **Cái gì**: Thêm rollback-only PostgreSQL assertions cho create/PATCH/archive, terminal markers, owner snapshot, monotonic timestamps, invalid activity/fields, idempotent archive và database invariants.
+- **Vì sao**: SQL RPC correctness không được chứng minh bằng TypeScript tests; fixture dùng stage set ACA đã seed và không để lại dữ liệu.
+- **File**: `supabase/rollouts/2026-08-09-enrollment-stage-time-test.sql`
+- **Ảnh hưởng**: Chỉ scratch database; production data không bị ghi.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-stage-time-tracking.md`, CODEX-08/CODEX-16
+
 ## 2026-08-09 — Add atomic Enrollment stage mutation RPCs
 - **Loại**: feat, security
 - **Cái gì**: Thêm `patch_enrollment_atomic`, `create_enrollment_atomic`, `archive_enrollment_atomic` và `enrollment_touch_activity`; các RPC khóa record, enforce monotonic `updated_at`, normalize email, ghi cycle/history/activity trong cùng transaction và fail closed với unknown fields/invalid activity.
