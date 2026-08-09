@@ -332,7 +332,7 @@ export function CommentThread({
   members: TaskAssignee[];
   comments: CommentWithAttachments[];
   highlightCommentId?: string | null;
-  onReload: () => Promise<void> | void;
+  onReload: () => Promise<unknown> | void;
   /** Receives the parent task/record's new updated_at after a comment is
    * posted, so the owning list can keep its optimistic-concurrency token
    * current instead of 409-ing on the user's next edit. */

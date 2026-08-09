@@ -9,6 +9,7 @@ import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
 import type { TaskDetail, TaskDetailMetadata } from "@/lib/tasks/detail";
 import {
   getCachedTaskDetail,
+  invalidateTaskDetail,
   setCachedTaskDetail,
 } from "@/lib/tasks/detail-cache";
 import { taskKey } from "@/lib/tasks/sorting";
@@ -130,6 +131,7 @@ export function TaskDetailDrawer({
   const [detail, setDetail] = useState<TaskDetail | null>(
     () => getCachedTaskDetail(task.id) ?? null
   );
+  const [reloadStatus, setReloadStatus] = useState<"idle" | "failed">("idle");
   const [tab, setTab] = useState<DetailTab>("comments");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const onMetadataUpdatedRef = useRef(onMetadataUpdated);
@@ -137,16 +139,23 @@ export function TaskDetailDrawer({
     onMetadataUpdatedRef.current = onMetadataUpdated;
   }, [onMetadataUpdated]);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (): Promise<"ok" | "failed"> => {
+    invalidateTaskDetail(task.id);
     try {
       const res = await fetch(`/api/tasks/${task.id}/detail`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        setReloadStatus("failed");
+        return "failed";
+      }
       const data = (await res.json()) as TaskDetail;
       setCachedTaskDetail(task.id, data);
       setDetail(data);
       if (data.metadata) onMetadataUpdatedRef.current?.(data.metadata);
+      setReloadStatus("idle");
+      return "ok";
     } catch {
-      // The next mutation/realtime ping retries.
+      setReloadStatus("failed");
+      return "failed";
     }
   }, [task.id]);
 
@@ -510,6 +519,18 @@ export function TaskDetailDrawer({
                   <DetailSkeleton />
                 ) : (
                   <>
+                    {reloadStatus === "failed" ? (
+                      <div className="flex shrink-0 items-center justify-between gap-3 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]" role="alert">
+                        <span>Could not refresh the latest details.</span>
+                        <button
+                          type="button"
+                          onClick={() => void reload()}
+                          className="rounded bg-white px-2 py-1 text-[#bf2600] shadow-sm transition hover:bg-[#fff7f5]"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : null}
                     {tab === "comments" && (
                       <CommentThread
                         taskId={task.id}

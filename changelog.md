@@ -33,6 +33,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Unauthorized task-detail requests stop after authorization; manager and authorized role behavior remains unchanged while non-owner responses avoid activity queries.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F15
 
+## 2026-08-10 — Expire and invalidate task detail cache safely
+- **Loại**: fix, perf
+- **Cái gì**: Added a five-minute TTL and explicit invalidation to the client task-detail cache, and changed drawer reload to return success/failure while preserving the last committed detail and showing a Retry affordance on failure.
+- **Vì sao**: Detail payloads contain one-hour signed attachment URLs; an unbounded cache and swallowed reload errors could keep dead links and stale collaboration data in an open tab.
+- **File**: `src/lib/tasks/detail-cache.ts`, `src/lib/tasks/detail-cache.test.ts`, `src/app/(authed)/tasks/_components/TaskDetailDrawer.tsx`, `src/app/(authed)/tasks/_components/CommentThread.tsx`
+- **Ảnh hưởng**: Hover prefetch and task drawers no longer serve expired cache entries; transient reload failures remain recoverable without falsely marking committed comments/files as failed.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F16
+
 ## 2026-08-10 — Keep task last-activity actor paired with its timestamp
 - **Loại**: fix, security
 - **Cái gì**: Persisted `last_activity_by_email` from the same locked mutation that updates `last_activity_at`, excluded system activity from the backfill/read path, kept position-only reorder neutral, and made task archive/overview assignment preserve the human actor pair. The database trigger restores the previous actor when a stale timestamp is clamped.

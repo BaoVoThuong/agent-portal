@@ -3785,7 +3785,7 @@ one task, or once the 200-row activity cap is actually reached.
 | 16. Canonical names | C | P2 | Implemented | `f88ec8f` | Display-name/detail/activity tests + typecheck passed | F19. Task/Enrollment comments, activity actors, deleted placeholders, and edit history now resolve canonical names in one batched query including inactive accounts; unknown identities use `Unknown user`. Live fixture/browser verification pending. |
 | 17. Unified mentions | C | P2 | Implemented | `c28ad44` | Mention-draft tests + typecheck + targeted lint passed | F20 + F21. Positioned mention identity is shared by create/reply/edit; picker now searches normalized names/emails, exposes combobox/listbox semantics, handles no-results/responsive width, and edit notifications are diffed server-side. Live browser/notification verification pending. |
 | 18. Authorize first | D | P3 | Implemented | `d3f4052` | Typecheck + task detail tests passed | F15. Non-manager scope predicates now complete before comments/activity/metadata/signing; unauthorized requests return before privileged reads, and activity is omitted at query time for non-owners. Live role-matrix/instrumented 403 verification pending. |
-| 19. Cache TTL | D | P3 | Pending | — | — | F16 |
+| 19. Cache TTL | D | P3 | Implemented | `TBD` | Cache tests + typecheck + targeted lint passed | F16. Detail cache now expires in 5 minutes, supports explicit invalidation, and drawer reload returns a visible retry state without discarding committed detail. Browser realtime/cache-expiry verification pending. |
 | 20. Operation limits | D | P3 | Pending | — | — | F17. Needs malware risk sign-off |
 | 21. DB invariants | D | P3 | Pending | — | — | F18 |
 | 22. Activity vocabulary | D | P3 | Pending | — | — | F14 |
