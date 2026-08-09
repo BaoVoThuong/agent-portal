@@ -36,7 +36,7 @@ export function hexToRgba(hex: string, alpha: number): string | null {
 
 /** Identity badge: softened value colour with a readable foreground. */
 export function enrollmentIdentityBadgeStyle(
-  option: EnrollmentOption | null
+  option: Pick<EnrollmentOption, "color"> | null
 ): { bg: string; fg: string } {
   if (!option?.color) return { ...ENROLLMENT_BADGE_EMPTY };
   if (!hexToRgba(option.color, 1)) return { ...ENROLLMENT_BADGE_EMPTY };
@@ -52,7 +52,7 @@ export function enrollmentIdentityBadgeStyle(
 
 /** Workflow-state badge: pale tint with the option colour as foreground. */
 export function enrollmentStateBadgeStyle(
-  option: EnrollmentOption | null,
+  option: Pick<EnrollmentOption, "color"> | null,
   alpha: number = ENROLLMENT_STATE_BADGE_ALPHA
 ): { bg: string; fg: string } {
   if (!option?.color) return { ...ENROLLMENT_BADGE_EMPTY };

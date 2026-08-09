@@ -33,6 +33,7 @@ import {
 import { Toast, type ToastTone } from "../../_shared/Toast";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
+import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import {
   COLUMN_TYPES,
   TABLE_SCOPES,
@@ -56,6 +57,11 @@ import type {
   EnrollmentOptionSet,
   EnrollmentOptionSetKey,
 } from "@/lib/enrollment/types";
+import {
+  enrollmentIdentityBadgeStyle,
+  enrollmentStateBadgeStyle,
+} from "@/lib/enrollment/option-badge";
+import { recommendDropdownValueColor } from "@/lib/table-config/value-colors";
 import { ConfigSlaSection } from "./ConfigSlaSection";
 
 type AssistantMember = {
@@ -981,6 +987,107 @@ type DropdownValueRow = {
   triggersQc?: boolean;
 };
 
+type DropdownValueColorAppearance =
+  | "category"
+  | "enrollment-identity"
+  | "enrollment-state";
+
+function DropdownValueColorControl({
+  label,
+  identityKey,
+  color,
+  fallbackColor,
+  appearance,
+  recommended = false,
+  disabled = false,
+  onColorChange,
+  onColorCommit,
+}: {
+  label: string;
+  identityKey: string;
+  color: string | null;
+  fallbackColor: string;
+  appearance: DropdownValueColorAppearance;
+  recommended?: boolean;
+  disabled?: boolean;
+  onColorChange?: (color: string) => void;
+  onColorCommit?: (color: string) => void;
+}) {
+  const [draftColor, setDraftColor] = useState(color ?? fallbackColor);
+  const [dirty, setDirty] = useState(false);
+  const draftColorRef = useRef(color ?? fallbackColor);
+  const dirtyRef = useRef(false);
+  const controlled = Boolean(onColorChange);
+  const displayedColor = controlled
+    ? color ?? fallbackColor
+    : dirty
+      ? draftColor
+      : color ?? fallbackColor;
+  const previewColor = controlled ? color : dirty ? draftColor : color;
+  const preview =
+    appearance === "enrollment-state"
+      ? enrollmentStateBadgeStyle({ color: previewColor })
+      : appearance === "enrollment-identity"
+        ? enrollmentIdentityBadgeStyle({ color: previewColor })
+        : (() => {
+          const palette = taskCategoryBadgePalette({
+            id: identityKey,
+            name: label || "Dropdown value",
+            color: previewColor,
+          });
+          return { bg: palette.background, fg: palette.foreground };
+        })();
+  const previewLabel = label.trim() || (recommended ? "Recommended" : "Preview");
+
+  return (
+    <div className="flex h-10 min-w-0 items-center gap-2 rounded border border-[#dfe1e6] bg-white px-2">
+      <span
+        className="min-w-0 flex-1 truncate rounded px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.025em]"
+        style={{ backgroundColor: preview.bg, color: preview.fg }}
+        title={`${previewLabel} — ${displayedColor}`}
+      >
+        {previewLabel}
+      </span>
+      {recommended ? (
+        <span className="shrink-0 text-[10px] font-bold uppercase text-[#6b778c]">
+          Auto
+        </span>
+      ) : null}
+      <label
+        className={`relative h-7 w-8 shrink-0 overflow-hidden rounded border border-[#c1c7d0] bg-white p-1 ${
+          disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+        }`}
+        title="Choose a different base color"
+      >
+        <span
+          className="block h-full w-full rounded-sm"
+          style={{ backgroundColor: displayedColor }}
+        />
+        <input
+          type="color"
+          value={displayedColor}
+          disabled={disabled}
+          aria-label={`Color for ${label || "new dropdown value"}`}
+          onChange={(event) => {
+            const nextColor = event.target.value;
+            draftColorRef.current = nextColor;
+            dirtyRef.current = true;
+            setDraftColor(nextColor);
+            setDirty(true);
+            onColorChange?.(nextColor);
+          }}
+          onBlur={() => {
+            if (!dirtyRef.current) return;
+            dirtyRef.current = false;
+            onColorCommit?.(draftColorRef.current);
+          }}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+        />
+      </label>
+    </div>
+  );
+}
+
 type DropdownValueGroup =
   | { kind: "category"; key: string; navLabel: string; count: number }
   | { kind: "custom"; key: string; navLabel: string; count: number; columnId: string }
@@ -1083,6 +1190,16 @@ function ConfigDropdownValuesSection({
             triggersQc: o.triggers_qc,
           }));
   const activeConsentCount = isConsentGroup ? valueRows.length : 0;
+  const recommendedColor = recommendDropdownValueColor(
+    valueRows.map((row) => row.color)
+  );
+  const draftColor = color || recommendedColor;
+  const colorAppearance: DropdownValueColorAppearance =
+    selected?.kind === "optionSet"
+      ? selected.setKey === "stage"
+        ? "enrollment-state"
+        : "enrollment-identity"
+      : "category";
 
   async function refreshCategories() {
     const response = await fetch("/api/tasks/categories", { cache: "no-store" });
@@ -1094,13 +1211,13 @@ function ConfigDropdownValuesSection({
     if (selected.kind === "category") {
       await requestJson("/api/tasks/categories", {
         method: "POST",
-        body: JSON.stringify({ name: label, color: color || null }),
+        body: JSON.stringify({ name: label, color: draftColor }),
       });
       await refreshCategories();
     } else if (selected.kind === "custom") {
       await requestJson(`/api/config/columns/${selected.columnId}/options`, {
         method: "POST",
-        body: JSON.stringify({ label, color: color || null }),
+        body: JSON.stringify({ label, color: draftColor }),
       });
       await refreshScope(scope);
     } else {
@@ -1110,7 +1227,7 @@ function ConfigDropdownValuesSection({
           program: scope,
           set_key: selected.setKey,
           label,
-          color: color || "#97A0AF",
+          color: draftColor,
           is_terminal: isTerminal,
           triggers_qc: triggersQc,
         }),
@@ -1247,7 +1364,7 @@ function ConfigDropdownValuesSection({
           </nav>
           <div className="p-4">
             <form
-              className="grid grid-cols-1 gap-2 border-b border-[#dfe1e6] pb-4 md:grid-cols-[minmax(0,1fr)_100px_110px_110px_auto]"
+              className="grid grid-cols-1 gap-2 border-b border-[#dfe1e6] pb-4 md:grid-cols-[minmax(0,1fr)_240px_110px_110px_auto]"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (!selected || !label.trim()) return;
@@ -1266,11 +1383,15 @@ function ConfigDropdownValuesSection({
                 placeholder={`New ${selected?.navLabel ?? "value"}`}
                 className="h-10 rounded border border-[#dfe1e6] px-3 text-sm font-semibold outline-none focus:border-[#0c66e4]"
               />
-              <input
-                type="color"
-                value={color || "#97A0AF"}
-                onChange={(event) => setColor(event.target.value)}
-                className="h-10 w-full rounded border border-[#dfe1e6] bg-white p-1"
+              <DropdownValueColorControl
+                label={label}
+                identityKey={`draft:${selected?.key ?? "value"}`}
+                color={draftColor}
+                fallbackColor={recommendedColor}
+                appearance={colorAppearance}
+                recommended={!color}
+                disabled={busy}
+                onColorChange={setColor}
               />
               <label
                 className={`flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e] ${
@@ -1346,11 +1467,20 @@ function ConfigDropdownValuesSection({
                           />
                         </td>
                         <td className="border-b border-r border-[#dfe1e6] px-3 py-2">
-                          <input
-                            type="color"
-                            defaultValue={row.color ?? "#97A0AF"}
-                            onBlur={(event) => void run(() => recolorValue(row.id, event.target.value), "Option updated.")}
-                            className="h-8 w-full rounded border border-[#dfe1e6] bg-white p-1"
+                          <DropdownValueColorControl
+                            key={`color:${row.id}:${row.color ?? "none"}`}
+                            label={row.label}
+                            identityKey={row.id}
+                            color={row.color}
+                            fallbackColor={recommendedColor}
+                            appearance={colorAppearance}
+                            disabled={busy}
+                            onColorCommit={(nextColor) =>
+                              void run(
+                                () => recolorValue(row.id, nextColor),
+                                "Option updated."
+                              )
+                            }
                           />
                         </td>
                         {isStageGroup ? (

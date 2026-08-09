@@ -37,8 +37,8 @@ export function taskCategoryPalette(
 
 /**
  * Category badges use a softer version of the configured colour so the list
- * stays easy to scan. Keep the raw palette above for configuration swatches
- * and option menus; only the rendered badge background is lightened here.
+ * stays easy to scan. Configuration shows this same badge preview beside the
+ * raw editable swatch, so admins see the colour users will actually see.
  */
 export function taskCategoryBadgePalette(
   category: Pick<TaskCategory, "id" | "name" | "color">
