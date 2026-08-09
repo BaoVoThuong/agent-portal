@@ -3781,7 +3781,7 @@ one task, or once the 200-row activity cap is actually reached.
 | 12. Last-activity pair | C | P2 | Implemented | `8a028e9` | Typecheck + queries/last-activity tests passed | F10. Actor column was added early in Task 6; this task completes every writer, excludes system activity, keeps position-only reorder from moving the pair, and archives with the human actor. Live SQL/cron verification pending. |
 | 13. Unassigned activity | C | P2 | Implemented | `2be2df9` | Activity-event tests + typecheck passed | F11. New removals use `unassigned` with `removed/next_primary`; renderer also recognizes historical `assigned + meta.removed` rows. Live feed verification pending. |
 | 14. Atomic task create | C | P2 | Implemented | `ac2e23b` | Typecheck + 17 targeted tests passed | F12. Task, assignees, initial stage/assignment cycles, and `created` audit are now one idempotent RPC; rotation, notifications, broadcast, and reconciliation are warning-only after commit. Live DB fault/replay verification pending. |
-| 15. Atomic overdue | C | P2 | Pending | — | — | F13 |
+| 15. Atomic overdue | C | P2 | Implemented | `TBD` | Typecheck pending | F13. `mark_task_overdue_atomic` now guards status/flag, commits event + `went_overdue` audit or rolls back, and only the winner sends notifications. Live concurrent-cron and rollback verification pending. |
 | 16. Canonical names | C | P2 | Pending | — | — | F19 |
 | 17. Unified mentions | C | P2 | Pending | — | — | F20 + F21. Needs Task 10 |
 | 18. Authorize first | D | P3 | Pending | — | — | F15 |

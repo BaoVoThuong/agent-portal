@@ -7,7 +7,6 @@ import {
   fetchAdminEmails,
   fetchAgentOwnerAndAssistantEmails,
 } from "@/lib/tasks/membership";
-import { openOverdueEvent } from "@/lib/tasks/history";
 import {
   insertNotifications,
   uniqueNotificationRecipients,
@@ -189,28 +188,18 @@ export async function GET(request: Request) {
     await Promise.all(
       newlyOverdue.map(async (task) => {
         const dueAt = currentStintDueAt(task, rules) ?? now;
-        const { error: updateError } = await supabase
-          .from("tasks")
-          .update({
-            overdue_flagged_at: nowIso,
-            overdue_reminded_at: nowIso,
-            overdue_count: task.overdue_count + 1,
-          })
-          .eq("id", task.id)
-          .is("overdue_flagged_at", null);
-        if (updateError) throw new Error(updateError.message);
-        await openOverdueEvent(supabase, {
-          taskId: task.id,
-          dueAt: dueAt.toISOString(),
-          overdueAt: nowIso,
-          slaMinutes: effectiveSlaMinutes(task, rules),
-        });
-        await supabase.from("task_activity").insert({
-          task_id: task.id,
-          actor_email: "system",
-          type: "went_overdue",
-          meta: { due_at: dueAt.toISOString(), flagged_at: nowIso },
-        });
+        const { data: transitioned, error: transitionError } = await supabase.rpc(
+          "mark_task_overdue_atomic",
+          {
+            p_task_id: task.id,
+            p_due_at: dueAt.toISOString(),
+            p_sla_minutes: effectiveSlaMinutes(task, rules),
+          }
+        );
+        if (transitionError) throw new Error(transitionError.message);
+        // A concurrent cron run or a user status change won the row guard.
+        // Nothing below is part of the transition, so it must not notify twice.
+        if (transitioned !== true) return;
         const [assignees, agentRecipients, adminRecipients] = await Promise.all([
           fetchTaskAssigneeEmails(task.id, supabase),
           task.priority === "urgent" || task.priority === "high"

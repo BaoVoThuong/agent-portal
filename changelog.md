@@ -41,6 +41,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Health CS task creation now fails before any durable row on required-state errors, and an ambiguous/retried submit returns the original task without duplicate audit/cycle rows.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F12
 
+## 2026-08-10 — Make overdue detection atomic and idempotent
+- **Loại**: fix, security
+- **Cái gì**: Added `mark_task_overdue_atomic`, which conditionally flips an in-progress task, inserts its open overdue event, and records `went_overdue` in one transaction. The cron only resolves recipients and notifies when the RPC returns `true`.
+- **Vì sao**: Concurrent cron runs previously ignored the conditional update row count, allowing duplicate events/notifications and leaving a flagged task without a required activity row if a later write failed.
+- **File**: `supabase/schema.sql`, `src/app/api/cron/check-overdue/route.ts`
+- **Ảnh hưởng**: Overdue transition history is single-writer and rollback-safe; system bookkeeping remains excluded from human last-activity metrics.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F13
+
 ---
 
 ## 2026-08-10 — Delete task attachment metadata before storage cleanup

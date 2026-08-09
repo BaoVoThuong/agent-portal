@@ -2524,6 +2524,70 @@ revoke all on function create_task_atomic(jsonb, text[], text, uuid)
 grant execute on function create_task_atomic(jsonb, text[], text, uuid)
   to service_role;
 
+-- Flip a task into overdue exactly once and commit its event/audit rows with
+-- that flip. A concurrent cron invocation sees row_count = 0 and must not
+-- notify or insert a second event. System bookkeeping deliberately does not
+-- move the human last-activity pair.
+create or replace function mark_task_overdue_atomic(
+  p_task_id uuid,
+  p_due_at timestamptz,
+  p_sla_minutes integer
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz := clock_timestamp();
+  v_updated integer;
+begin
+  update tasks
+  set overdue_flagged_at = v_now,
+      overdue_reminded_at = v_now,
+      overdue_count = coalesce(overdue_count, 0) + 1
+  where id = p_task_id
+    and status = 'in_progress'
+    and overdue_flagged_at is null;
+  get diagnostics v_updated = row_count;
+  if v_updated = 0 then
+    return false;
+  end if;
+
+  insert into task_overdue_events (
+    task_id, stage_cycle_id, due_at, overdue_at, sla_minutes
+  ) values (
+    p_task_id,
+    (
+      select c.id
+      from task_stage_cycles c
+      where c.task_id = p_task_id
+        and c.stage = 'in_progress'
+        and c.ended_at is null
+      order by c.started_at desc
+      limit 1
+    ),
+    p_due_at,
+    v_now,
+    p_sla_minutes
+  );
+
+  insert into task_activity (task_id, actor_email, type, meta)
+  values (
+    p_task_id,
+    'system',
+    'went_overdue',
+    jsonb_build_object('due_at', p_due_at, 'flagged_at', v_now)
+  );
+  return true;
+end;
+$$;
+
+revoke all on function mark_task_overdue_atomic(uuid, timestamptz, integer)
+  from public, anon, authenticated;
+grant execute on function mark_task_overdue_atomic(uuid, timestamptz, integer)
+  to service_role;
+
 -- Generic task PATCH command. The API validates permissions, field shape, SLA
 -- transitions, and required fields before calling this function; the
 -- function is the transaction boundary for the writes that must describe one
