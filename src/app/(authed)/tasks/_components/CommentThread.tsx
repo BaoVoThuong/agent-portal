@@ -99,6 +99,14 @@ const isImage = (mime: string | null) =>
   Boolean(mime && mime.startsWith("image/"));
 
 function AttachmentLink({ attachment }: { attachment: SignedAttachment }) {
+  if (attachment.unavailable || !attachment.url) {
+    return (
+      <span title="This file may have been removed or is temporarily unavailable" className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-[#f7f8f9] px-2 py-1 text-xs font-medium text-[#8993a4]">
+        <FileText className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{attachment.file_name} · File unavailable</span>
+      </span>
+    );
+  }
   return (
     <a
       href={attachment.url}
@@ -770,12 +778,14 @@ function CommentItem({
               {c.attachments.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-2">
                   {c.attachments.map((a) =>
-                    isImage(a.mime_type) ? (
+                    a.unavailable || !a.url ? (
+                      <AttachmentLink key={a.id} attachment={a} />
+                    ) : isImage(a.mime_type) ? (
                       <button
                         key={a.id}
                         type="button"
                         onClick={() =>
-                          onPreviewImage({ url: a.url, fileName: a.file_name })
+                          onPreviewImage({ url: a.url!, fileName: a.file_name })
                         }
                         className="group/image block overflow-hidden rounded border border-[#dfe1e6] bg-[#f7f8f9] text-left transition hover:border-[#85b8ff] focus:border-[#0c66e4] focus:outline-none focus:ring-2 focus:ring-[#85b8ff]"
                       >

@@ -19,6 +19,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ---
 
+## 2026-08-10 — Isolate unsignable task attachments
+- **Loại**: fix
+- **Cái gì**: Task detail signs each attachment independently and renders unavailable files as a neutral placeholder instead of rejecting the entire comment/activity load.
+- **Vì sao**: One missing storage object previously caused the whole drawer to fail with 500.
+- **File**: `src/lib/tasks/detail.ts`, `src/lib/tasks/detail.test.ts`, `src/app/(authed)/tasks/_components/CommentThread.tsx`, `src/app/(authed)/tasks/_components/AttachmentPanel.tsx`
+- **Ảnh hưởng**: Broken storage rows remain visible as unavailable metadata; healthy comments and files continue rendering.
+
 ## 2026-08-10 — Add typed task activity and mutation-result contracts
 - **Loại**: feat
 - **Cái gì**: Added the shared task activity vocabulary/metadata union and a `MutationResult`/warning helper for post-commit side effects.

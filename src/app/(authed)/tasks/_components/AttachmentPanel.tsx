@@ -74,9 +74,11 @@ export function AttachmentPanel({
         {attachments.map((a) => (
           <li key={a.id} className="flex items-center gap-2 text-sm">
             <Paperclip className="h-3.5 w-3.5 text-[#97a0af]" />
-            <a href={a.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-[#0c66e4] hover:underline">
-              {a.file_name}
-            </a>
+            {a.unavailable || !a.url ? (
+              <span title="This file may have been removed or is temporarily unavailable" className="flex-1 truncate text-[#8993a4]">{a.file_name} · File unavailable</span>
+            ) : (
+              <a href={a.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-[#0c66e4] hover:underline">{a.file_name}</a>
+            )}
             {canEdit && (
               <button type="button" onClick={() => remove(a.id)} aria-label="Delete attachment" className="text-[#97a0af] transition hover:text-[#bf2600]">
                 <Trash2 className="h-3.5 w-3.5" />

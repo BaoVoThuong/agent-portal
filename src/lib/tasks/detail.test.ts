@@ -4,6 +4,7 @@ import {
   TASK_ACTIVITY_LIMIT,
   groupCommentAttachments,
   loadActivity,
+  signAttachmentsSafely,
 } from "@/lib/tasks/detail";
 
 const att = (id: string) => ({
@@ -65,5 +66,20 @@ describe("loadActivity", () => {
 
     expect(calls.limit).toBe(TASK_ACTIVITY_LIMIT);
     expect(calls.order).toEqual({ ascending: false });
+  });
+});
+
+describe("signAttachmentsSafely", () => {
+  it("isolates one signing failure", async () => {
+    const rows = [
+      { id: "a", file_name: "ok.pdf", mime_type: null, size_bytes: 1, storage_path: "good" },
+      { id: "b", file_name: "gone.pdf", mime_type: null, size_bytes: 1, storage_path: "missing" },
+    ];
+    const signed = await signAttachmentsSafely(rows, async (path) => {
+      if (path === "missing") throw new Error("Object not found");
+      return `https://signed/${path}`;
+    });
+    expect(signed[0]).toMatchObject({ id: "a", url: "https://signed/good" });
+    expect(signed[1]).toMatchObject({ id: "b", url: null, unavailable: true });
   });
 });

@@ -6,7 +6,8 @@ export type SignedAttachment = {
   file_name: string;
   mime_type: string | null;
   size_bytes: number | null;
-  url: string;
+  url: string | null;
+  unavailable?: true;
 };
 
 export type CommentWithAttachments = Record<string, unknown> & {
@@ -104,14 +105,9 @@ export async function loadComments(
     .order("created_at", { ascending: true });
   if (attachmentsError) throw new Error(attachmentsError.message);
 
-  const signed = await Promise.all(
-    ((attachmentRows ?? []) as unknown as CommentAttachmentRow[]).map(
-      async (row) => ({
-        comment_id: row.comment_id,
-        att: await signAttachment(row),
-      })
-    )
-  );
+  const rows = (attachmentRows ?? []) as unknown as CommentAttachmentRow[];
+  const attachments = await signAttachmentsSafely(rows);
+  const signed = rows.map((row, index) => ({ comment_id: row.comment_id, att: attachments[index] }));
 
   return groupCommentAttachments(
     (comments ?? []) as unknown as { id: string }[],
@@ -146,11 +142,7 @@ export async function loadTaskAttachments(
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
 
-  return Promise.all(
-    ((data ?? []) as unknown as TaskAttachmentRow[]).map((row) =>
-      signAttachment(row)
-    )
-  );
+  return signAttachmentsSafely((data ?? []) as unknown as TaskAttachmentRow[]);
 }
 
 export async function loadTaskDetail(
@@ -177,14 +169,18 @@ export async function loadTaskDetail(
   return { comments, activity, attachments };
 }
 
-async function signAttachment(
-  row: CommentAttachmentRow | TaskAttachmentRow
-): Promise<SignedAttachment> {
-  return {
-    id: row.id,
-    file_name: row.file_name,
-    mime_type: row.mime_type,
-    size_bytes: row.size_bytes,
-    url: await signTaskFile(row.storage_path),
-  };
+export async function signAttachmentsSafely<
+  T extends { id: string; file_name: string; mime_type: string | null; size_bytes: number | null; storage_path: string }
+>(
+  rows: readonly T[],
+  sign: (path: string) => Promise<string> = signTaskFile
+): Promise<SignedAttachment[]> {
+  const settled = await Promise.allSettled(rows.map((row) => sign(row.storage_path)));
+  return rows.map((row, index) => {
+    const base = { id: row.id, file_name: row.file_name, mime_type: row.mime_type, size_bytes: row.size_bytes };
+    const result = settled[index];
+    if (result.status === "fulfilled") return { ...base, url: result.value };
+    console.warn(`[attachments] could not sign ${row.id}`, result.reason);
+    return { ...base, url: null, unavailable: true as const };
+  });
 }
