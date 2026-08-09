@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Add idempotent Enrollment stage-time backfill
+- **Loại**: chore
+- **Cái gì**: Thêm backfill rollback-safe theo record watermark, khôi phục initial stage visits, materialize history source classification, seed current dwell/entry markers, normalize human activity actors và validate tracking invariants.
+- **Vì sao**: Backfill phải chạy sau atomic RPC deployment để không chụp mutation hậu-commit cũ, không ghi đè live measurements và chạy lại cho cùng kết quả.
+- **File**: `supabase/rollouts/2026-08-09-enrollment-stage-time-backfill.sql`
+- **Ảnh hưởng**: Historical Enrollment ACA/Medicare stage cycles và denormalized tracking fields; production script cần chạy sau code rollout.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-stage-time-tracking.md`, CODEX-06/CODEX-07
+
 ## 2026-08-09 — Add Enrollment stage-time RPC scratch assertions
 - **Loại**: test
 - **Cái gì**: Thêm rollback-only PostgreSQL assertions cho create/PATCH/archive, terminal markers, owner snapshot, monotonic timestamps, invalid activity/fields, idempotent archive và database invariants.
