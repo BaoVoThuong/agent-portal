@@ -102,7 +102,7 @@ export function normalizeEnrollmentActorEmail(
 
 export async function loadEnrollmentActor():
   Promise<
-    | { ok: true; actor: EnrollmentActor }
+    | { ok: true; actor: EnrollmentActor; permissions: string[] }
     | { ok: false; error: "Unauthorized"; status: 401 }
     | { ok: false; error: "Forbidden"; status: 403 }
   > {
@@ -117,5 +117,5 @@ export async function loadEnrollmentActor():
     return { ok: false, error: "Forbidden", status: 403 };
   }
 
-  return { ok: true, actor };
+  return { ok: true, actor, permissions: session.user.permissions ?? [] };
 }

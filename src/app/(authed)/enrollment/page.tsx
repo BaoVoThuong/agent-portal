@@ -65,7 +65,7 @@ export default async function EnrollmentPage({
     fetchEnrollmentOptionData(program),
     fetchTableColumns(program),
     fetchTableColumnOptions(program),
-    canActorExport(actor),
+    canActorExport(session.user.permissions),
     actor.isManager
       ? Promise.resolve<string[]>([])
       : fetchAssistantAgentsForCs(email),

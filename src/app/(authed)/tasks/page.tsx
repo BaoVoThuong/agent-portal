@@ -63,7 +63,7 @@ export default async function TasksPage() {
       .order("name", { ascending: true })
       .then((r) => (r.data ?? []) as TaskCategory[]),
     fetchTableColumnsWithOptions("cs"),
-    canActorExport(actor),
+    canActorExport(session.user.permissions),
   ]);
   const myAgents = actor.isManager ? agents.map((a) => a.email) : csAgents;
 

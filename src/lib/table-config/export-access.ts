@@ -1,5 +1,8 @@
-import type { EnrollmentActor } from "@/lib/enrollment/access";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { can } from "@/lib/rbac/client";
 
-export async function canActorExport(actor: EnrollmentActor): Promise<boolean> {
-  return actor.isManager;
+export function canActorExport(
+  permissions: readonly string[] | undefined
+): boolean {
+  return can(permissions, PERMISSIONS.TASK_EXPORT);
 }
