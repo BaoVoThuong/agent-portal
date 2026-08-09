@@ -357,21 +357,21 @@ avoiding nine mechanical import edits is the smaller pre-go-live change.
 
 **Steps**
 
-- [ ] Move `EnrollmentPersonMenu` to the shared panel.
-- [ ] Remove its current outer `role="listbox"` and `max-h-64 overflow-auto`; use the shared
+- [x] Move `EnrollmentPersonMenu` to the shared panel.
+- [x] Remove its current outer `role="listbox"` and `max-h-64 overflow-auto`; use the shared
   inner listbox and single scroll region.
-- [ ] Search Agent/Caller/Responsible by normalized name and email.
-- [ ] Preserve the existing sorted roster, missing-current-person fallback, empty labels, and
+- [x] Search Agent/Caller/Responsible by normalized name and email.
+- [x] Preserve the existing sorted roster, missing-current-person fallback, empty labels, and
   required-field behavior.
-- [ ] Preserve permission-specific candidate sources: `agentsByEmail`, `createAgentsByEmail`,
+- [x] Preserve permission-specific candidate sources: `agentsByEmail`, `createAgentsByEmail`,
   and `peopleByEmail` must not be widened or merged.
-- [ ] Add searchable behavior to `TaskSelect` without breaking single vs multi selection.
-- [ ] Remove `TaskSelect`'s current `role="listbox"` and outer `overflow-auto` from the portal
+- [x] Add searchable behavior to `TaskSelect` without breaking single vs multi selection.
+- [x] Remove `TaskSelect`'s current `role="listbox"` and outer `overflow-auto` from the portal
   root. The search input is a sibling of the shared inner listbox, never its child.
-- [ ] Keep `All …` pinned in multi-filter menus and keep multi menus open after selection.
-- [ ] Enable it for Enrollment Stage/Agent/Caller/Responsible/Carrier toolbar filters.
-- [ ] Verify the plain-worker default Assignee filter still initializes exactly as before.
-- [ ] Run verification and make one Task 4 commit.
+- [x] Keep `All …` pinned in multi-filter menus and keep multi menus open after selection.
+- [x] Enable it for Enrollment Stage/Agent/Caller/Responsible/Carrier toolbar filters.
+- [x] Verify the plain-worker default Assignee filter still initializes exactly as before (no initialization logic changed).
+- [x] Run verification and make one Task 4 commit.
 
 ### Task 5 — Apply the same interaction to Health CS dynamic selectors
 
@@ -546,7 +546,7 @@ must preserve every one of those semantics; it is not a cosmetic `<select>` subs
 | 1. Pure matching contract | Completed | `4724042` | 8 tests; ESLint; `tsc --noEmit`; `git diff --check` | Pure search + enabled navigation helpers |
 | 2. Shared searchable listbox panel | Completed | `2be5cdb` | 8 tests; targeted ESLint; `tsc --noEmit`; `git diff --check` | Shared panel + focus-aware anchored-menu close helpers; manual browser smoke test remains pending |
 | 3. Enrollment option menus | Completed | `49ec83d` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | Payment/Carrier/ACA/Platform + Stage use shared searchable panel; manual ACA/Medicare browser matrix remains pending |
-| 4. Enrollment people and filters | Pending | — | — | — |
+| 4. Enrollment people and filters | Completed | `2a76381` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | People menus + searchable TaskSelect with pinned All/multi behavior; manual worker/default-filter and keyboard browser gate remains pending |
 | 5. Health CS dynamic selectors | Pending | — | — | — |
 | 6. Custom-value equality preparation | Pending | — | — | No UI change |
 | 7. Custom dropdown/person lifecycle | Pending | — | — | Changelog required |
