@@ -1360,6 +1360,11 @@ where last_activity_at is null;
 -- eventually pruned, and lets atomic collaboration commands update the pair
 -- under the same row lock.
 alter table tasks add column if not exists last_activity_by_email text;
+alter table tasks add column if not exists client_request_id uuid;
+
+create unique index if not exists tasks_client_request_id_key
+  on tasks (reporter_email, client_request_id)
+  where client_request_id is not null;
 
 -- Clamp optimistic-concurrency and last-activity tokens at the database
 -- column so application clocks cannot move either value backwards.
@@ -2365,6 +2370,159 @@ where not exists (
     and c.email = ta.email
     and c.unassigned_at is null
 );
+
+-- Create the task, its initial collaboration history, and assignment/stage
+-- cycles as one durable command. Rotation, notifications, and broadcasts stay
+-- outside this transaction because they affect other rows/providers. A
+-- request token replays the committed task without duplicating any audit row.
+create or replace function create_task_atomic(
+  p_task jsonb,
+  p_assignees text[] default '{}'::text[],
+  p_actor_email text default null,
+  p_client_request_id uuid default null
+)
+returns table (task jsonb, was_created boolean)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_task tasks%rowtype;
+  v_now timestamptz := clock_timestamp();
+  v_actor text := lower(trim(p_actor_email));
+  v_assignees text[];
+  v_status text;
+  v_started_at timestamptz;
+  v_sla_minutes integer;
+begin
+  if v_actor is null or v_actor = '' then
+    raise exception 'TASK_ACTOR_REQUIRED';
+  end if;
+  if p_task is null or jsonb_typeof(p_task) <> 'object' then
+    raise exception 'TASK_PAYLOAD_INVALID';
+  end if;
+  if btrim(coalesce(p_task->>'title', '')) = '' then
+    raise exception 'TASK_TITLE_REQUIRED';
+  end if;
+
+  select coalesce(array_agg(distinct lower(trim(input_email.email)) order by lower(trim(input_email.email))), '{}'::text[])
+    into v_assignees
+  from unnest(coalesce(p_assignees, '{}'::text[])) as input_email(email)
+  where btrim(input_email.email) <> '';
+
+  v_status := coalesce(nullif(p_task->>'status', ''), 'backlog');
+  if v_status not in ('backlog', 'todo', 'in_progress', 'waiting', 'done', 'cancel') then
+    raise exception 'TASK_STATUS_INVALID';
+  end if;
+  v_sla_minutes := nullif(p_task->>'sla_minutes', '')::integer;
+
+  -- ON CONFLICT waits for a concurrent creator to commit, then the replay
+  -- SELECT below returns its canonical row. No second activity/cycle is made.
+  insert into tasks (
+    title, description, fub_link, status, priority, category_id,
+    agent_email, assignee_email, reporter_email, custom_values, position,
+    last_activity_at, last_activity_by_email, client_request_id,
+    todo_started_at, in_progress_at, waiting_started_at, closed_at,
+    sla_minutes, stale_reminded_at, created_at, updated_at
+  ) values (
+    btrim(p_task->>'title'),
+    nullif(btrim(p_task->>'description'), ''),
+    nullif(btrim(p_task->>'fub_link'), ''),
+    v_status,
+    coalesce(nullif(p_task->>'priority', ''), 'medium'),
+    nullif(p_task->>'category_id', '')::uuid,
+    nullif(lower(trim(p_task->>'agent_email')), ''),
+    case when v_status = 'backlog' then null else nullif(lower(trim(p_task->>'assignee_email')), '') end,
+    v_actor,
+    coalesce(p_task->'custom_values', '{}'::jsonb),
+    coalesce(nullif(p_task->>'position', '')::double precision, 0),
+    v_now,
+    v_actor,
+    p_client_request_id,
+    nullif(p_task->>'todo_started_at', '')::timestamptz,
+    nullif(p_task->>'in_progress_at', '')::timestamptz,
+    nullif(p_task->>'waiting_started_at', '')::timestamptz,
+    nullif(p_task->>'closed_at', '')::timestamptz,
+    case when v_status = 'in_progress' then v_sla_minutes else null end,
+    null,
+    v_now,
+    v_now
+  )
+  on conflict (reporter_email, client_request_id) where client_request_id is not null
+  do nothing
+  returning * into v_task;
+
+  if not found then
+    select * into v_task
+    from tasks
+    where reporter_email = v_actor
+      and client_request_id = p_client_request_id
+    for update;
+    if not found then
+      raise exception 'TASK_CREATE_REPLAY_NOT_FOUND';
+    end if;
+    task := to_jsonb(v_task);
+    was_created := false;
+    return next;
+    return;
+  end if;
+
+  if array_length(v_assignees, 1) is not null then
+    insert into task_assignees (task_id, email, created_at)
+    select v_task.id, assignee_email, v_now
+    from unnest(v_assignees) as assignee_email;
+
+    insert into task_assignment_cycles (
+      task_id, email, assigned_at, assigned_by_email, source
+    )
+    select v_task.id, assignee_email, v_now, v_actor, 'create'
+    from unnest(v_assignees) as assignee_email;
+  end if;
+
+  v_started_at := case v_task.status
+    when 'todo' then coalesce(v_task.todo_started_at, v_now)
+    when 'in_progress' then coalesce(v_task.in_progress_at, v_now)
+    when 'waiting' then coalesce(v_task.waiting_started_at, v_now)
+    when 'done' then coalesce(v_task.closed_at, v_now)
+    when 'cancel' then coalesce(v_task.closed_at, v_now)
+    else v_task.created_at
+  end;
+  insert into task_stage_cycles (
+    task_id, stage, started_at, started_by_email, from_status,
+    sla_minutes, due_at, meta
+  ) values (
+    v_task.id,
+    v_task.status,
+    v_started_at,
+    v_actor,
+    null,
+    case when v_task.status = 'in_progress' then v_task.sla_minutes else null end,
+    case when v_task.status = 'in_progress' and v_task.sla_minutes is not null
+      then v_started_at + make_interval(mins => v_task.sla_minutes)
+      else null end,
+    jsonb_build_object('source', 'create')
+  );
+
+  insert into task_activity (task_id, actor_email, type, meta)
+  values (
+    v_task.id,
+    v_actor,
+    'created',
+    case when array_length(v_assignees, 1) is not null
+      then jsonb_build_object('assignees', to_jsonb(v_assignees))
+      else null end
+  );
+
+  task := to_jsonb(v_task);
+  was_created := true;
+  return next;
+end;
+$$;
+
+revoke all on function create_task_atomic(jsonb, text[], text, uuid)
+  from public, anon, authenticated;
+grant execute on function create_task_atomic(jsonb, text[], text, uuid)
+  to service_role;
 
 -- Generic task PATCH command. The API validates permissions, field shape, SLA
 -- transitions, and required fields before calling this function; the

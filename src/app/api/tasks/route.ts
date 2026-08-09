@@ -11,7 +11,6 @@ import {
 import {
   attachAssigneesToTasks,
   findIneligibleTaskAssigneeEmail,
-  isTaskAssigneesMissingError,
 } from "@/lib/tasks/assignees";
 import {
   fetchTasksForActor,
@@ -33,14 +32,16 @@ import {
   type NotificationInsertInput,
 } from "@/lib/tasks/notifications";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
-import { recordInitialTaskHistory } from "@/lib/tasks/history";
 import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
+import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import {
   findMissingRequiredFields,
   missingRequiredFieldsMessage,
 } from "@/lib/table-config/required";
 
 export const dynamic = "force-dynamic";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -249,127 +250,130 @@ export async function POST(request: Request) {
   const slaMinutes = startingInProgress
     ? resolveSlaMinutes(priority, categoryId, rulesData ?? [])
     : null;
-
-  const { data, error } = await supabase
-    .from("tasks")
-    .insert({
-      title,
-      description,
-      fub_link: fubLink,
-      status: assignment.status,
-      priority,
-      agent_email: agentEmail,
-      assignee_email: assignment.assignee_email,
-      reporter_email: email,
-      category_id: categoryId,
-      custom_values: customValues,
-      position,
-      last_activity_at: nowIso,
-      last_activity_by_email: email,
-      stale_reminded_at: null,
-      ...(startingTodo ? { todo_started_at: nowIso, todo_reminded_at: null } : {}),
-      ...(startingInProgress
-        ? { in_progress_at: nowIso, overdue_flagged_at: null, sla_minutes: slaMinutes }
-        : {}),
-      ...(startingWaiting ? { waiting_started_at: nowIso, waiting_reminded_at: null } : {}),
-      ...(startingClosed ? { closed_at: nowIso } : {}),
-    })
-    .select("*")
-    .single();
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const taskId = (data as { id: string }).id;
-  if (assignedEmails.length > 0) {
-    const { error: assigneeError } = await supabase.from("task_assignees").insert(
-      assignedEmails.map((assigneeEmail) => ({
-        task_id: taskId,
-        email: assigneeEmail,
-        created_at: nowIso,
-      }))
-    );
-    if (assigneeError && !isTaskAssigneesMissingError(assigneeError)) {
-      return NextResponse.json({ error: assigneeError.message }, { status: 500 });
-    }
-
-    try {
-      await Promise.all(
-        assignedEmails.map((assigneeEmail) =>
-          bumpAssignmentRotation(
-            supabase,
-            assigneeEmail,
-            data as TaskRow,
-            rulesData ?? [],
-            new Date(nowIso)
-          )
-        )
-      );
-    } catch (rotationError) {
-      return NextResponse.json(
-        {
-          error:
-            rotationError instanceof Error
-              ? rotationError.message
-              : "Could not update assignment queue.",
-        },
-        { status: 500 }
-      );
-    }
+  const clientRequestId =
+    typeof body?.client_request_id === "string" && body.client_request_id.trim() !== ""
+      ? body.client_request_id.trim()
+      : null;
+  if (clientRequestId !== null && !UUID_RE.test(clientRequestId)) {
+    return NextResponse.json({ error: "Invalid request id." }, { status: 400 });
   }
-
-  await supabase.from("task_activity").insert({
-    task_id: taskId,
-    actor_email: email,
-    type: "created",
-    meta: assignedEmails.length > 0 ? { to: assignedEmails } : null,
-  });
-
-  await recordInitialTaskHistory(
-    supabase,
-    data as TaskRow,
-    email,
-    assignedEmails,
-    nowIso
-  );
-
-  const assignedRecipients = assignedEmails.filter(
-    (assigneeEmail) => assigneeEmail !== email
-  );
-  const backlogNeedsAttention =
-    assignedEmails.length === 0 &&
-    assignment.status === "backlog" &&
-    (priority === "urgent" || priority === "high");
-  const backlogAttentionRecipients = backlogNeedsAttention
-    ? uniqueNotificationRecipients(
-        [
-          ...(await fetchAgentOwnerAndAssistantEmails(agentEmail)),
-          ...(await fetchAdminEmails()),
-        ],
-        [email]
-      )
+  const taskPayload = {
+    title,
+    description,
+    fub_link: fubLink,
+    status: assignment.status,
+    priority,
+    agent_email: agentEmail,
+    assignee_email: assignment.assignee_email,
+    category_id: categoryId,
+    custom_values: customValues,
+    position,
+    sla_minutes: slaMinutes,
+    ...(startingTodo ? { todo_started_at: nowIso } : {}),
+    ...(startingInProgress ? { in_progress_at: nowIso } : {}),
+    ...(startingWaiting ? { waiting_started_at: nowIso } : {}),
+    ...(startingClosed ? { closed_at: nowIso } : {}),
+  };
+  const { data: created, error: createError } = await supabase
+    .rpc("create_task_atomic", {
+      p_task: taskPayload,
+      p_assignees: assignedEmails,
+      p_actor_email: email,
+      p_client_request_id: clientRequestId,
+    })
+    .single();
+  if (createError) {
+    if (createError.message.includes("TASK_ACTOR_REQUIRED")) {
+      return NextResponse.json({ error: "Task actor is required." }, { status: 400 });
+    }
+    if (createError.message.includes("TASK_TITLE_REQUIRED")) {
+      return NextResponse.json({ error: "Title is required." }, { status: 400 });
+    }
+    return NextResponse.json({ error: createError.message }, { status: 500 });
+  }
+  const result = created as {
+    task: TaskRow;
+    was_created: boolean;
+  };
+  const data = result.task;
+  const taskId = data.id;
+  const warnings = result.was_created
+    ? await settleSideEffects([
+        ...(assignedEmails.length > 0
+          ? [
+              {
+                code: "rotation_failed",
+                message: "The task was saved but assignment rotation could not be updated.",
+                run: () =>
+                  Promise.all(
+                    assignedEmails.map((assigneeEmail) =>
+                      bumpAssignmentRotation(
+                        supabase,
+                        assigneeEmail,
+                        data,
+                        rulesData ?? [],
+                        new Date(nowIso)
+                      )
+                    )
+                  ),
+              },
+            ]
+          : []),
+        {
+          code: "notification_failed",
+          message: "The task was saved but some people may not have been notified.",
+          run: async () => {
+            const assignedRecipients = assignedEmails.filter(
+              (assigneeEmail) => assigneeEmail !== email
+            );
+            const backlogNeedsAttention =
+              assignedEmails.length === 0 &&
+              assignment.status === "backlog" &&
+              (priority === "urgent" || priority === "high");
+            const backlogAttentionRecipients = backlogNeedsAttention
+              ? uniqueNotificationRecipients(
+                  [
+                    ...(await fetchAgentOwnerAndAssistantEmails(agentEmail)),
+                    ...(await fetchAdminEmails()),
+                  ],
+                  [email]
+                )
+              : [];
+            const notificationRows: NotificationInsertInput[] = uniqueNotificationRows([
+              ...assignedRecipients.map((assigneeEmail) => ({
+                recipient_email: assigneeEmail,
+                task_id: taskId,
+                type: "assigned" as const,
+                actor_email: email,
+              })),
+              ...backlogAttentionRecipients.map((recipient) => ({
+                recipient_email: recipient,
+                task_id: taskId,
+                type: "backlog_attention" as const,
+                actor_email: email,
+                detail: `${priority} backlog task needs assignment`,
+              })),
+            ]);
+            if (notificationRows.length > 0) await insertNotifications(notificationRows);
+          },
+        },
+        {
+          code: "broadcast_failed",
+          message: "Other open task boards may need a refresh to see this task.",
+          run: () => broadcastTasksChanged(),
+        },
+      ])
     : [];
-  const notificationRows: NotificationInsertInput[] = uniqueNotificationRows([
-    ...assignedRecipients.map((assigneeEmail) => ({
-      recipient_email: assigneeEmail,
-      task_id: taskId,
-      type: "assigned" as const,
-      actor_email: email,
-    })),
-    ...backlogAttentionRecipients.map((recipient) => ({
-      recipient_email: recipient,
-      task_id: taskId,
-      type: "backlog_attention" as const,
-      actor_email: email,
-      detail: `${priority} backlog task needs assignment`,
-    })),
-  ]);
-  await insertNotifications(notificationRows);
 
-  const [task] = await attachAssigneesToTasks(
-    [data as { id: string; assignee_email: string | null }],
-    supabase,
-    { currentEmail: email }
-  );
-  await broadcastTasksChanged();
-  return NextResponse.json({ task });
+  let task = data;
+  try {
+    [task] = await attachAssigneesToTasks([data], supabase, { currentEmail: email });
+  } catch (error) {
+    warnings.push({
+      code: "task_reload_failed",
+      message: "The task was saved but its assignee display needs a refresh.",
+    });
+    console.warn("Task create reconciliation failed", error);
+  }
+  return NextResponse.json({ task, warnings }, { status: result.was_created ? 201 : 200 });
 }

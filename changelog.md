@@ -33,6 +33,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Task activity history in Health CS and shared task detail surfaces now communicates assignee removal accurately without rewriting historical rows.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F11
 
+## 2026-08-10 — Create tasks atomically and idempotently
+- **Loại**: fix, security
+- **Cái gì**: Added `create_task_atomic` with a reporter-scoped request token. Task creation now commits the task, assignee rows, initial stage/assignment cycles, and `created` activity together; rotation, notifications, broadcasts, and display reconciliation run after commit as warning-producing side effects. The create dialog reuses one UUID across retries.
+- **Vì sao**: The previous six-step create flow could return 500 after a task already existed, leaving partial history and causing a retry to create a duplicate.
+- **File**: `supabase/schema.sql`, `src/app/api/tasks/route.ts`, `src/app/(authed)/tasks/_components/NewTaskDialog.tsx`
+- **Ảnh hưởng**: Health CS task creation now fails before any durable row on required-state errors, and an ambiguous/retried submit returns the original task without duplicate audit/cycle rows.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F12
+
 ---
 
 ## 2026-08-10 — Delete task attachment metadata before storage cleanup

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, X } from "lucide-react";
 import {
   TASK_STATUSES,
@@ -40,6 +40,7 @@ export type NewTaskPayload = {
   category_id: string;
   status?: TaskStatus;
   custom_values?: Record<string, unknown>;
+  client_request_id?: string;
 };
 
 // A task with nobody assigned MUST start in Backlog, and a task WITH an
@@ -98,6 +99,15 @@ export function NewTaskDialog({
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
+  const createRequestIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      if (!createRequestIdRef.current) createRequestIdRef.current = crypto.randomUUID();
+    } else {
+      createRequestIdRef.current = null;
+    }
+  }, [open]);
   const categoryOptions = categories.map((category) => ({
     value: category.id,
     label: category.name,
@@ -211,6 +221,7 @@ export function NewTaskDialog({
         ...(Object.keys(cleanedCustomValues).length > 0
           ? { custom_values: cleanedCustomValues }
           : {}),
+        client_request_id: createRequestIdRef.current ?? crypto.randomUUID(),
       });
       setTitle("");
       setDescription("");
