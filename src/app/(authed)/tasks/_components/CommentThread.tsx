@@ -41,6 +41,11 @@ import {
 } from "@/lib/tasks/thread-view";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
+import {
+  ATTACHMENT_ALLOWED_MIME_TYPES,
+  formatAttachmentSize,
+  inferAttachmentMimeType,
+} from "@/lib/tasks/attachments";
 import type {
   CommentWithAttachments,
   SignedAttachment,
@@ -124,17 +129,26 @@ async function readResponseError(
 type ImagePreview = {
   url: string;
   fileName: string;
+  trigger?: HTMLElement | null;
 };
 
 const isImage = (mime: string | null) =>
   Boolean(mime && mime.startsWith("image/"));
 
+function isAllowedClientAttachment(file: File): boolean {
+  const inferred = inferAttachmentMimeType(file.name, file.type || undefined);
+  return ATTACHMENT_ALLOWED_MIME_TYPES.includes(inferred);
+}
+
 function AttachmentLink({ attachment }: { attachment: SignedAttachment }) {
+  const size = attachment.size_bytes == null ? "Size unavailable" : formatAttachmentSize(attachment.size_bytes);
   if (attachment.unavailable || !attachment.url) {
     return (
       <span title="This file may have been removed or is temporarily unavailable" className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-[#f7f8f9] px-2 py-1 text-xs font-medium text-[#8993a4]">
         <FileText className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 truncate">{attachment.file_name} · File unavailable</span>
+        <span className="min-w-0 truncate" title={attachment.file_name}>
+          {attachment.file_name} · {size} · File unavailable
+        </span>
       </span>
     );
   }
@@ -143,10 +157,12 @@ function AttachmentLink({ attachment }: { attachment: SignedAttachment }) {
       href={attachment.url}
       target="_blank"
       rel="noopener noreferrer"
+      aria-label={`Open ${attachment.file_name}`}
+      title={`${attachment.file_name} · ${size}`}
       className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-[#fafbfc] px-2 py-1 text-xs font-medium text-[#0c66e4] transition hover:bg-[#e9f2ff] hover:underline"
     >
       <FileText className="h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0 truncate">{attachment.file_name}</span>
+      <span className="min-w-0 truncate">{attachment.file_name} · {size}</span>
     </a>
   );
 }
@@ -346,8 +362,12 @@ export function CommentThread({
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
   const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
+  const [previewStatus, setPreviewStatus] = useState<"loading" | "loaded" | "error">("loading");
   const rootRef = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const previewCloseRef = useRef<HTMLButtonElement | null>(null);
+  const previewDialogRef = useRef<HTMLDivElement | null>(null);
+  const previewTriggerRef = useRef<HTMLElement | null>(null);
   const optimisticCounterRef = useRef(0);
   const submissionRef = useRef<SubmissionState>({ inFlight: false, requestId: null });
   const failedSubmissionIntentRef = useRef<string | null>(null);
@@ -409,6 +429,51 @@ export function CommentThread({
       document.removeEventListener("visibilitychange", tick);
     };
   }, []);
+
+  useEffect(() => {
+    if (!imagePreview) return;
+    setPreviewStatus("loading");
+    previewTriggerRef.current = imagePreview.trigger ?? (document.activeElement as HTMLElement | null);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusFrame = window.requestAnimationFrame(() => previewCloseRef.current?.focus());
+
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setImagePreview(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const dialog = previewDialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href]:not([aria-disabled="true"])',
+        ),
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      window.requestAnimationFrame(() => previewTriggerRef.current?.focus());
+    };
+  }, [imagePreview]);
 
   const nameOf = useCallback(
     (email: string, canonicalName?: string | null) =>
@@ -885,7 +950,7 @@ export function CommentThread({
                   onRetryFile={c.optimistic ? (fileId) => void retryFile(c.id, fileId) : undefined}
                   onPreviewImage={setImagePreview}
                 />
-                <div className="ml-5 space-y-2 border-l-2 border-[#dfe1e6] pl-4">
+                <div className="ml-3 space-y-2 border-l-2 border-[#dfe1e6] pl-3 sm:ml-5 sm:pl-4">
                   {repliesOf(c.id).map((rc) => (
                     <div key={rc.id} data-comment-id={rc.id}>
                       <CommentItem
@@ -957,17 +1022,19 @@ export function CommentThread({
               onClick={() => setImagePreview(null)}
             >
               <div
+                ref={previewDialogRef}
                 role="dialog"
                 aria-modal="true"
-                aria-label={imagePreview.fileName}
-                className="flex max-h-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+                aria-labelledby="attachment-preview-title"
+                className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
                 onClick={(event) => event.stopPropagation()}
               >
                 <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#dfe1e6] px-4 py-2.5">
-                  <span className="min-w-0 truncate text-sm font-bold text-[#172b4d]">
+                  <h2 id="attachment-preview-title" className="min-w-0 truncate text-sm font-bold text-[#172b4d]" title={imagePreview.fileName}>
                     {imagePreview.fileName}
-                  </span>
+                  </h2>
                   <button
+                    ref={previewCloseRef}
                     type="button"
                     onClick={() => setImagePreview(null)}
                     aria-label="Close preview"
@@ -976,12 +1043,44 @@ export function CommentThread({
                     <X className="h-4 w-4" />
                   </button>
                 </div>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imagePreview.url}
-                  alt={imagePreview.fileName}
-                  className="min-h-0 w-auto max-w-full object-contain"
-                />
+                <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[#f7f8f9] p-3">
+                  {previewStatus === "loading" ? (
+                    <p className="px-4 py-8 text-sm font-semibold text-[#6b778c]" role="status">
+                      Loading preview…
+                    </p>
+                  ) : null}
+                  {previewStatus === "error" ? (
+                    <div className="px-4 py-8 text-center" role="alert">
+                      <p className="text-sm font-semibold text-[#bf2600]">Preview unavailable.</p>
+                      <p className="mt-1 text-xs text-[#6b778c]">The signed link may have expired.</p>
+                    </div>
+                  ) : null}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imagePreview.url}
+                    alt={imagePreview.fileName}
+                    onLoad={() => setPreviewStatus("loaded")}
+                    onError={() => setPreviewStatus("error")}
+                    className={`max-h-[calc(100vh-10rem)] max-w-full object-contain ${previewStatus === "loaded" ? "" : "hidden"}`}
+                  />
+                </div>
+                <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[#dfe1e6] px-4 py-2.5">
+                  <a
+                    href={imagePreview.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded px-3 py-1.5 text-sm font-semibold text-[#0c66e4] hover:bg-[#e9f2ff]"
+                  >
+                    Open
+                  </a>
+                  <a
+                    href={imagePreview.url}
+                    download={imagePreview.fileName}
+                    className="rounded bg-[#0c66e4] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0055cc]"
+                  >
+                    Download
+                  </a>
+                </div>
               </div>
             </div>,
             document.body
@@ -1182,7 +1281,7 @@ function CommentItem({
             <>
               <div className="mt-0.5 text-sm leading-5 text-[#172b4d]">
                 {c.body ? (
-                  <p className="whitespace-pre-wrap">{renderBody(c.body, mentionNames)}</p>
+                  <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{renderBody(c.body, mentionNames)}</p>
                 ) : null}
               </div>
 
@@ -1227,8 +1326,12 @@ function CommentItem({
                       <button
                         key={a.id}
                         type="button"
-                        onClick={() =>
-                          onPreviewImage({ url: a.url!, fileName: a.file_name })
+                        onClick={(event) =>
+                          onPreviewImage({
+                            url: a.url!,
+                            fileName: a.file_name,
+                            trigger: event.currentTarget,
+                          })
                         }
                         className="group/image block overflow-hidden rounded border border-[#dfe1e6] bg-[#f7f8f9] text-left transition hover:border-[#85b8ff] focus:border-[#0c66e4] focus:outline-none focus:ring-2 focus:ring-[#85b8ff]"
                       >
@@ -1236,7 +1339,7 @@ function CommentItem({
                         <img
                           src={a.url}
                           alt={a.file_name}
-                          className="h-24 w-24 object-cover transition group-hover/image:scale-[1.02]"
+                          className="h-24 w-24 object-contain transition group-hover/image:scale-[1.02]"
                         />
                       </button>
                     ) : (
@@ -1251,6 +1354,7 @@ function CommentItem({
                   {c.fileStates.map((file) => {
                     const attachment = c.attachments.find((item) => item.id === file.id);
                     const label = attachment?.file_name ?? "Attachment";
+                    const size = attachment?.size_bytes == null ? null : formatAttachmentSize(attachment.size_bytes);
                     return (
                       <span
                         key={file.id}
@@ -1262,8 +1366,9 @@ function CommentItem({
                               : "border-[#dfe1e6] bg-[#f7f8f9] text-[#6b778c]"
                         }`}
                       >
-                        <span className="min-w-0 truncate">{label}</span>
-                        <span>
+                        <span className="min-w-0 truncate" title={label}>{label}</span>
+                        {size ? <span className="shrink-0 text-[10px] font-medium text-[#8993a4]">{size}</span> : null}
+                        <span className="shrink-0">
                           {file.status === "failed"
                             ? "failed"
                             : file.status === "uploading"
@@ -1804,6 +1909,20 @@ function Composer({
   function addFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
     const selected = Array.from(list);
+    const unsupported = selected.find((file) => !isAllowedClientAttachment(file));
+    if (unsupported) {
+      setFileError(`Unsupported file type: ${unsupported.name}`);
+      return;
+    }
+    const existingKeys = new Set(files.map((file) => `${file.name}\u0000${file.size}\u0000${file.lastModified}`));
+    const duplicate = selected.find((file) => {
+      const key = `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
+      return existingKeys.has(key) || selected.some((other) => other !== file && `${other.name}\u0000${other.size}\u0000${other.lastModified}` === key);
+    });
+    if (duplicate) {
+      setFileError(`That file is already attached: ${duplicate.name}`);
+      return;
+    }
     const limits = checkOperationLimits({
       textLength: text.length,
       sizes: [...files.map((file) => file.size), ...selected.map((file) => file.size)],
@@ -1956,7 +2075,7 @@ function Composer({
         ) : null}
 
         {fileError ? (
-          <div className="border-t border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
+          <div role="alert" className="border-t border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
             {fileError}
           </div>
         ) : null}
@@ -1973,13 +2092,15 @@ function Composer({
                 ) : (
                   <FileText className="h-3.5 w-3.5 shrink-0 text-[#6b778c]" />
                 )}
-                <span className="min-w-0 truncate">{f.name}</span>
+                <span className="min-w-0 truncate" title={`${f.name} · ${formatAttachmentSize(f.size)}`}>
+                  {f.name} · {formatAttachmentSize(f.size)}
+                </span>
                 <button
                   type="button"
                   onClick={() =>
                     setFiles((cur) => cur.filter((_, idx) => idx !== i))
                   }
-                  aria-label="Remove file"
+                  aria-label={`Remove ${f.name}`}
                   className="rounded text-[#6b778c] transition hover:bg-[#ebecf0] hover:text-[#bf2600]"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -1994,6 +2115,7 @@ function Composer({
             ref={fileRef}
             type="file"
             multiple
+            accept={ATTACHMENT_ALLOWED_MIME_TYPES.join(",")}
             className="hidden"
             onChange={(e) => {
               addFiles(e.target.files);
