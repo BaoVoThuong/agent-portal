@@ -3,6 +3,7 @@
 import { type ReactNode } from "react";
 import type { ActivityRow } from "@/lib/tasks/detail";
 import { describeActivity } from "@/lib/tasks/activity-events";
+import { ACTIVITY_LABELS } from "./activity-labels";
 import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
 
 function describe(a: ActivityRow, personLabel: (email: string) => string): ReactNode {
@@ -15,9 +16,8 @@ function describe(a: ActivityRow, personLabel: (email: string) => string): React
   const to = formatActivityValue(a.type, rawTo, personLabel);
 
   switch (a.type) {
-    case "created": return "created the task";
+    case "created": return ACTIVITY_LABELS.created;
     case "status_changed": return <>moved to {to}</>;
-    case "stage_changed": return <>moved stage to {to}</>;
     case "reopened": return <>reopened ({to})</>;
     case "assigned":
       return assignment?.kind === "unassigned"
@@ -25,24 +25,11 @@ function describe(a: ActivityRow, personLabel: (email: string) => string): React
         : <>assigned to {to}</>;
     case "unassigned": return <>removed {to} from the task</>;
     case "priority_changed": return <>set priority {to}</>;
-    case "category_changed": return "changed category";
-    case "field_changed": return "updated fields";
-    case "people_changed": return "updated people";
     case "agent_changed": return <>changed agent to {to}</>;
-    case "qc_needed": return "marked a Done task for QC";
-    case "due_soon": return "task is due soon";
-    case "stale": return "task had no activity";
-    case "done_reviewed": return "QC checked the completed task";
-    case "done_review_cleared": return "cleared the QC check";
-    case "qc_review_cleared": return "cleared the QC check";
-    case "comment_added": return "commented";
-    case "edited": return "edited the task";
-    case "archived": return "archived the task";
-    case "overdue_resolved": return "resolved an overdue task";
-    case "overdue_unlocked": return "unlocked an overdue task";
-    case "task_reopened": return "reopened this task (with a reason)";
-    case "went_overdue": return "task went overdue";
-    default: return a.type;
+    default:
+      return a.type in ACTIVITY_LABELS
+        ? ACTIVITY_LABELS[a.type as keyof typeof ACTIVITY_LABELS]
+        : a.type;
   }
 }
 

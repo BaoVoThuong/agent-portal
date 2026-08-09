@@ -4,6 +4,7 @@ import {
   describeActivity,
   isKnownActivityType,
 } from "@/lib/tasks/activity-events";
+import { ACTIVITY_LABELS } from "@/app/(authed)/tasks/_components/activity-labels";
 
 describe("task activity vocabulary", () => {
   it("matches the task activity constraint", () => {
@@ -60,5 +61,14 @@ describe("assignment activity wording", () => {
       kind: "assigned",
       subject: "b@x.com",
     });
+  });
+});
+
+describe("activity renderer coverage", () => {
+  it("has exactly one label for every allowed task activity type", () => {
+    const labelled = new Set(Object.keys(ACTIVITY_LABELS));
+    const allowed = new Set<string>(ALLOWED_TASK_ACTIVITY_TYPES);
+    expect([...allowed].filter((type) => !labelled.has(type))).toEqual([]);
+    expect([...labelled].filter((type) => !allowed.has(type))).toEqual([]);
   });
 });

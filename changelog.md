@@ -57,6 +57,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Command paths retain the invariant without adding trigger overhead; operators can prove legacy data is clean before rollout. No direct non-command writer was found, so no trigger was added.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F18
 
+## 2026-08-10 — Align task activity labels with the database vocabulary
+- **Loại**: fix
+- **Cái gì**: Added a testable `ACTIVITY_LABELS` map covering every allowed task activity type, including attachment and comment edit/delete events, and removed renderer branches for types that cannot exist in `task_activity`. Assignment wording continues to normalize historical removal metadata through `describeActivity`.
+- **Vì sao**: Valid attachment events rendered as raw snake_case while dead branches implied unsupported lifecycle events and could drift from the SQL constraint.
+- **File**: `src/app/(authed)/tasks/_components/activity-labels.ts`, `src/app/(authed)/tasks/_components/ActivityFeed.tsx`, `src/lib/tasks/activity-events.test.ts`
+- **Ảnh hưởng**: Health CS task activity now has complete vocabulary coverage; unknown legacy rows remain readable via the fallback.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F14
+
 ## 2026-08-10 — Keep task last-activity actor paired with its timestamp
 - **Loại**: fix, security
 - **Cái gì**: Persisted `last_activity_by_email` from the same locked mutation that updates `last_activity_at`, excluded system activity from the backfill/read path, kept position-only reorder neutral, and made task archive/overview assignment preserve the human actor pair. The database trigger restores the previous actor when a stale timestamp is clamped.
