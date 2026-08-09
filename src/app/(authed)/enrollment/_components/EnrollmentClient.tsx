@@ -461,6 +461,7 @@ export function EnrollmentClient({
   currentEmail,
   myAgents,
   myAssistantAgents,
+  defaultToOwnAssignments,
   canManageOptions,
   canExport,
 }: {
@@ -474,6 +475,7 @@ export function EnrollmentClient({
   currentEmail: string;
   myAgents: string[];
   myAssistantAgents: string[];
+  defaultToOwnAssignments: boolean;
   canManageOptions: boolean;
   canExport: boolean;
 }) {
@@ -481,9 +483,9 @@ export function EnrollmentClient({
   const [options, setOptions] = useState(initialOptions);
   const [view, setView] = useState<"list" | "overview">("list");
   const [filters, setFilters] = useState<Filters>(() =>
-    canManageOptions
-      ? DEFAULT_FILTERS
-      : { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
+    defaultToOwnAssignments
+      ? { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
+      : DEFAULT_FILTERS
   );
   const [overviewDateRanges, setOverviewDateRanges] = useState<
     Record<EnrollmentProgram, TaskDateRangeValue>

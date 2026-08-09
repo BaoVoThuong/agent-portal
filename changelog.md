@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Chỉ default Enrollment Assignee filter cho plain worker
+- **Loại**: fix
+- **Cái gì**: Filter mặc định `Responsible/Assignee = current user` chỉ được khởi tạo cho plain worker. Manager mở toàn bộ dữ liệu; agent và assistant mở toàn bộ record đã được server giới hạn trong agent scope của họ, không bị lọc tiếp theo tên cá nhân.
+- **Vì sao**: Điều kiện cũ dùng `!canManageOptions`, nên vô tình áp default cá nhân cho mọi non-manager và che mất record hợp lệ của agent/assistant trong cùng scope.
+- **File**: `src/app/(authed)/enrollment/page.tsx`, `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx`
+- **Ảnh hưởng**: ACA và Medicare initial list filters; không đổi server visibility, quyền mutation hoặc hành vi khi người dùng tự chọn/reset filter.
+- **Ref**: user request 2026-08-09
+
 ## 2026-08-09 — Enforce Enrollment agent scope and explicit export permission
 - **Loại**: security, breaking
 - **Cái gì**: ACA/Medicare now enforce the same agent/assistant scope on list, overview, export, deep links and every record-by-ID API. Mutation rights are split by action: agent-owner/assistant controls QC, people assignment and archive; caller/responsible can edit workflow fields and change/reopen stage; creator can edit fields; managers retain all actions. Agent transfer is reserved for manager, agent-owner/assistant or creator. Creating a record requires manager access or ownership/assistant scope for the selected agent. Task and Enrollment exports now require the independent `task.export` permission in both UI and API.

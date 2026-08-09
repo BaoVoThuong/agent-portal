@@ -75,6 +75,7 @@ export default async function EnrollmentPage({
     : scope.seeAll
       ? []
       : scope.agentEmails;
+  const defaultToOwnAssignments = !actor.isManager && scope.seeAll;
 
   if (recordId) {
     const fallbackRecord = records.some((record) => record.id === recordId)
@@ -110,6 +111,7 @@ export default async function EnrollmentPage({
       currentEmail={email}
       myAgents={myAgents}
       myAssistantAgents={myAssistantAgents}
+      defaultToOwnAssignments={defaultToOwnAssignments}
       canManageOptions={canManageEnrollmentOptions(actor)}
       canExport={canExport}
     />
