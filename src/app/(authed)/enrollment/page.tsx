@@ -12,6 +12,7 @@ import {
   fetchEnrollmentRecords,
 } from "@/lib/enrollment/queries";
 import { fetchTaskAgents } from "@/lib/tasks/assignees";
+import { fetchAssistantAgentsForCs } from "@/lib/tasks/membership";
 import { fetchEnrollmentOptionData } from "@/lib/enrollment/options";
 import { toEnrollmentProgram } from "@/lib/enrollment/types";
 import {
@@ -56,6 +57,7 @@ export default async function EnrollmentPage({
     tableColumns,
     tableColumnOptions,
     canExport,
+    myAssistantAgents,
   ] = await Promise.all([
     fetchEnrollmentRecords(program, scope),
     fetchEnrollmentPeople(),
@@ -64,7 +66,15 @@ export default async function EnrollmentPage({
     fetchTableColumns(program),
     fetchTableColumnOptions(program),
     canActorExport(actor),
+    actor.isManager
+      ? Promise.resolve<string[]>([])
+      : fetchAssistantAgentsForCs(email),
   ]);
+  const myAgents = actor.isManager
+    ? agents.map((agent) => agent.email)
+    : scope.seeAll
+      ? []
+      : scope.agentEmails;
 
   if (recordId) {
     const fallbackRecord = records.some((record) => record.id === recordId)
@@ -98,6 +108,8 @@ export default async function EnrollmentPage({
       tableColumns={tableColumns}
       tableColumnOptions={tableColumnOptions}
       currentEmail={email}
+      myAgents={myAgents}
+      myAssistantAgents={myAssistantAgents}
       canManageOptions={canManageEnrollmentOptions(actor)}
       canExport={canExport}
     />

@@ -8,13 +8,6 @@ import type { TaskActor } from "@/lib/tasks/types";
 
 export type EnrollmentActor = TaskActor;
 
-export type EnrollmentRecordAccessFields = {
-  id?: string | null;
-  caller_email?: string | null;
-  responsible_enroll_email?: string | null;
-  created_by_email?: string | null;
-};
-
 export type EnrollmentMembershipFlags = {
   /** Agent owner OR promoted assistant. */
   isAgentOwner?: boolean;
@@ -99,44 +92,6 @@ export function canCreateEnrollmentWithScope(
 ): boolean {
   if (actor.isManager) return true;
   return actor.isWorker && hasAgentScope;
-}
-
-export function canMutateEnrollmentRecord(
-  actor: EnrollmentActor,
-  record: EnrollmentRecordAccessFields
-): boolean {
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return isDirectEnrollmentStakeholder(actor.email, record);
-}
-
-// Narrower than canMutateEnrollmentRecord on purpose — mirrors CS's
-// canDeleteTask() (manager or agent-owner only, not every stakeholder who
-// can edit a task). Enrollment has no agent-ownership model wired through
-// like CS does, so "owner" here is the record's original creator — the
-// closest native equivalent, using data already on every record.
-export function canArchiveEnrollmentRecord(
-  actor: EnrollmentActor,
-  record: EnrollmentRecordAccessFields
-): boolean {
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return (
-    normalizeEnrollmentActorEmail(record.created_by_email) ===
-    normalizeEnrollmentActorEmail(actor.email)
-  );
-}
-
-function isDirectEnrollmentStakeholder(
-  email: string,
-  record: EnrollmentRecordAccessFields
-): boolean {
-  const normalized = normalizeEnrollmentActorEmail(email);
-  return [
-    record.caller_email,
-    record.responsible_enroll_email,
-    record.created_by_email,
-  ].some((value) => normalizeEnrollmentActorEmail(value) === normalized);
 }
 
 export function normalizeEnrollmentActorEmail(

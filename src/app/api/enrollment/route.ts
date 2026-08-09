@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadEnrollmentActor } from "@/lib/enrollment/access";
+import {
+  canCreateEnrollmentWithScope,
+  loadEnrollmentActor,
+} from "@/lib/enrollment/access";
 import {
   fetchEnrollmentRecords,
   EnrollmentListTruncatedError,
@@ -16,7 +19,10 @@ import {
   uniqueEnrollmentNotificationRecipients,
 } from "@/lib/enrollment/notifications";
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
-import { fetchAdminEmails } from "@/lib/tasks/membership";
+import {
+  fetchAdminEmails,
+  isAgentOwnerOrAssistant,
+} from "@/lib/tasks/membership";
 import {
   parseEnrollmentProgram,
   type EnrollmentRecordWithStats,
@@ -165,6 +171,25 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not validate enrollment ownership." },
       { status: 500 }
+    );
+  }
+
+  const requestedAgentEmail = patch.agent_email as string | null;
+  const hasRequestedAgentScope = actorResult.actor.isManager
+    ? false
+    : await isAgentOwnerOrAssistant(
+        requestedAgentEmail,
+        actorResult.actor.email
+      );
+  if (
+    !canCreateEnrollmentWithScope(
+      actorResult.actor,
+      hasRequestedAgentScope
+    )
+  ) {
+    return NextResponse.json(
+      { error: "You cannot create enrollment records for this agent." },
+      { status: 403 }
     );
   }
 

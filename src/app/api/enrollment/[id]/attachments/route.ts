@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
-  canMutateEnrollmentRecord,
   loadEnrollmentActor,
+  normalizeEnrollmentActorEmail,
+  resolveEnrollmentCapabilities,
 } from "@/lib/enrollment/access";
 import {
   buildEnrollmentStoragePath,
@@ -26,6 +27,7 @@ import {
 import { fetchEnrollmentRecordById } from "@/lib/enrollment/queries";
 import type { EnrollmentRecord } from "@/lib/enrollment/types";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
+import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 
 export const dynamic = "force-dynamic";
 
@@ -108,8 +110,25 @@ export async function POST(request: Request, { params }: Ctx) {
     ) {
       return NextResponse.json({ error: "Invalid comment." }, { status: 400 });
     }
-  } else if (!canMutateEnrollmentRecord(context.actor, context.record)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  } else {
+    const isAgentOwner = await isAgentOwnerOrAssistant(
+      context.record.agent_email,
+      context.actor.email
+    );
+    const actorEmail = normalizeEnrollmentActorEmail(context.actor.email);
+    const capabilities = resolveEnrollmentCapabilities(context.actor, {
+      isAgentOwner,
+      isCaller:
+        normalizeEnrollmentActorEmail(context.record.caller_email) === actorEmail,
+      isResponsible:
+        normalizeEnrollmentActorEmail(context.record.responsible_enroll_email) ===
+        actorEmail,
+      isCreator:
+        normalizeEnrollmentActorEmail(context.record.created_by_email) === actorEmail,
+    });
+    if (!capabilities.canEditFields) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   const dataBuffer = await file.arrayBuffer();

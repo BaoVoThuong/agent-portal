@@ -43,6 +43,7 @@ import {
   optionLabel,
 } from "@/lib/enrollment/helpers";
 import { buildEnrollmentSearchHaystack } from "@/lib/enrollment/filtering";
+import { resolveEnrollmentCapabilities } from "@/lib/enrollment/access";
 import {
   compareEnrollmentOptionText,
   emptyEnrollmentOptionsBySet,
@@ -415,40 +416,38 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function canEditEnrollmentRecordClient(
+function resolveEnrollmentRecordCapabilitiesClient(
   record: Pick<
     EnrollmentRecordWithStats,
-    "caller_email" | "responsible_enroll_email" | "created_by_email"
+    | "agent_email"
+    | "caller_email"
+    | "responsible_enroll_email"
+    | "created_by_email"
   >,
   currentEmail: string,
-  isManager: boolean
-): boolean {
-  if (isManager) return true;
-  const normalized = normalizeEnrollmentEmail(currentEmail);
-  if (!normalized) return false;
-  return [
-    record.caller_email,
-    record.responsible_enroll_email,
-    record.created_by_email,
-  ].some((email) => normalizeEnrollmentEmail(email) === normalized);
+  isManager: boolean,
+  agentScopeEmails: readonly string[]
+) {
+  const normalizedActor = normalizeEnrollmentEmail(currentEmail);
+  const normalizedAgent = normalizeEnrollmentEmail(record.agent_email);
+  const coveredAgents = new Set(agentScopeEmails.map(normalizeEnrollmentEmail));
+  return resolveEnrollmentCapabilities(
+    { email: currentEmail, isManager, isWorker: true },
+    {
+      isAgentOwner: Boolean(normalizedAgent && coveredAgents.has(normalizedAgent)),
+      isCaller:
+        normalizeEnrollmentEmail(record.caller_email) === normalizedActor,
+      isResponsible:
+        normalizeEnrollmentEmail(record.responsible_enroll_email) ===
+        normalizedActor,
+      isCreator:
+        normalizeEnrollmentEmail(record.created_by_email) === normalizedActor,
+    }
+  );
 }
 
 function normalizeEnrollmentEmail(email: string | null | undefined): string {
   return email?.trim().toLowerCase() ?? "";
-}
-
-// Narrower than canEditEnrollmentRecordClient on purpose — mirrors the
-// server's canArchiveEnrollmentRecord() (lib/enrollment/access.ts): manager
-// or the record's original creator only, not every stakeholder who can edit.
-function canArchiveEnrollmentRecordClient(
-  record: Pick<EnrollmentRecordWithStats, "created_by_email">,
-  currentEmail: string,
-  isManager: boolean
-): boolean {
-  if (isManager) return true;
-  const normalized = normalizeEnrollmentEmail(currentEmail);
-  if (!normalized) return false;
-  return normalizeEnrollmentEmail(record.created_by_email) === normalized;
 }
 
 export function EnrollmentClient({
@@ -460,6 +459,8 @@ export function EnrollmentClient({
   tableColumns,
   tableColumnOptions,
   currentEmail,
+  myAgents,
+  myAssistantAgents,
   canManageOptions,
   canExport,
 }: {
@@ -471,6 +472,8 @@ export function EnrollmentClient({
   tableColumns: TableColumn[];
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
+  myAgents: string[];
+  myAssistantAgents: string[];
   canManageOptions: boolean;
   canExport: boolean;
 }) {
@@ -738,6 +741,21 @@ export function EnrollmentClient({
     }
     return map;
   }, [agents]);
+  const ownedAgentEmails = useMemo(
+    () => [...new Set([...myAgents, ...myAssistantAgents])],
+    [myAgents, myAssistantAgents]
+  );
+  const createAgentsByEmail = useMemo(() => {
+    if (canManageOptions) return agentsByEmail;
+    const allowed = new Set(ownedAgentEmails.map(normalizeEnrollmentEmail));
+    return new Map(
+      [...agentsByEmail].filter(([email]) =>
+        allowed.has(normalizeEnrollmentEmail(email))
+      )
+    );
+  }, [agentsByEmail, canManageOptions, ownedAgentEmails]);
+  const canCreateRecords =
+    canManageOptions || myAgents.length > 0 || myAssistantAgents.length > 0;
   const mentionMembers = useMemo<TaskAssignee[]>(
     () =>
       people.map((person) => ({
@@ -1138,14 +1156,16 @@ export function EnrollmentClient({
               {canExport ? (
                 <EnrollmentExportMenu onExport={exportVisibleRecords} />
               ) : null}
-              <button
-                type="button"
-                onClick={() => setCreating(true)}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
-              >
-                <Plus className="h-4 w-4" />
-                New enrollment
-              </button>
+              {canCreateRecords ? (
+                <button
+                  type="button"
+                  onClick={() => setCreating(true)}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                >
+                  <Plus className="h-4 w-4" />
+                  New enrollment
+                </button>
+              ) : null}
             </div>
           </header>
 
@@ -1196,6 +1216,7 @@ export function EnrollmentClient({
               tableColumnOptions={tableColumnOptions}
               currentEmail={currentEmail}
               isManager={canManageOptions}
+              agentScopeEmails={ownedAgentEmails}
               sort={sort}
               onSort={(key) =>
                 setSort((current) =>
@@ -1228,6 +1249,7 @@ export function EnrollmentClient({
           tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           isManager={canManageOptions}
+          agentScopeEmails={ownedAgentEmails}
           onClose={closeRecord}
           onPatch={(patch) => patchRecord(openRecord.id, patch)}
           onArchive={() => archiveRecord(openRecord.id)}
@@ -1244,11 +1266,11 @@ export function EnrollmentClient({
         />
       ) : null}
 
-      {creating ? (
+      {creating && canCreateRecords ? (
         <NewEnrollmentDialog
           program={program}
           peopleByEmail={peopleByEmail}
-          agentsByEmail={agentsByEmail}
+          agentsByEmail={createAgentsByEmail}
           optionsBySet={optionsBySet}
           visibleColumnKeys={adminVisibleColumnKeys}
           requiredColumnKeys={requiredColumnKeys}
@@ -1641,6 +1663,7 @@ function EnrollmentTable({
   tableColumnOptions,
   currentEmail,
   isManager,
+  agentScopeEmails,
   sort,
   onSort,
   onOpen,
@@ -1655,6 +1678,7 @@ function EnrollmentTable({
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   isManager: boolean;
+  agentScopeEmails: readonly string[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (key: SortKey) => void;
   onOpen: (id: string) => void;
@@ -1722,6 +1746,7 @@ function EnrollmentTable({
                   tableColumnOptions={tableColumnOptions}
                   currentEmail={currentEmail}
                   isManager={isManager}
+                  agentScopeEmails={agentScopeEmails}
                   onOpen={onOpen}
                   onPatch={onPatch}
                 />
@@ -1744,6 +1769,7 @@ function EnrollmentRowItem({
   tableColumnOptions,
   currentEmail,
   isManager,
+  agentScopeEmails,
   onOpen,
   onPatch,
 }: {
@@ -1756,6 +1782,7 @@ function EnrollmentRowItem({
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   isManager: boolean;
+  agentScopeEmails: readonly string[];
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
 }) {
@@ -1777,10 +1804,11 @@ function EnrollmentRowItem({
     email,
     name,
   }));
-  const canEditRecord = canEditEnrollmentRecordClient(
+  const capabilities = resolveEnrollmentRecordCapabilitiesClient(
     record,
     currentEmail,
-    isManager
+    isManager,
+    agentScopeEmails
   );
 
   const columnByKey = new Map(columns.map((column) => [column.key, column]));
@@ -1857,7 +1885,7 @@ function EnrollmentRowItem({
           <EnrollmentStagePill
             stageId={record.stage_id}
             stages={optionsBySet.stage}
-            canEdit={canEditRecord}
+            canEdit={capabilities.canChangeStage}
             onChange={(value) => onPatch(record.id, { stage_id: value })}
           />
         </div>
@@ -1873,7 +1901,7 @@ function EnrollmentRowItem({
             peopleByEmail={agentsByEmail}
             emptyLabel="No agent"
             surface="list"
-            canEdit={canEditRecord}
+            canEdit={capabilities.canTransferAgent}
             onChange={(value) => void onPatch(record.id, { agent_email: value })}
           />
         </div>
@@ -1890,7 +1918,7 @@ function EnrollmentRowItem({
             peopleByEmail={peopleByEmail}
             emptyLabel="No caller"
             surface="list"
-            canEdit={canEditRecord}
+            canEdit={capabilities.canAssignPeople}
             onChange={(value) => void onPatch(record.id, { caller_email: value })}
           />
         </div>
@@ -1907,7 +1935,7 @@ function EnrollmentRowItem({
             peopleByEmail={peopleByEmail}
             emptyLabel="Unassigned"
             surface="list"
-            canEdit={canEditRecord}
+            canEdit={capabilities.canAssignPeople}
             onChange={(value) =>
               void onPatch(record.id, { responsible_enroll_email: value })
             }
@@ -1926,7 +1954,7 @@ function EnrollmentRowItem({
             options={optionsBySet.payment_status}
             emptyLabel="No payment"
             surface="list"
-            canEdit={canEditRecord}
+            canEdit={capabilities.canEditFields}
             onChange={(value) => void onPatch(record.id, { payment_status_id: value })}
           />
         </div>
@@ -1943,7 +1971,7 @@ function EnrollmentRowItem({
             options={optionsBySet.carrier}
             emptyLabel="No carrier"
             surface="list"
-            canEdit={canEditRecord}
+            canEdit={capabilities.canEditFields}
             onChange={(value) => void onPatch(record.id, { carrier_id: value })}
           />
         </div>
@@ -1960,7 +1988,7 @@ function EnrollmentRowItem({
             options={optionsBySet.aca_status}
             emptyLabel="No AC status"
             surface="list"
-            canEdit={canEditRecord}
+            canEdit={capabilities.canEditFields}
             onChange={(value) => void onPatch(record.id, { aca_status_id: value })}
           />
         </div>
@@ -1975,7 +2003,7 @@ function EnrollmentRowItem({
           <EnrollmentConsentToggle
             optionId={record.consent_id}
             options={optionsBySet.consent}
-            canEdit={canEditRecord}
+            canEdit={capabilities.canEditFields}
             onChange={(value) => void onPatch(record.id, { consent_id: value })}
           />
         </div>
@@ -1992,7 +2020,7 @@ function EnrollmentRowItem({
             options={optionsBySet.platform}
             emptyLabel="No platform"
             surface="list"
-            canEdit={canEditRecord}
+            canEdit={capabilities.canEditFields}
             onChange={(value) => void onPatch(record.id, { platform_id: value })}
           />
         </div>
@@ -2012,7 +2040,7 @@ function EnrollmentRowItem({
               label: columnByKey.get("pcp2025")?.label ?? "PCP 2025",
             }}
             value={record.pcp_2025}
-            canEdit={canEditRecord}
+            canEdit={capabilities.canEditFields}
             onSave={(next) => onPatch(record.id, { pcp_2025: next })}
             className="w-full"
           />
@@ -2033,7 +2061,7 @@ function EnrollmentRowItem({
               label: columnByKey.get("pcp2026")?.label ?? "PCP 2026",
             }}
             value={record.pcp_2026}
-            canEdit={canEditRecord}
+            canEdit={capabilities.canEditFields}
             onSave={(next) => onPatch(record.id, { pcp_2026: next })}
             className="w-full"
           />
@@ -2054,7 +2082,7 @@ function EnrollmentRowItem({
               label: columnByKey.get("due")?.label ?? "Due Date",
             }}
             value={record.due_date}
-            canEdit={canEditRecord}
+            canEdit={capabilities.canEditFields}
             onSave={(next) => onPatch(record.id, { due_date: next })}
             className="w-full !text-xs !font-medium !text-[#6b778c]"
           />
@@ -2158,7 +2186,7 @@ function EnrollmentRowItem({
               people={customPeople}
               optionLabelById={customOptionLabelById}
               personLabelByEmail={peopleByEmail}
-              canEdit={canEditRecord}
+              canEdit={capabilities.canEditFields}
               onSave={(next) =>
                 void onPatch(record.id, {
                   custom_values: { [configColumn.key]: next },
@@ -2181,7 +2209,7 @@ function EnrollmentRowItem({
           <QCCheckButton
             record={record}
             stage={stage}
-            canEdit={canEditRecord}
+            canEdit={capabilities.canReviewQC}
             onToggle={() => onPatch(record.id, { qc_checked: !record.qc_checked_at })}
           />
         </div>
@@ -2675,6 +2703,7 @@ function EnrollmentDrawer({
   tableColumnOptions,
   currentEmail,
   isManager,
+  agentScopeEmails,
   onClose,
   onPatch,
   onArchive,
@@ -2694,6 +2723,7 @@ function EnrollmentDrawer({
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
   isManager: boolean;
+  agentScopeEmails: readonly string[];
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
   onArchive: () => Promise<void>;
@@ -2722,15 +2752,11 @@ function EnrollmentDrawer({
     email,
     name,
   }));
-  const canEditRecord = canEditEnrollmentRecordClient(
+  const capabilities = resolveEnrollmentRecordCapabilitiesClient(
     record,
     currentEmail,
-    isManager
-  );
-  const canArchive = canArchiveEnrollmentRecordClient(
-    record,
-    currentEmail,
-    isManager
+    isManager,
+    agentScopeEmails
   );
   // Medicare's real data has no Payment/Consent/Platform/AC concepts and a
   // single Assignee + PCP field — see enrollmentColumnsForProgram() for the
@@ -2793,12 +2819,12 @@ function EnrollmentDrawer({
   }, [reload]);
 
   function reopen() {
-    if (!reopenTarget || !canEditRecord) return;
+    if (!reopenTarget || !capabilities.canReopen) return;
     setReopenReasonOpen(true);
   }
 
   async function submitReopen(reason: string): Promise<boolean> {
-    if (!reopenTarget || !canEditRecord) return false;
+    if (!reopenTarget || !capabilities.canReopen) return false;
     try {
       await onPatch({ stage_id: reopenTarget.id, reopen_reason: reason });
       setReopenReasonOpen(false);
@@ -2848,7 +2874,7 @@ function EnrollmentDrawer({
                   <EditableInput
                     value={record.client_name ?? ""}
                     placeholder="Client name"
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canEditFields}
                     className={COMPACT_DETAIL_INPUT_CLASS}
                     required={requiredColumnKeys.has("client")}
                     invalid={isInvalid("client")}
@@ -2869,7 +2895,7 @@ function EnrollmentDrawer({
                     <EditableInput
                       value={record.fub_link ?? ""}
                       placeholder="No FUB link"
-                      canEdit={canEditRecord}
+                      canEdit={capabilities.canEditFields}
                       className={COMPACT_DETAIL_INPUT_CLASS}
                       required={requiredColumnKeys.has("fub")}
                       invalid={isInvalid("fub")}
@@ -2900,7 +2926,7 @@ function EnrollmentDrawer({
                 <EditableTextarea
                   value={record.description ?? ""}
                   placeholder="No description"
-                  canEdit={canEditRecord}
+                  canEdit={capabilities.canEditFields}
                   className={COMPACT_DESCRIPTION_CLASS}
                   onSave={(value) => onPatch({ description: value })}
                 />
@@ -2951,7 +2977,7 @@ function EnrollmentDrawer({
                     attachments={detail.attachments}
                     taskId={record.id}
                     apiBase="/api/enrollment"
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canEditFields}
                     onReload={reloadDetailAndParent}
                   />
                 )}
@@ -2969,7 +2995,7 @@ function EnrollmentDrawer({
                     stageId={record.stage_id}
                     stages={optionsBySet.stage}
                     field
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canChangeStage}
                     onChange={(value) => onPatch({ stage_id: value })}
                   />
                 </FieldBlock>
@@ -2983,7 +3009,7 @@ function EnrollmentDrawer({
                   <input
                     type="date"
                     value={formatDateInput(record.due_date)}
-                    disabled={!canEditRecord}
+                    disabled={!capabilities.canEditFields}
                     onChange={(event) => {
                       const nextDueDate = event.target.value || null;
                       if (nextDueDate === formatDateInput(record.due_date)) return;
@@ -3004,7 +3030,7 @@ function EnrollmentDrawer({
                     options={optionsBySet.payment_status}
                     emptyLabel="No payment"
                     surface="form-field"
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canEditFields}
                     onChange={(value) => void onPatch({ payment_status_id: value })}
                   />
                 </FieldBlock>
@@ -3020,7 +3046,7 @@ function EnrollmentDrawer({
                     options={optionsBySet.carrier}
                     emptyLabel="No carrier"
                     surface="form-field"
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canEditFields}
                     onChange={(value) => void onPatch({ carrier_id: value })}
                   />
                 </FieldBlock>
@@ -3036,7 +3062,7 @@ function EnrollmentDrawer({
                       options={optionsBySet.aca_status}
                       emptyLabel="No AC status"
                       surface="form-field"
-                      canEdit={canEditRecord}
+                      canEdit={capabilities.canEditFields}
                       onChange={(value) => void onPatch({ aca_status_id: value })}
                     />
                   </FieldBlock>
@@ -3051,7 +3077,7 @@ function EnrollmentDrawer({
                       optionId={record.consent_id}
                       options={optionsBySet.consent}
                       field
-                      canEdit={canEditRecord}
+                      canEdit={capabilities.canEditFields}
                       onChange={(value) => void onPatch({ consent_id: value })}
                     />
                   </FieldBlock>
@@ -3067,7 +3093,7 @@ function EnrollmentDrawer({
                       options={optionsBySet.platform}
                       emptyLabel="No platform"
                       surface="form-field"
-                      canEdit={canEditRecord}
+                      canEdit={capabilities.canEditFields}
                       onChange={(value) => void onPatch({ platform_id: value })}
                     />
                   </FieldBlock>
@@ -3084,7 +3110,7 @@ function EnrollmentDrawer({
                     peopleByEmail={agentsByEmail}
                     emptyLabel="No agent"
                     surface="form-field"
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canTransferAgent}
                     onChange={(value) => {
                       if (requiredColumnKeys.has("agent") && !value) {
                         markInvalid("agent");
@@ -3107,7 +3133,7 @@ function EnrollmentDrawer({
                     peopleByEmail={peopleByEmail}
                     emptyLabel="No caller"
                     surface="form-field"
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canAssignPeople}
                     onChange={(value) => void onPatch({ caller_email: value })}
                   />
                 </FieldBlock>
@@ -3126,7 +3152,7 @@ function EnrollmentDrawer({
                     peopleByEmail={peopleByEmail}
                     emptyLabel="Unassigned"
                     surface="form-field"
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canAssignPeople}
                     onChange={(value) =>
                       void onPatch({ responsible_enroll_email: value })
                     }
@@ -3152,7 +3178,7 @@ function EnrollmentDrawer({
                   <EditableInput
                     value={record.pcp_2025 ?? ""}
                     placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canEditFields}
                     className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
                     required={requiredColumnKeys.has("pcp2025")}
                     invalid={isInvalid("pcp2025")}
@@ -3171,7 +3197,7 @@ function EnrollmentDrawer({
                   <EditableInput
                     value={record.pcp_2026 ?? ""}
                     placeholder="No PCP 2026"
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canEditFields}
                     className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
                     required={requiredColumnKeys.has("pcp2026")}
                     invalid={isInvalid("pcp2026")}
@@ -3191,7 +3217,7 @@ function EnrollmentDrawer({
                     people={customPeople}
                     optionLabelById={optionLabelById}
                     personLabelByEmail={peopleByEmail}
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canEditFields}
                     onSave={(next) =>
                       onPatch({ custom_values: { [column.key]: next } })
                     }
@@ -3204,14 +3230,14 @@ function EnrollmentDrawer({
                   <EnrollmentQCPanel
                     record={record}
                     stage={stage}
-                    canEdit={canEditRecord}
+                    canEdit={capabilities.canReviewQC}
                     onToggle={() => onPatch({ qc_checked: !record.qc_checked_at })}
                   />
                 </FieldBlock>
               ) : null}
             </div>
 
-            {canEditRecord && stage?.is_terminal && reopenTarget ? (
+            {capabilities.canReopen && stage?.is_terminal && reopenTarget ? (
               <div className="border-t border-[#dfe1e6] pt-3">
                 <button
                   type="button"
@@ -3223,7 +3249,7 @@ function EnrollmentDrawer({
               </div>
             ) : null}
 
-            {canArchive && (
+            {capabilities.canArchive && (
               <div className="border-t border-[#dfe1e6] pt-3">
                 <button
                   type="button"
