@@ -32,8 +32,14 @@ import { taskRoomTopic } from "@/lib/tasks/realtime-topics";
 import {
   beginSubmission,
   canSubmit,
+  commentCommitted,
+  fileFailed,
+  fileUploaded,
+  fileUploading,
   failSubmission,
   finishSubmission,
+  reloadFailed,
+  type FileState,
   type SubmissionState,
 } from "@/lib/tasks/comment-submission";
 import { Initials } from "./board-ui";
@@ -49,6 +55,8 @@ type Comment = CommentWithAttachments & {
   optimistic?: boolean;
   failed?: boolean;
   error?: string;
+  fileStates?: FileState[];
+  reloadFailed?: boolean;
   // Set once the server has created the real row. Posting a comment broadcasts
   // to the room, so a reload can bring the real comment back while this
   // optimistic copy is still on screen waiting for its files to finish
@@ -313,6 +321,7 @@ export function CommentThread({
   // Blob URLs created for optimistic attachment previews, keyed by temp comment
   // id so they can be revoked once the real (signed) URLs replace them.
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
+  const optimisticFilesRef = useRef(new Map<string, Map<string, File>>());
 
   // Live thread: refetch when the task room pings (someone commented/attached).
   useEffect(() => {
@@ -333,6 +342,19 @@ export function CommentThread({
     };
   }, [roomTopic, taskId, onReload]);
 
+  // Revoke every optimistic blob URL when the drawer unmounts or switches to
+  // another task. Without this, failed sends keep file previews alive for the
+  // entire session even though the composer is no longer visible.
+  useEffect(() => {
+    return () => {
+      for (const urls of optimisticUrlsRef.current.values()) {
+        for (const url of urls) URL.revokeObjectURL(url);
+      }
+      optimisticUrlsRef.current.clear();
+      optimisticFilesRef.current.clear();
+    };
+  }, [taskId]);
+
   const nameOf = useCallback(
     (email: string) =>
       members.find((m) => m.email === email)?.name ?? formatEmailAsName(email),
@@ -345,6 +367,7 @@ export function CommentThread({
       for (const url of urls) URL.revokeObjectURL(url);
       optimisticUrlsRef.current.delete(id);
     }
+    optimisticFilesRef.current.delete(id);
     setOptimisticComments((current) =>
       current.filter((comment) => comment.id !== id),
     );
@@ -369,11 +392,16 @@ export function CommentThread({
     // Show the picked files immediately using local blob URLs; they are revoked
     // once the server round-trip finishes and the real signed URLs arrive.
     const urls: string[] = [];
+    const fileStates: FileState[] = [];
+    const fileMap = new Map<string, File>();
     const attachments = files.map((file, index) => {
       const url = URL.createObjectURL(file);
       urls.push(url);
+      const fileId = `${tempId}-file-${index}`;
+      fileStates.push({ id: fileId, status: "pending" });
+      fileMap.set(fileId, file);
       return {
-        id: `${tempId}-file-${index}`,
+        id: fileId,
         file_name: file.name,
         mime_type: file.type || null,
         size_bytes: file.size,
@@ -381,6 +409,7 @@ export function CommentThread({
       };
     });
     optimisticUrlsRef.current.set(tempId, urls);
+    optimisticFilesRef.current.set(tempId, fileMap);
     setOptimisticComments((current) => [
       ...current,
       {
@@ -391,6 +420,7 @@ export function CommentThread({
         created_at: new Date().toISOString(),
         deleted_at: null,
         attachments,
+        fileStates,
         optimistic: true,
       },
     ]);
@@ -415,6 +445,8 @@ export function CommentThread({
     requestId: string | null,
     intentKey: string,
   ) {
+    let comment: { id: string };
+    let parentUpdatedAt: string | undefined;
     try {
       const res = await fetch(`${apiBase}/${taskId}/comments`, {
         method: "POST",
@@ -429,44 +461,10 @@ export function CommentThread({
       if (!res.ok) {
         throw new Error(await readResponseError(res, "Failed to create comment."));
       }
-
-      const { comment, parent_updated_at: parentUpdatedAt } =
-        (await res.json()) as {
-          comment: { id: string };
-          parent_updated_at?: string;
-        };
-      // Posting a comment bumps the parent task/record's updated_at server
-      // side. Push it up so the board's copy stays current — otherwise the
-      // next edit sends a stale expected_updated_at and 409s.
-      if (parentUpdatedAt) onParentUpdatedAt?.(parentUpdatedAt);
-      // Link this optimistic row to its real row now, so if a reload lands
-      // mid-upload the duplicate is filtered out instead of rendering twice.
-      setOptimisticComments((current) =>
-        current.map((item) =>
-          item.id === tempId ? { ...item, realId: comment.id } : item,
-        ),
-      );
-
-      for (const file of files) {
-        const form = new FormData();
-        form.append("file", file);
-        form.append("comment_id", comment.id);
-        const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
-          method: "POST",
-          body: form,
-        });
-        if (!upload.ok) {
-          throw new Error(
-            await readResponseError(upload, "Failed to upload attachment.")
-          );
-        }
-      }
-
-      await onReload();
-      releaseOptimistic(tempId);
-      submissionRef.current = finishSubmission();
-      failedSubmissionIntentRef.current = null;
-      setSubmissionBusy(false);
+      ({ comment, parent_updated_at: parentUpdatedAt } = (await res.json()) as {
+        comment: { id: string };
+        parent_updated_at?: string;
+      });
     } catch (error) {
       const message = getErrorMessage(error, "Failed to send comment.");
       setOptimisticComments((current) =>
@@ -479,6 +477,167 @@ export function CommentThread({
       submissionRef.current = failSubmission(submissionRef.current);
       failedSubmissionIntentRef.current = intentKey;
       setSubmissionBusy(false);
+      return;
+    }
+
+    // The comment is now durable even if a file or reload fails. Keep the
+    // optimistic row linked to its real id until every file has a server row.
+    if (parentUpdatedAt) onParentUpdatedAt?.(parentUpdatedAt);
+    const committed = commentCommitted(
+      { files: files.map((_, index) => ({ id: `${tempId}-file-${index}`, status: "pending" })) },
+      comment.id,
+    );
+    setOptimisticComments((current) =>
+      current.map((item) =>
+        item.id === tempId
+          ? { ...item, realId: comment.id, failed: false, error: undefined, fileStates: committed.files }
+          : item,
+      ),
+    );
+
+    let uploadFailed = false;
+    for (const [index, file] of files.entries()) {
+      const fileId = `${tempId}-file-${index}`;
+      setOptimisticComments((current) =>
+        current.map((item) =>
+          item.id === tempId && item.fileStates
+            ? { ...item, fileStates: fileUploading({ ...committed, files: item.fileStates }, fileId).files }
+            : item,
+        ),
+      );
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("comment_id", comment.id);
+        const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
+          method: "POST",
+          body: form,
+        });
+        if (!upload.ok) {
+          throw new Error(await readResponseError(upload, "Failed to upload attachment."));
+        }
+        setOptimisticComments((current) =>
+          current.map((item) =>
+            item.id === tempId && item.fileStates
+              ? { ...item, fileStates: fileUploaded({ ...committed, files: item.fileStates }, fileId).files }
+              : item,
+          ),
+        );
+      } catch (error) {
+        uploadFailed = true;
+        const message = getErrorMessage(error, "Failed to upload attachment.");
+        setOptimisticComments((current) =>
+          current.map((item) =>
+            item.id === tempId && item.fileStates
+              ? { ...item, fileStates: fileFailed({ ...committed, files: item.fileStates }, fileId, message).files }
+              : item,
+          ),
+        );
+      }
+    }
+
+    let reloadDidFail = false;
+    try {
+      await onReload();
+    } catch (error) {
+      reloadDidFail = true;
+      setOptimisticComments((current) =>
+        current.map((item) =>
+          item.id === tempId && item.fileStates
+            ? {
+                ...item,
+                reloadFailed: reloadFailed({
+                  realId: comment.id,
+                  files: item.fileStates,
+                  reloadFailed: false,
+                }).reloadFailed,
+                error: getErrorMessage(error, "Comment saved; refresh failed."),
+              }
+            : item,
+        ),
+      );
+    }
+
+    if (!uploadFailed && !reloadDidFail) releaseOptimistic(tempId);
+    submissionRef.current = finishSubmission();
+    failedSubmissionIntentRef.current = null;
+    setSubmissionBusy(false);
+  }
+
+  async function retryFile(tempId: string, fileId: string) {
+    const draft = optimisticComments.find((comment) => comment.id === tempId);
+    const realId = draft?.realId;
+    const file = optimisticFilesRef.current.get(tempId)?.get(fileId);
+    if (!draft || !realId || !file) return;
+
+    setOptimisticComments((current) =>
+      current.map((item) =>
+        item.id === tempId && item.fileStates
+          ? {
+              ...item,
+              fileStates: fileUploading(
+                { realId, files: item.fileStates, reloadFailed: Boolean(item.reloadFailed) },
+                fileId,
+              ).files,
+            }
+          : item,
+      ),
+    );
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("comment_id", realId);
+      const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
+        method: "POST",
+        body: form,
+      });
+      if (!upload.ok) {
+        throw new Error(await readResponseError(upload, "Failed to upload attachment."));
+      }
+      setOptimisticComments((current) =>
+        current.map((item) =>
+          item.id === tempId && item.fileStates
+            ? {
+                ...item,
+                fileStates: fileUploaded(
+                  { realId, files: item.fileStates, reloadFailed: Boolean(item.reloadFailed) },
+                  fileId,
+                ).files,
+              }
+            : item,
+        ),
+      );
+      try {
+        await onReload();
+        const latest = optimisticComments.find((item) => item.id === tempId);
+        if (latest?.fileStates?.every((state) => state.status === "success")) {
+          releaseOptimistic(tempId);
+        }
+      } catch (error) {
+        setOptimisticComments((current) =>
+          current.map((item) =>
+            item.id === tempId
+              ? { ...item, reloadFailed: true, error: getErrorMessage(error, "Refresh failed.") }
+              : item,
+          ),
+        );
+      }
+    } catch (error) {
+      const message = getErrorMessage(error, "Failed to upload attachment.");
+      setOptimisticComments((current) =>
+        current.map((item) =>
+          item.id === tempId && item.fileStates
+            ? {
+                ...item,
+                fileStates: fileFailed(
+                  { realId, files: item.fileStates, reloadFailed: Boolean(item.reloadFailed) },
+                  fileId,
+                  message,
+                ).files,
+              }
+            : item,
+        ),
+      );
     }
   }
 
@@ -573,6 +732,7 @@ export function CommentThread({
                   onDelete={c.optimistic ? releaseOptimistic : remove}
                   onEdit={edit}
                   onReply={c.optimistic ? undefined : () => setReplyTo(c.id)}
+                  onRetryFile={c.optimistic ? (fileId) => void retryFile(c.id, fileId) : undefined}
                   onPreviewImage={setImagePreview}
                 />
                 <div className="ml-5 space-y-2 border-l-2 border-[#dfe1e6] pl-4">
@@ -586,6 +746,7 @@ export function CommentThread({
                         nameOf={nameOf}
                         onDelete={rc.optimistic ? releaseOptimistic : remove}
                         onEdit={edit}
+                        onRetryFile={rc.optimistic ? (fileId) => void retryFile(rc.id, fileId) : undefined}
                         onPreviewImage={setImagePreview}
                       />
                     </div>
@@ -693,6 +854,7 @@ function CommentItem({
   onDelete,
   onEdit,
   onReply,
+  onRetryFile,
   onPreviewImage,
 }: {
   c: Comment;
@@ -703,6 +865,7 @@ function CommentItem({
   onDelete: (id: string) => Promise<void> | void;
   onEdit: (id: string, body: string) => Promise<boolean>;
   onReply?: () => void;
+  onRetryFile?: (fileId: string) => void;
   onPreviewImage: (preview: ImagePreview) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -844,6 +1007,53 @@ function CommentItem({
                   )}
                 </div>
               )}
+
+              {c.fileStates && c.fileStates.length > 0 ? (
+                <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
+                  {c.fileStates.map((file) => {
+                    const attachment = c.attachments.find((item) => item.id === file.id);
+                    const label = attachment?.file_name ?? "Attachment";
+                    return (
+                      <span
+                        key={file.id}
+                        className={`inline-flex max-w-full items-center gap-1 rounded border px-2 py-1 font-semibold ${
+                          file.status === "failed"
+                            ? "border-[#ffbdad] bg-[#ffebe6] text-[#bf2600]"
+                            : file.status === "success"
+                              ? "border-[#abf5d1] bg-[#e3fcef] text-[#006644]"
+                              : "border-[#dfe1e6] bg-[#f7f8f9] text-[#6b778c]"
+                        }`}
+                      >
+                        <span className="min-w-0 truncate">{label}</span>
+                        <span>
+                          {file.status === "failed"
+                            ? "failed"
+                            : file.status === "uploading"
+                              ? "uploading…"
+                              : file.status === "success"
+                                ? "uploaded"
+                                : "pending"}
+                        </span>
+                        {file.status === "failed" && onRetryFile ? (
+                          <button
+                            type="button"
+                            onClick={() => onRetryFile(file.id)}
+                            className="rounded px-1 font-bold underline hover:bg-white/70"
+                          >
+                            Retry
+                          </button>
+                        ) : null}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {c.reloadFailed ? (
+                <p className="mt-1 rounded border border-[#ffe380] bg-[#fffae6] px-2 py-1.5 text-xs font-semibold text-[#7a5d00]">
+                  Comment saved; refresh failed. It will sync when the drawer reloads.
+                </p>
+              ) : null}
 
               {c.failed && c.error ? (
                 <p className="mt-1 rounded border border-[#ffbdad] bg-[#ffebe6] px-2 py-1.5 text-xs font-semibold text-[#bf2600]">

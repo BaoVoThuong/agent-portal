@@ -8,6 +8,65 @@ export type SubmissionState = {
   requestId: string | null;
 };
 
+export type FileState = {
+  id: string;
+  status: "pending" | "uploading" | "success" | "failed";
+  error?: string;
+};
+
+export type CommentDraftState = {
+  realId: string | null;
+  files: FileState[];
+  reloadFailed: boolean;
+  commentFailed?: boolean;
+};
+
+export function commentCommitted(
+  draft: Pick<CommentDraftState, "files">,
+  realId: string,
+): CommentDraftState {
+  return { realId, files: draft.files, reloadFailed: false, commentFailed: false };
+}
+
+export function fileUploading(state: CommentDraftState, fileId: string): CommentDraftState {
+  return {
+    ...state,
+    files: state.files.map((file) =>
+      file.id === fileId ? { ...file, status: "uploading", error: undefined } : file,
+    ),
+  };
+}
+
+export function fileUploaded(state: CommentDraftState, fileId: string): CommentDraftState {
+  return {
+    ...state,
+    files: state.files.map((file) =>
+      file.id === fileId ? { ...file, status: "success", error: undefined } : file,
+    ),
+  };
+}
+
+export function fileFailed(
+  state: CommentDraftState,
+  fileId: string,
+  error: string,
+): CommentDraftState {
+  return {
+    ...state,
+    files: state.files.map((file) =>
+      file.id === fileId ? { ...file, status: "failed", error } : file,
+    ),
+  };
+}
+
+export function reloadFailed(state: CommentDraftState): CommentDraftState {
+  return { ...state, reloadFailed: true };
+}
+
+export function isCommentFailed(state: CommentDraftState): boolean {
+  return state.commentFailed === true;
+}
+
 export function canSubmit(state: SubmissionState): boolean {
   return !state.inFlight;
 }

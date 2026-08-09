@@ -459,3 +459,7 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   notification and realtime failures return warnings after commit.
 - Added optional `client_request_id` deduplication and made participant upserts
   report errors instead of silently swallowing visibility failures.
+- Split optimistic comment status from per-file upload status. A committed
+  comment no longer becomes failed because one file or a reload fails; failed
+  files expose their own retry state, and preview blob URLs are revoked on
+  discard, task change, and unmount.
