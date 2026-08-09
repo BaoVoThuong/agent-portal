@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { signTaskFile } from "./storage";
+import { resolveDisplayNames } from "@/lib/people/display-names";
 
 export type SignedAttachment = {
   id: string;
@@ -13,6 +14,7 @@ export type SignedAttachment = {
 export type CommentWithAttachments = Record<string, unknown> & {
   id: string;
   attachments: SignedAttachment[];
+  author_name?: string;
 };
 
 export type ActivityRow = {
@@ -21,6 +23,7 @@ export type ActivityRow = {
   type: string;
   meta: Record<string, unknown> | null;
   created_at: string;
+  actor_name?: string;
 };
 
 export type TaskDetailMetadata = {
@@ -89,8 +92,18 @@ export async function loadComments(
     .order("created_at", { ascending: true });
   if (commentsError) throw new Error(commentsError.message);
 
+  const rawComments = (comments ?? []) as unknown as Array<{
+    id: string;
+    author_email: string;
+  }>;
+  const displayNames = await resolveDisplayNames(rawComments.map((comment) => comment.author_email));
+  const commentsWithNames = rawComments.map((comment) => ({
+    ...comment,
+    author_name: displayNames.get(comment.author_email.trim().toLowerCase()),
+  }));
+
   if (opts.includeAttachments === false) {
-    return ((comments ?? []) as unknown as { id: string }[]).map((comment) => ({
+    return commentsWithNames.map((comment) => ({
       ...(comment as Record<string, unknown>),
       id: comment.id,
       attachments: [],
@@ -111,7 +124,7 @@ export async function loadComments(
   const signed = rows.map((row, index) => ({ comment_id: row.comment_id, att: attachments[index] }));
 
   return groupCommentAttachments(
-    (comments ?? []) as unknown as { id: string }[],
+    commentsWithNames as unknown as { id: string }[],
     signed
   );
 }
@@ -128,7 +141,12 @@ export async function loadActivity(
     .limit(TASK_ACTIVITY_LIMIT);
   if (error) throw new Error(error.message);
 
-  return (data ?? []) as unknown as ActivityRow[];
+  const activity = (data ?? []) as unknown as ActivityRow[];
+  const displayNames = await resolveDisplayNames(activity.map((row) => row.actor_email));
+  return activity.map((row) => ({
+    ...row,
+    actor_name: displayNames.get(row.actor_email.trim().toLowerCase()),
+  }));
 }
 
 export async function loadTaskAttachments(

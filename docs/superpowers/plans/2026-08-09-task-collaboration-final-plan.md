@@ -3782,7 +3782,7 @@ one task, or once the 200-row activity cap is actually reached.
 | 13. Unassigned activity | C | P2 | Implemented | `2be2df9` | Activity-event tests + typecheck passed | F11. New removals use `unassigned` with `removed/next_primary`; renderer also recognizes historical `assigned + meta.removed` rows. Live feed verification pending. |
 | 14. Atomic task create | C | P2 | Implemented | `ac2e23b` | Typecheck + 17 targeted tests passed | F12. Task, assignees, initial stage/assignment cycles, and `created` audit are now one idempotent RPC; rotation, notifications, broadcast, and reconciliation are warning-only after commit. Live DB fault/replay verification pending. |
 | 15. Atomic overdue | C | P2 | Implemented | `6b9c0dd` | Typecheck + 17 targeted tests passed | F13. `mark_task_overdue_atomic` now guards status/flag, commits event + `went_overdue` audit or rolls back, and only the winner sends notifications. Live concurrent-cron and rollback verification pending. |
-| 16. Canonical names | C | P2 | Pending | — | — | F19 |
+| 16. Canonical names | C | P2 | Implemented | `TBD` | Display-name tests + typecheck pending | F19. Task/Enrollment comments, activity actors, deleted placeholders, and edit history now resolve canonical names in one batched query including inactive accounts; unknown identities use `Unknown user`. Live fixture/browser verification pending. |
 | 17. Unified mentions | C | P2 | Pending | — | — | F20 + F21. Needs Task 10 |
 | 18. Authorize first | D | P3 | Pending | — | — | F15 |
 | 19. Cache TTL | D | P3 | Pending | — | — | F16 |

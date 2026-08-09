@@ -49,6 +49,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Overdue transition history is single-writer and rollback-safe; system bookkeeping remains excluded from human last-activity metrics.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F13
 
+## 2026-08-10 — Resolve canonical names for collaboration history
+- **Loại**: fix, security
+- **Cái gì**: Added a batched historical identity resolver that reads `portal_account` without filtering inactive accounts. Task and Enrollment comment/detail loaders attach `author_name`/`actor_name`, edit-history routes attach `edited_by_name`, and shared rendering uses those names or `Unknown user` instead of guessing from an email local part.
+- **Vì sao**: Active mention rosters are not a historical directory; deactivated or nameless authors were previously displayed with an invented name derived from their email.
+- **File**: `src/lib/people/display-names.ts`, `src/lib/tasks/detail.ts`, `src/lib/enrollment/detail.ts`, `src/app/api/tasks/[id]/comments/[cid]/edits/route.ts`, `src/app/api/enrollment/[id]/comments/[cid]/edits/route.ts`, `src/app/(authed)/tasks/_components/CommentThread.tsx`
+- **Ảnh hưởng**: Health CS, ACA, and Medicare comment, deleted-placeholder, activity, overdue, and edit-history surfaces show stable canonical labels while email remains an internal identity key.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F19
+
 ---
 
 ## 2026-08-10 — Delete task attachment metadata before storage cleanup

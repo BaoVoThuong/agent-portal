@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
-import { formatEmailAsName } from "@/lib/tasks/people";
+import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import {
   attachmentTooLargeMessage,
@@ -63,6 +63,7 @@ type Comment = CommentWithAttachments & {
   // optimistic copy is still on screen waiting for its files to finish
   // uploading — without this link the same comment renders twice.
   realId?: string;
+  author_name?: string;
 };
 
 type CommentEdit = {
@@ -70,6 +71,7 @@ type CommentEdit = {
   previous_body: string;
   edited_by: string;
   edited_at: string;
+  edited_by_name?: string;
 };
 
 type DraftMention = {
@@ -145,7 +147,7 @@ function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 function mentionLabel(member: TaskAssignee) {
-  return member.name?.trim() || formatEmailAsName(member.email);
+  return member.name?.trim() || UNKNOWN_PERSON_LABEL;
 }
 
 function escapeRegExp(value: string) {
@@ -363,8 +365,10 @@ export function CommentThread({
   }, [taskId]);
 
   const nameOf = useCallback(
-    (email: string) =>
-      members.find((m) => m.email === email)?.name ?? formatEmailAsName(email),
+    (email: string, canonicalName?: string | null) =>
+      canonicalName?.trim() ||
+      members.find((m) => m.email.trim().toLowerCase() === email.trim().toLowerCase())?.name?.trim() ||
+      UNKNOWN_PERSON_LABEL,
     [members],
   );
 
@@ -427,6 +431,7 @@ export function CommentThread({
         id: tempId,
         parent_id: parentId,
         author_email: currentEmail,
+        author_name: nameOf(currentEmail),
         body,
         created_at: new Date().toISOString(),
         deleted_at: null,
@@ -907,7 +912,7 @@ function CommentItem({
   taskId: string;
   apiBase: string;
   currentEmail: string;
-  nameOf: (email: string) => string;
+  nameOf: (email: string, canonicalName?: string | null) => string;
   onDelete: (id: string) => Promise<void> | void;
   onEdit: (id: string, body: string, expectedUpdatedAt: string | null) => Promise<EditOutcome>;
   onReply?: () => void;
@@ -945,11 +950,11 @@ function CommentItem({
   if (c.deleted_at) {
     return (
       <article className="flex gap-2.5">
-        <Initials email={c.author_email} label={nameOf(c.author_email)} />
+        <Initials email={c.author_email} label={nameOf(c.author_email, c.author_name)} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-sm font-semibold text-[#172b4d]">
-              {nameOf(c.author_email)}
+              {nameOf(c.author_email, c.author_name)}
             </span>
             <span
               className="text-xs font-medium text-[#6b778c]"
@@ -967,13 +972,13 @@ function CommentItem({
   return (
     <article className="group flex gap-2.5">
       <div className="shrink-0 pt-0.5">
-        <Initials email={c.author_email} label={nameOf(c.author_email)} />
+        <Initials email={c.author_email} label={nameOf(c.author_email, c.author_name)} />
       </div>
       <div className="flex min-w-0 flex-1 items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="text-sm font-semibold text-[#172b4d]">
-              {nameOf(c.author_email)}
+              {nameOf(c.author_email, c.author_name)}
             </span>
             <span
               className="text-xs font-medium text-[#6b778c]"
@@ -1031,7 +1036,7 @@ function CommentItem({
                           {e.previous_body}
                         </p>
                         <div className="mt-0.5 text-[10px] text-[#97a0af]">
-                          {nameOf(e.edited_by)} ·{" "}
+                          {nameOf(e.edited_by, e.edited_by_name)} ·{" "}
                           {new Date(e.edited_at).toLocaleString()}
                         </div>
                       </div>
@@ -1296,7 +1301,7 @@ function Composer({
   alwaysOpen?: boolean;
   currentEmail: string;
   members: TaskAssignee[];
-  nameOf: (email: string) => string;
+  nameOf: (email: string, canonicalName?: string | null) => string;
   onCancel?: () => void;
   onSubmit: (body: string, files: File[]) => boolean;
   submitting?: boolean;

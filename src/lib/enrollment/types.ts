@@ -124,6 +124,7 @@ export type EnrollmentActivityRow = {
   type: string;
   meta: Record<string, unknown> | null;
   created_at: string;
+  actor_name?: string;
 };
 
 export type EnrollmentSignedAttachment = {
@@ -137,6 +138,7 @@ export type EnrollmentSignedAttachment = {
 export type EnrollmentCommentWithAttachments = Record<string, unknown> & {
   id: string;
   attachments: EnrollmentSignedAttachment[];
+  author_name?: string;
 };
 
 export type EnrollmentDetail = {

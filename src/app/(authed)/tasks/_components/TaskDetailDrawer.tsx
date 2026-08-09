@@ -5,6 +5,7 @@ import { Check, CheckCircle2, Circle, ExternalLink, X } from "lucide-react";
 import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
+import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
 import type { TaskDetail, TaskDetailMetadata } from "@/lib/tasks/detail";
 import {
   getCachedTaskDetail,
@@ -228,23 +229,23 @@ export function TaskDetailDrawer({
   for (const agent of agents) {
     personLabelByEmail.set(
       agent.email,
-      agent.name?.trim() || formatEmailAsName(agent.email)
+      agent.name?.trim() || UNKNOWN_PERSON_LABEL
     );
   }
   for (const assignee of assignees) {
     personLabelByEmail.set(
       assignee.email,
-      assignee.name?.trim() || formatEmailAsName(assignee.email)
+      assignee.name?.trim() || UNKNOWN_PERSON_LABEL
     );
   }
   for (const member of mentionMembers) {
     personLabelByEmail.set(
       member.email,
-      member.name?.trim() || formatEmailAsName(member.email)
+      member.name?.trim() || UNKNOWN_PERSON_LABEL
     );
   }
   if (!personLabelByEmail.has(currentEmail)) {
-    personLabelByEmail.set(currentEmail, formatEmailAsName(currentEmail));
+    personLabelByEmail.set(currentEmail, UNKNOWN_PERSON_LABEL);
   }
   const optionLabelById = new Map(
     tableColumnOptions.map((option) => [option.id, option.label])

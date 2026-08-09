@@ -6,6 +6,7 @@ import type {
   EnrollmentDetail,
   EnrollmentSignedAttachment,
 } from "./types";
+import { resolveDisplayNames } from "@/lib/people/display-names";
 
 export const ENROLLMENT_ACTIVITY_LIMIT = 250;
 
@@ -41,9 +42,17 @@ export async function loadEnrollmentComments(
     .order("created_at", { ascending: true });
   if (commentsError) throw new Error(commentsError.message);
 
-  const commentRows = (comments ?? []) as unknown as { id: string }[];
+  const commentRows = (comments ?? []) as unknown as Array<{
+    id: string;
+    author_email: string;
+  }>;
+  const displayNames = await resolveDisplayNames(commentRows.map((comment) => comment.author_email));
+  const commentsWithNames = commentRows.map((comment) => ({
+    ...comment,
+    author_name: displayNames.get(comment.author_email.trim().toLowerCase()),
+  }));
   if (opts.includeAttachments === false) {
-    return commentRows.map((comment) => ({
+    return commentsWithNames.map((comment) => ({
       ...(comment as Record<string, unknown>),
       id: comment.id,
       attachments: [],
@@ -71,7 +80,7 @@ export async function loadEnrollmentComments(
     byComment.set(row.comment_id, list);
   }
 
-  return commentRows.map((comment) => ({
+  return commentsWithNames.map((comment) => ({
     ...(comment as Record<string, unknown>),
     id: comment.id,
     attachments: byComment.get(comment.id) ?? [],
@@ -89,7 +98,12 @@ export async function loadEnrollmentActivity(
     .order("created_at", { ascending: false })
     .limit(ENROLLMENT_ACTIVITY_LIMIT);
   if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as EnrollmentActivityRow[];
+  const activity = (data ?? []) as unknown as EnrollmentActivityRow[];
+  const displayNames = await resolveDisplayNames(activity.map((row) => row.actor_email));
+  return activity.map((row) => ({
+    ...row,
+    actor_name: displayNames.get(row.actor_email.trim().toLowerCase()),
+  }));
 }
 
 export async function loadEnrollmentAttachments(

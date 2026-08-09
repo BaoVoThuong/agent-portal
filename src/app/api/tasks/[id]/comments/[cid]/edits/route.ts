@@ -6,6 +6,7 @@ import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import type { TaskRow } from "@/lib/tasks/types";
+import { resolveDisplayNames } from "@/lib/people/display-names";
 
 export const dynamic = "force-dynamic";
 
@@ -71,5 +72,12 @@ export async function GET(_req: Request, { params }: Ctx) {
     .eq("comment_id", cid)
     .order("edited_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ edits: data ?? [] });
+  const edits = (data ?? []) as Array<{ edited_by: string }>;
+  const names = await resolveDisplayNames(edits.map((edit) => edit.edited_by));
+  return NextResponse.json({
+    edits: edits.map((edit) => ({
+      ...edit,
+      edited_by_name: names.get(edit.edited_by.trim().toLowerCase()),
+    })),
+  });
 }

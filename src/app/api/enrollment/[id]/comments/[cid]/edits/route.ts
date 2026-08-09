@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
+import { resolveDisplayNames } from "@/lib/people/display-names";
 
 export const dynamic = "force-dynamic";
 
@@ -39,5 +40,12 @@ export async function GET(_request: Request, { params }: Ctx) {
     .eq("comment_id", cid)
     .order("edited_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ edits: data ?? [] });
+  const edits = (data ?? []) as Array<{ edited_by: string }>;
+  const names = await resolveDisplayNames(edits.map((edit) => edit.edited_by));
+  return NextResponse.json({
+    edits: edits.map((edit) => ({
+      ...edit,
+      edited_by_name: names.get(edit.edited_by.trim().toLowerCase()),
+    })),
+  });
 }

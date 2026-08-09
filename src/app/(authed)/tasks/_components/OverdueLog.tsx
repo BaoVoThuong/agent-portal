@@ -3,7 +3,7 @@
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import type { ActivityRow } from "@/lib/tasks/detail";
 import { formatDurationMinutes } from "@/lib/tasks/sla";
-import { formatEmailAsName } from "@/lib/tasks/people";
+import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
 
 function formatDateTime(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -43,8 +43,9 @@ export function OverdueLog({
         const overdueBy = formatOverdueBy(meta.due_at, actionAt);
         const fromStatus = typeof meta.from_status === "string" ? meta.from_status : null;
         const actorLabel =
+          entry.actor_name ??
           personLabelByEmail?.get(entry.actor_email) ??
-          formatEmailAsName(entry.actor_email);
+          UNKNOWN_PERSON_LABEL;
         const isReopen = entry.type === "task_reopened";
         const isUnlock = entry.type === "overdue_unlocked";
 

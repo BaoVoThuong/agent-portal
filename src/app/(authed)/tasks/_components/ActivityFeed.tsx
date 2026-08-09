@@ -2,8 +2,8 @@
 
 import { type ReactNode } from "react";
 import type { ActivityRow } from "@/lib/tasks/detail";
-import { formatEmailAsName } from "@/lib/tasks/people";
 import { describeActivity } from "@/lib/tasks/activity-events";
+import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
 
 function describe(a: ActivityRow, personLabel: (email: string) => string): ReactNode {
   const assignment = describeActivity(a);
@@ -53,8 +53,8 @@ export function ActivityFeed({
   activity: ActivityRow[];
   personLabelByEmail?: Map<string, string>;
 }) {
-  const personLabel = (email: string) =>
-    personLabelByEmail?.get(email) ?? formatEmailAsName(email);
+  const personLabel = (email: string, canonicalName?: string | null) =>
+    canonicalName?.trim() || personLabelByEmail?.get(email) || UNKNOWN_PERSON_LABEL;
 
   if (activity.length === 0)
     return <p className="text-xs text-[#6b778c]">No activity yet.</p>;
@@ -64,7 +64,7 @@ export function ActivityFeed({
       {activity.map((a) => (
         <li key={a.id} className="text-xs leading-5 text-[#6b778c]">
           <strong className="font-semibold text-[#172b4d]">
-            {personLabel(a.actor_email)}
+            {personLabel(a.actor_email, a.actor_name)}
           </strong>{" "}
           {describe(a, personLabel)}
           <span className="ml-1 whitespace-nowrap text-[#97a0af]">
