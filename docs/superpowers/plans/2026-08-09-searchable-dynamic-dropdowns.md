@@ -293,32 +293,32 @@ avoiding nine mechanical import edits is the smaller pre-go-live change.
 
 **Steps**
 
-- [ ] Render the autofocus search row, pinned rows, filtered list, checks, and no-match state.
-- [ ] Build the exact flex contract from §5: neutral root `flex flex-col overflow-hidden`, fixed
+- [x] Render the autofocus search row, pinned rows, filtered list, checks, and no-match state.
+- [x] Build the exact flex contract from §5: neutral root `flex flex-col overflow-hidden`, fixed
   search/pinned rows, and one `min-h-0 flex-1 overflow-y-auto` results region. Treat the hook's
   inline `maxHeight: 300` as authoritative.
-- [ ] Consume Task 1's pure active-index helpers when the query/choices change and for
+- [x] Consume Task 1's pure active-index helpers when the query/choices change and for
   ArrowUp/ArrowDown. Do not duplicate navigation math in React.
-- [ ] Implement ArrowUp/ArrowDown/Enter and the Tab focus bridge. The panel does **not** handle
+- [x] Implement ArrowUp/ArrowDown/Enter and the Tab focus bridge. The panel does **not** handle
   Escape.
-- [ ] Extend `useAnchoredMenu` with explicit close/focus operations: document Escape closes and
+- [x] Extend `useAnchoredMenu` with explicit close/focus operations: document Escape closes and
   restores focus; outside click/scroll/resize close without restoration; Tab can synchronously
   close/focus the trigger without preventing the default browser traversal.
-- [ ] Preserve the hook's current return fields (`isOpen`, `setIsOpen`, `openMenu`, `toggle`,
+- [x] Preserve the hook's current return fields (`isOpen`, `setIsOpen`, `openMenu`, `toggle`,
   refs, style) so non-migrated consumers do not require a broad refactor. Add named close helpers
   alongside them and use those helpers only where focus semantics require them.
-- [ ] Add ARIA IDs with `useId`; do not use array indexes as option identity.
-- [ ] Ensure the portal root has no listbox role; put `role="listbox"` and
+- [x] Add ARIA IDs with `useId`; do not use array indexes as option identity.
+- [x] Ensure the portal root has no listbox role; put `role="listbox"` and
   `aria-multiselectable` only on the inner results owner referenced by the combobox input.
-- [ ] Render disabled choices with `aria-disabled`/native disabled semantics, never make them
+- [x] Render disabled choices with `aria-disabled`/native disabled semantics, never make them
   active, and never invoke `onSelect` for them.
-- [ ] Handle a missing `selectedValue` as an ordinary no-active-selection state.
-- [ ] Keep the root `ref` compatible with `useAnchoredMenu` outside-click/scroll handling.
-- [ ] Do not change menu coordinates or introduce a second positioning system.
+- [x] Handle a missing `selectedValue` as an ordinary no-active-selection state.
+- [x] Keep the root `ref` compatible with `useAnchoredMenu` outside-click/scroll handling.
+- [x] Do not change menu coordinates or introduce a second positioning system.
 - [ ] Manually smoke-test Escape/outside-click on one existing non-search menu (for example
   Export or table settings) because the hook focus behavior is shared globally.
-- [ ] Run TypeScript, targeted ESLint, existing tests, and `git diff --check`.
-- [ ] Commit only Task 2 and record the commit below.
+- [x] Run TypeScript, targeted ESLint, existing tests, and `git diff --check`.
+- [x] Commit only Task 2 and record the commit below.
 
 ### Task 3 — Apply search to Enrollment system option menus
 
@@ -543,8 +543,8 @@ must preserve every one of those semantics; it is not a cosmetic `<select>` subs
 
 | Task | Status | Commit | Verification | Notes |
 |---|---|---|---|---|
-| 1. Pure matching contract | Completed | `d03f9eb` | 8 tests; ESLint; `tsc --noEmit`; `git diff --check` | Pure search + enabled navigation helpers |
-| 2. Shared searchable listbox panel | Pending | — | — | — |
+| 1. Pure matching contract | Completed | `4724042` | 8 tests; ESLint; `tsc --noEmit`; `git diff --check` | Pure search + enabled navigation helpers |
+| 2. Shared searchable listbox panel | Completed | `2be5cdb` | 8 tests; targeted ESLint; `tsc --noEmit`; `git diff --check` | Shared panel + focus-aware anchored-menu close helpers; manual browser smoke test remains pending |
 | 3. Enrollment option menus | Pending | — | — | — |
 | 4. Enrollment people and filters | Pending | — | — | — |
 | 5. Health CS dynamic selectors | Pending | — | — | — |
