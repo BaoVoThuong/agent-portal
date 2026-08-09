@@ -17,6 +17,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ref**: doc / finding / commit (nếu có)
 ```
 
+## 2026-08-10 — Stabilize comment thread navigation and mutation feedback
+- **Loại**: fix, perf
+- **Cái gì**: Thread scrolling now follows only the bottom/own-send cases, preserves a reader's position for remote comments, and exposes a New comments affordance. Relative timestamps refresh from one shared visible-thread clock. Drawer and Enrollment comment counts exclude deleted placeholders. Edit-history failures, delete failures, and post-delete reload warnings are shown inline; delete uses a focused confirmation dialog while keeping replies visible.
+- **Vì sao**: Realtime rows previously pulled readers to the bottom, counters disagreed with list metadata, timestamps went stale, and mutation/history failures were either silent or misreported as empty history.
+- **File**: `src/lib/tasks/thread-view.ts`, `src/lib/tasks/thread-view.test.ts`, `src/app/(authed)/tasks/_components/CommentThread.tsx`, `src/app/(authed)/tasks/_components/TaskDetailDrawer.tsx`, `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx`
+- **Ảnh hưởng**: Health CS, ACA, and Medicare shared comment threads retain scroll context, keep accessible inline feedback, and preserve author-only delete semantics.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F22/F23
+
 ## 2026-08-10 — Unify mentions across comment create, reply, and edit
 - **Loại**: fix, security
 - **Cái gì**: Added a positioned mention draft model shared by the Tasks/Enrollment comment composer and editor. Mention identity is preserved by email/range, search reuses normalized option filtering, and newly added mentions on edits are notified without trusting client-supplied emails.
