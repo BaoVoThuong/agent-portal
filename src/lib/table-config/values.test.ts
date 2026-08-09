@@ -1,5 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { coerceCustomValue, formatCustomValue } from "./values";
+import {
+  coerceCustomValue,
+  formatCustomValue,
+  normalizedValueEquals,
+} from "./values";
+
+describe("normalizedValueEquals", () => {
+  it("recognizes unchanged values across supported custom field types", () => {
+    expect(normalizedValueEquals("text", "same", "same")).toBe(true);
+    expect(normalizedValueEquals("number", 12, 12)).toBe(true);
+    expect(normalizedValueEquals("checkbox", true, true)).toBe(true);
+  });
+
+  it("treats empty persisted values and a null clear as equal", () => {
+    expect(normalizedValueEquals("dropdown", "", null)).toBe(true);
+    expect(normalizedValueEquals("person", undefined, null)).toBe(true);
+  });
+
+  it("compares person emails case-insensitively after trimming", () => {
+    expect(
+      normalizedValueEquals("person", " Agent@Example.com ", "agent@example.com")
+    ).toBe(true);
+    expect(normalizedValueEquals("person", "a@example.com", "b@example.com")).toBe(
+      false
+    );
+  });
+
+  it("keeps dropdown IDs exact", () => {
+    expect(normalizedValueEquals("dropdown", "opt-1", "opt-1")).toBe(true);
+    expect(normalizedValueEquals("dropdown", "opt-1", "OPT-1")).toBe(false);
+  });
+});
 
 describe("coerceCustomValue", () => {
   it("coerces number/date/checkbox", () => {

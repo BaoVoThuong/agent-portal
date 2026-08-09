@@ -13,6 +13,22 @@ export type CoerceResult =
   | { ok: true; value: unknown }
   | { ok: false; error: string };
 
+/**
+ * Compare a pending custom-field value with the persisted value using the
+ * same canonicalization rules as the custom-field editor.
+ */
+export function normalizedValueEquals(
+  type: ColumnType,
+  current: unknown,
+  next: unknown
+): boolean {
+  if ((current === "" || current === undefined) && next === null) return true;
+  if (type === "person" && typeof current === "string" && typeof next === "string") {
+    return current.trim().toLowerCase() === next.trim().toLowerCase();
+  }
+  return current === next;
+}
+
 export function coerceCustomValue(
   type: ColumnType,
   raw: unknown,

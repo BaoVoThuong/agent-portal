@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Check, ExternalLink } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
-import { formatCustomValue } from "@/lib/table-config/values";
+import { formatCustomValue, normalizedValueEquals } from "@/lib/table-config/values";
 
 type Person = { email: string; name: string | null };
 
@@ -205,18 +205,6 @@ function normalizeInput(type: TableColumn["type"], raw: string): unknown {
     return Number.isFinite(numberValue) ? numberValue : null;
   }
   return value;
-}
-
-function normalizedValueEquals(
-  type: TableColumn["type"],
-  current: unknown,
-  next: unknown
-): boolean {
-  if ((current === "" || current === undefined) && next === null) return true;
-  if (type === "person" && typeof current === "string" && typeof next === "string") {
-    return current.trim().toLowerCase() === next.trim().toLowerCase();
-  }
-  return current === next;
 }
 
 function formatExternalLink(value: string): string {
