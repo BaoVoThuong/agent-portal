@@ -43,6 +43,7 @@ import {
 } from "@/lib/tasks/category-colors";
 import type { TableColumnOption } from "@/lib/table-config/types";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
+import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { Initials, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
 import { TaskAssigneePicker } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
@@ -1455,8 +1456,15 @@ function CategoryMenu({
   canEdit: boolean;
   onChange: (categoryId: string) => void;
 }) {
-  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
-    useAnchoredMenu();
+  const {
+    isOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  } = useAnchoredMenu();
   const currentLabel = category?.name ?? "No category";
   const currentCategoryMissing =
     Boolean(category) && !categories.some((item) => item.id === category?.id);
@@ -1482,6 +1490,7 @@ function CategoryMenu({
         type="button"
         onClick={toggle}
         disabled={options.length === 0}
+        aria-haspopup="listbox"
         aria-expanded={isOpen}
         title={options.length === 0 ? "No categories available" : currentLabel}
         className={
@@ -1501,50 +1510,42 @@ function CategoryMenu({
       </button>
       {isOpen
         ? createPortal(
-            <div
-              ref={menuRef}
-              role="listbox"
-              style={menuStyle}
-              className="z-[100] min-w-[16rem] rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
-            >
-              <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-                Category
-              </div>
-              <div className="max-h-56 overflow-auto">
-                {options.map((option) => {
-                  const selected = option.id === category?.id;
-                  const palette = taskCategoryPalette(option);
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => {
-                        if (!selected) onChange(option.id);
-                        setIsOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition ${
-                        selected
-                          ? "bg-[#e9f2ff] text-[#0c66e4]"
-                          : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                      }`}
-                    >
-                      <span
-                        className="h-3 w-3 shrink-0 rounded-sm"
-                        style={{ backgroundColor: palette.background }}
-                      />
-                      <span className="min-w-0 flex-1 truncate font-semibold">
-                        {option.name}
-                      </span>
-                      {selected ? (
-                        <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>,
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              className="min-w-[16rem]"
+              ariaLabel="Category"
+              queryPlaceholder="Search categories…"
+              emptyMessage="No matching categories."
+              choices={options.map((option) => ({
+                value: option.id,
+                label: option.name,
+              }))}
+              selectedValue={category?.id}
+              onSelect={(value) => {
+                if (value !== category?.id) onChange(value);
+                closeMenu({ restoreFocus: true });
+              }}
+              onTabExit={closeMenuForTab}
+              renderChoice={(choice, state) => {
+                const option = options.find((item) => item.id === choice.value);
+                const palette = option ? taskCategoryPalette(option) : null;
+                return (
+                  <>
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-sm"
+                      style={{ backgroundColor: palette?.background ?? "#97a0af" }}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-semibold">
+                      {choice.label}
+                    </span>
+                    {state.selected ? (
+                      <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                    ) : null}
+                  </>
+                );
+              }}
+            />,
             document.body
           )
         : null}
@@ -1603,8 +1604,15 @@ function AgentMenu({
   canEdit: boolean;
   onChange: (email: string) => void;
 }) {
-  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
-    useAnchoredMenu();
+  const {
+    isOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  } = useAnchoredMenu();
   const currentLabel = email
     ? labelByEmail.get(email) ?? formatEmailAsName(email)
     : "No agent";
@@ -1644,6 +1652,7 @@ function AgentMenu({
         type="button"
         onClick={toggle}
         disabled={options.length === 0}
+        aria-haspopup="listbox"
         aria-expanded={isOpen}
         title={options.length === 0 ? "No agents available" : currentLabel}
         className={
@@ -1666,50 +1675,39 @@ function AgentMenu({
       </button>
       {isOpen
         ? createPortal(
-            <div
-              ref={menuRef}
-              role="listbox"
-              style={menuStyle}
-              className="z-[100] min-w-[16rem] rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
-            >
-              <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-                Agent
-              </div>
-              <div className="max-h-56 overflow-auto">
-                {options.map((agent) => {
-                  const label =
-                    agent.name?.trim() ||
-                    labelByEmail.get(agent.email) ||
-                    formatEmailAsName(agent.email);
-                  const selected = agent.email === email;
-                  return (
-                    <button
-                      key={agent.email}
-                      type="button"
-                      role="option"
-                      aria-selected={selected}
-                      onClick={() => {
-                        if (!selected) onChange(agent.email);
-                        setIsOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition ${
-                        selected
-                          ? "bg-[#e9f2ff] text-[#0c66e4]"
-                          : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                      }`}
-                    >
-                      <Initials email={agent.email} label={label} />
-                      <span className="min-w-0 flex-1 truncate font-semibold">
-                        {label}
-                      </span>
-                      {selected ? (
-                        <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>,
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              className="min-w-[16rem]"
+              ariaLabel="Agent"
+              queryPlaceholder="Search agents or email…"
+              emptyMessage="No matching agents."
+              choices={options.map((agent) => ({
+                value: agent.email,
+                label:
+                  agent.name?.trim() ||
+                  labelByEmail.get(agent.email) ||
+                  formatEmailAsName(agent.email),
+                keywords: [agent.email],
+              }))}
+              selectedValue={email}
+              onSelect={(value) => {
+                if (value !== email) onChange(value);
+                closeMenu({ restoreFocus: true });
+              }}
+              onTabExit={closeMenuForTab}
+              renderChoice={(choice, state) => (
+                <>
+                  <Initials email={choice.value} label={choice.label} />
+                  <span className="min-w-0 flex-1 truncate font-semibold">
+                    {choice.label}
+                  </span>
+                  {state.selected ? (
+                    <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                  ) : null}
+                </>
+              )}
+            />,
             document.body
           )
         : null}
@@ -1734,7 +1732,8 @@ function AssigneeMenu({
   canAssign: boolean;
   onToggle: (email: string, assigned: boolean) => void;
 }) {
-  const { isOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
+  const { isOpen, toggle, triggerRef, menuRef, menuStyle, closeMenuForTab } =
+    useAnchoredMenu();
   const selectedLabel =
     emails.length > 0
       ? emails.map((email) => labelByEmail.get(email) ?? formatEmailAsName(email)).join(", ")
@@ -1776,6 +1775,7 @@ function AssigneeMenu({
         type="button"
         onClick={toggle}
         aria-expanded={isOpen}
+        aria-haspopup="listbox"
         title={selectedLabel}
         className={
           isUnassigned
@@ -1804,7 +1804,6 @@ function AssigneeMenu({
         ? createPortal(
             <div
               ref={menuRef}
-              role="listbox"
               style={menuStyle}
               className="z-[100] min-w-[18rem] rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
             >
@@ -1816,6 +1815,7 @@ function AssigneeMenu({
                 onToggle={onToggle}
                 listClassName="max-h-48"
                 autoFocus
+                onTabExit={closeMenuForTab}
               />
             </div>,
             document.body

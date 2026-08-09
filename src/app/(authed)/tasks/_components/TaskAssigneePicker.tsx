@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Search } from "lucide-react";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
+import { normalizeOptionSearchText } from "@/lib/ui/option-search";
 import { AvatarStack, Initials } from "./board-ui";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
@@ -23,7 +24,14 @@ export function TaskAssigneeDropdown({
   onToggle: (email: string, assigned: boolean) => void;
   buttonClassName?: string;
 }) {
-  const { isOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
+  const {
+    isOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenuForTab,
+  } = useAnchoredMenu();
   const labelByEmail = useMemo(
     () =>
       new Map(
@@ -52,6 +60,7 @@ export function TaskAssigneeDropdown({
         type="button"
         onClick={toggle}
         aria-expanded={isOpen}
+        aria-haspopup="listbox"
         className={`flex min-h-10 w-full items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-left text-sm font-semibold text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] ${buttonClassName}`}
       >
         <AvatarStack emails={selectedEmails} labelByEmail={labelByEmail} max={3} />
@@ -79,6 +88,7 @@ export function TaskAssigneeDropdown({
                 onToggle={onToggle}
                 listClassName="max-h-56"
                 autoFocus
+                onTabExit={closeMenuForTab}
               />
             </div>,
             document.body
@@ -95,6 +105,7 @@ export function TaskAssigneePicker({
   className = "",
   listClassName = "max-h-52",
   autoFocus = false,
+  onTabExit,
 }: {
   assignees: TaskAssignee[];
   selectedEmails: string[];
@@ -104,7 +115,9 @@ export function TaskAssigneePicker({
   className?: string;
   listClassName?: string;
   autoFocus?: boolean;
+  onTabExit?: () => void;
 }) {
+  const listboxId = useId();
   const [query, setQuery] = useState("");
   const selected = useMemo(() => new Set(selectedEmails), [selectedEmails]);
   const peopleByEmail = useMemo(
@@ -114,7 +127,7 @@ export function TaskAssigneePicker({
   const selectedPeople = selectedEmails.map(
     (email) => peopleByEmail.get(email) ?? { email, name: null }
   );
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = normalizeOptionSearchText(query);
   const people = useMemo(() => {
     return [...assignees]
       .sort((a, b) => {
@@ -126,7 +139,9 @@ export function TaskAssigneePicker({
       .filter((assignee) => {
         if (selected.has(assignee.email)) return false;
         if (!normalizedQuery) return true;
-        const label = `${assignee.name ?? ""} ${assignee.email}`.toLowerCase();
+        const label = normalizeOptionSearchText(
+          `${assignee.name ?? ""} ${assignee.email}`
+        );
         return label.includes(normalizedQuery);
       });
   }, [normalizedQuery, assignees, selected]);
@@ -167,12 +182,24 @@ export function TaskAssigneePicker({
           value={query}
           autoFocus={autoFocus}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Tab") onTabExit?.();
+          }}
+          role="combobox"
+          aria-expanded="true"
+          aria-controls={listboxId}
+          aria-autocomplete="list"
           placeholder="Search CS"
           className="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#172b4d] outline-none placeholder:text-[#97a0af]"
         />
       </label>
 
-      <div className={`overflow-auto p-1 ${listClassName}`}>
+      <div
+        id={listboxId}
+        role="listbox"
+        aria-label="Assignees"
+        className={`overflow-auto p-1 ${listClassName}`}
+      >
         {people.map((assignee) => {
           const checked = selected.has(assignee.email);
           const label =

@@ -331,6 +331,7 @@ export function NewTaskDialog({
                   <TaskSelect
                     label={columnByKey.get("category")?.label ?? "Category"}
                     value={categoryId}
+                    searchable
                     options={categoryOptions}
                     placeholder="Select category"
                     onChange={setCategoryId}
@@ -348,6 +349,7 @@ export function NewTaskDialog({
                   <TaskSelect
                     label={columnByKey.get("agent")?.label ?? "Agent"}
                     value={agentEmail}
+                    searchable
                     options={agentOptions}
                     placeholder="Select agent"
                     onChange={changeAgent}
@@ -487,6 +489,7 @@ function NewTaskCustomField({
       <TaskSelect
         label={column.label}
         value={typeof value === "string" ? value : ""}
+        searchable
         options={options.map((option) => ({
           value: option.id,
           label: option.label,
@@ -504,6 +507,7 @@ function NewTaskCustomField({
       <TaskSelect
         label={column.label}
         value={typeof value === "string" ? value : ""}
+        searchable
         options={peopleOptions}
         placeholder={`Select ${column.label}`}
         onChange={(next) => onChange(next || null)}

@@ -566,6 +566,7 @@ export function TaskDetailDrawer({
                     <TaskSelect
                       label={columnByKey.get("category")?.label ?? "Category"}
                       value={task.category_id ?? ""}
+                      searchable
                       disabled={!canEdit}
                       options={categoryOptions}
                       placeholder="Select category"
@@ -584,6 +585,7 @@ export function TaskDetailDrawer({
                     <TaskSelect
                       label={columnByKey.get("agent")?.label ?? "Agent"}
                       value={task.agent_email ?? ""}
+                      searchable
                       disabled={!canEdit}
                       options={agentOptions}
                       placeholder="Select agent"

@@ -274,6 +274,7 @@ export function TaskToolbar({
           {showAgent ? (
             <TaskSelect
               multi
+              searchable
               values={agentFilter}
               options={agentOptions}
               placeholder="Agent"
@@ -288,6 +289,7 @@ export function TaskToolbar({
           {showAssignee ? (
             <TaskSelect
               multi
+              searchable
               values={assigneeFilter}
               options={assigneeOptions}
               placeholder="All Assignees"
@@ -335,6 +337,7 @@ export function TaskToolbar({
           {showInlineAssignee ? (
             <TaskSelect
               multi
+              searchable
               values={assigneeFilter}
               options={assigneeOptions}
               placeholder="All Assignees"
@@ -363,6 +366,7 @@ export function TaskToolbar({
           {showCategory ? (
             <TaskSelect
               multi
+              searchable
               values={category}
               options={categoryOptions}
               placeholder="Category"
