@@ -25,6 +25,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Task list metadata, stale/recent activity display, human PATCH/assignment/archive mutations, and legacy metadata fallback now use one deterministic pair; system overdue rows remain audit-only.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F10
 
+## 2026-08-10 — Record assignee removals as unassigned activity
+- **Loại**: fix
+- **Cái gì**: Assignee removal mutations now write the `unassigned` activity type with `removed` and `next_primary` metadata. The activity renderer normalizes that event and older rows that incorrectly used `assigned` with `meta.removed`.
+- **Vì sao**: The old feed described a removal as an assignment to the remaining person, hiding the actual audit action.
+- **File**: `src/app/api/tasks/[id]/assignees/[email]/route.ts`, `src/lib/tasks/activity-events.ts`, `src/app/(authed)/tasks/_components/ActivityFeed.tsx`
+- **Ảnh hưởng**: Task activity history in Health CS and shared task detail surfaces now communicates assignee removal accurately without rewriting historical rows.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F11
+
 ---
 
 ## 2026-08-10 — Delete task attachment metadata before storage cleanup

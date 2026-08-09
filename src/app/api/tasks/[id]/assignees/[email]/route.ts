@@ -100,7 +100,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
     p_next_assignees: wasAssigned ? next.assignees : null,
     p_actor_email: ctx.actor.email,
     p_activity: wasAssigned
-      ? [{ type: "assigned", meta: { removed: email, to: legacyAssignee } }]
+      ? [{ type: "unassigned", meta: { removed: email, next_primary: legacyAssignee } }]
       : [],
     p_now: nowIso,
   });

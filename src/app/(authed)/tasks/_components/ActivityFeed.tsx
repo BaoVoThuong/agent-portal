@@ -3,10 +3,15 @@
 import { type ReactNode } from "react";
 import type { ActivityRow } from "@/lib/tasks/detail";
 import { formatEmailAsName } from "@/lib/tasks/people";
+import { describeActivity } from "@/lib/tasks/activity-events";
 
 function describe(a: ActivityRow, personLabel: (email: string) => string): ReactNode {
-  const rawTo =
-    a.meta && "to" in a.meta ? String((a.meta as { to: unknown }).to ?? "—") : "";
+  const assignment = describeActivity(a);
+  const rawTo = assignment
+    ? assignment.subject ?? "—"
+    : a.meta && "to" in a.meta
+      ? String((a.meta as { to: unknown }).to ?? "—")
+      : "";
   const to = formatActivityValue(a.type, rawTo, personLabel);
 
   switch (a.type) {
@@ -14,7 +19,10 @@ function describe(a: ActivityRow, personLabel: (email: string) => string): React
     case "status_changed": return <>moved to {to}</>;
     case "stage_changed": return <>moved stage to {to}</>;
     case "reopened": return <>reopened ({to})</>;
-    case "assigned": return <>assigned to {to}</>;
+    case "assigned":
+      return assignment?.kind === "unassigned"
+        ? <>removed {to} from the task</>
+        : <>assigned to {to}</>;
     case "unassigned": return <>removed {to} from the task</>;
     case "priority_changed": return <>set priority {to}</>;
     case "category_changed": return "changed category";

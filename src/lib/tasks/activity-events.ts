@@ -50,3 +50,37 @@ export type TaskActivityEvent =
         | "attachment_deleted">;
       meta: Record<string, unknown> | null;
     };
+
+export type AssignmentActivityDescription = {
+  kind: "assigned" | "unassigned";
+  subject: string | null;
+};
+
+/**
+ * Normalize assignment activity before rendering it. Older rows recorded an
+ * assignee removal as `assigned` with `meta.removed`; the metadata is the
+ * reliable signal for those historical rows, so the feed must not infer the
+ * action from the type alone.
+ */
+export function describeActivity(activity: {
+  type: string;
+  meta: Record<string, unknown> | null;
+}): AssignmentActivityDescription | null {
+  const meta = activity.meta ?? {};
+  const removed = typeof meta.removed === "string" ? meta.removed : null;
+  if (removed) return { kind: "unassigned", subject: removed };
+
+  if (activity.type === "unassigned") {
+    return {
+      kind: "unassigned",
+      subject: typeof meta.removed === "string" ? meta.removed : null,
+    };
+  }
+  if (activity.type === "assigned") {
+    return {
+      kind: "assigned",
+      subject: typeof meta.to === "string" ? meta.to : null,
+    };
+  }
+  return null;
+}
