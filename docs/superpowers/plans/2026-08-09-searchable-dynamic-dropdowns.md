@@ -485,11 +485,11 @@ must preserve every one of those semantics; it is not a cosmetic `<select>` subs
 
 **Automated checks**
 
-- [ ] `npx vitest run src/lib/ui/option-search.test.ts`
-- [ ] `npx vitest run`
-- [ ] `npx tsc --noEmit`
-- [ ] Targeted ESLint for every touched source/test file.
-- [ ] `git diff --check`
+- [x] `npx vitest run src/lib/ui/option-search.test.ts`
+- [x] `npx vitest run`
+- [x] `npx tsc --noEmit`
+- [x] Targeted ESLint for every touched source/test file.
+- [x] `git diff --check`
 
 **Manual browser matrix**
 
@@ -550,7 +550,7 @@ must preserve every one of those semantics; it is not a cosmetic `<select>` subs
 | 5. Health CS dynamic selectors | Completed | `7fca96c` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | CS Category/Agent + dynamic TaskSelect + Assignee ARIA/normalization; manual side-by-side browser gate remains pending |
 | 6. Custom-value equality preparation | Completed | `4acfca4` | Values + option-search tests 15/15; targeted ESLint; `tsc --noEmit`; `git diff --check` | Named equality helper exported; native custom-cell UI unchanged |
 | 7. Custom dropdown/person lifecycle | Completed | `f45954e` | Values + option-search tests 15/15; targeted ESLint; `tsc --noEmit`; `git diff --check` | Portal searchable custom fields + clear/equality/save-error semantics; manual CS/Enrollment browser matrix remains pending; changelog entry added |
-| 8. Final regression/a11y pass | Pending | — | — | — |
+| 8. Final regression/a11y pass | Completed | `PENDING-DOC-COMMIT` | 65 test files / 508 tests passed; `tsc --noEmit`; targeted ESLint; `git diff --check`; `npm run build` | Automated regression clean. Manual browser/a11y matrix is still pending because no browser automation is available in this environment. |
 
 ## 10. Final handoff note for Claude
 
