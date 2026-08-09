@@ -3,12 +3,14 @@
 import { useId } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
+import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
 export type TaskSelectOption = {
   value: string;
   label: string;
   disabled?: boolean;
+  keywords?: readonly string[];
 };
 
 export function TaskSelect({
@@ -21,6 +23,7 @@ export function TaskSelect({
   options,
   placeholder = "Select",
   disabled = false,
+  searchable = false,
   className = "",
   buttonClassName = "",
   menuClassName = "",
@@ -36,6 +39,7 @@ export function TaskSelect({
   options: TaskSelectOption[];
   placeholder?: string;
   disabled?: boolean;
+  searchable?: boolean;
   /** @deprecated kept for call-site compatibility; menu is portal-positioned. */
   align?: "left" | "right";
   className?: string;
@@ -45,7 +49,16 @@ export function TaskSelect({
   onValuesChange?: (values: string[]) => void;
 }) {
   const listboxId = useId();
-  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
+  const {
+    isOpen,
+    setIsOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  } =
     useAnchoredMenu();
   const isMulti = multi || Boolean(onValuesChange);
   const selectedValues = values ?? [];
@@ -94,8 +107,32 @@ export function TaskSelect({
     }
 
     onChange?.(option.value);
-    setIsOpen(false);
+    if (searchable) {
+      closeMenu({ restoreFocus: true });
+    } else {
+      setIsOpen(false);
+    }
   }
+
+  const searchableChoices = options
+    .filter((option) => !(isMulti && option.value === allValue))
+    .map((option) => ({
+      value: option.value,
+      label: option.label,
+      keywords: option.keywords ?? [option.value],
+      disabled: option.disabled,
+    }));
+  const pinnedChoices = isMulti
+    ? options
+        .filter((option) => option.value === allValue)
+        .slice(0, 1)
+        .map((option) => ({
+          value: option.value,
+          label: option.label,
+          keywords: option.keywords ?? [option.value],
+          disabled: option.disabled,
+        }))
+    : [];
 
   return (
     <div className={`relative min-w-0 ${className}`}>
@@ -107,7 +144,7 @@ export function TaskSelect({
         className={`dashboard-filter-button w-full !font-medium !leading-5 ${buttonClassName}`}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        aria-controls={isOpen ? listboxId : undefined}
+        aria-controls={isOpen && !searchable ? listboxId : undefined}
       >
         <span
           className={`whitespace-nowrap leading-5 ${
@@ -125,7 +162,56 @@ export function TaskSelect({
       </button>
 
       {isOpen
-        ? createPortal(
+        ? searchable
+          ? createPortal(
+              <SearchableListboxPanel
+                menuRef={menuRef}
+                menuStyle={menuStyle}
+                className={menuClassName}
+                ariaLabel={label ?? placeholder}
+                queryPlaceholder={`Search ${label ?? placeholder}…`}
+                emptyMessage={`No matching ${label ?? placeholder}.`}
+                choices={searchableChoices}
+                pinnedChoices={pinnedChoices}
+                selectedValue={value}
+                selectedValues={
+                  isMulti && selectedValues.length === 0
+                    ? [allValue]
+                    : selectedValues
+                }
+                multi={isMulti}
+                onSelect={(selectedValue) => {
+                  const option = options.find(
+                    (availableOption) => availableOption.value === selectedValue
+                  );
+                  if (option) selectOption(option);
+                }}
+                onTabExit={closeMenuForTab}
+                renderChoice={(option, state) => (
+                  <>
+                    <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                      {option.label}
+                    </span>
+                    {isMulti ? (
+                      <span
+                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                          state.selected
+                            ? "border-[#0c66e4] bg-[#0c66e4] text-white"
+                            : "border-[#c7d1e0]"
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {state.selected ? <Check className="h-3 w-3" /> : null}
+                      </span>
+                    ) : state.selected ? (
+                      <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                    ) : null}
+                  </>
+                )}
+              />,
+              document.body
+            )
+          : createPortal(
             <div
               ref={menuRef}
               id={listboxId}

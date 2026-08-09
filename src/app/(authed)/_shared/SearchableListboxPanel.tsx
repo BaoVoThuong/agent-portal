@@ -17,6 +17,7 @@ export type SearchableChoiceRenderState = {
 export type SearchableListboxPanelProps = {
   menuRef: RefObject<HTMLDivElement | null>;
   menuStyle: CSSProperties;
+  className?: string;
   ariaLabel: string;
   queryPlaceholder: string;
   emptyMessage: string;
@@ -40,6 +41,7 @@ function choiceDomId(listboxId: string, value: string): string {
 export function SearchableListboxPanel({
   menuRef,
   menuStyle,
+  className = "",
   ariaLabel,
   queryPlaceholder,
   emptyMessage,
@@ -186,7 +188,7 @@ export function SearchableListboxPanel({
     <div
       ref={menuRef}
       style={menuStyle}
-      className="z-[120] flex min-w-[16rem] flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white p-2 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+      className={`z-[120] flex min-w-[16rem] flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white p-2 shadow-[0_8px_24px_rgba(9,30,66,0.18)] ${className}`}
     >
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[#ebecf0] px-1">
         <Search className="h-4 w-4 shrink-0 text-[#7a869a]" aria-hidden="true" />

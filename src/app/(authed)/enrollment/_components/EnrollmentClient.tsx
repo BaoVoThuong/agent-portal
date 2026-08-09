@@ -1474,6 +1474,7 @@ function EnrollmentToolbar({
         <TaskSelect
           label={columnByKey.get("stage")?.label ?? "Stage"}
           multi
+          searchable
           values={filters.stage}
           options={[
             { value: "", label: columnByKey.get("stage")?.label ?? "Stage" },
@@ -1490,6 +1491,7 @@ function EnrollmentToolbar({
         <TaskSelect
           label={columnByKey.get("agent")?.label ?? "Agent"}
           multi
+          searchable
           values={filters.agent}
           options={[{ value: "", label: "All Agents" }, ...agentOptions(agents)]}
           placeholder={columnByKey.get("agent")?.label ?? "Agent"}
@@ -1504,6 +1506,7 @@ function EnrollmentToolbar({
           <TaskSelect
             label={columnByKey.get("caller")?.label ?? "Caller"}
             multi
+            searchable
             values={filters.caller}
             options={[{ value: "", label: "All Callers" }, ...peopleOptions(people)]}
             placeholder={columnByKey.get("caller")?.label ?? "Caller"}
@@ -1522,6 +1525,7 @@ function EnrollmentToolbar({
             columnByKey.get("responsible")?.label ?? (isMedicare ? "Assignee" : "Responsible")
           }
           multi
+          searchable
           values={filters.responsible}
           options={[
             { value: "", label: isMedicare ? "All Assignees" : "All Responsible" },
@@ -1542,6 +1546,7 @@ function EnrollmentToolbar({
         <TaskSelect
           label={columnByKey.get("carrier")?.label ?? "Carrier"}
           multi
+          searchable
           values={filters.carrier}
           options={[
             { value: "", label: columnByKey.get("carrier")?.label ?? "Carrier" },
@@ -2407,8 +2412,15 @@ function EnrollmentPersonMenu({
   canEdit?: boolean;
   onChange: (value: string | null) => void;
 }) {
-  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
-    useAnchoredMenu();
+  const {
+    isOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  } = useAnchoredMenu();
   const drawsOwnChrome = surface === "form-field";
   const showsAssignCallToAction = surface === "list";
   const options = [...peopleByEmail.entries()]
@@ -2508,50 +2520,52 @@ function EnrollmentPersonMenu({
       </button>
       {isOpen
         ? createPortal(
-            <div
-              ref={menuRef}
-              role="listbox"
-              style={menuStyle}
-              className="z-[100] max-h-64 min-w-[14rem] overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
-            >
-              <button
-                type="button"
-                role="option"
-                aria-selected={!value}
-                onClick={() => {
-                  onChange(null);
-                  setIsOpen(false);
-                }}
-                className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition ${
-                  !value
-                    ? "bg-[#e9f2ff] text-[#0c66e4]"
-                    : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                }`}
-              >
-                {emptyLabel}
-                {!value ? <Check className="h-4 w-4 text-[#0c66e4]" /> : null}
-              </button>
-              {options.map(({ email, name }) => (
-                <button
-                  key={email}
-                  type="button"
-                  role="option"
-                  aria-selected={email === value}
-                  onClick={() => {
-                    onChange(email);
-                    setIsOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition ${
-                    email === value
-                      ? "bg-[#e9f2ff] text-[#0c66e4]"
-                      : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 truncate">{name}</span>
-                  {email === value ? <Check className="h-4 w-4 text-[#0c66e4]" /> : null}
-                </button>
-              ))}
-            </div>,
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              className="min-w-[14rem]"
+              ariaLabel={emptyLabel}
+              queryPlaceholder={`Search ${emptyLabel.toLowerCase()} or email…`}
+              emptyMessage={`No matching ${emptyLabel.toLowerCase()}.`}
+              pinnedChoices={[{ value: "", label: emptyLabel }]}
+              choices={options.map(({ email, name }) => ({
+                value: email,
+                label: name,
+                keywords: [email],
+              }))}
+              selectedValue={value ?? ""}
+              onSelect={(selectedValue) => {
+                onChange(selectedValue || null);
+                closeMenu({ restoreFocus: true });
+              }}
+              onTabExit={closeMenuForTab}
+              renderChoice={(choice, state) => {
+                if (!choice.value) {
+                  return (
+                    <>
+                      <UserPlus className="h-4 w-4 shrink-0 text-[#7a869a]" />
+                      <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                        {choice.label}
+                      </span>
+                      {state.selected ? (
+                        <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                      ) : null}
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    <Initials email={choice.value} label={choice.label} />
+                    <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                      {choice.label}
+                    </span>
+                    {state.selected ? (
+                      <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                    ) : null}
+                  </>
+                );
+              }}
+            />,
             document.body
           )
         : null}
