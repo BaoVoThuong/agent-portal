@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
-  canArchiveEnrollmentRecord,
-  canMutateEnrollmentRecord,
   loadEnrollmentActor,
+  normalizeEnrollmentActorEmail,
+  resolveEnrollmentCapabilities,
 } from "@/lib/enrollment/access";
 import {
   ENROLLMENT_OPTION_LABELS,
@@ -29,7 +29,10 @@ import {
   enrollmentOwnershipFieldLabel,
   validateEnrollmentOwnership,
 } from "@/lib/enrollment/ownership";
-import { fetchAdminEmails } from "@/lib/tasks/membership";
+import {
+  fetchAdminEmails,
+  isAgentOwnerOrAssistant,
+} from "@/lib/tasks/membership";
 import {
   findMissingRequiredFields,
   missingRequiredFieldsMessage,
@@ -117,9 +120,22 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
   const supabase = getSupabaseAdmin();
   const current = scoped.record as EnrollmentRecord;
-  if (!canMutateEnrollmentRecord(actorResult.actor, current)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const isAgentOwner = await isAgentOwnerOrAssistant(
+    current.agent_email,
+    actorResult.actor.email
+  );
+  const capabilities = resolveEnrollmentCapabilities(actorResult.actor, {
+    isAgentOwner,
+    isCaller:
+      normalizeEnrollmentActorEmail(current.caller_email) ===
+      normalizeEnrollmentActorEmail(actorResult.actor.email),
+    isResponsible:
+      normalizeEnrollmentActorEmail(current.responsible_enroll_email) ===
+      normalizeEnrollmentActorEmail(actorResult.actor.email),
+    isCreator:
+      normalizeEnrollmentActorEmail(current.created_by_email) ===
+      normalizeEnrollmentActorEmail(actorResult.actor.email),
+  });
 
   if (current.updated_at !== expectedUpdatedAt) {
     return NextResponse.json(
@@ -225,6 +241,64 @@ export async function PATCH(request: Request, { params }: Ctx) {
       ...cleanCustomValues(body.custom_values),
     };
     changedFields.push("custom_values");
+  }
+
+  const touchesStage = "stage_id" in patch;
+  const touchesAgent = "agent_email" in patch;
+  const touchesPeople =
+    "caller_email" in patch || "responsible_enroll_email" in patch;
+  const touchesQc = qcChecked !== null;
+  const derivedKeys = new Set([
+    "stage_id",
+    "agent_email",
+    "caller_email",
+    "responsible_enroll_email",
+    "closed_at",
+    "qc_checked_by_email",
+    "qc_checked_at",
+    "qc_stale_notified_at",
+    "due_soon_notified_at",
+    "overdue_notified_at",
+    "overdue_reminded_at",
+    "updated_at",
+    "updated_by_email",
+  ]);
+  const touchesOtherFields = Object.keys(patch).some(
+    (key) => !derivedKeys.has(key)
+  );
+
+  if (touchesAgent && !capabilities.canTransferAgent) {
+    return NextResponse.json(
+      { error: "You cannot move this record to another agent." },
+      { status: 403 }
+    );
+  }
+  if (touchesOtherFields && !capabilities.canEditFields) {
+    return NextResponse.json(
+      { error: "You cannot edit this record." },
+      { status: 403 }
+    );
+  }
+  if (touchesPeople && !capabilities.canAssignPeople) {
+    return NextResponse.json(
+      { error: "You cannot change who owns this record." },
+      { status: 403 }
+    );
+  }
+  if (touchesQc && !capabilities.canReviewQC) {
+    return NextResponse.json(
+      { error: "You cannot QC check this record." },
+      { status: 403 }
+    );
+  }
+  if (
+    touchesStage &&
+    !(reopening ? capabilities.canReopen : capabilities.canChangeStage)
+  ) {
+    return NextResponse.json(
+      { error: "You cannot change this record's stage." },
+      { status: 403 }
+    );
   }
 
   try {
@@ -552,7 +626,14 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     return NextResponse.json({ error: scoped.error }, { status: scoped.status });
   }
   const currentData = scoped.record;
-  if (!canArchiveEnrollmentRecord(actorResult.actor, currentData)) {
+  const isAgentOwner = await isAgentOwnerOrAssistant(
+    currentData.agent_email,
+    actorResult.actor.email
+  );
+  const capabilities = resolveEnrollmentCapabilities(actorResult.actor, {
+    isAgentOwner,
+  });
+  if (!capabilities.canArchive) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
