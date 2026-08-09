@@ -17,6 +17,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ref**: doc / finding / commit (nếu có)
 ```
 
+## 2026-08-10 — Keep task last-activity actor paired with its timestamp
+- **Loại**: fix, security
+- **Cái gì**: Persisted `last_activity_by_email` from the same locked mutation that updates `last_activity_at`, excluded system activity from the backfill/read path, kept position-only reorder neutral, and made task archive/overview assignment preserve the human actor pair. The database trigger restores the previous actor when a stale timestamp is clamped.
+- **Vì sao**: Deriving the actor from the newest activity row let cron bookkeeping show as the actor for an older human timestamp; independent writers could also split the pair or move it during a presentation-only reorder.
+- **File**: `supabase/schema.sql`, `src/lib/tasks/queries.ts`, `src/lib/tasks/last-activity.ts`, `src/app/api/tasks/route.ts`, `src/app/api/tasks/[id]/route.ts`
+- **Ảnh hưởng**: Task list metadata, stale/recent activity display, human PATCH/assignment/archive mutations, and legacy metadata fallback now use one deterministic pair; system overdue rows remain audit-only.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F10
+
 ---
 
 ## 2026-08-10 — Delete task attachment metadata before storage cleanup

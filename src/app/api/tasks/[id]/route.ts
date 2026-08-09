@@ -561,6 +561,8 @@ export async function DELETE(req: Request, { params }: Ctx) {
     .update({
       archived_at: nowIso,
       updated_at: nowIso,
+      last_activity_at: nowIso,
+      last_activity_by_email: r.actor.email,
     })
     .eq("id", id)
     .eq("updated_at", expectedUpdatedAt)

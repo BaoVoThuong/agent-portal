@@ -29,6 +29,7 @@ describe("touchLastActivity", () => {
     const result = await touchLastActivity(
       fakeDb(committed) as unknown as Parameters<typeof touchLastActivity>[0],
       "task-1",
+      "agent@example.com",
       "2026-08-09T10:00:00.000Z"
     );
     expect(result).toBe(committed);

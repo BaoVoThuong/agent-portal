@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export async function touchLastActivity(
   supabase: SupabaseClient,
   taskId: string,
+  actorEmail: string,
   nowIso: string
 ): Promise<string> {
   const { data, error } = await supabase
@@ -17,6 +18,7 @@ export async function touchLastActivity(
     // trigger maintaining this column — the database trigger clamps it.
     .update({
       last_activity_at: nowIso,
+      last_activity_by_email: actorEmail,
       stale_reminded_at: null,
       updated_at: nowIso,
     })

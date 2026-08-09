@@ -265,6 +265,7 @@ export async function POST(request: Request) {
       custom_values: customValues,
       position,
       last_activity_at: nowIso,
+      last_activity_by_email: email,
       stale_reminded_at: null,
       ...(startingTodo ? { todo_started_at: nowIso, todo_reminded_at: null } : {}),
       ...(startingInProgress

@@ -178,11 +178,6 @@ export function assertTaskListComplete(
   }
 }
 
-type TaskActivityListRow = {
-  task_id: string;
-  actor_email: string;
-  created_at: string;
-};
 export type TaskListMetadataRow = {
   task_id: string;
   last_activity_by_email: string | null;
@@ -236,18 +231,15 @@ export async function fetchTaskListMetadata(
   if (!error) return (data ?? []) as unknown as TaskListMetadataRow[];
   if (!isMissingTaskListMetadataRpc(error)) throw new Error(error.message);
 
-  const [activityRows, commentRows, attachmentRows] = await Promise.all([
-    fetchTaskActivityRows(ids, supabase),
+  const [actorRows, commentRows, attachmentRows] = await Promise.all([
+    fetchTaskActorRows(ids, supabase),
     fetchTaskCommentRows(ids, supabase),
     fetchTaskAttachmentRows(ids, supabase),
   ]);
 
-  const lastActivityByTask = new Map<string, string>();
-  for (const row of activityRows) {
-    if (!lastActivityByTask.has(row.task_id)) {
-      lastActivityByTask.set(row.task_id, row.actor_email);
-    }
-  }
+  const lastActivityByTask = new Map(
+    actorRows.map((row) => [row.task_id, row.last_activity_by_email] as const),
+  );
   const commentCountByTask = countRowsByTask(commentRows);
   const attachmentCountByTask = countRowsByTask(attachmentRows);
 
@@ -259,29 +251,29 @@ export async function fetchTaskListMetadata(
   }));
 }
 
-async function fetchTaskActivityRows(
+async function fetchTaskActorRows(
   taskIds: string[],
   supabase = getSupabaseAdmin()
-): Promise<TaskActivityListRow[]> {
+): Promise<Array<{ task_id: string; last_activity_by_email: string | null }>> {
   const chunks = chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE);
   const results = await Promise.all(
     chunks.map((chunk) =>
       supabase
-        .from("task_activity")
-        .select("task_id,actor_email,created_at")
-        .in("task_id", chunk)
-        .order("created_at", { ascending: false })
+        .from("tasks")
+        .select("id,last_activity_by_email")
+        .in("id", chunk)
     )
   );
-  const rows: TaskActivityListRow[] = [];
+  const rows: Array<{ task_id: string; last_activity_by_email: string | null }> = [];
   for (const { data, error } of results) {
     if (error) throw new Error(error.message);
-    rows.push(...((data ?? []) as unknown as TaskActivityListRow[]));
+    rows.push(
+      ...((data ?? []) as Array<{ id: string; last_activity_by_email: string | null }>).map(
+        (row) => ({ task_id: row.id, last_activity_by_email: row.last_activity_by_email }),
+      ),
+    );
   }
-  return rows.sort(
-    (a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
+  return rows;
 }
 
 async function fetchTaskCommentRows(

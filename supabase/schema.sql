@@ -1373,6 +1373,7 @@ begin
      and old.last_activity_at is not null
      and new.last_activity_at < old.last_activity_at then
     new.last_activity_at := old.last_activity_at;
+    new.last_activity_by_email := old.last_activity_by_email;
   end if;
   return new;
 end $$;
@@ -1732,7 +1733,7 @@ set last_activity_by_email = latest.actor_email
 from lateral (
   select a.actor_email
   from task_activity a
-  where a.task_id = t.id
+  where a.task_id = t.id and a.actor_email <> 'system'
   order by a.created_at desc, a.id desc
   limit 1
 ) latest
@@ -1751,14 +1752,8 @@ security definer
 set search_path = public
 as $$
   select
-    t.id as task_id,
-    (
-      select a.actor_email
-      from task_activity a
-      where a.task_id = t.id
-      order by a.created_at desc
-      limit 1
-    ) as last_activity_by_email,
+    ids.id as task_id,
+    t.last_activity_by_email,
     (
       select count(*)::integer
       from task_comments c
@@ -1771,7 +1766,8 @@ as $$
       where att.task_id = t.id
         and att.deleted_at is null
     ) as attachment_count
-  from unnest(task_ids) as t(id);
+  from unnest(task_ids) as ids(id)
+  left join tasks t on t.id = ids.id;
 $$;
 
 delete from task_activity
@@ -2408,6 +2404,7 @@ declare
   due_at timestamptz;
   resolved_at_value timestamptz;
   overdue_seconds_value integer;
+  moves_last_activity boolean;
 begin
   if p_actor_email is null or btrim(p_actor_email) = '' then
     raise exception 'TASK_ACTOR_REQUIRED';
@@ -2425,6 +2422,18 @@ begin
   if p_expected_updated_at is null or target_task.updated_at <> p_expected_updated_at then
     raise exception 'TASK_CONFLICT';
   end if;
+
+  -- Reordering a row is a presentation-only mutation. Every other PATCH
+  -- represents a human edit (including custom values), and therefore moves
+  -- the timestamp/actor pair together. Keep this decision inside the locked
+  -- command so callers cannot accidentally update only one side of F10.
+  moves_last_activity :=
+    coalesce(jsonb_array_length(p_activity), 0) > 0
+    or exists (
+      select 1
+      from jsonb_object_keys(coalesce(p_patch, '{}'::jsonb)) as patch_key(key)
+      where patch_key.key <> 'position'
+    );
 
   update tasks
   set
@@ -2457,7 +2466,16 @@ begin
     closed_at = case when p_patch ? 'closed_at' then (p_patch->>'closed_at')::timestamptz else closed_at end,
     reopened_at = case when p_patch ? 'reopened_at' then (p_patch->>'reopened_at')::timestamptz else reopened_at end,
     updated_at = p_now,
-    last_activity_at = p_now,
+    last_activity_at = case
+      when moves_last_activity then p_now
+      else last_activity_at
+    end,
+    last_activity_by_email = case
+      when moves_last_activity
+        and (last_activity_at is null or p_now >= last_activity_at)
+        then p_actor_email
+      else last_activity_by_email
+    end,
     stale_reminded_at = null
   where id = p_task_id
     and updated_at = p_expected_updated_at
@@ -2814,6 +2832,7 @@ begin
       todo_reminded_at = null,
       updated_at = now_iso,
       last_activity_at = now_iso,
+      last_activity_by_email = p_actor_email,
       stale_reminded_at = null
   where id = p_task_id;
 
