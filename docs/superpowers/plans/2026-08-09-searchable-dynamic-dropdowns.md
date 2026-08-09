@@ -444,36 +444,36 @@ must preserve every one of those semantics; it is not a cosmetic `<select>` subs
 
 **Steps**
 
-- [ ] Call `useAnchoredMenu()` unconditionally at component top level. Do not call hooks inside
+- [x] Call `useAnchoredMenu()` unconditionally at component top level. Do not call hooks inside
   a `column.type` branch.
-- [ ] Keep `editing` exclusively for text/number/date/link inputs and their existing blur/Enter/
+- [x] Keep `editing` exclusively for text/number/date/link inputs and their existing blur/Enter/
   Escape behavior. Dropdown/person no longer enter that native-input branch.
-- [ ] For dropdown/person, make the existing display button the anchored trigger. Opening the
+- [x] For dropdown/person, make the existing display button the anchored trigger. Opening the
   menu changes no value and clears no server-side data.
-- [ ] Build canonical choices without changing sources: dropdown `{ value: option.id,
+- [x] Build canonical choices without changing sources: dropdown `{ value: option.id,
   label: option.label }`; person `{ value: email.toLowerCase(), label: name || email,
   keywords: [email] }`.
-- [ ] Preserve the current native select's empty `<option>` as a pinned clear row that commits
+- [x] Preserve the current native select's empty `<option>` as a pinned clear row that commits
   `null`. Do not add a clear row to system fields whose current menu cannot clear.
-- [ ] On a real selection, close with focus restoration, normalize empty to `null`, call Task
+- [x] On a real selection, close with focus restoration, normalize empty to `null`, call Task
   6's equality helper, and invoke `onSave` exactly once only when changed. Clear `saveError`
   before saving and restore it only if the awaited save rejects.
-- [ ] On query change, no match, Escape, outside click, Tab, scroll, or resize: close/discard
+- [x] On query change, no match, Escape, outside click, Tab, scroll, or resize: close/discard
   search state only; never call `onSave`.
-- [ ] If the current custom option/person is missing from active choices, keep the current
+- [x] If the current custom option/person is missing from active choices, keep the current
   `formatCustomValue`/map fallback display, start with no selected active row, and do not
   auto-clear or synthesize it.
-- [ ] Remove the two native `<select>` branches and their `onBlur`; do not remove or alter the
+- [x] Remove the two native `<select>` branches and their `onBlur`; do not remove or alter the
   non-selection input branch.
-- [ ] Keep row-event propagation guards, `canEdit`, `className`, `inputClassName`, checkbox,
+- [x] Keep row-event propagation guards, `canEdit`, `className`, `inputClassName`, checkbox,
   external-link action, empty label, and `saveError` ring behavior.
-- [ ] Enable search for New Task custom dropdown/person fields through the already upgraded
+- [x] Enable search for New Task custom dropdown/person fields through the already upgraded
   `TaskSelect`; do not invent Enrollment Create custom fields.
 - [ ] Verify CS List, CS Detail, Enrollment List, and Enrollment Detail with changed, unchanged,
   cleared, failed-save, missing-current-value, and read-only cases.
-- [ ] Add a required `changelog.md` entry because selection commit/close semantics are being
+- [x] Add a required `changelog.md` entry because selection commit/close semantics are being
   rewired even though the intended business result is unchanged.
-- [ ] Run verification and make one dedicated Task 7 commit.
+- [x] Run verification and make one dedicated Task 7 commit.
 
 ### Task 8 — Regression, accessibility, and documentation pass
 
@@ -549,7 +549,7 @@ must preserve every one of those semantics; it is not a cosmetic `<select>` subs
 | 4. Enrollment people and filters | Completed | `2a76381` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | People menus + searchable TaskSelect with pinned All/multi behavior; manual worker/default-filter and keyboard browser gate remains pending |
 | 5. Health CS dynamic selectors | Completed | `7fca96c` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | CS Category/Agent + dynamic TaskSelect + Assignee ARIA/normalization; manual side-by-side browser gate remains pending |
 | 6. Custom-value equality preparation | Completed | `4acfca4` | Values + option-search tests 15/15; targeted ESLint; `tsc --noEmit`; `git diff --check` | Named equality helper exported; native custom-cell UI unchanged |
-| 7. Custom dropdown/person lifecycle | Pending | — | — | Changelog required |
+| 7. Custom dropdown/person lifecycle | Completed | `f45954e` | Values + option-search tests 15/15; targeted ESLint; `tsc --noEmit`; `git diff --check` | Portal searchable custom fields + clear/equality/save-error semantics; manual CS/Enrollment browser matrix remains pending; changelog entry added |
 | 8. Final regression/a11y pass | Pending | — | — | — |
 
 ## 10. Final handoff note for Claude
