@@ -25,6 +25,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Health CS, ACA, and Medicare shared comment threads retain scroll context, keep accessible inline feedback, and preserve author-only delete semantics.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F22/F23
 
+## 2026-08-10 — Harden attachment presentation and preview
+- **Loại**: fix, security
+- **Cái gì**: Attachment rows now expose safe filename/size/status information, unavailable files never expose storage paths, and the composer provides MIME hints plus duplicate/unsupported-file feedback. Image previews use a labelled dialog with focus containment/restoration, Escape/backdrop close, scroll locking, loading/error states, and Open/Download actions.
+- **Vì sao**: Long names and URLs could overflow the thread, unavailable/signed-link failures were ambiguous, and the preview was mouse-only with no recovery or keyboard boundary.
+- **File**: `src/app/(authed)/tasks/_components/CommentThread.tsx`
+- **Ảnh hưởng**: Health CS, ACA, and Medicare shared comments remain usable at narrow widths and with slow/expired signed URLs; server attachment validation and signed-link lifetime are unchanged.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F24
+
 ## 2026-08-10 — Unify mentions across comment create, reply, and edit
 - **Loại**: fix, security
 - **Cái gì**: Added a positioned mention draft model shared by the Tasks/Enrollment comment composer and editor. Mention identity is preserved by email/range, search reuses normalized option filtering, and newly added mentions on edits are notified without trusting client-supplied emails.
