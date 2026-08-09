@@ -80,6 +80,7 @@ import {
   type LayoutEntry,
 } from "@/lib/table-config/layout";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
+import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { Toast } from "../../_shared/Toast";
 import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
@@ -2306,8 +2307,15 @@ function EnrollmentOptionMenu({
   canEdit?: boolean;
   onChange: (value: string) => void;
 }) {
-  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
-    useAnchoredMenu();
+  const {
+    isOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  } = useAnchoredMenu();
   const option = optionId ? options.find((item) => item.id === optionId) ?? null : null;
   const drawsOwnChrome = surface === "form-field";
   const rendersIdentityBadge = surface === "list";
@@ -2329,6 +2337,7 @@ function EnrollmentOptionMenu({
           event.stopPropagation();
           toggle();
         }}
+        aria-haspopup="listbox"
         aria-expanded={isOpen}
         title={option?.label ?? emptyDisplayLabel}
         className={
@@ -2359,42 +2368,23 @@ function EnrollmentOptionMenu({
       </button>
       {isOpen
         ? createPortal(
-            <div
-              ref={menuRef}
-              role="listbox"
-              style={menuStyle}
-              className="z-[100] min-w-[16rem] rounded border border-[#dfe1e6] bg-white p-2 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
-            >
-              <div className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-                {menuLabel}
-              </div>
-              <div className="max-h-56 overflow-auto">
-                {options.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="option"
-                    aria-selected={item.id === optionId}
-                    onClick={() => {
-                      onChange(item.id);
-                      setIsOpen(false);
-                    }}
-                    className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-2 text-left text-sm transition ${
-                      item.id === optionId
-                        ? "bg-[#e9f2ff] text-[#172b4d]"
-                        : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                    }`}
-                  >
-                    <span className="min-w-0 flex-1 truncate font-medium leading-5">
-                      {item.label}
-                    </span>
-                    {item.id === optionId ? (
-                      <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            </div>,
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              ariaLabel={menuLabel}
+              queryPlaceholder={`Search ${menuLabel.toLowerCase()}…`}
+              emptyMessage={`No matching ${menuLabel.toLowerCase()}.`}
+              choices={options.map((item) => ({
+                value: item.id,
+                label: item.label,
+              }))}
+              selectedValue={optionId}
+              onSelect={(value) => {
+                onChange(value);
+                closeMenu({ restoreFocus: true });
+              }}
+              onTabExit={closeMenuForTab}
+            />,
             document.body
           )
         : null}
@@ -2417,7 +2407,7 @@ function EnrollmentPersonMenu({
   canEdit?: boolean;
   onChange: (value: string | null) => void;
 }) {
-  const { isOpen, toggle, triggerRef, menuRef, menuStyle, setIsOpen } =
+  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
   const drawsOwnChrome = surface === "form-field";
   const showsAssignCallToAction = surface === "list";
@@ -2478,6 +2468,7 @@ function EnrollmentPersonMenu({
           event.stopPropagation();
           toggle();
         }}
+        aria-haspopup="listbox"
         aria-expanded={isOpen}
         title={selectedLabel}
         className={
@@ -2618,8 +2609,15 @@ function EnrollmentStagePill({
   canEdit?: boolean;
   onChange: (stageId: string) => Promise<void>;
 }) {
-  const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
-    useAnchoredMenu();
+  const {
+    isOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  } = useAnchoredMenu();
   const stage = stageId ? stages.find((option) => option.id === stageId) ?? null : null;
   // Workflow-state badge (CS StatusPill language): tinted, not solid.
   const style = enrollmentStateBadgeStyle(stage);
@@ -2653,6 +2651,7 @@ function EnrollmentStagePill({
           event.stopPropagation();
           toggle();
         }}
+        aria-haspopup="listbox"
         aria-expanded={isOpen}
         title={label}
         className="block w-full min-w-0 disabled:cursor-not-allowed disabled:opacity-60"
@@ -2661,35 +2660,23 @@ function EnrollmentStagePill({
       </button>
       {isOpen
         ? createPortal(
-            <div
-              ref={menuRef}
-              role="listbox"
-              style={menuStyle}
-              className="z-[100] max-h-64 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
-            >
-              {stages.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="option"
-                  aria-selected={option.id === stageId}
-                  onClick={() => {
-                    void onChange(option.id);
-                    setIsOpen(false);
-                  }}
-                  className={`flex w-full items-center justify-between gap-3 rounded px-2.5 py-1.5 text-left text-sm transition ${
-                    option.id === stageId
-                      ? "bg-[#e9f2ff] text-[#0c66e4]"
-                      : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                  }`}
-                >
-                  <span className="min-w-0 truncate">{option.label}</span>
-                  {option.id === stageId ? (
-                    <Check className="h-4 w-4 text-[#0c66e4]" />
-                  ) : null}
-                </button>
-              ))}
-            </div>,
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              ariaLabel="Stage"
+              queryPlaceholder="Search stages…"
+              emptyMessage="No matching stages."
+              choices={stages.map((option) => ({
+                value: option.id,
+                label: option.label,
+              }))}
+              selectedValue={stageId}
+              onSelect={(value) => {
+                void onChange(value);
+                closeMenu({ restoreFocus: true });
+              }}
+              onTabExit={closeMenuForTab}
+            />,
             document.body
           )
         : null}
