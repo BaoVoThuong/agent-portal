@@ -2428,12 +2428,52 @@ function EnrollmentPersonMenu({
     ? peopleByEmail.get(value) ?? formatEmailAsName(value)
     : emptyLabel;
 
+  if (!canEdit) {
+    if (drawsOwnChrome) {
+      return (
+        <span
+          className={`${DETAIL_FIELD_DISPLAY_CLASS} flex min-w-0 items-center gap-1.5 bg-[#f4f5f7]`}
+          title={selectedLabel}
+        >
+          {value ? (
+            <>
+              <Initials email={value} label={selectedLabel} />
+              <span className="min-w-0 flex-1 truncate text-[#172b4d]">
+                {selectedLabel}
+              </span>
+            </>
+          ) : (
+            <span className="min-w-0 flex-1 truncate font-normal text-[#6b778c]">
+              {emptyLabel}
+            </span>
+          )}
+        </span>
+      );
+    }
+
+    return value ? (
+      <span
+        className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-[#42526e]"
+        title={selectedLabel}
+      >
+        <Initials email={value} label={selectedLabel} />
+        <span className="min-w-0 truncate">{selectedLabel}</span>
+      </span>
+    ) : (
+      <span
+        className="block min-w-0 truncate text-xs font-semibold text-[#6b778c]"
+        title={emptyLabel}
+      >
+        {emptyLabel}
+      </span>
+    );
+  }
+
   return (
     <span className="block min-w-0">
       <button
         ref={triggerRef}
         type="button"
-        disabled={!canEdit}
         onClick={(event) => {
           event.stopPropagation();
           toggle();
@@ -2442,8 +2482,8 @@ function EnrollmentPersonMenu({
         title={selectedLabel}
         className={
           drawsOwnChrome
-            ? `${DETAIL_FIELD_BUTTON_CLASS} disabled:cursor-not-allowed disabled:opacity-60`
-            : "flex w-full min-w-0 items-center disabled:cursor-not-allowed disabled:opacity-60"
+            ? DETAIL_FIELD_BUTTON_CLASS
+            : "flex w-full min-w-0 items-center"
         }
       >
         {value ? (
