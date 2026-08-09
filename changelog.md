@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Gán agent hợp lệ cho enrollment sample
+- **Loại**: feat
+- **Cái gì**: Enrollment sample seed lấy roster từ giao của `task_agents` và active `portal_account`, phân bổ agent round-robin ổn định với cùng roster, ghi `agent_email` cho record mới và hỗ trợ `--backfill-agents` cho sample cũ.
+- **Vì sao**: Sample cũ không có agent nên không thể kiểm thử permission/scope agent-assistant; chỉ đọc `task_agents` có thể chọn account inactive mà API Enrollment từ chối.
+- **File**: `scripts/seed-enrollment-samples.mjs`
+- **Ảnh hưởng**: Chỉ sample records có FUB link nằm trong fixture; backfill chỉ cập nhật `agent_email` đang null và không tải/chạm record ngoài sample.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-permission-final.md`; Phase 0 Task 0.1
+
 ## 2026-08-09 — Làm drift test SLA kiểm tra mọi khai báo SQL
 - **Loại**: test, refactor-logic
 - **Cái gì**: Các test đồng bộ SLA đọc toàn bộ SQL matches bằng `matchAll`, thay vì chỉ kiểm tra match đầu tiên; mọi khai báo default tìm được phải khớp với TypeScript constant.

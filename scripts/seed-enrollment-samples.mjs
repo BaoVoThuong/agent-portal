@@ -487,11 +487,20 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  const agentEmails = await loadEligibleAgentEmails(supabase);
+
+  if (process.argv.includes("--backfill-agents")) {
+    await backfillSampleAgents(supabase, agentEmails);
+    return;
+  }
+
   const options = await loadOptions(supabase);
   const existing = await loadExistingSamples(supabase);
   const inserts = records
     .filter((record) => !existing.has(record.fub_link))
-    .map((record) => toEnrollmentInsert(record, options));
+    .map((record) =>
+      toEnrollmentInsert(record, options, agentFor(record, agentEmails))
+    );
 
   if (inserts.length === 0) {
     console.log(`Enrollment samples already exist. Skipped ${records.length} records.`);
@@ -516,6 +525,95 @@ async function main() {
     `Inserted ${insertedRecords.length} enrollment sample records (${acaCount} ACA, ${medicareCount} Medicare).`
   );
   console.log(`Skipped ${records.length - insertedRecords.length} existing sample records.`);
+}
+
+// Must match what the API accepts: validateEnrollmentOwnership() intersects
+// task_agents with ACTIVE portal_account. Reading task_agents alone would seed
+// stale agents that the app itself treats as invalid.
+async function loadEligibleAgentEmails(supabase) {
+  const [
+    { data: agentRows, error: agentError },
+    { data: accountRows, error: accountError },
+  ] = await Promise.all([
+    supabase.from("task_agents").select("email"),
+    supabase.from("portal_account").select("email").eq("is_active", true),
+  ]);
+  if (agentError) {
+    throw new Error(`Unable to read task_agents: ${agentError.message}`);
+  }
+  if (accountError) {
+    throw new Error(`Unable to read portal_account: ${accountError.message}`);
+  }
+
+  const activeEmails = new Set(
+    (accountRows ?? []).map((row) => row.email).filter(Boolean)
+  );
+  const emails = [
+    ...new Set(
+      (agentRows ?? [])
+        .map((row) => row.email)
+        .filter((email) => email && activeEmails.has(email))
+    ),
+  ].sort();
+
+  if (emails.length === 0) {
+    throw new Error(
+      "No eligible agent found (task_agents ∩ active portal_account is empty). " +
+        "Select at least one agent with an active account in /config before seeding."
+    );
+  }
+  return emails;
+}
+
+// Fills agent_email on sample records seeded before agent support existed.
+// Filtering happens in the query so non-sample rows are never transferred, and
+// an unrecognised link is skipped rather than silently given the first agent.
+async function backfillSampleAgents(supabase, agentEmails) {
+  const sampleLinks = records.map((record) => record.fub_link);
+  const indexByLink = new Map(
+    records.map((record, index) => [record.fub_link, index])
+  );
+
+  const { data, error } = await supabase
+    .from("enrollment_records")
+    .select("id,fub_link")
+    .is("agent_email", null)
+    .in("fub_link", sampleLinks);
+  if (error) throw new Error(`Unable to read sample records: ${error.message}`);
+
+  const idsByAgent = new Map();
+  let unknown = 0;
+  for (const row of data ?? []) {
+    const index = indexByLink.get(row.fub_link ?? "");
+    if (index === undefined) {
+      unknown += 1;
+      continue;
+    }
+    const agent = agentEmails[index % agentEmails.length];
+    if (!idsByAgent.has(agent)) idsByAgent.set(agent, []);
+    idsByAgent.get(agent).push(row.id);
+  }
+
+  let updated = 0;
+  for (const [agent, ids] of idsByAgent) {
+    const { error: updateError } = await supabase
+      .from("enrollment_records")
+      .update({ agent_email: agent })
+      .in("id", ids);
+    if (updateError) {
+      throw new Error(
+        `Unable to backfill agent_email for ${agent}: ${updateError.message}`
+      );
+    }
+    updated += ids.length;
+  }
+
+  console.log(
+    `Backfilled agent_email on ${updated} sample record(s) across ${idsByAgent.size} agent(s).`
+  );
+  if (unknown > 0) {
+    console.log(`Skipped ${unknown} record(s) with an unrecognised sample link.`);
+  }
 }
 
 // Loads every option set + option across both programs. Returns:
@@ -592,7 +690,14 @@ async function loadExistingSamples(supabase) {
   return new Set((data ?? []).map((row) => row.fub_link).filter(Boolean));
 }
 
-function toEnrollmentInsert(record, options) {
+// Deterministic for a fixed roster + fixture. Adding or removing an agent
+// reshuffles a fresh seed; backfill is unaffected because it only fills nulls.
+function agentFor(record, agentEmails) {
+  const index = records.indexOf(record);
+  return agentEmails[(index < 0 ? 0 : index) % agentEmails.length];
+}
+
+function toEnrollmentInsert(record, options, agentEmail) {
   const updatedAt = record.closed_at ?? record.qc_checked_at ?? shiftIso(record.created_at, 42);
   const lookup = (setKey) => {
     const label = record[setKey];
@@ -602,6 +707,9 @@ function toEnrollmentInsert(record, options) {
     program: record.program,
     client_name: record.client_name,
     fub_link: record.fub_link,
+    // Both programs accept agent_email; the Medicare constraint excludes only
+    // caller/pcp_2026/platform/consent/payment/aca_status.
+    agent_email: record.agent_email ?? agentEmail ?? null,
     due_date: record.due_date ?? null,
     stage_id: lookup("stage"),
     carrier_id: lookup("carrier"),
