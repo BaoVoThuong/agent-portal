@@ -225,8 +225,10 @@ function buildWeeklySeries(
 ): EnrollmentOverviewWeeklyPoint[] {
   const end = period.to ? parseDateKey(period.to) : now;
   const start = period.from ? parseDateKey(period.from) : addDays(end, -83);
-  const firstWeek = parseDateKey(weekStartKey(start));
   const lastWeek = parseDateKey(weekStartKey(end));
+  const requestedFirstWeek = parseDateKey(weekStartKey(start));
+  const minimumFirstWeek = addDays(lastWeek, -49);
+  const firstWeek = requestedFirstWeek > minimumFirstWeek ? minimumFirstWeek : requestedFirstWeek;
   const weeks: EnrollmentOverviewWeeklyPoint[] = [];
   for (let cursor = firstWeek; cursor <= lastWeek; cursor = addDays(cursor, 7)) {
     const key = dateKey(cursor);
@@ -319,7 +321,7 @@ export function aggregateEnrollmentOverview(input: {
     const riskFlags: EnrollmentOverviewRiskFlag[] = [];
     if (overdue) riskFlags.push("overdue");
     if (dueSoon) riskFlags.push("due_soon");
-    if (requiredMissing.length > 0) riskFlags.push("missing_required");
+    if (open && requiredMissing.length > 0) riskFlags.push("missing_required");
     if (qcPending) riskFlags.push("qc_pending");
     if (unowned) riskFlags.push("unowned");
     if (blockingStage) riskFlags.push("blocking_stage");
@@ -400,6 +402,7 @@ export function aggregateEnrollmentOverview(input: {
       needsCareCount: needsCareIds.size,
       overdueCount: derived.filter((item) => item.riskFlags.includes("overdue")).length,
     },
+    openRecords: openRecords.map((item) => item.summary),
     funnel,
     weekly: buildWeeklySeries(activeRecords, input.now, period),
     cycleTime: buildCycleMetrics(activeRecords, stageById, period),

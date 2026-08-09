@@ -150,6 +150,7 @@ export type EnrollmentOverviewSnapshot = {
   period: EnrollmentOverviewPeriod;
   thresholds: EnrollmentOverviewThresholds;
   kpis: EnrollmentOverviewKpis;
+  openRecords: EnrollmentOverviewRecordSummary[];
   funnel: EnrollmentOverviewFunnelStage[];
   weekly: EnrollmentOverviewWeeklyPoint[];
   cycleTime: EnrollmentOverviewCycleMetric[];

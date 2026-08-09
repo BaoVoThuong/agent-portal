@@ -84,7 +84,7 @@ import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
 import { AttachmentPanel } from "../../tasks/_components/AttachmentPanel";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
-import { DateRangeFilter } from "../../tasks/_components/TaskToolbar";
+import { DateRangeFilter, type TaskDateRangeValue } from "../../tasks/_components/TaskToolbar";
 import { ReasonModal } from "../../tasks/_components/ReasonModal";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { Initials } from "../../tasks/_components/board-ui";
@@ -176,6 +176,13 @@ const CREATE_DESCRIPTION_CLASS =
   "min-h-[21rem] w-full resize-none rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
 const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
 const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
+
+function thisMonthDateRange(): TaskDateRangeValue {
+  const today = new Date();
+  const dateKey = (value: Date) =>
+    `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  return { from: dateKey(new Date(today.getFullYear(), today.getMonth(), 1)), to: dateKey(today) };
+}
 
 function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
   if (!textarea) return;
@@ -475,6 +482,9 @@ export function EnrollmentClient({
       ? DEFAULT_FILTERS
       : { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
   );
+  const [overviewDateRanges, setOverviewDateRanges] = useState<
+    Record<EnrollmentProgram, TaskDateRangeValue>
+  >(() => ({ aca: thisMonthDateRange(), medicare: thisMonthDateRange() }));
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
     key: "attention",
     dir: "desc",
@@ -763,6 +773,7 @@ export function EnrollmentClient({
     [visibleRecords]
   );
   const openRecord = records.find((record) => record.id === openId) ?? null;
+  const overviewDateRange = overviewDateRanges[program];
 
   const exportVisibleRecords = useCallback(async () => {
     try {
@@ -1150,6 +1161,10 @@ export function EnrollmentClient({
             columns={columns}
             hiddenColumnKeys={hiddenColumnKeys}
             onToggleColumn={toggleColumn}
+            overviewDateRange={overviewDateRange}
+            onOverviewDateRangeChange={(range) =>
+              setOverviewDateRanges((current) => ({ ...current, [program]: range }))
+            }
             visibleCount={visibleRecords.length}
             totalCount={records.length}
           />
@@ -1162,27 +1177,9 @@ export function EnrollmentClient({
             <EnrollmentOverview
               key={program}
               program={program}
+              from={overviewDateRange.from}
+              to={overviewDateRange.to}
               onOpenRecord={openRecordById}
-              canAssignRecord={(recordId) => {
-                const record = records.find((candidate) => candidate.id === recordId);
-                return Boolean(
-                  record &&
-                    canEditEnrollmentRecordClient(record, currentEmail, canManageOptions)
-                );
-              }}
-              onAssign={(recordId, email) =>
-                (async () => {
-                  const record = records.find((candidate) => candidate.id === recordId);
-                  if (
-                    !record ||
-                    !canEditEnrollmentRecordClient(record, currentEmail, canManageOptions)
-                  ) {
-                    setError("You cannot edit this enrollment record.");
-                    return;
-                  }
-                  await patchRecord(recordId, { responsible_enroll_email: email });
-                })()
-              }
             />
           </div>
         </div>
@@ -1348,6 +1345,8 @@ function EnrollmentToolbar({
   columns,
   hiddenColumnKeys,
   onToggleColumn,
+  overviewDateRange,
+  onOverviewDateRangeChange,
   visibleCount,
   totalCount,
 }: {
@@ -1362,6 +1361,8 @@ function EnrollmentToolbar({
   columns: EnrollmentColumn[];
   hiddenColumnKeys: Set<EnrollmentColumnKey>;
   onToggleColumn: (key: EnrollmentColumnKey) => void;
+  overviewDateRange: TaskDateRangeValue;
+  onOverviewDateRangeChange: (value: TaskDateRangeValue) => void;
   visibleCount: number;
   totalCount: number;
 }) {
@@ -1417,22 +1418,20 @@ function EnrollmentToolbar({
           ) : null}
         </div>
 
-        {view === "list" ? (
-          <div className="flex shrink-0 items-center gap-2">
-            <DateRangeFilter
-              from={filters.createdFrom}
-              to={filters.createdTo}
-              allDatesLabel="All created dates"
-              onChange={({ from, to }) =>
-                setFilters((current) => ({
-                  ...current,
-                  createdFrom: from,
-                  createdTo: to,
-                }))
+        <div className="flex shrink-0 items-center gap-2">
+          <DateRangeFilter
+            from={view === "overview" ? overviewDateRange.from : filters.createdFrom}
+            to={view === "overview" ? overviewDateRange.to : filters.createdTo}
+            allDatesLabel={view === "overview" ? "All dates" : "All created dates"}
+            onChange={({ from, to }) => {
+              if (view === "overview") {
+                onOverviewDateRangeChange({ from, to });
+              } else {
+                setFilters((current) => ({ ...current, createdFrom: from, createdTo: to }));
               }
-            />
-          </div>
-        ) : null}
+            }}
+          />
+        </div>
       </div>
 
       {view === "list" ? (
