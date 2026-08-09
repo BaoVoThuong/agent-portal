@@ -14,6 +14,7 @@ export const PERMISSIONS = {
   SETTINGS: "settings.access",
   TASK_MANAGE: "task.manage",
   TASK_WORK: "task.work",
+  TASK_EXPORT: "task.export",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -151,5 +152,14 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Tasks",
     description: "Work on tasks assigned to you.",
     sortOrder: 200,
+  },
+  {
+    key: PERMISSIONS.TASK_EXPORT,
+    label: "Tasks - Export",
+    groupKey: "tasks",
+    groupLabel: "Tasks",
+    description:
+      "Export task and enrollment tables to Excel. Required on its own — a manager role alone does not grant export.",
+    sortOrder: 300,
   },
 ];

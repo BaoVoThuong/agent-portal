@@ -176,7 +176,8 @@ values
   ('management.role_manager', 'Role Manager', 'Create roles and manage role permissions.', 'management', 'Management', 200),
   ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100),
   ('task.manage', 'Tasks - Manage', 'Create, assign and manage all tasks, and see the backlog.', 'tasks', 'Tasks', 100),
-  ('task.work', 'Tasks - Work', 'Work on tasks assigned to you.', 'tasks', 'Tasks', 200)
+  ('task.work', 'Tasks - Work', 'Work on tasks assigned to you.', 'tasks', 'Tasks', 200),
+  ('task.export', 'Tasks - Export', 'Export task and enrollment tables to Excel. Required on its own — a manager role alone does not grant export.', 'tasks', 'Tasks', 300)
 on conflict (key) do update set
   label = excluded.label,
   description = excluded.description,
@@ -226,7 +227,8 @@ where key not in (
   'management.role_manager',
   'settings.access',
   'task.manage',
-  'task.work'
+  'task.work',
+  'task.export'
 );
 
 do $$
