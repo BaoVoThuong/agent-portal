@@ -19,6 +19,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ---
 
+## 2026-08-10 — Add scoped live stage-dwell metrics to Enrollment Overview
+- **Loại**: feat, perf
+- **Cái gì**: Added a paginated, count-guarded stage-cycle query scoped by visible enrollment record IDs, restricted to completed live dwell cycles from the last 90 days. The Overview now shows median/p75 time-in-stage and an explicit insufficient-sample state; archived stage labels remain readable for historical rows.
+- **Vì sao**: Stage dwell must respect record visibility rather than cycle owner snapshots, avoid PostgREST truncation, exclude zero-second terminal markers/backfill data, and remain distinct from existing create-to-close cycle time.
+- **File**: `src/lib/enrollment/stage-metrics.ts`, `src/lib/enrollment/stage-metrics.test.ts`, `src/lib/enrollment/overview-data.ts`, `src/lib/enrollment/overview-types.ts`, `src/lib/enrollment/overview.ts`, `src/app/(authed)/enrollment/_components/EnrollmentOverview.tsx`, `src/app/api/enrollment/overview/route.ts`
+- **Ảnh hưởng**: Overview adds one metrics section and extra bounded reads; list/detail behavior and existing `cycleTime` semantics are unchanged.
+
+
 ## 2026-08-10 — Route Enrollment mutations through atomic stage tracking RPCs
 - **Loại**: feat, fix
 - **Cái gì**: Enrollment create, patch, and archive now call the atomic RPCs so record updates, stage cycles, stage history, and mutation activities share one transaction. Comment and attachment mutations use `enrollment_touch_activity` and retain their existing activity/notification behavior.

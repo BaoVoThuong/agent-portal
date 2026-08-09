@@ -120,6 +120,17 @@ export type EnrollmentOverviewCycleMetric = {
   p90Days: number | null;
 };
 
+export type EnrollmentOverviewStageDwellMetric = {
+  stageId: string;
+  stageLabel: string;
+  stageColor: string | null;
+  sampleSize: number;
+  medianSeconds: number | null;
+  p75Seconds: number | null;
+  p90Seconds: number | null;
+  measured: boolean;
+};
+
 export type EnrollmentOverviewMissingItem = {
   key: string;
   label: string;
@@ -158,6 +169,7 @@ export type EnrollmentOverviewSnapshot = {
   funnel: EnrollmentOverviewFunnelStage[];
   weekly: EnrollmentOverviewWeeklyPoint[];
   cycleTime: EnrollmentOverviewCycleMetric[];
+  stageDwell: EnrollmentOverviewStageDwellMetric[];
   needsCare: EnrollmentOverviewNeed[];
   missingItems: EnrollmentOverviewMissingItem[];
   completeness: EnrollmentOverviewCompleteness;

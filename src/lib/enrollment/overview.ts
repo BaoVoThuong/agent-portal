@@ -406,6 +406,7 @@ export function aggregateEnrollmentOverview(input: {
     funnel,
     weekly: buildWeeklySeries(activeRecords, input.now, period),
     cycleTime: buildCycleMetrics(activeRecords, stageById, period),
+    stageDwell: [],
     needsCare,
     missingItems,
     completeness,

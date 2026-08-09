@@ -9,6 +9,7 @@ import type {
   EnrollmentOverviewRecordSummary,
   EnrollmentOverviewSnapshot,
   EnrollmentOverviewWeeklyPoint,
+  EnrollmentOverviewStageDwellMetric,
 } from "@/lib/enrollment/overview-types";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
 
@@ -111,6 +112,7 @@ function AcaEnrollmentDashboard({
       <SnapshotStrip snapshot={snapshot} />
       <FunnelSection snapshot={snapshot} onOpenRecord={onOpenRecord} />
       <FlowSection weekly={snapshot.weekly} cycleTime={snapshot.cycleTime} />
+      <StageDwellSection metrics={snapshot.stageDwell} />
       <NeedsCareSection needs={snapshot.needsCare} onOpenRecord={onOpenRecord} />
       <InformationQualitySection snapshot={snapshot} />
       <OutcomeSection snapshot={snapshot} />
@@ -130,6 +132,7 @@ function MedicareEnrollmentDashboard({
       <SnapshotStrip snapshot={snapshot} />
       <FunnelSection snapshot={snapshot} onOpenRecord={onOpenRecord} />
       <FlowSection weekly={snapshot.weekly} cycleTime={snapshot.cycleTime} />
+      <StageDwellSection metrics={snapshot.stageDwell} />
       <NeedsCareSection needs={snapshot.needsCare} onOpenRecord={onOpenRecord} />
       <InformationQualitySection snapshot={snapshot} />
     </>
@@ -273,6 +276,23 @@ function FlowSection({ weekly, cycleTime }: { weekly: EnrollmentOverviewWeeklyPo
   );
 }
 
+function StageDwellSection({ metrics }: { metrics: EnrollmentOverviewStageDwellMetric[] }) {
+  return (
+    <section className="rounded-lg border border-[#e6eaf0] bg-white p-4">
+      <SectionHeader title="Time in stage" description="Live completed-stage dwell over the last 90 days. Backfilled history is excluded." />
+      <div className="mt-3 divide-y divide-[#ebecf0]">
+        {metrics.map((metric) => (
+          <div key={metric.stageId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2 text-sm">
+            <span className="flex min-w-0 items-center gap-2 font-semibold text-[#42526e]"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: metric.stageColor ?? "#c1c7d0" }} /><span className="truncate">{metric.stageLabel}</span></span>
+            <span className="text-right text-xs font-bold text-[#172b4d]">{metric.sampleSize < 10 ? "Not enough samples" : `${formatSeconds(metric.medianSeconds)} med · ${formatSeconds(metric.p75Seconds)} p75`}</span>
+          </div>
+        ))}
+        {metrics.length === 0 ? <p className="py-2 text-sm text-[#97a0af]">No completed live stage cycles in the last 90 days.</p> : null}
+      </div>
+    </section>
+  );
+}
+
 function NeedsCareSection({ needs, onOpenRecord }: { needs: EnrollmentOverviewNeed[]; onOpenRecord: (id: string) => void }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   return (
@@ -376,6 +396,12 @@ function OverviewMessage({ children }: { children: ReactNode }) {
 
 function formatDays(value: number | null): string {
   return value === null ? "—" : `${Math.round(value * 10) / 10}d`;
+}
+
+function formatSeconds(value: number | null): string {
+  if (value === null) return "—";
+  const hours = value / 3600;
+  return hours >= 24 ? `${Math.round((hours / 24) * 10) / 10}d` : `${Math.round(hours * 10) / 10}h`;
 }
 
 function formatPeriod(from: string, to: string): string {

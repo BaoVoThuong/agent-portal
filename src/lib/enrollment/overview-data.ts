@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumns } from "@/lib/table-config/queries";
 import { aggregateEnrollmentOverview, defaultEnrollmentOverviewPeriod } from "./overview";
 import { sortEnrollmentOptionsByLabel } from "./options";
+import { fetchStageDwellMetrics } from "./stage-metrics";
 import {
   type EnrollmentOverviewRecordInput,
   type EnrollmentOverviewRequiredColumn,
@@ -60,7 +61,7 @@ export async function fetchEnrollmentOverview(
       .from("enrollment_options")
       .select("id,set_id,label,color,position,is_terminal,triggers_qc,archived_at")
       .eq("set_id", stageSet.id)
-      .is("archived_at", null);
+      ;
     if (error) throw new Error(error.message);
     stageOptions = sortEnrollmentOptionsByLabel(
       (data ?? []).map((option) => ({ ...option, set_key: "stage" as const }))
@@ -77,13 +78,16 @@ export async function fetchEnrollmentOverview(
       is_system: column.is_system,
     }));
 
-  return aggregateEnrollmentOverview({
+  const activeStageOptions = stageOptions.filter((option) => !option.archived_at);
+  const snapshot = aggregateEnrollmentOverview({
     now,
     program,
     period: { from, to },
     accounts: [],
-    stageOptions,
+    stageOptions: activeStageOptions,
     records,
     requiredColumns,
   });
+  const stageDwell = await fetchStageDwellMetrics(program, scope, stageOptions, now);
+  return { ...snapshot, stageDwell };
 }

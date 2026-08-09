@@ -3,6 +3,7 @@ import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { fetchEnrollmentOverview } from "@/lib/enrollment/overview-data";
 import { parseEnrollmentProgram } from "@/lib/enrollment/types";
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
+import { enrollmentSchemaErrorResponse } from "@/lib/enrollment/schema-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,8 @@ export async function GET(request: Request) {
     });
     return NextResponse.json(snapshot);
   } catch (error) {
+    const schemaResponse = enrollmentSchemaErrorResponse(error);
+    if (schemaResponse) return schemaResponse;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not load enrollment overview." },
       { status: 500 }
