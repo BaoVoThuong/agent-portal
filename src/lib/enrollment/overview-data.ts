@@ -14,7 +14,7 @@ import {
 } from "./scope";
 
 const OVERVIEW_RECORD_COLUMNS =
-  "id,program,client_name,description,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_at,closed_at,created_at,updated_at,archived_at";
+  "id,program,client_name,description,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_at,closed_at,created_at,updated_at,archived_at,stage_entered_at,stage_entered_source,last_activity_at,last_activity_by_email";
 
 function parseDateParam(value: string | null): string | null {
   if (value === null) return null;

@@ -53,6 +53,10 @@ export type EnrollmentOverviewRecordInput = {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  stage_entered_at?: string | null;
+  stage_entered_source?: "live" | "history_backfill" | "record_created" | null;
+  last_activity_at?: string | null;
+  last_activity_by_email?: string | null;
 };
 
 export type EnrollmentOverviewAccount = {

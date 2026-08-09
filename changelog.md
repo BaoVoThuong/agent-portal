@@ -19,6 +19,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ---
 
+## 2026-08-10 — Expose Enrollment stage-time fields and fail closed on schema drift
+- **Loại**: feat, fix
+- **Cái gì**: Enrollment queries now select the four stage-time/activity tracking columns, shared schema-drift errors return an explicit 503, and missing-column fallbacks only apply to the specific legacy columns they name. Added pure helpers/tests for current-stage dwell and duration summaries.
+- **Vì sao**: Deploying application code before the tracking rollout must not silently return records with tracking fields missing; duration calculations also need one reusable, testable contract.
+- **File**: `src/lib/enrollment/schema-errors.ts`, `src/lib/enrollment/stage-time.ts`, `src/lib/enrollment/queries.ts`, `src/lib/enrollment/types.ts`, `src/lib/enrollment/overview-data.ts`, `src/lib/enrollment/overview-types.ts`
+- **Ảnh hưởng**: Enrollment list/detail/overview now require the tracking schema and can report migration drift instead of masking it; legacy description/custom-values fallbacks remain narrowly scoped.
+
+
 ## Unreleased
 
 ## 2026-08-09 — Add idempotent Enrollment stage-time backfill

@@ -10,17 +10,21 @@ import type {
   EnrollmentRecord,
   EnrollmentRecordWithStats,
 } from "./types";
+import {
+  EnrollmentSchemaOutOfDateError,
+  isEnrollmentSchemaOutOfDate,
+  type SupabaseLikeError,
+} from "./schema-errors";
 
 export const ENROLLMENT_RECORD_COLUMNS =
-  "id,program,client_name,description,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at";
+  "id,program,client_name,description,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at,stage_entered_at,stage_entered_source,last_activity_at,last_activity_by_email";
 const ENROLLMENT_RECORD_COLUMNS_WITHOUT_DESCRIPTION =
-  "id,program,client_name,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at";
+  "id,program,client_name,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at,stage_entered_at,stage_entered_source,last_activity_at,last_activity_by_email";
 const ENROLLMENT_RECORD_COLUMNS_LEGACY =
-  "id,program,client_name,description,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at";
+  "id,program,client_name,description,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at,stage_entered_at,stage_entered_source,last_activity_at,last_activity_by_email";
 const ENROLLMENT_RECORD_COLUMNS_LEGACY_WITHOUT_DESCRIPTION =
-  "id,program,client_name,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at";
+  "id,program,client_name,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at,stage_entered_at,stage_entered_source,last_activity_at,last_activity_by_email";
 
-type SupabaseLikeError = { code?: string; message?: string } | null | undefined;
 type LooseSupabaseRowsResult = {
   data: unknown[] | null;
   error: SupabaseLikeError;
@@ -51,8 +55,6 @@ type LooseSupabaseClient = {
 export function isMissingEnrollmentDescriptionColumn(error: SupabaseLikeError) {
   const message = error?.message?.toLowerCase() ?? "";
   return (
-    error?.code === "42703" ||
-    error?.code === "PGRST204" ||
     (message.includes("description") &&
       message.includes("enrollment_records") &&
       (message.includes("does not exist") || message.includes("schema cache")))
@@ -62,12 +64,17 @@ export function isMissingEnrollmentDescriptionColumn(error: SupabaseLikeError) {
 export function isMissingEnrollmentCustomValuesColumn(error: SupabaseLikeError) {
   const message = error?.message?.toLowerCase() ?? "";
   return (
-    error?.code === "42703" ||
-    error?.code === "PGRST204" ||
     (message.includes("custom_values") &&
       message.includes("enrollment_records") &&
       (message.includes("does not exist") || message.includes("schema cache")))
   );
+}
+
+export const ENROLLMENT_TRACKING_COLUMNS =
+  "stage_entered_at,stage_entered_source,last_activity_at,last_activity_by_email";
+
+export function isMissingEnrollmentTrackingColumn(error: SupabaseLikeError): boolean {
+  return isEnrollmentSchemaOutOfDate(error);
 }
 
 export async function fetchEnrollmentRecords(
@@ -89,6 +96,9 @@ export async function fetchEnrollmentRecords(
   let rows: unknown[] | null = data;
   let queryError: SupabaseLikeError = error;
   let rowCount: number | null | undefined = count;
+  if (isMissingEnrollmentTrackingColumn(error)) {
+    throw new EnrollmentSchemaOutOfDateError();
+  }
   if (isMissingEnrollmentDescriptionColumn(error)) {
     const fallbackQuery = queryClient
       .from("enrollment_records")
@@ -115,6 +125,9 @@ export async function fetchEnrollmentRecords(
     rows = fallback.data;
     queryError = fallback.error;
     rowCount = fallback.count;
+  }
+  if (isMissingEnrollmentTrackingColumn(queryError)) {
+    throw new EnrollmentSchemaOutOfDateError();
   }
   if (queryError) throw new Error(queryError.message ?? "Could not fetch records.");
   assertEnrollmentRecordsComplete(rows, rowCount);
@@ -185,6 +198,9 @@ export async function fetchEnrollmentRecordById(
     .maybeSingle();
   let row: unknown | null = data;
   let queryError: SupabaseLikeError = error;
+  if (isMissingEnrollmentTrackingColumn(error)) {
+    throw new EnrollmentSchemaOutOfDateError();
+  }
   if (isMissingEnrollmentDescriptionColumn(error)) {
     const fallback = await queryClient
       .from("enrollment_records")
@@ -207,6 +223,9 @@ export async function fetchEnrollmentRecordById(
       .maybeSingle();
     row = fallback.data;
     queryError = fallback.error;
+  }
+  if (isMissingEnrollmentTrackingColumn(queryError)) {
+    throw new EnrollmentSchemaOutOfDateError();
   }
   if (queryError) throw new Error(queryError.message ?? "Could not fetch record.");
   if (!row) return null;
