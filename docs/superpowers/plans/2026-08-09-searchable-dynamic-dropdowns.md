@@ -412,16 +412,16 @@ avoiding nine mechanical import edits is the smaller pre-go-live change.
 
 **Steps**
 
-- [ ] Move private `normalizedValueEquals()` out of `EditableCustomCell.tsx` into
+- [x] Move private `normalizedValueEquals()` out of `EditableCustomCell.tsx` into
   `table-config/values.ts` as a named pure export. Do not change its semantics: `""`/`undefined`
   equals next `null`; person emails compare trimmed/lowercased; dropdown IDs compare exactly;
   all other types keep strict equality.
-- [ ] Add direct tests for unchanged value, empty→null, case-only person email, different
+- [x] Add direct tests for unchanged value, empty→null, case-only person email, different
   person, different dropdown ID, and unchanged number/checkbox.
-- [ ] Import the helper back into `EditableCustomCell` and keep the current native `<select>`,
+- [x] Import the helper back into `EditableCustomCell` and keep the current native `<select>`,
   `editing`, `onBlur`, `commit()`, and visual behavior exactly unchanged in this commit.
-- [ ] Run targeted values tests, TypeScript, ESLint, and `git diff --check`.
-- [ ] Commit this behavior-preserving preparation separately and record the commit.
+- [x] Run targeted values tests, TypeScript, ESLint, and `git diff --check`.
+- [x] Commit this behavior-preserving preparation separately and record the commit.
 
 ### Task 7 — Replace `EditableCustomCell` native selection lifecycle
 
@@ -548,7 +548,7 @@ must preserve every one of those semantics; it is not a cosmetic `<select>` subs
 | 3. Enrollment option menus | Completed | `49ec83d` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | Payment/Carrier/ACA/Platform + Stage use shared searchable panel; manual ACA/Medicare browser matrix remains pending |
 | 4. Enrollment people and filters | Completed | `2a76381` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | People menus + searchable TaskSelect with pinned All/multi behavior; manual worker/default-filter and keyboard browser gate remains pending |
 | 5. Health CS dynamic selectors | Completed | `7fca96c` | Targeted ESLint; `tsc --noEmit`; `git diff --check` | CS Category/Agent + dynamic TaskSelect + Assignee ARIA/normalization; manual side-by-side browser gate remains pending |
-| 6. Custom-value equality preparation | Pending | — | — | No UI change |
+| 6. Custom-value equality preparation | Completed | `4acfca4` | Values + option-search tests 15/15; targeted ESLint; `tsc --noEmit`; `git diff --check` | Named equality helper exported; native custom-cell UI unchanged |
 | 7. Custom dropdown/person lifecycle | Pending | — | — | Changelog required |
 | 8. Final regression/a11y pass | Pending | — | — | — |
 
