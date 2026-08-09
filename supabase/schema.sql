@@ -3432,8 +3432,81 @@ create table if not exists enrollment_comments (
   deleted_at timestamptz
 );
 
+-- Shared comment composer idempotency key. Nullable keeps existing clients
+-- valid while the Tasks and Enrollment UIs roll out together.
+alter table enrollment_comments add column if not exists client_request_id uuid;
+
+create unique index if not exists enrollment_comments_client_request_id_key
+  on enrollment_comments (record_id, author_email, client_request_id)
+  where client_request_id is not null;
+
 create index if not exists enrollment_comments_record_idx
   on enrollment_comments (record_id, created_at);
+
+create or replace function create_enrollment_comment_idempotent(
+  p_record_id uuid,
+  p_author_email text,
+  p_body text,
+  p_parent_id uuid,
+  p_client_request_id uuid
+) returns table (comment jsonb, parent_updated_at timestamptz, was_created boolean)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_comment enrollment_comments%rowtype;
+  v_record enrollment_records%rowtype;
+begin
+  select * into v_record
+  from enrollment_records
+  where id = p_record_id
+  for update;
+  if not found then
+    raise exception 'ENROLLMENT_NOT_FOUND';
+  end if;
+
+  if p_client_request_id is not null then
+    select * into v_comment
+    from enrollment_comments
+    where record_id = p_record_id
+      and author_email = p_author_email
+      and client_request_id = p_client_request_id;
+    if found then
+      comment := to_jsonb(v_comment);
+      parent_updated_at := v_record.updated_at;
+      was_created := false;
+      return next;
+      return;
+    end if;
+  end if;
+
+  if p_parent_id is not null then
+    perform 1
+    from enrollment_comments
+    where id = p_parent_id
+      and record_id = p_record_id
+      and parent_id is null
+      and deleted_at is null;
+    if not found then
+      raise exception 'INVALID_PARENT';
+    end if;
+  end if;
+
+  insert into enrollment_comments (
+    record_id, parent_id, author_email, body, client_request_id
+  ) values (
+    p_record_id, p_parent_id, p_author_email, p_body, p_client_request_id
+  ) returning * into v_comment;
+
+  comment := to_jsonb(v_comment);
+  parent_updated_at := v_record.updated_at;
+  was_created := true;
+  return next;
+end;
+$$;
+
+revoke all on function create_enrollment_comment_idempotent(uuid, text, text, uuid, uuid)
+  from public, anon, authenticated;
+grant execute on function create_enrollment_comment_idempotent(uuid, text, text, uuid, uuid)
+  to service_role;
 
 create table if not exists enrollment_comment_edits (
   id uuid primary key default gen_random_uuid(),

@@ -29,6 +29,13 @@ import type {
   SignedAttachment,
 } from "@/lib/tasks/detail";
 import { taskRoomTopic } from "@/lib/tasks/realtime-topics";
+import {
+  beginSubmission,
+  canSubmit,
+  failSubmission,
+  finishSubmission,
+  type SubmissionState,
+} from "@/lib/tasks/comment-submission";
 import { Initials } from "./board-ui";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
@@ -300,6 +307,9 @@ export function CommentThread({
   const rootRef = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const optimisticCounterRef = useRef(0);
+  const submissionRef = useRef<SubmissionState>({ inFlight: false, requestId: null });
+  const failedSubmissionIntentRef = useRef<string | null>(null);
+  const [submissionBusy, setSubmissionBusy] = useState(false);
   // Blob URLs created for optimistic attachment previews, keyed by temp comment
   // id so they can be revoked once the real (signed) URLs replace them.
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
@@ -338,9 +348,23 @@ export function CommentThread({
     setOptimisticComments((current) =>
       current.filter((comment) => comment.id !== id),
     );
+    // Explicitly discarding a failed draft starts a new user intent. A retry
+    // of the same draft keeps its id; a new draft must not replay the old row.
+    submissionRef.current = finishSubmission();
+    failedSubmissionIntentRef.current = null;
   }
 
   function post(body: string, files: File[], parentId: string | null) {
+    if (!canSubmit(submissionRef.current)) return false;
+    const intentKey = [body, parentId ?? "", ...files.map((file) => `${file.name}:${file.size}:${file.lastModified}`)].join("\u0000");
+    if (
+      failedSubmissionIntentRef.current &&
+      failedSubmissionIntentRef.current !== intentKey
+    ) {
+      submissionRef.current = finishSubmission();
+    }
+    submissionRef.current = beginSubmission(submissionRef.current, () => crypto.randomUUID());
+    setSubmissionBusy(true);
     const tempId = `optimistic-${taskId}-${optimisticCounterRef.current++}`;
     // Show the picked files immediately using local blob URLs; they are revoked
     // once the server round-trip finishes and the real signed URLs arrive.
@@ -372,7 +396,14 @@ export function CommentThread({
     ]);
     setReplyTo(null);
 
-    void persistComment(tempId, body, files, parentId);
+    void persistComment(
+      tempId,
+      body,
+      files,
+      parentId,
+      submissionRef.current.requestId,
+      intentKey,
+    );
     return true;
   }
 
@@ -381,6 +412,8 @@ export function CommentThread({
     body: string,
     files: File[],
     parentId: string | null,
+    requestId: string | null,
+    intentKey: string,
   ) {
     try {
       const res = await fetch(`${apiBase}/${taskId}/comments`, {
@@ -390,6 +423,7 @@ export function CommentThread({
           body,
           parentId,
           hasAttachments: files.length > 0,
+          client_request_id: requestId,
         }),
       });
       if (!res.ok) {
@@ -430,15 +464,21 @@ export function CommentThread({
 
       await onReload();
       releaseOptimistic(tempId);
+      submissionRef.current = finishSubmission();
+      failedSubmissionIntentRef.current = null;
+      setSubmissionBusy(false);
     } catch (error) {
       const message = getErrorMessage(error, "Failed to send comment.");
       setOptimisticComments((current) =>
         current.map((comment) =>
           comment.id === tempId
             ? { ...comment, failed: true, error: message }
-            : comment,
+          : comment,
         ),
       );
+      submissionRef.current = failSubmission(submissionRef.current);
+      failedSubmissionIntentRef.current = intentKey;
+      setSubmissionBusy(false);
     }
   }
 
@@ -551,14 +591,15 @@ export function CommentThread({
                     </div>
                   ))}
                   {replyTo === c.id && (
-                    <Composer
+            <Composer
                       initiallyExpanded
                       currentEmail={currentEmail}
                       members={members}
                       nameOf={nameOf}
                       onCancel={() => setReplyTo(null)}
-                      onSubmit={(body, files) => post(body, files, c.id)}
-                      placeholder="Reply..."
+              onSubmit={(body, files) => post(body, files, c.id)}
+              submitting={submissionBusy}
+              placeholder="Reply..."
                     />
                   )}
                 </div>
@@ -575,6 +616,7 @@ export function CommentThread({
             members={members}
             nameOf={nameOf}
             onSubmit={(body, files) => post(body, files, null)}
+            submitting={submissionBusy}
             placeholder="Add a comment..."
           />
         </div>
@@ -967,6 +1009,7 @@ function Composer({
   nameOf,
   onCancel,
   onSubmit,
+  submitting = false,
   placeholder,
 }: {
   initiallyExpanded?: boolean;
@@ -977,6 +1020,7 @@ function Composer({
   nameOf: (email: string) => string;
   onCancel?: () => void;
   onSubmit: (body: string, files: File[]) => boolean;
+  submitting?: boolean;
   placeholder: string;
 }) {
   const [text, setText] = useState("");
@@ -1332,10 +1376,10 @@ function Composer({
             <button
               type="button"
               onClick={submit}
-              disabled={!text.trim() && files.length === 0}
+              disabled={submitting || (!text.trim() && files.length === 0)}
               className="inline-flex h-7 items-center gap-1.5 rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Send className="h-3.5 w-3.5" /> Send
+              <Send className="h-3.5 w-3.5" /> {submitting ? "Sending..." : "Send"}
             </button>
           </div>
         </div>

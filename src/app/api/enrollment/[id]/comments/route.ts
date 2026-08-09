@@ -20,7 +20,9 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 const COMMENT_COLUMNS =
-  "id,record_id,parent_id,author_email,body,created_at,updated_at,deleted_at";
+  "id,record_id,parent_id,author_email,body,client_request_id,created_at,updated_at,deleted_at";
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(_request: Request, { params }: Ctx) {
   const { id } = await params;
@@ -59,33 +61,51 @@ export async function POST(request: Request, { params }: Ctx) {
   if (!text && !hasAttachments)
     return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
 
-  let parentId: string | null = null;
-  if (typeof body?.parentId === "string" && body.parentId.trim() !== "") {
-    const { data: parent } = await loaded.supabase
-      .from("enrollment_comments")
-      .select("id,record_id,parent_id")
-      .eq("id", body.parentId)
-      .maybeSingle();
-    const parentRow = parent as
-      | { record_id: string; parent_id: string | null }
-      | null;
-    if (!parentRow || parentRow.record_id !== id || parentRow.parent_id !== null) {
-      return NextResponse.json({ error: "Invalid parent comment." }, { status: 400 });
-    }
-    parentId = body.parentId;
+  const requestId =
+    typeof body?.client_request_id === "string" ? body.client_request_id : null;
+  if (requestId !== null && !UUID_RE.test(requestId)) {
+    return NextResponse.json({ error: "Invalid request id." }, { status: 400 });
   }
 
-  const { data: comment, error } = await loaded.supabase
-    .from("enrollment_comments")
-    .insert({
-      record_id: id,
-      parent_id: parentId,
-      author_email: loaded.actor.email,
-      body: text,
+  const { data: created, error } = await loaded.supabase
+    .rpc("create_enrollment_comment_idempotent", {
+      p_record_id: id,
+      p_author_email: loaded.actor.email,
+      p_body: text,
+      p_parent_id:
+        typeof body?.parentId === "string" && body.parentId.trim() !== ""
+          ? body.parentId
+          : null,
+      p_client_request_id: requestId,
     })
-    .select(COMMENT_COLUMNS)
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (error.message.includes("INVALID_PARENT")) {
+      return NextResponse.json({ error: "Invalid parent comment." }, { status: 400 });
+    }
+    if (error.message.includes("ENROLLMENT_NOT_FOUND")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const {
+    comment,
+    parent_updated_at: parentUpdatedAt,
+    was_created: wasCreated,
+  } = created as {
+    comment: { id: string };
+    parent_updated_at: string;
+    was_created: boolean;
+  };
+  if (!wasCreated) {
+    return NextResponse.json({
+      comment: { ...(comment as object), attachments: [] },
+      record: loaded.record,
+      parent_updated_at: parentUpdatedAt,
+      warnings: [],
+    });
+  }
 
   const mutationWarnings: string[] = [];
   const { error: touchError } = await loaded.supabase.rpc("enrollment_touch_activity", {
@@ -137,14 +157,14 @@ export async function POST(request: Request, { params }: Ctx) {
         record_id: id,
         type: "mentioned" as const,
         actor_email: loaded.actor.email,
-        comment_id: (comment as { id: string }).id,
+        comment_id: comment.id,
       })),
       ...baseRecipients.map((recipient) => ({
         recipient_email: recipient,
         record_id: id,
         type: mentionSet.has(recipient) ? ("mentioned" as const) : ("commented" as const),
         actor_email: loaded.actor.email,
-        comment_id: (comment as { id: string }).id,
+        comment_id: comment.id,
       })),
     ]);
   } catch (error) {
