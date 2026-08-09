@@ -1,9 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ExternalLink } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { formatCustomValue, normalizedValueEquals } from "@/lib/table-config/values";
+import { SearchableListboxPanel } from "./SearchableListboxPanel";
+import { useAnchoredMenu } from "../tasks/_components/use-anchored-menu";
+import { Initials } from "../tasks/_components/board-ui";
 
 type Person = { email: string; name: string | null };
 
@@ -32,6 +36,15 @@ export function EditableCustomCell({
   inputClassName?: string;
   emptyLabel?: string;
 }) {
+  const {
+    isOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  } = useAnchoredMenu();
   const [editing, setEditing] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const display = formatCustomValue(column.type, value, {
@@ -44,12 +57,14 @@ export function EditableCustomCell({
   const title = label || column.label;
   const displayTitle = saveError ? "Save failed. Try again." : title;
   const saveErrorClass = saveError ? "ring-2 ring-[#ff5630] ring-offset-1" : "";
+  const isChoiceField = column.type === "dropdown" || column.type === "person";
   const baseInputClass =
     inputClassName ??
     "h-8 w-full rounded border border-[#dfe1e6] bg-white px-2 text-xs font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]";
 
   async function commit(next: unknown) {
     setEditing(false);
+    if (isChoiceField) closeMenu({ restoreFocus: true });
     if (normalizedValueEquals(column.type, value, next)) return;
     setSaveError(false);
     try {
@@ -80,50 +95,6 @@ export function EditableCustomCell({
   }
 
   if (editing) {
-    if (column.type === "dropdown") {
-      return (
-        <select
-          autoFocus
-          defaultValue={empty ? "" : String(value)}
-          onBlur={() => setEditing(false)}
-          onChange={(event) => void commit(event.target.value || null)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setEditing(false);
-          }}
-          className={`${baseInputClass} ${className}`}
-        >
-          <option value="">{emptyLabel}</option>
-          {options.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      );
-    }
-
-    if (column.type === "person") {
-      return (
-        <select
-          autoFocus
-          defaultValue={empty ? "" : String(value).toLowerCase()}
-          onBlur={() => setEditing(false)}
-          onChange={(event) => void commit(event.target.value || null)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setEditing(false);
-          }}
-          className={`${baseInputClass} ${className}`}
-        >
-          <option value="">{emptyLabel}</option>
-          {people.map((person) => (
-            <option key={person.email} value={person.email}>
-              {person.name?.trim() || person.email}
-            </option>
-          ))}
-        </select>
-      );
-    }
-
     return (
       <input
         autoFocus
@@ -171,6 +142,81 @@ export function EditableCustomCell({
         >
           <ExternalLink className="h-3.5 w-3.5" />
         </a>
+      </span>
+    );
+  }
+
+  if (isChoiceField) {
+    const choiceOptions =
+      column.type === "dropdown"
+        ? options.map((option) => ({
+            value: option.id,
+            label: option.label,
+          }))
+        : people.map((person) => ({
+            value: person.email.toLowerCase(),
+            label: person.name?.trim() || person.email,
+            keywords: [person.email],
+          }));
+    const selectedValue = empty
+      ? ""
+      : column.type === "person"
+        ? String(value).toLowerCase()
+        : String(value);
+    const menuLabel = column.label;
+
+    return (
+      <span className={`relative block min-w-0 ${className}`}>
+        <button
+          ref={triggerRef}
+          type="button"
+          disabled={!canEdit}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggle();
+          }}
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          title={displayTitle}
+          className={`flex min-w-0 max-w-full items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass}`}
+        >
+          <span className={`min-w-0 flex-1 truncate ${empty ? "text-[#97a0af]" : ""}`}>
+            {label || emptyLabel}
+          </span>
+        </button>
+        {isOpen
+          ? createPortal(
+              <SearchableListboxPanel
+                menuRef={menuRef}
+                menuStyle={menuStyle}
+                className="min-w-[14rem]"
+                ariaLabel={menuLabel}
+                queryPlaceholder={`Search ${menuLabel}…`}
+                emptyMessage={`No matching ${menuLabel.toLowerCase()}.`}
+                pinnedChoices={[{ value: "", label: emptyLabel }]}
+                choices={choiceOptions}
+                selectedValue={selectedValue}
+                onSelect={(nextValue) => void commit(nextValue || null)}
+                onTabExit={closeMenuForTab}
+                renderChoice={
+                  column.type === "person"
+                    ? (choice, state) => (
+                        <>
+                          <Initials email={choice.value} label={choice.label} />
+                          <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                            {choice.label}
+                          </span>
+                          {state.selected ? (
+                            <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                          ) : null}
+                        </>
+                      )
+                    : undefined
+                }
+              />,
+              document.body
+            )
+          : null}
       </span>
     );
   }

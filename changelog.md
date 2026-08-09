@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Searchable custom dropdown/person selection lifecycle
+- **Loại**: refactor-logic, fix
+- **Cái gì**: Custom dropdown/person cells now use the same anchored searchable selection flow as system fields. Selection still commits only on an existing option, supports the original clear row, closes before saving, skips normalized-equal values, and preserves save-error feedback.
+- **Vì sao**: Replacing the native select must not introduce free-form values, blur-triggered saves, duplicate commits, or accidental resets while users search long configured lists.
+- **File**: `src/app/(authed)/_shared/EditableCustomCell.tsx`, `src/app/(authed)/_shared/SearchableListboxPanel.tsx`, `src/lib/table-config/values.ts`
+- **Ảnh hưởng**: CS custom dropdown/person fields in list/detail and Enrollment custom fields; text/number/date/link/checkbox behavior remains unchanged.
+- **Ref**: `docs/superpowers/plans/2026-08-09-searchable-dynamic-dropdowns.md`, Task 7
+
 ## 2026-08-09 — Khóa nội dung chính Enrollment đối với CS worker
 - **Loại**: fix, security
 - **Cái gì**: Tách capability `canEditContent` cho Client Name, FUB Link và Description. Manager, agent-owner/assistant và creator được sửa; Caller/Responsible chỉ làm workflow nên ba field này read-only. API PATCH áp cùng guard và trả 403, không chỉ disable UI.
