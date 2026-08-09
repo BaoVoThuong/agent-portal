@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Prevent comment mention menu from covering composer actions
+- **Loại**: fix
+- **Cái gì**: Menu gợi ý khi gõ `@` được portal ra ngoài drawer, neo theo vị trí caret và tự chọn hướng mở. Composer docked ở đáy luôn mở menu lên trên; reply composer tự chọn phía còn đủ chỗ. Menu tự đo lại khi textarea resize, viewport resize hoặc vùng comment scroll.
+- **Vì sao**: Menu cũ render absolute bên trong khung `overflow-hidden`, nên ở đáy Enrollment/CS drawer nó mở xuống, bị cắt và đè lên Attach/Clear/Send.
+- **File**: `src/app/(authed)/tasks/_components/CommentThread.tsx`
+- **Ảnh hưởng**: Mention picker dùng chung trong comment của Health CS, ACA và Medicare; logic lưu mention và gửi comment không đổi.
+- **Ref**: user screenshot 2026-08-09
+
 ## 2026-08-09 — Backfill Agent for generated Enrollment QA samples
 - **Loại**: fix, data
 - **Cái gì**: Mở rộng `--backfill-agents` từ 27 fixture hardcode sang cả bộ generated QA, nhưng chỉ nhận record đồng thời có Client Name bắt đầu bằng `[Sample QA]` và FUB thuộc đúng `https://sample.qa/enrollment-{program}/...`. Có thêm `--dry-run`; assignment round-robin dùng toàn bộ tập QA đã sort để rerun sau partial write không làm lệch mapping.

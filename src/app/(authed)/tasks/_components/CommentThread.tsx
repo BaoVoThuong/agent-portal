@@ -70,10 +70,15 @@ type ActiveMention = {
 type MentionMenuPosition = {
   top: number;
   left: number;
+  maxHeight: number;
 };
 
 const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
 const MENTION_MENU_WIDTH = 288;
+const MENTION_MENU_MAX_HEIGHT = 224;
+const MENTION_MENU_ROW_HEIGHT = 44;
+const MENTION_MENU_GAP = 6;
+const MENTION_MENU_VIEWPORT_PADDING = 8;
 
 async function readResponseError(
   response: Response,
@@ -135,6 +140,8 @@ function findActiveMention(value: string, caret: number): ActiveMention | null {
 function measureTextareaCaret(
   textarea: HTMLTextAreaElement,
   caret: number,
+  matchCount: number,
+  preferAbove: boolean,
 ): MentionMenuPosition {
   const style = window.getComputedStyle(textarea);
   const mirror = document.createElement("div");
@@ -166,12 +173,56 @@ function measureTextareaCaret(
   const markerHeight = marker.offsetHeight;
   document.body.removeChild(mirror);
 
-  return {
-    top: Math.max(34, markerTop + markerHeight + 6),
-    left: Math.min(
-      Math.max(12, markerLeft),
-      Math.max(12, textarea.clientWidth - MENTION_MENU_WIDTH - 12),
+  const textareaRect = textarea.getBoundingClientRect();
+  const caretTop = textareaRect.top + markerTop;
+  const caretBottom = caretTop + markerHeight;
+  const desiredHeight = Math.min(
+    MENTION_MENU_MAX_HEIGHT,
+    Math.max(MENTION_MENU_ROW_HEIGHT, matchCount * MENTION_MENU_ROW_HEIGHT + 8),
+  );
+  const spaceAbove = Math.max(
+    0,
+    caretTop - MENTION_MENU_GAP - MENTION_MENU_VIEWPORT_PADDING,
+  );
+  const spaceBelow = Math.max(
+    0,
+    window.innerHeight -
+      caretBottom -
+      MENTION_MENU_GAP -
+      MENTION_MENU_VIEWPORT_PADDING,
+  );
+  const opensAbove =
+    (preferAbove && spaceAbove >= MENTION_MENU_ROW_HEIGHT) ||
+    (spaceBelow < Math.min(desiredHeight, 96) && spaceAbove > spaceBelow);
+  const availableHeight = opensAbove ? spaceAbove : spaceBelow;
+  const maxHeight = Math.max(
+    MENTION_MENU_ROW_HEIGHT,
+    Math.min(desiredHeight, availableHeight),
+  );
+  const top = opensAbove
+    ? Math.max(
+        MENTION_MENU_VIEWPORT_PADDING,
+        caretTop - MENTION_MENU_GAP - maxHeight,
+      )
+    : Math.min(
+        window.innerHeight - MENTION_MENU_VIEWPORT_PADDING - maxHeight,
+        caretBottom + MENTION_MENU_GAP,
+      );
+  const left = Math.min(
+    Math.max(
+      MENTION_MENU_VIEWPORT_PADDING,
+      textareaRect.left + markerLeft,
     ),
+    Math.max(
+      MENTION_MENU_VIEWPORT_PADDING,
+      window.innerWidth - MENTION_MENU_WIDTH - MENTION_MENU_VIEWPORT_PADDING,
+    ),
+  );
+
+  return {
+    top,
+    left,
+    maxHeight,
   };
 }
 
@@ -973,6 +1024,31 @@ function Composer({
           });
   const highlightedMatch = matches[hi] ?? matches[0];
 
+  const updateMentionPosition = useCallback(() => {
+    const textarea = taRef.current;
+    if (!textarea || query === null || matches.length === 0) return;
+    const caret = textarea.selectionStart ?? textarea.value.length;
+    setMentionPosition(
+      measureTextareaCaret(textarea, caret, matches.length, alwaysOpen),
+    );
+  }, [alwaysOpen, matches.length, query]);
+
+  useEffect(() => {
+    if (query === null || matches.length === 0) return;
+    updateMentionPosition();
+
+    const textarea = taRef.current;
+    const observer = textarea ? new ResizeObserver(updateMentionPosition) : null;
+    if (textarea) observer?.observe(textarea);
+    window.addEventListener("resize", updateMentionPosition);
+    document.addEventListener("scroll", updateMentionPosition, true);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateMentionPosition);
+      document.removeEventListener("scroll", updateMentionPosition, true);
+    };
+  }, [matches.length, query, updateMentionPosition]);
+
   function onChange(
     value: string,
     caret: number,
@@ -983,7 +1059,16 @@ function Composer({
     activeMentionRef.current = activeMention;
     if (activeMention) {
       setQuery(activeMention.query);
-      setMentionPosition(measureTextareaCaret(textarea, caret));
+      const nextMatchCount = members.filter((member) => {
+        const nextQuery = activeMention.query.trim().toLowerCase();
+        return (
+          mentionLabel(member).toLowerCase().includes(nextQuery) ||
+          member.email.toLowerCase().includes(nextQuery)
+        );
+      }).length;
+      setMentionPosition(
+        measureTextareaCaret(textarea, caret, nextMatchCount, alwaysOpen),
+      );
       setHi(0);
     } else {
       setQuery(null);
@@ -1127,36 +1212,45 @@ function Composer({
           className="block min-h-[2.25rem] w-full resize-y bg-white px-3 py-2 text-sm leading-5 text-[#172b4d] outline-none placeholder:text-[#7a869a]"
         />
 
-        {query !== null && matches.length > 0 && (
-          <div
-            style={{
-              top: mentionPosition?.top ?? 42,
-              left: mentionPosition?.left ?? 12,
-            }}
-            className="absolute z-20 max-h-56 w-72 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
-          >
-            {matches.map((m, i) => (
-              <button
-                key={m.email}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  pick(m);
+        {query !== null && matches.length > 0 && mentionPosition
+          ? createPortal(
+              <div
+                role="listbox"
+                aria-label="Mention a person"
+                style={{
+                  position: "fixed",
+                  top: mentionPosition.top,
+                  left: mentionPosition.left,
+                  maxHeight: mentionPosition.maxHeight,
                 }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
-                  i === hi
-                    ? "bg-[#e9f2ff] text-[#0c66e4]"
-                    : "text-[#172b4d] hover:bg-[#f4f5f7]"
-                }`}
+                className="z-[120] w-72 overflow-y-auto rounded border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
               >
-                <Initials email={m.email} label={mentionLabel(m)} />
-                <span className="min-w-0 flex-1 truncate font-semibold">
-                  {mentionLabel(m)}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
+                {matches.map((m, i) => (
+                  <button
+                    key={m.email}
+                    type="button"
+                    role="option"
+                    aria-selected={i === hi}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pick(m);
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
+                      i === hi
+                        ? "bg-[#e9f2ff] text-[#0c66e4]"
+                        : "text-[#172b4d] hover:bg-[#f4f5f7]"
+                    }`}
+                  >
+                    <Initials email={m.email} label={mentionLabel(m)} />
+                    <span className="min-w-0 flex-1 truncate font-semibold">
+                      {mentionLabel(m)}
+                    </span>
+                  </button>
+                ))}
+              </div>,
+              document.body,
+            )
+          : null}
 
         {fileError ? (
           <div className="border-t border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
