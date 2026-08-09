@@ -8,6 +8,10 @@ import {
   type CSSProperties,
 } from "react";
 
+export type AnchoredMenuCloseOptions = {
+  restoreFocus?: boolean;
+};
+
 // A dropdown menu anchored to a trigger button but rendered in a portal, so it
 // is never clipped by an ancestor's overflow (e.g. a scrollable table). Computes
 // fixed coordinates on open, flips up when there is little space below, and
@@ -17,6 +21,23 @@ export function useAnchoredMenu() {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+
+  const focusTrigger = useCallback(() => {
+    triggerRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const closeMenu = useCallback(
+    ({ restoreFocus = false }: AnchoredMenuCloseOptions = {}) => {
+      setIsOpen(false);
+      if (restoreFocus) focusTrigger();
+    },
+    [focusTrigger]
+  );
+
+  const closeMenuForTab = useCallback(() => {
+    setIsOpen(false);
+    focusTrigger();
+  }, [focusTrigger]);
 
   const openMenu = useCallback(() => {
     const el = triggerRef.current;
@@ -63,7 +84,10 @@ export function useAnchoredMenu() {
       setIsOpen(false);
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setIsOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMenu({ restoreFocus: true });
+      }
     }
     // Closes the menu when the page/an ancestor scrolls out from under the
     // trigger (so a stale-positioned menu doesn't linger). Must NOT fire for
@@ -87,7 +111,17 @@ export function useAnchoredMenu() {
       window.removeEventListener("scroll", onScrollOrResize, true);
       window.removeEventListener("resize", onScrollOrResize);
     };
-  }, [isOpen]);
+  }, [closeMenu, isOpen]);
 
-  return { isOpen, setIsOpen, openMenu, toggle, triggerRef, menuRef, menuStyle };
+  return {
+    isOpen,
+    setIsOpen,
+    openMenu,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  };
 }
