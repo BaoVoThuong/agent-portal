@@ -18,6 +18,8 @@ export type EnrollmentMembershipFlags = {
 
 export type EnrollmentCapabilities = {
   canView: boolean;
+  /** Client name, FUB link and description — mirrors CS task content. */
+  canEditContent: boolean;
   canEditFields: boolean;
   canChangeStage: boolean;
   canReopen: boolean;
@@ -47,6 +49,7 @@ export function resolveEnrollmentCapabilities(
   if (actor.isManager) {
     return {
       canView: true,
+      canEditContent: true,
       canEditFields: true,
       canChangeStage: true,
       canReopen: true,
@@ -59,6 +62,7 @@ export function resolveEnrollmentCapabilities(
   if (!actor.isWorker) {
     return {
       canView: false,
+      canEditContent: false,
       canEditFields: false,
       canChangeStage: false,
       canReopen: false,
@@ -74,6 +78,7 @@ export function resolveEnrollmentCapabilities(
 
   return {
     canView: true,
+    canEditContent: isOwner || Boolean(flags.isCreator),
     canEditFields: isOwner || isDoingTheWork || Boolean(flags.isCreator),
     canChangeStage: isOwner || isDoingTheWork,
     canReopen: isOwner || isDoingTheWork,

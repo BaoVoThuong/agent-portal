@@ -2876,7 +2876,7 @@ function EnrollmentDrawer({
                   <EditableInput
                     value={record.client_name ?? ""}
                     placeholder="Client name"
-                    canEdit={capabilities.canEditFields}
+                    canEdit={capabilities.canEditContent}
                     className={COMPACT_DETAIL_INPUT_CLASS}
                     required={requiredColumnKeys.has("client")}
                     invalid={isInvalid("client")}
@@ -2897,7 +2897,7 @@ function EnrollmentDrawer({
                     <EditableInput
                       value={record.fub_link ?? ""}
                       placeholder="No FUB link"
-                      canEdit={capabilities.canEditFields}
+                      canEdit={capabilities.canEditContent}
                       className={COMPACT_DETAIL_INPUT_CLASS}
                       required={requiredColumnKeys.has("fub")}
                       invalid={isInvalid("fub")}
@@ -2928,7 +2928,7 @@ function EnrollmentDrawer({
                 <EditableTextarea
                   value={record.description ?? ""}
                   placeholder="No description"
-                  canEdit={capabilities.canEditFields}
+                  canEdit={capabilities.canEditContent}
                   className={COMPACT_DESCRIPTION_CLASS}
                   onSave={(value) => onPatch({ description: value })}
                 />

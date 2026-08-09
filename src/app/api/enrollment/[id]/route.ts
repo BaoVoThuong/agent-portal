@@ -60,6 +60,8 @@ const TEXT_FIELDS = [
   "responsible_enroll_email",
 ] as const;
 
+const CONTENT_FIELDS = new Set(["client_name", "description", "fub_link"]);
+
 const OPTION_FIELDS = {
   stage_id: "stage",
   carrier_id: "carrier",
@@ -245,6 +247,9 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   const touchesStage = "stage_id" in patch;
   const touchesAgent = "agent_email" in patch;
+  const touchesContent = Object.keys(patch).some((key) =>
+    CONTENT_FIELDS.has(key)
+  );
   const touchesPeople =
     "caller_email" in patch || "responsible_enroll_email" in patch;
   const touchesQc = qcChecked !== null;
@@ -264,12 +269,18 @@ export async function PATCH(request: Request, { params }: Ctx) {
     "updated_by_email",
   ]);
   const touchesOtherFields = Object.keys(patch).some(
-    (key) => !derivedKeys.has(key)
+    (key) => !derivedKeys.has(key) && !CONTENT_FIELDS.has(key)
   );
 
   if (touchesAgent && !capabilities.canTransferAgent) {
     return NextResponse.json(
       { error: "You cannot move this record to another agent." },
+      { status: 403 }
+    );
+  }
+  if (touchesContent && !capabilities.canEditContent) {
+    return NextResponse.json(
+      { error: "You cannot edit this record's main information." },
       { status: 403 }
     );
   }

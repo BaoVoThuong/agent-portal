@@ -55,7 +55,8 @@ I got things wrong in the three original plans. Recording them plainly, because 
 | Action | manager | agent-owner / assistant | caller / responsible | creator |
 |---|---|---|---|---|
 | View record | ✅ | ✅ *(their agents only)* | ✅ | ✅ |
-| Edit fields *(except agent)* | ✅ | ✅ | ✅ | ✅ |
+| Edit main content *(Client/FUB/Description)* | ✅ | ✅ | — | ✅ |
+| Edit enrollment fields *(except agent)* | ✅ | ✅ | ✅ | ✅ |
 | Change stage | ✅ | ✅ | ✅ | — |
 | Reopen from terminal *(reason required)* | ✅ | ✅ | ✅ | — |
 | QC check | ✅ | ✅ | — | — |
@@ -1010,3 +1011,7 @@ Automated verification after implementation: `npx tsc --noEmit`, `npx vitest run
 - `task.export` is **not yet present in the live permission catalogue** and has **0 live grants**. The transactional rollout is ready at `supabase/rollouts/2026-08-09-task-export-permission.sql`, but was not executed because the workspace has no transactional DB connection.
 
 **Deployment gate: BLOCKED.** Before deploying these commits, ownership must be mapped for the 640 non-sample active null-agent records using a business-approved source; do not round-robin real customers. Then run the export permission rollout SQL, review accounts losing export, and repeat the null-agent/count/browser matrix. Code implementation is complete; production data rollout is not.
+
+### Post-plan owner override — main content
+
+The owner clarified that Enrollment CS workers must match Health CS for the three large content fields. `canEditContent` now covers Client Name, FUB Link and Description and is granted only to manager, agent-owner/assistant and creator. Caller/Responsible retain operational enrollment-field editing plus Stage/Reopen, but cannot edit those three fields through either the drawer or direct PATCH.

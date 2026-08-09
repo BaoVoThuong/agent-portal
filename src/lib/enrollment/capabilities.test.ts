@@ -27,6 +27,7 @@ describe("resolveEnrollmentCapabilities", () => {
   it("grants every capability to a manager", () => {
     expect(resolveEnrollmentCapabilities(manager)).toEqual({
       canView: true,
+      canEditContent: true,
       canEditFields: true,
       canChangeStage: true,
       canReopen: true,
@@ -43,6 +44,7 @@ describe("resolveEnrollmentCapabilities", () => {
     });
     expect(capabilities).toEqual({
       canView: true,
+      canEditContent: true,
       canEditFields: true,
       canChangeStage: true,
       canReopen: true,
@@ -56,6 +58,7 @@ describe("resolveEnrollmentCapabilities", () => {
   for (const role of ["isCaller", "isResponsible"] as const) {
     it(`lets ${role} edit workflow fields but not perform owner actions`, () => {
       const capabilities = resolveEnrollmentCapabilities(worker, { [role]: true });
+      expect(capabilities.canEditContent).toBe(false);
       expect(capabilities.canEditFields).toBe(true);
       expect(capabilities.canChangeStage).toBe(true);
       expect(capabilities.canReopen).toBe(true);
@@ -68,6 +71,7 @@ describe("resolveEnrollmentCapabilities", () => {
 
   it("lets the creator edit fields and transfer the agent only", () => {
     const capabilities = resolveEnrollmentCapabilities(worker, { isCreator: true });
+    expect(capabilities.canEditContent).toBe(true);
     expect(capabilities.canEditFields).toBe(true);
     expect(capabilities.canTransferAgent).toBe(true);
     expect(capabilities.canChangeStage).toBe(false);
@@ -77,6 +81,7 @@ describe("resolveEnrollmentCapabilities", () => {
   it("lets an unrelated worker view but not mutate", () => {
     const capabilities = resolveEnrollmentCapabilities(worker);
     expect(capabilities.canView).toBe(true);
+    expect(capabilities.canEditContent).toBe(false);
     expect(capabilities.canEditFields).toBe(false);
   });
 

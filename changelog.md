@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Khóa nội dung chính Enrollment đối với CS worker
+- **Loại**: fix, security
+- **Cái gì**: Tách capability `canEditContent` cho Client Name, FUB Link và Description. Manager, agent-owner/assistant và creator được sửa; Caller/Responsible chỉ làm workflow nên ba field này read-only. API PATCH áp cùng guard và trả 403, không chỉ disable UI.
+- **Vì sao**: Enrollment trước đây dùng `canEditFields` cho cả nội dung chính lẫn dữ liệu vận hành, khiến CS worker sửa được thông tin mà bên Health CS chỉ manager/agent-owner/reporter được sửa.
+- **File**: `src/lib/enrollment/access.ts`, `src/app/api/enrollment/[id]/route.ts`, `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx`, `src/lib/enrollment/capabilities.test.ts`
+- **Ảnh hưởng**: ACA và Medicare detail drawer. Caller/Responsible vẫn đổi Stage/Reopen và các field vận hành Enrollment theo matrix hiện tại; quyền create, QC, archive, assign và transfer agent không đổi.
+- **Ref**: user request 2026-08-09; Health CS `canEditContent` precedent
+
 ## 2026-08-09 — Chỉ default Enrollment Assignee filter cho plain worker
 - **Loại**: fix
 - **Cái gì**: Filter mặc định `Responsible/Assignee = current user` chỉ được khởi tạo cho plain worker. Manager mở toàn bộ dữ liệu; agent và assistant mở toàn bộ record đã được server giới hạn trong agent scope của họ, không bị lọc tiếp theo tên cá nhân.
