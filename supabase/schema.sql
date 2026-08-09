@@ -1738,12 +1738,75 @@ begin
       'done_review_cleared',
       'edited',
       'comment_added',
+      'comment_edited',
+      'comment_deleted',
       'attachment_added',
+      'attachment_deleted',
       'went_overdue',
       'overdue_unlocked'
     )
   ) not valid;
 end $$;
+
+-- Read-only reconciliation helpers for task collaboration. They are
+-- intentionally reporting-only: repair scripts must use an approved target
+-- list rather than guessing from duplicate text or incomplete activity.
+create or replace function audit_comment_activity_gaps()
+returns table (task_id uuid, comment_count bigint, activity_count bigint)
+language sql stable security definer set search_path = public as $$
+  select c.task_id, count(*) as comment_count,
+    (select count(*) from task_activity a where a.task_id = c.task_id and a.type = 'comment_added')
+  from task_comments c
+  where c.deleted_at is null
+  group by c.task_id
+  having count(*) <> (select count(*) from task_activity a where a.task_id = c.task_id and a.type = 'comment_added');
+$$;
+
+create or replace function audit_last_activity_mismatch()
+returns table (task_id uuid, last_activity_at timestamptz, newest_actor text,
+               newest_activity_at timestamptz, newest_type text)
+language sql stable security definer set search_path = public as $$
+  select t.id, t.last_activity_at, a.actor_email, a.created_at, a.type
+  from tasks t join lateral (
+    select actor_email, created_at, type from task_activity
+    where task_id = t.id order by created_at desc limit 1
+  ) a on true
+  where a.actor_email = 'system' and t.last_activity_at is not null and a.created_at > t.last_activity_at;
+$$;
+
+create or replace function audit_overdue_gaps()
+returns table (task_id uuid, has_activity boolean, has_event boolean)
+language sql stable security definer set search_path = public as $$
+  select t.id,
+    exists (select 1 from task_activity a where a.task_id = t.id and a.type = 'went_overdue'),
+    exists (select 1 from task_overdue_events e where e.task_id = t.id)
+  from tasks t
+  where t.overdue_flagged_at is not null and (
+    not exists (select 1 from task_activity a where a.task_id = t.id and a.type = 'went_overdue')
+    or not exists (select 1 from task_overdue_events e where e.task_id = t.id)
+  );
+$$;
+
+create or replace function audit_duplicate_comments()
+returns table (task_id uuid, author_email text, body text, copies bigint,
+               spread_seconds double precision, ids uuid[])
+language sql stable security definer set search_path = public as $$
+  select task_id, author_email, body, count(*),
+    extract(epoch from (max(created_at) - min(created_at))), array_agg(id order by created_at)
+  from task_comments
+  where deleted_at is null and body <> ''
+  group by task_id, author_email, parent_id, body
+  having count(*) > 1;
+$$;
+
+revoke all on function audit_comment_activity_gaps() from public, anon, authenticated;
+revoke all on function audit_last_activity_mismatch() from public, anon, authenticated;
+revoke all on function audit_overdue_gaps() from public, anon, authenticated;
+revoke all on function audit_duplicate_comments() from public, anon, authenticated;
+grant execute on function audit_comment_activity_gaps() to service_role;
+grant execute on function audit_last_activity_mismatch() to service_role;
+grant execute on function audit_overdue_gaps() to service_role;
+grant execute on function audit_duplicate_comments() to service_role;
 
 create table if not exists task_notifications (
   id uuid primary key default gen_random_uuid(),

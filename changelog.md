@@ -19,6 +19,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ---
 
+## 2026-08-10 — Add read-only task collaboration reconciliation audit
+- **Loại**: chore, security
+- **Cái gì**: Added a read-only `audit-task-collaboration.ts` report plus restricted Postgres audit functions for comment/activity gaps, unsignable attachments, last-activity actor mismatches, overdue gaps, and duplicate-comment candidates. Extended the task activity constraint with edit/delete event types needed by later atomic commands.
+- **Vì sao**: Collaboration repairs need reproducible baseline evidence and must never infer a destructive repair from duplicate text or a partial activity trail.
+- **File**: `scripts/audit-task-collaboration.ts`, `supabase/schema.sql`
+- **Ảnh hưởng**: Service-role operators gain read-only reconciliation output; no user-facing mutation or automatic repair is performed.
+
+
 ## 2026-08-10 — Preserve initial Enrollment stage history in create RPC
 - **Loại**: fix
 - **Cái gì**: `create_enrollment_atomic` now writes the initial `enrollment_stage_history` row in the same transaction as the record and first stage cycle.
