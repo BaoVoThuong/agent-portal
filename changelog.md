@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Add atomic Enrollment stage mutation RPCs
+- **Loại**: feat, security
+- **Cái gì**: Thêm `patch_enrollment_atomic`, `create_enrollment_atomic`, `archive_enrollment_atomic` và `enrollment_touch_activity`; các RPC khóa record, enforce monotonic `updated_at`, normalize email, ghi cycle/history/activity trong cùng transaction và fail closed với unknown fields/invalid activity.
+- **Vì sao**: Ngăn stale overwrite, thiếu stage history/cycle, terminal/archive tracking gap và actor/email scope drift.
+- **File**: `supabase/schema.sql`, `supabase/rollouts/2026-08-09-enrollment-stage-time-schema.sql`
+- **Ảnh hưởng**: Enrollment ACA/Medicare mutation paths; routes chưa chuyển sang RPC cho tới Task 5.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-stage-time-tracking.md`, CODEX-03/CODEX-05/CODEX-10/CODEX-11/CODEX-13/CODEX-16
+
 ## 2026-08-09 — Add Enrollment stage-time tracking schema
 - **Loại**: feat
 - **Cái gì**: Thêm các mốc stage/activity trên `enrollment_records` và bảng `enrollment_stage_cycles` với unique open-cycle invariant, source tracking, terminal-marker distinction, index và RLS.
