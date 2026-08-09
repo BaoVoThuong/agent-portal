@@ -11,9 +11,9 @@ function normalizeColor(value: string | null | undefined): string | null {
  * Picks the least-used colour from the existing shared value palette.
  * Ties are stable so a group with no values always starts from the same colour.
  */
-export function recommendDropdownValueColor(
+function rankDropdownValueColors(
   existingColors: readonly (string | null | undefined)[]
-): string {
+): string[] {
   const usage = new Map(
     TASK_CATEGORY_COLORS.map((color) => [color.toLowerCase(), 0])
   );
@@ -25,14 +25,30 @@ export function recommendDropdownValueColor(
     }
   }
 
-  let recommended: string = DEFAULT_DROPDOWN_VALUE_COLOR;
-  let lowestUsage = Number.POSITIVE_INFINITY;
-  for (const color of TASK_CATEGORY_COLORS) {
-    const count = usage.get(color.toLowerCase()) ?? 0;
-    if (count < lowestUsage) {
-      recommended = color;
-      lowestUsage = count;
-    }
-  }
-  return recommended;
+  return [...TASK_CATEGORY_COLORS].sort((left, right) => {
+    const usageDifference =
+      (usage.get(left.toLowerCase()) ?? 0) -
+      (usage.get(right.toLowerCase()) ?? 0);
+    if (usageDifference !== 0) return usageDifference;
+    return TASK_CATEGORY_COLORS.indexOf(left) - TASK_CATEGORY_COLORS.indexOf(right);
+  });
+}
+
+export function recommendDropdownValueColor(
+  existingColors: readonly (string | null | undefined)[]
+): string {
+  return rankDropdownValueColors(existingColors)[0] ?? DEFAULT_DROPDOWN_VALUE_COLOR;
+}
+
+/** Returns the next recommendation without treating it as a custom colour. */
+export function nextRecommendedDropdownValueColor(
+  currentColor: string,
+  existingColors: readonly (string | null | undefined)[]
+): string {
+  const ranked = rankDropdownValueColors(existingColors);
+  const normalizedCurrent = normalizeColor(currentColor);
+  const currentIndex = ranked.findIndex(
+    (color) => color.toLowerCase() === normalizedCurrent
+  );
+  return ranked[(currentIndex + 1) % ranked.length] ?? DEFAULT_DROPDOWN_VALUE_COLOR;
 }

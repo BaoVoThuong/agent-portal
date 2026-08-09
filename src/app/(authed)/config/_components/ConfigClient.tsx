@@ -25,6 +25,7 @@ import {
   Clock,
   GripVertical,
   Plus,
+  RefreshCw,
   Settings2,
   SlidersHorizontal,
   Trash2,
@@ -61,7 +62,10 @@ import {
   enrollmentIdentityBadgeStyle,
   enrollmentStateBadgeStyle,
 } from "@/lib/enrollment/option-badge";
-import { recommendDropdownValueColor } from "@/lib/table-config/value-colors";
+import {
+  nextRecommendedDropdownValueColor,
+  recommendDropdownValueColor,
+} from "@/lib/table-config/value-colors";
 import { ConfigSlaSection } from "./ConfigSlaSection";
 
 type AssistantMember = {
@@ -1000,6 +1004,7 @@ function DropdownValueColorControl({
   appearance,
   recommended = false,
   disabled = false,
+  onRecommendNext,
   onColorChange,
   onColorCommit,
 }: {
@@ -1010,6 +1015,7 @@ function DropdownValueColorControl({
   appearance: DropdownValueColorAppearance;
   recommended?: boolean;
   disabled?: boolean;
+  onRecommendNext?: () => void;
   onColorChange?: (color: string) => void;
   onColorCommit?: (color: string) => void;
 }) {
@@ -1048,10 +1054,19 @@ function DropdownValueColorControl({
       >
         {previewLabel}
       </span>
-      {recommended ? (
-        <span className="shrink-0 text-[10px] font-bold uppercase text-[#6b778c]">
-          Auto
-        </span>
+      {onRecommendNext ? (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onRecommendNext}
+          className={`inline-flex h-7 shrink-0 items-center gap-1 rounded px-1.5 text-[10px] font-bold uppercase transition hover:bg-[#e9f2ff] disabled:cursor-not-allowed disabled:opacity-50 ${
+            recommended ? "bg-[#e9f2ff] text-[#0c66e4]" : "text-[#6b778c]"
+          }`}
+          title="Try another recommended color"
+          aria-label="Try another recommended color"
+        >
+          <RefreshCw className="h-3 w-3" /> Auto
+        </button>
       ) : null}
       <label
         className={`relative h-7 w-8 shrink-0 overflow-hidden rounded border border-[#c1c7d0] bg-white p-1 ${
@@ -1167,6 +1182,7 @@ function ConfigDropdownValuesSection({
 
   const [label, setLabel] = useState("");
   const [color, setColor] = useState("");
+  const [usesRecommendedColor, setUsesRecommendedColor] = useState(true);
   const [isTerminal, setIsTerminal] = useState(false);
   const [triggersQc, setTriggersQc] = useState(false);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
@@ -1326,6 +1342,7 @@ function ConfigDropdownValuesSection({
   function resetValueDraft() {
     setLabel("");
     setColor("");
+    setUsesRecommendedColor(true);
     setIsTerminal(false);
     setTriggersQc(false);
     setConfirmArchiveId(null);
@@ -1372,6 +1389,7 @@ function ConfigDropdownValuesSection({
                   await addValue();
                   setLabel("");
                   setColor("");
+                  setUsesRecommendedColor(true);
                   setIsTerminal(false);
                   setTriggersQc(false);
                 }, "Option added.");
@@ -1389,9 +1407,21 @@ function ConfigDropdownValuesSection({
                 color={draftColor}
                 fallbackColor={recommendedColor}
                 appearance={colorAppearance}
-                recommended={!color}
+                recommended={usesRecommendedColor}
                 disabled={busy}
-                onColorChange={setColor}
+                onRecommendNext={() => {
+                  setColor(
+                    nextRecommendedDropdownValueColor(
+                      draftColor,
+                      valueRows.map((row) => row.color)
+                    )
+                  );
+                  setUsesRecommendedColor(true);
+                }}
+                onColorChange={(nextColor) => {
+                  setColor(nextColor);
+                  setUsesRecommendedColor(false);
+                }}
               />
               <label
                 className={`flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e] ${

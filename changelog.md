@@ -23,7 +23,7 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## 2026-08-09 — Recommend colors for new dropdown values
 - **Loại**: fix
-- **Cái gì**: Config automatically assigns the least-used color from the shared dropdown palette when an admin adds a Category, custom dropdown option, or Enrollment option without manually choosing a color. The Config color cell previews the same softened/tinted badge treatment used by its consumer while retaining a small raw-color picker for overrides.
+- **Cái gì**: Config automatically assigns the least-used color from the shared dropdown palette when an admin adds a Category, custom dropdown option, or Enrollment option without manually choosing a color. The Config color cell previews the same softened/tinted badge treatment used by its consumer while retaining a small raw-color picker for overrides. The visible `Auto` button cycles through the remaining recommendations and stays available after a manual override.
 - **Vì sao**: The native picker displayed the stored saturated hex while List/Detail rendered a transformed badge, so admins could not see the actual result; Category/custom creation could also submit `null` despite showing a gray picker.
 - **File**: `src/app/(authed)/config/_components/ConfigClient.tsx`, `src/lib/table-config/value-colors.ts`
 - **Ảnh hưởng**: Dropdown-value creation and color editing in Health CS, ACA, and Medicare Config. Existing List/Detail/Create badge colors and stored existing values are unchanged.
