@@ -2184,6 +2184,7 @@ Verification completed locally:
 - `npm run test:run` — **69 files / 519 tests passed**.
 - `npm run typecheck` — **passed**.
 - `npm run lint` — **passed**.
+- `npm run build` — **passed** (Next.js production build compiled and generated all routes).
 - SQL scratch, rollout, backfill idempotency, invariant queries, and ACA/Medicare
   smoke tests — **not run** because no local Postgres server is available.
 
