@@ -25,6 +25,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Health CS, ACA, and Medicare create/reply/edit flows now keep mention identity stable, show canonical name chips, support keyboard/screen-reader selection, and send edit mention notifications as a warning-only post-commit side effect.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F20/F21
 
+## 2026-08-10 — Authorize task detail before privileged reads
+- **Loại**: fix, security
+- **Cái gì**: Task detail now resolves all non-manager scope predicates before loading comments, activity, metadata, or signing attachment URLs. Activity is excluded at the detail query for roles that cannot view it instead of being loaded and stripped afterward.
+- **Vì sao**: The previous parallel load performed privileged reads and minted signed URLs for arbitrary task IDs before returning 403 to unauthorized actors.
+- **File**: `src/app/api/tasks/[id]/detail/route.ts`
+- **Ảnh hưởng**: Unauthorized task-detail requests stop after authorization; manager and authorized role behavior remains unchanged while non-owner responses avoid activity queries.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F15
+
 ## 2026-08-10 — Keep task last-activity actor paired with its timestamp
 - **Loại**: fix, security
 - **Cái gì**: Persisted `last_activity_by_email` from the same locked mutation that updates `last_activity_at`, excluded system activity from the backfill/read path, kept position-only reorder neutral, and made task archive/overview assignment preserve the human actor pair. The database trigger restores the previous actor when a stale timestamp is clamped.

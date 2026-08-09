@@ -46,9 +46,12 @@ export async function GET(_req: Request, { params }: Ctx) {
     // every task file is attached through a comment. Skip signing them.
     includeTaskAttachments: false,
   } as const;
-  const loadDetailAndMetadata = async () => {
+  const loadDetailAndMetadata = async (includeActivity: boolean) => {
     const [detail, metadataRows] = await Promise.all([
-      loadTaskDetail(supabase, id, detailOpts),
+      loadTaskDetail(supabase, id, {
+        ...detailOpts,
+        includeActivity,
+      }),
       fetchTaskListMetadata([id], supabase),
     ]);
     const metadata = metadataRows[0];
@@ -64,20 +67,18 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   try {
     if (actor.isManager) {
-      return NextResponse.json(await loadDetailAndMetadata());
+      return NextResponse.json(await loadDetailAndMetadata(true));
     }
 
-    // Non-manager: scope checks and the detail load run together (one wave).
-    // The response is gated on canViewTask; activity is owner/assistant-only, so
-    // it's stripped for non-owners after the fact. Behaviour is identical to the
-    // old sequential version — just parallelized.
-    const [isAgentOwner, isParticipant, isAssignee, agents, detail, seeAll] =
+    // Only scope predicates are independent. Resolve them before any comments,
+    // activity, metadata, or signed attachment URLs are loaded; an unauthorized
+    // request must not perform privileged reads and then discard the result.
+    const [isAgentOwner, isParticipant, isAssignee, agents, seeAll] =
       await Promise.all([
         isAgentOwnerOrAssistant(taskScope.agent_email, actor.email),
         isTaskParticipant(id, actor.email),
         isTaskAssignee(id, actor.email, supabase),
         fetchAgentsForCs(actor.email),
-        loadDetailAndMetadata(),
         actorSeesAllTasks(actor),
       ]);
     const isAgentMember = Boolean(
@@ -96,6 +97,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
+    const detail = await loadDetailAndMetadata(isAgentOwner);
     return NextResponse.json(
       isAgentOwner ? detail : { ...detail, activity: [] }
     );
