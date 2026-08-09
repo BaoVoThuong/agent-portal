@@ -57,7 +57,7 @@ export default async function EnrollmentPage({
     tableColumnOptions,
     canExport,
   ] = await Promise.all([
-    fetchEnrollmentRecords(program),
+    fetchEnrollmentRecords(program, scope),
     fetchEnrollmentPeople(),
     fetchTaskAgents(),
     fetchEnrollmentOptionData(program),

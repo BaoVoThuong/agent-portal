@@ -31,6 +31,7 @@ import {
   findMissingRequiredFields,
   missingRequiredFieldsMessage,
 } from "@/lib/table-config/required";
+import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +73,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
   }
   try {
-    const records = await fetchEnrollmentRecords(program);
+    const scope = await resolveEnrollmentScope(actorResult.actor);
+    const records = await fetchEnrollmentRecords(program, scope);
     return NextResponse.json({ records });
   } catch (error) {
     if (error instanceof EnrollmentListTruncatedError) {

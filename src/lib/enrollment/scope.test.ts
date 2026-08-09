@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { isRecordInScope } from "./scope";
+import { describe, expect, it, vi } from "vitest";
+import { applyEnrollmentScope, isRecordInScope } from "./scope";
 
 describe("isRecordInScope", () => {
   it("lets an unscoped viewer see everything, including null-agent records", () => {
@@ -35,5 +35,42 @@ describe("isRecordInScope", () => {
         "a@x.COM"
       )
     ).toBe(true);
+  });
+});
+
+describe("applyEnrollmentScope", () => {
+  function queryDouble() {
+    const query = {
+      eq: vi.fn(),
+      in: vi.fn(),
+    };
+    query.eq.mockReturnValue(query);
+    query.in.mockReturnValue(query);
+    return query;
+  }
+
+  it("leaves a see-all query unchanged", () => {
+    const query = queryDouble();
+    expect(applyEnrollmentScope(query, { seeAll: true })).toBe(query);
+    expect(query.eq).not.toHaveBeenCalled();
+    expect(query.in).not.toHaveBeenCalled();
+  });
+
+  it("filters a scoped query by covered agent emails", () => {
+    const query = queryDouble();
+    applyEnrollmentScope(query, {
+      seeAll: false,
+      agentEmails: ["agent@x.com"],
+    });
+    expect(query.in).toHaveBeenCalledWith("agent_email", ["agent@x.com"]);
+  });
+
+  it("matches nothing when a scoped actor covers no agents", () => {
+    const query = queryDouble();
+    applyEnrollmentScope(query, { seeAll: false, agentEmails: [] });
+    expect(query.eq).toHaveBeenCalledWith(
+      "id",
+      "00000000-0000-0000-0000-000000000000"
+    );
   });
 });

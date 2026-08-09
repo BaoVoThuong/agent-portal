@@ -8,6 +8,10 @@ import {
   type EnrollmentOverviewSnapshot,
 } from "./overview-types";
 import type { EnrollmentOption, EnrollmentProgram } from "./types";
+import {
+  applyEnrollmentScope,
+  type EnrollmentScope,
+} from "./scope";
 
 const OVERVIEW_RECORD_COLUMNS =
   "id,program,client_name,description,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_at,closed_at,created_at,updated_at,archived_at";
@@ -19,6 +23,7 @@ function parseDateParam(value: string | null): string | null {
 
 export async function fetchEnrollmentOverview(
   program: EnrollmentProgram,
+  scope: EnrollmentScope,
   periodParams?: { from?: string | null; to?: string | null },
   now = new Date()
 ): Promise<EnrollmentOverviewSnapshot> {
@@ -29,6 +34,11 @@ export async function fetchEnrollmentOverview(
   const from = hasExplicitPeriod ? parseDateParam(periodParams?.from ?? "") ?? "" : defaultPeriod.from;
   const to = hasExplicitPeriod ? parseDateParam(periodParams?.to ?? "") ?? "" : defaultPeriod.to;
 
+  const recordsQuery = supabase
+    .from("enrollment_records")
+    .select(OVERVIEW_RECORD_COLUMNS)
+    .eq("program", program)
+    .is("archived_at", null);
   const [stageSetResult, recordsResult, tableColumns] = await Promise.all([
     supabase
       .from("enrollment_option_sets")
@@ -36,11 +46,7 @@ export async function fetchEnrollmentOverview(
       .eq("program", program)
       .eq("key", "stage")
       .maybeSingle(),
-    supabase
-      .from("enrollment_records")
-      .select(OVERVIEW_RECORD_COLUMNS)
-      .eq("program", program)
-      .is("archived_at", null),
+    applyEnrollmentScope(recordsQuery, scope),
     fetchTableColumns(program),
   ]);
 

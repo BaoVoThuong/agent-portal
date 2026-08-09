@@ -1,4 +1,8 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import {
+  applyEnrollmentScope,
+  type EnrollmentScope,
+} from "./scope";
 import type {
   EnrollmentActivityRow,
   EnrollmentPerson,
@@ -32,6 +36,7 @@ type LooseSupabaseQueryBuilder = {
     options?: { count?: "exact" }
   ) => LooseSupabaseQueryBuilder;
   eq: (column: string, value: unknown) => LooseSupabaseQueryBuilder;
+  in: (column: string, values: readonly string[]) => LooseSupabaseQueryBuilder;
   is: (column: string, value: unknown) => LooseSupabaseQueryBuilder;
   order: (
     column: string,
@@ -66,25 +71,31 @@ export function isMissingEnrollmentCustomValuesColumn(error: SupabaseLikeError) 
 }
 
 export async function fetchEnrollmentRecords(
-  program: EnrollmentProgram
+  program: EnrollmentProgram,
+  scope: EnrollmentScope
 ): Promise<EnrollmentRecordWithStats[]> {
   const supabase = getSupabaseAdmin();
   const queryClient = supabase as unknown as LooseSupabaseClient;
-  const { data, error, count } = await queryClient
+  const primaryQuery = queryClient
     .from("enrollment_records")
     .select(ENROLLMENT_RECORD_COLUMNS, { count: "exact" })
     .eq("program", program)
-    .is("archived_at", null)
+    .is("archived_at", null);
+  const { data, error, count } = await applyEnrollmentScope(
+    primaryQuery,
+    scope
+  )
     .order("updated_at", { ascending: false });
   let rows: unknown[] | null = data;
   let queryError: SupabaseLikeError = error;
   let rowCount: number | null | undefined = count;
   if (isMissingEnrollmentDescriptionColumn(error)) {
-    const fallback = await queryClient
+    const fallbackQuery = queryClient
       .from("enrollment_records")
       .select(ENROLLMENT_RECORD_COLUMNS_WITHOUT_DESCRIPTION, { count: "exact" })
       .eq("program", program)
-      .is("archived_at", null)
+      .is("archived_at", null);
+    const fallback = await applyEnrollmentScope(fallbackQuery, scope)
       .order("updated_at", { ascending: false });
     rows = fallback.data;
     queryError = fallback.error;
@@ -94,11 +105,12 @@ export async function fetchEnrollmentRecords(
     const legacyColumns = isMissingEnrollmentDescriptionColumn(queryError)
       ? ENROLLMENT_RECORD_COLUMNS_LEGACY_WITHOUT_DESCRIPTION
       : ENROLLMENT_RECORD_COLUMNS_LEGACY;
-    const fallback = await queryClient
+    const legacyQuery = queryClient
       .from("enrollment_records")
       .select(legacyColumns, { count: "exact" })
       .eq("program", program)
-      .is("archived_at", null)
+      .is("archived_at", null);
+    const fallback = await applyEnrollmentScope(legacyQuery, scope)
       .order("updated_at", { ascending: false });
     rows = fallback.data;
     queryError = fallback.error;

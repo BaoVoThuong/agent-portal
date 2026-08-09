@@ -10,9 +10,9 @@ export type EnrollmentScope =
   | { seeAll: true }
   | { seeAll: false; agentEmails: string[] };
 
-type ScopeableQuery<TQuery> = {
-  eq: (column: string, value: unknown) => TQuery;
-  in: (column: string, values: readonly string[]) => TQuery;
+type ScopeableQuery = {
+  eq: (column: string, value: unknown) => unknown;
+  in: (column: string, values: readonly string[]) => unknown;
 };
 
 const NO_SCOPE_RECORD_ID = "00000000-0000-0000-0000-000000000000";
@@ -74,14 +74,15 @@ export function isRecordInScope(
 
 /** Applies the scope to an enrollment_records query. */
 export function applyEnrollmentScope<TQuery>(
-  query: ScopeableQuery<TQuery> & TQuery,
+  query: TQuery,
   scope: EnrollmentScope
 ): TQuery {
   if (scope.seeAll) return query;
+  const scopeable = query as unknown as ScopeableQuery;
   if (scope.agentEmails.length === 0) {
-    return query.eq("id", NO_SCOPE_RECORD_ID);
+    return scopeable.eq("id", NO_SCOPE_RECORD_ID) as TQuery;
   }
-  return query.in("agent_email", scope.agentEmails);
+  return scopeable.in("agent_email", scope.agentEmails) as TQuery;
 }
 
 /**

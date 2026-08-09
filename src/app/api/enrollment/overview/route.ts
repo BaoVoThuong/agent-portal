@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { fetchEnrollmentOverview } from "@/lib/enrollment/overview-data";
 import { parseEnrollmentProgram } from "@/lib/enrollment/types";
+import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,8 @@ export async function GET(request: Request) {
   }
   try {
     const searchParams = new URL(request.url).searchParams;
-    const snapshot = await fetchEnrollmentOverview(program, {
+    const scope = await resolveEnrollmentScope(actorResult.actor);
+    const snapshot = await fetchEnrollmentOverview(program, scope, {
       from: searchParams.has("from") ? searchParams.get("from") : undefined,
       to: searchParams.has("to") ? searchParams.get("to") : undefined,
     });

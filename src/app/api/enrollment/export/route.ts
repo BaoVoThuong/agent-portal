@@ -23,6 +23,7 @@ import {
 import { writeXlsx } from "@/lib/table-config/sheet-io";
 import { formatCustomValue } from "@/lib/table-config/values";
 import type { TableColumn } from "@/lib/table-config/types";
+import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,8 @@ async function exportEnrollment({
 
   let records: EnrollmentRecordWithStats[];
   try {
-    records = await fetchEnrollmentRecords(program);
+    const scope = await resolveEnrollmentScope(actorResult.actor);
+    records = await fetchEnrollmentRecords(program, scope);
   } catch (error) {
     if (error instanceof EnrollmentListTruncatedError) {
       return NextResponse.json(
