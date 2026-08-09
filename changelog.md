@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-10 — Fix task actor backfill SQL correlation
+- **Loại**: fix
+- **Cái gì**: Replaced the invalid `UPDATE tasks ... FROM LATERAL` actor backfill with a correlated scalar subquery and an explicit `exists` guard. The latest non-system actor and deterministic timestamp ordering are unchanged.
+- **Vì sao**: PostgreSQL rejects references to the `UPDATE` target alias from that `FROM` item with error `42P10`, preventing the schema script from running.
+- **File**: `supabase/schema.sql`
+- **Ảnh hưởng**: Schema deployment can execute the `last_activity_by_email` backfill; tasks without a human activity row remain untouched. Production execution is still required.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, Task 12, commit `a558429`
+
 ## 2026-08-10 — Final task collaboration reconciliation
 - **Loại**: security, perf
 - **Cái gì**: Completed the repository-level collaboration hardening pass and recorded the final verification boundary: 560 tests, typecheck, lint, and production build pass. The read-only audit command was attempted but cannot query production without Supabase service credentials; live SQL/RPC, storage-fault, concurrency, browser/accessibility, and baseline backfill checks remain explicit release gates.
