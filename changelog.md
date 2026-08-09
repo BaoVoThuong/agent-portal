@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Backfill Agent for generated Enrollment QA samples
+- **Loại**: fix, data
+- **Cái gì**: Mở rộng `--backfill-agents` từ 27 fixture hardcode sang cả bộ generated QA, nhưng chỉ nhận record đồng thời có Client Name bắt đầu bằng `[Sample QA]` và FUB thuộc đúng `https://sample.qa/enrollment-{program}/...`. Có thêm `--dry-run`; assignment round-robin dùng toàn bộ tập QA đã sort để rerun sau partial write không làm lệch mapping.
+- **Vì sao**: Audit cũ nhầm 640 generated QA records là non-sample vì chúng không nằm trong mảng fixture hardcode. Do đó backfill báo xong 27 record nhưng list vẫn còn 320 ACA + 320 Medicare hiển thị `Assign` ở cột Agent.
+- **File**: `scripts/seed-enrollment-samples.mjs`
+- **Ảnh hưởng**: Chỉ sample Enrollment có hai marker QA nghiêm ngặt và `agent_email IS NULL`; record khách thật và Agent đã có sẵn không bị thay đổi.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-permission-final.md`, post-rollout correction
+
 ## 2026-08-09 — Recommend colors for new dropdown values
 - **Loại**: fix
 - **Cái gì**: Config automatically assigns the least-used color from the shared dropdown palette when an admin adds a Category, custom dropdown option, or Enrollment option without manually choosing a color. The Config color cell previews the same softened/tinted badge treatment used by its consumer while retaining a small raw-color picker for overrides. The visible `Auto` button cycles through the remaining recommendations and stays available after a manual override.

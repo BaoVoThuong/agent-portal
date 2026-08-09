@@ -14,6 +14,11 @@ loadEnv(path.resolve(__dirname, "../.env.local"));
 const SEED_ACTOR = "bao.vo@excelplannings.local";
 const SAMPLE_PREFIX = "https://app.followupboss.com/2/people/view/sample-enrollment-";
 const MEDICARE_SAMPLE_PREFIX = "https://app.followupboss.com/2/people/view/sample-medicare-";
+const QA_SAMPLE_CLIENT_PREFIX = "[Sample QA]";
+const QA_SAMPLE_PREFIX_BY_PROGRAM = {
+  aca: "https://sample.qa/enrollment-aca/",
+  medicare: "https://sample.qa/enrollment-medicare/",
+};
 
 // ACA — grounded in the real 200-row Slack List crawl (tfw_list_crawler).
 const acaRecords = [
@@ -503,7 +508,11 @@ async function main() {
   }
 
   if (process.argv.includes("--backfill-agents")) {
-    await backfillSampleAgents(supabase, agentEmails);
+    await backfillSampleAgents(
+      supabase,
+      agentEmails,
+      process.argv.includes("--dry-run")
+    );
     return;
   }
 
@@ -578,54 +587,157 @@ async function loadEligibleAgentEmails(supabase) {
   return emails;
 }
 
-// Fills agent_email on sample records seeded before agent support existed.
-// Filtering happens in the query so non-sample rows are never transferred, and
-// an unrecognised link is skipped rather than silently given the first agent.
-async function backfillSampleAgents(supabase, agentEmails) {
+// Fills agent_email on both sample families that predate agent support:
+//   1. the canonical fixtures hardcoded in this file, and
+//   2. generated QA fixtures marked by BOTH a [Sample QA] client name and the
+//      dedicated sample.qa enrollment URL.
+// Requiring both QA markers keeps real customer rows outside this write even
+// when the script uses the service role.
+async function backfillSampleAgents(supabase, agentEmails, dryRun = false) {
   const sampleLinks = records.map((record) => record.fub_link);
   const indexByLink = new Map(
     records.map((record, index) => [record.fub_link, index])
   );
 
-  const { data, error } = await supabase
+  const { data: canonicalRows, error: canonicalError } = await supabase
     .from("enrollment_records")
     .select("id,fub_link")
     .is("agent_email", null)
     .in("fub_link", sampleLinks);
-  if (error) throw new Error(`Unable to read sample records: ${error.message}`);
+  if (canonicalError) {
+    throw new Error(
+      `Unable to read canonical sample records: ${canonicalError.message}`
+    );
+  }
+  if ((canonicalRows ?? []).length > records.length) {
+    throw new Error(
+      `Refusing canonical backfill: found ${canonicalRows.length} rows for ${records.length} fixture links.`
+    );
+  }
+
+  const qaRows = [];
+  for (const [program, prefix] of Object.entries(
+    QA_SAMPLE_PREFIX_BY_PROGRAM
+  )) {
+    const { data, error, count } = await supabase
+      .from("enrollment_records")
+      .select("id,program,client_name,fub_link,agent_email", {
+        count: "exact",
+      })
+      .eq("program", program)
+      .like("client_name", `${QA_SAMPLE_CLIENT_PREFIX}%`)
+      .like("fub_link", `${prefix}%`)
+      .order("fub_link", { ascending: true })
+      .order("id", { ascending: true });
+    if (error) {
+      throw new Error(
+        `Unable to read ${program} QA sample records: ${error.message}`
+      );
+    }
+    if (count !== null && count !== (data ?? []).length) {
+      throw new Error(
+        `Refusing ${program} QA backfill: query returned ${(data ?? []).length} of ${count} rows; add pagination before continuing.`
+      );
+    }
+
+    for (const row of data ?? []) {
+      if (!isRecognizedQaSample(row, program)) {
+        throw new Error(
+          `Refusing QA backfill: record ${row.id} does not match the strict ${program} sample markers.`
+        );
+      }
+      qaRows.push(row);
+    }
+  }
 
   const idsByAgent = new Map();
   let unknown = 0;
-  for (const row of data ?? []) {
+  const queueAssignment = (id, index) => {
+    const agent = agentEmails[index % agentEmails.length];
+    if (!idsByAgent.has(agent)) idsByAgent.set(agent, []);
+    idsByAgent.get(agent).push(id);
+  };
+
+  for (const row of canonicalRows ?? []) {
     const index = indexByLink.get(row.fub_link ?? "");
     if (index === undefined) {
       unknown += 1;
       continue;
     }
-    const agent = agentEmails[index % agentEmails.length];
-    if (!idsByAgent.has(agent)) idsByAgent.set(agent, []);
-    idsByAgent.get(agent).push(row.id);
+    queueAssignment(row.id, index);
+  }
+
+  // Index against the complete, sorted QA fixture set (not just null rows), so
+  // rerunning after a partial backfill keeps the same assignment for a fixed
+  // roster + fixture set.
+  let qaMissing = 0;
+  for (const [index, row] of qaRows.entries()) {
+    if (row.agent_email) continue;
+    qaMissing += 1;
+    queueAssignment(row.id, records.length + index);
+  }
+
+  const canonicalMissing = (canonicalRows ?? []).length;
+  const totalMissing = canonicalMissing + qaMissing;
+  if (unknown > 0) {
+    throw new Error(
+      `Refusing canonical backfill: ${unknown} row(s) did not match an exact fixture link.`
+    );
+  }
+  console.log(
+    `Agent backfill target: ${canonicalMissing} canonical + ${qaMissing} QA sample record(s) across ${agentEmails.length} eligible agent(s).`
+  );
+  if (dryRun) {
+    console.log("--dry-run: nothing written.");
+    return;
   }
 
   let updated = 0;
   for (const [agent, ids] of idsByAgent) {
-    const { error: updateError } = await supabase
+    const { data: updatedRows, error: updateError } = await supabase
       .from("enrollment_records")
       .update({ agent_email: agent })
-      .in("id", ids);
+      .in("id", ids)
+      .is("agent_email", null)
+      .select("id");
     if (updateError) {
       throw new Error(
         `Unable to backfill agent_email for ${agent}: ${updateError.message}`
       );
     }
-    updated += ids.length;
+    updated += (updatedRows ?? []).length;
   }
 
   console.log(
     `Backfilled agent_email on ${updated} sample record(s) across ${idsByAgent.size} agent(s).`
   );
-  if (unknown > 0) {
-    console.log(`Skipped ${unknown} record(s) with an unrecognised sample link.`);
+  if (updated !== totalMissing) {
+    throw new Error(
+      `Backfill count mismatch: expected ${totalMissing}, updated ${updated}.`
+    );
+  }
+}
+
+function isRecognizedQaSample(row, program) {
+  if (
+    row.program !== program ||
+    !row.client_name?.startsWith(QA_SAMPLE_CLIENT_PREFIX)
+  ) {
+    return false;
+  }
+
+  try {
+    const url = new URL(row.fub_link ?? "");
+    const pathPattern = new RegExp(
+      `^/enrollment-${program}/[^/]+/[0-9]+$`
+    );
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "sample.qa" &&
+      pathPattern.test(url.pathname)
+    );
+  } catch {
+    return false;
   }
 }
 

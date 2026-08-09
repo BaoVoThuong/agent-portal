@@ -1006,11 +1006,12 @@ Automated verification after implementation: `npx tsc --noEmit`, `npx vitest run
 ### Live rollout audit
 
 - Ran the fixture-only `--backfill-agents`: **27 sample records across 17 eligible agents** were updated; a read-back confirmed **0 sample records remain null-agent**.
-- The broader pre-deploy null-agent assumption is false in the connected environment: ACA has **320 / 340 active** records with no agent (**288 open**); Medicare has **320 / 327 active** records with no agent (**224 open**). Deploying fail-closed scope before those real records are mapped would hide them from every scoped agent/assistant.
+- **[CODEX CORRECTION — 2026-08-09]** The 640 remaining null-agent rows were incorrectly classified as real/non-sample. A direct read-back proved all 640 are generated QA fixtures: 320 ACA + 320 Medicare, each carrying both a `[Sample QA]` client-name prefix and a dedicated `https://sample.qa/enrollment-{program}/...` FUB URL. They were omitted only because Task 0.1 scoped the backfill to the 27 hardcoded Follow Up Boss fixture links. The backfill implementation now recognizes the generated QA family using both markers and supports a read-only `--dry-run` before assignment.
+- The corrected dry-run targeted exactly **640 QA fixtures** and no canonical/real rows. The live write assigned all 640 across **17 eligible agents**. Independent read-back confirmed ACA **320 total / 0 missing** and Medicare **320 total / 0 missing**, with **18–19 records per agent per program**.
 - The open-record impact query found **13 distinct non-agent stakeholders** across **245 stakeholder slots** in 531 open records. This is a role-transition observation, not a reason to broaden owner-only actions.
 - `task.export` is **not yet present in the live permission catalogue** and has **0 live grants**. The transactional rollout is ready at `supabase/rollouts/2026-08-09-task-export-permission.sql`, but was not executed because the workspace has no transactional DB connection.
 
-**Deployment gate: BLOCKED.** Before deploying these commits, ownership must be mapped for the 640 non-sample active null-agent records using a business-approved source; do not round-robin real customers. Then run the export permission rollout SQL, review accounts losing export, and repeat the null-agent/count/browser matrix. Code implementation is complete; production data rollout is not.
+**Deployment gate:** The previous blocker for “640 non-sample records” is resolved and withdrawn because those rows are verified QA fixtures, not customers; the strict QA-only backfill has been executed and read back. The export permission rollout SQL still needs its separate deployment/review.
 
 ### Post-plan owner override — main content
 
