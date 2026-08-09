@@ -991,6 +991,7 @@ where archived_at is null group by program;
 |---|---|---|
 | 0.1 Sample enrollment agent assignment | Implemented eligible-agent intersection, deterministic assignment and fixture-only null backfill | `2eceede` |
 | 0.2 Guarded assistant fixtures | Implemented explicit allow-list, environment guard and dry-run; no live membership write was run | `6b53238` |
+| 0.3 Generated QA agent backfill correction | Reclassified the 640 `[Sample QA]` rows correctly, added strict dual-marker + dry-run guards, assigned all 640 across 17 eligible agents, and verified 0 missing in both programs | `2173014` |
 | 1.1 Capability resolver | Implemented and unit-tested the D1 action matrix | `1e5a763` |
 | 1.2 Actor scope resolver | Implemented manager/plain-worker shared view, agent/assistant scope and null-agent fail-closed | `b2b3b00` |
 | 1.3 Record read scope | Applied 404 scope guard to every record/deep-link read path | `cc86ddb` |
