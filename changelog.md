@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Add Enrollment stage-time tracking schema
+- **Loại**: feat
+- **Cái gì**: Thêm các mốc stage/activity trên `enrollment_records` và bảng `enrollment_stage_cycles` với unique open-cycle invariant, source tracking, terminal-marker distinction, index và RLS.
+- **Vì sao**: Tạo nền schema cho stage dwell/revisit metrics mà không tách cycle khi chỉ đổi owner và không làm thay đổi semantics usage count của Config archive.
+- **File**: `supabase/schema.sql`, `supabase/rollouts/2026-08-09-enrollment-stage-time-schema.sql`
+- **Ảnh hưởng**: Enrollment ACA/Medicare; chưa có route nào đọc/ghi cycle cho tới các task tiếp theo.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-stage-time-tracking.md`, CODEX-02/CODEX-03/CODEX-04
+
 ## 2026-08-09 — Prevent comment mention menu from covering composer actions
 - **Loại**: fix
 - **Cái gì**: Menu gợi ý khi gõ `@` được portal ra ngoài drawer, neo theo vị trí caret và tự chọn hướng mở. Composer docked ở đáy luôn mở menu lên trên; reply composer tự chọn phía còn đủ chỗ. Menu tự đo lại khi textarea resize, viewport resize hoặc vùng comment scroll.
