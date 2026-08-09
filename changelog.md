@@ -21,6 +21,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ## Unreleased
 
+## 2026-08-09 — Enforce Enrollment agent scope and explicit export permission
+- **Loại**: security, breaking
+- **Cái gì**: ACA/Medicare now enforce the same agent/assistant scope on list, overview, export, deep links and every record-by-ID API. Mutation rights are split by action: agent-owner/assistant controls QC, people assignment and archive; caller/responsible can edit workflow fields and change/reopen stage; creator can edit fields; managers retain all actions. Agent transfer is reserved for manager, agent-owner/assistant or creator. Creating a record requires manager access or ownership/assistant scope for the selected agent. Task and Enrollment exports now require the independent `task.export` permission in both UI and API.
+- **Vì sao**: Service-role reads previously allowed out-of-scope UUID access, a single broad client predicate exposed controls the server should reject, and manager status alone was an implicit data-export entitlement.
+- **File**: `src/lib/enrollment/access.ts`, `src/lib/enrollment/scope.ts`, `src/app/api/enrollment/**`, `src/app/(authed)/enrollment/**`, `src/lib/table-config/export-access.ts`, `src/app/api/tasks/export/route.ts`, `src/lib/rbac/permissions.ts`, `supabase/schema.sql`
+- **Ảnh hưởng**: Scoped agents/assistants only see records for agents they cover; null-agent records fail closed for scoped viewers. Plain task workers keep the shared queue view but cannot create unless they have agent scope. Existing managers without `task.export` lose Export until the permission is granted. Health CS permission behavior was verified and intentionally not changed.
+- **Ref**: `docs/superpowers/plans/2026-08-09-enrollment-permission-final.md`; commits `1e5a763`…`ff12606`
+
 ## 2026-08-09 — Thêm chế độ seed assistant có guard
 - **Loại**: feat, security
 - **Cái gì**: Seed script chỉ tạo assistant membership khi người chạy truyền explicit `cs:agent` allow-list, bật `SEED_ALLOW_ASSISTANTS=1`; hỗ trợ `--dry-run`, in target database và toàn bộ pair trước khi ghi.
