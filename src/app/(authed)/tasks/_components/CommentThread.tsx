@@ -35,6 +35,10 @@ import {
   type MentionPerson,
 } from "@/lib/tasks/mention-draft";
 import { moveEnabledChoiceIndex } from "@/lib/ui/option-search";
+import {
+  isNearBottom,
+  shouldFollowNewRows,
+} from "@/lib/tasks/thread-view";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
 import type {
@@ -90,6 +94,10 @@ type CommentEdit = {
 type EditOutcome =
   | { ok: true }
   | { ok: false; kind: "conflict" | "error"; message: string };
+
+type MutationOutcome =
+  | { ok: true; warning?: string }
+  | { ok: false; message: string };
 
 type MentionMenuPosition = {
   top: number;
@@ -344,6 +352,11 @@ export function CommentThread({
   const submissionRef = useRef<SubmissionState>({ inFlight: false, requestId: null });
   const failedSubmissionIntentRef = useRef<string | null>(null);
   const [submissionBusy, setSubmissionBusy] = useState(false);
+  const [newRowsCount, setNewRowsCount] = useState(0);
+  const [clockTick, setClockTick] = useState(0);
+  const nearBottomRef = useRef(true);
+  const previousRowIdsRef = useRef<string[] | null>(null);
+  const ownSendRef = useRef(false);
   // Blob URLs created for optimistic attachment previews, keyed by temp comment
   // id so they can be revoked once the real (signed) URLs replace them.
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
@@ -383,6 +396,20 @@ export function CommentThread({
     };
   }, [taskId]);
 
+  // One clock per open thread keeps relative timestamps current without one
+  // interval per comment. Hidden tabs wait until they become visible again.
+  useEffect(() => {
+    const tick = () => {
+      if (!document.hidden) setClockTick((value) => value + 1);
+    };
+    const interval = window.setInterval(tick, 60_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
+
   const nameOf = useCallback(
     (email: string, canonicalName?: string | null) =>
       canonicalName?.trim() ||
@@ -418,6 +445,7 @@ export function CommentThread({
       submissionRef.current = finishSubmission();
     }
     submissionRef.current = beginSubmission(submissionRef.current, () => crypto.randomUUID());
+    ownSendRef.current = true;
     setSubmissionBusy(true);
     const tempId = `optimistic-${taskId}-${optimisticCounterRef.current++}`;
     // Show the picked files immediately using local blob URLs; they are revoked
@@ -575,7 +603,10 @@ export function CommentThread({
 
     let reloadDidFail = false;
     try {
-      await onReload();
+      const reloadResult = await onReload();
+      if (reloadResult === "failed") {
+        throw new Error("Comment saved; refresh failed.");
+      }
     } catch (error) {
       reloadDidFail = true;
       setOptimisticComments((current) =>
@@ -647,7 +678,10 @@ export function CommentThread({
         ),
       );
       try {
-        await onReload();
+        const reloadResult = await onReload();
+        if (reloadResult === "failed") {
+          throw new Error("Refresh failed.");
+        }
         const latest = optimisticComments.find((item) => item.id === tempId);
         if (latest?.fileStates?.every((state) => state.status === "success")) {
           releaseOptimistic(tempId);
@@ -680,18 +714,26 @@ export function CommentThread({
     }
   }
 
-  async function remove(id: string) {
-    if (
-      !window.confirm(
-        "Delete this comment? Replies will remain visible, and linked files will be removed."
-      )
-    ) {
-      return;
+  async function remove(id: string): Promise<MutationOutcome> {
+    let res: Response;
+    try {
+      res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
+        method: "DELETE",
+      });
+    } catch {
+      return { ok: false, message: "Could not delete the comment. Try again." };
     }
-    const res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
-      method: "DELETE",
-    });
-    if (res.ok) await onReload();
+    if (!res.ok) {
+      return { ok: false, message: "Could not delete the comment. Try again." };
+    }
+    try {
+      const reloadResult = await onReload();
+      return reloadResult === "failed"
+        ? { ok: true, warning: "Comment deleted, but the thread could not refresh." }
+        : { ok: true };
+    } catch {
+      return { ok: true, warning: "Comment deleted, but the thread could not refresh." };
+    }
   }
 
   async function edit(
@@ -756,15 +798,39 @@ export function CommentThread({
   const topLevel = rows
     .filter((c) => c.parent_id === null)
     .sort((a, b) => timestampOf(a) - timestampOf(b));
-  const rowSignature = rows.map((comment) => comment.id).join("|");
+  const rowIds = rows.map((comment) => comment.id);
+  const rowSignature = rowIds.join("|");
 
-  // Land on the newest message, like opening a chat. Skipped when deep-linking
-  // to a specific comment — that flow scrolls to its own target below.
   useEffect(() => {
-    if (highlightCommentId) return;
     const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    const previous = previousRowIdsRef.current;
+    const currentIds = rowSignature ? rowSignature.split("|") : [];
+    previousRowIdsRef.current = currentIds;
+    if (!el || highlightCommentId) return;
+    if (!previous) {
+      el.scrollTop = el.scrollHeight;
+      nearBottomRef.current = true;
+      setNewRowsCount(0);
+      ownSendRef.current = false;
+      return;
+    }
+    const previousIds = new Set(previous);
+    const addedCount = currentIds.filter((id) => !previousIds.has(id)).length;
+    if (addedCount === 0) return;
+    if (
+      shouldFollowNewRows({
+        nearBottom: nearBottomRef.current,
+        ownSend: ownSendRef.current,
+        deepLink: Boolean(highlightCommentId),
+      })
+    ) {
+      el.scrollTop = el.scrollHeight;
+      nearBottomRef.current = true;
+      setNewRowsCount(0);
+      ownSendRef.current = false;
+    } else {
+      setNewRowsCount((count) => count + addedCount);
+    }
   }, [rowSignature, highlightCommentId]);
 
   useEffect(() => {
@@ -788,8 +854,15 @@ export function CommentThread({
     <>
       {/* Messenger layout: the thread scrolls inside its own box and the
           composer is docked underneath it, so the input never moves. */}
-      <section ref={rootRef} className="flex h-full min-h-0 flex-1 flex-col">
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
+      <section ref={rootRef} className="relative flex h-full min-h-0 flex-1 flex-col">
+        <div
+          ref={scrollRef}
+          onScroll={(event) => {
+            nearBottomRef.current = isNearBottom(event.currentTarget);
+            if (nearBottomRef.current) setNewRowsCount(0);
+          }}
+          className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1"
+        >
         {topLevel.length === 0 ? (
           <div className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]">
             No comments yet.
@@ -804,6 +877,7 @@ export function CommentThread({
                   apiBase={apiBase}
                   currentEmail={currentEmail}
                   members={members}
+                  nowTick={clockTick}
                   nameOf={nameOf}
                   onDelete={c.optimistic ? releaseOptimistic : remove}
                   onEdit={edit}
@@ -820,6 +894,7 @@ export function CommentThread({
                         apiBase={apiBase}
                         currentEmail={currentEmail}
                         members={members}
+                        nowTick={clockTick}
                         nameOf={nameOf}
                         onDelete={rc.optimistic ? releaseOptimistic : remove}
                         onEdit={edit}
@@ -846,6 +921,21 @@ export function CommentThread({
           </div>
         )}
         </div>
+        {newRowsCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => {
+              const element = scrollRef.current;
+              if (!element) return;
+              element.scrollTop = element.scrollHeight;
+              nearBottomRef.current = true;
+              setNewRowsCount(0);
+            }}
+            className="mx-auto my-2 shrink-0 rounded-full bg-[#e9f2ff] px-3 py-1.5 text-xs font-semibold text-[#0c66e4] shadow-sm transition hover:bg-[#deebff]"
+          >
+            New comments ({newRowsCount})
+          </button>
+        ) : null}
 
         <div className="shrink-0 border-t border-[#dfe1e6] bg-white pt-3">
           <Composer
@@ -930,6 +1020,7 @@ function CommentItem({
   apiBase,
   currentEmail,
   members,
+  nowTick,
   nameOf,
   onDelete,
   onEdit,
@@ -942,14 +1033,20 @@ function CommentItem({
   apiBase: string;
   currentEmail: string;
   members: TaskAssignee[];
+  nowTick: number;
   nameOf: (email: string, canonicalName?: string | null) => string;
-  onDelete: (id: string) => Promise<void> | void;
+  onDelete: (id: string) => Promise<MutationOutcome | void> | MutationOutcome | void;
   onEdit: (id: string, body: string, expectedUpdatedAt: string | null, newMentions?: string[]) => Promise<EditOutcome>;
   onReply?: () => void;
   onRetryFile?: (fileId: string) => void;
   onPreviewImage: (preview: ImagePreview) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [mutationStatus, setMutationStatus] = useState<
+    { kind: "status" | "alert"; message: string } | null
+  >(null);
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
   const canReply = Boolean(onReply && !c.optimistic);
@@ -967,16 +1064,49 @@ function CommentItem({
     new Date(editedAt).getTime() > new Date(c.created_at).getTime() + 1000;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [edits, setEdits] = useState<CommentEdit[] | null>(null);
+  const [historyError, setHistoryError] = useState(false);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmingDelete) deleteCancelRef.current?.focus();
+  }, [confirmingDelete]);
+
+  async function loadHistory() {
+    setHistoryError(false);
+    try {
+      const res = await fetch(`${apiBase}/${taskId}/comments/${c.id}/edits`);
+      if (!res.ok) throw new Error("history request failed");
+      setEdits(((await res.json()).edits ?? []) as CommentEdit[]);
+    } catch {
+      setEdits([]);
+      setHistoryError(true);
+    }
+  }
+
   async function toggleHistory() {
     const next = !historyOpen;
     setHistoryOpen(next);
     if (next && edits === null) {
-      try {
-        const res = await fetch(`${apiBase}/${taskId}/comments/${c.id}/edits`);
-        setEdits(res.ok ? ((await res.json()).edits ?? []) : []);
-      } catch {
-        setEdits([]);
+      await loadHistory();
+    }
+  }
+
+  async function confirmDelete() {
+    if (deleting) return;
+    setDeleting(true);
+    setMutationStatus(null);
+    try {
+      const result = await onDelete(c.id);
+      if (result && !result.ok) {
+        setMutationStatus({ kind: "alert", message: result.message });
+        return;
       }
+      if (result?.warning) {
+        setMutationStatus({ kind: "status", message: result.warning });
+      }
+      setConfirmingDelete(false);
+      requestAnimationFrame(() => triggerRef.current?.focus());
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -993,7 +1123,7 @@ function CommentItem({
               className="text-xs font-medium text-[#6b778c]"
               title={formatExactCommentTime(c.created_at)}
             >
-              {formatCommentTime(c.created_at)}
+              {formatCommentTime(c.created_at, nowTick)}
             </span>
           </div>
           <p className="pt-0.5 text-xs italic text-[#97a0af]">Comment deleted</p>
@@ -1017,7 +1147,7 @@ function CommentItem({
               className="text-xs font-medium text-[#6b778c]"
               title={formatExactCommentTime(c.created_at)}
             >
-              {formatCommentTime(c.created_at)}
+              {formatCommentTime(c.created_at, nowTick)}
             </span>
             {wasEdited ? (
               <button
@@ -1063,6 +1193,13 @@ function CommentItem({
                   </div>
                   {edits === null ? (
                     <div className="text-[#97a0af]">Loading…</div>
+                  ) : historyError ? (
+                    <div role="alert" className="flex items-center justify-between gap-2 text-[#bf2600]">
+                      <span>Could not load edit history.</span>
+                      <button type="button" onClick={() => void loadHistory()} className="font-bold underline">
+                        Retry
+                      </button>
+                    </div>
                   ) : edits.length === 0 ? (
                     <div className="text-[#97a0af]">No previous versions.</div>
                   ) : (
@@ -1216,7 +1353,7 @@ function CommentItem({
                         role="menuitem"
                         onClick={() => {
                           setIsOpen(false);
-                          void onDelete(c.id);
+                          setConfirmingDelete(true);
                         }}
                         className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-sm font-medium text-[#bf2600] transition hover:bg-[#ffebe6]"
                       >
@@ -1229,7 +1366,59 @@ function CommentItem({
               : null}
           </div>
         ) : null}
+        {mutationStatus ? (
+          <p
+            role={mutationStatus.kind === "alert" ? "alert" : "status"}
+            className={`mt-1 text-xs font-semibold ${mutationStatus.kind === "alert" ? "text-[#bf2600]" : "text-[#7a5d00]"}`}
+          >
+            {mutationStatus.message}
+          </p>
+        ) : null}
       </div>
+      {confirmingDelete ? (
+        <div
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-[#091e42]/30 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`delete-title-${c.id}`}
+        >
+          <div className="w-full max-w-sm rounded-lg border border-[#dfe1e6] bg-white p-4 shadow-2xl">
+            <h2 id={`delete-title-${c.id}`} className="text-sm font-bold text-[#172b4d]">
+              Delete comment?
+            </h2>
+            <p className="mt-2 text-sm leading-5 text-[#44546f]">
+              Replies will remain visible, and linked files will be removed.
+            </p>
+            {mutationStatus?.kind === "alert" ? (
+              <p role="alert" className="mt-2 text-xs font-semibold text-[#bf2600]">
+                {mutationStatus.message}
+              </p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                ref={deleteCancelRef}
+                type="button"
+                onClick={() => {
+                  setConfirmingDelete(false);
+                  requestAnimationFrame(() => triggerRef.current?.focus());
+                }}
+                disabled={deleting}
+                className="rounded px-3 py-1.5 text-sm font-semibold text-[#44546f] hover:bg-[#f4f5f7]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDelete()}
+                disabled={deleting}
+                className="rounded bg-[#bf2600] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#a52300] disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -1848,7 +2037,11 @@ function Composer({
   );
 }
 
-function formatCommentTime(value: string) {
+function formatCommentTime(value: string, nowTick?: number) {
+  // The tick is intentionally consumed by callers to refresh relative labels
+  // without creating one timer per comment. The timestamp remains the source
+  // of truth for the displayed value.
+  void nowTick;
   const date = new Date(value);
   const timestamp = date.getTime();
   if (!Number.isFinite(timestamp)) return value;

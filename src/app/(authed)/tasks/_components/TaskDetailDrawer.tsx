@@ -24,6 +24,7 @@ import { AvatarStack } from "./board-ui";
 import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
+import { activeCommentCount } from "@/lib/tasks/thread-view";
 
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
@@ -493,7 +494,7 @@ export function TaskDetailDrawer({
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
                   <DetailTabButton
                     label="Comments"
-                    count={detail?.comments.length ?? 0}
+                    count={detail ? activeCommentCount(detail.comments) : 0}
                     active={tab === "comments"}
                     onClick={() => setTab("comments")}
                   />

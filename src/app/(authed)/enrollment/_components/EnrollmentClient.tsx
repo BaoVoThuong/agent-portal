@@ -90,6 +90,7 @@ import { DateRangeFilter, type TaskDateRangeValue } from "../../tasks/_component
 import { ReasonModal } from "../../tasks/_components/ReasonModal";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { Initials } from "../../tasks/_components/board-ui";
+import { activeCommentCount } from "@/lib/tasks/thread-view";
 import { EnrollmentOverview } from "./EnrollmentOverview";
 
 type SortKey =
@@ -2979,7 +2980,7 @@ function EnrollmentDrawer({
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
                   <DrawerTab
                     label="Comments"
-                    count={detail?.comments.length ?? record.comment_count}
+                    count={detail ? activeCommentCount(detail.comments) : record.comment_count}
                     active={tab === "comments"}
                     onClick={() => setTab("comments")}
                   />
