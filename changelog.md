@@ -19,6 +19,13 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 ---
 
+## 2026-08-10 — Add typed task activity and mutation-result contracts
+- **Loại**: feat
+- **Cái gì**: Added the shared task activity vocabulary/metadata union and a `MutationResult`/warning helper for post-commit side effects.
+- **Vì sao**: SQL writers, API routes, and the activity renderer previously drifted on allowed event names and had no common 2xx-with-warnings contract.
+- **File**: `src/lib/tasks/activity-events.ts`, `src/lib/tasks/activity-events.test.ts`, `src/lib/tasks/mutation-result.ts`
+- **Ảnh hưởng**: Future task collaboration mutations can share one typed event contract; unknown historical rows remain tolerated.
+
 ## 2026-08-10 — Clamp task version and activity timestamps monotonically
 - **Loại**: fix, security
 - **Cái gì**: Added the `tasks_updated_at_monotonic` trigger, made `touchLastActivity` return the committed `updated_at`, and returned that value from the task comment API as the optimistic-concurrency token.
