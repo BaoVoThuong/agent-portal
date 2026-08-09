@@ -1741,16 +1741,24 @@ create index if not exists task_activity_task_idx on task_activity (task_id, cre
 -- Backfill the actor side of the timestamp pair after the activity table
 -- exists. The tie-breaker keeps the result deterministic for same-timestamp
 -- historical rows.
+-- Use a correlated scalar subquery instead of a FROM LATERAL reference. The
+-- PostgreSQL UPDATE target alias is not visible inside a FROM item at this
+-- level (42P10), while it is valid in the SET expression and preserves the
+-- same deterministic latest-human-actor selection.
 update tasks t
-set last_activity_by_email = latest.actor_email
-from lateral (
+set last_activity_by_email = (
   select a.actor_email
   from task_activity a
   where a.task_id = t.id and a.actor_email <> 'system'
   order by a.created_at desc, a.id desc
   limit 1
-) latest
-where t.last_activity_by_email is null;
+)
+where t.last_activity_by_email is null
+  and exists (
+    select 1
+    from task_activity a
+    where a.task_id = t.id and a.actor_email <> 'system'
+  );
 
 create or replace function task_list_metadata(task_ids uuid[])
 returns table (
