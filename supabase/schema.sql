@@ -1717,6 +1717,14 @@ create index if not exists task_attachments_active_idx
   on task_attachments (task_id)
   where deleted_at is null;
 
+-- Comment and attachment writes are intentionally command-only (the atomic
+-- RPCs below validate task_id/parent_id together). Keep this narrow index for
+-- the command/audit lookups; a trigger would add avoidable write overhead and
+-- still could not repair legacy inconsistent rows automatically.
+create index if not exists task_attachments_comment_active_idx
+  on task_attachments (comment_id)
+  where deleted_at is null;
+
 create index if not exists task_attachments_task_idx on task_attachments (task_id);
 
 create table if not exists task_activity (
@@ -1864,14 +1872,35 @@ language sql stable security definer set search_path = public as $$
   having count(*) > 1;
 $$;
 
+create or replace function audit_cross_task_comment_links()
+returns table (kind text, row_id uuid, task_id uuid, linked_task_id uuid)
+language sql stable security definer set search_path = public as $$
+  select 'reply_cross_task'::text, child.id, child.task_id, parent.task_id
+  from task_comments child
+  join task_comments parent on parent.id = child.parent_id
+  where child.task_id <> parent.task_id
+  union all
+  select 'reply_nested'::text, child.id, child.task_id, parent.task_id
+  from task_comments child
+  join task_comments parent on parent.id = child.parent_id
+  where parent.parent_id is not null
+  union all
+  select 'attachment_cross_task'::text, attachment.id, attachment.task_id, comment.task_id
+  from task_attachments attachment
+  join task_comments comment on comment.id = attachment.comment_id
+  where attachment.task_id <> comment.task_id;
+$$;
+
 revoke all on function audit_comment_activity_gaps() from public, anon, authenticated;
 revoke all on function audit_last_activity_mismatch() from public, anon, authenticated;
 revoke all on function audit_overdue_gaps() from public, anon, authenticated;
 revoke all on function audit_duplicate_comments() from public, anon, authenticated;
+revoke all on function audit_cross_task_comment_links() from public, anon, authenticated;
 grant execute on function audit_comment_activity_gaps() to service_role;
 grant execute on function audit_last_activity_mismatch() to service_role;
 grant execute on function audit_overdue_gaps() to service_role;
 grant execute on function audit_duplicate_comments() to service_role;
+grant execute on function audit_cross_task_comment_links() to service_role;
 
 -- Commit attachment metadata removal and its required audit event first. The
 -- storage object is returned to the route for best-effort cleanup after the

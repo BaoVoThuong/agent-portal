@@ -30,6 +30,7 @@ async function run(): Promise<Section[]> {
   sections.push({ name: "last_activity_actor_mismatch", rows: await rpcRows(db, "audit_last_activity_mismatch") });
   sections.push({ name: "overdue_gaps", rows: await rpcRows(db, "audit_overdue_gaps") });
   sections.push({ name: "duplicate_comment_candidates", rows: await rpcRows(db, "audit_duplicate_comments") });
+  sections.push({ name: "cross_task_comment_links", rows: await rpcRows(db, "audit_cross_task_comment_links") });
   return sections;
 }
 

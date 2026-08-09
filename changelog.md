@@ -49,6 +49,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Health CS comments and attachments receive deterministic boundary errors on both client and server. This is not malware scanning: magic-byte checks prevent type confusion only; authenticated Office/PDF uploads remain an accepted risk pending owner sign-off.
 - **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F17
 
+## 2026-08-10 — Audit same-task collaboration links
+- **Loại**: fix, security
+- **Cái gì**: Confirmed task comment and attachment writes are routed through atomic commands that validate parent/comment task ownership, added the partial `task_attachments(comment_id)` index, and exposed a restricted read-only audit RPC/script for cross-task and nested reply links.
+- **Vì sao**: Foreign-key references alone do not guarantee that a reply or attachment's `task_id` matches its linked comment's task, which could leak collaboration data across detail queries.
+- **File**: `supabase/schema.sql`, `scripts/audit-task-collaboration.ts`
+- **Ảnh hưởng**: Command paths retain the invariant without adding trigger overhead; operators can prove legacy data is clean before rollout. No direct non-command writer was found, so no trigger was added.
+- **Ref**: `docs/superpowers/plans/2026-08-09-task-collaboration-final-plan.md`, F18
+
 ## 2026-08-10 — Keep task last-activity actor paired with its timestamp
 - **Loại**: fix, security
 - **Cái gì**: Persisted `last_activity_by_email` from the same locked mutation that updates `last_activity_at`, excluded system activity from the backfill/read path, kept position-only reorder neutral, and made task archive/overview assignment preserve the human actor pair. The database trigger restores the previous actor when a stale timestamp is clamped.
