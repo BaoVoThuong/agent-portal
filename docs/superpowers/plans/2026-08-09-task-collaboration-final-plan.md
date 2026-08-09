@@ -3778,7 +3778,7 @@ one task, or once the 200-row activity cap is actually reached.
 | 9. Attachment idempotency | C | P2 | Implemented | `923075b` | Attachment validation tests + typecheck passed | Multipart auth gate, sign-before-commit, atomic metadata/audit, idempotency replay, compensation, and warning-only side effects implemented. Live storage/DB fault injection pending. |
 | 10. Atomic comment edit | C | P2 | Implemented | `c9249a2` | Typecheck + targeted tests passed | Task and Enrollment edits now use locked compare-and-swap RPCs with atomic history/activity; UI keeps drafts and surfaces 409s. Two-tab/browser conflict test pending. |
 | 11. Deletion retention | C | P2 | Implemented | `4ce4f97` | Typecheck + detail tests passed | Task comment/attachment soft-delete RPC, reply-preserving placeholder, search/detail/count filters, confirmation, and warning cleanup implemented. Live storage/search verification pending. |
-| 12. Last-activity pair | C | P2 | Implemented | `TBD` | Typecheck + queries/last-activity tests passed | F10. Actor column was added early in Task 6; this task completes every writer, excludes system activity, keeps position-only reorder from moving the pair, and archives with the human actor. Live SQL/cron verification pending. |
+| 12. Last-activity pair | C | P2 | Implemented | `8a028e9` | Typecheck + queries/last-activity tests passed | F10. Actor column was added early in Task 6; this task completes every writer, excludes system activity, keeps position-only reorder from moving the pair, and archives with the human actor. Live SQL/cron verification pending. |
 | 13. Unassigned activity | C | P2 | Pending | — | — | F11 |
 | 14. Atomic task create | C | P2 | Pending | — | — | F12 |
 | 15. Atomic overdue | C | P2 | Pending | — | — | F13 |
