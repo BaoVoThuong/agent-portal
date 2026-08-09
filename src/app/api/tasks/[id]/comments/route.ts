@@ -9,13 +9,9 @@ import {
 } from "@/lib/tasks/assignees";
 import { resolveCommentRecipients, insertNotifications } from "@/lib/tasks/notifications";
 import { parseMentions } from "@/lib/tasks/mentions";
-import {
-  addParticipants,
-  fetchTaskParticipantEmails,
-  isTaskParticipant,
-} from "@/lib/tasks/participants";
+import { fetchTaskParticipantEmails, isTaskParticipant } from "@/lib/tasks/participants";
 import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
-import { touchLastActivity } from "@/lib/tasks/last-activity";
+import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -23,7 +19,9 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 const COMMENT_COLUMNS =
-  "id,task_id,parent_id,author_email,body,created_at,updated_at,deleted_at";
+  "id,task_id,parent_id,author_email,body,client_request_id,created_at,updated_at,deleted_at";
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function loadActorAndTask(id: string) {
   const session = await auth();
@@ -109,81 +107,96 @@ export async function POST(req: Request, { params }: Ctx) {
   const hasAttachments = body?.hasAttachments === true;
   if (!text && !hasAttachments)
     return NextResponse.json({ error: "Comment is empty." }, { status: 400 });
-  const nowIso = new Date().toISOString();
-
-  // Validate parent: must be a top-level comment on THIS task (one-level threading).
-  let parentId: string | null = null;
-  if (typeof body?.parentId === "string" && body.parentId) {
-    const { data: parent } = await r.supabase
-      .from("task_comments")
-      .select("id,task_id,parent_id")
-      .eq("id", body.parentId)
-      .maybeSingle();
-    const p = parent as { task_id: string; parent_id: string | null } | null;
-    if (!p || p.task_id !== id || p.parent_id !== null)
-      return NextResponse.json({ error: "Invalid parent comment." }, { status: 400 });
-    parentId = body.parentId;
-  }
-
-  const { data: comment, error } = await r.supabase
-    .from("task_comments")
-    .insert({ task_id: id, parent_id: parentId, author_email: r.actor.email, body: text })
-    .select(COMMENT_COLUMNS)
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  await r.supabase.from("task_activity").insert({
-    task_id: id,
-    actor_email: r.actor.email,
-    type: "comment_added",
-    meta: null,
-  });
 
   // Mentions are parsed from the body (server is the source of truth), then
-  // validated against board members. Mentioned members become participants (so
-  // they can see the task) and get notified.
+  // validated against board members before the atomic command grants access.
   const taskMembers = await fetchTaskAssignees();
   const actionableEmails = new Set(taskMembers.map((member) => member.email));
   const validMentions = parseMentions(text).filter((m) => actionableEmails.has(m));
-  if (validMentions.length > 0) await addParticipants(id, validMentions, "mention");
 
-  const [assigneeEmails, participantEmails] = await Promise.all([
-    fetchTaskAssigneeEmails(id, r.supabase),
-    fetchTaskParticipantEmails(id, r.supabase),
-  ]);
-  const activeOnly = (email: string | null | undefined) =>
-    email && actionableEmails.has(email) ? email : null;
-  const recipients = resolveCommentRecipients(
-    {
-      assignees: assigneeEmails.filter((email) => actionableEmails.has(email)),
-      assignee_email: activeOnly(r.task.assignee_email),
-      participants: participantEmails.filter((email) =>
-        actionableEmails.has(email)
-      ),
-      reporter_email: activeOnly(r.task.reporter_email),
-      agent_email: activeOnly(r.task.agent_email),
-    },
-    r.actor.email,
-    validMentions
-  );
-  await insertNotifications(
-    recipients.map((rec) => ({
-      recipient_email: rec.email,
-      task_id: id,
-      type: rec.type,
-      actor_email: r.actor.email,
-      comment_id: (comment as { id: string }).id,
-    }))
-  );
+  const requestId =
+    typeof body?.client_request_id === "string" ? body.client_request_id : null;
+  if (requestId !== null && !UUID_RE.test(requestId)) {
+    return NextResponse.json({ error: "Invalid request id." }, { status: 400 });
+  }
 
-  const parentUpdatedAt = await touchLastActivity(r.supabase, id, nowIso);
-  await broadcastTasksChanged();
-  await broadcastTaskRoom(id);
-  // touchLastActivity moves the task's updated_at, which is the token every
-  // PATCH sends back as expected_updated_at for the 409 concurrency check.
-  // Hand it to the client so the board can keep its copy current — otherwise
-  // commenting and then editing the same task within the refetch window
-  // fails with "Task was updated by someone else." Named parent_updated_at so
-  // the shared CommentThread reads one field for both tasks and enrollment.
-  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt });
+  const { data: created, error } = await r.supabase
+    .rpc("create_task_comment_atomic", {
+      p_task_id: id,
+      p_author_email: r.actor.email,
+      p_body: text,
+      p_parent_id: typeof body?.parentId === "string" && body.parentId ? body.parentId : null,
+      p_client_request_id: requestId,
+      p_mentions: validMentions,
+    })
+    .single();
+  if (error) {
+    if (error.message.includes("INVALID_PARENT")) {
+      return NextResponse.json({ error: "Invalid parent comment." }, { status: 400 });
+    }
+    if (error.message.includes("TASK_NOT_FOUND")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const {
+    comment,
+    parent_updated_at: parentUpdatedAt,
+    was_created: wasCreated,
+  } = created as {
+    comment: { id: string };
+    parent_updated_at: string;
+    was_created: boolean;
+  };
+
+  // The comment is durable at this point. Notifications and realtime are
+  // useful but non-critical, so a provider outage returns a warning rather
+  // than turning a committed comment into a misleading 500.
+  const warnings = wasCreated
+    ? await settleSideEffects([
+        {
+          code: "notification_failed",
+          message: "The comment was saved but some people may not have been notified.",
+          run: async () => {
+            const [assigneeEmails, participantEmails] = await Promise.all([
+              fetchTaskAssigneeEmails(id, r.supabase),
+              fetchTaskParticipantEmails(id, r.supabase),
+            ]);
+            const activeOnly = (email: string | null | undefined) =>
+              email && actionableEmails.has(email) ? email : null;
+            const recipients = resolveCommentRecipients(
+              {
+                assignees: assigneeEmails.filter((email) => actionableEmails.has(email)),
+                assignee_email: activeOnly(r.task.assignee_email),
+                participants: participantEmails.filter((email) => actionableEmails.has(email)),
+                reporter_email: activeOnly(r.task.reporter_email),
+                agent_email: activeOnly(r.task.agent_email),
+              },
+              r.actor.email,
+              validMentions
+            );
+            await insertNotifications(
+              recipients.map((rec) => ({
+                recipient_email: rec.email,
+                task_id: id,
+                type: rec.type,
+                actor_email: r.actor.email,
+                comment_id: comment.id,
+              }))
+            );
+          },
+        },
+        {
+          code: "broadcast_failed",
+          message: "Other open tabs may need a refresh to see this comment.",
+          run: async () => {
+            await broadcastTasksChanged();
+            await broadcastTaskRoom(id);
+          },
+        },
+      ])
+    : [];
+
+  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings });
 }

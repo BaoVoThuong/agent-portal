@@ -50,11 +50,11 @@ export async function addParticipants(
 ): Promise<void> {
   const unique = [...new Set(emails.filter(Boolean))];
   if (unique.length === 0) return;
-  await getSupabaseAdmin()
+  const { error } = await getSupabaseAdmin()
     .from("task_participants")
     .upsert(
       unique.map((email) => ({ task_id: taskId, email, source })),
       { onConflict: "task_id,email", ignoreDuplicates: true }
     );
-  // Best-effort: a failure (e.g. table missing) just means visibility doesn't widen.
+  if (error) throw new Error(error.message);
 }

@@ -452,3 +452,10 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
 - **File**: lib/tasks/queries.ts, lib/tasks/assignees.ts, lib/tasks/membership.ts, app/api/tasks/[id]/{detail,comments,comments/[cid],comments/[cid]/edits,attachments,attachments/[aid]}/route.ts, lib/enrollment/access.ts, lib/enrollment/queries.ts, lib/enrollment/overview-data.ts, app/api/enrollment/*, app/api/config/imports/[id]/route.ts, ConfigClient.tsx, EnrollmentClient.tsx, EditableCustomCell.tsx
 - **Ảnh hưởng**: plain-CS và enrollment workers thấy dữ liệu rộng hơn có chủ ý; mutate/RBAC không đổi.
 - **Ref**: docs/superpowers/plans/2026-08-02-view-model-and-batch-fixes.md
+## 2026-08-10 — Task collaboration hardening
+
+- Added an atomic, idempotent task comment command. Comment rows, audit events,
+  mention participants, and the parent timestamp/version now commit together;
+  notification and realtime failures return warnings after commit.
+- Added optional `client_request_id` deduplication and made participant upserts
+  report errors instead of silently swallowing visibility failures.

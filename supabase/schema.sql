@@ -1355,6 +1355,12 @@ alter table tasks add column if not exists last_activity_at timestamptz;
 update tasks set last_activity_at = coalesce(updated_at, created_at)
 where last_activity_at is null;
 
+-- Actor paired with the last activity timestamp. Keeping this on the parent
+-- row makes list consumers deterministic even when an activity feed is
+-- eventually pruned, and lets atomic collaboration commands update the pair
+-- under the same row lock.
+alter table tasks add column if not exists last_activity_by_email text;
+
 -- Clamp optimistic-concurrency and last-activity tokens at the database
 -- column so application clocks cannot move either value backwards.
 create or replace function tasks_updated_at_monotonic()
@@ -1657,6 +1663,14 @@ create table if not exists task_comments (
   deleted_at timestamptz
 );
 
+-- Optional request token used by the client to make comment retries safe.
+-- Nullable keeps older clients compatible during a rolling deployment.
+alter table task_comments add column if not exists client_request_id uuid;
+
+create unique index if not exists task_comments_client_request_id_key
+  on task_comments (task_id, author_email, client_request_id)
+  where client_request_id is not null;
+
 create index if not exists task_comments_task_idx on task_comments (task_id, created_at);
 
 -- Edit history: one row per edit, holding the body BEFORE that edit.
@@ -1695,6 +1709,20 @@ create table if not exists task_activity (
 );
 
 create index if not exists task_activity_task_idx on task_activity (task_id, created_at);
+
+-- Backfill the actor side of the timestamp pair after the activity table
+-- exists. The tie-breaker keeps the result deterministic for same-timestamp
+-- historical rows.
+update tasks t
+set last_activity_by_email = latest.actor_email
+from lateral (
+  select a.actor_email
+  from task_activity a
+  where a.task_id = t.id
+  order by a.created_at desc, a.id desc
+  limit 1
+) latest
+where t.last_activity_by_email is null;
 
 create or replace function task_list_metadata(task_ids uuid[])
 returns table (
@@ -1862,6 +1890,103 @@ end $$;
 
 revoke all on function delete_task_attachment_atomic(uuid, text) from public, anon, authenticated;
 grant execute on function delete_task_attachment_atomic(uuid, text) to service_role;
+
+-- Create a comment, its required audit row, mention participants, and the
+-- parent activity/version bump as one transaction. The task lock is acquired
+-- before the idempotency lookup so two concurrent retries cannot both observe
+-- a missing request token and race into a unique-index error.
+create or replace function create_task_comment_atomic(
+  p_task_id uuid,
+  p_author_email text,
+  p_body text,
+  p_parent_id uuid,
+  p_client_request_id uuid,
+  p_mentions text[]
+) returns table (comment jsonb, parent_updated_at timestamptz, was_created boolean)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_comment task_comments%rowtype;
+  v_task tasks%rowtype;
+  v_now timestamptz;
+begin
+  select * into v_task
+  from tasks
+  where id = p_task_id
+  for update;
+  if not found then
+    raise exception 'TASK_NOT_FOUND';
+  end if;
+
+  -- A retry returns the committed row and the current parent version without
+  -- writing a second activity row or touching task timestamps.
+  if p_client_request_id is not null then
+    select * into v_comment
+    from task_comments
+    where task_id = p_task_id
+      and author_email = p_author_email
+      and client_request_id = p_client_request_id;
+    if found then
+      comment := to_jsonb(v_comment);
+      parent_updated_at := v_task.updated_at;
+      was_created := false;
+      return next;
+      return;
+    end if;
+  end if;
+
+  if p_parent_id is not null then
+    perform 1
+    from task_comments
+    where id = p_parent_id
+      and task_id = p_task_id
+      and parent_id is null
+      and deleted_at is null;
+    if not found then
+      raise exception 'INVALID_PARENT';
+    end if;
+  end if;
+
+  insert into task_comments (
+    task_id, parent_id, author_email, body, client_request_id
+  ) values (
+    p_task_id, p_parent_id, p_author_email, p_body, p_client_request_id
+  ) returning * into v_comment;
+
+  insert into task_activity (task_id, actor_email, type, meta)
+  values (
+    p_task_id,
+    p_author_email,
+    'comment_added',
+    jsonb_build_object('comment_id', v_comment.id, 'parent_id', p_parent_id)
+  );
+
+  if p_mentions is not null and array_length(p_mentions, 1) > 0 then
+    insert into task_participants (task_id, email, source)
+    select p_task_id, mention_email, 'mention'
+    from unnest(p_mentions) as mention_email
+    where mention_email is not null and btrim(mention_email) <> ''
+    on conflict (task_id, email) do nothing;
+  end if;
+
+  v_now := greatest(clock_timestamp(), v_task.updated_at + interval '1 microsecond');
+  update tasks
+  set updated_at = v_now,
+      last_activity_at = v_now,
+      last_activity_by_email = p_author_email,
+      stale_reminded_at = null
+  where id = p_task_id;
+
+  comment := to_jsonb(v_comment);
+  parent_updated_at := v_now;
+  was_created := true;
+  return next;
+end;
+$$;
+
+revoke all on function create_task_comment_atomic(uuid, text, text, uuid, uuid, text[])
+  from public, anon, authenticated;
+grant execute on function create_task_comment_atomic(uuid, text, text, uuid, uuid, text[])
+  to service_role;
 
 create table if not exists task_notifications (
   id uuid primary key default gen_random_uuid(),
