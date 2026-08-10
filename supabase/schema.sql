@@ -1371,7 +1371,18 @@ create unique index if not exists tasks_client_request_id_key
 create or replace function tasks_updated_at_monotonic()
 returns trigger language plpgsql as $$
 begin
-  if new.updated_at is null or new.updated_at <= old.updated_at then
+  -- Correct a genuine regression only. `is distinct from` is load-bearing: in a
+  -- BEFORE UPDATE row trigger a column absent from the SET clause carries the
+  -- OLD value into NEW, so a bare `<=` matched every write that left updated_at
+  -- alone -- the six cron reminder writes and mark_task_overdue_atomic -- and
+  -- bumped it by 1us. Both concurrency checks compare updated_at by exact
+  -- equality, so that silently invalidated every open client's token and
+  -- produced 409s on tasks nobody had edited.
+  --
+  -- A write that SUPPLIES updated_at equal to the old value is still advanced:
+  -- two writers in the same microsecond must not share one version.
+  if new.updated_at is distinct from old.updated_at
+     and new.updated_at <= old.updated_at then
     new.updated_at := old.updated_at + interval '1 microsecond';
   end if;
   if new.last_activity_at is not null
@@ -3321,6 +3332,12 @@ create table if not exists enrollment_records (
   pcp_2025 text,
   pcp_2026 text,
   caller_email text,
+  -- Declared here as well as in the later ADD COLUMN IF NOT EXISTS: the
+  -- normalization UPDATE further down runs before that ALTER, so on a database
+  -- where this CREATE TABLE actually creates the table the file used to abort
+  -- with 42703. Both statements must stay -- this one serves fresh databases,
+  -- the ALTER serves databases that predate the column.
+  agent_email text,
   responsible_enroll_email text,
   qc_checked_by_email text,
   qc_checked_at timestamptz,
@@ -3414,35 +3431,11 @@ $$;
 revoke all on function enrollment_option_usage_counts() from public, anon, authenticated;
 grant execute on function enrollment_option_usage_counts() to service_role;
 
--- All SECURITY DEFINER routines in this schema are server-only RPCs. Their
--- callers perform authentication/authorization in Next.js before using the
--- service-role client; leaving the default PUBLIC EXECUTE grant would expose
--- privileged writes (or protected metadata reads) through PostgREST's RPC
--- endpoint and bypass that application boundary. Keep the ACL fail-closed for
--- every current SECURITY DEFINER function, including functions added earlier
--- in this schema and the atomic task mutation command above.
-do $$
-declare
-  routine record;
-begin
-  for routine in
-    select p.oid::regprocedure::text as signature
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.prosecdef
-  loop
-    execute format(
-      'revoke all on function %s from public, anon, authenticated',
-      routine.signature
-    );
-    execute format(
-      'grant execute on function %s to service_role',
-      routine.signature
-    );
-  end loop;
-end
-$$;
+-- The global SECURITY DEFINER ACL sweep used to live here. It was moved to the
+-- very end of this file: a pg_proc scan only protects the routines that already
+-- exist when it runs, so every function defined below this point kept the
+-- default PUBLIC EXECUTE grant on a first apply. See the sweep and its
+-- fail-closed assertion at the end of the file.
 
 -- Program split for records: backfill existing rows as ACA, scope list queries.
 alter table enrollment_records
@@ -4531,3 +4524,67 @@ create index if not exists enrollment_comments_body_trgm_idx
   on enrollment_comments using gin (body gin_trgm_ops);
 create index if not exists enrollment_attachments_file_name_trgm_idx
   on enrollment_attachments using gin (file_name gin_trgm_ops);
+
+-- ---------------------------------------------------------------------------
+-- SECURITY DEFINER ACL — must remain the LAST executable block in this file.
+-- ---------------------------------------------------------------------------
+-- All SECURITY DEFINER routines in this schema are server-only RPCs. Their
+-- callers perform authentication/authorization in Next.js before using the
+-- service-role client; leaving the default PUBLIC EXECUTE grant would expose
+-- privileged writes (or protected metadata reads) through PostgREST's RPC
+-- endpoint and bypass that application boundary.
+--
+-- This sweep is positional: it protects every SECURITY DEFINER routine that
+-- exists when it runs. It previously sat mid-file, so patch_enrollment_atomic,
+-- create_enrollment_atomic, archive_enrollment_atomic and
+-- enrollment_touch_activity -- all defined below that point -- were reachable
+-- by `authenticated` after a first apply. Do not move this block upwards, and
+-- do not append executable statements after it.
+do $$
+declare
+  routine record;
+begin
+  for routine in
+    select p.oid::regprocedure::text as signature
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.prosecdef
+  loop
+    execute format(
+      'revoke all on function %s from public, anon, authenticated',
+      routine.signature
+    );
+    execute format(
+      'grant execute on function %s to service_role',
+      routine.signature
+    );
+  end loop;
+end
+$$;
+
+-- Fail-closed invariant. A positional sweep cannot defend itself against a
+-- function appended below it, so assert the end state instead. This turns the
+-- next occurrence from a silent authorization hole into a failed deploy.
+-- Note this is a ratchet, not a gate: it catches a stray function on the NEXT
+-- apply, not the one that introduced it. Anyone adding a SECURITY DEFINER
+-- function must still write its revoke/grant pair at the definition site.
+do $$
+declare leaked text;
+begin
+  select string_agg(p.oid::regprocedure::text, ', ' order by p.oid::regprocedure::text)
+    into leaked
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.prosecdef
+    and (has_function_privilege('authenticated', p.oid, 'execute')
+      or has_function_privilege('anon', p.oid, 'execute'));
+
+  if leaked is not null then
+    raise exception
+      'SECURITY DEFINER functions are still executable by anon/authenticated: %. '
+      'Move the ACL sweep below every function definition.', leaked;
+  end if;
+end
+$$;
