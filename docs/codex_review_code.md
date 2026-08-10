@@ -4,8 +4,8 @@
 
 Status: **NOT READY**  
 Current Module: **Complete**  
-Last Updated: **2026-08-09 01:02 Asia/Ho_Chi_Minh**
-Reviewed source through: **`b86ffbb`** (execution log commits follow)
+Last Updated: **2026-08-09 01:20 Asia/Ho_Chi_Minh**
+Reviewed source through: **`e134b22`** (execution log commits follow)
 
 Audit mode: implementation and verification. This document reconciles the independent Codex audit with `docs/claude_golive-review.md`, records each fix commit, and keeps unverified browser/DB gates explicitly open.
 
@@ -131,6 +131,21 @@ Commit: `b86ffbb`; changelog `9cb8375`
 | Enrollment ↔ Health CS | PASS | Single-person Enrollment fields retain single cardinality; CS multi-person Assignee remains intentionally different. Identity and workflow badge languages now match. |
 
 Automated gate: typecheck, repository ESLint, and 62 files / 480 tests pass. `npm run build` and authenticated browser checks remain open because `next dev` is active and no manager browser session is available in this execution context.
+
+### SLA follow-up fixes — implementation log
+
+Claude's SLA post-review findings were rechecked against the current source. B-01 and B-02 are resolved, along with two additional state-safety bugs found in `ConfigSlaSection`.
+
+| Finding | Result | Fix commit | Verification |
+|---|---|---|---|
+| B-01: editor offered `168h 55m` and `0h 0m` | **FIXED** | `e77fbcb` | `slaMinuteOptionsForHours()` filters both bounds; 10 SLA tests pass |
+| SLA save race across rapid/simultaneous rows | **FIXED** | `c5b58d1` | Per-row saving lock + functional rule updates; typecheck/lint pass |
+| Failed save/reset left stale local value | **FIXED** | `0e87364` | Save rollback + persisted-minutes row key; typecheck/lint pass |
+| B-02: drift test inspected first SQL match only | **FIXED** | `e134b22` | Global `matchAll()` validates all declarations; SLA tests pass |
+
+The B-01 regression test intentionally validates filtered options rather than `maxHour * 60 + maxMinute`; the global minute palette must retain `55m` for hours below the maximum.
+
+Full-suite, build, and authenticated browser checks remain open. These fixes do not change SLA storage/API contracts or the Task Board read path.
 
 ### Final reconciliation decisions
 
@@ -1818,5 +1833,229 @@ Verification recorded across the execution commits through `2cd421d`:
 ## Go-Live Recommendation
 
 **DO NOT GO LIVE.** Do not use the earlier shortcut “fix five items and mark READY WITH RISKS.” Reassess only after T-01 and all P1 paths are fixed or enforceably disabled, production schema is verified, deterministic regression coverage passes, and volume-dependent P2 risks receive explicit acceptance.
+
+---
+---
+
+# [CLAUDE] Post-fix review — 124 commit `df561ef..8d08351`
+
+**Ngày:** 2026-08-09 · **Chế độ:** review-only, không sửa source
+**Phạm vi:** đọc toàn bộ 124 commit, verify từng nhóm fix bằng code, rồi rà lại tổng thể tìm lỗi **mới sinh ra từ chính đợt fix**.
+
+> *Ghi chú: các comment `[Claude — …]` tao chèn ở lượt trước đã bị xoá khi file này được viết lại và commit. Không sao — phần dưới là nội dung mới, độc lập.*
+
+## 0. Baseline sau đợt fix (tao chạy lại, không lấy số của ai)
+
+| Lệnh | Kết quả |
+|---|---|
+| `npm run typecheck` | ✅ exit 0 |
+| `npm run lint` | ✅ "No issues found" |
+| `npm run test:run` | ✅ **60 files / 458 tests** (trước: 50/431) |
+| `npm run build` | ✅ exit 0, toàn bộ route compile |
+
+## 1. Xác nhận: các fix trọng yếu làm ĐÚNG
+
+Không phải vá tạm. Tao verify từng cái bằng diff + đọc code hiện tại:
+
+| Finding | Commit | Kết luận |
+|---|---|---|
+| **T-01** vòng lặp `useEffect` vô hạn (P0) | `cdd06de` | ✅ **Đóng.** `taskLayoutHydratedRef` + **xoá hẳn** 2 memo bất ổn định, dep rút về `[tableColumns]`. Hai lớp chặn, không chỉ một. |
+| **T-02 / T-06** stale `expected_updated_at` | `81e8562` | ✅ **Đóng, mạnh hơn đề xuất ban đầu.** Bỏ `optimistic.updated_at = nowIso`, thêm mutation queue có `rebasePendingTaskPatches` — patch B tự rebase lên `state.confirmed` sau khi A commit **hoặc** 409. |
+| **M-01** control read-only vẫn bấm được | `d608d9c` | ✅ **Đóng.** `canEdit` xuyên suốt ~20 control, default `canEdit = true` nên `NewEnrollmentDialog` không vỡ. |
+| **A-01** record vừa tạo biến mất | `2c7b96e` | ✅ Đóng, tách `lib/enrollment/ownership.ts` + test riêng. |
+| **M-02** `pendingRef` là Set | `fc00dbe` | ✅ `Map<string, number>` có đếm. |
+| **C-01→C-04** import integrity | `4fdac30` | ✅ **Xoá hẳn workflow import**, giữ export. Một quyết định đóng 5 finding — đúng cho tuần release. `src/` không còn tham chiếu chết. |
+| Escape PostgREST filter | `d6fbe37` | ✅ `quotePostgrestFilterValue`. |
+| Truncation | `a52156e`, `f7c1d94` | ✅ `count: "exact"` + `assertTaskListComplete` **throw** — fail-closed thật, không phải cờ suông. |
+| UI/UX | nhiều | ✅ Hết `window.prompt` + `window.alert` trong `src/app/`; toast có tone; skeleton dạng bảng; guard `due_date` (`:2944`). |
+
+---
+
+## 2. 🔴 P0 MỚI — `security definer` không khoá quyền execute
+
+**Đây là lỗi do chính đợt fix này tạo ra, và thuộc đúng lớp lỗi mà commit `2cd421d` đã nhận ra — chỉ là áp cho 1 function thay vì tất cả.**
+
+- **Severity:** **P0 — BLOCKER (security)**
+- **Location:** `supabase/schema.sql:1876-1890` (`patch_task_atomic`), thêm 7 function khác — bảng bên dưới
+- **Introduced by:** `4f59280 fix(tasks): commit canonical mutation and history atomically`
+
+Toàn bộ `schema.sql` **chỉ có đúng một cặp** revoke/grant, và nó nằm ở function *khác*:
+
+```sql
+-- :2596  enrollment_option_usage_counts — CÓ khoá (commit 2cd421d)
+revoke all on function enrollment_option_usage_counts() from public, anon, authenticated;
+grant execute on function enrollment_option_usage_counts() to service_role;
+```
+
+`patch_task_atomic` **không có dòng nào tương đương**. Postgres mặc định `GRANT EXECUTE … TO PUBLIC`; `anon` kế thừa PUBLIC; PostgREST expose mọi function trong schema `public` qua `/rest/v1/rpc/<name>`; và `NEXT_PUBLIC_SUPABASE_ANON_KEY` nằm sẵn trong bundle browser (`src/lib/supabase-browser.ts`).
+
+**Hệ quả:** bất kỳ ai đọc được anon key đều có thể gọi
+
+```
+POST /rest/v1/rpc/patch_task_atomic
+{ "p_task_id": "...", "p_expected_updated_at": "...",
+  "p_patch": { "status": "done" }, "p_actor_email": "<bất kỳ ai>" }
+```
+
+Function chạy với quyền **owner**, `security definer` **bỏ qua RLS**, ghi thẳng `tasks` + `task_assignees` + history + activity — và `p_actor_email` là tham số nên **audit log giả mạo được**. Toàn bộ RBAC ở tầng Next.js route bị đi vòng.
+
+> Comment trong `supabase-browser.ts` viết *"It cannot read tables (RLS denies the anon role)"* — đúng với **bảng**, nhưng không đúng với `security definer` RPC.
+
+### Không chỉ một function
+
+| Function | Ghi gì | Trạng thái |
+|---|---|---|
+| `patch_task_atomic` (`:1876`) | tasks, assignees, history, activity | ❌ **MỚI thêm** |
+| `replace_user_roles` (`:131`) | **user_roles** | ❌ có sẵn — **leo thang quyền** |
+| `replace_role_permissions` (`:111`) | **role_permissions** | ❌ có sẵn — **leo thang quyền** |
+| `assign_unassigned_task` (`:2228`) | tasks | ❌ có sẵn |
+| `bump_task_assignment_rotation` (`:2164`) | rotation | ❌ có sẵn |
+| `refresh_pc_mart` (`:927`) · `refresh_health_mart` (`:1140`) · `clear_health_payment_summary` (`:1246`) | data mart | ❌ có sẵn |
+| `task_list_metadata` (`:1676`) | đọc | ❌ có sẵn |
+| `enrollment_option_usage_counts` (`:2569`) | đọc | ✅ đã khoá |
+
+Nguy hiểm nhất **không phải** cái mới, mà là `replace_user_roles(target_user_id uuid, role_ids uuid[])` — tự gán role admin cho chính mình bằng một request.
+
+### Vì sao smoke test không bắt được
+
+Verification Summary ghi *"PostgreSQL 16 replay of `supabase/schema.sql`: PASS; atomic commit/rollback and stale-token RPC smoke checks passed."* Đúng — nhưng replay đó chạy bằng **role đặc quyền**, nên nó kiểm được *function làm đúng việc*, **không** kiểm được *ai được phép gọi*. Đây là lỗ hổng phân quyền, không phải lỗi logic; không có test hành vi nào bắt được.
+
+### Verify (chưa chạy — tao không có kết nối DB)
+
+```sql
+select p.proname,
+       p.prosecdef,
+       coalesce(array_to_string(p.proacl, ','), '(default = PUBLIC)') as acl
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public' and p.prosecdef
+order by 1;
+```
+`acl` là `(default = PUBLIC)` hoặc chứa `=X/` → PUBLIC gọi được → **thủng**.
+
+### Fix đề xuất (chưa apply)
+
+Thêm vào cuối `schema.sql`, cho **mọi** function `prosecdef = true`:
+
+```sql
+do $$
+declare fn record;
+begin
+  for fn in
+    select p.oid::regprocedure as sig
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.prosecdef
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated', fn.sig);
+    execute format('grant execute on function %s to service_role', fn.sig);
+  end loop;
+end $$;
+```
+
+- **Regression Risk:** Thấp — **nhưng phải kiểm** function nào đang được gọi hợp lệ bằng anon/authenticated trước khi revoke. Theo code hiện tại, mọi RPC đều gọi từ server bằng `getSupabaseAdmin()` (service_role), nên revoke là an toàn. Browser client chỉ dùng Realtime, không gọi RPC.
+- **Status:** OPEN
+
+---
+
+## 3. 🟠 P1 MỚI — deploy không còn tương thích ngược với DB chưa migrate
+
+- **Severity:** **P1** (release sequencing)
+- **Location:** `src/app/api/tasks/[id]/route.ts:450-482`
+- **Introduced by:** `4f59280`
+
+`patch_task_atomic` giờ là đường ghi **duy nhất** của task PATCH. Nếu function chưa tồn tại trên DB, `atomicError` không khớp `TASK_CONFLICT`/`TASK_NOT_FOUND` → rơi vào nhánh 500 chung → **mọi thao tác sửa task chết**.
+
+Repo vẫn **không có migration runner** — chỉ một file `supabase/schema.sql` chạy tay, không có bước migrate trong `vercel.json` hay CI.
+
+**Đây là thay đổi bản chất so với trước:** code cũ có fallback mềm (thiếu cột → dùng bộ cột legacy, mất dữ liệu **âm thầm**). Code mới **fail-closed** — tốt hơn về mặt an toàn dữ liệu, nhưng biến việc apply schema thành **điều kiện bắt buộc**, không còn là "nên làm".
+
+**Thứ tự deploy bắt buộc:** apply `schema.sql` → verify function tồn tại → **rồi mới** deploy code. Đảo lại = downtime toàn bộ module Tasks.
+
+- **Status:** OPEN (quy trình release, không phải sửa code)
+
+---
+
+## 4. 🟡 P2 — `archiveRecord` mới fix một nửa
+
+- **Severity:** **P2**
+- **Location:** `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx:1056-1081`; call site `:3228`
+- **Liên quan:** `802493a fix(enrollment): restore only failed archive row`
+
+Phần **rollback nguyên-mảng đã sửa đúng** — giờ restore đúng 1 row, đúng vị trí cũ (`beforeIndex`), có guard chống chèn trùng. Tốt.
+
+Nhưng vẫn là `try { … } finally { … }` — **không có `catch`**:
+
+```ts
+try {
+  const response = await fetch(`/api/enrollment/${id}`, { method: "DELETE" });
+  if (!response.ok) { /* restore + setError */ }
+} finally {
+  finishPendingMutation();
+}
+```
+
+`fetch` **reject** (mất mạng, DNS, CORS) → nhảy thẳng `finally` → record đã xoá optimistic **không được khôi phục**, **không có toast**. Call site là `void onArchive()` (`:3228`) nên rejection bị nuốt hoàn toàn.
+
+**Kết quả người dùng thấy:** bấm Archive lúc rớt mạng → record biến mất khỏi danh sách → nhưng DB vẫn còn → chỉ F5 mới thấy lại.
+
+*(Đối chiếu: `createRecord` cũng `try/finally` không `catch`, nhưng **cố ý** — nó `throw` để `NewEnrollmentDialog.submit()` bắt và `setError`. Cái đó đúng. `patchRecord` thì có `catch` đầy đủ. Chỉ `archiveRecord` bị sót.)*
+
+**Fix:** thêm `catch` khôi phục đúng row đó (dùng lại nguyên khối `updateRecords` ở nhánh `!response.ok`) + `setError("Mất kết nối — không lưu được thay đổi.")`.
+
+- **Regression Risk:** Rất thấp.
+- **Status:** OPEN
+
+---
+
+## 5. 🟡 P2 — còn treo: config broadcast vẫn fan-out toàn hệ thống
+
+- **Location:** `src/lib/table-config/realtime.ts:30-36`
+
+```ts
+export async function broadcastTableConfigChanged(): Promise<void> {
+  await Promise.all([
+    broadcastEnrollmentChanged(),      // ← mọi tab Enrollment refetch full-list
+    broadcastTasksChanged(),           // ← mọi tab Tasks refetch full-list
+    broadcastTableConfigInvalidation(),// ← banner (mới, đúng)
+  ]);
+}
+```
+
+18 producer trong `src/app/api/config/` gọi hàm này. Việc thêm topic riêng + banner `setConfigStale` là **đúng hướng**, nhưng hai broadcast dữ liệu cũ **vẫn còn**. Giờ chúng thành thừa hoàn toàn: client nhận banner rồi, không cần refetch full-list nữa — mà refetch đó chính là thứ không sửa được config stale ngay từ đầu.
+
+Mỗi click trong Config vẫn = (số tab Tasks × full task list) + (số tab Enrollment × full enrollment list, kèm toàn bộ text comment).
+
+**Fix:** bỏ 2 dòng broadcast dữ liệu khỏi `broadcastTableConfigChanged`, giữ mỗi `broadcastTableConfigInvalidation()`.
+**Regression Risk:** Thấp — nhưng cần xác nhận không producer nào đang dựa vào side-effect refetch dữ liệu (vd `/api/config/agents` đổi membership **có** ảnh hưởng tới danh sách task nhìn thấy → cái này thì **nên giữ** broadcast tasks). Rà theo từng producer, không cắt đồng loạt.
+
+- **Status:** OPEN
+
+---
+
+## 6. Đánh giá tổng thể đợt fix
+
+**Chất lượng cao.** Sáu finding P0/P1 từ cả hai bài review đều được đóng bằng cách **đúng bản chất**, không vá tạm:
+- T-01 sửa cả nguyên nhân (dep bất ổn định) lẫn thêm lớp chặn (ref guard).
+- T-02 không dừng ở "xoá dòng `updated_at`" mà làm hẳn queue + rebase.
+- Bỏ hẳn import thay vì gia cố — quyết định release đúng, đóng 5 finding một lúc.
+- Fail-closed thay cho fallback im lặng ở cả tasks lẫn enrollment.
+- Tăng 50→60 test file, tách logic ra `lib/` để test được (`ownership.ts`, `dates.ts`, `form-options.ts`, `filtering.ts`, `comments.ts`, `cron-auth.ts`).
+
+**Nhưng chưa go-live được**, vì một P0 bảo mật **mới sinh ra trong chính đợt fix**, và nó thuộc lớp lỗi mà đợt fix này **đã nhận ra rồi** (`2cd421d`) — chỉ là áp cho 1 trong 9 function.
+
+### Thứ tự đề nghị
+
+| # | Việc | Quy mô | Rủi ro |
+|---|---|---|---|
+| 1 | Rà + khoá execute cho **mọi** `security definer` (mục 2) | ~10 dòng SQL | Thấp |
+| 2 | Apply `schema.sql` lên production | 0 dòng | — |
+| 3 | Verify bằng query `pg_proc` (mục 2) | 0 dòng | — |
+| 4 | Thêm `catch` cho `archiveRecord` (mục 4) | ~6 dòng | Rất thấp |
+| 5 | Rà từng producer rồi cắt broadcast thừa (mục 5) | ~2 dòng | Thấp |
+| 6 | **Rồi mới** deploy code | — | — |
+
+Mục **1–3 là điều kiện bắt buộc**. Mục 4–5 nên làm cùng đợt vì rẻ.
+
+*— Claude, 2026-08-09. Review-only: không dòng source nào bị sửa trong lượt này.*
 
 Final Recommendation: **NOT READY**.
