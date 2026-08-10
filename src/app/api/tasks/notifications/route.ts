@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import {
+  emptySignalBadges,
+  type TaskSignalBadges,
+} from "@/lib/tasks/signal-badges";
 import { notifTopic } from "@/lib/tasks/realtime";
 
 export const dynamic = "force-dynamic";
@@ -42,9 +46,11 @@ export async function GET() {
       .eq("is_read", false),
     supabase
       .from("task_notifications")
-      .select("task_id")
+      // All three badge types in one round trip. `type` is now selected because
+      // the response groups by it; `assigned` alone is no longer enough.
+      .select("task_id,type")
       .eq("recipient_email", email)
-      .eq("type", "assigned")
+      .in("type", ["assigned", "commented", "mentioned"])
       .eq("is_read", false),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -184,15 +190,31 @@ export async function GET() {
     typeof unreadRes.count === "number" || typeof enrollmentUnreadRes.count === "number"
       ? (unreadRes.count ?? 0) + (enrollmentUnreadRes.count ?? 0)
       : notifications.filter((n) => !n.is_read).length;
+  const unreadSignalRows = (unreadAssignedRes.data ?? []) as {
+    task_id: string;
+    type: string;
+  }[];
+
+  const signalBadges: Record<string, TaskSignalBadges> = {};
+  for (const row of unreadSignalRows) {
+    const badges = (signalBadges[row.task_id] ??= emptySignalBadges());
+    if (row.type === "assigned") badges.assigned = true;
+    else if (row.type === "mentioned") badges.mentioned = true;
+    else if (row.type === "commented") badges.comments += 1;
+  }
+
+  // Retained for browser tabs opened before this deploy: they read this field
+  // and nothing else, so removing it would blank their NEW badges until reload.
   const unreadAssignedTaskIds = [
     ...new Set(
-      ((unreadAssignedRes.data ?? []) as { task_id: string }[]).map((n) => n.task_id)
+      unreadSignalRows.filter((n) => n.type === "assigned").map((n) => n.task_id)
     ),
   ];
   return NextResponse.json({
     notifications,
     unread,
     unreadAssignedTaskIds,
+    signalBadges,
     topic: notifTopic(email),
   });
 }
