@@ -122,13 +122,21 @@ export async function POST(request: Request, { params }: Ctx) {
   });
   if (activityError) mutationWarnings.push(`Enrollment comment activity failed: ${activityError.message}`);
 
-  const [peopleRes, authorsRes] = await Promise.all([
+  const [peopleRes, authorsRes, mentionedRes] = await Promise.all([
     loaded.supabase.from("portal_account").select("email").eq("is_active", true),
     loaded.supabase
       .from("enrollment_comments")
       .select("author_email")
       .eq("record_id", id)
       .is("deleted_at", null),
+    // Anyone ever tagged on this record. The mention notifications already
+    // written are the only durable record that they were pulled in, and
+    // Enrollment has no participants table to consult.
+    loaded.supabase
+      .from("enrollment_notifications")
+      .select("recipient_email")
+      .eq("record_id", id)
+      .eq("type", "mentioned"),
   ]);
   const activeEmails = new Set(
     ((peopleRes.data ?? []) as { email: string }[]).map((person) => person.email)
@@ -138,11 +146,19 @@ export async function POST(request: Request, { params }: Ctx) {
   const threadWatchers = ((authorsRes.data ?? []) as { author_email: string }[]).map(
     (row) => row.author_email
   );
+  // Being tagged makes you a watcher from then on. Without this the recipient
+  // list is caller + responsible + comment AUTHORS, so someone pulled into a
+  // thread by name hears about it exactly once and then goes silent. Health CS
+  // gets this from task_participants; Enrollment has no such table.
+  const mentionWatchers = (
+    (mentionedRes.data ?? []) as { recipient_email: string }[]
+  ).map((row) => row.recipient_email);
   const baseRecipients = uniqueEnrollmentNotificationRecipients(
     [
       loaded.record.caller_email,
       loaded.record.responsible_enroll_email,
       ...threadWatchers,
+      ...mentionWatchers,
     ],
     [loaded.actor.email, ...mentions]
   );
