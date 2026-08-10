@@ -34,7 +34,7 @@ Exactly three badges. Each maps to one already-recorded event.
 
 | Badge | Condition | Question it answers |
 |---|---|---|
-| `NEW` | The viewer is an assignee and has **never opened** this task | "Work arrived and I haven't looked at it" |
+| `NEW` | The viewer was assigned this task and has **not opened it since that assignment** | "Work arrived and I haven't looked at it" |
 | `💬 n` | `n` comments were added after the viewer last opened the task, authored by someone else | "Someone is waiting on my reply" |
 | `@` | The viewer was mentioned after they last opened the task | "Someone asked for me by name" |
 
@@ -122,7 +122,7 @@ inserted for consistency, so a manager who *is* assigned sees the same behaviour
 By urgency of the signal, then by how long it has waited:
 
 ```text
-@ mentioned        →  💬 new comments  →  NEW never opened
+@ mentioned        →  💬 new comments  →  NEW unopened since assignment
 ```
 
 Ties break on **oldest unread first** — a task ignored for three days must outrank one commented on
@@ -158,7 +158,8 @@ create index if not exists task_views_email_idx on task_views (email);
 
 - One row per (task, viewer). Written when the viewer **opens the detail drawer**.
 - `seen_at` is overwritten on each open, so it always holds the most recent view.
-- Absence of a row is what `NEW` tests for.
+- `NEW` tests `seen_at` against the viewer's assignment time, so an absent row and a row older than
+  the current assignment both count as unseen (see §4).
 - `on delete cascade` keeps it tidy when a task is hard-deleted; archiving is a soft delete and
   leaves rows in place, which is correct — an unarchived task keeps its read state.
 
@@ -191,11 +192,41 @@ returns table (
 
 For each task the viewer is assigned to:
 
-- `never_opened` — no `task_views` row for `(task_id, p_email)`
+- `never_opened` — no `task_views` row for `(task_id, p_email)`, **or** `seen_at < assigned_at`
 - `new_comments` — count of `task_comments` where `created_at > seen_at`, `author_email <> p_email`,
   and `deleted_at is null`
 - `mentioned` — a `task_notifications` row of type `mentioned` for this recipient created after
   `seen_at`
+
+### `assigned_at` comes from `task_assignment_cycles`, not `task_assignees`
+
+`NEW` must re-fire when a task is assigned to someone who had opened it in a previous life, so the
+condition is relative to **when this person was assigned**, not to whether they have ever opened the
+task. That timestamp has to be stable, and only one of the two candidate sources is:
+
+```sql
+  -- the viewer's current assignment stint
+  select max(assigned_at)
+    from task_assignment_cycles
+   where task_id = t.id and email = p_email and unassigned_at is null
+```
+
+**Do not use `task_assignees.created_at`.** `patch_task_atomic` (`schema.sql:2761-2765`) deletes
+every row for the task and re-inserts them all with `created_at = p_now`:
+
+```sql
+    delete from task_assignees where task_id = p_task_id;
+    foreach next_assignee_email in array p_next_assignees loop
+      insert into task_assignees (task_id, email, created_at)
+      values (p_task_id, next_assignee_email, p_now);
+```
+
+So adding a third assignee to a task rewrites the timestamps of the two who did not change, and
+both would light up `NEW` for no reason.
+
+`task_assignment_cycles` does not have that problem: `patch_task_atomic:2779-2787` opens a new cycle
+**only** for an email absent from `p_before_assignees`, so an unchanged assignee keeps their original
+`assigned_at`.
 
 One round trip, no N+1. Returns only rows with at least one signal, so the payload stays small.
 
@@ -214,11 +245,13 @@ finding F10) if a coarser check is ever needed.
 
 | Case | Behaviour |
 |---|---|
-| Task unassigned from the viewer | Badges disappear immediately. Not their task, not their signal. `task_views` row is left alone so read state survives a reassignment. |
-| Task reassigned **to** the viewer, who had opened it before | No `NEW` — a `task_views` row exists. See Deferred. |
+| Task unassigned from the viewer | Badges disappear immediately. Not their task, not their signal. The `task_views` row is left alone; it is harmless, and the next assignment re-fires `NEW` via a fresh cycle anyway. |
+| Task reassigned **to** the viewer, who had opened it before | `NEW` fires again. A new `task_assignment_cycles` row means `assigned_at > seen_at`. |
 | Task archived | Already excluded from the list; badges are irrelevant. |
 | Task closed / done | Badges still **render** (a comment on a closed task is still worth seeing) but do **not** pin — the badge band applies to open statuses only. Otherwise a closed task with one late comment would outrank live work. |
 | Multiple assignees | Each has independent read state. Two people see different badges on the same row. |
+| A third assignee is added to a task | The existing two get **no** `NEW` — no new cycle is opened for them. This is the case that rules out `task_assignees.created_at`. |
+| Assignee removed, then added back later | `NEW` fires again: the second cycle carries a later `assigned_at`. |
 | Comment added then deleted before the viewer looks | Not counted — the count filters `deleted_at is null`. |
 | Viewer opens the drawer, closes it, comes back | Badges stay clear; `seen_at` was updated on open. |
 | Task with all three signals | All three chips render; ranks by the highest (`@`). |
@@ -245,11 +278,6 @@ anything to be tested must live in a `.ts` helper):
 ---
 
 ## 7. Deferred
-
-**Reassignment does not re-trigger `NEW`.** If a task is moved to someone who had opened it in a
-previous life, they get no signal. A fourth badge (`→ you`, fired by an `assigned` activity newer
-than `seen_at`) would close this. Left out of the first round to keep the set at three; worth
-revisiting once the feature has been used.
 
 **Mark as read without opening.** A task with `💬` that the viewer chooses not to act on stays
 pinned. That is arguably correct — it *is* waiting on them — but it can be annoying. A dismiss
