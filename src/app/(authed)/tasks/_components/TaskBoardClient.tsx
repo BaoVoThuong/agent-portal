@@ -847,6 +847,37 @@ export function TaskBoardClient({
     [taskLayoutColumns]
   );
 
+  // Changes only when the user explicitly asks for a different slice. The list
+  // freezes its row order while this is stable, so editing a task never moves
+  // it; a filter change is an explicit request and must re-rank.
+  const orderResetKey = useMemo(
+    () =>
+      JSON.stringify([
+        agentFilter,
+        assigneeFilter,
+        effectivePresets,
+        categoryFilter,
+        statusFilter,
+        priorityFilter,
+        dateRange,
+        // Also filterTasks inputs: overdueIds shifts as the clock ticks, and
+        // showAgentFilter can flip after a refetch. Both change the visible set
+        // without any user action, so they must re-rank rather than let a new
+        // row miss its ranked slot.
+        showAgentFilter,
+      ]),
+    [
+      agentFilter,
+      assigneeFilter,
+      effectivePresets,
+      categoryFilter,
+      statusFilter,
+      priorityFilter,
+      dateRange,
+      showAgentFilter,
+    ]
+  );
+
   const visibleTasks = useMemo(
     () =>
       filterTasks(scopedTasks, {
@@ -1607,6 +1638,7 @@ export function TaskBoardClient({
       {view === "list" && (
         <TaskListView
           tasks={visibleTasks}
+          orderResetKey={orderResetKey}
           categories={categories}
           assignees={assignees}
           agents={agents}

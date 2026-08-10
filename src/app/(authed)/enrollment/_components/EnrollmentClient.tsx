@@ -91,6 +91,8 @@ import { ReasonModal } from "../../tasks/_components/ReasonModal";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { Initials } from "../../tasks/_components/board-ui";
 import { activeCommentCount } from "@/lib/tasks/thread-view";
+import { applyFrozenOrder } from "@/lib/tasks/frozen-order";
+import { toOptimisticEnrollmentPatch } from "@/lib/enrollment/optimistic-patch";
 import { EnrollmentOverview } from "./EnrollmentOverview";
 
 type SortKey =
@@ -133,7 +135,14 @@ type Filters = {
 
 type PendingEnrollmentPatch = {
   sequence: number;
+  /** What goes on the wire. May contain request-only keys such as qc_checked. */
   patch: Record<string, unknown>;
+  /**
+   * The same change in real column names, computed once at enqueue so the first
+   * optimistic merge and every later rebase agree. Replaying `patch` here would
+   * reintroduce the bug where qc_checked never reached the rendered row.
+   */
+  columnPatch: Record<string, unknown>;
 };
 
 type EnrollmentMutationState = {
@@ -775,7 +784,7 @@ export function EnrollmentClient({
     [people]
   );
 
-  const visibleRecords = useMemo(
+  const rankedRecords = useMemo(
     () =>
       sortRecords(
         filterRecords(records, filters, optionsById, currentEmail),
@@ -785,6 +794,35 @@ export function EnrollmentClient({
       ),
     [records, filters, optionsById, peopleByEmail, sort, currentEmail]
   );
+
+  // Hold the order steady while the user works. sortRecords tiebreaks on
+  // updated_at, which every patch bumps, so without this editing any field
+  // reshuffled every row that ties on the sorted column. Reset only when the
+  // user explicitly asks for a different slice or a different sort.
+  const orderResetKey = useMemo(
+    () => JSON.stringify([filters, sort, program]),
+    [filters, sort, program]
+  );
+  // Set-during-render is React's documented way to adjust state when an input
+  // changes: it re-renders before painting, and applyFrozenOrder is stable once
+  // membership settles, so this converges in one extra pass.
+  const [frozenIds, setFrozenIds] = useState<string[]>([]);
+  const [frozenKey, setFrozenKey] = useState(orderResetKey);
+  if (frozenKey !== orderResetKey) {
+    setFrozenKey(orderResetKey);
+    setFrozenIds([]);
+  }
+  const frozenRecords = applyFrozenOrder(
+    rankedRecords,
+    frozenKey === orderResetKey ? frozenIds : []
+  );
+  if (
+    frozenRecords.nextFrozenIds.length !== frozenIds.length ||
+    frozenRecords.nextFrozenIds.some((id, index) => id !== frozenIds[index])
+  ) {
+    setFrozenIds(frozenRecords.nextFrozenIds);
+  }
+  const visibleRecords = frozenRecords.rows;
   const exportColumnKeys = useMemo(
     () => {
       const keys = columns
@@ -972,15 +1010,15 @@ export function EnrollmentClient({
   function rebasePendingEnrollmentPatches(id: string, state: EnrollmentMutationState) {
     let next = state.confirmed;
     for (const pending of state.pending) {
-      const optimisticPatch = isPlainRecord(pending.patch.custom_values)
+      const optimisticPatch = isPlainRecord(pending.columnPatch.custom_values)
         ? {
-            ...pending.patch,
+            ...pending.columnPatch,
             custom_values: {
               ...(isPlainRecord(next.custom_values) ? next.custom_values : {}),
-              ...pending.patch.custom_values,
+              ...pending.columnPatch.custom_values,
             },
           }
-        : pending.patch;
+        : pending.columnPatch;
       next = { ...next, ...optimisticPatch } as EnrollmentRecordWithStats;
     }
     recordRowsRef.current.set(id, next);
@@ -1006,17 +1044,27 @@ export function EnrollmentClient({
       } satisfies EnrollmentMutationState);
     recordMutationStatesRef.current.set(id, state);
     const sequence = state.nextSequence++;
-    state.pending.push({ sequence, patch });
 
-    const optimisticPatch = isPlainRecord(patch.custom_values)
+    // Translate request-only keys into the columns the row actually renders.
+    // Without this the QC toggle wrote `qc_checked`, which nothing reads, and
+    // left `qc_checked_at` -- which every surface reads -- unchanged until the
+    // server replied. Computed once and stored so rebases replay the same value.
+    const columnPatch = toOptimisticEnrollmentPatch(
+      patch,
+      currentEmail,
+      new Date().toISOString()
+    );
+    state.pending.push({ sequence, patch, columnPatch });
+
+    const optimisticPatch = isPlainRecord(columnPatch.custom_values)
       ? {
-          ...patch,
+          ...columnPatch,
           custom_values: {
             ...(isPlainRecord(before.custom_values) ? before.custom_values : {}),
-            ...patch.custom_values,
+            ...columnPatch.custom_values,
           },
         }
-      : patch;
+      : columnPatch;
     const optimistic = { ...before, ...optimisticPatch } as EnrollmentRecordWithStats;
     recordRowsRef.current.set(id, optimistic);
     updateRecords((current) =>

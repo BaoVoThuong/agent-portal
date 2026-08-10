@@ -13,6 +13,7 @@ import {
   type SortKey,
 } from "@/lib/tasks/sorting";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
+import { applyFrozenOrder } from "@/lib/tasks/frozen-order";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TableColumnOption } from "@/lib/table-config/types";
 import { LIST_COL, TaskRowItem, listColumnWidthPx } from "./TaskRowItem";
@@ -23,6 +24,7 @@ import type {
 
 export function TaskListView({
   tasks,
+  orderResetKey,
   categories,
   assignees,
   agents,
@@ -45,6 +47,8 @@ export function TaskListView({
   tableColumnOptions,
 }: {
   tasks: TaskRow[];
+  /** Changes only on an explicit reorder request (filter change). */
+  orderResetKey: string;
   categories: TaskCategory[];
   assignees: TaskAssignee[];
   agents: TaskAgent[];
@@ -100,14 +104,42 @@ export function TaskListView({
   if (!labelByEmail.has(currentEmail)) {
     labelByEmail.set(currentEmail, formatEmailAsName(currentEmail));
   }
-  const rows =
+  const ranked =
     sortKey === null
       ? managerView
         ? rankTasksForManager(tasks, rules, now)
         : rankTasks(tasks, rules, now)
       : sortTasks(tasks, sortKey, sortDir, categoryName);
 
+  // Hold the order steady while the user works. rankTasks reads last_activity_at,
+  // which every patch bumps, so without this the row just edited jumps out from
+  // under the cursor. Reset on an explicit reorder request so clicking a column
+  // header still takes effect immediately.
+  //
+  // Set-during-render is React's documented way to adjust state when an input
+  // changes: it re-renders before painting, and applyFrozenOrder is stable once
+  // membership settles, so this converges in one extra pass.
+  const [frozenIds, setFrozenIds] = useState<string[]>([]);
+  const [frozenKey, setFrozenKey] = useState(orderResetKey);
+  if (frozenKey !== orderResetKey) {
+    setFrozenKey(orderResetKey);
+    setFrozenIds([]);
+  }
+  const frozen = applyFrozenOrder(ranked, frozenKey === orderResetKey ? frozenIds : []);
+  if (
+    frozen.nextFrozenIds.length !== frozenIds.length ||
+    frozen.nextFrozenIds.some((id, index) => id !== frozenIds[index])
+  ) {
+    setFrozenIds(frozen.nextFrozenIds);
+  }
+  const rows = frozen.rows;
+
+  function resetFrozenOrder() {
+    setFrozenIds([]);
+  }
+
   function toggleSort(key: SortKey) {
+    resetFrozenOrder();
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
