@@ -392,7 +392,22 @@ export async function PATCH(request: Request, { params }: Ctx) {
     if (reopening) rpcActivityRows.push({ type: "reopened", meta: { reason: reopenReason, from: fromStage?.label ?? "No stage" } });
     else if (toStage?.triggers_qc) rpcActivityRows.push({ type: "qc_needed", meta: { stage: toStage.label } });
   }
-  if (touchesPeople) rpcActivityRows.push({ type: "people_changed", meta: { caller: patch.caller_email ?? current.caller_email, responsible_enroll: patch.responsible_enroll_email ?? current.responsible_enroll_email } });
+  if (touchesPeople) {
+    // `??` cannot be used here: null is the value that CLEARS a person, and
+    // nullish coalescing substitutes the person being removed -- durably
+    // logging the opposite of what the user did. Key presence is the only
+    // signal separating "not in this patch" from "explicitly cleared".
+    const nextCaller =
+      "caller_email" in patch ? patch.caller_email : current.caller_email;
+    const nextResponsible =
+      "responsible_enroll_email" in patch
+        ? patch.responsible_enroll_email
+        : current.responsible_enroll_email;
+    rpcActivityRows.push({
+      type: "people_changed",
+      meta: { caller: nextCaller, responsible_enroll: nextResponsible },
+    });
+  }
   if (qcChecked !== null) rpcActivityRows.push({ type: qcChecked ? "qc_reviewed" : "qc_review_cleared", meta: null });
   const rpcGenericChangedFields = changedFields.filter((field) => !["stage_id", "caller_email", "responsible_enroll_email", "qc_checked", "qc_cleared"].includes(field));
   if (rpcGenericChangedFields.length > 0) rpcActivityRows.push({ type: "field_changed", meta: { fields: rpcGenericChangedFields } });

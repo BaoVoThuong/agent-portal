@@ -17,6 +17,7 @@ import {
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
 import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { signAttachmentsSafely } from "@/lib/tasks/detail";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import {
   insertNotifications,
@@ -93,34 +94,33 @@ export async function GET(_req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   // Task-level attachments only; comment attachments live with their comment.
+  // `deleted_at` is required: deletion became a soft-delete plus post-commit
+  // storage removal, so an unfiltered query resurfaces files whose objects are
+  // already gone. This consumer was missed when that model changed.
   const { data, error } = await r.supabase
     .from("task_attachments")
     .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
     .eq("task_id", id)
     .is("comment_id", null)
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const attachments = await Promise.all(
-    (data ?? []).map(async (a) => {
-      const row = a as {
-        id: string;
-        file_name: string;
-        mime_type: string | null;
-        size_bytes: number | null;
-        storage_path: string;
-        created_at: string;
-      };
-      return {
-        id: row.id,
-        file_name: row.file_name,
-        mime_type: row.mime_type,
-        size_bytes: row.size_bytes,
-        created_at: row.created_at,
-        url: await signTaskFile(row.storage_path),
-      };
-    })
-  );
+  // Per-file isolation, same as task detail: signTaskFile throws, so the old
+  // Promise.all meant one unsignable object failed the entire endpoint.
+  const rows = (data ?? []) as {
+    id: string;
+    file_name: string;
+    mime_type: string | null;
+    size_bytes: number | null;
+    storage_path: string;
+    created_at: string;
+  }[];
+  const signed = await signAttachmentsSafely(rows);
+  const attachments = rows.map((row, index) => ({
+    ...signed[index],
+    created_at: row.created_at,
+  }));
   return NextResponse.json({ attachments });
 }
 
