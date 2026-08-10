@@ -25,6 +25,8 @@ import {
   Settings2,
   UserPlus,
   X,
+  AtSign,
+  MessageSquare,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
@@ -91,6 +93,8 @@ import { ReasonModal } from "../../tasks/_components/ReasonModal";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { Initials } from "../../tasks/_components/board-ui";
 import { activeCommentCount } from "@/lib/tasks/thread-view";
+import type { TaskSignalBadges } from "@/lib/tasks/signal-badges";
+import { partitionBySignal } from "@/lib/enrollment/signal-order";
 import { EnrollmentOverview } from "./EnrollmentOverview";
 
 type SortKey =
@@ -496,6 +500,9 @@ export function EnrollmentClient({
     dir: "desc",
   });
   const [openId, setOpenId] = useState<string | null>(null);
+  const [signalBadges, setSignalBadges] = useState<
+    Record<string, TaskSignalBadges>
+  >(() => ({}));
   const [creating, setCreating] = useState(false);
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
@@ -777,13 +784,26 @@ export function EnrollmentClient({
 
   const visibleRecords = useMemo(
     () =>
-      sortRecords(
-        filterRecords(records, filters, optionsById, currentEmail),
-        sort,
-        optionsById,
-        peopleByEmail
+      // Applied AFTER the column sort so header sorting still governs the
+      // order inside each group; this only floats the badged group.
+      partitionBySignal(
+        sortRecords(
+          filterRecords(records, filters, optionsById, currentEmail),
+          sort,
+          optionsById,
+          peopleByEmail
+        ),
+        signalBadges
       ),
-    [records, filters, optionsById, peopleByEmail, sort, currentEmail]
+    [
+      records,
+      filters,
+      optionsById,
+      peopleByEmail,
+      sort,
+      currentEmail,
+      signalBadges,
+    ]
   );
   const exportColumnKeys = useMemo(
     () => {
@@ -805,6 +825,60 @@ export function EnrollmentClient({
     [visibleRecords]
   );
   const openRecord = records.find((record) => record.id === openId) ?? null;
+
+  const loadSignalBadges = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks/notifications");
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        enrollmentSignalBadges?: Record<string, TaskSignalBadges>;
+      };
+      setSignalBadges(data.enrollmentSignalBadges ?? {});
+    } catch {
+      // Badges are a visual hint only; the next load repairs them.
+    }
+  }, []);
+
+  useEffect(() => {
+    // Deferred for the same reason the CS board defers its loader: resolving
+    // synchronously inside the effect body cascades renders.
+    const timer = window.setTimeout(() => void loadSignalBadges(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadSignalBadges]);
+
+  // Opening the record acknowledges every signal on it, not just one type --
+  // clearing only `assigned` would leave the comment badge alive and the row
+  // floated after the user had already looked.
+  //
+  // Keyed on openId alone and guarded by a ref rather than depending on
+  // signalBadges: an effect that both reads and writes that state re-runs on
+  // its own output.
+  const clearedSignalIdsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!openId) return;
+    if (clearedSignalIdsRef.current.has(openId)) return;
+    clearedSignalIdsRef.current.add(openId);
+
+    // Deferred out of the effect body, matching how the CS board clears its
+    // own badges: a synchronous setState here cascades renders.
+    const timer = window.setTimeout(() => {
+      setSignalBadges((current) => {
+        if (!current[openId]) return current;
+        const next = { ...current };
+        delete next[openId];
+        return next;
+      });
+
+      for (const type of ["assigned", "commented", "mentioned"] as const) {
+        void fetch("/api/tasks/notifications/read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recordId: openId, type }),
+        }).catch(() => {});
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [openId]);
   const overviewDateRange = overviewDateRanges[program];
 
   const exportVisibleRecords = useCallback(async () => {
@@ -1223,6 +1297,7 @@ export function EnrollmentClient({
             <EnrollmentTable
               columns={visibleColumns}
               records={visibleRecords}
+              signalBadges={signalBadges}
               peopleByEmail={peopleByEmail}
               agentsByEmail={agentsByEmail}
               optionsById={optionsById}
@@ -1675,6 +1750,7 @@ function ColumnVisibilityButton({
 function EnrollmentTable({
   columns,
   records,
+  signalBadges,
   peopleByEmail,
   agentsByEmail,
   optionsById,
@@ -1690,6 +1766,7 @@ function EnrollmentTable({
 }: {
   columns: EnrollmentColumn[];
   records: EnrollmentRecordWithStats[];
+  signalBadges?: Record<string, TaskSignalBadges>;
   peopleByEmail: Map<string, string>;
   agentsByEmail: Map<string, string>;
   optionsById: Map<string, EnrollmentOption>;
@@ -1758,6 +1835,7 @@ function EnrollmentTable({
                 <EnrollmentRowItem
                   columns={columns}
                   record={record}
+                  badges={signalBadges?.[record.id]}
                   peopleByEmail={peopleByEmail}
                   agentsByEmail={agentsByEmail}
                   optionsById={optionsById}
@@ -1778,9 +1856,52 @@ function EnrollmentTable({
   );
 }
 
+// Per-viewer unread signals, rendered in the same visual language as the CS
+// board's row flags so the two products do not diverge. Returns null when the
+// record carries nothing -- an unbadged row must look exactly as it did.
+function EnrollmentSignalFlags({ badges }: { badges?: TaskSignalBadges }) {
+  const mentioned = badges?.mentioned ?? false;
+  const commentCount = badges?.comments ?? 0;
+  const assigned = badges?.assigned ?? false;
+  if (!mentioned && commentCount === 0 && !assigned) return null;
+
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1"
+      aria-label="Record signals"
+    >
+      {assigned ? (
+        <span className="inline-flex h-5 shrink-0 items-center rounded border border-[#85b8ff] bg-[#e9f2ff] px-1.5 text-[10px] font-bold uppercase leading-none text-[#0c66e4]">
+          New
+        </span>
+      ) : null}
+      {mentioned ? (
+        <span
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#f8e6a0] bg-[#fff7d6] text-[#7f5f01]"
+          title="You were mentioned in a comment."
+          aria-label="You were mentioned in a comment."
+        >
+          <AtSign className="h-3 w-3" />
+        </span>
+      ) : null}
+      {commentCount > 0 ? (
+        <span
+          className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center gap-0.5 rounded-full border border-[#b3d4ff] bg-[#deebff] px-1.5 text-[#0055cc]"
+          title={`${commentCount} new comment${commentCount === 1 ? "" : "s"} since you last opened this.`}
+          aria-label={`${commentCount} new comments since you last opened this.`}
+        >
+          <MessageSquare className="h-3 w-3" />
+          <span className="text-[10px] font-bold leading-none">{commentCount}</span>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function EnrollmentRowItem({
   columns,
   record,
+  badges,
   peopleByEmail,
   agentsByEmail,
   optionsById,
@@ -1804,6 +1925,7 @@ function EnrollmentRowItem({
   agentScopeEmails: readonly string[];
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  badges?: TaskSignalBadges;
 }) {
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
   const has = (key: EnrollmentColumn["key"]) => columns.some((column) => column.key === key);
@@ -1892,6 +2014,7 @@ function EnrollmentRowItem({
           >
             <span className="block truncate">{record.client_name || "Unnamed client"}</span>
           </button>
+          <EnrollmentSignalFlags badges={badges} />
           {record.fub_link ? (
             <a
               href={formatExternalLink(record.fub_link)}
