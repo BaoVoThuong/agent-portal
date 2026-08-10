@@ -157,7 +157,17 @@ select
   c.from_stage_id,
   enrollment_norm_email(c.agent_email),
   c.program,
-  case when c.inactive_at is not null then 'entry_marker' else 'dwell' end,
+  -- kind must agree with duration. The table constrains entry_marker to
+  -- duration_seconds = 0 ("entered, no measurable time"), so mapping every
+  -- inactive record to entry_marker emitted positive-duration markers and
+  -- aborted the entire backfill on the first archived or closed record. An
+  -- inactive record whose stage started before it went inactive DID accumulate
+  -- time: that is a completed dwell.
+  case
+    when c.inactive_at is null then 'dwell'
+    when greatest(c.inactive_at, c.started_at) > c.started_at then 'dwell'
+    else 'entry_marker'
+  end,
   c.started_at,
   case when c.inactive_at is not null then greatest(c.inactive_at, c.started_at) else null end,
   case when c.inactive_at is not null
