@@ -21,6 +21,7 @@ export async function GET() {
     unreadRes,
     enrollmentUnreadRes,
     unreadAssignedRes,
+    unreadEnrollmentSignalRes,
   ] = await Promise.all([
     supabase
       .from("task_notifications")
@@ -52,6 +53,12 @@ export async function GET() {
       .eq("recipient_email", email)
       .in("type", ["assigned", "commented", "mentioned"])
       .eq("is_read", false),
+    supabase
+      .from("enrollment_notifications")
+      .select("record_id,type")
+      .eq("recipient_email", email)
+      .in("type", ["assigned", "commented", "mentioned"])
+      .eq("is_read", false),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (enrollmentRes.error && !isMissingEnrollmentTableError(enrollmentRes.error)) {
@@ -71,6 +78,17 @@ export async function GET() {
   }
   if (unreadAssignedRes.error) {
     return NextResponse.json({ error: unreadAssignedRes.error.message }, { status: 500 });
+  }
+  // The enrollment tables are optional in some environments, same as the other
+  // enrollment queries in this route.
+  if (
+    unreadEnrollmentSignalRes.error &&
+    !isMissingEnrollmentTableError(unreadEnrollmentSignalRes.error)
+  ) {
+    return NextResponse.json(
+      { error: unreadEnrollmentSignalRes.error.message },
+      { status: 500 }
+    );
   }
 
   const taskBase = ((data ?? []) as {
@@ -203,6 +221,17 @@ export async function GET() {
     else if (row.type === "commented") badges.comments += 1;
   }
 
+  const enrollmentSignalBadges: Record<string, TaskSignalBadges> = {};
+  for (const row of (unreadEnrollmentSignalRes.data ?? []) as {
+    record_id: string;
+    type: string;
+  }[]) {
+    const badges = (enrollmentSignalBadges[row.record_id] ??= emptySignalBadges());
+    if (row.type === "assigned") badges.assigned = true;
+    else if (row.type === "mentioned") badges.mentioned = true;
+    else if (row.type === "commented") badges.comments += 1;
+  }
+
   // Retained for browser tabs opened before this deploy: they read this field
   // and nothing else, so removing it would blank their NEW badges until reload.
   const unreadAssignedTaskIds = [
@@ -215,6 +244,7 @@ export async function GET() {
     unread,
     unreadAssignedTaskIds,
     signalBadges,
+    enrollmentSignalBadges,
     topic: notifTopic(email),
   });
 }
