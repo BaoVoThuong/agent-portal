@@ -7,6 +7,10 @@ import {
   taskKey,
 } from "@/lib/tasks/sorting";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
+import {
+  emptySignalBadges,
+  type TaskSignalBadges,
+} from "@/lib/tasks/signal-badges";
 
 function task(p: Partial<TaskRow>): TaskRow {
   return {
@@ -330,5 +334,77 @@ describe("rankTasksForManager", () => {
     expect(
       rankTasksForManager([closed, recent, qc], rules, now).map((row) => row.id)
     ).toEqual(["qc", "recent", "closed"]);
+  });
+});
+
+describe("signal badge band", () => {
+  const now = new Date("2026-08-11T00:00:00Z");
+  const rules: TaskSlaRule[] = [];
+  const badged = (partial: Partial<TaskSignalBadges>): TaskSignalBadges => ({
+    ...emptySignalBadges(),
+    ...partial,
+  });
+
+  it("places a badged task above a recently active one", () => {
+    const active = task({
+      id: "active",
+      last_activity_at: new Date(now.getTime() - 1000).toISOString(),
+    });
+    const flagged = task({ id: "flagged" });
+
+    const ranked = rankTasks([active, flagged], rules, now, {
+      flagged: badged({ comments: 1 }),
+    });
+
+    expect(ranked.map((t) => t.id)).toEqual(["flagged", "active"]);
+  });
+
+  it("orders mention above comments above assignment inside the band", () => {
+    const assignedOnly = task({ id: "assigned" });
+    const commented = task({ id: "commented" });
+    const mentioned = task({ id: "mentioned" });
+
+    const ranked = rankTasks([assignedOnly, commented, mentioned], rules, now, {
+      assigned: badged({ assigned: true }),
+      commented: badged({ comments: 2 }),
+      mentioned: badged({ mentioned: true }),
+    });
+
+    expect(ranked.map((t) => t.id)).toEqual([
+      "mentioned",
+      "commented",
+      "assigned",
+    ]);
+  });
+
+  it("does not pin a closed task even when it carries a badge", () => {
+    // A late comment on finished work must not outrank live work. Compared
+    // against a RECENTLY ACTIVE task on purpose: that sits in the band just
+    // below the badge band, so a wrongly-pinned closed task would beat it,
+    // while a correctly-unpinned one falls below it. Comparing against a plain
+    // task would put both in the same band and only test the id tiebreak.
+    const closedBadged = task({ id: "closed", status: "done" });
+    const recentlyActive = task({
+      id: "active",
+      last_activity_at: new Date(now.getTime() - 1000).toISOString(),
+    });
+
+    const ranked = rankTasks([closedBadged, recentlyActive], rules, now, {
+      closed: badged({ comments: 1 }),
+    });
+
+    expect(ranked[0].id).toBe("active");
+  });
+
+  it("is inert when no badges are supplied", () => {
+    const a = task({
+      id: "a",
+      last_activity_at: new Date(now.getTime() - 1000).toISOString(),
+    });
+    const b = task({ id: "b" });
+
+    expect(rankTasks([a, b], rules, now, {}).map((t) => t.id)).toEqual(
+      rankTasks([a, b], rules, now).map((t) => t.id)
+    );
   });
 });

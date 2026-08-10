@@ -380,9 +380,9 @@ export function KanbanBoard({
   const rankedTasks = useMemo(
     () =>
       managerView
-        ? rankTasksForManager(tasks, rules, now)
-        : rankTasks(tasks, rules, now),
-    [managerView, tasks, rules, now]
+        ? rankTasksForManager(tasks, rules, now, signalBadges)
+        : rankTasks(tasks, rules, now, signalBadges),
+    [managerView, tasks, rules, now, signalBadges]
   );
   const [manualOrderState, setManualOrderState] = useState<ManualOrderState>({
     tasksRef: null,

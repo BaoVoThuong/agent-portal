@@ -106,8 +106,8 @@ export function TaskListView({
   const rows =
     sortKey === null
       ? managerView
-        ? rankTasksForManager(tasks, rules, now)
-        : rankTasks(tasks, rules, now)
+        ? rankTasksForManager(tasks, rules, now, signalBadges)
+        : rankTasks(tasks, rules, now, signalBadges)
       : sortTasks(tasks, sortKey, sortDir, categoryName);
 
   function toggleSort(key: SortKey) {

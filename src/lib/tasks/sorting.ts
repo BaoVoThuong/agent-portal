@@ -1,5 +1,10 @@
 import { isTaskOverdue, slaRemainingSeconds } from "./sla";
 import {
+  hasAnySignal,
+  signalRankWeight,
+  type TaskSignalBadges,
+} from "./signal-badges";
+import {
   TASK_PRIORITIES,
   type TaskPriority,
   type TaskRow,
@@ -200,10 +205,20 @@ function timestamp(iso: string | null | undefined): number {
 function rankTuple(
   task: TaskRow,
   rules: TaskSlaRule[],
-  now: Date
+  now: Date,
+  badgesByTask: Record<string, TaskSignalBadges> = {}
 ): [number, number, number] {
   if (isTaskOverdue(task, rules, now)) {
     return [0, slaRemainingSeconds(task, rules, now), 0];
+  }
+
+  const badges = badgesByTask[task.id];
+  // Pin only OPEN work. A closed task with a late comment still shows its
+  // badge, but must not outrank live work.
+  if (badges && hasAnySignal(badges) && OPEN_STATUSES.has(task.status)) {
+    // Oldest unread first within a weight: a task ignored for three days
+    // outranks one commented on five minutes ago.
+    return [1, signalRankWeight(badges), timestamp(task.last_activity_at)];
   }
 
   const lastActivityMs = timestamp(task.last_activity_at);
@@ -211,11 +226,11 @@ function rankTuple(
     lastActivityMs > 0 &&
     now.getTime() - lastActivityMs <= RECENT_ACTIVITY_WINDOW_MS
   ) {
-    return [1, -lastActivityMs, 0];
+    return [2, -lastActivityMs, 0];
   }
 
   return [
-    2,
+    3,
     ATTENTION_PRIORITY_RANK[task.priority],
     timestamp(task.created_at),
   ];
@@ -225,10 +240,11 @@ export function compareTaskRank(
   a: TaskRow,
   b: TaskRow,
   rules: TaskSlaRule[],
-  now: Date
+  now: Date,
+  badgesByTask: Record<string, TaskSignalBadges> = {}
 ): number {
-  const aRank = rankTuple(a, rules, now);
-  const bRank = rankTuple(b, rules, now);
+  const aRank = rankTuple(a, rules, now, badgesByTask);
+  const bRank = rankTuple(b, rules, now, badgesByTask);
 
   for (let index = 0; index < aRank.length; index += 1) {
     if (aRank[index] !== bRank[index]) return aRank[index] - bRank[index];
@@ -242,9 +258,12 @@ export function compareTaskRank(
 export function rankTasks(
   tasks: TaskRow[],
   rules: TaskSlaRule[],
-  now: Date
+  now: Date,
+  badgesByTask: Record<string, TaskSignalBadges> = {}
 ): TaskRow[] {
-  return [...tasks].sort((a, b) => compareTaskRank(a, b, rules, now));
+  return [...tasks].sort((a, b) =>
+    compareTaskRank(a, b, rules, now, badgesByTask)
+  );
 }
 
 const OPEN_STATUSES = new Set<TaskStatus>([
@@ -277,15 +296,25 @@ function hasAssignee(task: TaskRow): boolean {
 function managerRankTuple(
   task: TaskRow,
   rules: TaskSlaRule[],
-  now: Date
+  now: Date,
+  badgesByTask: Record<string, TaskSignalBadges> = {}
 ): [number, number, number] {
   if (isTaskOverdue(task, rules, now)) {
     return [0, slaRemainingSeconds(task, rules, now), 0];
   }
 
   const open = OPEN_STATUSES.has(task.status);
+
+  // Same band as the worker view. Badges are assignee-scoped, so this rarely
+  // fires for a manager -- it is here so a manager who IS assigned sees the
+  // same behaviour as everyone else.
+  const badges = badgesByTask[task.id];
+  if (badges && hasAnySignal(badges) && open) {
+    return [1, signalRankWeight(badges), timestamp(task.last_activity_at)];
+  }
+
   if (open && !hasAssignee(task)) {
-    return [1, timestamp(task.created_at), 0];
+    return [2, timestamp(task.created_at), 0];
   }
 
   const stalled =
@@ -294,14 +323,14 @@ function managerRankTuple(
       (task.priority === "urgent" || task.priority === "high"));
   if (stalled) {
     return [
-      2,
+      3,
       ATTENTION_PRIORITY_RANK[task.priority],
       -timeInStateMs(task, now),
     ];
   }
 
   if (task.status === "done" && !task.done_reviewed_by_email) {
-    return [3, timestamp(task.closed_at), 0];
+    return [4, timestamp(task.closed_at), 0];
   }
 
   const lastActivityMs = timestamp(task.last_activity_at);
@@ -309,28 +338,29 @@ function managerRankTuple(
     lastActivityMs > 0 &&
     now.getTime() - lastActivityMs <= RECENT_ACTIVITY_WINDOW_MS
   ) {
-    return [4, -lastActivityMs, 0];
+    return [5, -lastActivityMs, 0];
   }
 
   if (open) {
     return [
-      5,
+      6,
       ATTENTION_PRIORITY_RANK[task.priority],
       timestamp(task.created_at),
     ];
   }
 
-  return [6, -timestamp(task.closed_at), 0];
+  return [7, -timestamp(task.closed_at), 0];
 }
 
 export function compareManagerRank(
   a: TaskRow,
   b: TaskRow,
   rules: TaskSlaRule[],
-  now: Date
+  now: Date,
+  badgesByTask: Record<string, TaskSignalBadges> = {}
 ): number {
-  const aRank = managerRankTuple(a, rules, now);
-  const bRank = managerRankTuple(b, rules, now);
+  const aRank = managerRankTuple(a, rules, now, badgesByTask);
+  const bRank = managerRankTuple(b, rules, now, badgesByTask);
 
   for (let index = 0; index < aRank.length; index += 1) {
     if (aRank[index] !== bRank[index]) return aRank[index] - bRank[index];
@@ -344,7 +374,10 @@ export function compareManagerRank(
 export function rankTasksForManager(
   tasks: TaskRow[],
   rules: TaskSlaRule[],
-  now: Date
+  now: Date,
+  badgesByTask: Record<string, TaskSignalBadges> = {}
 ): TaskRow[] {
-  return [...tasks].sort((a, b) => compareManagerRank(a, b, rules, now));
+  return [...tasks].sort((a, b) =>
+    compareManagerRank(a, b, rules, now, badgesByTask)
+  );
 }
