@@ -32,6 +32,7 @@ import {
   type TaskSlaRule,
 } from "@/lib/tasks/types";
 import { isSlaActiveInProgress, isTaskOverdue, slaRemainingSeconds } from "@/lib/tasks/sla";
+import type { TaskSignalBadges } from "@/lib/tasks/signal-badges";
 import { midpoint } from "@/lib/tasks/ordering";
 import { rankTasks, rankTasksForManager } from "@/lib/tasks/sorting";
 import { TaskCard } from "./TaskCard";
@@ -168,6 +169,7 @@ function SortableCard({
   slaRemainingSeconds,
   isOverdue,
   isNewAssigned,
+  badges,
   useAssigneeTodoClock,
   now,
   onUnlockOverdue,
@@ -184,6 +186,7 @@ function SortableCard({
   slaRemainingSeconds: number | null;
   isOverdue: boolean;
   isNewAssigned: boolean;
+  badges?: TaskSignalBadges;
   useAssigneeTodoClock: boolean;
   now: Date;
   onUnlockOverdue: (id: string) => void;
@@ -216,6 +219,7 @@ function SortableCard({
         slaRemainingSeconds={slaRemainingSeconds}
         isOverdue={isOverdue}
         isNewAssigned={isNewAssigned}
+        badges={badges}
         useAssigneeTodoClock={useAssigneeTodoClock}
         now={now}
         onUnlockOverdue={onUnlockOverdue}
@@ -238,6 +242,7 @@ function Column({
   isOverdueTask,
   slaRemainingFor,
   newAssignedTaskIds,
+  signalBadges,
   useAssigneeTodoClock,
   now,
   activeId,
@@ -256,6 +261,7 @@ function Column({
   assigneeLabelByEmail: Map<string, string>;
   slaRemainingFor: (task: TaskRow) => number | null;
   newAssignedTaskIds: Set<string>;
+  signalBadges?: Record<string, TaskSignalBadges>;
   useAssigneeTodoClock: boolean;
   now: Date;
   activeId: string | null;
@@ -306,6 +312,7 @@ function Column({
               slaRemainingSeconds={slaRemainingFor(t)}
               isOverdue={isOverdueTask(t)}
               isNewAssigned={newAssignedTaskIds.has(t.id)}
+              badges={signalBadges?.[t.id]}
               useAssigneeTodoClock={useAssigneeTodoClock}
               now={now}
               onUnlockOverdue={onUnlockOverdue}
@@ -329,6 +336,7 @@ export function KanbanBoard({
   categories,
   assigneeLabelByEmail,
   newAssignedTaskIds,
+  signalBadges,
   useAssigneeTodoClock = false,
   rules,
   now,
@@ -346,6 +354,7 @@ export function KanbanBoard({
   categories: TaskCategory[];
   assigneeLabelByEmail: Map<string, string>;
   newAssignedTaskIds: Set<string>;
+  signalBadges?: Record<string, TaskSignalBadges>;
   useAssigneeTodoClock?: boolean;
   rules: TaskSlaRule[];
   now: Date;
@@ -561,6 +570,7 @@ export function KanbanBoard({
                 slaRemainingSeconds={slaRemainingFor(activeTask)}
                 isOverdue={isOverdueTask(activeTask)}
                 isNewAssigned={newAssignedTaskIds.has(activeTask.id)}
+                badges={signalBadges?.[activeTask.id]}
                 useAssigneeTodoClock={useAssigneeTodoClock}
                 now={now}
                 visibleColumnKeys={visibleColumnKeys}

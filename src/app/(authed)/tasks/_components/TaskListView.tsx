@@ -13,6 +13,7 @@ import {
   type SortKey,
 } from "@/lib/tasks/sorting";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
+import type { TaskSignalBadges } from "@/lib/tasks/signal-badges";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TableColumnOption } from "@/lib/table-config/types";
 import { LIST_COL, TaskRowItem, listColumnWidthPx } from "./TaskRowItem";
@@ -36,6 +37,7 @@ export function TaskListView({
   onAssigneeChange,
   overdueIds,
   newAssignedTaskIds,
+  signalBadges,
   rules,
   now,
   managerView,
@@ -58,6 +60,7 @@ export function TaskListView({
   onAssigneeChange: (id: string, email: string, assigned: boolean) => void;
   overdueIds: Set<string>;
   newAssignedTaskIds: Set<string>;
+  signalBadges?: Record<string, TaskSignalBadges>;
   rules: TaskSlaRule[];
   now: Date;
   managerView: boolean;
@@ -193,6 +196,7 @@ export function TaskListView({
                         openOnDoubleClick
                         isOverdue={overdueIds.has(task.id)}
                         isNewAssigned={newAssignedTaskIds.has(task.id)}
+                        badges={signalBadges?.[task.id]}
                         onUnlockOverdueRequest={() => onUnlockOverdue(task.id)}
                         onReopenRequest={() => onReopenRequest(task.id)}
                         visibleColumnKeys={visibleColumnKeys}

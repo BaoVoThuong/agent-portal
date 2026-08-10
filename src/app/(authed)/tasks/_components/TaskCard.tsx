@@ -1,5 +1,9 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import { AlertTriangle, CheckCircle2, Circle, RotateCcw } from "lucide-react";
+import type { TaskSignalBadges } from "@/lib/tasks/signal-badges";
+import { AlertTriangle, CheckCircle2, Circle, RotateCcw,
+  AtSign,
+  MessageSquare
+} from "lucide-react";
 import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,
@@ -34,6 +38,7 @@ export function TaskCard({
   isOverdue = false,
   now = new Date(),
   isNewAssigned = false,
+  badges,
   useAssigneeTodoClock = false,
   onUnlockOverdue,
   onReopenRequest,
@@ -49,6 +54,7 @@ export function TaskCard({
   isOverdue?: boolean;
   now?: Date;
   isNewAssigned?: boolean;
+  badges?: TaskSignalBadges;
   useAssigneeTodoClock?: boolean;
   onUnlockOverdue?: (id: string) => void;
   onReopenRequest?: (id: string) => void;
@@ -103,6 +109,25 @@ export function TaskCard({
             {task.title}
           </h3>
           {isNewAssigned ? <NewAssignedBadge className="mt-1" /> : null}
+          {badges?.mentioned ? (
+            <span
+              className="mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#f8e6a0] bg-[#fff7d6] text-[#7f5f01]"
+              title="You were mentioned in a comment."
+              aria-label="You were mentioned in a comment."
+            >
+              <AtSign className="h-3 w-3" />
+            </span>
+          ) : null}
+          {badges && badges.comments > 0 ? (
+            <span
+              className="mt-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center gap-0.5 rounded-full border border-[#b3d4ff] bg-[#deebff] px-1.5 text-[#0055cc]"
+              title={`${badges.comments} new comment${badges.comments === 1 ? "" : "s"} since you last opened this.`}
+              aria-label={`${badges.comments} new comments since you last opened this.`}
+            >
+              <MessageSquare className="h-3 w-3" />
+              <span className="text-[10px] font-bold leading-none">{badges.comments}</span>
+            </span>
+          ) : null}
         </div>
 
         <div className="relative flex shrink-0 items-start gap-1.5">

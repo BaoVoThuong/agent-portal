@@ -49,6 +49,10 @@ import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
 import { Toast } from "../../_shared/Toast";
+import {
+  hasAnySignal,
+  type TaskSignalBadges,
+} from "@/lib/tasks/signal-badges";
 import { useAnchoredMenu } from "./use-anchored-menu";
 import {
   TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
@@ -157,8 +161,18 @@ export function TaskBoardClient({
     Set<TaskListColumnKey>
   >(() => new Set(TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS));
   const [showTeamTasks, setShowTeamTasks] = useState(false);
-  const [newAssignedTaskIds, setNewAssignedTaskIds] = useState<Set<string>>(
-    () => new Set()
+  const [signalBadges, setSignalBadges] = useState<Record<string, TaskSignalBadges>>(
+    () => ({})
+  );
+  // Derived so every existing NewAssignedBadge consumer keeps working unchanged.
+  const newAssignedTaskIds = useMemo(
+    () =>
+      new Set(
+        Object.entries(signalBadges)
+          .filter(([, badges]) => badges.assigned)
+          .map(([taskId]) => taskId)
+      ),
+    [signalBadges]
   );
   const initialDateRangeDefault = useMemo(
     () => getFallbackTaskDateRangeDefault(),
@@ -341,35 +355,45 @@ export function TaskBoardClient({
     try {
       const res = await fetch("/api/tasks/notifications");
       if (!res.ok) return;
-      const data = (await res.json()) as { unreadAssignedTaskIds?: unknown };
-      const ids = Array.isArray(data.unreadAssignedTaskIds)
-        ? data.unreadAssignedTaskIds.filter((id): id is string => typeof id === "string")
-        : [];
-      setNewAssignedTaskIds(new Set(ids));
+      const data = (await res.json()) as {
+        signalBadges?: Record<string, TaskSignalBadges>;
+      };
+      setSignalBadges(data.signalBadges ?? {});
     } catch {
       // Notification state is a visual hint only; the next task/notification
       // refresh will repair it.
     }
   }, []);
 
-  const markAssignedNotificationRead = useCallback(async (taskId: string) => {
-    await fetch("/api/tasks/notifications/read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId, type: "assigned" }),
-    }).catch(() => {});
-  }, []);
+  const markNotificationTypeRead = useCallback(
+    async (taskId: string, type: "assigned" | "commented" | "mentioned") => {
+      await fetch("/api/tasks/notifications/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId, type }),
+      }).catch(() => {});
+    },
+    []
+  );
 
   const markNewAssignedTaskSeen = useCallback((taskId: string) => {
-    if (!newAssignedTaskIds.has(taskId)) return;
-    setNewAssignedTaskIds((current) => {
-      if (!current.has(taskId)) return current;
-      const next = new Set(current);
-      next.delete(taskId);
+    const badges = signalBadges[taskId];
+    if (!badges || !hasAnySignal(badges)) return;
+
+    setSignalBadges((current) => {
+      if (!current[taskId]) return current;
+      const next = { ...current };
+      delete next[taskId];
       return next;
     });
-    void markAssignedNotificationRead(taskId);
-  }, [markAssignedNotificationRead, newAssignedTaskIds]);
+
+    // Opening the task acknowledges every signal on it, not just the
+    // assignment -- otherwise the comment badge would survive the read that
+    // cleared NEW and the row would stay pinned.
+    for (const type of ["assigned", "commented", "mentioned"] as const) {
+      void markNotificationTypeRead(taskId, type);
+    }
+  }, [markNotificationTypeRead, signalBadges]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadUnreadAssignedTaskIds(), 0);
@@ -1594,6 +1618,7 @@ export function TaskBoardClient({
           categories={categories}
           assigneeLabelByEmail={assigneeLabelByEmail}
           newAssignedTaskIds={displayNewAssignedTaskIds}
+          signalBadges={signalBadges}
           useAssigneeTodoClock={shouldLimitPlainCsTasks && !showTeamTasks}
           rules={slaRules}
           now={now}
@@ -1620,6 +1645,7 @@ export function TaskBoardClient({
           onAssigneeChange={changeAssignee}
           overdueIds={overdueIds}
           newAssignedTaskIds={displayNewAssignedTaskIds}
+          signalBadges={signalBadges}
           rules={slaRules}
           now={now}
           managerView={managerView}
