@@ -34,9 +34,9 @@ Exactly three badges. Each maps to one already-recorded event.
 
 | Badge | Condition | Question it answers |
 |---|---|---|
-| `NEW` | The viewer was assigned this task and has **not opened it since that assignment** | "Work arrived and I haven't looked at it" |
-| `💬 n` | `n` comments were added after the viewer last opened the task, authored by someone else | "Someone is waiting on my reply" |
-| `@` | The viewer was mentioned after they last opened the task | "Someone asked for me by name" |
+| `NEW` | An unread `assigned` notification exists for the viewer on this task | "Work arrived and I haven't looked at it" |
+| `💬 n` | `n` unread `commented` notifications for the viewer on this task | "Someone is waiting on my reply" |
+| `@` | An unread `mentioned` notification exists for the viewer on this task | "Someone asked for me by name" |
 
 A task with nothing new carries **no badge**. That is the load-bearing property: if most rows
 are lit, none of them signal anything.
@@ -65,15 +65,15 @@ tooltip in one of three tones:
     info:    "border-[#b3d4ff] bg-[#deebff] text-[#0055cc]",
 ```
 
-**The three signal badges become three more flags in that same strip**, using the same component and
-the same tones. Nothing new is invented, and the badges sit exactly where users already look for
-task state.
+`NEW` already renders here as `NewAssignedBadge` (`board-ui.tsx:95`) — a blue text pill, not a
+`RowFlagIcon`. **Keep it exactly as it is.** The two new badges join the same strip as
+`RowFlagIcon` flags:
 
-| Badge | Icon | Tone | Tooltip |
-|---|---|---|---|
-| `NEW` | `Sparkles` | `info` | "New: assigned to you and not opened yet." |
-| `💬 n` | `MessageSquare` | `info` | "n new comments since you last opened this." |
-| `@` | `AtSign` | `warning` | "You were mentioned in a comment." |
+| Badge | Component | Icon | Tone | Tooltip |
+|---|---|---|---|---|
+| `NEW` | `NewAssignedBadge` (unchanged) | — | — | — |
+| `💬 n` | `RowFlagIcon` | `MessageSquare` | `info` | "n new comments since you last opened this." |
+| `@` | `RowFlagIcon` | `AtSign` | `warning` | "You were mentioned in a comment." |
 
 `overdue` keeps `danger` to itself, so the most severe tone stays unambiguous.
 
@@ -141,117 +141,67 @@ displaced the bands below it. Scoping to assignee is what makes the pin safe.
 
 ---
 
-## 3. Data model
+## 3. Data model — none required
 
-One new table.
+**No new table.** The first draft of this spec proposed `task_views` and a `task_signal_badges` RPC.
+Both were unnecessary: exploring the code before planning showed the mechanism already exists.
 
-```sql
-create table if not exists task_views (
-  task_id  uuid not null references tasks(id) on delete cascade,
-  email    text not null,
-  seen_at  timestamptz not null default now(),
-  primary key (task_id, email)
-);
+`task_notifications` already stores per-recipient read state and already carries exactly the three
+event types this feature needs, out of a vocabulary of nineteen:
 
-create index if not exists task_views_email_idx on task_views (email);
+```text
+'assigned'   -> NEW
+'commented'  -> 💬
+'mentioned'  -> @
 ```
 
-- One row per (task, viewer). Written when the viewer **opens the detail drawer**.
-- `seen_at` is overwritten on each open, so it always holds the most recent view.
-- `NEW` tests `seen_at` against the viewer's assignment time, so an absent row and a row older than
-  the current assignment both count as unseen (see §4).
-- `on delete cascade` keeps it tidy when a task is hard-deleted; archiving is a soft delete and
-  leaves rows in place, which is correct — an unarchived task keeps its read state.
+The read/unread lifecycle is already wired end to end:
 
-### Growth
+| Piece | Location | Today |
+|---|---|---|
+| Badge component | `board-ui.tsx:95` `NewAssignedBadge` | Rendered, styled |
+| Load unread ids | `GET /api/tasks/notifications` | Returns `unreadAssignedTaskIds` |
+| Render in list + board | `TaskRowItem.tsx:343,436`, `TaskCard.tsx:105` | `isNewAssigned` prop |
+| Clear on drawer open | `TaskBoardClient.tsx:379-383` | Calls `markNewAssignedTaskSeen` |
+| Persist read | `POST /api/tasks/notifications/read` `{taskId, type}` | Marks that type read |
 
-Bounded by (tasks × their assignees), not (tasks × all staff), because only assignees are tracked.
-At current volume — 431 tasks, typically one to two assignees each — this is under a thousand rows.
+So `NEW` already works, including the behaviour requested in review: reassignment inserts a fresh
+`assigned` notification, which is unread, which lights the badge again. No timestamp comparison and
+no `task_assignment_cycles` join is needed — the notification row *is* the signal.
 
-### Why "opened the drawer" and not "appeared in the list"
+## 4. What actually has to change
 
-If rendering a row counted as seeing it, every badge would clear on the first page load and the
-feature would do nothing. The write happens in the drawer's existing detail fetch.
+Four changes, all extensions of the existing path.
 
----
+1. **Return unread ids per type, not just `assigned`.** `GET /api/tasks/notifications` currently
+   exposes `unreadAssignedTaskIds`. It gains `unreadCommentedTaskIds` (with counts) and
+   `unreadMentionedTaskIds`, keeping the existing field so nothing breaks mid-deploy.
 
-## 4. Computing badges
+2. **Render two more badges.** `TaskRowFlags` gains the comment and mention flags beside the
+   existing `NewAssignedBadge`. `💬` carries a count, so `RowFlagIcon` needs an optional
+   `count?: number` that widens the pill; overdue and reopened pass none and look unchanged.
 
-Badges are **per viewer**, so this data cannot be shared or cached across users. One RPC per list
-load, keyed by the viewer's email:
+3. **Clear all three types on drawer open.** `markNewAssignedTaskSeen` currently posts
+   `type: "assigned"` only. It must clear `commented` and `mentioned` for that task too.
 
-```sql
-create or replace function task_signal_badges(p_email text, p_task_ids uuid[])
-returns table (
-  task_id       uuid,
-  never_opened  boolean,
-  new_comments  integer,
-  mentioned     boolean
-)
-```
-
-For each task the viewer is assigned to:
-
-- `never_opened` — no `task_views` row for `(task_id, p_email)`, **or** `seen_at < assigned_at`
-- `new_comments` — count of `task_comments` where `created_at > seen_at`, `author_email <> p_email`,
-  and `deleted_at is null`
-- `mentioned` — a `task_notifications` row of type `mentioned` for this recipient created after
-  `seen_at`
-
-### `assigned_at` comes from `task_assignment_cycles`, not `task_assignees`
-
-`NEW` must re-fire when a task is assigned to someone who had opened it in a previous life, so the
-condition is relative to **when this person was assigned**, not to whether they have ever opened the
-task. That timestamp has to be stable, and only one of the two candidate sources is:
-
-```sql
-  -- the viewer's current assignment stint
-  select max(assigned_at)
-    from task_assignment_cycles
-   where task_id = t.id and email = p_email and unassigned_at is null
-```
-
-**Do not use `task_assignees.created_at`.** `patch_task_atomic` (`schema.sql:2761-2765`) deletes
-every row for the task and re-inserts them all with `created_at = p_now`:
-
-```sql
-    delete from task_assignees where task_id = p_task_id;
-    foreach next_assignee_email in array p_next_assignees loop
-      insert into task_assignees (task_id, email, created_at)
-      values (p_task_id, next_assignee_email, p_now);
-```
-
-So adding a third assignee to a task rewrites the timestamps of the two who did not change, and
-both would light up `NEW` for no reason.
-
-`task_assignment_cycles` does not have that problem: `patch_task_atomic:2779-2787` opens a new cycle
-**only** for an email absent from `p_before_assignees`, so an unchanged assignee keeps their original
-`assigned_at`.
-
-One round trip, no N+1. Returns only rows with at least one signal, so the payload stays small.
+4. **Add the ranking band** described in §2.
 
 ### Your own actions never light your own badges
 
-Every condition excludes the viewer: comments filter on `author_email <> p_email`, and mentions are
-already recipient-scoped. Without this, commenting on a task would push it to the top of your own
-list — visibly wrong on day one.
-
-The task-level equivalent, `tasks.last_activity_by_email`, exists as of the 2026-08-09 work (audit
-finding F10) if a coarser check is ever needed.
-
----
+Already true and unchanged: `resolveCommentRecipients` excludes the actor when building recipients,
+so commenting on a task never creates a notification addressed to yourself.
 
 ## 5. Edge cases
 
 | Case | Behaviour |
 |---|---|
-| Task unassigned from the viewer | Badges disappear immediately. Not their task, not their signal. The `task_views` row is left alone; it is harmless, and the next assignment re-fires `NEW` via a fresh cycle anyway. |
-| Task reassigned **to** the viewer, who had opened it before | `NEW` fires again. A new `task_assignment_cycles` row means `assigned_at > seen_at`. |
+| Task unassigned from the viewer | The `unassigned` notification type already exists and the task leaves their scope; stale unread rows are harmless because the task no longer appears in their list. |
+| Task reassigned **to** the viewer, who had opened it before | `NEW` fires again — reassignment inserts a fresh unread `assigned` notification. Already the behaviour today. |
 | Task archived | Already excluded from the list; badges are irrelevant. |
 | Task closed / done | Badges still **render** (a comment on a closed task is still worth seeing) but do **not** pin — the badge band applies to open statuses only. Otherwise a closed task with one late comment would outrank live work. |
 | Multiple assignees | Each has independent read state. Two people see different badges on the same row. |
-| A third assignee is added to a task | The existing two get **no** `NEW` — no new cycle is opened for them. This is the case that rules out `task_assignees.created_at`. |
-| Assignee removed, then added back later | `NEW` fires again: the second cycle carries a later `assigned_at`. |
+| A third assignee is added to a task | The existing two get **no** `NEW` — `resolveCommentRecipients` and the assignee route only notify the newly added email. |
+| Assignee removed, then added back later | `NEW` fires again: a second `assigned` notification row is inserted. |
 | Comment added then deleted before the viewer looks | Not counted — the count filters `deleted_at is null`. |
 | Viewer opens the drawer, closes it, comes back | Badges stay clear; `seen_at` was updated on open. |
 | Task with all three signals | All three chips render; ranks by the highest (`@`). |
@@ -267,15 +217,21 @@ anything to be tested must live in a `.ts` helper):
 - Within the band: `@` before `💬` before `NEW`; ties break oldest-first.
 - A closed task with a badge does not enter the band.
 
-**SQL assertions** (`supabase/rollouts/`, following the existing
-`2026-08-09-enrollment-stage-time-test.sql` convention — `begin; do $$ ... $$; rollback;`):
+**API** (`GET /api/tasks/notifications`):
 
-- `never_opened` true with no view row, false after one.
-- `new_comments` excludes the viewer's own comments and deleted comments.
-- Re-opening updates `seen_at` and drops the count to zero.
-- A non-assignee gets no rows back.
+- Returns unread ids split by type, and `unreadAssignedTaskIds` is still present for compatibility
+  during a rolling deploy.
+- A viewer with no unread notifications gets empty arrays, not an error.
+- Comment counts exclude notifications already marked read.
 
----
+**Manual**, on the list and the Kanban board:
+
+- Assign a task to yourself in a second browser: `NEW` appears; opening the drawer clears it and it
+  stays cleared after a reload.
+- Comment as another user: `💬 1` appears, becomes `💬 2` on a second comment, clears on open.
+- Mention the viewer: `@` appears alongside `💬`, ranked above a task with comments only.
+- Comment on your own task as yourself: **no badge** — you are excluded from your own recipients.
+- A closed task with an unread comment shows `💬` but does not jump to the top.
 
 ## 7. Deferred
 
