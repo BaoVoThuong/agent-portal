@@ -15,6 +15,8 @@ import {
   RotateCcw,
   Tag,
   UserPlus,
+  AtSign,
+  MessageSquare
 } from "lucide-react";
 import {
   STATUS_LABEL,
@@ -25,6 +27,7 @@ import {
   type TaskStatus,
 } from "@/lib/tasks/types";
 import { taskKey } from "@/lib/tasks/sorting";
+import type { TaskSignalBadges } from "@/lib/tasks/signal-badges";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import {
   effectiveSlaMinutes,
@@ -199,6 +202,7 @@ export function TaskRowItem({
   openOnDoubleClick = false,
   isOverdue = false,
   isNewAssigned = false,
+  badges,
   visibleColumnKeys,
   visibleColumns,
   tableColumnOptions,
@@ -226,6 +230,7 @@ export function TaskRowItem({
   openOnDoubleClick?: boolean;
   isOverdue?: boolean;
   isNewAssigned?: boolean;
+  badges?: TaskSignalBadges;
   visibleColumnKeys?: ReadonlySet<TaskListColumnKey>;
   visibleColumns?: readonly TaskListColumn[];
   tableColumnOptions?: readonly TableColumnOption[];
@@ -341,7 +346,7 @@ export function TaskRowItem({
             <span className="block truncate">{task.title || "Unnamed task"}</span>
           </button>
           {isNewAssigned ? <NewAssignedBadge /> : null}
-          <TaskRowFlags task={task} isOverdue={isOverdue} />
+          <TaskRowFlags task={task} isOverdue={isOverdue} badges={badges} />
           <TaskFubLink href={task.fub_link} />
         </div>
       ) : null}
@@ -434,7 +439,7 @@ export function TaskRowItem({
             <span className="block truncate">{task.title || "Unnamed task"}</span>
           </button>
           {isNewAssigned ? <NewAssignedBadge /> : null}
-          <TaskRowFlags task={task} isOverdue={isOverdue} />
+          <TaskRowFlags task={task} isOverdue={isOverdue} badges={badges} />
         </div>
       ) : null}
 
@@ -1106,15 +1111,43 @@ function formatExternalLink(value: string): string {
 function TaskRowFlags({
   task,
   isOverdue,
+  badges,
 }: {
   task: TaskRow;
   isOverdue: boolean;
+  badges?: TaskSignalBadges;
 }) {
   const wasOverdue = !isOverdue && task.overdue_count > 0;
-  if (!isOverdue && !wasOverdue && !task.reopened_at) return null;
+  const mentioned = badges?.mentioned ?? false;
+  const commentCount = badges?.comments ?? 0;
+  if (
+    !isOverdue &&
+    !wasOverdue &&
+    !task.reopened_at &&
+    !mentioned &&
+    commentCount === 0
+  ) {
+    return null;
+  }
 
   return (
     <span className="inline-flex shrink-0 items-center gap-1" aria-label="Task flags">
+      {/* Mention first: being named is the strongest call for this person. */}
+      {mentioned ? (
+        <RowFlagIcon
+          title="You were mentioned in a comment."
+          tone="warning"
+          icon={<AtSign className="h-3 w-3" />}
+        />
+      ) : null}
+      {commentCount > 0 ? (
+        <RowFlagIcon
+          title={`${commentCount} new comment${commentCount === 1 ? "" : "s"} since you last opened this.`}
+          tone="info"
+          icon={<MessageSquare className="h-3 w-3" />}
+          count={commentCount}
+        />
+      ) : null}
       {isOverdue ? (
         <RowFlagIcon
           title="Overdue: this task is over its SLA."
@@ -1144,10 +1177,13 @@ function RowFlagIcon({
   icon,
   title,
   tone,
+  count,
 }: {
   icon: ReactNode;
   title: string;
   tone: "danger" | "warning" | "info";
+  /** When present the pill widens and shows the number after the icon. */
+  count?: number;
 }) {
   const className = {
     danger: "border-[#ffbdad] bg-[#ffebe6] text-[#bf2600]",
@@ -1157,11 +1193,16 @@ function RowFlagIcon({
 
   return (
     <span
-      className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${className}`}
+      className={`inline-flex h-5 shrink-0 items-center justify-center gap-0.5 rounded-full border ${
+        count === undefined ? "w-5" : "min-w-5 px-1.5"
+      } ${className}`}
       title={title}
       aria-label={title}
     >
       {icon}
+      {count === undefined ? null : (
+        <span className="text-[10px] font-bold leading-none">{count}</span>
+      )}
     </span>
   );
 }
