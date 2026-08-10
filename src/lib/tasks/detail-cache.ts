@@ -22,7 +22,18 @@ export function getCachedTaskDetail(id: string): TaskDetail | undefined {
   return entry.detail;
 }
 
+// TTL alone only reclaims an entry that happens to be read again. A long-lived
+// tab that hovers many distinct tasks and revisits none retains every expired
+// payload forever, so bound the map as well. Map preserves insertion order,
+// which makes deleting the first key plain FIFO eviction -- sufficient here and
+// simpler than tracking access order.
+export const MAX_CACHED_TASK_DETAILS = 50;
+
 export function setCachedTaskDetail(id: string, detail: TaskDetail): void {
+  if (cache.size >= MAX_CACHED_TASK_DETAILS && !cache.has(id)) {
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
   cache.set(id, { detail, storedAt: Date.now() });
 }
 

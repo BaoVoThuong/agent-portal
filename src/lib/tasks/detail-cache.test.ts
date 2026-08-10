@@ -3,6 +3,7 @@ import {
   DETAIL_CACHE_TTL_MS,
   getCachedTaskDetail,
   invalidateTaskDetail,
+  MAX_CACHED_TASK_DETAILS,
   setCachedTaskDetail,
 } from "@/lib/tasks/detail-cache";
 
@@ -29,5 +30,25 @@ describe("detail cache", () => {
     setCachedTaskDetail("t2", detail);
     invalidateTaskDetail("t2");
     expect(getCachedTaskDetail("t2")).toBeUndefined();
+  });
+});
+
+describe("cache size bound", () => {
+  it("evicts the oldest entry once the bound is reached", () => {
+    // TTL alone only reclaims an entry that is read again, so a tab that hovers
+    // many tasks and revisits none would grow the map forever.
+    for (let i = 0; i <= MAX_CACHED_TASK_DETAILS; i += 1) {
+      setCachedTaskDetail(`fifo-${i}`, detail);
+    }
+
+    expect(getCachedTaskDetail("fifo-0")).toBeUndefined();
+    expect(getCachedTaskDetail(`fifo-${MAX_CACHED_TASK_DETAILS}`)).toBeDefined();
+  });
+
+  it("keeps re-writing the same id from evicting anything", () => {
+    for (let i = 0; i < 200; i += 1) {
+      setCachedTaskDetail("stable", detail);
+    }
+    expect(getCachedTaskDetail("stable")).toBeDefined();
   });
 });

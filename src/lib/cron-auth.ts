@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 export type CronAuthResult = "ok" | "misconfigured" | "unauthorized";
 
 /**
@@ -9,5 +11,14 @@ export function checkCronAuthorization(request: Request): CronAuthResult {
   if (!cronSecret) return "misconfigured";
 
   const authHeader = request.headers.get("authorization");
-  return authHeader === `Bearer ${cronSecret}` ? "ok" : "unauthorized";
+  if (!authHeader) return "unauthorized";
+
+  const expected = Buffer.from(`Bearer ${cronSecret}`);
+  const received = Buffer.from(authHeader);
+  // timingSafeEqual throws on unequal-length buffers, and the length itself is
+  // not a secret worth protecting, so compare it plainly first. Without this
+  // guard a short token would surface as a 500 instead of a 401.
+  if (expected.length !== received.length) return "unauthorized";
+
+  return timingSafeEqual(expected, received) ? "ok" : "unauthorized";
 }

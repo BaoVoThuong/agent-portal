@@ -48,4 +48,30 @@ describe("checkCronAuthorization", () => {
       "unauthorized"
     );
   });
+
+  it("rejects a token of a different length without throwing", () => {
+    // timingSafeEqual raises RangeError on unequal-length buffers, so the guard
+    // must length-check first or a short token becomes a 500 instead of a 401.
+    process.env.CRON_SECRET = "cron-secret";
+
+    expect(
+      checkCronAuthorization(
+        new Request("https://example.test/api/cron", {
+          headers: { Authorization: "Bearer short" },
+        })
+      )
+    ).toBe("unauthorized");
+  });
+
+  it("rejects a token that shares a prefix with the secret", () => {
+    process.env.CRON_SECRET = "cron-secret";
+
+    expect(
+      checkCronAuthorization(
+        new Request("https://example.test/api/cron", {
+          headers: { Authorization: "Bearer cron-secreX" },
+        })
+      )
+    ).toBe("unauthorized");
+  });
 });
