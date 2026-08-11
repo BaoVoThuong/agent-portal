@@ -76,6 +76,7 @@ export default async function EnrollmentPage({
       ? []
       : scope.agentEmails;
   const defaultToOwnAssignments = !actor.isManager && scope.seeAll;
+  const initialNowIso = new Date().toISOString();
 
   if (recordId) {
     const fallbackRecord = records.some((record) => record.id === recordId)
@@ -108,6 +109,7 @@ export default async function EnrollmentPage({
       initialOptions={optionData.options}
       tableColumns={tableColumns}
       tableColumnOptions={tableColumnOptions}
+      initialNowIso={initialNowIso}
       currentEmail={email}
       myAgents={myAgents}
       myAssistantAgents={myAssistantAgents}

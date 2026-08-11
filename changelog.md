@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-11 — Add Enrollment Time Progress column
+- **Loại**: feat
+- **Cái gì**: Added the computed `Time Progress` system column to ACA and Medicare lists and exports. Open overdue records show elapsed time past their due date; other open records show current-stage dwell; closed records show time since close. One shared minute clock updates every visible row, and inferred/backfilled stage time is identified in the tooltip.
+- **Vì sao**: Enrollment already tracks `stage_entered_at` and due dates, but did not expose the same operational progress signal available on the CS task list.
+- **File**: `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx`, `src/app/api/enrollment/export/route.ts`, `src/lib/enrollment/time-progress.ts`, `src/lib/table-config/queries.ts`, `supabase/schema.sql`
+- **Ảnh hưởng**: ACA and Medicare gain a configurable, auto-generated List column without adding a database record column or introducing an Enrollment SLA.
+- **Ref**: CS `Time Progress` presentation and Enrollment stage-time tracking
+
 ## 2026-08-11 — Add standalone display-number rollout
 - **Loại**: fix, migration
 - **Cái gì**: Added an idempotent transactional rollout for the sequence-backed `tasks.display_number` and `enrollment_records.display_number` columns, including exclusive table locks, deterministic backfill, sequence advancement, non-null defaults, and unique indexes.

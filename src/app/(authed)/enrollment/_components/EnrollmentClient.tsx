@@ -43,6 +43,7 @@ import {
   optionLabel,
 } from "@/lib/enrollment/helpers";
 import { buildEnrollmentSearchHaystack } from "@/lib/enrollment/filtering";
+import { buildEnrollmentTimeProgress } from "@/lib/enrollment/time-progress";
 import { resolveEnrollmentCapabilities } from "@/lib/enrollment/access";
 import {
   compareEnrollmentOptionText,
@@ -231,6 +232,7 @@ const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
   { key: "client", label: "Client Name", width: 300, sticky: true, locked: true, sortable: true },
   { key: "agent", label: "Agent", width: 170, sortable: true },
   { key: "stage", label: "Stage", width: 260, sortable: true },
+  { key: "timeProgress", label: "Time Progress", width: 180 },
   { key: "caller", label: "Caller", width: 180, sortable: true },
   { key: "responsible", label: "Responsible Enroll", width: 200, sortable: true },
   { key: "payment", label: "Payment status", width: 180, sortable: true },
@@ -468,6 +470,7 @@ export function EnrollmentClient({
   initialOptions,
   tableColumns,
   tableColumnOptions,
+  initialNowIso,
   currentEmail,
   myAgents,
   myAssistantAgents,
@@ -482,6 +485,7 @@ export function EnrollmentClient({
   initialOptions: EnrollmentOption[];
   tableColumns: TableColumn[];
   tableColumnOptions: TableColumnOption[];
+  initialNowIso: string;
   currentEmail: string;
   myAgents: string[];
   myAssistantAgents: string[];
@@ -509,6 +513,9 @@ export function EnrollmentClient({
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
   const [configStale, setConfigStale] = useState(false);
+  const [timeProgressNow, setTimeProgressNow] = useState(
+    () => new Date(initialNowIso)
+  );
   const recordRowsRef = useRef(new Map(initialRecords.map((record) => [record.id, record])));
   const recordMutationStatesRef = useRef(new Map<string, EnrollmentMutationState>());
   const pendingRef = useRef(new Map<string, number>());
@@ -531,6 +538,16 @@ export function EnrollmentClient({
   const enrollmentLayoutProgramRef = useRef(program);
   const enrollmentLayoutBaselineRef = useRef<string | null>(null);
   const optionsRequestSequenceRef = useRef(0);
+
+  useEffect(() => {
+    const refreshNow = () => setTimeProgressNow(new Date());
+    const firstTick = window.setTimeout(refreshNow, 0);
+    const timer = window.setInterval(refreshNow, 60_000);
+    return () => {
+      window.clearTimeout(firstTick);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   function updateRecords(updater: (current: EnrollmentRecordWithStats[]) => EnrollmentRecordWithStats[]) {
     setRecords((current) => {
@@ -1276,6 +1293,7 @@ export function EnrollmentClient({
               optionsById={optionsById}
               optionsBySet={optionsBySet}
               tableColumnOptions={tableColumnOptions}
+              now={timeProgressNow}
               currentEmail={currentEmail}
               isManager={canManageOptions}
               agentScopeEmails={ownedAgentEmails}
@@ -1728,6 +1746,7 @@ function EnrollmentTable({
   optionsById,
   optionsBySet,
   tableColumnOptions,
+  now,
   currentEmail,
   isManager,
   agentScopeEmails,
@@ -1743,6 +1762,7 @@ function EnrollmentTable({
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
   tableColumnOptions: TableColumnOption[];
+  now: Date;
   currentEmail: string;
   isManager: boolean;
   agentScopeEmails: readonly string[];
@@ -1811,6 +1831,7 @@ function EnrollmentTable({
                   optionsById={optionsById}
                   optionsBySet={optionsBySet}
                   tableColumnOptions={tableColumnOptions}
+                  now={now}
                   currentEmail={currentEmail}
                   isManager={isManager}
                   agentScopeEmails={agentScopeEmails}
@@ -1834,6 +1855,7 @@ function EnrollmentRowItem({
   optionsById,
   optionsBySet,
   tableColumnOptions,
+  now,
   currentEmail,
   isManager,
   agentScopeEmails,
@@ -1847,6 +1869,7 @@ function EnrollmentRowItem({
   optionsById: Map<string, EnrollmentOption>;
   optionsBySet: EnrollmentOptionsBySet;
   tableColumnOptions: TableColumnOption[];
+  now: Date;
   currentEmail: string;
   isManager: boolean;
   agentScopeEmails: readonly string[];
@@ -1968,6 +1991,22 @@ function EnrollmentRowItem({
             stages={optionsBySet.stage}
             canEdit={capabilities.canChangeStage}
             onChange={(value) => onPatch(record.id, { stage_id: value })}
+          />
+        </div>
+      ) : null}
+
+      {has("timeProgress") ? (
+        <div
+          style={cellStyleFor("timeProgress")}
+          className={cellClassName(
+            "timeProgress",
+            "flex shrink-0 items-center px-3 py-2.5"
+          )}
+        >
+          <EnrollmentTimeProgressCell
+            record={record}
+            stageLabel={stage?.label ?? null}
+            now={now}
           />
         </div>
       ) : null}
@@ -2272,6 +2311,27 @@ function EnrollmentRowItem({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function EnrollmentTimeProgressCell({
+  record,
+  stageLabel,
+  now,
+}: {
+  record: EnrollmentRecordWithStats;
+  stageLabel: string | null;
+  now: Date;
+}) {
+  const report = buildEnrollmentTimeProgress(record, stageLabel, now);
+
+  return (
+    <span
+      className={`min-w-0 truncate text-[11px] font-semibold ${report.className}`}
+      title={report.title}
+    >
+      {report.label}
+    </span>
   );
 }
 
