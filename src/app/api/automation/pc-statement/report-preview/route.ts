@@ -13,6 +13,10 @@ import {
 } from "@/lib/automation/pc-statement/table-data";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import {
+  parseWorkbooksSequentially,
+  validateWorkbookUploads,
+} from "@/lib/automation/workbook-upload";
 
 export const runtime = "nodejs";
 
@@ -32,6 +36,16 @@ export async function POST(request: Request) {
   const formData = await request.formData();
   const files = getFiles(formData);
 
+  if (files.length > 0) {
+    const uploadValidation = validateWorkbookUploads(files);
+    if (!uploadValidation.ok) {
+      return NextResponse.json(
+        { error: uploadValidation.error },
+        { status: uploadValidation.status }
+      );
+    }
+  }
+
   if (files.length === 0) {
     return NextResponse.json(
       { error: "At least one payment XLSX file is required" },
@@ -40,12 +54,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const parsedFiles = await Promise.all(
-      files.map(async (file) => {
+    const parsedFiles = await parseWorkbooksSequentially(files, async (file) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         return parsePcPaymentWorkbook(buffer).rows;
-      })
-    );
+      });
     const payments = parsedFiles.flat();
 
     if (payments.length === 0) {

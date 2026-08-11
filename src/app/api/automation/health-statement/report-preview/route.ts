@@ -16,6 +16,10 @@ import {
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import {
+  parseWorkbooksSequentially,
+  validateWorkbookUploads,
+} from "@/lib/automation/workbook-upload";
 
 export const runtime = "nodejs";
 
@@ -93,17 +97,23 @@ export async function POST(request: Request) {
     );
   }
 
+  const uploadValidation = validateWorkbookUploads(files);
+  if (!uploadValidation.ok) {
+    return NextResponse.json(
+      { error: uploadValidation.error },
+      { status: uploadValidation.status }
+    );
+  }
+
   try {
-    const parsedFiles = await Promise.all(
-      files.map(async (file, index) => {
+    const parsedFiles = await parseWorkbooksSequentially(files, async (file, index) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         return parseHealthPaymentWorkbook(buffer, {
           statementNumber: statementNumbers[index],
           carrier,
           monthReport,
         });
-      })
-    );
+      });
     const rows = parsedFiles.flat();
 
     if (rows.length === 0) {

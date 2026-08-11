@@ -6,6 +6,10 @@ import { buildPcStatementReport } from "@/lib/automation/pc-statement/report";
 import { buildPcStatementWorkbook } from "@/lib/automation/pc-statement/workbook";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import {
+  parseWorkbooksSequentially,
+  validateWorkbookUploads,
+} from "@/lib/automation/workbook-upload";
 
 export const runtime = "nodejs";
 
@@ -32,16 +36,22 @@ export async function POST(request: Request) {
     );
   }
 
+  const uploadValidation = validateWorkbookUploads(files);
+  if (!uploadValidation.ok) {
+    return NextResponse.json(
+      { error: uploadValidation.error },
+      { status: uploadValidation.status }
+    );
+  }
+
   let payments;
   let policySnapshot;
 
   try {
-    const parsedFiles = await Promise.all(
-      files.map(async (file) => {
+    const parsedFiles = await parseWorkbooksSequentially(files, async (file) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         return parsePcPaymentWorkbook(buffer).rows;
-      })
-    );
+      });
     payments = parsedFiles.flat();
     policySnapshot = await fetchPcPolicySnapshot();
   } catch (err) {

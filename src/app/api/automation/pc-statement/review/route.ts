@@ -9,6 +9,10 @@ import {
 } from "@/lib/automation/pc-statement/table-data";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import {
+  parseWorkbooksSequentially,
+  validateWorkbookUploads,
+} from "@/lib/automation/workbook-upload";
 
 export const runtime = "nodejs";
 
@@ -29,6 +33,16 @@ export async function POST(request: Request) {
 
   const formData = await request.formData();
   const files = getFiles(formData);
+
+  if (files.length > 0) {
+    const uploadValidation = validateWorkbookUploads(files);
+    if (!uploadValidation.ok) {
+      return NextResponse.json(
+        { error: uploadValidation.error },
+        { status: uploadValidation.status }
+      );
+    }
+  }
 
   try {
     const policySnapshot = await fetchPcPolicySnapshot();
@@ -67,12 +81,10 @@ export async function POST(request: Request) {
       });
     }
 
-    const parsedFiles = await Promise.all(
-      files.map(async (file) => {
+    const parsedFiles = await parseWorkbooksSequentially(files, async (file) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         return parsePcPaymentWorkbook(buffer).rows;
-      })
-    );
+      });
     const payments = parsedFiles.flat();
     const report = buildPcStatementReport({
       basePolicies: policySnapshot.basePolicies,

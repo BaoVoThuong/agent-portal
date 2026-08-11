@@ -9,6 +9,10 @@ import {
   type HealthMartRow,
 } from "@/lib/automation/health-statement/report";
 import { buildHealthStatementWorkbook } from "@/lib/automation/health-statement/workbook";
+import {
+  parseWorkbooksSequentially,
+  validateWorkbookUploads,
+} from "@/lib/automation/workbook-upload";
 
 export const runtime = "nodejs";
 
@@ -77,9 +81,16 @@ export async function POST(request: Request) {
     );
   }
 
+  const uploadValidation = validateWorkbookUploads(files);
+  if (!uploadValidation.ok) {
+    return NextResponse.json(
+      { error: uploadValidation.error },
+      { status: uploadValidation.status }
+    );
+  }
+
   const rows = (
-    await Promise.all(
-      files.map(async (file, index) => {
+    await parseWorkbooksSequentially(files, async (file, index) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         return parseHealthPaymentWorkbook(buffer, {
           statementNumber: statementNumbers[index],
@@ -87,7 +98,6 @@ export async function POST(request: Request) {
           monthReport,
         });
       })
-    )
   ).flat();
 
   if (rows.length === 0) {

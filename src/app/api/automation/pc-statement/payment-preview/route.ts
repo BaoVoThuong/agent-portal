@@ -3,6 +3,10 @@ import { auth } from "@/auth";
 import { parsePcPaymentWorkbook } from "@/lib/automation/pc-statement/payment-parser";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import {
+  parseWorkbooksSequentially,
+  validateWorkbookUploads,
+} from "@/lib/automation/workbook-upload";
 
 export const runtime = "nodejs";
 
@@ -27,9 +31,16 @@ export async function POST(request: Request) {
     );
   }
 
+  const uploadValidation = validateWorkbookUploads(files);
+  if (!uploadValidation.ok) {
+    return NextResponse.json(
+      { error: uploadValidation.error },
+      { status: uploadValidation.status }
+    );
+  }
+
   try {
-    const parsedFiles = await Promise.all(
-      files.map(async (file) => {
+    const parsedFiles = await parseWorkbooksSequentially(files, async (file) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         const parsed = parsePcPaymentWorkbook(buffer);
 
@@ -39,8 +50,7 @@ export async function POST(request: Request) {
           rows: parsed.rows,
           sheets: parsed.sheets,
         };
-      })
-    );
+      });
 
     const rows = parsedFiles.flatMap((file) =>
       file.rows.map((row) => ({ ...row, sourceFile: file.fileName }))
