@@ -86,10 +86,11 @@ import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
 import { AttachmentPanel } from "../../tasks/_components/AttachmentPanel";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
+import { TASK_ASSIGNEE_BUTTON_CLASS } from "../../tasks/_components/TaskAssigneePicker";
 import { DateRangeFilter, type TaskDateRangeValue } from "../../tasks/_components/TaskToolbar";
 import { ReasonModal } from "../../tasks/_components/ReasonModal";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
-import { Initials } from "../../tasks/_components/board-ui";
+import { AvatarStack, Initials } from "../../tasks/_components/board-ui";
 import { applyFrozenOrder } from "@/lib/tasks/frozen-order";
 import { toOptimisticEnrollmentPatch } from "@/lib/enrollment/optimistic-patch";
 import { EnrollmentOverview } from "./EnrollmentOverview";
@@ -2486,24 +2487,21 @@ function EnrollmentPersonMenu({
     : emptyLabel;
   const renderAssigneeEmpty = () => (
     <span className="inline-flex min-w-0 items-center gap-2 text-sm font-normal text-[#97a0af]">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[#97a0af] text-[#8993a4]">
-        <UserPlus className="h-4 w-4" aria-hidden="true" />
-      </span>
+      <AvatarStack emails={[]} />
       <span className="truncate">{emptyLabel}</span>
     </span>
   );
-  const renderSelectedPerson = (className: string) => (
-    <span className={`flex min-w-0 items-center gap-1.5 ${className}`}>
-      <Initials email={value ?? ""} label={selectedLabel} />
+  const renderSelectedAssignee = (className: string) => (
+    <span className={`flex min-w-0 items-center gap-2 ${className}`}>
+      <AvatarStack emails={value ? [value] : []} labelByEmail={peopleByEmail} max={1} />
       <span className="min-w-0 flex-1 truncate">{selectedLabel}</span>
     </span>
   );
-
   if (!canEdit) {
     if (drawsOwnChrome) {
       return (
         <span
-          className={`${DETAIL_FIELD_DISPLAY_CLASS} flex min-w-0 items-center gap-2 bg-[#f4f5f7]`}
+          className={`${usesAssigneeChrome ? TASK_ASSIGNEE_BUTTON_CLASS : DETAIL_FIELD_DISPLAY_CLASS} flex min-w-0 items-center gap-2 bg-[#f4f5f7]`}
           title={selectedLabel}
         >
           {usesSelectChrome ? (
@@ -2511,7 +2509,7 @@ function EnrollmentPersonMenu({
               {value ? selectedLabel : placeholder}
             </span>
           ) : usesAssigneeChrome ? (
-            value ? renderSelectedPerson("text-[#172b4d]") : renderAssigneeEmpty()
+          value ? renderSelectedAssignee("text-[#172b4d]") : renderAssigneeEmpty()
           ) : value ? (
             <>
               <Initials email={value} label={selectedLabel} />
@@ -2562,7 +2560,7 @@ function EnrollmentPersonMenu({
           usesSelectChrome
             ? `${drawsOwnChrome ? DETAIL_FIELD_BUTTON_CLASS : "flex w-full min-w-0"} items-center justify-between gap-2`
             : usesAssigneeChrome
-              ? `${drawsOwnChrome ? DETAIL_FIELD_BUTTON_CLASS : "flex w-full min-w-0"} items-center gap-2`
+              ? `${drawsOwnChrome ? TASK_ASSIGNEE_BUTTON_CLASS : "flex w-full min-w-0"}`
               : drawsOwnChrome
                 ? DETAIL_FIELD_BUTTON_CLASS
                 : "flex w-full min-w-0 items-center"
@@ -2577,7 +2575,7 @@ function EnrollmentPersonMenu({
             {value ? selectedLabel : placeholder}
           </span>
         ) : usesAssigneeChrome ? (
-          value ? renderSelectedPerson("text-sm font-semibold text-[#172b4d]") : renderAssigneeEmpty()
+          value ? renderSelectedAssignee("text-sm font-semibold text-[#172b4d]") : renderAssigneeEmpty()
         ) : value ? (
           <span
             className={`flex min-w-0 items-center gap-1.5 text-left font-semibold transition ${

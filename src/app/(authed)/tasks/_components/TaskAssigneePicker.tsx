@@ -9,6 +9,12 @@ import { normalizeOptionSearchText } from "@/lib/ui/option-search";
 import { AvatarStack, Initials } from "./board-ui";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
+// Shared field chrome for single- and multi-assignee controls. Enrollment
+// reuses this exact class so the same person-valued field has one visual
+// contract across the application.
+export const TASK_ASSIGNEE_BUTTON_CLASS =
+  "flex min-h-10 w-full items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-left text-sm font-semibold text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4]";
+
 export function TaskAssigneeDropdown({
   assignees,
   selectedEmails,
@@ -61,7 +67,7 @@ export function TaskAssigneeDropdown({
         onClick={toggle}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        className={`flex min-h-10 w-full items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-left text-sm font-semibold text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] ${buttonClassName}`}
+        className={`${TASK_ASSIGNEE_BUTTON_CLASS} ${buttonClassName}`}
       >
         <AvatarStack emails={selectedEmails} labelByEmail={labelByEmail} max={3} />
         <span
