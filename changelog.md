@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-11 — Observe optional notification enrichment degradation
+- **Loại**: fix
+- **Cái gì**: Notification title, actor, and comment-body enrichment queries now report structured warnings with only stage names and database error codes. The authenticated base notification list and unread counts remain fail-soft when an optional lookup is unavailable.
+- **Vì sao**: Five secondary queries ignored errors, making missing titles/names/bodies indistinguishable from valid empty data and preventing operators from detecting partial notification degradation.
+- **File**: `src/app/api/tasks/notifications/route.ts`
+- **Ảnh hưởng**: Task and Enrollment notification bells continue returning base notifications during enrichment failures without logging comment text, emails, or record identifiers.
+- **Ref**: `docs/superpowers/plans/2026-08-11-open-code-review-remediation.md`, Task 13
+
 ## 2026-08-11 — Report attachment deletion failures per file
 - **Loại**: fix
 - **Cái gì**: The shared attachment panel now tracks the file being deleted, prevents duplicate delete clicks, parses API/network failures, keeps the row visible on failure, and reports a refresh failure after a successful delete without pretending the delete failed.

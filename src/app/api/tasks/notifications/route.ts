@@ -133,22 +133,29 @@ export async function GET() {
     await Promise.all([
     taskIds.length
       ? supabase.from("tasks").select("id,title,display_number").in("id", taskIds)
-      : Promise.resolve({ data: [] as { id: string; title: string; display_number: number | null }[] }),
+      : Promise.resolve({ data: [] as { id: string; title: string; display_number: number | null }[], error: null }),
     enrollmentIds.length
       ? supabase.from("enrollment_records").select("id,client_name,display_number").in("id", enrollmentIds)
-      : Promise.resolve({ data: [] as { id: string; client_name: string | null; display_number: number | null }[] }),
+      : Promise.resolve({ data: [] as { id: string; client_name: string | null; display_number: number | null }[], error: null }),
     actorEmails.length
       ? supabase.from("portal_account").select("email,name").in("email", actorEmails)
-      : Promise.resolve({ data: [] as { email: string; name: string | null }[] }),
+      : Promise.resolve({ data: [] as { email: string; name: string | null }[], error: null }),
     taskCommentIds.length
       ? supabase.from("task_comments").select("id,body").in("id", taskCommentIds)
-      : Promise.resolve({ data: [] as { id: string; body: string }[] }),
+      : Promise.resolve({ data: [] as { id: string; body: string }[], error: null }),
     enrollmentCommentIds.length
       ? supabase
           .from("enrollment_comments")
           .select("id,body")
           .in("id", enrollmentCommentIds)
-      : Promise.resolve({ data: [] as { id: string; body: string }[] }),
+      : Promise.resolve({ data: [] as { id: string; body: string }[], error: null }),
+  ]);
+  reportOptionalEnrichmentFailures([
+    ["task_titles", titlesRes],
+    ["enrollment_titles", enrollmentTitlesRes],
+    ["actor_names", actorsRes],
+    ["task_comment_bodies", commentsRes],
+    ["enrollment_comment_bodies", enrollmentCommentsRes],
   ]);
   const titleById = new Map(
     ((titlesRes.data ?? []) as { id: string; title: string }[]).map((t) => [t.id, t.title])
@@ -216,4 +223,24 @@ function isMissingEnrollmentTableError(error: { code?: string; message?: string 
     message.includes("schema cache") ||
     message.includes("enrollment_notifications")
   );
+}
+
+function reportOptionalEnrichmentFailures(
+  results: readonly [
+    string,
+    { error?: { code?: string; message?: string } | null } | null | undefined,
+  ][]
+) {
+  const failed = results
+    .filter(([, result]) => Boolean(result?.error))
+    .map(([name, result]) => ({
+      name,
+      code: result?.error?.code ?? "unknown",
+    }));
+  if (failed.length > 0) {
+    // Keep notification text, actor emails, and record identifiers out of this
+    // warning. The base notification query remains the source of truth even
+    // when one optional enrichment query is unavailable.
+    console.warn("Task notification enrichment degraded", { failed });
+  }
 }
