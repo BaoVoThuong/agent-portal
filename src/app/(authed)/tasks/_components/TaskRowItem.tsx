@@ -24,7 +24,7 @@ import {
   type TaskSlaRule,
   type TaskStatus,
 } from "@/lib/tasks/types";
-import { taskKey } from "@/lib/tasks/sorting";
+import { taskDisplayKey } from "@/lib/tasks/sorting";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import {
   effectiveSlaMinutes,
@@ -317,7 +317,7 @@ export function TaskRowItem({
           }`)}
         >
           {configuredColumns ? dragHandle : null}
-          <span className="min-w-0 truncate">{taskKey(task.id)}</span>
+          <span className="min-w-0 truncate">{taskDisplayKey(task.display_number)}</span>
         </span>
       ) : null}
 

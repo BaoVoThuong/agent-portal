@@ -1499,6 +1499,43 @@ drop index if exists tasks_due_date_idx;
 alter table tasks
 drop column if exists due_date;
 
+-- Durable human-facing key. UUIDs remain the internal/API identifier; this
+-- sequence-backed number is the only value rendered as TASK-... in the UI.
+create sequence if not exists tasks_display_number_seq;
+alter table tasks add column if not exists display_number bigint;
+do $$
+declare
+  max_number bigint;
+begin
+  select max(display_number) into max_number from tasks;
+  if max_number is not null then
+    perform setval('tasks_display_number_seq', max_number, true);
+  end if;
+end $$;
+with missing as (
+  select id, row_number() over (order by created_at, id) as row_number
+  from tasks
+  where display_number is null
+), current_max as (
+  select coalesce(max(display_number), 0) as value from tasks
+)
+update tasks as target
+set display_number = current_max.value + missing.row_number
+from missing, current_max
+where target.id = missing.id;
+do $$
+declare
+  max_number bigint;
+begin
+  select max(display_number) into max_number from tasks;
+  if max_number is not null then
+    perform setval('tasks_display_number_seq', max_number, true);
+  end if;
+end $$;
+alter table tasks alter column display_number set default nextval('tasks_display_number_seq');
+alter table tasks alter column display_number set not null;
+create unique index if not exists tasks_display_number_key on tasks (display_number);
+
 -- Áp bất biến "non-backlog phải có assignee" cho DB đã tồn tại (create table
 -- if not exists ở trên không thêm constraint vào bảng cũ).
 do $$
@@ -3403,6 +3440,43 @@ create table if not exists enrollment_records (
   last_activity_at timestamptz,
   last_activity_by_email text
 );
+
+-- Durable human-facing key. UUIDs remain the internal/API identifier; this
+-- sequence-backed number is the only value rendered as ENR-... in the UI.
+create sequence if not exists enrollment_records_display_number_seq;
+alter table enrollment_records add column if not exists display_number bigint;
+do $$
+declare
+  max_number bigint;
+begin
+  select max(display_number) into max_number from enrollment_records;
+  if max_number is not null then
+    perform setval('enrollment_records_display_number_seq', max_number, true);
+  end if;
+end $$;
+with missing as (
+  select id, row_number() over (order by created_at, id) as row_number
+  from enrollment_records
+  where display_number is null
+), current_max as (
+  select coalesce(max(display_number), 0) as value from enrollment_records
+)
+update enrollment_records as target
+set display_number = current_max.value + missing.row_number
+from missing, current_max
+where target.id = missing.id;
+do $$
+declare
+  max_number bigint;
+begin
+  select max(display_number) into max_number from enrollment_records;
+  if max_number is not null then
+    perform setval('enrollment_records_display_number_seq', max_number, true);
+  end if;
+end $$;
+alter table enrollment_records alter column display_number set default nextval('enrollment_records_display_number_seq');
+alter table enrollment_records alter column display_number set not null;
+create unique index if not exists enrollment_records_display_number_key on enrollment_records (display_number);
 
 alter table enrollment_records
   add column if not exists stage_entered_at timestamptz,

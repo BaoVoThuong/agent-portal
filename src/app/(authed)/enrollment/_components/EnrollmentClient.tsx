@@ -38,7 +38,7 @@ import {
 } from "@/lib/enrollment/realtime-topics";
 import { TABLE_CONFIG_TOPIC } from "@/lib/table-config/realtime-topics";
 import {
-  enrollmentKey,
+  enrollmentDisplayKey,
   formatDateInput,
   optionLabel,
 } from "@/lib/enrollment/helpers";
@@ -1914,9 +1914,9 @@ function EnrollmentRowItem({
         >
           <span
             className="truncate font-mono text-xs font-bold text-[#97a0af]"
-            title={enrollmentKey(record.id)}
+            title={enrollmentDisplayKey(record.display_number)}
           >
-            {enrollmentKey(record.id)}
+            {enrollmentDisplayKey(record.display_number)}
           </span>
         </div>
       ) : null}
@@ -2939,7 +2939,7 @@ function EnrollmentDrawer({
       >
         <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
           <span className="font-mono text-sm font-bold text-[#97a0af]">
-            {enrollmentKey(record.id)}
+            {enrollmentDisplayKey(record.display_number)}
           </span>
           <button
             type="button"
@@ -4315,7 +4315,7 @@ function sortValue(
 ): string | number | null {
   switch (key) {
     case "key":
-      return enrollmentKey(record.id);
+      return enrollmentDisplayKey(record.display_number);
     case "attention":
       return enrollmentAttentionScore(record, optionsById);
     case "client":

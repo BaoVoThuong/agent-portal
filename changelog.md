@@ -615,3 +615,4 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
 - Health statement payment-summary replacement now runs through one service-role-only RPC, so a failed row cast/insert preserves the previous dataset instead of leaving the summary empty.
 - Google Sheet raw-table refreshes now stage rows by run ID and atomically finalize a source partition, preventing delete-first syncs from exposing empty or partial data.
 - Workbook automation endpoints now share server-side type, count, per-file, aggregate-size, and sequential-parser guards. The deployment still must enforce the matching request-body cap at the hosting edge.
+- Tasks and Enrollment records now receive immutable sequence-backed display numbers; list/detail/search/notification/export paths render the durable `TASK-...`/`ENR-...` value while UUIDs remain internal identifiers.

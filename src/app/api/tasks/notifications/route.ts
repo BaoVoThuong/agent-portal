@@ -132,11 +132,11 @@ export async function GET() {
   const [titlesRes, enrollmentTitlesRes, actorsRes, commentsRes, enrollmentCommentsRes] =
     await Promise.all([
     taskIds.length
-      ? supabase.from("tasks").select("id,title").in("id", taskIds)
-      : Promise.resolve({ data: [] as { id: string; title: string }[] }),
+      ? supabase.from("tasks").select("id,title,display_number").in("id", taskIds)
+      : Promise.resolve({ data: [] as { id: string; title: string; display_number: number | null }[] }),
     enrollmentIds.length
-      ? supabase.from("enrollment_records").select("id,client_name").in("id", enrollmentIds)
-      : Promise.resolve({ data: [] as { id: string; client_name: string | null }[] }),
+      ? supabase.from("enrollment_records").select("id,client_name,display_number").in("id", enrollmentIds)
+      : Promise.resolve({ data: [] as { id: string; client_name: string | null; display_number: number | null }[] }),
     actorEmails.length
       ? supabase.from("portal_account").select("email,name").in("email", actorEmails)
       : Promise.resolve({ data: [] as { email: string; name: string | null }[] }),
@@ -153,9 +153,17 @@ export async function GET() {
   const titleById = new Map(
     ((titlesRes.data ?? []) as { id: string; title: string }[]).map((t) => [t.id, t.title])
   );
+  const taskDisplayNumberById = new Map(
+    ((titlesRes.data ?? []) as { id: string; display_number: number | null }[]).map((t) => [t.id, t.display_number])
+  );
   const enrollmentTitleById = new Map(
     ((enrollmentTitlesRes.data ?? []) as { id: string; client_name: string | null }[]).map(
       (record) => [record.id, record.client_name ?? "Enrollment record"]
+    )
+  );
+  const enrollmentDisplayNumberById = new Map(
+    ((enrollmentTitlesRes.data ?? []) as { id: string; display_number: number | null }[]).map(
+      (record) => [record.id, record.display_number]
     )
   );
   const nameByEmail = new Map(
@@ -173,6 +181,10 @@ export async function GET() {
 
   const notifications = base.map((n) => ({
     ...n,
+    entity_display_number:
+      n.entity_type === "enrollment"
+        ? enrollmentDisplayNumberById.get(n.entity_id) ?? null
+        : taskDisplayNumberById.get(n.entity_id) ?? null,
     task_title:
       n.entity_type === "enrollment"
         ? enrollmentTitleById.get(n.entity_id) ?? null

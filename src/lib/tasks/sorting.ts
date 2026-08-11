@@ -82,6 +82,10 @@ export function taskKey(id: string): string {
   return `TASK-${hash + 100}`;
 }
 
+export function taskDisplayKey(displayNumber: number | null | undefined): string {
+  return typeof displayNumber === "number" ? `TASK-${displayNumber}` : "TASK-—";
+}
+
 // A comparable value for a task on a given key. `null` => sorts last.
 function sortValue(
   task: TaskRow,
@@ -168,7 +172,7 @@ function sortValue(
     case "id":
       return task.id;
     case "key":
-      return taskKey(task.id);
+      return taskDisplayKey(task.display_number);
   }
 }
 

@@ -24,6 +24,7 @@ import { writeXlsx } from "@/lib/table-config/sheet-io";
 import { formatCustomValue } from "@/lib/table-config/values";
 import type { TableColumn } from "@/lib/table-config/types";
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
+import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -149,7 +150,7 @@ async function exportEnrollment({
 function enrollmentExportValue(record: EnrollmentRecordWithStats, key: string): unknown {
   switch (key) {
     case "key":
-      return `ENR-${record.id.slice(0, 4).toUpperCase()}`;
+      return enrollmentDisplayKey(record.display_number);
     case "client":
       return record.client_name;
     case "agent":

@@ -71,6 +71,7 @@ export type EnrollmentOption = {
 
 export type EnrollmentRecord = {
   id: string;
+  display_number?: number | null;
   program: EnrollmentProgram;
   client_name: string | null;
   description: string | null;

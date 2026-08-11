@@ -8,6 +8,12 @@ export function enrollmentKey(id: string): string {
   return `ENR-${hash + 1000}`;
 }
 
+export function enrollmentDisplayKey(
+  displayNumber: number | null | undefined
+): string {
+  return typeof displayNumber === "number" ? `ENR-${displayNumber}` : "ENR-—";
+}
+
 export function enrollmentIsOverdue(
   record: Pick<EnrollmentRecord, "due_date" | "closed_at">,
   now = new Date()

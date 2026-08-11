@@ -5,8 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, X } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { taskKey } from "@/lib/tasks/sorting";
-import { enrollmentKey } from "@/lib/enrollment/helpers";
+import { taskDisplayKey } from "@/lib/tasks/sorting";
+import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { dispatchOpenTask } from "@/lib/tasks/client-events";
 import { playNotificationChime, primeNotificationSound } from "@/lib/tasks/sound";
@@ -41,6 +41,7 @@ type Notif = {
   actor_name: string | null;
   task_title: string | null;
   comment_body: string | null;
+  entity_display_number?: number | null;
   detail: string | null;
   is_read: boolean;
   created_at: string;
@@ -92,7 +93,9 @@ function entityId(n: Notif): string {
 }
 
 function entityKey(n: Notif): string {
-  return entityKind(n) === "enrollment" ? enrollmentKey(entityId(n)) : taskKey(entityId(n));
+  return entityKind(n) === "enrollment"
+    ? enrollmentDisplayKey(n.entity_display_number)
+    : taskDisplayKey(n.entity_display_number);
 }
 
 function entityLabel(n: Notif): string {

@@ -30,6 +30,7 @@ export const KANBAN_COLUMNS: BoardColumn[] = [...KANBAN_STATUSES];
 
 export type TaskRow = {
   id: string;
+  display_number?: number | null;
   title: string;
   description: string | null;
   fub_link: string | null;

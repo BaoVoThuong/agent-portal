@@ -12,7 +12,7 @@ import {
   invalidateTaskDetail,
   setCachedTaskDetail,
 } from "@/lib/tasks/detail-cache";
-import { taskKey } from "@/lib/tasks/sorting";
+import { taskDisplayKey } from "@/lib/tasks/sorting";
 import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
 import { OverdueLog } from "./OverdueLog";
@@ -341,7 +341,7 @@ export function TaskDetailDrawer({
       >
         <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
           <span className="font-mono text-sm font-bold text-[#97a0af]">
-            {taskKey(task.id)}
+            {taskDisplayKey(task.display_number)}
           </span>
           <button
             type="button"

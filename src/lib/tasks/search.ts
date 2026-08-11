@@ -3,7 +3,7 @@ import { canViewTask } from "./access";
 import { fetchAssignedTaskIdsForEmail } from "./assignees";
 import { fetchAgentsForCs, fetchAssistantAgentsForCs } from "./membership";
 import { fetchParticipantTaskIds } from "./participants";
-import { taskKey } from "./sorting";
+import { taskDisplayKey } from "./sorting";
 import type { TaskActor, TaskStatus } from "./types";
 
 export type SearchSnippet = {
@@ -14,6 +14,7 @@ export type SearchSnippet = {
 
 export type TaskHit = {
   id: string;
+  display_number: number | null;
   key: string;
   title: string;
   agent_email: string | null;
@@ -128,6 +129,7 @@ const MAX_SEARCH_SCAN = 1000;
 
 type TaskMetaRow = {
   id: string;
+  display_number: number | null;
   title: string;
   agent_email: string | null;
   assignee_email: string | null;
@@ -180,7 +182,7 @@ async function loadSearchVisibility(
     taskIds.length > 0
       ? supabase
           .from("tasks")
-          .select("id,title,agent_email,assignee_email,status,archived_at")
+          .select("id,display_number,title,agent_email,assignee_email,status,archived_at")
           .in("id", taskIds)
           .is("archived_at", null)
       : Promise.resolve({ data: [], error: null }),
@@ -331,7 +333,7 @@ export async function runTaskSearch(
       fetchPage: (offset, limit) =>
         supabase
           .from("tasks")
-          .select("id,title,agent_email,assignee_email,status,archived_at")
+          .select("id,display_number,title,agent_email,assignee_email,status,archived_at")
           .ilike("title", pattern)
           .is("archived_at", null)
           .order("updated_at", { ascending: false })
@@ -339,7 +341,8 @@ export async function runTaskSearch(
       taskIdOf: (task) => task.id,
       buildHit: (task, meta) => ({
         id: task.id,
-        key: taskKey(task.id),
+        display_number: task.display_number,
+        key: taskDisplayKey(task.display_number),
         title: meta.title,
         agent_email: meta.agent_email,
         status: meta.status,

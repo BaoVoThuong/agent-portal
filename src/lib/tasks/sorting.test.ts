@@ -4,6 +4,7 @@ import {
   rankTasks,
   RECENT_ACTIVITY_WINDOW_MS,
   sortTasks,
+  taskDisplayKey,
   taskKey,
 } from "@/lib/tasks/sorting";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
@@ -110,6 +111,11 @@ describe("sortTasks", () => {
   it("taskKey is stable for the same id", () => {
     expect(taskKey("abc")).toBe(taskKey("abc"));
     expect(taskKey("abc")).toMatch(/^TASK-\d+$/);
+  });
+
+  it("uses the durable display number for visible keys", () => {
+    expect(taskDisplayKey(123)).toBe("TASK-123");
+    expect(taskDisplayKey(null)).toBe("TASK-—");
   });
 });
 

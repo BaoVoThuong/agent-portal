@@ -3,7 +3,7 @@ import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTaskAgents, fetchTaskAssignees } from "@/lib/tasks/assignees";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
-import { taskKey } from "@/lib/tasks/sorting";
+import { taskDisplayKey } from "@/lib/tasks/sorting";
 import { STATUS_LABEL, type TaskRow } from "@/lib/tasks/types";
 import { buildExportMatrix } from "@/lib/table-config/export";
 import { canActorExport } from "@/lib/table-config/export-access";
@@ -117,7 +117,7 @@ async function exportTasksResponse({
 function taskExportValue(task: TaskRow, key: string): unknown {
   switch (key) {
     case "key":
-      return taskKey(task.id);
+      return taskDisplayKey(task.display_number);
     case "summary":
       return task.title;
     case "assignee":
