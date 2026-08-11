@@ -302,7 +302,7 @@ export function TaskRowItem({
       }}
       className={`group flex bg-white transition hover:bg-[#f7f8f9] ${
         configuredColumns
-          ? "min-w-max items-stretch gap-0 whitespace-nowrap px-0 py-0 [&>*]:flex [&>*]:items-center [&>*]:whitespace-nowrap [&>*]:px-3 [&>*]:py-2.5"
+          ? "min-h-11 min-w-max items-stretch gap-0 whitespace-nowrap px-0 py-0 [&>*]:flex [&>*]:items-center [&>*]:whitespace-nowrap [&>*]:px-3 [&>*]:py-2.5"
           : "items-center gap-3 whitespace-nowrap px-4 py-2.5"
       } ${isOverdue && !configuredColumns ? "border-l-4 border-[#f97316]" : ""}`}
     >

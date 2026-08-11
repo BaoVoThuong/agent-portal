@@ -170,7 +170,7 @@ export function Initials({
 
   return (
     <span
-      className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-white"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-white"
       style={{ backgroundColor: colors[hash] }}
       title={displayName}
     >
@@ -190,7 +190,7 @@ export function AvatarStack({
 }) {
   if (emails.length === 0) {
     return (
-      <span className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-[#8590a2] text-[#8590a2]">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-[#8590a2] text-[#8590a2]">
         <UserPlus className="h-3.5 w-3.5" />
       </span>
     );

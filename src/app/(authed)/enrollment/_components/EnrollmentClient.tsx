@@ -1902,7 +1902,7 @@ function EnrollmentRowItem({
   return (
     <div
       onDoubleClick={() => onOpen(record.id)}
-      className="group flex items-stretch whitespace-nowrap bg-white transition hover:bg-[#f7f8f9]"
+      className="group flex min-h-11 items-stretch whitespace-nowrap bg-white transition hover:bg-[#f7f8f9]"
     >
       {has("key") ? (
         <div
@@ -2398,7 +2398,7 @@ function EnrollmentOptionMenu({
           drawsOwnChrome
             ? DETAIL_FIELD_BUTTON_CLASS
             : rendersIdentityBadge
-              ? "flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em] disabled:cursor-not-allowed disabled:opacity-60"
+              ? "inline-flex max-w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em] disabled:cursor-not-allowed disabled:opacity-60"
               : "flex w-full min-w-0 items-center disabled:cursor-not-allowed disabled:opacity-60"
         }
         style={
@@ -2411,7 +2411,9 @@ function EnrollmentOptionMenu({
         }
       >
         <span
-          className={`min-w-0 flex-1 truncate text-left ${
+          className={`min-w-0 truncate text-left ${
+            rendersIdentityBadge ? "" : "flex-1"
+          } ${
             !rendersIdentityBadge && !option ? "font-normal text-[#97a0af]" : ""
           }`}
         >
@@ -2528,7 +2530,7 @@ function EnrollmentPersonMenu({
 
     return value ? (
       <span
-        className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-[#42526e]"
+        className="flex min-w-0 items-center gap-1.5 rounded text-xs font-semibold text-[#42526e]"
         title={selectedLabel}
       >
         <Initials email={value} label={selectedLabel} />
@@ -2578,22 +2580,30 @@ function EnrollmentPersonMenu({
           value ? renderSelectedAssignee("text-sm font-semibold text-[#172b4d]") : renderAssigneeEmpty()
         ) : value ? (
           <span
-            className={`flex min-w-0 items-center gap-1.5 text-left font-semibold transition ${
+            className={`flex min-w-0 items-center gap-1.5 rounded text-left font-semibold transition ${
               drawsOwnChrome
                 ? "flex-1 text-sm text-[#172b4d]"
                 : "text-xs text-[#42526e] hover:text-[#0c66e4]"
             }`}
           >
             <Initials email={value} label={selectedLabel} />
-            <span className="min-w-0 flex-1 leading-tight">
-              <span className="block truncate">{selectedLabel}</span>
+            <span
+              className={
+                drawsOwnChrome
+                  ? "min-w-0 flex-1 leading-tight"
+                  : "whitespace-nowrap"
+              }
+            >
+              <span className={drawsOwnChrome ? "block truncate" : undefined}>
+                {selectedLabel}
+              </span>
             </span>
           </span>
         ) : (
           <span
             className={
               showsAssignCallToAction
-                ? "inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]"
+                ? "inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] bg-white px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]"
                 : "inline-flex min-w-0 items-center gap-1.5 text-sm font-normal text-[#97a0af]"
             }
           >
@@ -2745,7 +2755,7 @@ function EnrollmentStagePill({
     </span>
   ) : (
     <span
-      className="flex w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wide"
+      className="inline-flex max-w-full min-w-0 items-center gap-1 rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
       style={{ backgroundColor: style.bg, color: style.fg }}
     >
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
