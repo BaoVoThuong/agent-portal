@@ -22,6 +22,38 @@ create table if not exists public.health_payment_summary (
   statement text
 );
 
+-- Sheet refreshes are staged here and atomically promoted by finalize_sheet_sync().
+-- Keeping the payload as JSON lets one staging contract serve the three raw tables,
+-- while the finalizer only permits the known table names below.
+create table if not exists public.sheet_sync_runs (
+  run_id uuid primary key,
+  target_table text not null,
+  source_sheet_id text not null,
+  source_gid text not null,
+  status text not null default 'running' check (status in ('running', 'finalized')),
+  inserted_count integer not null default 0,
+  created_at timestamptz not null default now(),
+  finalized_at timestamptz
+);
+
+create table if not exists public.sheet_sync_staging (
+  run_id uuid not null references public.sheet_sync_runs(run_id) on delete cascade,
+  target_table text not null,
+  source_sheet_id text not null,
+  source_gid text not null,
+  source_row_number integer not null,
+  payload jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key (run_id, target_table, source_sheet_id, source_gid, source_row_number)
+);
+
+create index if not exists sheet_sync_staging_created_idx
+  on public.sheet_sync_staging (created_at);
+
+revoke all on table public.sheet_sync_runs, public.sheet_sync_staging
+  from public, anon, authenticated;
+grant all on table public.sheet_sync_runs, public.sheet_sync_staging to service_role;
+
 create table if not exists public.provider_address (
   source_sheet_id text not null,
   source_gid text not null,
@@ -779,6 +811,149 @@ $$;
 
 revoke all on function public.clear_health_payment_summary() from public, anon, authenticated;
 grant execute on function public.clear_health_payment_summary() to service_role;
+
+create or replace function public.begin_sheet_sync(
+  p_run_id uuid,
+  p_target_table text,
+  p_source_sheet_id text,
+  p_source_gid text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if p_run_id is null
+    or p_target_table not in ('provider_address', 'pc_raw_data', 'health_raw_data')
+    or nullif(btrim(p_source_sheet_id), '') is null
+    or nullif(btrim(p_source_gid), '') is null then
+    raise exception 'invalid sheet sync metadata';
+  end if;
+
+  insert into public.sheet_sync_runs (run_id, target_table, source_sheet_id, source_gid)
+  values (p_run_id, p_target_table, p_source_sheet_id, p_source_gid)
+  on conflict (run_id) do update
+    set target_table = excluded.target_table,
+        source_sheet_id = excluded.source_sheet_id,
+        source_gid = excluded.source_gid
+  where public.sheet_sync_runs.status = 'running'
+    and public.sheet_sync_runs.target_table = excluded.target_table
+    and public.sheet_sync_runs.source_sheet_id = excluded.source_sheet_id
+    and public.sheet_sync_runs.source_gid = excluded.source_gid;
+
+  if not exists (
+    select 1 from public.sheet_sync_runs
+    where run_id = p_run_id
+      and target_table = p_target_table
+      and source_sheet_id = p_source_sheet_id
+      and source_gid = p_source_gid
+  ) then
+    raise exception 'run id is already finalized with different metadata';
+  end if;
+end;
+$$;
+
+create or replace function public.finalize_sheet_sync(
+  p_run_id uuid,
+  p_target_table text,
+  p_source_sheet_id text,
+  p_source_gid text
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  run_row public.sheet_sync_runs%rowtype;
+  v_inserted_count integer;
+begin
+  if p_run_id is null
+    or p_target_table not in ('provider_address', 'pc_raw_data', 'health_raw_data')
+    or nullif(btrim(p_source_sheet_id), '') is null
+    or nullif(btrim(p_source_gid), '') is null then
+    raise exception 'invalid sheet sync metadata';
+  end if;
+
+  select * into run_row
+  from public.sheet_sync_runs
+  where run_id = p_run_id
+  for update;
+
+  if not found then
+    raise exception 'unknown sheet sync run';
+  end if;
+
+  if run_row.target_table <> p_target_table
+    or run_row.source_sheet_id <> p_source_sheet_id
+    or run_row.source_gid <> p_source_gid then
+    raise exception 'sheet sync metadata does not match run';
+  end if;
+
+  if run_row.status = 'finalized' then
+    return run_row.inserted_count;
+  end if;
+
+  -- Serialize replacement of one source partition. A concurrent run may stage
+  -- independently, but only one can promote at a time.
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_target_table || '|' || p_source_sheet_id || '|' || p_source_gid, 0)
+  );
+
+  execute format(
+    'delete from public.%I where source_sheet_id = $1 and source_gid = $2',
+    p_target_table
+  ) using p_source_sheet_id, p_source_gid;
+
+  execute format(
+    'insert into public.%I
+       select (jsonb_populate_record(null::public.%I, payload)).*
+       from public.sheet_sync_staging
+       where run_id = $1
+         and target_table = $2
+         and source_sheet_id = $3
+         and source_gid = $4
+       order by source_row_number',
+    p_target_table, p_target_table
+  ) using p_run_id, p_target_table, p_source_sheet_id, p_source_gid;
+
+  get diagnostics v_inserted_count = row_count;
+
+  update public.sheet_sync_runs
+  set status = 'finalized', inserted_count = v_inserted_count,
+      finalized_at = clock_timestamp()
+  where run_id = p_run_id;
+
+  delete from public.sheet_sync_staging where run_id = p_run_id;
+  return v_inserted_count;
+end;
+$$;
+
+create or replace function public.purge_sheet_sync_staging(
+  p_before timestamptz default now() - interval '24 hours'
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  removed_count integer;
+begin
+  delete from public.sheet_sync_runs
+  where created_at < coalesce(p_before, now() - interval '24 hours');
+  get diagnostics removed_count = row_count;
+  return removed_count;
+end;
+$$;
+
+revoke all on function public.begin_sheet_sync(uuid, text, text, text) from public, anon, authenticated;
+grant execute on function public.begin_sheet_sync(uuid, text, text, text) to service_role;
+revoke all on function public.finalize_sheet_sync(uuid, text, text, text) from public, anon, authenticated;
+grant execute on function public.finalize_sheet_sync(uuid, text, text, text) to service_role;
+revoke all on function public.purge_sheet_sync_staging(timestamptz) from public, anon, authenticated;
+grant execute on function public.purge_sheet_sync_staging(timestamptz) to service_role;
 
 create or replace function public.replace_health_payment_summary(p_rows jsonb)
 returns integer

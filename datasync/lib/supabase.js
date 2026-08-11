@@ -56,7 +56,7 @@ async function deleteSupabaseRows(table, filters) {
   }
 }
 
-async function callSupabaseRpc(functionName) {
+async function callSupabaseRpc(functionName, params = {}) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -72,12 +72,20 @@ async function callSupabaseRpc(functionName) {
       Authorization: `Bearer ${serviceRoleKey}`,
       "Content-Type": "application/json",
     },
-    body: "{}",
+    body: JSON.stringify(params),
   });
 
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`Supabase RPC ${functionName} returned HTTP ${response.status}: ${body}`);
+  }
+
+  const body = await response.text();
+  if (!body) return null;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
   }
 }
 
