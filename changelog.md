@@ -604,3 +604,9 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   search path.
 - Added a fail-closed schema assertion so a future standalone datasync
   SECURITY DEFINER function cannot silently retain PUBLIC EXECUTE.
+
+## 2026-08-11 — Enrollment stage backfill validation boundary
+
+- Moved stage-entry constraint validation before the backfill transaction
+  commits, so a failed validation rolls back the complete backfill.
+- Added a disposable SQL assertion covering the validation failure boundary.

@@ -497,7 +497,7 @@ Append one row immediately after each task is completed. Do not pre-fill commit 
 | Task | Status | What changed | Verification | Commit |
 |---|---|---|---|---|
 | 1 — datasync ACL | Completed | Added read-only audit, service-role-only grants, explicit search paths, and fail-closed assertion. Production/scratch ACL query was not run because no DB connection variables are available in this environment. | `git diff --check`; static schema review | Pending commit |
-| 2 — backfill transaction | Not started | — | — | — |
+| 2 — backfill transaction | Completed | Moved constraint validation before COMMIT and added rollback-boundary SQL assertion. Full scratch replay remains pending because no DB URL is available. | `git diff --check`; static ordering check | Pending commit |
 | 3 — health summary atomic replace | Not started | — | — | — |
 | 4 — staged data sync | Not started | — | — | — |
 | 5 — workbook limits | Not started | — | — | — |

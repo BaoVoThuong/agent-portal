@@ -249,7 +249,7 @@ begin
   ) then raise exception 'BACKFILL_INVARIANT: invalid entry marker'; end if;
 end $$;
 
-commit;
-
 alter table enrollment_records
   validate constraint enrollment_records_stage_entry_required_check;
+
+commit;
