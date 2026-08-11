@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-11 — Expose participant lookup outages
+- **Loại**: fix, security
+- **Cái gì**: Participant ID/email/membership helpers now use the assignee-only fallback only for a missing `task_participants` relation (`42P01`, or its exact PostgREST schema-cache representation) and throw for permission, network, timeout, and other database failures.
+- **Vì sao**: Converting every lookup error into `false`/`[]` silently changed outages into authorization misses and could hide a collaboration visibility incident.
+- **File**: `src/lib/tasks/participants.ts`, `src/lib/tasks/participants.test.ts`
+- **Ảnh hưởng**: Task list/search/detail/comment/attachment authorization remains fail-closed; missing-table additive rollout remains compatible, while unexpected participant DB failures become observable route errors.
+- **Ref**: `docs/superpowers/plans/2026-08-11-open-code-review-remediation.md`, Task 14
+
 ## 2026-08-11 — Observe optional notification enrichment degradation
 - **Loại**: fix
 - **Cái gì**: Notification title, actor, and comment-body enrichment queries now report structured warnings with only stage names and database error codes. The authenticated base notification list and unread counts remain fail-soft when an optional lookup is unavailable.
