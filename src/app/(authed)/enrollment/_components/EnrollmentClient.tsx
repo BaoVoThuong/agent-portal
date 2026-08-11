@@ -3280,10 +3280,10 @@ function EnrollmentDrawer({
                   <EnrollmentPersonMenu
                     value={record.agent_email}
                     peopleByEmail={agentsByEmail}
-                    emptyLabel="No agent"
-                    placeholderLabel="Select agent"
+                    emptyLabel="Unassigned"
+                    placeholderLabel="Agent"
                     surface="form-field"
-                    variant="select"
+                    variant="assignee"
                     canEdit={capabilities.canTransferAgent}
                     onChange={(value) => {
                       if (requiredColumnKeys.has("agent") && !value) {
@@ -3305,10 +3305,10 @@ function EnrollmentDrawer({
                   <EnrollmentPersonMenu
                     value={record.caller_email}
                     peopleByEmail={peopleByEmail}
-                    emptyLabel="No caller"
-                    placeholderLabel="Select caller"
+                    emptyLabel="Unassigned"
+                    placeholderLabel="Caller"
                     surface="form-field"
-                    variant="select"
+                    variant="assignee"
                     canEdit={capabilities.canAssignPeople}
                     onChange={(value) => void onPatch({ caller_email: value })}
                   />
@@ -3840,10 +3840,10 @@ function NewEnrollmentDialog({
                       <EnrollmentPersonMenu
                         value={form.agent_email || null}
                         peopleByEmail={agentsByEmail}
-                        emptyLabel="No agent"
-                        placeholderLabel="Select agent"
+                        emptyLabel="Unassigned"
+                        placeholderLabel="Agent"
                         surface="form-bare"
-                        variant="select"
+                        variant="assignee"
                         onChange={(value) => update("agent_email", value)}
                       />
                     </CreatePropertyField>
@@ -3858,10 +3858,10 @@ function NewEnrollmentDialog({
                       <EnrollmentPersonMenu
                         value={form.caller_email || null}
                         peopleByEmail={peopleByEmail}
-                        emptyLabel="No caller"
-                        placeholderLabel="Select caller"
+                        emptyLabel="Unassigned"
+                        placeholderLabel="Caller"
                         surface="form-bare"
-                        variant="select"
+                        variant="assignee"
                         onChange={(value) => update("caller_email", value)}
                       />
                     </CreatePropertyField>
