@@ -101,17 +101,13 @@ export async function POST(request: Request) {
   }
 
   const supabase = getSupabaseAdmin();
-  const { error: clearError } = await supabase.rpc(
-    "clear_health_payment_summary"
+  const { error: replaceError } = await supabase.rpc(
+    "replace_health_payment_summary",
+    { p_rows: rows }
   );
 
-  if (clearError) {
-    return NextResponse.json({ error: clearError.message }, { status: 500 });
-  }
-
-  const { error } = await supabase.from("health_payment_summary").insert(rows);
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (replaceError) {
+    return NextResponse.json({ error: replaceError.message }, { status: 500 });
   }
 
   let report;

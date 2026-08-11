@@ -780,6 +780,52 @@ $$;
 revoke all on function public.clear_health_payment_summary() from public, anon, authenticated;
 grant execute on function public.clear_health_payment_summary() to service_role;
 
+create or replace function public.replace_health_payment_summary(p_rows jsonb)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  inserted_count integer;
+begin
+  if p_rows is null or jsonb_typeof(p_rows) <> 'array' then
+    raise exception 'p_rows must be a JSON array';
+  end if;
+
+  if jsonb_array_length(p_rows) > 100000 then
+    raise exception 'p_rows exceeds the maximum replacement size';
+  end if;
+
+  truncate table public.health_payment_summary;
+
+  insert into public.health_payment_summary (
+    agent, carrier_name, customer_id, customer_name, effective_date,
+    paid_to_date, gross_compensation, transaction_id, statement
+  )
+  select payload.agent, payload.carrier_name, payload.customer_id,
+    payload.customer_name, payload.effective_date, payload.paid_to_date,
+    payload.gross_compensation, payload.transaction_id, payload.statement
+  from jsonb_to_recordset(p_rows) as payload(
+    agent text,
+    carrier_name text,
+    customer_id text,
+    customer_name text,
+    effective_date text,
+    paid_to_date text,
+    gross_compensation numeric,
+    transaction_id text,
+    statement text
+  );
+
+  get diagnostics inserted_count = row_count;
+  return inserted_count;
+end;
+$$;
+
+revoke all on function public.replace_health_payment_summary(jsonb) from public, anon, authenticated;
+grant execute on function public.replace_health_payment_summary(jsonb) to service_role;
+
 -- Fail closed if another SECURITY DEFINER routine is appended to this
 -- standalone schema without its ACL pair. This mirrors the main schema's
 -- final assertion and protects fresh databases initialized from this file.

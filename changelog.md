@@ -610,3 +610,6 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
 - Moved stage-entry constraint validation before the backfill transaction
   commits, so a failed validation rolls back the complete backfill.
 - Added a disposable SQL assertion covering the validation failure boundary.
+## 2026-08-11
+
+- Health statement payment-summary replacement now runs through one service-role-only RPC, so a failed row cast/insert preserves the previous dataset instead of leaving the summary empty.

@@ -496,9 +496,9 @@ Append one row immediately after each task is completed. Do not pre-fill commit 
 
 | Task | Status | What changed | Verification | Commit |
 |---|---|---|---|---|
-| 1 — datasync ACL | Completed | Added read-only audit, service-role-only grants, explicit search paths, and fail-closed assertion. Production/scratch ACL query was not run because no DB connection variables are available in this environment. | `git diff --check`; static schema review | Pending commit |
-| 2 — backfill transaction | Completed | Moved constraint validation before COMMIT and added rollback-boundary SQL assertion. Full scratch replay remains pending because no DB URL is available. | `git diff --check`; static ordering check | Pending commit |
-| 3 — health summary atomic replace | Not started | — | — | — |
+| 1 — datasync ACL | Completed | Added read-only audit, service-role-only grants, explicit search paths, and fail-closed assertion. Production/scratch ACL query was not run because no DB connection variables are available in this environment. | `git diff --check`; static schema review | `f6b7c21` |
+| 2 — backfill transaction | Completed | Moved constraint validation before COMMIT and added rollback-boundary SQL assertion. Full scratch replay remains pending because no DB URL is available. | `git diff --check`; static ordering check | `4d56dd3` |
+| 3 — health summary atomic replace | Completed | Added a service-role-only `replace_health_payment_summary(jsonb)` RPC in both schema artifacts, switched the health statement route to one transactional replacement call, and added scratch failure/success assertions. | `git diff --check`; static RPC/route review; scratch SQL added but not run because no DB URL is available in this environment | Pending commit |
 | 4 — staged data sync | Not started | — | — | — |
 | 5 — workbook limits | Not started | — | — | — |
 | 6 — unique display keys | Not started | — | — | — |
