@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-11 — Require a configured realtime topic secret in production
+- **Loại**: security, fix
+- **Cái gì**: Per-user notification topics now use `REALTIME_TOPIC_SECRET` or `AUTH_SECRET`; missing secrets throw in production and only use the development fallback outside production with a warning. HMAC normalization and content-free broadcasts are unchanged.
+- **Vì sao**: The previous public fallback `task-notify` made notification topic names guessable if production secret configuration was missing.
+- **File**: `src/lib/tasks/realtime.ts`, `src/lib/tasks/realtime.test.ts`
+- **Ảnh hưởng**: Production notification API/broadcast paths fail explicitly until a secret is configured; local/test environments retain deterministic fallback behavior with visible warning.
+- **Ref**: `docs/superpowers/plans/2026-08-11-open-code-review-remediation.md`, Task 15
+
 ## 2026-08-11 — Expose participant lookup outages
 - **Loại**: fix, security
 - **Cái gì**: Participant ID/email/membership helpers now use the assignee-only fallback only for a missing `task_participants` relation (`42P01`, or its exact PostgREST schema-cache representation) and throw for permission, network, timeout, and other database failures.

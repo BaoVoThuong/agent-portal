@@ -9,12 +9,33 @@ export type RealtimeMessage = {
   payload: Record<string, never>;
 };
 
+const DEVELOPMENT_TOPIC_SECRET = "task-notify";
+let warnedAboutTopicSecret = false;
+
+function realtimeTopicSecret(): string {
+  const configured =
+    process.env.REALTIME_TOPIC_SECRET?.trim() || process.env.AUTH_SECRET?.trim();
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "REALTIME_TOPIC_SECRET or AUTH_SECRET must be configured in production."
+    );
+  }
+  if (!warnedAboutTopicSecret) {
+    warnedAboutTopicSecret = true;
+    console.warn(
+      "Realtime topic secret is not configured; using a development-only fallback."
+    );
+  }
+  return DEVELOPMENT_TOPIC_SECRET;
+}
+
 // Per-user notification topic. HMAC(email) with the app secret so it can't be
 // guessed from an email alone — broadcasts carry NO content (just a "ping"), the
 // browser then fetches the actual data through the NextAuth-guarded API, so
 // nothing sensitive ever travels over the public channel.
 export function notifTopic(email: string): string {
-  const secret = process.env.AUTH_SECRET ?? "task-notify";
+  const secret = realtimeTopicSecret();
   const digest = createHmac("sha256", secret)
     .update(email.trim().toLowerCase())
     .digest("hex")
