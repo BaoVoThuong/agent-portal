@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-11 — Bound collaboration history and isolate enrollment file failures
+- **Loại**: fix, perf
+- **Cái gì**: Task and Enrollment detail loaders now fetch comments with a shared `(created_at, id)` cursor and 50-row page, include only returned-comment attachments, support older-page and deep-link loading, and preserve total comment counts from metadata. Enrollment attachment signing is isolated per file so one missing storage object renders as unavailable instead of failing the drawer.
+- **Vì sao**: Unbounded comment/attachment reads and signing made detail opens scale with the entire history and allowed one storage failure to turn an Enrollment drawer into a 500.
+- **File**: `src/lib/collaboration/comment-pagination.ts`, `src/lib/tasks/detail.ts`, `src/lib/enrollment/detail.ts`, `src/app/api/tasks/[id]/detail/route.ts`, `src/app/api/enrollment/[id]/detail/route.ts`, `src/app/(authed)/tasks/_components/CommentThread.tsx`, `src/app/(authed)/tasks/_components/TaskDetailDrawer.tsx`, `src/app/(authed)/enrollment/_components/EnrollmentClient.tsx`
+- **Ảnh hưởng**: Health CS, ACA, and Medicare collaboration drawers load a bounded initial history, retain reply/deep-link behavior, surface older-page failures, and keep healthy files/comments visible when an individual signed URL fails.
+- **Ref**: `docs/superpowers/plans/2026-08-11-open-code-review-remediation.md`, Task 9
+
 ## 2026-08-10 — Fix task actor backfill SQL correlation
 - **Loại**: fix
 - **Cái gì**: Replaced the invalid `UPDATE tasks ... FROM LATERAL` actor backfill with a correlated scalar subquery and an explicit `exists` guard. The latest non-system actor and deterministic timestamp ordering are unchanged.

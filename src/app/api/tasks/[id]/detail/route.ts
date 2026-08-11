@@ -17,8 +17,20 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, { params }: Ctx) {
+export async function GET(req: Request, { params }: Ctx) {
   const { id } = await params;
+  const url = new URL(req.url);
+  const beforeCreatedAt = url.searchParams.get("comments_before_created_at");
+  const beforeId = url.searchParams.get("comments_before_id");
+  const isUuid = (value: string | null) =>
+    Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+  const commentsBefore =
+    beforeCreatedAt && beforeId && !Number.isNaN(Date.parse(beforeCreatedAt)) && isUuid(beforeId)
+      ? { created_at: beforeCreatedAt, id: beforeId }
+      : undefined;
+  const highlightCommentId = isUuid(url.searchParams.get("comment_id"))
+    ? url.searchParams.get("comment_id")
+    : undefined;
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -51,6 +63,8 @@ export async function GET(_req: Request, { params }: Ctx) {
       loadTaskDetail(supabase, id, {
         ...detailOpts,
         includeActivity,
+        commentsBefore,
+        highlightCommentId,
       }),
       fetchTaskListMetadata([id], supabase),
     ]);

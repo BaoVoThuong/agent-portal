@@ -133,7 +133,8 @@ export type EnrollmentSignedAttachment = {
   file_name: string;
   mime_type: string | null;
   size_bytes: number | null;
-  url: string;
+  url: string | null;
+  unavailable?: true;
 };
 
 export type EnrollmentCommentWithAttachments = Record<string, unknown> & {
@@ -144,6 +145,7 @@ export type EnrollmentCommentWithAttachments = Record<string, unknown> & {
 
 export type EnrollmentDetail = {
   comments: EnrollmentCommentWithAttachments[];
+  commentsHasMore: boolean;
   activity: EnrollmentActivityRow[];
   attachments: EnrollmentSignedAttachment[];
 };

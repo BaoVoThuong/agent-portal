@@ -24,7 +24,6 @@ import { AvatarStack } from "./board-ui";
 import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
-import { activeCommentCount } from "@/lib/tasks/thread-view";
 
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
@@ -143,7 +142,10 @@ export function TaskDetailDrawer({
   const reload = useCallback(async (): Promise<"ok" | "failed"> => {
     invalidateTaskDetail(task.id);
     try {
-      const res = await fetch(`/api/tasks/${task.id}/detail`);
+      const params = highlightCommentId
+        ? `?comment_id=${encodeURIComponent(highlightCommentId)}`
+        : "";
+      const res = await fetch(`/api/tasks/${task.id}/detail${params}`);
       if (!res.ok) {
         setReloadStatus("failed");
         return "failed";
@@ -158,7 +160,33 @@ export function TaskDetailDrawer({
       setReloadStatus("failed");
       return "failed";
     }
-  }, [task.id]);
+  }, [highlightCommentId, task.id]);
+
+  const loadOlderComments = useCallback(async () => {
+    if (!detail?.commentsHasMore) return;
+    const oldest = [...detail.comments]
+      .filter((comment) => typeof comment.created_at === "string")
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id.localeCompare(b.id))[0];
+    if (!oldest) return;
+    const params = new URLSearchParams({
+      comments_before_created_at: String(oldest.created_at),
+      comments_before_id: oldest.id,
+    });
+    const res = await fetch(`/api/tasks/${task.id}/detail?${params.toString()}`);
+    if (!res.ok) throw new Error("Could not load older comments.");
+    const older = (await res.json()) as TaskDetail;
+    setDetail((current) => {
+      if (!current) return older;
+      const byId = new Map(current.comments.map((comment) => [comment.id, comment]));
+      for (const comment of older.comments) byId.set(comment.id, comment);
+      const comments = [...byId.values()].sort(
+        (a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id.localeCompare(b.id)
+      );
+      const next = { ...current, comments, commentsHasMore: older.commentsHasMore };
+      setCachedTaskDetail(task.id, next);
+      return next;
+    });
+  }, [detail, task.id]);
 
   useEffect(() => {
     autosizeTextarea(descriptionRef.current);
@@ -494,7 +522,7 @@ export function TaskDetailDrawer({
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
                   <DetailTabButton
                     label="Comments"
-                    count={detail ? activeCommentCount(detail.comments) : 0}
+                    count={detail?.metadata?.comment_count ?? task.comment_count ?? 0}
                     active={tab === "comments"}
                     onClick={() => setTab("comments")}
                   />
@@ -538,6 +566,8 @@ export function TaskDetailDrawer({
                         currentEmail={currentEmail}
                         members={mentionMembers}
                         comments={detail.comments}
+                        commentsHasMore={detail.commentsHasMore}
+                        onLoadOlder={loadOlderComments}
                         highlightCommentId={highlightCommentId}
                         onReload={reload}
                         onParentUpdatedAt={onParentUpdatedAt}

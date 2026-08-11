@@ -342,6 +342,8 @@ export function CommentThread({
   currentEmail,
   members,
   comments,
+  commentsHasMore = false,
+  onLoadOlder,
   highlightCommentId,
   onReload,
   onParentUpdatedAt,
@@ -352,6 +354,8 @@ export function CommentThread({
   currentEmail: string;
   members: TaskAssignee[];
   comments: CommentWithAttachments[];
+  commentsHasMore?: boolean;
+  onLoadOlder?: () => Promise<void>;
   highlightCommentId?: string | null;
   onReload: () => Promise<unknown> | void;
   /** Receives the parent task/record's new updated_at after a comment is
@@ -373,6 +377,8 @@ export function CommentThread({
   const failedSubmissionIntentRef = useRef<string | null>(null);
   const [submissionBusy, setSubmissionBusy] = useState(false);
   const [newRowsCount, setNewRowsCount] = useState(0);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderLoadError, setOlderLoadError] = useState<string | null>(null);
   const [clockTick, setClockTick] = useState(0);
   const nearBottomRef = useRef(true);
   const previousRowIdsRef = useRef<string[] | null>(null);
@@ -928,6 +934,32 @@ export function CommentThread({
           }}
           className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1"
         >
+        {commentsHasMore && onLoadOlder ? (
+          <button
+            type="button"
+            disabled={loadingOlder}
+            onClick={async () => {
+              if (loadingOlder) return;
+              setLoadingOlder(true);
+              setOlderLoadError(null);
+              try {
+                await onLoadOlder();
+              } catch (error) {
+                setOlderLoadError(getErrorMessage(error, "Could not load older comments."));
+              } finally {
+                setLoadingOlder(false);
+              }
+            }}
+            className="mx-auto block rounded-full border border-[#dfe1e6] bg-white px-3 py-1.5 text-xs font-semibold text-[#42526e] shadow-sm transition hover:border-[#85b8ff] hover:text-[#0c66e4] disabled:cursor-wait disabled:opacity-60"
+          >
+            {loadingOlder ? "Loading older comments..." : "Load older comments"}
+          </button>
+        ) : null}
+        {olderLoadError ? (
+          <div role="alert" className="mx-auto max-w-md rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-center text-xs font-semibold text-[#bf2600]">
+            {olderLoadError}
+          </div>
+        ) : null}
         {topLevel.length === 0 ? (
           <div className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]">
             No comments yet.

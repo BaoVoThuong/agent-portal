@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { signTaskFile } from "./storage";
 import { resolveDisplayNames } from "@/lib/people/display-names";
+import {
+  COMMENT_PAGE_SIZE,
+  type CommentCursor,
+} from "@/lib/collaboration/comment-pagination";
 
 export type SignedAttachment = {
   id: string;
@@ -34,6 +38,7 @@ export type TaskDetailMetadata = {
 
 export type TaskDetail = {
   comments: CommentWithAttachments[];
+  commentsHasMore: boolean;
   activity: ActivityRow[];
   attachments: SignedAttachment[];
   metadata?: TaskDetailMetadata;
@@ -83,19 +88,56 @@ export function groupCommentAttachments(
 export async function loadComments(
   supabase: SupabaseClient,
   taskId: string,
-  opts: { includeAttachments?: boolean } = {}
-): Promise<CommentWithAttachments[]> {
-  const { data: comments, error: commentsError } = await supabase
+  opts: { includeAttachments?: boolean; before?: CommentCursor; highlightCommentId?: string | null } = {}
+): Promise<{ comments: CommentWithAttachments[]; hasMore: boolean }> {
+  let query = supabase
     .from("task_comments")
     .select(COMMENT_COLUMNS)
     .eq("task_id", taskId)
-    .order("created_at", { ascending: true });
+    .is("deleted_at", null);
+  if (opts.before) {
+    query = query.or(
+      `created_at.lt.${opts.before.created_at},and(created_at.eq.${opts.before.created_at},id.lt.${opts.before.id})`
+    );
+  }
+  const { data: comments, error: commentsError } = await query
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(COMMENT_PAGE_SIZE + 1);
   if (commentsError) throw new Error(commentsError.message);
 
-  const rawComments = (comments ?? []) as unknown as Array<{
+  let rawComments = (comments ?? []) as unknown as Array<{
     id: string;
+    parent_id: string | null;
     author_email: string;
+    created_at: string;
   }>;
+  const hasMore = rawComments.length > COMMENT_PAGE_SIZE;
+  rawComments = rawComments.slice(0, COMMENT_PAGE_SIZE);
+  if (opts.highlightCommentId && !rawComments.some((row) => row.id === opts.highlightCommentId)) {
+    const { data: highlighted, error } = await supabase
+      .from("task_comments")
+      .select(COMMENT_COLUMNS)
+      .eq("task_id", taskId)
+      .eq("id", opts.highlightCommentId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (highlighted) rawComments.push(highlighted as unknown as (typeof rawComments)[number]);
+  }
+  const parentIds = [...new Set(rawComments.map((row) => row.parent_id).filter(Boolean))]
+    .filter((id) => !rawComments.some((row) => row.id === id));
+  if (parentIds.length > 0) {
+    const { data: parents, error } = await supabase
+      .from("task_comments")
+      .select(COMMENT_COLUMNS)
+      .eq("task_id", taskId)
+      .in("id", parentIds)
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    rawComments.push(...((parents ?? []) as unknown as typeof rawComments));
+  }
+  rawComments.sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   const displayNames = await resolveDisplayNames(rawComments.map((comment) => comment.author_email));
   const commentsWithNames = rawComments.map((comment) => ({
     ...comment,
@@ -103,17 +145,19 @@ export async function loadComments(
   }));
 
   if (opts.includeAttachments === false) {
-    return commentsWithNames.map((comment) => ({
+    return { comments: commentsWithNames.map((comment) => ({
       ...(comment as Record<string, unknown>),
       id: comment.id,
       attachments: [],
-    }));
+    })), hasMore };
   }
 
+  const commentIds = rawComments.map((comment) => comment.id);
+  if (commentIds.length === 0) return { comments: [], hasMore };
   const { data: attachmentRows, error: attachmentsError } = await supabase
     .from("task_attachments")
     .select("id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at")
-    .eq("task_id", taskId)
+    .in("comment_id", commentIds)
     .not("comment_id", "is", null)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
@@ -123,10 +167,10 @@ export async function loadComments(
   const attachments = await signAttachmentsSafely(rows);
   const signed = rows.map((row, index) => ({ comment_id: row.comment_id, att: attachments[index] }));
 
-  return groupCommentAttachments(
+  return { comments: groupCommentAttachments(
     commentsWithNames as unknown as { id: string }[],
     signed
-  );
+  ), hasMore };
 }
 
 export async function loadActivity(
@@ -172,11 +216,15 @@ export async function loadTaskDetail(
     includeActivity?: boolean;
     includeCommentAttachments?: boolean;
     includeTaskAttachments?: boolean;
+    commentsBefore?: CommentCursor;
+    highlightCommentId?: string | null;
   } = {}
 ): Promise<TaskDetail> {
-  const [comments, activity, attachments] = await Promise.all([
+  const [commentPage, activity, attachments] = await Promise.all([
     loadComments(supabase, taskId, {
       includeAttachments: opts.includeCommentAttachments,
+      before: opts.commentsBefore,
+      highlightCommentId: opts.highlightCommentId,
     }),
     opts.includeActivity === false
       ? Promise.resolve([])
@@ -186,7 +234,7 @@ export async function loadTaskDetail(
       : loadTaskAttachments(supabase, taskId),
   ]);
 
-  return { comments, activity, attachments };
+  return { comments: commentPage.comments, commentsHasMore: commentPage.hasMore, activity, attachments };
 }
 
 export async function signAttachmentsSafely<

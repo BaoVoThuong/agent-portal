@@ -90,7 +90,6 @@ import { DateRangeFilter, type TaskDateRangeValue } from "../../tasks/_component
 import { ReasonModal } from "../../tasks/_components/ReasonModal";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { Initials } from "../../tasks/_components/board-ui";
-import { activeCommentCount } from "@/lib/tasks/thread-view";
 import { applyFrozenOrder } from "@/lib/tasks/frozen-order";
 import { toOptimisticEnrollmentPatch } from "@/lib/enrollment/optimistic-patch";
 import { EnrollmentOverview } from "./EnrollmentOverview";
@@ -2897,6 +2896,35 @@ function EnrollmentDrawer({
     setDetail((await response.json()) as EnrollmentDetail);
   }, [record.id]);
 
+  const loadOlderComments = useCallback(async () => {
+    if (!detail?.commentsHasMore) return;
+    const oldest = [...detail.comments]
+      .filter((comment) => typeof comment.created_at === "string")
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id.localeCompare(b.id))[0];
+    if (!oldest) return;
+    const params = new URLSearchParams({
+      comments_before_created_at: String(oldest.created_at),
+      comments_before_id: oldest.id,
+    });
+    const response = await fetch(`/api/enrollment/${record.id}/detail?${params.toString()}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("Could not load older comments.");
+    const older = (await response.json()) as EnrollmentDetail;
+    setDetail((current) => {
+      if (!current) return older;
+      const byId = new Map(current.comments.map((comment) => [comment.id, comment]));
+      for (const comment of older.comments) byId.set(comment.id, comment);
+      return {
+        ...current,
+        comments: [...byId.values()].sort(
+          (a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id.localeCompare(b.id)
+        ),
+        commentsHasMore: older.commentsHasMore,
+      };
+    });
+  }, [detail, record.id]);
+
   const reloadDetailAndParent = useCallback(async () => {
     await reload();
     await onParentRefresh?.();
@@ -3028,7 +3056,7 @@ function EnrollmentDrawer({
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
                   <DrawerTab
                     label="Comments"
-                    count={detail ? activeCommentCount(detail.comments) : record.comment_count}
+                    count={record.comment_count}
                     active={tab === "comments"}
                     onClick={() => setTab("comments")}
                   />
@@ -3056,6 +3084,8 @@ function EnrollmentDrawer({
                     currentEmail={currentEmail}
                     members={mentionMembers}
                     comments={detail.comments}
+                    commentsHasMore={detail.commentsHasMore}
+                    onLoadOlder={loadOlderComments}
                     onReload={reloadDetailAndParent}
                     onParentUpdatedAt={onParentUpdatedAt}
                   />
