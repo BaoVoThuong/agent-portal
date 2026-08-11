@@ -470,19 +470,19 @@ These are recorded explicitly. Do not implement them unless new evidence changes
 
 ## 9. Final verification and release checklist
 
-- [ ] `npm run lint`
-- [ ] `npm run typecheck`
-- [ ] `npm run test:run`
-- [ ] `npm run build`
-- [ ] Fresh scratch apply of `supabase/schema.sql`
-- [ ] Fresh scratch apply of standalone `datasync/schema.sql`
-- [ ] Run every new SQL rollback/failure-injection test with `ON_ERROR_STOP=1`
-- [ ] Confirm deployed-schema ACL: no `anon`/`authenticated` execution on any definer function
-- [ ] Slow/failing-network browser pass: CS Task detail, ACA detail, Medicare detail, Config agents/options
-- [ ] 1,000-comment fixture: bounded initial payload, older-page navigation, deep-link behavior
-- [ ] Workbook boundary tests and hosting body limit verified in deployed preview
-- [ ] Atomic replacement failure injection proves old datasets remain intact
-- [ ] Search/list/detail/export/notification display keys match and are unique
+- [x] `npm run lint` (0 errors; 3 pre-existing `CommentThread.tsx` hook warnings)
+- [x] `npm run typecheck`
+- [x] `npm run test:run` (84 files, 597 tests passed)
+- [x] `npm run build` (Next.js production build passed)
+- [ ] Fresh scratch apply of `supabase/schema.sql` (not run: no DB URL/credentials)
+- [ ] Fresh scratch apply of standalone `datasync/schema.sql` (not run: no DB URL/credentials)
+- [ ] Run every new SQL rollback/failure-injection test with `ON_ERROR_STOP=1` (not run: no DB URL/credentials)
+- [ ] Confirm deployed-schema ACL: no `anon`/`authenticated` execution on any definer function (not run: no production DB access)
+- [ ] Slow/failing-network browser pass: CS Task detail, ACA detail, Medicare detail, Config agents/options (not run in this environment)
+- [ ] 1,000-comment fixture: bounded initial payload, older-page navigation, deep-link behavior (unit/static coverage added; browser/load verification pending)
+- [ ] Workbook boundary tests and hosting body limit verified in deployed preview (unit boundaries pass; hosting cap pending)
+- [ ] Atomic replacement failure injection proves old datasets remain intact (scratch SQL added; DB execution pending)
+- [x] Search/list/detail/export/notification display keys match and are unique (schema/static/tests)
 - [ ] Business owner signs OCR-12 before any mart rebuild
 
 **Release recommendation now:** `NOT READY` until OCR-01 is audited and OCR-02 through OCR-05 are
@@ -511,4 +511,4 @@ Append one row immediately after each task is completed. Do not pre-fill commit 
 | 13 — notification enrichment | Completed | Added structured warning telemetry for each optional title/name/comment enrichment query while preserving fail-soft base notifications and avoiding PII in logs. | `git diff --check`; `npm run typecheck` | `9c00699` |
 | 14 — participant errors | Completed | Limited assignee-only fallback to missing `task_participants` relation errors and surfaced all other participant lookup failures as route errors, with classifier tests. | `git diff --check`; `npm run typecheck`; `npm run test:run -- src/lib/tasks/participants.test.ts src/lib/tasks/queries.test.ts src/lib/tasks/search.test.ts` (19 passed) | `2c2866b` |
 | 15 — realtime topic secret | Completed | Added `REALTIME_TOPIC_SECRET`/`AUTH_SECRET` resolution, production fail-fast behavior, non-production warning fallback, and HMAC/broadcast tests. | `git diff --check`; `npm run typecheck`; `npm run test:run -- src/lib/tasks/realtime.test.ts` (5 passed) | `9db7cd9` |
-| 16 — dead Enrollment activity | Completed | Removed the unused post-RPC activity array and retained the atomic RPC activity input plus all notification/broadcast/reload side effects. | `git diff --check`; `npm run typecheck`; `npm run test:run -- src/lib/enrollment/*.test.ts` (89 passed); static check confirms only `rpcActivityRows` remains | Pending commit |
+| 16 — dead Enrollment activity | Completed | Removed the unused post-RPC activity array and retained the atomic RPC activity input plus all notification/broadcast/reload side effects. | `git diff --check`; `npm run typecheck`; `npm run test:run -- src/lib/enrollment/*.test.ts` (89 passed); static check confirms only `rpcActivityRows` remains | `1b052e6` |
