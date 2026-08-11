@@ -595,3 +595,12 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   attachment metadata are soft-deleted atomically, replies remain visible,
   filename search and counters exclude deleted files, and storage cleanup is
   best-effort with warnings.
+
+## 2026-08-11 — Datasync SECURITY DEFINER ACL hardening
+
+- Added a read-only ACL audit for datasync SECURITY DEFINER routines.
+- Locked `refresh_pc_mart`, `refresh_health_mart`, and
+  `clear_health_payment_summary` to `service_role` and set an explicit safe
+  search path.
+- Added a fail-closed schema assertion so a future standalone datasync
+  SECURITY DEFINER function cannot silently retain PUBLIC EXECUTE.

@@ -440,6 +440,7 @@ create or replace function public.refresh_pc_mart()
 returns void
 language sql
 security definer
+set search_path = public, pg_temp
 as $$
   truncate table public.pc_mart;
 
@@ -654,10 +655,14 @@ as $$
   from final;
 $$;
 
+revoke all on function public.refresh_pc_mart() from public, anon, authenticated;
+grant execute on function public.refresh_pc_mart() to service_role;
+
 create or replace function public.refresh_health_mart()
 returns void
 language sql
 security definer
+set search_path = public, pg_temp
 as $$
   truncate table public.health_mart;
 
@@ -714,6 +719,9 @@ as $$
   );
 $$;
 
+revoke all on function public.refresh_health_mart() from public, anon, authenticated;
+grant execute on function public.refresh_health_mart() to service_role;
+
 create index if not exists health_payment_summary_agent_idx
   on public.health_payment_summary (agent);
 
@@ -764,6 +772,33 @@ create or replace function public.clear_health_payment_summary()
 returns void
 language sql
 security definer
+set search_path = public, pg_temp
 as $$
   truncate table public.health_payment_summary;
+$$;
+
+revoke all on function public.clear_health_payment_summary() from public, anon, authenticated;
+grant execute on function public.clear_health_payment_summary() to service_role;
+
+-- Fail closed if another SECURITY DEFINER routine is appended to this
+-- standalone schema without its ACL pair. This mirrors the main schema's
+-- final assertion and protects fresh databases initialized from this file.
+do $$
+declare
+  leaked text;
+begin
+  select string_agg(p.oid::regprocedure::text, ', ' order by p.oid::regprocedure::text)
+    into leaked
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.prosecdef
+    and (has_function_privilege('authenticated', p.oid, 'execute')
+      or has_function_privilege('anon', p.oid, 'execute'));
+
+  if leaked is not null then
+    raise exception
+      'SECURITY DEFINER functions are still executable by anon/authenticated: %', leaked;
+  end if;
+end
 $$;
