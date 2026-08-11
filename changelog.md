@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-11 — Report attachment deletion failures per file
+- **Loại**: fix
+- **Cái gì**: The shared attachment panel now tracks the file being deleted, prevents duplicate delete clicks, parses API/network failures, keeps the row visible on failure, and reports a refresh failure after a successful delete without pretending the delete failed.
+- **Vì sao**: A non-OK response or network error was ignored, leaving users with no explanation and encouraging repeated clicks against the same attachment.
+- **File**: `src/app/(authed)/tasks/_components/AttachmentPanel.tsx`
+- **Ảnh hưởng**: Enrollment attachment management (ACA and Medicare) and any future task-level consumer now expose accessible per-file feedback while preserving the existing API permission behavior.
+- **Ref**: `docs/superpowers/plans/2026-08-11-open-code-review-remediation.md`, Task 11
+
 ## 2026-08-11 — Reuse one Enrollment option snapshot during create
 - **Loại**: perf, fix
 - **Cái gì**: Enrollment create now builds one program-scoped option snapshot and validates every option field against its in-memory ID map, while preserving set membership, archived-option rejection, and first-stage fallback behavior. The helper remains backward compatible for callers that need a standalone lookup.

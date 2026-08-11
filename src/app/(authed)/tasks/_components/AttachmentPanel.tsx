@@ -23,6 +23,8 @@ export function AttachmentPanel({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function upload(file: File) {
@@ -62,28 +64,72 @@ export function AttachmentPanel({
   }
 
   async function remove(aid: string) {
-    const res = await fetch(`${apiBase}/${taskId}/attachments/${aid}`, {
-      method: "DELETE",
+    if (deletingId) return;
+    setDeleteErrors((current) => {
+      if (!current[aid]) return current;
+      const next = { ...current };
+      delete next[aid];
+      return next;
     });
-    if (res.ok) await onReload();
+    setDeletingId(aid);
+    try {
+      const res = await fetch(`${apiBase}/${taskId}/attachments/${aid}`, {
+        method: "DELETE",
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { error?: string }
+        | null;
+      if (!res.ok) {
+        throw new Error(data?.error ?? "Could not delete attachment.");
+      }
+      try {
+        await onReload();
+      } catch {
+        setDeleteErrors((current) => ({
+          ...current,
+          [aid]: "Attachment deleted, but the list could not refresh. Please retry loading the details.",
+        }));
+      }
+    } catch (deleteError) {
+      setDeleteErrors((current) => ({
+        ...current,
+        [aid]: deleteError instanceof Error ? deleteError.message : "Could not delete attachment.",
+      }));
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
     <div className="space-y-2">
       <ul className="space-y-1">
         {attachments.map((a) => (
-          <li key={a.id} className="flex items-center gap-2 text-sm">
-            <Paperclip className="h-3.5 w-3.5 text-[#97a0af]" />
-            {a.unavailable || !a.url ? (
-              <span title="This file may have been removed or is temporarily unavailable" className="flex-1 truncate text-[#8993a4]">{a.file_name} · File unavailable</span>
-            ) : (
-              <a href={a.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-[#0c66e4] hover:underline">{a.file_name}</a>
-            )}
-            {canEdit && (
-              <button type="button" onClick={() => remove(a.id)} aria-label="Delete attachment" className="text-[#97a0af] transition hover:text-[#bf2600]">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            )}
+          <li key={a.id} className="space-y-1">
+            <div className="flex items-center gap-2 text-sm">
+              <Paperclip className="h-3.5 w-3.5 text-[#97a0af]" />
+              {a.unavailable || !a.url ? (
+                <span title="This file may have been removed or is temporarily unavailable" className="flex-1 truncate text-[#8993a4]">{a.file_name} · File unavailable</span>
+              ) : (
+                <a href={a.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-[#0c66e4] hover:underline">{a.file_name}</a>
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => void remove(a.id)}
+                  disabled={deletingId !== null}
+                  aria-label={`Delete ${a.file_name}`}
+                  aria-busy={deletingId === a.id}
+                  className="text-[#97a0af] transition hover:text-[#bf2600] disabled:cursor-wait disabled:opacity-40"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {deleteErrors[a.id] ? (
+              <div role="alert" className="pl-5 text-xs font-semibold text-[#bf2600]">
+                {deleteErrors[a.id]}
+              </div>
+            ) : null}
           </li>
         ))}
         {attachments.length === 0 && <li className="text-xs text-[#6b778c]">No attachments.</li>}
