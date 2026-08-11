@@ -435,33 +435,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
   // client can roll back and submit the same mutation twice. Return the
   // committed row with observable warnings until transactional repair exists.
   const mutationWarnings: string[] = [];
-  const persistedChangedFields = changedFields;
-  const activityRows: {
-    record_id: string;
-    actor_email: string;
-    type: string;
-    meta: Record<string, unknown> | null;
-  }[] = [];
   const notifications: EnrollmentNotificationInsertInput[] = [];
 
   if (stageChanged) {
-    activityRows.push({
-      record_id: id,
-      actor_email: actorResult.actor.email,
-      type: "stage_changed",
-      meta: {
-        from: fromStage?.label ?? "No stage",
-        to: toStage?.label ?? "No stage",
-      },
-    });
-
     if (reopening) {
-      activityRows.push({
-        record_id: id,
-        actor_email: actorResult.actor.email,
-        type: "reopened",
-        meta: { reason: reopenReason, from: fromStage?.label ?? "No stage" },
-      });
       for (const recipient of uniqueEnrollmentNotificationRecipients(
         [updated.caller_email, updated.responsible_enroll_email],
         [actorResult.actor.email]
@@ -475,12 +452,6 @@ export async function PATCH(request: Request, { params }: Ctx) {
         });
       }
     } else if (toStage?.triggers_qc) {
-      activityRows.push({
-        record_id: id,
-        actor_email: actorResult.actor.email,
-        type: "qc_needed",
-        meta: { stage: toStage.label },
-      });
       let adminEmails: string[] = [];
       try {
         adminEmails = await fetchAdminEmails();
@@ -518,16 +489,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
   }
 
-  if (persistedChangedFields.some((field) => field === "caller_email" || field === "responsible_enroll_email")) {
-    activityRows.push({
-      record_id: id,
-      actor_email: actorResult.actor.email,
-      type: "people_changed",
-      meta: {
-        caller: updated.caller_email,
-        responsible_enroll: updated.responsible_enroll_email,
-      },
-    });
+  if (changedFields.some((field) => field === "caller_email" || field === "responsible_enroll_email")) {
     for (const recipient of uniqueEnrollmentNotificationRecipients(
       [updated.caller_email, updated.responsible_enroll_email],
       [actorResult.actor.email]
@@ -543,12 +505,6 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   if (qcChecked !== null) {
-    activityRows.push({
-      record_id: id,
-      actor_email: actorResult.actor.email,
-      type: qcChecked ? "qc_reviewed" : "qc_review_cleared",
-      meta: null,
-    });
     if (qcChecked) {
       for (const recipient of uniqueEnrollmentNotificationRecipients(
         [updated.caller_email, updated.responsible_enroll_email],
@@ -562,23 +518,6 @@ export async function PATCH(request: Request, { params }: Ctx) {
         });
       }
     }
-  }
-
-  const genericChangedFields = persistedChangedFields.filter(
-    (field) =>
-      field !== "stage_id" &&
-      field !== "caller_email" &&
-      field !== "responsible_enroll_email" &&
-      field !== "qc_checked" &&
-      field !== "qc_cleared"
-  );
-  if (genericChangedFields.length > 0) {
-    activityRows.push({
-      record_id: id,
-      actor_email: actorResult.actor.email,
-      type: "field_changed",
-      meta: { fields: genericChangedFields },
-    });
   }
 
   try {

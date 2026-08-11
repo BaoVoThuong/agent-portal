@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-11 — Remove dead post-commit Enrollment activity builder
+- **Loại**: refactor-logic
+- **Cái gì**: Removed the unused post-RPC `activityRows` construction from Enrollment PATCH. `rpcActivityRows` remains the sole activity input to `patch_enrollment_atomic`; notification fan-out, broadcasts, canonical reload, and warnings are unchanged.
+- **Vì sao**: The second activity array was never persisted or read, duplicated lifecycle logic, and could mislead future changes into assuming post-commit activity was durable.
+- **File**: `src/app/api/enrollment/[id]/route.ts`
+- **Ảnh hưởng**: ACA and Medicare stage, reopen, QC, people, and generic field updates continue writing activity exactly once through the atomic RPC; only dead allocations were removed.
+- **Ref**: `docs/superpowers/plans/2026-08-11-open-code-review-remediation.md`, Task 16
+
 ## 2026-08-11 — Require a configured realtime topic secret in production
 - **Loại**: security, fix
 - **Cái gì**: Per-user notification topics now use `REALTIME_TOPIC_SECRET` or `AUTH_SECRET`; missing secrets throw in production and only use the development fallback outside production with a warning. HMAC normalization and content-free broadcasts are unchanged.
