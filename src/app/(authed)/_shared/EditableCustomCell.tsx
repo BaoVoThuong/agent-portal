@@ -7,7 +7,7 @@ import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { formatCustomValue, normalizedValueEquals } from "@/lib/table-config/values";
 import { SearchableListboxPanel } from "./SearchableListboxPanel";
 import { useAnchoredMenu } from "../tasks/_components/use-anchored-menu";
-import { Initials } from "../tasks/_components/board-ui";
+import { AvatarStack } from "../tasks/_components/board-ui";
 
 type Person = { email: string; name: string | null };
 
@@ -54,7 +54,8 @@ export function EditableCustomCell({
   const empty = value === null || value === undefined || value === "";
   const optionLabel = optionLabelById?.get(String(value));
   const label = column.type === "dropdown" && optionLabel ? optionLabel : display;
-  const title = label || column.label;
+  const personEmptyLabel = column.type === "person" ? "Unassigned" : emptyLabel;
+  const title = label || personEmptyLabel || column.label;
   const displayTitle = saveError ? "Save failed. Try again." : title;
   const saveErrorClass = saveError ? "ring-2 ring-[#ff5630] ring-offset-1" : "";
   const isChoiceField = column.type === "dropdown" || column.type === "person";
@@ -163,6 +164,12 @@ export function EditableCustomCell({
       : column.type === "person"
         ? String(value).toLowerCase()
         : String(value);
+    const personLabelByValue = new Map(
+      people.map((person) => [
+        person.email.toLowerCase(),
+        person.name?.trim() || person.email,
+      ])
+    );
     const menuLabel = column.label;
 
     return (
@@ -178,10 +185,17 @@ export function EditableCustomCell({
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           title={displayTitle}
-          className={`flex min-w-0 max-w-full items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass}`}
+          className={`flex min-w-0 max-w-full items-center gap-2 truncate rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass}`}
         >
+          {column.type === "person" ? (
+            <AvatarStack
+              emails={selectedValue ? [selectedValue] : []}
+              labelByEmail={personLabelByValue}
+              max={1}
+            />
+          ) : null}
           <span className={`min-w-0 flex-1 truncate ${empty ? "text-[#97a0af]" : ""}`}>
-            {label || emptyLabel}
+            {label || personEmptyLabel}
           </span>
         </button>
         {isOpen
@@ -193,7 +207,7 @@ export function EditableCustomCell({
                 ariaLabel={menuLabel}
                 queryPlaceholder={`Search ${menuLabel}…`}
                 emptyMessage={`No matching ${menuLabel.toLowerCase()}.`}
-                pinnedChoices={[{ value: "", label: emptyLabel }]}
+                pinnedChoices={[{ value: "", label: personEmptyLabel }]}
                 choices={choiceOptions}
                 selectedValue={selectedValue}
                 onSelect={(nextValue) => void commit(nextValue || null)}
@@ -202,7 +216,11 @@ export function EditableCustomCell({
                   column.type === "person"
                     ? (choice, state) => (
                         <>
-                          <Initials email={choice.value} label={choice.label} />
+                          <AvatarStack
+                            emails={choice.value ? [choice.value] : []}
+                            labelByEmail={personLabelByValue}
+                            max={1}
+                          />
                           <span className="min-w-0 flex-1 truncate font-medium leading-5">
                             {choice.label}
                           </span>

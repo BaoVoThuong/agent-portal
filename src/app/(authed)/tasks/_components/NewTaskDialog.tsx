@@ -520,10 +520,11 @@ function NewTaskCustomField({
         label={column.label}
         value={typeof value === "string" ? value : ""}
         searchable
+        personValue
         options={peopleOptions}
-        placeholder={`Select ${column.label}`}
+        placeholder="Unassigned"
         onChange={(next) => onChange(next || null)}
-        buttonClassName={`${SIDE_SELECT_BUTTON_CLASS} ${invalid ? INVALID_RING_CLASS : ""}`}
+        buttonClassName={invalid ? INVALID_RING_CLASS : ""}
         menuClassName="min-w-full"
       />
     );
