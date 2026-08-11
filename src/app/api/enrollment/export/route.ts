@@ -25,7 +25,6 @@ import { formatCustomValue } from "@/lib/table-config/values";
 import type { TableColumn } from "@/lib/table-config/types";
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
 import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
-import { buildEnrollmentTimeProgress } from "@/lib/enrollment/time-progress";
 
 export const dynamic = "force-dynamic";
 
@@ -122,16 +121,11 @@ async function exportEnrollment({
     .filter((column) => requestedKeys.size === 0 || requestedKeys.has(column.key));
   const exportRecords =
     requestedIds.size === 0 ? records : orderByRequestedIds(records, requestedIds);
-  const exportNow = new Date();
 
   const matrix = buildExportMatrix(
     exportRecords,
     exportColumns,
-    (record, key) =>
-      enrollmentExportValue(record, key, {
-        now: exportNow,
-        optionById: optionByOptionId,
-      }),
+    enrollmentExportValue,
     (column, raw) =>
       formatEnrollmentExportValue(column, raw, {
         optionLabels: new Map([
@@ -153,14 +147,7 @@ async function exportEnrollment({
   });
 }
 
-function enrollmentExportValue(
-  record: EnrollmentRecordWithStats,
-  key: string,
-  ctx: {
-    now: Date;
-    optionById: ReadonlyMap<string, { label: string }>;
-  }
-): unknown {
+function enrollmentExportValue(record: EnrollmentRecordWithStats, key: string): unknown {
   switch (key) {
     case "key":
       return enrollmentDisplayKey(record.display_number);
@@ -170,12 +157,6 @@ function enrollmentExportValue(
       return record.agent_email;
     case "stage":
       return record.stage_id;
-    case "timeProgress":
-      return buildEnrollmentTimeProgress(
-        record,
-        record.stage_id ? ctx.optionById.get(record.stage_id)?.label ?? null : null,
-        ctx.now
-      ).label;
     case "caller":
       return record.caller_email;
     case "responsible":

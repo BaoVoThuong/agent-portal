@@ -4530,7 +4530,6 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('aca', 'client', 'Client Name', 'text', 20, false),
     ('aca', 'agent', 'Agent', 'person', 25, false),
     ('aca', 'stage', 'Stage', 'dropdown', 30, false),
-    ('aca', 'timeProgress', 'Time Progress', 'text', 35, false),
     ('aca', 'caller', 'Caller', 'person', 40, false),
     ('aca', 'responsible', 'Responsible Enroll', 'person', 50, false),
     ('aca', 'payment', 'Payment status', 'dropdown', 60, false),
@@ -4551,7 +4550,6 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('medicare', 'client', 'Client Name', 'text', 20, false),
     ('medicare', 'agent', 'Agent', 'person', 25, false),
     ('medicare', 'stage', 'Stage', 'dropdown', 30, false),
-    ('medicare', 'timeProgress', 'Time Progress', 'text', 35, false),
     ('medicare', 'responsible', 'Assignee', 'person', 50, false),
     ('medicare', 'carrier', 'Carrier', 'dropdown', 70, false),
     ('medicare', 'pcp2025', 'PCP', 'text', 110, false),
@@ -4617,9 +4615,8 @@ where
 -- inspecting raw rows. Columns intentionally excluded: key/reporter/created/
 -- activity (cs) and key/createdBy/createdAt/updatedBy/updated (aca/medicare)
 -- — no create-time input, auto-generated; review/qc — Detail-drawer only,
--- never appears on Create; status/slaRemaining (cs) and timeProgress
--- (aca/medicare) — no Create input either (status comes from board-column
--- assignment; progress values are computed).
+-- never appears on Create; status/slaRemaining (cs) — no Create input either
+-- (status comes from board-column assignment, slaRemaining is computed).
 update table_column
 set show_in_detail = true, updated_at = now()
 where
