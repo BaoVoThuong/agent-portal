@@ -2449,14 +2449,18 @@ function EnrollmentPersonMenu({
   value,
   peopleByEmail,
   emptyLabel,
+  placeholderLabel,
   surface,
+  variant = "default",
   canEdit = true,
   onChange,
 }: {
   value: string | null;
   peopleByEmail: Map<string, string>;
   emptyLabel: string;
+  placeholderLabel?: string;
   surface: "list" | "form-bare" | "form-field";
+  variant?: "default" | "select" | "assignee";
   canEdit?: boolean;
   onChange: (value: string | null) => void;
 }) {
@@ -2471,21 +2475,44 @@ function EnrollmentPersonMenu({
   } = useAnchoredMenu();
   const drawsOwnChrome = surface === "form-field";
   const showsAssignCallToAction = surface === "list";
+  const usesSelectChrome = variant === "select";
+  const usesAssigneeChrome = variant === "assignee";
+  const placeholder = placeholderLabel ?? emptyLabel;
   const options = [...peopleByEmail.entries()]
     .map(([email, name]) => ({ email, name }))
     .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
   const selectedLabel = value
     ? peopleByEmail.get(value) ?? formatEmailAsName(value)
     : emptyLabel;
+  const renderAssigneeEmpty = () => (
+    <span className="inline-flex min-w-0 items-center gap-2 text-sm font-normal text-[#97a0af]">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[#97a0af] text-[#8993a4]">
+        <UserPlus className="h-4 w-4" aria-hidden="true" />
+      </span>
+      <span className="truncate">{emptyLabel}</span>
+    </span>
+  );
+  const renderSelectedPerson = (className: string) => (
+    <span className={`flex min-w-0 items-center gap-1.5 ${className}`}>
+      <Initials email={value ?? ""} label={selectedLabel} />
+      <span className="min-w-0 flex-1 truncate">{selectedLabel}</span>
+    </span>
+  );
 
   if (!canEdit) {
     if (drawsOwnChrome) {
       return (
         <span
-          className={`${DETAIL_FIELD_DISPLAY_CLASS} flex min-w-0 items-center gap-1.5 bg-[#f4f5f7]`}
+          className={`${DETAIL_FIELD_DISPLAY_CLASS} flex min-w-0 items-center gap-2 bg-[#f4f5f7]`}
           title={selectedLabel}
         >
-          {value ? (
+          {usesSelectChrome ? (
+            <span className={`min-w-0 flex-1 truncate ${value ? "text-[#172b4d]" : "font-normal text-[#6b778c]"}`}>
+              {value ? selectedLabel : placeholder}
+            </span>
+          ) : usesAssigneeChrome ? (
+            value ? renderSelectedPerson("text-[#172b4d]") : renderAssigneeEmpty()
+          ) : value ? (
             <>
               <Initials email={value} label={selectedLabel} />
               <span className="min-w-0 flex-1 truncate text-[#172b4d]">
@@ -2532,12 +2559,26 @@ function EnrollmentPersonMenu({
         aria-expanded={isOpen}
         title={selectedLabel}
         className={
-          drawsOwnChrome
-            ? DETAIL_FIELD_BUTTON_CLASS
-            : "flex w-full min-w-0 items-center"
+          usesSelectChrome
+            ? `${drawsOwnChrome ? DETAIL_FIELD_BUTTON_CLASS : "flex w-full min-w-0"} items-center justify-between gap-2`
+            : usesAssigneeChrome
+              ? `${drawsOwnChrome ? DETAIL_FIELD_BUTTON_CLASS : "flex w-full min-w-0"} items-center gap-2`
+              : drawsOwnChrome
+                ? DETAIL_FIELD_BUTTON_CLASS
+                : "flex w-full min-w-0 items-center"
         }
       >
-        {value ? (
+        {usesSelectChrome ? (
+          <span
+            className={`min-w-0 flex-1 truncate text-left text-sm leading-5 ${
+              value ? "font-semibold text-[#172b4d]" : "font-normal text-[#97a0af]"
+            }`}
+          >
+            {value ? selectedLabel : placeholder}
+          </span>
+        ) : usesAssigneeChrome ? (
+          value ? renderSelectedPerson("text-sm font-semibold text-[#172b4d]") : renderAssigneeEmpty()
+        ) : value ? (
           <span
             className={`flex min-w-0 items-center gap-1.5 text-left font-semibold transition ${
               drawsOwnChrome
@@ -2562,7 +2603,7 @@ function EnrollmentPersonMenu({
             {showsAssignCallToAction ? "Assign" : emptyLabel}
           </span>
         )}
-        {drawsOwnChrome ? (
+        {usesSelectChrome || (drawsOwnChrome && !usesAssigneeChrome) ? (
           <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" />
         ) : null}
       </button>
@@ -2572,10 +2613,10 @@ function EnrollmentPersonMenu({
               menuRef={menuRef}
               menuStyle={menuStyle}
               className="min-w-[14rem]"
-              ariaLabel={emptyLabel}
-              queryPlaceholder={`Search ${emptyLabel.toLowerCase()} or email…`}
-              emptyMessage={`No matching ${emptyLabel.toLowerCase()}.`}
-              pinnedChoices={[{ value: "", label: emptyLabel }]}
+              ariaLabel={placeholder}
+              queryPlaceholder={`Search ${placeholder.toLowerCase()} or email…`}
+              emptyMessage={`No matching ${placeholder.toLowerCase()}.`}
+              pinnedChoices={[{ value: "", label: usesSelectChrome ? placeholder : emptyLabel }]}
               choices={options.map(({ email, name }) => ({
                 value: email,
                 label: name,
@@ -2591,7 +2632,9 @@ function EnrollmentPersonMenu({
                 if (!choice.value) {
                   return (
                     <>
-                      <UserPlus className="h-4 w-4 shrink-0 text-[#7a869a]" />
+                      {usesSelectChrome ? null : (
+                        <UserPlus className="h-4 w-4 shrink-0 text-[#7a869a]" />
+                      )}
                       <span className="min-w-0 flex-1 truncate font-medium leading-5">
                         {choice.label}
                       </span>
@@ -2601,7 +2644,16 @@ function EnrollmentPersonMenu({
                     </>
                   );
                 }
-                return (
+                return usesSelectChrome ? (
+                  <>
+                    <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                      {choice.label}
+                    </span>
+                    {state.selected ? (
+                      <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                    ) : null}
+                  </>
+                ) : (
                   <>
                     <Initials email={choice.value} label={choice.label} />
                     <span className="min-w-0 flex-1 truncate font-medium leading-5">
@@ -3231,7 +3283,9 @@ function EnrollmentDrawer({
                     value={record.agent_email}
                     peopleByEmail={agentsByEmail}
                     emptyLabel="No agent"
+                    placeholderLabel="Select agent"
                     surface="form-field"
+                    variant="select"
                     canEdit={capabilities.canTransferAgent}
                     onChange={(value) => {
                       if (requiredColumnKeys.has("agent") && !value) {
@@ -3254,7 +3308,9 @@ function EnrollmentDrawer({
                     value={record.caller_email}
                     peopleByEmail={peopleByEmail}
                     emptyLabel="No caller"
+                    placeholderLabel="Select caller"
                     surface="form-field"
+                    variant="select"
                     canEdit={capabilities.canAssignPeople}
                     onChange={(value) => void onPatch({ caller_email: value })}
                   />
@@ -3274,6 +3330,7 @@ function EnrollmentDrawer({
                     peopleByEmail={peopleByEmail}
                     emptyLabel="Unassigned"
                     surface="form-field"
+                    variant="assignee"
                     canEdit={capabilities.canAssignPeople}
                     onChange={(value) =>
                       void onPatch({ responsible_enroll_email: value })
@@ -3786,7 +3843,9 @@ function NewEnrollmentDialog({
                         value={form.agent_email || null}
                         peopleByEmail={agentsByEmail}
                         emptyLabel="No agent"
+                        placeholderLabel="Select agent"
                         surface="form-bare"
+                        variant="select"
                         onChange={(value) => update("agent_email", value)}
                       />
                     </CreatePropertyField>
@@ -3802,7 +3861,9 @@ function NewEnrollmentDialog({
                         value={form.caller_email || null}
                         peopleByEmail={peopleByEmail}
                         emptyLabel="No caller"
+                        placeholderLabel="Select caller"
                         surface="form-bare"
+                        variant="select"
                         onChange={(value) => update("caller_email", value)}
                       />
                     </CreatePropertyField>
@@ -3822,6 +3883,7 @@ function NewEnrollmentDialog({
                         peopleByEmail={peopleByEmail}
                         emptyLabel="Unassigned"
                         surface="form-bare"
+                        variant="assignee"
                         onChange={(value) => update("responsible_enroll_email", value)}
                       />
                     </CreatePropertyField>
