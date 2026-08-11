@@ -3,7 +3,10 @@
 import { useId } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
+import { formatEmailAsName } from "@/lib/tasks/people";
 import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
+import { AvatarStack } from "./board-ui";
+import { TASK_ASSIGNEE_BUTTON_CLASS } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
 
 export type TaskSelectOption = {
@@ -24,6 +27,7 @@ export function TaskSelect({
   placeholder = "Select",
   disabled = false,
   searchable = false,
+  personValue = false,
   className = "",
   buttonClassName = "",
   menuClassName = "",
@@ -40,6 +44,8 @@ export function TaskSelect({
   placeholder?: string;
   disabled?: boolean;
   searchable?: boolean;
+  /** Render this single value with the shared people/assignee field chrome. */
+  personValue?: boolean;
   /** @deprecated kept for call-site compatibility; menu is portal-positioned. */
   align?: "left" | "right";
   className?: string;
@@ -66,6 +72,10 @@ export function TaskSelect({
     selectedValues.includes(option.value)
   );
   const selectedOption = options.find((option) => option.value === value);
+  const personLabelByValue = new Map(options.map((option) => [option.value, option.label]));
+  const selectedPersonLabel = value
+    ? selectedOption?.label ?? formatEmailAsName(value)
+    : "Unassigned";
   const selectedLabel = isMulti
     ? selectedOptions.length === 0
       ? placeholder
@@ -73,7 +83,9 @@ export function TaskSelect({
         ? selectedOptions[0].label
         : `${selectedOptions.length} ${summaryLabel ?? placeholder}`
     : selectedOption?.label ?? placeholder;
-  const isPlaceholder = isMulti
+  const isPlaceholder = personValue
+    ? !value
+    : isMulti
     ? selectedOptions.length === 0
     : !selectedOption;
 
@@ -141,24 +153,43 @@ export function TaskSelect({
         type="button"
         disabled={disabled || options.length === 0}
         onClick={toggle}
-        className={`dashboard-filter-button w-full !font-medium !leading-5 ${buttonClassName}`}
+        className={`${personValue ? TASK_ASSIGNEE_BUTTON_CLASS : "dashboard-filter-button w-full !font-medium !leading-5"} ${buttonClassName}`}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-controls={isOpen && !searchable ? listboxId : undefined}
       >
-        <span
-          className={`whitespace-nowrap leading-5 ${
-            isPlaceholder ? "font-normal text-[#97a0af]" : "text-[#172b4d]"
-          }`}
-        >
-          {selectedLabel}
-        </span>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-[#667085] transition ${
-            isOpen ? "rotate-180" : ""
-          }`}
-          aria-hidden="true"
-        />
+        {personValue ? (
+          <>
+            <AvatarStack
+              emails={value ? [value] : []}
+              labelByEmail={personLabelByValue}
+              max={1}
+            />
+            <span
+              className={`min-w-0 flex-1 truncate leading-5 ${
+                isPlaceholder ? "font-normal text-[#97a0af]" : "text-[#172b4d]"
+              }`}
+            >
+              {selectedPersonLabel}
+            </span>
+          </>
+        ) : (
+          <>
+            <span
+              className={`whitespace-nowrap leading-5 ${
+                isPlaceholder ? "font-normal text-[#97a0af]" : "text-[#172b4d]"
+              }`}
+            >
+              {selectedLabel}
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 text-[#667085] transition ${
+                isOpen ? "rotate-180" : ""
+              }`}
+              aria-hidden="true"
+            />
+          </>
+        )}
       </button>
 
       {isOpen
@@ -189,6 +220,13 @@ export function TaskSelect({
                 onTabExit={closeMenuForTab}
                 renderChoice={(option, state) => (
                   <>
+                    {personValue ? (
+                      <AvatarStack
+                        emails={[option.value]}
+                        labelByEmail={personLabelByValue}
+                        max={1}
+                      />
+                    ) : null}
                     <span className="min-w-0 flex-1 truncate font-medium leading-5">
                       {option.label}
                     </span>
@@ -244,6 +282,13 @@ export function TaskSelect({
                         : "text-[#172b4d] hover:bg-[#f4f5f7]"
                     }`}
                   >
+                    {personValue ? (
+                      <AvatarStack
+                        emails={[option.value]}
+                        labelByEmail={personLabelByValue}
+                        max={1}
+                      />
+                    ) : null}
                     <span className="min-w-0 flex-1 truncate font-medium leading-5">
                       {option.label}
                     </span>

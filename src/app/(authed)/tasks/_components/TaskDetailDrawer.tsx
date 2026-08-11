@@ -639,10 +639,10 @@ export function TaskDetailDrawer({
                       label={columnByKey.get("agent")?.label ?? "Agent"}
                       value={task.agent_email ?? ""}
                       searchable
+                      personValue
                       disabled={!canEdit}
                       options={agentOptions}
                       placeholder="Select agent"
-                      buttonClassName={SIDE_SELECT_BUTTON_CLASS}
                       onChange={(nextAgent) => onPatch({ agent_email: nextAgent })}
                     />
                   </div>

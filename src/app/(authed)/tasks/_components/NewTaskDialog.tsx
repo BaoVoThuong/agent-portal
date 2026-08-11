@@ -361,10 +361,11 @@ export function NewTaskDialog({
                     label={columnByKey.get("agent")?.label ?? "Agent"}
                     value={agentEmail}
                     searchable
+                    personValue
                     options={agentOptions}
-                    placeholder="Select agent"
+                    placeholder="Unassigned"
                     onChange={changeAgent}
-                    buttonClassName={`${SIDE_SELECT_BUTTON_CLASS} ${isInvalid("agent") ? INVALID_RING_CLASS : ""}`}
+                    buttonClassName={isInvalid("agent") ? INVALID_RING_CLASS : ""}
                     menuClassName="min-w-full"
                   />
                 </MetaField>
