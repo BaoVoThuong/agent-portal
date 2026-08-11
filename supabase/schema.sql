@@ -3097,6 +3097,33 @@ create index if not exists agent_members_agent_idx on agent_members (agent_email
 -- reopen, QC review, assign, delete) — a deputy, not just a worker.
 alter table agent_members add column if not exists is_assistant boolean not null default false;
 
+create or replace function delete_task_agent_atomic(p_email text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  normalized_email text := nullif(lower(btrim(p_email)), '');
+  deleted_agent boolean := false;
+begin
+  if normalized_email is null then
+    raise exception 'AGENT_EMAIL_REQUIRED';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended('task-agent|' || normalized_email, 0));
+  delete from agent_members
+  where lower(btrim(agent_email)) = normalized_email;
+  delete from task_agents
+  where lower(btrim(email)) = normalized_email;
+  deleted_agent := found;
+  return deleted_agent;
+end;
+$$;
+
+revoke all on function delete_task_agent_atomic(text) from public, anon, authenticated;
+grant execute on function delete_task_agent_atomic(text) to service_role;
+
 -- Atomic admin claim used by the CS workload overview. The task row lock is the
 -- concurrency boundary: only one manager can turn a backlog task into a todo
 -- assignment, while the legacy assignee column and the junction remain mirrored.

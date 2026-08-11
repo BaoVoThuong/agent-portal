@@ -62,13 +62,9 @@ export async function DELETE(request: Request) {
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
 
-  const sb = getSupabaseAdmin();
-  // Cascade: xoá agent thì gỡ hết assistant-link của agent đó, tránh để lại
-  // row mồ côi trong agent_members trỏ tới 1 email không còn trong task_agents.
-  const { error: memberErr } = await sb.from("agent_members").delete().eq("agent_email", email);
-  if (memberErr) return NextResponse.json({ error: memberErr.message }, { status: 500 });
-
-  const { error } = await sb.from("task_agents").delete().eq("email", email);
+  const { error } = await getSupabaseAdmin().rpc("delete_task_agent_atomic", {
+    p_email: email,
+  });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await broadcastTableConfigChanged();
