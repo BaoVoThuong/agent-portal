@@ -3369,6 +3369,61 @@ create table if not exists table_column_option (
   archived_at timestamptz
 );
 
+create or replace function create_table_column_option(
+  p_column_id uuid,
+  p_label text,
+  p_color text default null,
+  p_position integer default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  column_row table_column%rowtype;
+  option_row table_column_option%rowtype;
+  next_position integer;
+  normalized_label text := nullif(btrim(p_label), '');
+begin
+  if p_column_id is null or normalized_label is null then
+    raise exception 'COLUMN_AND_LABEL_REQUIRED';
+  end if;
+  if p_color is not null and p_color !~ '^#[0-9a-fA-F]{6}$' then
+    raise exception 'INVALID_OPTION_COLOR';
+  end if;
+  if p_position is not null and (p_position < 0 or p_position > 2147483647) then
+    raise exception 'INVALID_OPTION_POSITION';
+  end if;
+
+  select * into column_row
+  from table_column
+  where id = p_column_id
+  for update;
+  if not found then raise exception 'COLUMN_NOT_FOUND'; end if;
+  if column_row.type <> 'dropdown' or column_row.is_system or column_row.archived_at is not null then
+    raise exception 'CUSTOM_DROPDOWN_REQUIRED';
+  end if;
+
+  if p_position is null then
+    select coalesce(max(position), 0) + 10 into next_position
+    from table_column_option
+    where column_id = p_column_id and archived_at is null;
+    if next_position < 0 then raise exception 'OPTION_POSITION_OVERFLOW'; end if;
+  else
+    next_position := p_position;
+  end if;
+
+  insert into table_column_option (column_id, label, color, position)
+  values (p_column_id, normalized_label, p_color, next_position)
+  returning * into option_row;
+  return to_jsonb(option_row);
+end;
+$$;
+
+revoke all on function create_table_column_option(uuid, text, text, integer) from public, anon, authenticated;
+grant execute on function create_table_column_option(uuid, text, text, integer) to service_role;
+
 create index if not exists table_column_scope_position_idx
   on table_column (scope, archived_at, position, label);
 create index if not exists table_column_option_column_idx

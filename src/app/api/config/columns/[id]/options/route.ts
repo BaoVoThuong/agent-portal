@@ -50,32 +50,24 @@ export async function POST(request: Request, { params }: Ctx) {
   const label = typeof body?.label === "string" ? body.label.trim() : "";
   if (!label) return NextResponse.json({ error: "Option label is required." }, { status: 400 });
 
-  const { data: last } = await supabase
-    .from("table_column_option")
-    .select("position")
-    .eq("column_id", id)
-    .order("position", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const position =
-    typeof body?.position === "number"
-      ? Math.round(body.position)
-      : ((last as { position?: number } | null)?.position ?? 0) + 10;
+  const requestedPosition =
+    typeof body?.position === "number" && Number.isSafeInteger(body.position)
+      ? body.position
+      : null;
+  if (body?.position !== undefined && requestedPosition === null) {
+    return NextResponse.json({ error: "Option position must be a safe integer." }, { status: 400 });
+  }
 
-  const { data, error } = await supabase
-    .from("table_column_option")
-    .insert({
-      column_id: id,
-      label,
-      color: cleanColor(body?.color),
-      position,
-    })
-    .select("id,column_id,label,color,position,created_at,updated_at,archived_at")
-    .single();
+  const { data: rpcData, error } = await supabase.rpc("create_table_column_option", {
+    p_column_id: id,
+    p_label: label,
+    p_color: cleanColor(body?.color),
+    p_position: requestedPosition,
+  });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await broadcastTableConfigInvalidation();
-  return NextResponse.json({ option: data });
+  return NextResponse.json({ option: rpcData });
 }
 
 function cleanColor(value: unknown): string | null {

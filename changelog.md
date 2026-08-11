@@ -617,3 +617,4 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
 - Workbook automation endpoints now share server-side type, count, per-file, aggregate-size, and sequential-parser guards. The deployment still must enforce the matching request-body cap at the hosting edge.
 - Tasks and Enrollment records now receive immutable sequence-backed display numbers; list/detail/search/notification/export paths render the durable `TASK-...`/`ENR-...` value while UUIDs remain internal identifiers.
 - Config agent deletion now removes the agent and assistant memberships in one service-role RPC transaction, preventing a partial delete from leaving orphaned mappings.
+- Config custom dropdown option creation now locks its parent column and allocates default positions inside a service-role RPC; max-position query failures can no longer silently create duplicate positions.
