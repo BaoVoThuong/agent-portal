@@ -2460,7 +2460,7 @@ function EnrollmentPersonMenu({
   emptyLabel: string;
   placeholderLabel?: string;
   surface: "list" | "form-bare" | "form-field";
-  variant?: "default" | "select" | "person-select" | "assignee";
+  variant?: "default" | "select" | "assignee";
   canEdit?: boolean;
   onChange: (value: string | null) => void;
 }) {
@@ -2475,8 +2475,7 @@ function EnrollmentPersonMenu({
   } = useAnchoredMenu();
   const drawsOwnChrome = surface === "form-field";
   const showsAssignCallToAction = surface === "list";
-  const usesSelectChrome = variant === "select" || variant === "person-select";
-  const usesPersonSelectChrome = variant === "person-select";
+  const usesSelectChrome = variant === "select";
   const usesAssigneeChrome = variant === "assignee";
   const placeholder = placeholderLabel ?? emptyLabel;
   const options = [...peopleByEmail.entries()]
@@ -2508,13 +2507,9 @@ function EnrollmentPersonMenu({
           title={selectedLabel}
         >
           {usesSelectChrome ? (
-            value && usesPersonSelectChrome ? (
-              renderSelectedPerson("flex-1 text-[#172b4d]")
-            ) : (
-              <span className={`min-w-0 flex-1 truncate ${value ? "text-[#172b4d]" : "font-normal text-[#6b778c]"}`}>
-                {value ? selectedLabel : placeholder}
-              </span>
-            )
+            <span className={`min-w-0 flex-1 truncate ${value ? "text-[#172b4d]" : "font-normal text-[#6b778c]"}`}>
+              {value ? selectedLabel : placeholder}
+            </span>
           ) : usesAssigneeChrome ? (
             value ? renderSelectedPerson("text-[#172b4d]") : renderAssigneeEmpty()
           ) : value ? (
@@ -2574,17 +2569,13 @@ function EnrollmentPersonMenu({
         }
       >
         {usesSelectChrome ? (
-          value && usesPersonSelectChrome ? (
-            renderSelectedPerson("flex-1 text-sm font-semibold text-[#172b4d]")
-          ) : (
-            <span
-              className={`min-w-0 flex-1 truncate text-left text-sm leading-5 ${
-                value ? "font-semibold text-[#172b4d]" : "font-normal text-[#97a0af]"
-              }`}
-            >
-              {value ? selectedLabel : placeholder}
-            </span>
-          )
+          <span
+            className={`min-w-0 flex-1 truncate text-left text-sm leading-5 ${
+              value ? "font-semibold text-[#172b4d]" : "font-normal text-[#97a0af]"
+            }`}
+          >
+            {value ? selectedLabel : placeholder}
+          </span>
         ) : usesAssigneeChrome ? (
           value ? renderSelectedPerson("text-sm font-semibold text-[#172b4d]") : renderAssigneeEmpty()
         ) : value ? (
@@ -2653,7 +2644,7 @@ function EnrollmentPersonMenu({
                     </>
                   );
                 }
-                return usesSelectChrome && !usesPersonSelectChrome ? (
+                return usesSelectChrome ? (
                   <>
                     <span className="min-w-0 flex-1 truncate font-medium leading-5">
                       {choice.label}
@@ -3294,7 +3285,7 @@ function EnrollmentDrawer({
                     emptyLabel="No agent"
                     placeholderLabel="Select agent"
                     surface="form-field"
-                    variant="person-select"
+                    variant="select"
                     canEdit={capabilities.canTransferAgent}
                     onChange={(value) => {
                       if (requiredColumnKeys.has("agent") && !value) {
@@ -3319,7 +3310,7 @@ function EnrollmentDrawer({
                     emptyLabel="No caller"
                     placeholderLabel="Select caller"
                     surface="form-field"
-                    variant="person-select"
+                    variant="select"
                     canEdit={capabilities.canAssignPeople}
                     onChange={(value) => void onPatch({ caller_email: value })}
                   />
@@ -3854,7 +3845,7 @@ function NewEnrollmentDialog({
                         emptyLabel="No agent"
                         placeholderLabel="Select agent"
                         surface="form-bare"
-                        variant="person-select"
+                        variant="select"
                         onChange={(value) => update("agent_email", value)}
                       />
                     </CreatePropertyField>
@@ -3872,7 +3863,7 @@ function NewEnrollmentDialog({
                         emptyLabel="No caller"
                         placeholderLabel="Select caller"
                         surface="form-bare"
-                        variant="person-select"
+                        variant="select"
                         onChange={(value) => update("caller_email", value)}
                       />
                     </CreatePropertyField>
