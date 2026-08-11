@@ -18,6 +18,13 @@ export const ENROLLMENT_OPTION_LABELS: Record<EnrollmentOptionSetKey, string> = 
 
 export type EnrollmentOptionsBySet = Record<EnrollmentOptionSetKey, EnrollmentOption[]>;
 
+export type EnrollmentOptionData = {
+  sets: EnrollmentOptionSet[];
+  options: EnrollmentOption[];
+  optionsBySet: EnrollmentOptionsBySet;
+  optionsById: Map<string, EnrollmentOption>;
+};
+
 const enrollmentOptionLabelCollator = new Intl.Collator("en-US", {
   numeric: true,
   sensitivity: "base",
@@ -56,11 +63,7 @@ export function emptyEnrollmentOptionsBySet(): EnrollmentOptionsBySet {
 
 export async function fetchEnrollmentOptionData(
   program: EnrollmentProgram
-): Promise<{
-  sets: EnrollmentOptionSet[];
-  options: EnrollmentOption[];
-  optionsBySet: EnrollmentOptionsBySet;
-}> {
+): Promise<EnrollmentOptionData> {
   const supabase = getSupabaseAdmin();
   const setsRes = await supabase
     .from("enrollment_option_sets")
@@ -96,7 +99,8 @@ export async function fetchEnrollmentOptionData(
     optionsBySet[option.set_key].push(option);
   }
 
-  return { sets, options: sortEnrollmentOptionsByLabel(options), optionsBySet };
+  const sortedOptions = sortEnrollmentOptionsByLabel(options);
+  return { sets, options: sortedOptions, optionsBySet, optionsById: optionById(sortedOptions) };
 }
 
 export function optionById(options: EnrollmentOption[]): Map<string, EnrollmentOption> {
@@ -119,10 +123,13 @@ export async function fetchEnrollmentOption(
 export async function assertEnrollmentOptionSet(
   optionId: string | null,
   expectedSet: EnrollmentOptionSetKey,
-  program: EnrollmentProgram
+  program: EnrollmentProgram,
+  snapshot?: Pick<EnrollmentOptionData, "optionsById">
 ): Promise<EnrollmentOption | null> {
   if (!optionId) return null;
-  const option = await fetchEnrollmentOption(optionId, program);
+  const option = snapshot
+    ? snapshot.optionsById.get(optionId) ?? null
+    : await fetchEnrollmentOption(optionId, program);
   if (!option || option.set_key !== expectedSet || option.archived_at) {
     throw new Error(`Invalid ${ENROLLMENT_OPTION_LABELS[expectedSet]} option.`);
   }

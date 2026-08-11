@@ -132,7 +132,8 @@ export async function POST(request: Request) {
   }
   patch.due_date = dueDate.value;
 
-  const { optionsBySet } = await fetchEnrollmentOptionData(program);
+  const optionData = await fetchEnrollmentOptionData(program);
+  const { optionsBySet } = optionData;
   const fallbackStage = firstStageOption(optionsBySet);
   for (const [field, setKey] of Object.entries(OPTION_FIELDS)) {
     const requested = cleanText(body[field]);
@@ -141,7 +142,9 @@ export async function POST(request: Request) {
       continue;
     }
     try {
-      const option = requested ? await assertEnrollmentOptionSet(requested, setKey, program) : null;
+      const option = requested
+        ? await assertEnrollmentOptionSet(requested, setKey, program, optionData)
+        : null;
       patch[field] = requested
         ? option?.id ?? null
         : null;

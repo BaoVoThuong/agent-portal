@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-11 — Reuse one Enrollment option snapshot during create
+- **Loại**: perf, fix
+- **Cái gì**: Enrollment create now builds one program-scoped option snapshot and validates every option field against its in-memory ID map, while preserving set membership, archived-option rejection, and first-stage fallback behavior. The helper remains backward compatible for callers that need a standalone lookup.
+- **Vì sao**: A populated create request previously reloaded the same option sets/options once per field, increasing query load and allowing validation fields to observe different configuration snapshots.
+- **File**: `src/lib/enrollment/options.ts`, `src/app/api/enrollment/route.ts`, `src/lib/enrollment/options.test.ts`
+- **Ảnh hưởng**: ACA and Medicare create requests now use exactly one option-set query and one option query per request; no process-global cache or stale config window was introduced.
+- **Ref**: `docs/superpowers/plans/2026-08-11-open-code-review-remediation.md`, Task 10
+
 ## 2026-08-11 — Bound collaboration history and isolate enrollment file failures
 - **Loại**: fix, perf
 - **Cái gì**: Task and Enrollment detail loaders now fetch comments with a shared `(created_at, id)` cursor and 50-row page, include only returned-comment attachments, support older-page and deep-link loading, and preserve total comment counts from metadata. Enrollment attachment signing is isolated per file so one missing storage object renders as unavailable instead of failing the drawer.
