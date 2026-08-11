@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-11 — Add standalone display-number rollout
+- **Loại**: fix, migration
+- **Cái gì**: Added an idempotent transactional rollout for the sequence-backed `tasks.display_number` and `enrollment_records.display_number` columns, including exclusive table locks, deterministic backfill, sequence advancement, non-null defaults, and unique indexes.
+- **Vì sao**: The application now reads canonical display numbers, but environments that have not applied the schema changes fail with a missing-column error instead of silently reverting to collision-prone UUID hashes.
+- **File**: `supabase/rollouts/2026-08-11-display-number-backfill.sql`
+- **Ảnh hưởng**: Run this rollout before deploying the current application; it preserves UUID routing and makes visible Task/Enrollment keys unique. It has not been executed here because no database migration authority was granted.
+- **Ref**: `docs/superpowers/plans/2026-08-11-open-code-review-remediation.md`, Task 6
+
 ## 2026-08-11 — Remove dead post-commit Enrollment activity builder
 - **Loại**: refactor-logic
 - **Cái gì**: Removed the unused post-RPC `activityRows` construction from Enrollment PATCH. `rpcActivityRows` remains the sole activity input to `patch_enrollment_atomic`; notification fan-out, broadcasts, canonical reload, and warnings are unchanged.
