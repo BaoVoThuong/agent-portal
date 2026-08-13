@@ -56,6 +56,7 @@ export type AcaOverviewStageRow = {
   isTerminal: boolean; inStage: number; sharePercent: number | null;
   medianWaitDays: number | null; longestWaitDays: number | null;
   stuckCount: number | null; silentCount: number | null;
+  stageAgeEstimated?: boolean;
 };
 
 export type AcaOverviewActionRow = {

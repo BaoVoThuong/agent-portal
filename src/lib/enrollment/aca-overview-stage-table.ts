@@ -1,10 +1,10 @@
 import { isDashboardTerminal, orderStages } from "./aca-overview-stages";
-import { daysInStage, daysSilent, isSilent, isStuck, medianDays } from "./aca-overview-timing";
+import { daysInStage, daysSilent, isEstimatedStageAge, isSilent, isStuck, medianDays } from "./aca-overview-timing";
 import type { AcaOverviewInput, AcaOverviewRecord, AcaOverviewStageRow } from "./aca-overview-types";
 export const UNASSIGNED_STAGE_LABEL = "0-Unassigned";
 function waits(records: readonly AcaOverviewRecord[], input: AcaOverviewInput) {
   const days = records.map((r) => daysInStage(r, input.now));
-  return { medianWaitDays: medianDays(days), longestWaitDays: days.reduce<number | null>((m, d) => d === null ? m : Math.max(m ?? 0, d), null), stuckCount: days.filter((d) => isStuck(d, input.thresholdDays)).length, silentCount: records.filter((r) => isSilent(daysSilent(r, input.now), input.thresholdDays)).length };
+  return { medianWaitDays: medianDays(days), longestWaitDays: days.reduce<number | null>((m, d) => d === null ? m : Math.max(m ?? 0, d), null), stuckCount: days.filter((d) => isStuck(d, input.thresholdDays)).length, silentCount: records.filter((r) => isSilent(daysSilent(r, input.now), input.thresholdDays)).length, stageAgeEstimated: records.some(isEstimatedStageAge) };
 }
 export function buildStageTable(input: AcaOverviewInput): AcaOverviewStageRow[] {
   const byId = new Map(input.stages.map((s) => [s.id, s]));
