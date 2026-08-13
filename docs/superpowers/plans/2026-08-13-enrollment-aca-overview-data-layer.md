@@ -2718,3 +2718,5 @@ These do not block this plan; they block the follow-ons.
 - Threshold-default follow-up: `36c22f3` reads the configured ACA
   `enrollment_overview_settings.threshold_days` value when the query is absent
   or invalid, while explicit valid picker values still win.
+- Dwell guard follow-up: `73cdd9f` limits cycle reads to the existing 90-day
+  live window and returns null medians until the 10-sample floor is met.

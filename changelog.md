@@ -712,3 +712,6 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
 - ACA overview now honors the configured `threshold_days` default on initial
   load and for invalid query values; explicit valid picker selections override
   the default.
+- Bounded ACA live dwell and per-person cycle reads to 90 days and suppressed
+  medians below ten samples, preventing sparse or stale history from appearing
+  as a reliable speed metric.

@@ -1655,3 +1655,5 @@ git commit -m "docs: record ACA overview UI"
   when their cohort includes pre-stage-tracking records (`6eca160`).
 - The first dashboard load now adopts the configured threshold from the API;
   explicit picker changes remain request-scoped (`36c22f3`).
+- Cycle-derived speed values now inherit the 90-day/10-sample data guard from
+  `73cdd9f`; the UI renders `Not enough samples` when the guard is not met.
