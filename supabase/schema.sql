@@ -1565,6 +1565,8 @@ create table if not exists task_stage_cycles (
   duration_seconds integer,
   started_by_email text,
   ended_by_email text,
+  responsible_start_email text,
+  responsible_end_email text,
   from_status text,
   to_status text,
   sla_minutes integer,
@@ -3728,6 +3730,24 @@ create unique index if not exists enrollment_stage_cycles_open_idx
   where ended_at is null;
 create index if not exists enrollment_stage_cycles_record_idx
   on enrollment_stage_cycles (record_id, started_at desc);
+create or replace function enrollment_sync_cycle_responsibility()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.responsible_start_email is null then
+    select responsible_enroll_email into new.responsible_start_email
+    from enrollment_records where id = new.record_id;
+  end if;
+  if new.ended_at is not null and new.responsible_end_email is null then
+    select responsible_enroll_email into new.responsible_end_email
+    from enrollment_records where id = new.record_id;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists enrollment_stage_cycles_responsibility on enrollment_stage_cycles;
+create trigger enrollment_stage_cycles_responsibility
+before insert or update on enrollment_stage_cycles
+for each row execute function enrollment_sync_cycle_responsibility();
 create index if not exists enrollment_stage_cycles_dwell_idx
   on enrollment_stage_cycles (record_id, ended_at desc)
   where kind = 'dwell' and source = 'live';
@@ -3782,7 +3802,8 @@ create or replace function enrollment_close_open_cycle_internal(
   p_record_id uuid,
   p_actor_email text,
   p_moment timestamptz,
-  p_to_stage_id uuid
+  p_to_stage_id uuid,
+  p_responsible_end_email text default null
 )
 returns integer
 language plpgsql
@@ -3811,7 +3832,8 @@ begin
         round(extract(epoch from (close_at - open_cycle.started_at)))::integer
       ),
       ended_by_email = enrollment_norm_email(p_actor_email),
-      to_stage_id = p_to_stage_id
+      to_stage_id = p_to_stage_id,
+      responsible_end_email = enrollment_norm_email(p_responsible_end_email)
   where id = open_cycle.id;
 
   return 1;
@@ -4000,27 +4022,28 @@ begin
   end if;
 
   if stage_changed or became_active or became_inactive then
-    perform enrollment_close_open_cycle_internal(p_record_id, actor, v_now, next_record.stage_id);
+    perform enrollment_close_open_cycle_internal(p_record_id, actor, v_now, next_record.stage_id, target_record.responsible_enroll_email);
     if next_record.stage_id is not null then
       if not now_inactive then
         insert into enrollment_stage_cycles (
           record_id, stage_id, from_stage_id, agent_email, program,
-          kind, started_at, started_by_email, source
+          kind, started_at, started_by_email, responsible_start_email, source
         ) values (
           p_record_id, next_record.stage_id,
           case when stage_changed then target_record.stage_id else null end,
           next_record.agent_email, next_record.program,
-          'dwell', v_now, actor, 'live'
+          'dwell', v_now, actor, next_record.responsible_enroll_email, 'live'
         );
       elsif stage_changed then
         insert into enrollment_stage_cycles (
           record_id, stage_id, from_stage_id, agent_email, program,
           kind, started_at, ended_at, duration_seconds,
-          started_by_email, ended_by_email, source
+          started_by_email, ended_by_email, responsible_start_email, responsible_end_email, source
         ) values (
           p_record_id, next_record.stage_id, target_record.stage_id,
           next_record.agent_email, next_record.program,
-          'entry_marker', v_now, v_now, 0, actor, actor, 'live'
+          'entry_marker', v_now, v_now, 0, actor, actor,
+          next_record.responsible_enroll_email, next_record.responsible_enroll_email, 'live'
         );
       end if;
     end if;
@@ -4103,14 +4126,17 @@ begin
     if is_inactive then
       insert into enrollment_stage_cycles (
         record_id, stage_id, agent_email, program, kind,
-        started_at, ended_at, duration_seconds, started_by_email, ended_by_email, source
+        started_at, ended_at, duration_seconds, started_by_email, ended_by_email,
+        responsible_start_email, responsible_end_email, source
       ) values (new_record.id, new_record.stage_id, new_record.agent_email, new_record.program,
-                'entry_marker', p_now, p_now, 0, actor, actor, 'live');
+                'entry_marker', p_now, p_now, 0, actor, actor,
+                new_record.responsible_enroll_email, new_record.responsible_enroll_email, 'live');
     else
       insert into enrollment_stage_cycles (
-        record_id, stage_id, agent_email, program, kind, started_at, started_by_email, source
+        record_id, stage_id, agent_email, program, kind, started_at, started_by_email,
+        responsible_start_email, source
       ) values (new_record.id, new_record.stage_id, new_record.agent_email, new_record.program,
-                'dwell', p_now, actor, 'live');
+                'dwell', p_now, actor, new_record.responsible_enroll_email, 'live');
     end if;
     insert into enrollment_stage_history (
       record_id, from_option_id, to_option_id, changed_by_email, changed_at
@@ -4156,7 +4182,7 @@ begin
     last_activity_by_email = case when last_activity_at is null or v_now >= last_activity_at then actor else last_activity_by_email end
   where id = p_record_id
   returning * into next_record;
-  perform enrollment_close_open_cycle_internal(p_record_id, actor, v_now, null);
+  perform enrollment_close_open_cycle_internal(p_record_id, actor, v_now, null, target_record.responsible_enroll_email);
   perform enrollment_write_activity_internal(p_record_id, actor, p_activity, v_now);
   return to_jsonb(next_record);
 end;

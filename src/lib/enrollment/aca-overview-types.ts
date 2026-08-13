@@ -1,4 +1,5 @@
 import type { EnrollmentOption } from "./types";
+import type { AcaPersonStageTiming, AttributedCycleRow } from "./aca-person-stage-timing";
 
 export const ACA_OVERVIEW_THRESHOLD_DAYS = [1, 3, 7, 10] as const;
 export type AcaOverviewThresholdDays = (typeof ACA_OVERVIEW_THRESHOLD_DAYS)[number];
@@ -37,6 +38,7 @@ export type AcaOverviewInput = {
   thresholdDays: AcaOverviewThresholdDays;
   now: Date;
   period?: { from: string; to: string };
+  attributedCycles?: readonly AttributedCycleRow[];
 };
 
 export type AcaOverviewScorecards = {
@@ -86,4 +88,5 @@ export type AcaOverviewSnapshot = {
   stageTable: AcaOverviewStageRow[]; actions: AcaOverviewActionRow[];
   people: AcaOverviewPeopleRow[]; matrix: AcaOverviewMatrix;
   queue: AcaOverviewQueueCard[]; unassigned: AcaOverviewActionRow[];
+  personStageTiming: AcaPersonStageTiming;
 };

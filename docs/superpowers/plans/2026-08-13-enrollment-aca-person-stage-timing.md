@@ -547,3 +547,15 @@ git commit -m "docs: record ACA per-person stage timing"
 - The implementation verifies the real function signatures and passes the
   pre-transition responsible value when closing a cycle; this is required to
   exclude handovers instead of charging a whole cycle to the incoming person.
+
+## Codex execution log
+
+### Stage 6 — Per-person stage timing
+
+- Commit: `PENDING` (this stage commit)
+- Added idempotent timing rollout/assertions, canonical cycle responsibility
+  columns plus write-time stamping, attributed-cycle fetch, median aggregation
+  with the 10-sample floor, and the Overview matrix Occupancy/Speed toggle.
+- Handover cycles are excluded by requiring matching start/end responsibility;
+  no historical cycle backfill is performed.
+- Verification: `npm run typecheck`; aggregate and person-timing Vitest tests.
