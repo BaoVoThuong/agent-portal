@@ -9,7 +9,10 @@ function waits(records: readonly AcaOverviewRecord[], input: AcaOverviewInput) {
 export function buildStageTable(input: AcaOverviewInput): AcaOverviewStageRow[] {
   const byId = new Map(input.stages.map((s) => [s.id, s]));
   const active = input.records.filter((r) => !r.archived_at);
-  const open = active.filter((r) => !byId.get(r.stage_id ?? "")?.is_terminal);
+  const open = active.filter((r) => {
+    const stage = byId.get(r.stage_id ?? "");
+    return !stage || !isDashboardTerminal(stage);
+  });
   const unassigned = open.filter((r) => !r.responsible_enroll_email);
   const assigned = open.filter((r) => Boolean(r.responsible_enroll_email));
   const total = open.length;

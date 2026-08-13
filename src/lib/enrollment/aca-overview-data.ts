@@ -40,13 +40,16 @@ async function fetchPeople(): Promise<AcaOverviewPerson[]> {
   const enabled = new Map(((members.data ?? []) as { email: string; enabled: boolean }[]).map((row) => [row.email.toLowerCase(), row.enabled]));
   return ((accounts.data ?? []) as { email: string; name: string | null }[]).map((row) => ({ email: row.email.toLowerCase(), name: row.name, canWork: true, queueEnabled: enabled.get(row.email.toLowerCase()) ?? true }));
 }
-async function fetchStageDwell(): Promise<ReadonlyMap<string, number | null>> {
+async function fetchStageDwell(recordIds: readonly string[]): Promise<ReadonlyMap<string, number | null>> {
   const supabase = getSupabaseAdmin(); const values = new Map<string, number[]>();
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const result = await supabase.from("enrollment_stage_cycles").select("stage_id,duration_seconds", { count: "exact" }).eq("program", "aca").eq("kind", "dwell").eq("source", "live").not("ended_at", "is", null).range(offset, offset + PAGE_SIZE - 1);
-    if (result.error) throw new Error(result.error.message);
-    for (const row of (result.data ?? []) as { stage_id: string; duration_seconds: number | null }[]) if (row.duration_seconds != null) (values.get(row.stage_id) ?? (values.set(row.stage_id, []), values.get(row.stage_id)!)).push(Math.max(0, row.duration_seconds));
-    if (!result.data || result.data.length < PAGE_SIZE || (typeof result.count === "number" && offset + result.data.length >= result.count)) break;
+  for (let start = 0; start < recordIds.length; start += 500) {
+    const ids = recordIds.slice(start, start + 500);
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const result = await supabase.from("enrollment_stage_cycles").select("stage_id,duration_seconds", { count: "exact" }).in("record_id", ids).eq("program", "aca").eq("kind", "dwell").eq("source", "live").not("ended_at", "is", null).range(offset, offset + PAGE_SIZE - 1);
+      if (result.error) throw new Error(result.error.message);
+      for (const row of (result.data ?? []) as { stage_id: string; duration_seconds: number | null }[]) if (row.duration_seconds != null) (values.get(row.stage_id) ?? (values.set(row.stage_id, []), values.get(row.stage_id)!)).push(Math.max(0, row.duration_seconds));
+      if (!result.data || result.data.length < PAGE_SIZE || (typeof result.count === "number" && offset + result.data.length >= result.count)) break;
+    }
   }
   const result = new Map<string, number | null>();
   for (const [id, numbers] of values) { numbers.sort((a, b) => a - b); const mid = Math.floor(numbers.length / 2); result.set(id, numbers.length % 2 ? numbers[mid] : (numbers[mid - 1] + numbers[mid]) / 2); }
@@ -68,7 +71,8 @@ export async function fetchAttributedCycles(recordIds: readonly string[]): Promi
 }
 export async function fetchAcaOverviewSnapshot(params: { from?: string | null; to?: string | null; thresholdDays?: string | null; now?: Date } = {}): Promise<AcaOverviewSnapshot> {
   const from = parseDate(params.from ?? null); const to = parseDate(params.to ?? null); const now = params.now ?? new Date();
-  const [records, options, people, dwell] = await Promise.all([fetchAllRecords(from, to), fetchEnrollmentOptionData("aca"), fetchPeople(), fetchStageDwell()]);
-  const attributedCycles = await fetchAttributedCycles(records.map((record) => record.id));
+  const [records, options, people] = await Promise.all([fetchAllRecords(from, to), fetchEnrollmentOptionData("aca"), fetchPeople()]);
+  const recordIds = records.map((record) => record.id);
+  const [dwell, attributedCycles] = await Promise.all([fetchStageDwell(recordIds), fetchAttributedCycles(recordIds)]);
   return aggregateAcaOverview({ records, stages: options.optionsBySet.stage, people, stageDwellMedianSeconds: dwell, attributedCycles, thresholdDays: params.thresholdDays ? parseThreshold(params.thresholdDays) : ACA_OVERVIEW_DEFAULT_THRESHOLD_DAYS, now, period: { from: from ?? "", to: to ?? "" } });
 }

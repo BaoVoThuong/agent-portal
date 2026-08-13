@@ -35,6 +35,8 @@ describe("ACA overview primitives", () => {
     expect(snapshot.scorecards.done).toBe(1);
     expect(snapshot.scorecards.unassigned).toBe(1);
     expect(snapshot.actions.map((row) => row.recordId)).toEqual(["unassigned", "open"]);
+    expect(snapshot.stageTable.find((row) => row.stageId === "cc")?.inStage).toBe(1);
+    expect(snapshot.stageTable.find((row) => row.stageId === "open")?.inStage).toBe(1);
     expect(snapshot.matrix.rows).toHaveLength(2);
     expect(snapshot.queue[0]?.email).toBe("a@example.com");
   });

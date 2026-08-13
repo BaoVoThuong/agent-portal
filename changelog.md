@@ -682,3 +682,17 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
 - Tasks and Enrollment records now receive immutable sequence-backed display numbers; list/detail/search/notification/export paths render the durable `TASK-...`/`ENR-...` value while UUIDs remain internal identifiers.
 - Config agent deletion now removes the agent and assistant memberships in one service-role RPC transaction, preventing a partial delete from leaving orphaned mappings.
 - Config custom dropdown option creation now locks its parent column and allocates default positions inside a service-role RPC; max-position query failures can no longer silently create duplicate positions.
+
+## 2026-08-13 — ACA enrollment operations overview
+
+- Added a manager-only ACA operations overview with an all-dates default,
+  config-driven dashboard terminal stages, scorecards, stage waiting/action
+  views, people workload, queue, and stage/person timing surfaces.
+- Added explicit ACA dashboard terminal configuration without changing the
+  database's record-closing semantics or Medicare behaviour.
+- Added bounded snapshot reads and denormalized work-activity/responsible-
+  assignment timestamps, with conservative rollout backfills and separate
+  Enrollment queue membership storage.
+- Added responsible attribution to live stage cycles. Handover cycles are
+  excluded from per-person medians and the UI suppresses timing cells below
+  ten measured samples.
