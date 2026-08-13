@@ -1641,3 +1641,5 @@ git commit -m "docs: record ACA overview UI"
 - Scorecard rendering was completed in `481ff32`; all 15 planned volume,
   attention, speed, and staffing tiles are now present instead of the earlier
   five-card placeholder.
+- Needs-action and unassigned action surfaces now paginate at 20 rows in
+  `764c373`, preventing large cohorts from being silently truncated.

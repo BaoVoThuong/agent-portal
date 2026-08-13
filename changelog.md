@@ -701,3 +701,5 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   the server response.
 - Rendered the complete 15-tile ACA scorecard set, including terminal counts,
   staleness metrics, speed samples, and staffing figures.
+- Paginated ACA needs-action and unassigned lists at 20 rows per page so large
+  cohorts remain reachable from the dashboard.
