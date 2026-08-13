@@ -652,3 +652,15 @@ git commit -m "docs: record ACA overview assignment surface"
   `isManagerSession` helper is not introduced.
 - Assignment responses are checked against the actual enrollment PATCH route
   envelope and response fields before wiring the optimistic reducer.
+
+## Codex execution log
+
+### Stage 5 — ACA assignment surface
+
+- Commit: `PENDING` (this stage commit)
+- Added the manager-only assignment picker for unassigned overview rows,
+  guarded by `expected_updated_at` and the existing enrollment PATCH contract.
+- Added a pure assignment reducer helper and an enrollment-specific queue
+  membership PATCH endpoint with active-account validation; CS queue state is
+  not reused.
+- Verification: `npm run typecheck`.
