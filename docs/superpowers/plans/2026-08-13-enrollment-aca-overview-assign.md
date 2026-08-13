@@ -664,3 +664,8 @@ git commit -m "docs: record ACA overview assignment surface"
   membership PATCH endpoint with active-account validation; CS queue state is
   not reused.
 - Verification: `npm run typecheck`.
+
+### Final verification
+
+- Full repository verification passed after implementation: `npm run test:run`
+  (86 files, 601 tests), `npm run typecheck`, and `npm run build`.

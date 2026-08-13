@@ -1629,3 +1629,8 @@ git commit -m "docs: record ACA overview UI"
 - `EnrollmentOverview` delegates ACA before the legacy fetch; non-managers get
   an explicit access message and Medicare remains unchanged.
 - Verification: `npm run typecheck`.
+
+### Final verification
+
+- Full repository verification passed after implementation: `npm run test:run`
+  (86 files, 601 tests), `npm run typecheck`, and `npm run build`.

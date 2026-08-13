@@ -2707,3 +2707,8 @@ These do not block this plan; they block the follow-ons.
   narrow dashboard date range cannot display global historical samples.
 - Updated stage-table open counts to honor `treat_as_terminal` as well as the
   database `is_terminal` flag, with regression coverage.
+
+### Final verification
+
+- Full repository verification passed after implementation: `npm run test:run`
+  (86 files, 601 tests), `npm run typecheck`, and `npm run build`.

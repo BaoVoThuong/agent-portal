@@ -566,3 +566,8 @@ git commit -m "docs: record ACA per-person stage timing"
 - Kept cycle-derived dwell metrics in the same created-at cohort as the
   overview records and added regression coverage for configured terminal-
   equivalent stages.
+
+### Final verification
+
+- Full repository verification passed after implementation: `npm run test:run`
+  (86 files, 601 tests), `npm run typecheck`, and `npm run build`.
