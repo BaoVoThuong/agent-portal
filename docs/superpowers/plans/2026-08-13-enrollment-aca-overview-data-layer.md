@@ -2689,7 +2689,7 @@ These do not block this plan; they block the follow-ons.
 
 ### Stage 3 — Snapshot storage, data access, and manager-only API
 
-- Commit: `PENDING` (this stage commit)
+- Commit: `a737f9b`
 - Added additive rollout/schema artifacts for work-activity and assignment
   timestamps, ACA queue membership/settings, and disposable schema assertions.
 - Added paginated, date-cohort ACA snapshot loading from `enrollment_records`,
