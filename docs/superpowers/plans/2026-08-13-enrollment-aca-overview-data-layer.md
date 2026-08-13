@@ -2715,3 +2715,6 @@ These do not block this plan; they block the follow-ons.
 - Follow-up boundary commit: `e18bd70` changes the inclusive `to` date into
   an exclusive next-day UTC boundary and adds a regression test for the exact
   boundary.
+- Threshold-default follow-up: `36c22f3` reads the configured ACA
+  `enrollment_overview_settings.threshold_days` value when the query is absent
+  or invalid, while explicit valid picker values still win.

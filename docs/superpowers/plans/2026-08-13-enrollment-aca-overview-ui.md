@@ -1653,3 +1653,5 @@ git commit -m "docs: record ACA overview UI"
   preserving row identity on wide stage sets.
 - Stage-table wait aggregates now carry a muted estimated marker and tooltip
   when their cohort includes pre-stage-tracking records (`6eca160`).
+- The first dashboard load now adopts the configured threshold from the API;
+  explicit picker changes remain request-scoped (`36c22f3`).

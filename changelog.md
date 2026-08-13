@@ -709,3 +709,6 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   across many stages.
 - Marked stage-table wait aggregates that include estimated pre-tracking ages,
   avoiding presentation of backfilled ages as measured timings.
+- ACA overview now honors the configured `threshold_days` default on initial
+  load and for invalid query values; explicit valid picker selections override
+  the default.
