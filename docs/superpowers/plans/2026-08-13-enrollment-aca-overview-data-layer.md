@@ -2699,3 +2699,11 @@ These do not block this plan; they block the follow-ons.
 - Added write-time timestamp maintenance and conservative backfill rules; the
   CS queue remains untouched.
 - Verification: `npm run typecheck`; `git diff --check`.
+
+### Stage 3 follow-up — cohort and terminal hardening
+
+- Commit: `7893895`
+- Scoped cycle-derived dwell medians to the selected created-at cohort, so a
+  narrow dashboard date range cannot display global historical samples.
+- Updated stage-table open counts to honor `treat_as_terminal` as well as the
+  database `is_terminal` flag, with regression coverage.

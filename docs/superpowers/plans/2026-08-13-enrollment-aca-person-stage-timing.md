@@ -559,3 +559,10 @@ git commit -m "docs: record ACA per-person stage timing"
 - Handover cycles are excluded by requiring matching start/end responsibility;
   no historical cycle backfill is performed.
 - Verification: `npm run typecheck`; aggregate and person-timing Vitest tests.
+
+### Stage 6 follow-up — cohort and terminal hardening
+
+- Commit: `7893895`
+- Kept cycle-derived dwell metrics in the same created-at cohort as the
+  overview records and added regression coverage for configured terminal-
+  equivalent stages.
