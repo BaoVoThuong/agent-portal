@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exclusiveDateUpperBound, parseThreshold } from "./aca-overview-data";
+import { exclusiveDateUpperBound, normalizeOverviewEmail, parseThreshold } from "./aca-overview-data";
 
 describe("ACA overview date boundaries", () => {
   it("uses the first instant of the following UTC day", () => {
@@ -9,5 +9,9 @@ describe("ACA overview date boundaries", () => {
     expect(parseThreshold(null, 7)).toBe(7);
     expect(parseThreshold("99", 10)).toBe(10);
     expect(parseThreshold("1", 10)).toBe(1);
+  });
+  it("normalizes snapshot emails for roster and cycle joins", () => {
+    expect(normalizeOverviewEmail("  Agent@Example.COM ")).toBe("agent@example.com");
+    expect(normalizeOverviewEmail("   ")).toBeNull();
   });
 });

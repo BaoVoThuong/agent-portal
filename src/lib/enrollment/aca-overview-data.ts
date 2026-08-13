@@ -8,6 +8,10 @@ import { MIN_DURATION_SAMPLE } from "./stage-time";
 const PAGE_SIZE = 1000;
 const RECORD_COLUMNS = "id,display_number,client_name,stage_id,agent_email,caller_email,responsible_enroll_email,created_at,closed_at,archived_at,stage_entered_at,stage_entered_source,last_work_activity_at,responsible_assigned_at,updated_at";
 type RawRecord = Omit<AcaOverviewRecord, "display_number"> & { display_number: string | number | null };
+export function normalizeOverviewEmail(value: string | null): string | null {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return normalized || null;
+}
 
 export function parseThreshold(value: string | null, fallback: AcaOverviewThresholdDays = ACA_OVERVIEW_DEFAULT_THRESHOLD_DAYS): AcaOverviewThresholdDays {
   const parsed = Number(value);
@@ -39,7 +43,7 @@ async function fetchAllRecords(from: string | null, to: string | null): Promise<
     rows.push(...((result.data ?? []) as RawRecord[]));
     if (!result.data || result.data.length < PAGE_SIZE || (typeof result.count === "number" && rows.length >= result.count)) break;
   }
-  return rows.map((row) => ({ ...row, display_number: row.display_number == null ? null : String(row.display_number) }));
+  return rows.map((row) => ({ ...row, display_number: row.display_number == null ? null : String(row.display_number), agent_email: normalizeOverviewEmail(row.agent_email), caller_email: normalizeOverviewEmail(row.caller_email), responsible_enroll_email: normalizeOverviewEmail(row.responsible_enroll_email) }));
 }
 async function fetchPeople(): Promise<AcaOverviewPerson[]> {
   const supabase = getSupabaseAdmin();
@@ -77,7 +81,7 @@ export async function fetchAttributedCycles(recordIds: readonly string[], now = 
       const result = await supabase.from("enrollment_stage_cycles").select("stage_id,responsible_start_email,responsible_end_email,duration_seconds", { count: "exact" }).in("record_id", ids).eq("program", "aca").eq("kind", "dwell").eq("source", "live").gte("ended_at", cutoff).not("ended_at", "is", null).not("responsible_start_email", "is", null).range(offset, offset + PAGE_SIZE - 1);
       if (result.error) throw new Error(result.error.message);
       const page = (result.data ?? []) as (AttributedCycleRow & { responsible_end_email: string | null })[];
-      rows.push(...page.filter((row) => row.responsible_start_email === row.responsible_end_email));
+      rows.push(...page.filter((row) => normalizeOverviewEmail(row.responsible_start_email) === normalizeOverviewEmail(row.responsible_end_email)));
       if (!result.data || result.data.length < PAGE_SIZE || (typeof result.count === "number" && offset + result.data.length >= result.count)) break;
     }
   }
