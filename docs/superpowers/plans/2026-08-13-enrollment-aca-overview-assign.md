@@ -657,7 +657,7 @@ git commit -m "docs: record ACA overview assignment surface"
 
 ### Stage 5 — ACA assignment surface
 
-- Commit: `PENDING` (this stage commit)
+- Commit: `0bb8db9`
 - Added the manager-only assignment picker for unassigned overview rows,
   guarded by `expected_updated_at` and the existing enrollment PATCH contract.
 - Added a pure assignment reducer helper and an enrollment-specific queue
