@@ -3,6 +3,7 @@ import { aggregateAcaOverview } from "./aca-overview-aggregate";
 import { fetchEnrollmentOptionData } from "./options";
 import { ACA_OVERVIEW_DEFAULT_THRESHOLD_DAYS, ACA_OVERVIEW_THRESHOLD_DAYS, type AcaOverviewPerson, type AcaOverviewRecord, type AcaOverviewSnapshot, type AcaOverviewThresholdDays } from "./aca-overview-types";
 import type { AttributedCycleRow } from "./aca-person-stage-timing";
+import { MIN_DURATION_SAMPLE } from "./stage-time";
 
 const PAGE_SIZE = 1000;
 const RECORD_COLUMNS = "id,display_number,client_name,stage_id,agent_email,caller_email,responsible_enroll_email,created_at,closed_at,archived_at,stage_entered_at,stage_entered_source,last_work_activity_at,responsible_assigned_at,updated_at";
@@ -51,27 +52,29 @@ async function fetchPeople(): Promise<AcaOverviewPerson[]> {
   const enabled = new Map(((members.data ?? []) as { email: string; enabled: boolean }[]).map((row) => [row.email.toLowerCase(), row.enabled]));
   return ((accounts.data ?? []) as { email: string; name: string | null }[]).map((row) => ({ email: row.email.toLowerCase(), name: row.name, canWork: true, queueEnabled: enabled.get(row.email.toLowerCase()) ?? true }));
 }
-async function fetchStageDwell(recordIds: readonly string[]): Promise<ReadonlyMap<string, number | null>> {
+async function fetchStageDwell(recordIds: readonly string[], now: Date): Promise<ReadonlyMap<string, number | null>> {
   const supabase = getSupabaseAdmin(); const values = new Map<string, number[]>();
+  const cutoff = new Date(now.getTime() - 90 * 86_400_000).toISOString();
   for (let start = 0; start < recordIds.length; start += 500) {
     const ids = recordIds.slice(start, start + 500);
     for (let offset = 0; ; offset += PAGE_SIZE) {
-      const result = await supabase.from("enrollment_stage_cycles").select("stage_id,duration_seconds", { count: "exact" }).in("record_id", ids).eq("program", "aca").eq("kind", "dwell").eq("source", "live").not("ended_at", "is", null).range(offset, offset + PAGE_SIZE - 1);
+      const result = await supabase.from("enrollment_stage_cycles").select("stage_id,duration_seconds", { count: "exact" }).in("record_id", ids).eq("program", "aca").eq("kind", "dwell").eq("source", "live").gte("ended_at", cutoff).not("ended_at", "is", null).range(offset, offset + PAGE_SIZE - 1);
       if (result.error) throw new Error(result.error.message);
       for (const row of (result.data ?? []) as { stage_id: string; duration_seconds: number | null }[]) if (row.duration_seconds != null) (values.get(row.stage_id) ?? (values.set(row.stage_id, []), values.get(row.stage_id)!)).push(Math.max(0, row.duration_seconds));
       if (!result.data || result.data.length < PAGE_SIZE || (typeof result.count === "number" && offset + result.data.length >= result.count)) break;
     }
   }
   const result = new Map<string, number | null>();
-  for (const [id, numbers] of values) { numbers.sort((a, b) => a - b); const mid = Math.floor(numbers.length / 2); result.set(id, numbers.length % 2 ? numbers[mid] : (numbers[mid - 1] + numbers[mid]) / 2); }
+  for (const [id, numbers] of values) { if (numbers.length < MIN_DURATION_SAMPLE) { result.set(id, null); continue; } numbers.sort((a, b) => a - b); const mid = Math.floor(numbers.length / 2); result.set(id, numbers.length % 2 ? numbers[mid] : (numbers[mid - 1] + numbers[mid]) / 2); }
   return result;
 }
-export async function fetchAttributedCycles(recordIds: readonly string[]): Promise<AttributedCycleRow[]> {
+export async function fetchAttributedCycles(recordIds: readonly string[], now = new Date()): Promise<AttributedCycleRow[]> {
   const supabase = getSupabaseAdmin(); const rows: AttributedCycleRow[] = [];
+  const cutoff = new Date(now.getTime() - 90 * 86_400_000).toISOString();
   for (let start = 0; start < recordIds.length; start += 500) {
     const ids = recordIds.slice(start, start + 500);
     for (let offset = 0; ; offset += PAGE_SIZE) {
-      const result = await supabase.from("enrollment_stage_cycles").select("stage_id,responsible_start_email,responsible_end_email,duration_seconds", { count: "exact" }).in("record_id", ids).eq("program", "aca").eq("kind", "dwell").eq("source", "live").not("ended_at", "is", null).not("responsible_start_email", "is", null).range(offset, offset + PAGE_SIZE - 1);
+      const result = await supabase.from("enrollment_stage_cycles").select("stage_id,responsible_start_email,responsible_end_email,duration_seconds", { count: "exact" }).in("record_id", ids).eq("program", "aca").eq("kind", "dwell").eq("source", "live").gte("ended_at", cutoff).not("ended_at", "is", null).not("responsible_start_email", "is", null).range(offset, offset + PAGE_SIZE - 1);
       if (result.error) throw new Error(result.error.message);
       const page = (result.data ?? []) as (AttributedCycleRow & { responsible_end_email: string | null })[];
       rows.push(...page.filter((row) => row.responsible_start_email === row.responsible_end_email));
@@ -85,6 +88,6 @@ export async function fetchAcaOverviewSnapshot(params: { from?: string | null; t
   const requestedThreshold = params.thresholdDays ?? null;
   const [records, options, people, configuredThreshold] = await Promise.all([fetchAllRecords(from, to), fetchEnrollmentOptionData("aca"), fetchPeople(), fetchConfiguredThreshold()]);
   const recordIds = records.map((record) => record.id);
-  const [dwell, attributedCycles] = await Promise.all([fetchStageDwell(recordIds), fetchAttributedCycles(recordIds)]);
+  const [dwell, attributedCycles] = await Promise.all([fetchStageDwell(recordIds, now), fetchAttributedCycles(recordIds, now)]);
   return aggregateAcaOverview({ records, stages: options.optionsBySet.stage, people, stageDwellMedianSeconds: dwell, attributedCycles, thresholdDays: parseThreshold(requestedThreshold, configuredThreshold), now, period: { from: from ?? "", to: to ?? "" } });
 }
