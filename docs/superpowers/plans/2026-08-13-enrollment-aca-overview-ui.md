@@ -1643,3 +1643,5 @@ git commit -m "docs: record ACA overview UI"
   five-card placeholder.
 - Needs-action and unassigned action surfaces now paginate at 20 rows in
   `764c373`, preventing large cohorts from being silently truncated.
+- Empty-state formatting was corrected in `096b9c6`: cycle-derived metrics say
+  `Not enough samples`, while current-cohort metrics with no rows remain `—`.
