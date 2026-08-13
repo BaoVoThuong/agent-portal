@@ -3521,7 +3521,9 @@ create table if not exists enrollment_records (
   stage_entered_at timestamptz,
   stage_entered_source text,
   last_activity_at timestamptz,
-  last_activity_by_email text
+  last_activity_by_email text,
+  last_work_activity_at timestamptz,
+  responsible_assigned_at timestamptz
 );
 
 -- Durable human-facing key. UUIDs remain the internal/API identifier; this
@@ -3732,6 +3734,37 @@ create index if not exists enrollment_stage_cycles_dwell_idx
 create index if not exists enrollment_records_stage_entered_idx
   on enrollment_records (program, stage_id, stage_entered_at)
   where archived_at is null and closed_at is null;
+alter table enrollment_records add column if not exists last_work_activity_at timestamptz;
+alter table enrollment_records add column if not exists responsible_assigned_at timestamptz;
+create index if not exists enrollment_records_aca_overview_created_idx
+  on enrollment_records (program, created_at, archived_at);
+
+create or replace function enrollment_sync_overview_timestamps()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    if coalesce(lower(new.updated_by_email), '') <> 'system' then
+      new.last_work_activity_at := coalesce(new.last_work_activity_at, new.updated_at);
+    end if;
+    if new.responsible_enroll_email is not null then
+      new.responsible_assigned_at := coalesce(new.responsible_assigned_at, new.created_at);
+    end if;
+  elsif new.responsible_enroll_email is distinct from old.responsible_enroll_email then
+    new.responsible_assigned_at := new.updated_at;
+  elsif new.updated_at is distinct from old.updated_at
+    and coalesce(lower(new.updated_by_email), '') <> 'system' then
+    new.last_work_activity_at := new.updated_at;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists enrollment_records_overview_timestamps on enrollment_records;
+create trigger enrollment_records_overview_timestamps
+before insert or update on enrollment_records
+for each row execute function enrollment_sync_overview_timestamps();
 
 -- Enrollment stage-time mutation commands. These are intentionally RPCs rather
 -- than triggers: the route supplies one timestamp, locks the parent row, and
@@ -3847,6 +3880,7 @@ declare
   next_closed_at timestamptz;
   next_archived_at timestamptz;
   next_agent text;
+  next_responsible text;
   was_inactive boolean;
   now_inactive boolean;
   stage_changed boolean;
@@ -3899,6 +3933,8 @@ begin
     then (p_patch->>'archived_at')::timestamptz else target_record.archived_at end;
   next_agent := case when p_patch ? 'agent_email'
     then enrollment_norm_email(p_patch->>'agent_email') else target_record.agent_email end;
+  next_responsible := case when p_patch ? 'responsible_enroll_email'
+    then enrollment_norm_email(p_patch->>'responsible_enroll_email') else target_record.responsible_enroll_email end;
 
   was_inactive := target_record.closed_at is not null or target_record.archived_at is not null;
   now_inactive := next_closed_at is not null or next_archived_at is not null;
@@ -3930,7 +3966,7 @@ begin
     pcp_2026 = case when p_patch ? 'pcp_2026' then p_patch->>'pcp_2026' else pcp_2026 end,
     agent_email = next_agent,
     caller_email = case when p_patch ? 'caller_email' then enrollment_norm_email(p_patch->>'caller_email') else caller_email end,
-    responsible_enroll_email = case when p_patch ? 'responsible_enroll_email' then enrollment_norm_email(p_patch->>'responsible_enroll_email') else responsible_enroll_email end,
+    responsible_enroll_email = next_responsible,
     qc_checked_by_email = case when p_patch ? 'qc_checked_by_email' then enrollment_norm_email(p_patch->>'qc_checked_by_email') else qc_checked_by_email end,
     qc_checked_at = case when p_patch ? 'qc_checked_at' then (p_patch->>'qc_checked_at')::timestamptz else qc_checked_at end,
     qc_stale_notified_at = case when p_patch ? 'qc_stale_notified_at' then (p_patch->>'qc_stale_notified_at')::timestamptz else qc_stale_notified_at end,
@@ -3946,6 +3982,15 @@ begin
     last_activity_by_email = case
       when last_activity_at is null or v_now >= last_activity_at then actor
       else last_activity_by_email end,
+    last_work_activity_at = case
+      when actor <> 'system' and exists (
+        select 1 from jsonb_array_elements(coalesce(p_activity, '[]'::jsonb)) item
+        where coalesce(item->>'type', '') not in ('comment_added','mentioned','attachment_added')
+      ) then v_now
+      else last_work_activity_at end,
+    responsible_assigned_at = case
+      when next_responsible is distinct from target_record.responsible_enroll_email then v_now
+      else responsible_assigned_at end,
     updated_by_email = actor,
     updated_at = v_now
   where id = p_record_id and updated_at = p_expected_updated_at
@@ -4033,7 +4078,8 @@ begin
     pcp_2025, pcp_2026, agent_email, caller_email, responsible_enroll_email,
     qc_checked_by_email, qc_checked_at, closed_at, custom_values,
     created_by_email, created_at, updated_by_email, updated_at,
-    stage_entered_at, stage_entered_source, last_activity_at, last_activity_by_email
+    stage_entered_at, stage_entered_source, last_activity_at, last_activity_by_email,
+    last_work_activity_at, responsible_assigned_at
   ) values (
     coalesce(p_record->>'program', 'aca'), p_record->>'client_name', p_record->>'description',
     p_record->>'fub_link', (p_record->>'due_date')::date,
@@ -4048,7 +4094,9 @@ begin
     actor, p_now, actor, p_now,
     case when (p_record->>'stage_id') is null then null else p_now end,
     case when (p_record->>'stage_id') is null then null else 'live' end,
-    p_now, actor
+    p_now, actor,
+    case when actor <> 'system' then p_now else null end,
+    case when (p_record ? 'responsible_enroll_email') and (p_record->>'responsible_enroll_email') is not null then p_now else null end
   ) returning * into new_record;
 
   if new_record.stage_id is not null then
@@ -4103,6 +4151,7 @@ begin
     archived_at = v_now,
     updated_at = v_now,
     updated_by_email = actor,
+    last_work_activity_at = case when actor <> 'system' then v_now else last_work_activity_at end,
     last_activity_at = greatest(coalesce(last_activity_at, v_now), v_now),
     last_activity_by_email = case when last_activity_at is null or v_now >= last_activity_at then actor else last_activity_by_email end
   where id = p_record_id

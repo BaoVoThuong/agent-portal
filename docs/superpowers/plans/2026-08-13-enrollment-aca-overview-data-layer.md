@@ -2686,3 +2686,16 @@ These do not block this plan; they block the follow-ons.
   unassigned rows, people/matrix aggregation, queue ranking, and a composed
   aggregate function.
 - Verification: `npm run typecheck`; `npm run test:run -- --run src/lib/enrollment/aca-overview-aggregate.test.ts`.
+
+### Stage 3 — Snapshot storage, data access, and manager-only API
+
+- Commit: `PENDING` (this stage commit)
+- Added additive rollout/schema artifacts for work-activity and assignment
+  timestamps, ACA queue membership/settings, and disposable schema assertions.
+- Added paginated, date-cohort ACA snapshot loading from `enrollment_records`,
+  `portal_account`, option data, and live dwell cycles, plus
+  `GET /api/enrollment/aca-overview` with manager-only authorization and date
+  validation.
+- Added write-time timestamp maintenance and conservative backfill rules; the
+  CS queue remains untouched.
+- Verification: `npm run typecheck`; `git diff --check`.
