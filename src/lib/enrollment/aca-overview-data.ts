@@ -15,13 +15,18 @@ function parseThreshold(value: string | null): AcaOverviewThresholdDays {
 function parseDate(value: string | null): string | null {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
+export function exclusiveDateUpperBound(value: string): string {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString();
+}
 async function fetchAllRecords(from: string | null, to: string | null): Promise<AcaOverviewRecord[]> {
   const supabase = getSupabaseAdmin();
   const rows: RawRecord[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
     let query = supabase.from("enrollment_records").select(RECORD_COLUMNS, { count: "exact" }).eq("program", "aca").is("archived_at", null).order("created_at", { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
     if (from) query = query.gte("created_at", `${from}T00:00:00.000Z`);
-    if (to) query = query.lt("created_at", `${to}T23:59:59.999Z`);
+    if (to) query = query.lt("created_at", exclusiveDateUpperBound(to));
     const result = await query;
     if (result.error) throw new Error(result.error.message);
     rows.push(...((result.data ?? []) as RawRecord[]));
