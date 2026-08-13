@@ -3,6 +3,26 @@ alter table enrollment_records
   add column if not exists last_work_activity_at timestamptz;
 alter table enrollment_records
   add column if not exists responsible_assigned_at timestamptz;
+alter table enrollment_stage_cycles
+  add column if not exists responsible_start_email text;
+alter table enrollment_stage_cycles
+  add column if not exists responsible_end_email text;
+
+create or replace function enrollment_sync_cycle_responsibility()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.responsible_start_email is null then
+    select responsible_enroll_email into new.responsible_start_email from enrollment_records where id = new.record_id;
+  end if;
+  if new.ended_at is not null and new.responsible_end_email is null then
+    select responsible_enroll_email into new.responsible_end_email from enrollment_records where id = new.record_id;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists enrollment_stage_cycles_responsibility on enrollment_stage_cycles;
+create trigger enrollment_stage_cycles_responsibility before insert or update on enrollment_stage_cycles
+for each row execute function enrollment_sync_cycle_responsibility();
 
 create or replace function enrollment_sync_overview_timestamps()
 returns trigger language plpgsql set search_path = public as $$
