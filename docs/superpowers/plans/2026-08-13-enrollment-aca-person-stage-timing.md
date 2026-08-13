@@ -552,7 +552,7 @@ git commit -m "docs: record ACA per-person stage timing"
 
 ### Stage 6 — Per-person stage timing
 
-- Commit: `PENDING` (this stage commit)
+- Commits: `1e0d1dd`, `71e10e0`
 - Added idempotent timing rollout/assertions, canonical cycle responsibility
   columns plus write-time stamping, attributed-cycle fetch, median aggregation
   with the 10-sample floor, and the Overview matrix Occupancy/Speed toggle.
