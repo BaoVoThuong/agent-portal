@@ -1637,7 +1637,7 @@ git commit -m "docs: record ACA overview UI"
 ### Final verification
 
 - Full repository verification passed after implementation: `npm run test:run`
-  (87 files, 602 tests), `npm run typecheck`, and `npm run build`.
+  (87 files, 603 tests), `npm run typecheck`, and `npm run build`.
 
 - Queue membership editing was completed in follow-up commit `163cb26`; the
   `Edit queue` grid is manager-only through the dashboard route and uses the
