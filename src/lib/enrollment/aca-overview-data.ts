@@ -8,9 +8,9 @@ const PAGE_SIZE = 1000;
 const RECORD_COLUMNS = "id,display_number,client_name,stage_id,agent_email,caller_email,responsible_enroll_email,created_at,closed_at,archived_at,stage_entered_at,stage_entered_source,last_work_activity_at,responsible_assigned_at,updated_at";
 type RawRecord = Omit<AcaOverviewRecord, "display_number"> & { display_number: string | number | null };
 
-function parseThreshold(value: string | null): AcaOverviewThresholdDays {
+export function parseThreshold(value: string | null, fallback: AcaOverviewThresholdDays = ACA_OVERVIEW_DEFAULT_THRESHOLD_DAYS): AcaOverviewThresholdDays {
   const parsed = Number(value);
-  return (ACA_OVERVIEW_THRESHOLD_DAYS as readonly number[]).includes(parsed) ? parsed as AcaOverviewThresholdDays : ACA_OVERVIEW_DEFAULT_THRESHOLD_DAYS;
+  return (ACA_OVERVIEW_THRESHOLD_DAYS as readonly number[]).includes(parsed) ? parsed as AcaOverviewThresholdDays : fallback;
 }
 function parseDate(value: string | null): string | null {
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
@@ -19,6 +19,12 @@ export function exclusiveDateUpperBound(value: string): string {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + 1);
   return date.toISOString();
+}
+async function fetchConfiguredThreshold(): Promise<AcaOverviewThresholdDays> {
+  const result = await getSupabaseAdmin().from("enrollment_overview_settings").select("threshold_days").eq("id", true).maybeSingle();
+  if (result.error) throw new Error(result.error.message);
+  const value = (result.data as { threshold_days?: number } | null)?.threshold_days;
+  return (ACA_OVERVIEW_THRESHOLD_DAYS as readonly number[]).includes(value ?? -1) ? value as AcaOverviewThresholdDays : ACA_OVERVIEW_DEFAULT_THRESHOLD_DAYS;
 }
 async function fetchAllRecords(from: string | null, to: string | null): Promise<AcaOverviewRecord[]> {
   const supabase = getSupabaseAdmin();
@@ -76,8 +82,9 @@ export async function fetchAttributedCycles(recordIds: readonly string[]): Promi
 }
 export async function fetchAcaOverviewSnapshot(params: { from?: string | null; to?: string | null; thresholdDays?: string | null; now?: Date } = {}): Promise<AcaOverviewSnapshot> {
   const from = parseDate(params.from ?? null); const to = parseDate(params.to ?? null); const now = params.now ?? new Date();
-  const [records, options, people] = await Promise.all([fetchAllRecords(from, to), fetchEnrollmentOptionData("aca"), fetchPeople()]);
+  const requestedThreshold = params.thresholdDays ?? null;
+  const [records, options, people, configuredThreshold] = await Promise.all([fetchAllRecords(from, to), fetchEnrollmentOptionData("aca"), fetchPeople(), fetchConfiguredThreshold()]);
   const recordIds = records.map((record) => record.id);
   const [dwell, attributedCycles] = await Promise.all([fetchStageDwell(recordIds), fetchAttributedCycles(recordIds)]);
-  return aggregateAcaOverview({ records, stages: options.optionsBySet.stage, people, stageDwellMedianSeconds: dwell, attributedCycles, thresholdDays: params.thresholdDays ? parseThreshold(params.thresholdDays) : ACA_OVERVIEW_DEFAULT_THRESHOLD_DAYS, now, period: { from: from ?? "", to: to ?? "" } });
+  return aggregateAcaOverview({ records, stages: options.optionsBySet.stage, people, stageDwellMedianSeconds: dwell, attributedCycles, thresholdDays: parseThreshold(requestedThreshold, configuredThreshold), now, period: { from: from ?? "", to: to ?? "" } });
 }

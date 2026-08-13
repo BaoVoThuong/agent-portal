@@ -11,7 +11,7 @@ type Props = { from: string; to: string; onOpenRecord: (id: string) => void };
 export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
   const [snapshot, setSnapshot] = useState<AcaOverviewSnapshot | null>(null);
   const [matrixMode, setMatrixMode] = useState<"occupancy" | "speed">("occupancy");
-  const [threshold, setThreshold] = useState<AcaOverviewThresholdDays>(3);
+  const [threshold, setThreshold] = useState<AcaOverviewThresholdDays | null>(null);
   const [editingQueue, setEditingQueue] = useState(false);
   const [updatingQueueEmail, setUpdatingQueueEmail] = useState<string | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
@@ -20,12 +20,13 @@ export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
   const load = useCallback(async () => {
     const current = ++sequence.current; setLoading(true); setError(null);
     try {
-      const params = new URLSearchParams({ thresholdDays: String(threshold) });
+      const params = new URLSearchParams();
+      if (threshold !== null) params.set("thresholdDays", String(threshold));
       if (from) params.set("from", from); if (to) params.set("to", to);
       const response = await fetch(`/api/enrollment/aca-overview?${params}`, { cache: "no-store" });
       const payload = await response.json().catch(() => null) as AcaOverviewSnapshot | { error?: string } | null;
       if (!response.ok) throw new Error(payload && "error" in payload ? payload.error : "Could not load ACA overview.");
-      if (current === sequence.current) setSnapshot(payload as AcaOverviewSnapshot);
+      if (current === sequence.current) { const next = payload as AcaOverviewSnapshot; setSnapshot(next); setThreshold((value) => value ?? next.thresholdDays); }
     } catch (cause) { if (current === sequence.current) setError(cause instanceof Error ? cause.message : "Could not load ACA overview."); }
     finally { if (current === sequence.current) setLoading(false); }
   }, [from, threshold, to]);
@@ -47,7 +48,7 @@ export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
     } finally { setUpdatingQueueEmail(null); }
   }, [load]);
   return <div className="space-y-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold text-[#6b778c]">Created-date cohort · {period}</p><p className="mt-1 text-xs text-[#8993a4]">Dashboard snapshot {new Date(snapshot.generatedAt).toLocaleString()}</p></div><div className="flex items-center gap-2"><label className="text-xs font-bold text-[#6b778c]">Stuck/silent ≥ <select value={threshold} onChange={(e) => setThreshold(Number(e.target.value) as AcaOverviewThresholdDays)} className="rounded border border-[#cfd8e5] bg-white px-2 py-1.5 text-xs font-bold text-[#344054]">{ACA_OVERVIEW_THRESHOLD_DAYS.map((value) => <option key={value} value={value}>{value} days</option>)}</select></label><button type="button" onClick={() => void load()} className="inline-flex items-center gap-1.5 rounded border border-[#cfd8e5] bg-white px-3 py-2 text-xs font-bold text-[#344054]"><RefreshCw className="h-3.5 w-3.5" />Refresh</button></div></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold text-[#6b778c]">Created-date cohort · {period}</p><p className="mt-1 text-xs text-[#8993a4]">Dashboard snapshot {new Date(snapshot.generatedAt).toLocaleString()}</p></div><div className="flex items-center gap-2"><label className="text-xs font-bold text-[#6b778c]">Stuck/silent ≥ <select value={threshold ?? snapshot.thresholdDays} onChange={(e) => setThreshold(Number(e.target.value) as AcaOverviewThresholdDays)} className="rounded border border-[#cfd8e5] bg-white px-2 py-1.5 text-xs font-bold text-[#344054]">{ACA_OVERVIEW_THRESHOLD_DAYS.map((value) => <option key={value} value={value}>{value} days</option>)}</select></label><button type="button" onClick={() => void load()} className="inline-flex items-center gap-1.5 rounded border border-[#cfd8e5] bg-white px-3 py-2 text-xs font-bold text-[#344054]"><RefreshCw className="h-3.5 w-3.5" />Refresh</button></div></div>
     <AcaScorecards scorecards={snapshot.scorecards} thresholdDays={snapshot.thresholdDays} />
     <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><Header title="Pipeline by stage" caption="Terminal stages are excluded from live waiting percentages."/><div className="overflow-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-[#fafbfc] text-left text-[11px] font-bold uppercase tracking-wide text-[#6b778c]"><tr><th className="px-4 py-3">Stage</th><th className="px-4 py-3 text-right">In stage</th><th className="px-4 py-3 text-right">Share</th><th className="px-4 py-3 text-right">Median wait</th><th className="px-4 py-3 text-right">Longest</th><th className="px-4 py-3 text-right">Stuck</th><th className="px-4 py-3 text-right">Silent</th></tr></thead><tbody>{snapshot.stageTable.map((row) => { const estimatedTitle = row.stageAgeEstimated ? "Estimated: this record predates stage-time tracking." : undefined; const estimatedClass = row.stageAgeEstimated ? "text-[#8993a4] italic" : ""; return <tr key={row.stageId ?? "unassigned"} className="border-t border-[#ebecf0]"><td className="px-4 py-3 font-semibold text-[#42526e]"><span className="mr-2 inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.stageColor ?? "#c1c7d0" }}/>{row.stageLabel}</td><td className="px-4 py-3 text-right font-bold">{row.inStage}</td><td className="px-4 py-3 text-right">{row.sharePercent == null ? "—" : `${row.sharePercent.toFixed(1)}%`}</td><td title={estimatedTitle} className={`px-4 py-3 text-right ${estimatedClass}`}>{formatDays(row.medianWaitDays)}</td><td title={estimatedTitle} className={`px-4 py-3 text-right ${estimatedClass}`}>{formatDays(row.longestWaitDays)}</td><td className="px-4 py-3 text-right">{row.stuckCount ?? "—"}</td><td className="px-4 py-3 text-right">{row.silentCount ?? "—"}</td></tr>; })}</tbody></table></div></section>
     <div className="grid gap-4 xl:grid-cols-2"><ActionSection title="Needs action" rows={snapshot.actions} onOpenRecord={onOpenRecord} people={snapshot.people.filter((person) => person.email).map((person) => ({ email: person.email!, name: person.name, canWork: true, queueEnabled: true }))} onAssigned={handleAssigned}/><ActionSection title="Unassigned" rows={snapshot.unassigned} onOpenRecord={onOpenRecord} people={snapshot.people.filter((person) => person.email).map((person) => ({ email: person.email!, name: person.name, canWork: true, queueEnabled: true }))} onAssigned={handleAssigned} assignable/></div>
