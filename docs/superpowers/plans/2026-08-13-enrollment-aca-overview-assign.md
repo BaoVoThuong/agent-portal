@@ -669,3 +669,11 @@ git commit -m "docs: record ACA overview assignment surface"
 
 - Full repository verification passed after implementation: `npm run test:run`
   (87 files, 602 tests), `npm run typecheck`, and `npm run build`.
+
+### Stage 5 follow-up — queue membership UI
+
+- Commit: `163cb26`
+- Added the manager-only `Edit queue` toggle grid to the ACA dashboard. It
+  lists active roster members, disables the current request while saving, and
+  reloads the snapshot after a successful membership change so queue order and
+  range-scoped counts stay consistent.
