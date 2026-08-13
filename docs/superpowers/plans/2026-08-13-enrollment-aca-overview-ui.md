@@ -1651,3 +1651,5 @@ git commit -m "docs: record ACA overview UI"
   `Not enough samples`, while current-cohort metrics with no rows remain `—`.
 - The matrix person column is sticky during horizontal scrolling (`80a8718`),
   preserving row identity on wide stage sets.
+- Stage-table wait aggregates now carry a muted estimated marker and tooltip
+  when their cohort includes pre-stage-tracking records (`6eca160`).

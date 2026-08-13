@@ -707,3 +707,5 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   empty current-cohort metrics (`—`) in the ACA scorecards.
 - Kept the ACA person × stage matrix's person column visible while scrolling
   across many stages.
+- Marked stage-table wait aggregates that include estimated pre-tracking ages,
+  avoiding presentation of backfilled ages as measured timings.
