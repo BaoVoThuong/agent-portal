@@ -715,3 +715,5 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
 - Bounded ACA live dwell and per-person cycle reads to 90 days and suppressed
   medians below ten samples, preventing sparse or stale history from appearing
   as a reliable speed metric.
+- Normalized ACA record/cycle emails at the snapshot boundary so mixed-case
+  database values continue to match roster people and responsibility history.

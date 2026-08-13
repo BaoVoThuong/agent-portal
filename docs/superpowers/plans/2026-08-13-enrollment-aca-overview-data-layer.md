@@ -2720,3 +2720,6 @@ These do not block this plan; they block the follow-ons.
   or invalid, while explicit valid picker values still win.
 - Dwell guard follow-up: `73cdd9f` limits cycle reads to the existing 90-day
   live window and returns null medians until the 10-sample floor is met.
+- Email-boundary follow-up: `60f01c6` normalizes record and cycle emails at the
+  snapshot boundary so mixed-case database values still join the active roster
+  and do not create false handover exclusions.
