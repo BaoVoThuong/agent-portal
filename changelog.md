@@ -699,3 +699,5 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
 - Added a manager-only `Edit queue` grid for ACA assignment membership. Changes
   reload the snapshot so queue ordering and cohort-scoped counts reconcile from
   the server response.
+- Rendered the complete 15-tile ACA scorecard set, including terminal counts,
+  staleness metrics, speed samples, and staffing figures.

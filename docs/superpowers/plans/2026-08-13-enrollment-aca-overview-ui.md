@@ -1638,3 +1638,6 @@ git commit -m "docs: record ACA overview UI"
 - Queue membership editing was completed in follow-up commit `163cb26`; the
   `Edit queue` grid is manager-only through the dashboard route and uses the
   enrollment-specific membership endpoint.
+- Scorecard rendering was completed in `481ff32`; all 15 planned volume,
+  attention, speed, and staffing tiles are now present instead of the earlier
+  five-card placeholder.
