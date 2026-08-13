@@ -69,6 +69,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
   if ("is_terminal" in body) patch.is_terminal = Boolean(body.is_terminal);
   if ("triggers_qc" in body) patch.triggers_qc = Boolean(body.triggers_qc);
+  if ("treat_as_terminal" in body) patch.treat_as_terminal = Boolean(body.treat_as_terminal);
 
   const { data, error } = await supabase
     .from("enrollment_options")

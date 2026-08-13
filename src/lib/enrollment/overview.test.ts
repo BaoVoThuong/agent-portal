@@ -97,7 +97,7 @@ describe("aggregateEnrollmentOverview", () => {
   });
 
   it("builds the needs-care union using the exact operational flags", () => {
-    const blocking = stageOption({ id: "blocking", label: "Can't Contact" });
+    const blocking = stageOption({ id: "blocking", label: "Can't Contact", treat_as_terminal: true });
     const qc = stageOption({ id: "qc", label: "10-DONE", is_terminal: true, triggers_qc: true });
     const snapshot = aggregate(
       [

@@ -65,6 +65,8 @@ export type EnrollmentOption = {
   color: string | null;
   position: number;
   is_terminal: boolean;
+  /** ACA overview terminal semantics; deliberately separate from close/QC rules. */
+  treat_as_terminal?: boolean;
   triggers_qc: boolean;
   archived_at: string | null;
 };

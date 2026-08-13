@@ -2664,3 +2664,16 @@ These do not block this plan; they block the follow-ons.
 - The rollout is additive and does not run automatically from the app. The
   deploy gate is: apply the rollout SQL and disposable assertions before
   enabling the ACA overview route.
+
+## Codex execution log
+
+### Stage 1 — ACA terminal-stage configuration
+
+- Commit: `PENDING` (this commit)
+- Added `enrollment_options.treat_as_terminal` to the canonical schema and an
+  additive rollout. The rollout marks the two agreed ACA outcomes (`Can't
+  Contact`, `Can not get ID card`) without changing Medicare semantics.
+- Threaded the field through option fetching, overview aggregation, option-set
+  POST/PATCH, and Config's stage controls. `Terminal`/`QC` remain independent
+  from the ACA dashboard flag.
+- Verification: `npm run typecheck`; targeted overview/options Vitest tests.

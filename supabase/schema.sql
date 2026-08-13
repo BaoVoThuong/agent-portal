@@ -3325,6 +3325,7 @@ create table if not exists enrollment_options (
   color text,
   position integer not null default 0,
   is_terminal boolean not null default false,
+  treat_as_terminal boolean not null default false,
   triggers_qc boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -4467,9 +4468,11 @@ with option_seed(set_key, label, color, position, is_terminal, triggers_qc) as (
     ('aca_status', 'ACA account done', '#00875A', 40, false, false)
 )
 insert into enrollment_options (
-  set_id, label, color, position, is_terminal, triggers_qc
+  set_id, label, color, position, is_terminal, treat_as_terminal, triggers_qc
 )
-select sets.id, seed.label, seed.color, seed.position, seed.is_terminal, seed.triggers_qc
+select sets.id, seed.label, seed.color, seed.position, seed.is_terminal,
+       (seed.set_key = 'stage' and lower(seed.label) in ('can''t contact', 'can not get id card')),
+       seed.triggers_qc
 from option_seed seed
 join enrollment_option_sets sets on sets.key = seed.set_key and sets.program = 'aca'
 where not exists (
@@ -4499,9 +4502,9 @@ with medicare_option_seed(set_key, label, color, position, is_terminal, triggers
     ('carrier', 'Humana', '#6554C0', 40, false, false)
 )
 insert into enrollment_options (
-  set_id, label, color, position, is_terminal, triggers_qc
+  set_id, label, color, position, is_terminal, treat_as_terminal, triggers_qc
 )
-select mset.id, seed.label, seed.color, seed.position, seed.is_terminal, seed.triggers_qc
+select mset.id, seed.label, seed.color, seed.position, seed.is_terminal, false, seed.triggers_qc
 from medicare_option_seed seed
 join enrollment_option_sets mset on mset.program = 'medicare' and mset.key = seed.set_key
 where not exists (

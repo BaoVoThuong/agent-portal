@@ -988,6 +988,7 @@ type DropdownValueRow = {
   label: string;
   color: string | null;
   isTerminal?: boolean;
+  treatAsTerminal?: boolean;
   triggersQc?: boolean;
 };
 
@@ -1184,6 +1185,7 @@ function ConfigDropdownValuesSection({
   const [color, setColor] = useState("");
   const [usesRecommendedColor, setUsesRecommendedColor] = useState(true);
   const [isTerminal, setIsTerminal] = useState(false);
+  const [treatAsTerminal, setTreatAsTerminal] = useState(false);
   const [triggersQc, setTriggersQc] = useState(false);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const [pendingStageRuleIds, setPendingStageRuleIds] = useState<Set<string>>(new Set());
@@ -1203,6 +1205,7 @@ function ConfigDropdownValuesSection({
             label: o.label,
             color: o.color,
             isTerminal: o.is_terminal,
+            treatAsTerminal: o.treat_as_terminal,
             triggersQc: o.triggers_qc,
           }));
   const activeConsentCount = isConsentGroup ? valueRows.length : 0;
@@ -1245,6 +1248,7 @@ function ConfigDropdownValuesSection({
           label,
           color: draftColor,
           is_terminal: isTerminal,
+          treat_as_terminal: treatAsTerminal,
           triggers_qc: triggersQc,
         }),
       });
@@ -1286,7 +1290,7 @@ function ConfigDropdownValuesSection({
     }
   }
 
-  async function toggleStageRule(id: string, patch: { is_terminal?: boolean; triggers_qc?: boolean }) {
+  async function toggleStageRule(id: string, patch: { is_terminal?: boolean; treat_as_terminal?: boolean; triggers_qc?: boolean }) {
     const pendingCount = (pendingStageRuleCountsRef.current.get(id) ?? 0) + 1;
     pendingStageRuleCountsRef.current.set(id, pendingCount);
     setPendingStageRuleIds((current) => new Set(current).add(id));
@@ -1344,6 +1348,7 @@ function ConfigDropdownValuesSection({
     setColor("");
     setUsesRecommendedColor(true);
     setIsTerminal(false);
+    setTreatAsTerminal(false);
     setTriggersQc(false);
     setConfirmArchiveId(null);
   }
@@ -1391,6 +1396,7 @@ function ConfigDropdownValuesSection({
                   setColor("");
                   setUsesRecommendedColor(true);
                   setIsTerminal(false);
+                  setTreatAsTerminal(false);
                   setTriggersQc(false);
                 }, "Option added.");
               }}
@@ -1448,6 +1454,20 @@ function ConfigDropdownValuesSection({
                   onChange={(event) => setTriggersQc(event.target.checked)}
                 />
                 QC
+              </label>
+              <label
+                className={`flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e] ${
+                  isStageGroup ? "" : "opacity-40"
+                }`}
+                title="Used by the ACA overview only; it does not close the enrollment record."
+              >
+                <input
+                  type="checkbox"
+                  disabled={!isStageGroup}
+                  checked={isStageGroup && treatAsTerminal}
+                  onChange={(event) => setTreatAsTerminal(event.target.checked)}
+                />
+                ACA terminal
               </label>
               <button
                 type="submit"
@@ -1529,6 +1549,20 @@ function ConfigDropdownValuesSection({
                                   }
                                 />
                                 Terminal
+                              </label>
+                              <label className="flex items-center gap-1.5">
+                                <input
+                                  type="checkbox"
+                                  disabled={busy || pendingStageRuleIds.has(row.id)}
+                                  checked={Boolean(row.treatAsTerminal)}
+                                  onChange={(event) =>
+                                    void run(
+                                      () => toggleStageRule(row.id, { treat_as_terminal: event.target.checked }),
+                                      "Option updated."
+                                    )
+                                  }
+                                />
+                                ACA dashboard terminal
                               </label>
                               <label className="flex items-center gap-1.5">
                                 <input

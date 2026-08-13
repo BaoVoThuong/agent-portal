@@ -110,6 +110,9 @@ export async function POST(request: Request) {
       triggers_qc:
         Boolean((setRow as { is_stage: boolean }).is_stage) &&
         Boolean(body?.triggers_qc),
+      treat_as_terminal:
+        Boolean((setRow as { is_stage: boolean }).is_stage) &&
+        Boolean(body?.treat_as_terminal),
     })
     .select("id")
     .single();

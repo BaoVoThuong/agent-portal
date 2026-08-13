@@ -165,11 +165,8 @@ function requiredMissingItems(
 
 function stageIsBlocking(program: EnrollmentProgram, stage: EnrollmentOption | null): boolean {
   if (!stage) return false;
-  const blocking =
-    program === "aca"
-      ? ["can't contact", "can not get id card", "need call to renewal"]
-      : ["e- id card unavailable"];
-  return blocking.includes(normalizeLabel(stage.label));
+  if (program === "aca") return Boolean(stage.treat_as_terminal);
+  return normalizeLabel(stage.label) === "e- id card unavailable";
 }
 
 function summaryFor(
