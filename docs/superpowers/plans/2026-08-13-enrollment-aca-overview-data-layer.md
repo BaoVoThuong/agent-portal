@@ -2677,3 +2677,12 @@ These do not block this plan; they block the follow-ons.
   POST/PATCH, and Config's stage controls. `Terminal`/`QC` remain independent
   from the ACA dashboard flag.
 - Verification: `npm run typecheck`; targeted overview/options Vitest tests.
+
+### Stage 2 — Pure overview aggregation
+
+- Commit: `5367554`
+- Added typed ACA snapshot contracts, config-driven stage classification,
+  timing/silence primitives, scorecards, stage table, needs-action and
+  unassigned rows, people/matrix aggregation, queue ranking, and a composed
+  aggregate function.
+- Verification: `npm run typecheck`; `npm run test:run -- --run src/lib/enrollment/aca-overview-aggregate.test.ts`.
