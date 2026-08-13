@@ -499,7 +499,7 @@ export function EnrollmentClient({
   );
   const [overviewDateRanges, setOverviewDateRanges] = useState<
     Record<EnrollmentProgram, TaskDateRangeValue>
-  >(() => ({ aca: thisMonthDateRange(), medicare: thisMonthDateRange() }));
+  >(() => ({ aca: { from: "", to: "" }, medicare: thisMonthDateRange() }));
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
     key: "attention",
     dir: "desc",
@@ -1261,6 +1261,7 @@ export function EnrollmentClient({
               program={program}
               from={overviewDateRange.from}
               to={overviewDateRange.to}
+              isManager={canManageOptions}
               onOpenRecord={openRecordById}
             />
           </div>

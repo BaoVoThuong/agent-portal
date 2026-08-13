@@ -1617,3 +1617,15 @@ git commit -m "docs: record ACA overview UI"
 - The component examples in this document are treated as contracts, not blind
   copy-paste: actual local types and callback signatures are checked before
   each component is wired.
+
+## Codex execution log
+
+### Stage 4 — ACA Overview integration UI
+
+- Commit: `PENDING` (this stage commit)
+- Added the manager-only ACA dashboard surface with scorecards, stage table,
+  needs-action/unassigned lists, people, matrix, and assignment queue. It uses
+  request sequencing and the all-dates default.
+- `EnrollmentOverview` delegates ACA before the legacy fetch; non-managers get
+  an explicit access message and Medicare remains unchanged.
+- Verification: `npm run typecheck`.

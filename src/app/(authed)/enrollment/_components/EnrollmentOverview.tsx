@@ -12,15 +12,27 @@ import type {
   EnrollmentOverviewStageDwellMetric,
 } from "@/lib/enrollment/overview-types";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
+import { AcaOverviewDashboard } from "./AcaOverviewDashboard";
 
 type OverviewProps = {
   program: EnrollmentProgram;
   from: string;
   to: string;
+  isManager: boolean;
   onOpenRecord: (id: string) => void;
 };
 
-export function EnrollmentOverview({ program, from, to, onOpenRecord }: OverviewProps) {
+export function EnrollmentOverview(props: OverviewProps) {
+  if (props.program === "aca") {
+    if (!props.isManager) {
+      return <div className="rounded-lg border border-[#dfe1e6] bg-white px-4 py-5 text-sm font-semibold text-[#6b778c]">ACA operations overview is available to managers only.</div>;
+    }
+    return <AcaOverviewDashboard from={props.from} to={props.to} onOpenRecord={props.onOpenRecord} />;
+  }
+  return <LegacyEnrollmentOverview {...props} />;
+}
+
+function LegacyEnrollmentOverview({ program, from, to, onOpenRecord }: OverviewProps) {
   const [snapshot, setSnapshot] = useState<EnrollmentOverviewSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
