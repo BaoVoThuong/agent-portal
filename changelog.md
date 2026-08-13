@@ -705,3 +705,5 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   cohorts remain reachable from the dashboard.
 - Distinguished unavailable cycle-derived metrics (`Not enough samples`) from
   empty current-cohort metrics (`—`) in the ACA scorecards.
+- Kept the ACA person × stage matrix's person column visible while scrolling
+  across many stages.

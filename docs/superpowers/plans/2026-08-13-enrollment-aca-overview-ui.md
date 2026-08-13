@@ -1600,12 +1600,16 @@ git commit -m "docs: record ACA overview UI"
 
 ---
 
-## Still to plan
+## Scope status
 
-- **Assignment write surface** — the `Assign to` picker in §7.6. Blocked on: extending the unassigned row with `updated_at` (PATCH requires `expected_updated_at`), batching the per-record `canAssignPeople` check so it is not one `agent_members` query per row, and wiring a post-write refresh that does not double-fire with `broadcastEnrollmentChanged`.
-- **Edit queue membership** — the toggle grid behind the queue, plus its endpoint and the seeding rule for a newly enabled person.
-- **Per-person stage timing** — spec §9.1.
-- **Medicare** — its own design pass.
+- **Assignment write surface** — implemented in the Stage 5 assignment commit;
+  the picker uses the existing enrollment PATCH and `expected_updated_at`.
+- **Edit queue membership** — implemented in the queue endpoint and the
+  manager-only toggle grid (`163cb26`).
+- **Per-person stage timing** — implemented in the Stage 6 timing commits and
+  the Occupancy/Speed matrix mode.
+- **Medicare** — intentionally out of scope; it requires its own design pass
+  and remains on the legacy overview branch.
 
 ## Codex implementation notes (2026-08-13)
 
@@ -1645,3 +1649,5 @@ git commit -m "docs: record ACA overview UI"
   `764c373`, preventing large cohorts from being silently truncated.
 - Empty-state formatting was corrected in `096b9c6`: cycle-derived metrics say
   `Not enough samples`, while current-cohort metrics with no rows remain `—`.
+- The matrix person column is sticky during horizontal scrolling (`80a8718`),
+  preserving row identity on wide stage sets.
