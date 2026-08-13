@@ -2711,4 +2711,7 @@ These do not block this plan; they block the follow-ons.
 ### Final verification
 
 - Full repository verification passed after implementation: `npm run test:run`
-  (86 files, 601 tests), `npm run typecheck`, and `npm run build`.
+  (87 files, 602 tests), `npm run typecheck`, and `npm run build`.
+- Follow-up boundary commit: `e18bd70` changes the inclusive `to` date into
+  an exclusive next-day UTC boundary and adds a regression test for the exact
+  boundary.
