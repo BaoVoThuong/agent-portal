@@ -2669,7 +2669,7 @@ These do not block this plan; they block the follow-ons.
 
 ### Stage 1 — ACA terminal-stage configuration
 
-- Commit: `PENDING` (this commit)
+- Commit: `1a88b55`
 - Added `enrollment_options.treat_as_terminal` to the canonical schema and an
   additive rollout. The rollout marks the two agreed ACA outcomes (`Can't
   Contact`, `Can not get ID card`) without changing Medicare semantics.
