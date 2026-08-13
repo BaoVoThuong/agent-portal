@@ -570,4 +570,4 @@ git commit -m "docs: record ACA per-person stage timing"
 ### Final verification
 
 - Full repository verification passed after implementation: `npm run test:run`
-  (87 files, 603 tests), `npm run typecheck`, and `npm run build`.
+  (87 files, 604 tests), `npm run typecheck`, and `npm run build`.
