@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
 import type { AcaOverviewPerson } from "@/lib/enrollment/aca-overview-types";
+import { formatEmailAsName } from "@/lib/tasks/people";
+import { EnrollmentPersonMenu } from "./EnrollmentClient";
 export function AcaAssignPicker({ recordId, expectedUpdatedAt, people, currentEmail, onAssigned }: { recordId: string; expectedUpdatedAt: string | null | undefined; people: readonly AcaOverviewPerson[]; currentEmail: string | null; onAssigned: (email: string | null, updatedAt?: string) => void }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   async function assign(email: string | null) {
@@ -13,5 +15,6 @@ export function AcaAssignPicker({ recordId, expectedUpdatedAt, people, currentEm
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not assign record."); }
     finally { setBusy(false); }
   }
-  return <div className="flex items-center gap-2"><select disabled={busy} value={currentEmail ?? ""} onChange={(event) => void assign(event.target.value || null)} className="max-w-[12rem] rounded border border-[#cfd8e5] bg-white px-2 py-1.5 text-xs font-semibold text-[#42526e]"><option value="">Unassigned</option>{people.filter((person) => person.canWork).map((person) => <option key={person.email} value={person.email}>{person.name ?? person.email}</option>)}</select>{error ? <span title={error} className="text-[10px] font-bold text-[#bf2600]">Failed</span> : null}</div>;
+  const peopleByEmail = new Map(people.filter((person) => person.canWork).map((person) => [person.email, person.name?.trim() || formatEmailAsName(person.email)]));
+  return <div className="flex min-w-0 items-center gap-2"><EnrollmentPersonMenu value={currentEmail} peopleByEmail={peopleByEmail} emptyLabel="Assign" placeholderLabel="Assign" surface="list" canEdit={!busy} onChange={(email) => void assign(email)} />{error ? <span title={error} className="text-[10px] font-bold text-[#bf2600]">Failed</span> : null}</div>;
 }

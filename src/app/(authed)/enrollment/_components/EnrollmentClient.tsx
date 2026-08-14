@@ -2449,7 +2449,7 @@ function EnrollmentOptionMenu({
   );
 }
 
-function EnrollmentPersonMenu({
+export function EnrollmentPersonMenu({
   value,
   peopleByEmail,
   emptyLabel,
