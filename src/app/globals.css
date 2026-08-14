@@ -1,14 +1,5 @@
 @import "tailwindcss";
 
-/* Dashboard design system (dash-design-system + dash-page-patterns).
-   Every rule below is inert until markup opts in with the .aca-dash wrapper:
-   the tokens are scoped to that class and the upstream global reset and app
-   shell were removed, so the portal's sidebar and page chrome are untouched. */
-@import "./styles/tokens.css";
-@import "./styles/primitives.css";
-@import "./styles/page.css";
-@import "./styles/aca-overrides.css";
-
 :root {
   --background: #ffffff;
   --foreground: #171717;
