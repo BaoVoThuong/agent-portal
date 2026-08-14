@@ -717,3 +717,105 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   as a reliable speed metric.
 - Normalized ACA record/cycle emails at the snapshot boundary so mixed-case
   database values continue to match roster people and responsibility history.
+
+## 2026-08-14 — ACA overview review fixes
+
+- Restored `supabase/schema.sql`, which had been truncated from 4870 lines to 77
+  in the working tree. That truncation was also what made the two
+  `sla-config.test.ts` schema-drift tests fail.
+- Enabled row level security on `enrollment_queue_members` and
+  `enrollment_overview_settings`. The anon key ships to the browser, so without
+  it any visitor could read those tables, add themselves to the assignment queue,
+  or rewrite the dashboard threshold. Both are written only through service-role
+  routes, which bypass RLS, so no policies are needed.
+- Keyed queue membership by `(email, program)` instead of email alone, and gave
+  the upsert an explicit conflict target. Previously an ACA toggle would have
+  governed every program — the exact flaw this design criticised in the CS queue.
+- Fixed `Avg tasks per person`: it divided *all* open records by the number of
+  people holding work, counting the unassigned queue against people who were not
+  holding it. Now assigned open records over active people.
+- Fixed the people table's `Done` column, which counted any record with
+  `closed_at` set. `11-Terminated` sets that too, so the throughput column was
+  crediting people for losing customers. Now only `10-DONE` counts.
+- Fixed the record trigger's `elsif` chain, which meant a handover stamped the
+  assignment clock and then skipped the activity clock — so a record passed
+  between people looked progressively more neglected the more attention it got.
+  The two branches are now independent.
+- Added the team baseline row to the people table and the Total row to the
+  person × stage matrix (occupancy totals, and the stage baseline in speed mode).
+  Both existed in the payload but were never rendered; without them a bad
+  per-person percentage cannot be told apart from a bad stage.
+- Replaced the stage table's `stageAgeEstimated` boolean with `estimatedCount`.
+  One old record used to mark an entire row as estimated, so nearly every row was
+  marked and the warning stopped meaning anything.
+- Removed a duplicate snapshot request on every dashboard mount, caused by
+  adopting the server threshold into the state the fetch depended on.
+- Assigning a record now updates the `Unassigned` tile, the team row and the
+  unassigned row together, instead of leaving the tile contradicting the table,
+  and adopts the returned `updated_at` so a second edit cannot 409 on a stale
+  timestamp.
+- The two optional config tables now degrade identically when absent, matching on
+  Postgres/PostgREST error codes rather than on English message text.
+- Attributed cycle emails are normalised on the way out, not only for the
+  start/end comparison, so a mixed-case row is no longer silently dropped.
+- Added regression tests for the average, the done count, the team/unassigned
+  rows and the estimated count, plus SQL assertions for RLS, the composite key,
+  and the trigger moving both clocks on assignment.
+
+## 2026-08-14 — ACA overview schema replay fixes
+
+- `enrollment_options.treat_as_terminal` was declared only inside
+  `create table if not exists`, which is a no-op on an existing database. Running
+  `schema.sql` against any live environment failed with
+  `column "treat_as_terminal" of relation "enrollment_options" does not exist`
+  at the ACA option seed. Added the matching
+  `alter table ... add column if not exists`, the pattern the rest of the file
+  already uses for columns added after a table ships.
+- `enrollment_stage_cycles.responsible_start_email` / `responsible_end_email`
+  were never declared in `schema.sql` at all, yet the responsibility trigger and
+  both atomic RPCs write them — so a database built from `schema.sql` broke at
+  the first stage transition. Added both columns. (They had been added to
+  `task_stage_cycles` instead, where nothing reads them.)
+- `schema.sql` still carried the pre-fix `elsif` version of
+  `enrollment_sync_overview_timestamps`. Both it and the rollout use
+  `create or replace`, so replaying the schema silently reinstated the bug where
+  an assignment skipped the activity clock. Now matches the rollout.
+- Added `enrollment_queue_members` and `enrollment_overview_settings` to
+  `schema.sql`; they existed only in the rollout, so a fresh environment got
+  neither table. Both are registered in the `protected_tables` list that enables
+  row level security, rather than enabling it in two places.
+- Moved the queue-membership `useCallback` above the dashboard's loading/error
+  early returns. It was declared after them, so the loading render called eleven
+  hooks and the loaded render called twelve, crashing with "rendered more hooks
+  than during the previous render" as soon as the first snapshot arrived.
+- Added an expandable column-definition legend to the ACA stage table, plus
+  header tooltips. Three of those columns go blank rather than showing zero when
+  the underlying stage-entry clock was never recorded, which is indistinguishable
+  from "nothing is wrong" without a stated definition.
+
+## 2026-08-14 — ACA overview rebuilt on the dashboard design system
+
+- Installed the four `dash-*` skills into `.claude/skills/` and adopted two of
+  them for the ACA overview: `dash-design-system` (tokens + 23 primitives) and
+  `dash-page-patterns` (page anatomy, glance hero, numbered section rhythm,
+  provenance footer).
+- **Skipped `dash-charts` on purpose.** It mandates ECharts, the project already
+  ships Recharts, and this page has no charts at all — adopting it would add a
+  second charting library and ~1MB for zero charts. Revisit as one decision if
+  the page ever needs one.
+- The overview is the only thing restyled. Sidebar, page title, Export, New
+  enrollment, the Overview/List tabs and the date picker are untouched: the
+  design tokens are bound to a `.aca-dash` wrapper instead of `:root`, the
+  upstream global reset and app shell were dropped, and every rule in
+  `primitives.css` / `page.css` is prefixed with that scope so a bare `.card` or
+  `.chip` rule cannot reach the rest of the portal.
+- Recomposed the page as: filter bar (staleness threshold + window) → coverage
+  banner → five-tile glance hero → five numbered sections (VOLUME, PIPELINE,
+  ATTENTION, PEOPLE, QUEUE) → provenance footer.
+- Added a coverage banner that fires when at least half of open records have no
+  recorded stage-entry time, naming the count and saying which three columns go
+  blank as a result. Previously that state was indistinguishable from healthy.
+- Moved the ACA overview's Unassigned list out of section 03 and under section
+  05, directly below the assignment queue. The queue answers who is next and the
+  list is what to hand them; splitting them meant reading one section and acting
+  in another. Section 03 is now the single full-width Needs-action list.
