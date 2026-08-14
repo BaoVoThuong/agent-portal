@@ -4,7 +4,7 @@ import type { AcaOverviewActionRow, AcaOverviewInput, AcaOverviewRecord } from "
 import type { EnrollmentOption } from "./types";
 function row(record: AcaOverviewRecord, stage: EnrollmentOption | undefined, input: AcaOverviewInput): AcaOverviewActionRow {
   const inStage = daysInStage(record, input.now); const silent = daysSilent(record, input.now);
-  return { recordId: record.id, taskId: record.display_number, clientName: record.client_name, agentEmail: record.agent_email, responsibleEmail: record.responsible_enroll_email, callerEmail: record.caller_email, stageLabel: stage?.label ?? null, daysInStage: inStage, daysSilent: silent, sortDays: Math.max(inStage ?? 0, silent ?? 0), stageAgeEstimated: isEstimatedStageAge(record), updatedAt: record.updated_at };
+  return { recordId: record.id, taskId: record.display_number, clientName: record.client_name, agentEmail: record.agent_email, responsibleEmail: record.responsible_enroll_email, callerEmail: record.caller_email, stageLabel: stage?.label ?? null, createdAt: record.created_at, lastActivityAt: record.last_work_activity_at, daysInStage: inStage, daysSilent: silent, sortDays: Math.max(inStage ?? 0, silent ?? 0), stageAgeEstimated: isEstimatedStageAge(record), updatedAt: record.updated_at };
 }
 function running(input: AcaOverviewInput) {
   const byId = new Map(input.stages.map((s) => [s.id, s]));
