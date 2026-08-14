@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { RefreshCw } from "lucide-react";
+import { Activity, RefreshCw } from "lucide-react";
 import { ACA_OVERVIEW_THRESHOLD_DAYS, type AcaOverviewPerson, type AcaOverviewSnapshot, type AcaOverviewThresholdDays } from "@/lib/enrollment/aca-overview-types";
-import { applyResponsibleAssignment } from "@/lib/enrollment/aca-overview-assign";
+import { applyResponsibleAssignment, reconcileAssignedRow } from "@/lib/enrollment/aca-overview-assign";
 import { AcaAssignPicker } from "./AcaAssignPicker";
 
 type Props = { from: string; to: string; onOpenRecord: (id: string) => void };
@@ -17,6 +17,7 @@ export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
   const [queueError, setQueueError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
   const sequence = useRef(0);
+
   const load = useCallback(async () => {
     const current = ++sequence.current; setLoading(true); setError(null);
     try {
@@ -26,16 +27,21 @@ export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
       const response = await fetch(`/api/enrollment/aca-overview?${params}`, { cache: "no-store" });
       const payload = await response.json().catch(() => null) as AcaOverviewSnapshot | { error?: string } | null;
       if (!response.ok) throw new Error(payload && "error" in payload ? payload.error : "Could not load ACA overview.");
-      if (current === sequence.current) { const next = payload as AcaOverviewSnapshot; setSnapshot(next); setThreshold((value) => value ?? next.thresholdDays); }
+      // Deliberately does NOT adopt the server threshold into state. Doing so
+      // changed `load`'s identity on the first response and fired a second full
+      // snapshot request on every mount. `threshold` holds the user's explicit
+      // choice only; the control falls back to the server value for display.
+      if (current === sequence.current) setSnapshot(payload as AcaOverviewSnapshot);
     } catch (cause) { if (current === sequence.current) setError(cause instanceof Error ? cause.message : "Could not load ACA overview."); }
     finally { if (current === sequence.current) setLoading(false); }
   }, [from, threshold, to]);
+
   useEffect(() => { void load(); return () => { sequence.current += 1; }; }, [load]);
-  if (loading && !snapshot) return <Message>Loading ACA operations...</Message>;
-  if (error && !snapshot) return <Message error={error} onRetry={() => void load()} />;
-  if (!snapshot) return <Message>No ACA overview data.</Message>;
-  const period = snapshot.period.from && snapshot.period.to ? `${snapshot.period.from} – ${snapshot.period.to}` : "All dates";
-  const handleAssigned = (recordId: string, email: string | null, updatedAt?: string) => setSnapshot((current) => current ? { ...current, actions: applyResponsibleAssignment(current.actions, recordId, email), unassigned: current.unassigned.filter((row) => row.recordId !== recordId), people: current.people.map((row) => row.email === email ? { ...row, holding: row.holding + 1 } : row) } : current);
+
+  // Every hook must run before the guards below. These early returns fire while
+  // the first snapshot is loading, so anything hook-shaped placed after them is
+  // skipped on that render and called on the next one — which is exactly the
+  // "rendered more hooks than during the previous render" crash.
   const handleToggleQueue = useCallback(async (email: string, enabled: boolean) => {
     setUpdatingQueueEmail(email); setQueueError(null);
     try {
@@ -47,36 +53,468 @@ export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
       setQueueError(cause instanceof Error ? cause.message : "Could not update the assignment queue.");
     } finally { setUpdatingQueueEmail(null); }
   }, [load]);
-  return <div className="space-y-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold text-[#6b778c]">Created-date cohort · {period}</p><p className="mt-1 text-xs text-[#8993a4]">Dashboard snapshot {new Date(snapshot.generatedAt).toLocaleString()}</p></div><div className="flex items-center gap-2"><label className="text-xs font-bold text-[#6b778c]">Stuck/silent ≥ <select value={threshold ?? snapshot.thresholdDays} onChange={(e) => setThreshold(Number(e.target.value) as AcaOverviewThresholdDays)} className="rounded border border-[#cfd8e5] bg-white px-2 py-1.5 text-xs font-bold text-[#344054]">{ACA_OVERVIEW_THRESHOLD_DAYS.map((value) => <option key={value} value={value}>{value} days</option>)}</select></label><button type="button" onClick={() => void load()} className="inline-flex items-center gap-1.5 rounded border border-[#cfd8e5] bg-white px-3 py-2 text-xs font-bold text-[#344054]"><RefreshCw className="h-3.5 w-3.5" />Refresh</button></div></div>
-    <AcaScorecards scorecards={snapshot.scorecards} thresholdDays={snapshot.thresholdDays} />
-    <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><Header title="Pipeline by stage" caption="Terminal stages are excluded from live waiting percentages."/><div className="overflow-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-[#fafbfc] text-left text-[11px] font-bold uppercase tracking-wide text-[#6b778c]"><tr><th className="px-4 py-3">Stage</th><th className="px-4 py-3 text-right">In stage</th><th className="px-4 py-3 text-right">Share</th><th className="px-4 py-3 text-right">Median wait</th><th className="px-4 py-3 text-right">Longest</th><th className="px-4 py-3 text-right">Stuck</th><th className="px-4 py-3 text-right">Silent</th></tr></thead><tbody>{snapshot.stageTable.map((row) => { const estimatedTitle = row.stageAgeEstimated ? "Estimated: this record predates stage-time tracking." : undefined; const estimatedClass = row.stageAgeEstimated ? "text-[#8993a4] italic" : ""; return <tr key={row.stageId ?? "unassigned"} className="border-t border-[#ebecf0]"><td className="px-4 py-3 font-semibold text-[#42526e]"><span className="mr-2 inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.stageColor ?? "#c1c7d0" }}/>{row.stageLabel}</td><td className="px-4 py-3 text-right font-bold">{row.inStage}</td><td className="px-4 py-3 text-right">{row.sharePercent == null ? "—" : `${row.sharePercent.toFixed(1)}%`}</td><td title={estimatedTitle} className={`px-4 py-3 text-right ${estimatedClass}`}>{formatDays(row.medianWaitDays)}</td><td title={estimatedTitle} className={`px-4 py-3 text-right ${estimatedClass}`}>{formatDays(row.longestWaitDays)}</td><td className="px-4 py-3 text-right">{row.stuckCount ?? "—"}</td><td className="px-4 py-3 text-right">{row.silentCount ?? "—"}</td></tr>; })}</tbody></table></div></section>
-    <div className="grid gap-4 xl:grid-cols-2"><ActionSection title="Needs action" rows={snapshot.actions} onOpenRecord={onOpenRecord} people={snapshot.people.filter((person) => person.email).map((person) => ({ email: person.email!, name: person.name, canWork: true, queueEnabled: true }))} onAssigned={handleAssigned}/><ActionSection title="Unassigned" rows={snapshot.unassigned} onOpenRecord={onOpenRecord} people={snapshot.people.filter((person) => person.email).map((person) => ({ email: person.email!, name: person.name, canWork: true, queueEnabled: true }))} onAssigned={handleAssigned} assignable/></div>
-    <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><Header title="People" caption="Open assigned work in the selected created-date cohort."/><div className="overflow-auto"><table className="w-full min-w-[720px] text-sm"><thead className="bg-[#fafbfc] text-left text-[11px] font-bold uppercase tracking-wide text-[#6b778c]"><tr><th className="px-4 py-3">Person</th><th className="px-4 py-3 text-right">Holding</th><th className="px-4 py-3 text-right">Stuck</th><th className="px-4 py-3 text-right">Silent</th><th className="px-4 py-3 text-right">Median wait</th><th className="px-4 py-3 text-right">Done</th></tr></thead><tbody>{snapshot.people.map((row) => <tr key={row.email ?? "unassigned"} className="border-t border-[#ebecf0]"><td className="px-4 py-3 font-semibold text-[#42526e]">{row.name ?? row.email ?? "Unassigned"}</td><td className="px-4 py-3 text-right font-bold">{row.holding}</td><td className="px-4 py-3 text-right">{row.stuck}</td><td className="px-4 py-3 text-right">{row.silent}</td><td className="px-4 py-3 text-right">{formatDays(row.medianWaitDays)}</td><td className="px-4 py-3 text-right">{row.doneInPeriod}</td></tr>)}</tbody></table></div></section>
-    <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ebecf0] px-4 py-3"><div><h2 className="text-sm font-bold text-[#172b4d]">Person × stage</h2><p className="mt-0.5 text-xs text-[#6b778c]">{matrixMode === "occupancy" ? "Current open occupancy and stuck counts." : "Historical median completed dwell; fewer than 10 attributed samples shows —."}</p></div><div className="inline-flex rounded border border-[#cfd8e5] p-0.5 text-xs font-bold"><button type="button" onClick={() => setMatrixMode("occupancy")} className={`rounded px-2 py-1 ${matrixMode === "occupancy" ? "bg-[#e9f2ff] text-[#0c66e4]" : "text-[#6b778c]"}`}>Occupancy</button><button type="button" onClick={() => setMatrixMode("speed")} className={`rounded px-2 py-1 ${matrixMode === "speed" ? "bg-[#e9f2ff] text-[#0c66e4]" : "text-[#6b778c]"}`}>Speed</button></div></div><div className="overflow-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-[#fafbfc] text-left text-[11px] font-bold uppercase tracking-wide text-[#6b778c]"><tr><th className="sticky left-0 z-10 bg-[#fafbfc] px-4 py-3">Person</th>{snapshot.matrix.stageLabels.map((label) => <th key={label} className="px-4 py-3 text-right">{label}</th>)}</tr></thead><tbody>{snapshot.matrix.rows.map((row) => <tr key={row.email ?? "unassigned"} className="border-t border-[#ebecf0]"><td className="sticky left-0 z-10 bg-white px-4 py-3 font-semibold text-[#42526e]">{row.name ?? "Unassigned"}</td>{row.cells.map((cell, index) => <td key={snapshot.matrix.stageIds[index]} className="px-4 py-3 text-right">{matrixMode === "occupancy" ? <><span className="font-bold">{cell.tasks}</span><span className="ml-1 text-xs text-[#8993a4]">({cell.stuck} stuck)</span></> : row.email ? <span className="font-bold text-[#42526e]">{snapshot.personStageTiming.cells[row.email]?.[snapshot.matrix.stageIds[index]]?.medianDays == null ? "—" : `${snapshot.personStageTiming.cells[row.email][snapshot.matrix.stageIds[index]].medianDays}d`}</span> : "—"}</td>)}</tr>)}</tbody></table></div></section>
-    <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ebecf0] px-4 py-3"><div><h2 className="text-sm font-bold text-[#172b4d]">Assignment queue</h2><p className="mt-0.5 text-xs text-[#6b778c]">Never assigned first, then oldest assignment. Holding/stuck are informational. · {period}</p></div><button type="button" onClick={() => { setEditingQueue((value) => !value); setQueueError(null); }} className="rounded border border-[#cfd8e5] bg-white px-3 py-1.5 text-xs font-bold text-[#344054]">{editingQueue ? "Done" : "Edit queue"}</button></div>{editingQueue ? <div className="border-b border-[#ebecf0] bg-[#fbfdff] px-4 py-3">{queueError ? <p className="mb-2 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">{queueError}</p> : null}<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{snapshot.people.filter((person) => person.email).map((person) => { const email = person.email!; const enabled = snapshot.queue.some((card) => card.email === email); return <label key={email} className={`flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm font-semibold ${enabled ? "border-[#b3d4ff] bg-white text-[#172b4d]" : "border-[#dfe3ea] bg-[#f4f5f7] text-[#667085]"}`}><span className="min-w-0 truncate">{person.name ?? email}</span><input type="checkbox" checked={enabled} disabled={updatingQueueEmail === email} onChange={(event) => void handleToggleQueue(email, event.target.checked)} className="h-4 w-4 shrink-0 rounded border-[#c1c7d0] disabled:opacity-50" /></label>; })}</div></div> : null}<div className="flex gap-3 overflow-x-auto p-4 pb-5">{snapshot.queue.map((person) => <div key={person.email} className="min-w-[180px] rounded-lg border border-[#dfe1e6] bg-[#fafbfc] p-3"><p className="font-bold text-[#172b4d]">{person.name ?? person.email}</p><p className="mt-2 text-xs text-[#6b778c]">Holding <b>{person.holding}</b> · Stuck <b>{person.stuck}</b></p><p className="mt-1 text-[11px] text-[#8993a4]">{person.lastAssignedAt ? `Last assigned ${new Date(person.lastAssignedAt).toLocaleDateString()}` : "Never assigned"}</p></div>)}{snapshot.queue.length === 0 ? <p className="text-sm text-[#8993a4]">Nobody is enabled in the queue.</p> : null}</div></section>
-  </div>;
+
+  if (loading && !snapshot) return <Shell><Message>Loading ACA operations…</Message></Shell>;
+  if (error && !snapshot) return <Shell><Message error={error} onRetry={() => void load()} /></Shell>;
+  if (!snapshot) return <Shell><Message>No ACA overview data.</Message></Shell>;
+
+  const s = snapshot.scorecards;
+  const days = snapshot.thresholdDays;
+  const period = snapshot.period.from && snapshot.period.to ? `${snapshot.period.from} → ${snapshot.period.to}` : "All dates";
+  const people = snapshot.people.filter((row) => row.email).map((row) => ({ email: row.email!, name: row.name, canWork: true, queueEnabled: true }));
+
+  // Coverage, not decoration: when the stage clock was never recorded, three of
+  // the stage columns go blank and every row is flagged "est." — which looks
+  // identical to "everything is fine" unless it is said out loud.
+  const live = snapshot.stageTable.filter((row) => !row.isTerminal);
+  const inStage = live.reduce((sum, row) => sum + row.inStage, 0);
+  const estimated = live.reduce((sum, row) => sum + (row.estimatedCount ?? 0), 0);
+  const estimatedShare = inStage ? estimated / inStage : 0;
+
+  const handleAssigned = (recordId: string, email: string | null, updatedAt?: string) => setSnapshot((current) => {
+    if (!current) return current;
+    // Assigning moves a record out of the unassigned pool, so the tile, the
+    // list, the team row and the Unassigned row all have to move together —
+    // otherwise the count next to the table contradicts the table itself.
+    const leftUnassignedPool = Boolean(email) && current.unassigned.some((row) => row.recordId === recordId);
+    return {
+      ...current,
+      actions: reconcileAssignedRow(applyResponsibleAssignment(current.actions, recordId, email), recordId, updatedAt),
+      unassigned: email ? current.unassigned.filter((row) => row.recordId !== recordId) : reconcileAssignedRow(current.unassigned, recordId, updatedAt),
+      scorecards: leftUnassignedPool ? { ...current.scorecards, unassigned: Math.max(0, current.scorecards.unassigned - 1) } : current.scorecards,
+      people: current.people.map((row) => {
+        if (row.kind === "person" && row.email === email) return { ...row, holding: row.holding + 1 };
+        if (!leftUnassignedPool) return row;
+        if (row.kind === "unassigned") return { ...row, holding: Math.max(0, row.holding - 1) };
+        if (row.kind === "team") return { ...row, holding: row.holding + 1 };
+        return row;
+      }),
+    };
+  });
+
+  return (
+    <Shell>
+      <div className="filterbar">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span className="eyebrow">Stale after</span>
+          <Seg value={String(threshold ?? snapshot.thresholdDays)} options={ACA_OVERVIEW_THRESHOLD_DAYS.map(String)} format={(v) => `${v}d`} onChange={(v) => setThreshold(Number(v) as AcaOverviewThresholdDays)} />
+          <span className="chip info">{period}</span>
+        </div>
+        <button type="button" onClick={() => void load()} className="chip clickable">
+          <RefreshCw size={13} /> Refresh
+        </button>
+      </div>
+
+      {estimatedShare >= 0.5 ? (
+        <div className="coverage-banner">
+          <b>Stage timing is mostly estimated.</b> {estimated} of {inStage} open records have no
+          recorded stage-entry time, so <b>Median wait</b>, <b>Longest</b> and <b>Stuck</b> read
+          blank or zero rather than low. Run the stage-time backfill to populate them.
+        </div>
+      ) : null}
+
+      <Glance
+        tiles={[
+          { label: "Open records", value: s.open, note: `${s.totalTasks} total in window`, tone: "neutral" },
+          { label: "Unassigned", value: s.unassigned, note: "waiting for an owner", tone: s.unassigned ? "bad" : "good" },
+          { label: `Stuck ≥ ${days}d`, value: s.stuckInStage, note: "no stage movement", tone: s.stuckInStage ? "bad" : "good" },
+          { label: `No activity ≥ ${days}d`, value: s.noActivity, note: "no real work logged", tone: s.noActivity ? "bad" : "good" },
+          { label: "Median open age", value: fmtDays(s.medianOpenAgeDays), note: "since created", tone: "neutral" },
+        ]}
+      />
+
+      <div className="flow">
+        <Section num="01" code="VOLUME" title="Where does the book stand?" desc="Every figure covers records created inside the selected window. Done, Open and Terminated partition that window exactly.">
+          <div className="row row-5">
+            <Metric label="Total tasks" value={s.totalTasks} />
+            <Metric label="Done" value={s.done} sub="reached 10-DONE" />
+            <Metric label="Terminated" value={s.terminated} sub="reached 11-Terminated" />
+            <Metric label="Can't Contact" value={s.cantContact} sub="open, no route forward" />
+            <Metric label="Can not get ID card" value={s.cannotGetIdCard} sub="open, blocked on ID" />
+          </div>
+          <div className="row row-5">
+            <Metric label="Median time to done" value={fmtDays(s.medianTimeToDoneDays)} sub="creation → 10-DONE" />
+            <Metric label="Slowest stage" value={s.slowestStage ? fmtDays(s.slowestStage.medianDays) : "—"} sub={s.slowestStage?.stageLabel ?? "not enough samples"} />
+            <Metric label="Median time in stage" value={fmtDays(s.medianTimeInCurrentStageDays)} sub="open records" />
+            <Metric label="Active people" value={s.activePeople} sub="holding ≥ 1 record" />
+            <Metric label="Avg per person" value={s.avgTasksPerPerson == null ? "—" : s.avgTasksPerPerson.toFixed(1)} sub="assigned open ÷ people" />
+          </div>
+        </Section>
+
+        <Section num="02" code="PIPELINE" title="Where does work pile up?" desc="One row per stage, ordered by the workflow. Unassigned work is lifted into its own row rather than hidden inside a stage.">
+          <details className="expander">
+            <summary><span className="caret">▸</span> What do these columns mean?</summary>
+            <div className="exp-body">
+              <dl style={{ display: "grid", gap: "0.5rem", margin: 0 }}>
+                {Object.entries(STAGE_COLUMN_HELP).map(([term, meaning]) => (
+                  <div key={term}>
+                    <dt style={{ display: "inline", fontWeight: 700 }}>{term}: </dt>
+                    <dd style={{ display: "inline", margin: 0, color: "var(--muted)" }}>{meaning.replace("the selected number of days", `${days} days`)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </details>
+          <div className="card chart-card">
+            <div className="chart-head">
+              <div>
+                <div className="chart-title">Stage pipeline</div>
+                <div className="chart-hint">Ordered by the workflow, not by insert order. Stages that end the pipeline show no waiting figures — nobody is waiting on those records.</div>
+              </div>
+              <span className="chip info">{inStage} open</span>
+            </div>
+            <div className="df-scroll">
+            <table className="df">
+              <thead>
+                <tr>
+                  <th>Stage</th>
+                  <th className="num" title={STAGE_COLUMN_HELP["In stage"]}>In stage</th>
+                  <th className="num" title={STAGE_COLUMN_HELP.Share}>Share</th>
+                  <th className="num" title={STAGE_COLUMN_HELP["Median wait"]}>Median wait</th>
+                  <th className="num" title={STAGE_COLUMN_HELP.Longest}>Longest</th>
+                  <th className="num" title={STAGE_COLUMN_HELP.Stuck}>Stuck</th>
+                  <th className="num" title={STAGE_COLUMN_HELP.Silent}>Silent</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snapshot.stageTable.map((row) => {
+                  const est = row.estimatedCount ?? 0;
+                  const mostly = Boolean(est && row.inStage && est / row.inStage >= 0.5);
+                  return (
+                    <tr key={row.stageId ?? "unassigned"}>
+                      <td>
+                        <span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, marginRight: 8, background: row.stageColor ?? "var(--border)" }} />
+                        {row.stageLabel}
+                        {est ? <span className="chip" style={{ marginLeft: 8 }} title={`${est} of ${row.inStage} records predate stage-time tracking, so their stage age is estimated from the creation date.`}>{est} est.</span> : null}
+                      </td>
+                      <td className="num"><b>{row.inStage}</b></td>
+                      <td className="num">{row.sharePercent == null ? "—" : `${row.sharePercent.toFixed(1)}%`}</td>
+                      <td className="num" style={mostly ? { color: "var(--subtle)", fontStyle: "italic" } : undefined}>{fmtDays(row.medianWaitDays)}</td>
+                      <td className="num" style={mostly ? { color: "var(--subtle)", fontStyle: "italic" } : undefined}>{fmtDays(row.longestWaitDays)}</td>
+                      <td className="num">{row.stuckCount ?? "—"}</td>
+                      <td className="num">{row.silentCount ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            </div>
+          </div>
+        </Section>
+
+        <Section num="03" code="ATTENTION" title="What needs a person today?" desc="Sorted worst-first by the larger of stage age and silence. A high stage age with recent activity is a blocked record, not a neglected one.">
+          <RecordList title="Needs action" rows={snapshot.actions} onOpenRecord={onOpenRecord} />
+        </Section>
+
+        <Section num="04" code="PEOPLE" title="Who is carrying what?" desc="Read every per-person figure against the Team total row. A bad percentage is often a bad stage rather than a bad worker — the matrix below is how you tell them apart.">
+          <div className="card chart-card">
+            <div className="chart-head">
+              <div>
+                <div className="chart-title">Workload by person</div>
+                <div className="chart-hint">Error counts carry their share of what that person is holding. The Team total row is the baseline to read them against.</div>
+              </div>
+              <span className="chip info">{snapshot.scorecards.activePeople} active</span>
+            </div>
+            <div className="df-scroll">
+            <table className="df">
+              <thead>
+                <tr>
+                  <th>Person</th><th className="num">Holding</th><th className="num">Stuck</th>
+                  <th className="num">Silent</th><th className="num">Median wait</th><th className="num">Done</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snapshot.people.map((row) => {
+                  const share = (value: number) => row.holding ? ` (${Math.round(value / row.holding * 100)}%)` : "";
+                  const tone = row.kind === "team" ? { background: "var(--card)", fontWeight: 700 } : row.kind === "unassigned" ? { color: "var(--subtle)", fontStyle: "italic" } : undefined;
+                  return (
+                    <tr key={row.email ?? row.kind} style={tone}>
+                      <td>{row.name ?? row.email ?? "Unassigned"}</td>
+                      <td className="num"><b>{row.holding}</b></td>
+                      <td className="num">{row.stuck}<span style={{ color: "var(--subtle)" }}>{share(row.stuck)}</span></td>
+                      <td className="num">{row.silent}<span style={{ color: "var(--subtle)" }}>{share(row.silent)}</span></td>
+                      <td className="num">{fmtDays(row.medianWaitDays)}</td>
+                      <td className="num">{row.doneInPeriod}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            </div>
+          </div>
+
+          <div className="card chart-card">
+            <div className="chart-head">
+              <div>
+                <div className="chart-title">Person × stage</div>
+                <div className="chart-hint">
+                  {matrixMode === "occupancy"
+                    ? `Open records held right now, with the count stuck ≥ ${days}d beside it. Running stages only.`
+                    : "Median completed dwell per person. Only cycles held by one person start to finish count; fewer than 10 samples shows —."}
+                </div>
+              </div>
+              <Seg value={matrixMode} options={["occupancy", "speed"]} onChange={(v) => setMatrixMode(v as "occupancy" | "speed")} />
+            </div>
+            <div className="df-scroll">
+              <table className="df">
+                <thead>
+                  <tr>
+                    <th>Person</th>
+                    {snapshot.matrix.stageIds.map((id, i) => <th key={id} className="num">{snapshot.matrix.stageLabels[i]}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshot.matrix.rows.map((row) => (
+                    <tr key={row.email ?? "unassigned"}>
+                      <td>{row.name ?? "Unassigned"}</td>
+                      {row.cells.map((cell, index) => {
+                        const stageId = snapshot.matrix.stageIds[index];
+                        return (
+                          <td key={stageId} className="num">
+                            {matrixMode === "occupancy"
+                              ? <><b>{cell.tasks || ""}</b>{cell.stuck ? <span style={{ color: "var(--bad)", marginLeft: 4 }}>({cell.stuck})</span> : null}</>
+                              : row.email
+                                ? (snapshot.personStageTiming.cells[row.email]?.[stageId]?.medianDays == null ? "—" : `${snapshot.personStageTiming.cells[row.email][stageId].medianDays}d`)
+                                : "—"}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  {/* The baseline row is what separates "this person is slow" from
+                      "this stage is slow for everyone". Not decoration. */}
+                  <tr style={{ background: "var(--card)", fontWeight: 700 }}>
+                    <td>Total</td>
+                    {snapshot.matrix.stageIds.map((stageId, index) => (
+                      <td key={stageId} className="num">
+                        {matrixMode === "occupancy"
+                          ? <><b>{snapshot.matrix.totals[index]?.tasks ?? 0}</b>{snapshot.matrix.totals[index]?.stuck ? <span style={{ color: "var(--bad)", marginLeft: 4 }}>({snapshot.matrix.totals[index].stuck})</span> : null}</>
+                          : (snapshot.personStageTiming.stageBaseline[stageId]?.medianDays == null ? "—" : `${snapshot.personStageTiming.stageBaseline[stageId].medianDays}d`)}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Section>
+
+        <Section num="05" code="QUEUE" title="Who gets the next record?" desc="Turn order first, then the records waiting for an owner — so the answer and the action sit in one place. Holding and Stuck are shown but do not affect the order; read them before you assign.">
+          {queueError ? <div className="callout note"><span className="callout-lbl">Queue</span>{queueError}</div> : null}
+          <div className="card" style={{ padding: "0.9rem 1rem" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+              <span className="eyebrow"><Activity size={13} /> {snapshot.queue.length} in rotation</span>
+              <button type="button" className="chip clickable" onClick={() => { setEditingQueue((v) => !v); setQueueError(null); }}>{editingQueue ? "Done" : "Edit queue"}</button>
+            </div>
+            {editingQueue ? (
+              <div className="row row-4" style={{ marginBottom: 14 }}>
+                {snapshot.people.filter((person) => person.email).map((person) => {
+                  const email = person.email!;
+                  const enabled = snapshot.queue.some((card) => card.email === email);
+                  return (
+                    <label key={email} className="metric" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "0.55rem 0.7rem", opacity: enabled ? 1 : 0.6 }}>
+                      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "0.84rem", fontWeight: 600 }}>{person.name ?? email}</span>
+                      <input type="checkbox" checked={enabled} disabled={updatingQueueEmail === email} onChange={(event) => void handleToggleQueue(email, event.target.checked)} />
+                    </label>
+                  );
+                })}
+              </div>
+            ) : null}
+            <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 4 }}>
+              {snapshot.queue.map((person, index) => (
+                <div key={person.email} className="gtile" style={{ minWidth: 190, boxShadow: `inset 3px 0 0 ${index === 0 ? "var(--good)" : "var(--border)"}` }}>
+                  <div className="gtile-lbl">{index + 1}. {person.name ?? person.email}</div>
+                  <div className="gtile-val" style={{ fontSize: "1.1rem" }}>{person.lastAssignedAt ? new Date(person.lastAssignedAt).toLocaleDateString() : "Never assigned"}</div>
+                  <div className="gtile-foot">
+                    <span className="gtile-note">Holding {person.holding}</span>
+                    <span className="gtile-note" style={person.stuck ? { color: "var(--bad)" } : undefined}>Stuck {person.stuck}</span>
+                  </div>
+                </div>
+              ))}
+              {snapshot.queue.length === 0 ? <p style={{ color: "var(--subtle)", fontSize: "0.85rem" }}>Nobody is enabled in the queue.</p> : null}
+            </div>
+          </div>
+
+          <RecordList
+            title="Unassigned — pick an owner"
+            hint="Oldest in stage first. A record deep in the pipeline with nobody responsible is a data problem, not a queue item."
+            rows={snapshot.unassigned}
+            onOpenRecord={onOpenRecord}
+            people={people}
+            onAssigned={handleAssigned}
+            assignable
+          />
+        </Section>
+      </div>
+
+      <footer className="foot">
+        Window <code>{period}</code> · cohort <code>enrollment_records.created_at</code> ·
+        grain <code>one record</code> · staleness threshold <code>{days} days</code> ·
+        program <code>ACA</code> · as of{" "}
+        <code>{new Date(snapshot.generatedAt).toLocaleString()}</code>.
+        Silence excludes comments, attachments and cron activity. Stage medians need a recorded
+        stage-entry time; per-person speed needs ten completed cycles held start to finish.
+      </footer>
+    </Shell>
+  );
 }
-function Header({ title, caption }: { title: string; caption: string }) { return <div className="border-b border-[#ebecf0] px-4 py-3"><h2 className="text-sm font-bold text-[#172b4d]">{title}</h2><p className="mt-0.5 text-xs text-[#6b778c]">{caption}</p></div>; }
-function AcaScorecards({ scorecards, thresholdDays }: { scorecards: AcaOverviewSnapshot["scorecards"]; thresholdDays: number }) {
-  const tile = (label: string, value: string | number, tone = "text-[#172b4d]", detail?: string) => <div className="rounded border border-[#ebecf0] bg-[#fafbfc] px-3 py-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-[#8993a4]">{label}</p><p className={`mt-1 text-2xl font-bold ${tone}`}>{value}</p>{detail ? <p className="mt-0.5 text-[11px] font-medium text-[#6b778c]">{detail}</p> : null}</div>;
-  const days = (value: number | null) => value == null ? "—" : `${Number.isInteger(value) ? value : value.toFixed(1)}d`;
-  const measuredDays = (value: number | null) => value == null ? "Not enough samples" : days(value);
-  const tone = (value: number) => value ? "text-[#bf2600]" : "text-[#00875a]";
-  return <div className="space-y-3">
-    <ScorecardGroup title="Volume">{tile("Total tasks", scorecards.totalTasks)}{tile("Open", scorecards.open)}{tile("Done", scorecards.done, "text-[#00875a]")}{tile("Terminated", scorecards.terminated, "text-[#bf2600]")}{tile("Unassigned", scorecards.unassigned, tone(scorecards.unassigned))}</ScorecardGroup>
-    <ScorecardGroup title="Attention">{tile(`No activity ≥${thresholdDays}d`, scorecards.noActivity, tone(scorecards.noActivity))}{tile(`Stuck in stage ≥${thresholdDays}d`, scorecards.stuckInStage, tone(scorecards.stuckInStage))}{tile("Can't Contact", scorecards.cantContact)}{tile("Can not get ID card", scorecards.cannotGetIdCard)}{tile("Median open age", days(scorecards.medianOpenAgeDays))}</ScorecardGroup>
-    <ScorecardGroup title="Speed and staffing">{tile("Median time to done", measuredDays(scorecards.medianTimeToDoneDays))}{tile("Slowest stage", scorecards.slowestStage ? days(scorecards.slowestStage.medianDays) : "Not enough samples", "text-[#172b4d]", scorecards.slowestStage?.stageLabel)}{tile("Median time in stage", days(scorecards.medianTimeInCurrentStageDays))}{tile("Active people", scorecards.activePeople)}{tile("Avg tasks per person", scorecards.avgTasksPerPerson == null ? "—" : scorecards.avgTasksPerPerson.toFixed(1))}</ScorecardGroup>
-  </div>;
+
+/* ── composition helpers ───────────────────────────────────────────── */
+
+function Shell({ children }: { children: ReactNode }) {
+  // Scopes the design-system tokens. Everything outside this wrapper — sidebar,
+  // page header, tabs, date picker — keeps the portal's own styling untouched.
+  return <div className="aca-dash" data-theme="light" data-density="regular">{children}</div>;
 }
-function ScorecardGroup({ title, children }: { title: string; children: ReactNode }) { return <section className="rounded-lg border border-[#e6eaf0] bg-white p-3"><h2 className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">{title}</h2><div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">{children}</div></section>; }
-function ActionSection({ title, rows, onOpenRecord, people, onAssigned, assignable = false }: { title: string; rows: AcaOverviewSnapshot["actions"]; onOpenRecord: (id: string) => void; people: readonly AcaOverviewPerson[]; onAssigned: (recordId: string, email: string | null, updatedAt?: string) => void; assignable?: boolean }) {
+
+function Section({ num, code, title, desc, children }: { num: string; code: string; title: string; desc: string; children: ReactNode }) {
+  return (
+    <section className="sec">
+      <header className="sec-head">
+        <div className="sec-head-top">
+          <span className="sec-num">{num}</span>
+          <span className="sec-code">{code}</span>
+          <h2 style={{ margin: 0, fontSize: "1.05rem", fontWeight: 650 }}>{title}</h2>
+        </div>
+        <p className="sec-desc">{desc}</p>
+      </header>
+      <div className="sec-body">{children}</div>
+    </section>
+  );
+}
+
+type GlanceTile = { label: string; value: ReactNode; note: string; tone: "good" | "bad" | "neutral" };
+
+function Glance({ tiles }: { tiles: GlanceTile[] }) {
+  const flagged = tiles.filter((t) => t.tone === "bad").length;
+  return (
+    <div className="glance">
+      <div className="glance-head">
+        <div className="eyebrow"><Activity size={13} /> At a glance</div>
+        <span className={`chip ${flagged ? "bad" : "good"}`}>
+          <span className="dot" style={{ background: flagged ? "var(--bad)" : "var(--good)" }} />
+          {flagged ? `${flagged} need attention` : "Nothing flagged"}
+        </span>
+      </div>
+      <div className="glance-grid">
+        {tiles.map((tile) => (
+          <div key={tile.label} className="gtile" style={{ boxShadow: `inset 3px 0 0 ${tile.tone === "good" ? "var(--good)" : tile.tone === "bad" ? "var(--bad)" : "var(--border)"}` }}>
+            <div className="gtile-lbl">{tile.label}</div>
+            <div className="gtile-val">{tile.value}</div>
+            <div className="gtile-foot"><span className="gtile-note">{tile.note}</span></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value, sub }: { label: string; value: ReactNode; sub?: string }) {
+  return (
+    <div className="metric">
+      <div className="lbl">{label}</div>
+      <div className="val">{value}</div>
+      {sub ? <div className="sub">{sub}</div> : null}
+    </div>
+  );
+}
+
+function Seg({ value, options, onChange, format }: { value: string; options: readonly string[]; onChange: (value: string) => void; format?: (value: string) => string }) {
+  return (
+    <div className="seg" role="tablist">
+      {options.map((option) => (
+        <button key={option} type="button" role="tab" aria-selected={value === option} className={value === option ? "on" : ""} onClick={() => onChange(option)}>
+          {format ? format(option) : option}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RecordList({ title, hint, rows, onOpenRecord, people, onAssigned, assignable = false }: {
+  title: string;
+  hint?: string;
+  rows: AcaOverviewSnapshot["actions"];
+  onOpenRecord: (id: string) => void;
+  people?: readonly AcaOverviewPerson[];
+  onAssigned?: (recordId: string, email: string | null, updatedAt?: string) => void;
+  assignable?: boolean;
+}) {
   const pageSize = 20;
   const [page, setPage] = useState(0);
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   useEffect(() => { setPage((current) => Math.min(current, pageCount - 1)); }, [pageCount]);
   const visible = rows.slice(page * pageSize, (page + 1) * pageSize);
-  return <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><Header title={title} caption="Sorted by the larger of stage age and silence."/><div className="divide-y divide-[#ebecf0]">{visible.map((row) => <div key={row.recordId} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[#f8fafc]"><button type="button" onClick={() => onOpenRecord(row.recordId)} className="min-w-0 truncate text-left font-semibold text-[#42526e]">{row.clientName ?? row.taskId ?? row.recordId}</button><div className="flex shrink-0 items-center gap-2">{assignable ? <AcaAssignPicker recordId={row.recordId} expectedUpdatedAt={row.updatedAt} people={people} currentEmail={row.responsibleEmail} onAssigned={(email, updatedAt) => onAssigned(row.recordId, email, updatedAt)}/> : null}<span className="text-xs font-bold text-[#bf2600]">{row.sortDays}d {row.stageAgeEstimated ? "· est." : ""}</span></div></div>)}{rows.length === 0 ? <p className="px-4 py-6 text-sm text-[#8993a4]">Nothing currently matches.</p> : null}</div>{pageCount > 1 ? <div className="flex items-center justify-between border-t border-[#ebecf0] px-4 py-2 text-xs font-semibold text-[#6b778c]"><span>Page {page + 1} of {pageCount}</span><div className="flex gap-2"><button type="button" disabled={page === 0} onClick={() => setPage((current) => current - 1)} className="rounded border border-[#cfd8e5] px-2 py-1 disabled:opacity-40">Previous</button><button type="button" disabled={page === pageCount - 1} onClick={() => setPage((current) => current + 1)} className="rounded border border-[#cfd8e5] px-2 py-1 disabled:opacity-40">Next</button></div></div> : null}</section>;
+
+  return (
+    <div className="card chart-card">
+      <div className="chart-head">
+        <div>
+          <div className="chart-title">{title}</div>
+          <div className="chart-hint">{hint ?? "Worst first, by the larger of stage age and silence."}</div>
+        </div>
+        <span className="chip info">{rows.length} records</span>
+      </div>
+      <table className="df">
+        <thead>
+          <tr><th>Client</th><th>Stage</th><th className="num">Age</th>{assignable ? <th>Assign to</th> : null}</tr>
+        </thead>
+        <tbody>
+          {visible.map((row) => (
+            <tr key={row.recordId}>
+              <td>
+                <button type="button" onClick={() => onOpenRecord(row.recordId)} style={{ background: "none", border: 0, padding: 0, font: "inherit", color: "var(--text)", fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
+                  {row.clientName ?? row.taskId ?? row.recordId}
+                </button>
+              </td>
+              <td style={{ color: "var(--muted)" }}>{row.stageLabel ?? "No stage"}</td>
+              <td className="num" title={`${row.daysInStage ?? "—"}d in stage · ${row.daysSilent ?? "—"}d silent`}>
+                <b>{row.sortDays}d</b>{row.stageAgeEstimated ? <span style={{ color: "var(--subtle)" }}> est.</span> : null}
+              </td>
+              {assignable ? (
+                <td>
+                  <AcaAssignPicker recordId={row.recordId} expectedUpdatedAt={row.updatedAt} people={people ?? []} currentEmail={row.responsibleEmail} onAssigned={(email, updatedAt) => onAssigned?.(row.recordId, email, updatedAt)} />
+                </td>
+              ) : null}
+            </tr>
+          ))}
+          {rows.length === 0 ? <tr><td colSpan={assignable ? 4 : 3} style={{ color: "var(--subtle)" }}>Nothing currently matches.</td></tr> : null}
+        </tbody>
+      </table>
+      {pageCount > 1 ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, paddingTop: 10, fontSize: "0.78rem", color: "var(--muted)" }}>
+          <span>Page {page + 1} of {pageCount}</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button type="button" className="chip clickable" disabled={page === 0} onClick={() => setPage((c) => c - 1)}>Previous</button>
+            <button type="button" className="chip clickable" disabled={page >= pageCount - 1} onClick={() => setPage((c) => c + 1)}>Next</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
-function Message({ children, error, onRetry }: { children?: ReactNode; error?: string; onRetry?: () => void }) { return <div className={`rounded-lg border px-4 py-5 text-sm font-semibold ${error ? "border-[#ffbdad] bg-[#ffebe6] text-[#bf2600]" : "border-[#e6eaf0] bg-white text-[#6b778c]"}`}>{error ?? children}{onRetry ? <button type="button" onClick={onRetry} className="ml-3 rounded border border-current px-2 py-1 text-xs">Retry</button> : null}</div>; }
-function formatDays(value: number | null) { return value == null ? "—" : `${Number.isInteger(value) ? value : value.toFixed(1)}d`; }
+
+function Message({ children, error, onRetry }: { children?: ReactNode; error?: string; onRetry?: () => void }) {
+  return (
+    <div className={error ? "coverage-banner" : "card"} style={{ padding: "1.1rem 1.2rem", color: error ? undefined : "var(--muted)" }}>
+      {error ?? children}
+      {onRetry ? <button type="button" className="chip clickable" style={{ marginLeft: 12 }} onClick={onRetry}>Retry</button> : null}
+    </div>
+  );
+}
+
+function fmtDays(value: number | null) {
+  return value == null ? "—" : `${Number.isInteger(value) ? value : value.toFixed(1)}d`;
+}
+
+// Every one of these is a different question, and three of them go blank rather
+// than showing zero when the underlying clock was never recorded — so the
+// definitions have to be reachable, not folded into a tooltip nobody hovers.
+const STAGE_COLUMN_HELP: Record<string, string> = {
+  "In stage": "Records sitting on this stage right now. Unassigned work is lifted into its own row instead of being counted here.",
+  Share: "This stage's portion of all open records. Blank on stages that end the pipeline, because those records are no longer waiting on anyone.",
+  "Median wait": "Middle value of how long the records currently here have been here. Needs a recorded stage-entry time; shows — when that was never captured.",
+  Longest: "The single oldest occupant of this stage, measured from when it entered.",
+  Stuck: "Records that have been on this stage at least the selected number of days. Counts 0 when no stage-entry time was recorded.",
+  Silent: "Records with no real work logged for at least the selected number of days. Comments, attachments and the reminder cron do not count as work; when no work timestamp exists the record's age is used instead.",
+};
