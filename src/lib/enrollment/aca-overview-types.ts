@@ -56,7 +56,14 @@ export type AcaOverviewStageRow = {
   isTerminal: boolean; inStage: number; sharePercent: number | null;
   medianWaitDays: number | null; longestWaitDays: number | null;
   stuckCount: number | null; silentCount: number | null;
-  stageAgeEstimated?: boolean;
+  /**
+   * How many of `inStage` have a stage clock reconstructed by the 2026-08-09
+   * backfill rather than measured. A count, not a boolean: with a boolean, one
+   * old record marked the whole row as estimated, so nearly every row was
+   * marked and the signal stopped meaning anything. Null on terminal rows,
+   * which report no waiting figures at all.
+   */
+  estimatedCount: number | null;
 };
 
 export type AcaOverviewActionRow = {
@@ -70,6 +77,12 @@ export type AcaOverviewPeopleRow = {
   email: string | null; name: string | null; holding: number; stuck: number;
   silent: number; medianWaitDays: number | null; longestWaitDays: number | null;
   doneInPeriod: number;
+  /**
+   * `team` is the whole-team baseline every per-person number must be read
+   * against — without it a bad percentage cannot be told apart from a bad
+   * stage. `unassigned` is not a person and never joins the ranking.
+   */
+  kind: "person" | "team" | "unassigned";
 };
 
 export type AcaOverviewMatrixCell = {

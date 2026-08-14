@@ -14,7 +14,9 @@ export async function PATCH(request: Request) {
   const account = await supabase.from("portal_account").select("email").eq("email", email).eq("is_active", true).maybeSingle();
   if (account.error) return NextResponse.json({ error: account.error.message }, { status: 500 });
   if (!account.data) return NextResponse.json({ error: "Person is not an active account." }, { status: 400 });
-  const result = await supabase.from("enrollment_queue_members").upsert({ email, enabled: body.enabled, updated_by_email: actor.actor.email, updated_at: new Date().toISOString() }).select("email,enabled").single();
+  // Explicit conflict target: the primary key is (email, program), so without
+  // it a toggle would insert a duplicate row instead of updating the ACA one.
+  const result = await supabase.from("enrollment_queue_members").upsert({ email, program: "aca", enabled: body.enabled, updated_by_email: actor.actor.email, updated_at: new Date().toISOString() }, { onConflict: "email,program" }).select("email,enabled").single();
   if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 });
   await broadcastEnrollmentChanged("aca");
   return NextResponse.json({ member: result.data });

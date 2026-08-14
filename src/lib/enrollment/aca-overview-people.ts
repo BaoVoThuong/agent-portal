@@ -1,16 +1,36 @@
 import { isDashboardTerminal, runningStages } from "./aca-overview-stages";
 import { daysInStage, daysSilent, isSilent, isStuck, medianDays } from "./aca-overview-timing";
-import type { AcaOverviewInput, AcaOverviewMatrix, AcaOverviewMatrixCell, AcaOverviewPeopleRow } from "./aca-overview-types";
+import type { AcaOverviewInput, AcaOverviewMatrix, AcaOverviewMatrixCell, AcaOverviewPeopleRow, AcaOverviewRecord } from "./aca-overview-types";
 const empty = (): AcaOverviewMatrixCell => ({ tasks: 0, stuck: 0, silent: 0, medianStuckDays: null });
 export function buildPeopleRows(input: AcaOverviewInput): AcaOverviewPeopleRow[] {
   const byId = new Map(input.stages.map((s) => [s.id, s]));
   const open = input.records.filter((r) => !r.archived_at && !r.closed_at && (!byId.get(r.stage_id ?? "") || !isDashboardTerminal(byId.get(r.stage_id ?? "")!)));
-  const people = [...input.people.filter((p) => p.canWork).map((p) => ({ email: p.email, name: p.name })), { email: null, name: "Unassigned" }];
-  return people.map(({ email, name }) => {
-    const mine = open.filter((r) => (r.responsible_enroll_email ?? null) === email);
+  // "Done" is reaching 10-DONE, not merely being closed. `closed_at` is set for
+  // 11-Terminated too, so counting closed records credited people for losing
+  // customers in the column used to judge their throughput.
+  const isDone = (r: AcaOverviewRecord) => !r.archived_at && (byId.get(r.stage_id ?? "")?.label ?? "").trim().toLowerCase() === "10-done";
+  const done = input.records.filter(isDone);
+  const stats = (mine: readonly AcaOverviewRecord[]) => {
     const waits = mine.map((r) => daysInStage(r, input.now));
-    return { email, name, holding: mine.length, stuck: mine.filter((r) => isStuck(daysInStage(r, input.now), input.thresholdDays)).length, silent: mine.filter((r) => isSilent(daysSilent(r, input.now), input.thresholdDays)).length, medianWaitDays: medianDays(waits), longestWaitDays: waits.reduce<number | null>((m, d) => d === null ? m : Math.max(m ?? 0, d), null), doneInPeriod: input.records.filter((r) => r.closed_at && r.responsible_enroll_email === email).length };
+    return {
+      holding: mine.length,
+      stuck: mine.filter((r) => isStuck(daysInStage(r, input.now), input.thresholdDays)).length,
+      silent: mine.filter((r) => isSilent(daysSilent(r, input.now), input.thresholdDays)).length,
+      medianWaitDays: medianDays(waits),
+      longestWaitDays: waits.reduce<number | null>((m, d) => d === null ? m : Math.max(m ?? 0, d), null),
+    };
+  };
+  const rows: AcaOverviewPeopleRow[] = input.people.filter((p) => p.canWork).map((p) => {
+    const mine = open.filter((r) => r.responsible_enroll_email === p.email);
+    return { email: p.email, name: p.name, kind: "person" as const, ...stats(mine), doneInPeriod: done.filter((r) => r.responsible_enroll_email === p.email).length };
   });
+  const assigned = open.filter((r) => Boolean(r.responsible_enroll_email));
+  const unassigned = open.filter((r) => !r.responsible_enroll_email);
+  // The team baseline is what separates "this person is slow" from "this whole
+  // queue is slow". Every per-person percentage above is meaningless without it.
+  rows.push({ email: null, name: "Team total", kind: "team", ...stats(assigned), doneInPeriod: done.filter((r) => Boolean(r.responsible_enroll_email)).length });
+  rows.push({ email: null, name: "Unassigned", kind: "unassigned", ...stats(unassigned), doneInPeriod: done.filter((r) => !r.responsible_enroll_email).length });
+  return rows;
 }
 export function buildMatrix(input: AcaOverviewInput): AcaOverviewMatrix {
   const stages = runningStages(input.stages); const byId = new Map(input.stages.map((s) => [s.id, s]));

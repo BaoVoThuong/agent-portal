@@ -3334,6 +3334,12 @@ create table if not exists enrollment_options (
   archived_at timestamptz
 );
 
+-- Added after the table shipped, so it needs its own ALTER: `create table if
+-- not exists` is a no-op on an existing database and would leave the column
+-- missing, which the ACA option seed below then fails on.
+alter table enrollment_options
+  add column if not exists treat_as_terminal boolean not null default false;
+
 create unique index if not exists enrollment_options_active_label_key
   on enrollment_options (set_id, lower(label))
   where archived_at is null;
@@ -3725,6 +3731,14 @@ create table if not exists enrollment_stage_cycles (
   check (kind <> 'entry_marker' or (ended_at is not null and duration_seconds = 0))
 );
 
+-- Per-person speed attribution, added after the table shipped. The trigger and
+-- the atomic RPCs below both write these, so a database built without them
+-- fails at the first stage transition.
+alter table enrollment_stage_cycles
+  add column if not exists responsible_start_email text;
+alter table enrollment_stage_cycles
+  add column if not exists responsible_end_email text;
+
 create unique index if not exists enrollment_stage_cycles_open_idx
   on enrollment_stage_cycles (record_id)
   where ended_at is null;
@@ -3772,11 +3786,21 @@ begin
     if new.responsible_enroll_email is not null then
       new.responsible_assigned_at := coalesce(new.responsible_assigned_at, new.created_at);
     end if;
-  elsif new.responsible_enroll_email is distinct from old.responsible_enroll_email then
-    new.responsible_assigned_at := new.updated_at;
-  elsif new.updated_at is distinct from old.updated_at
-    and coalesce(lower(new.updated_by_email), '') <> 'system' then
-    new.last_work_activity_at := new.updated_at;
+  else
+    -- Independent branches, deliberately NOT elsif. Assigning a record IS real
+    -- work; chaining them meant a handover updated the assignment clock and
+    -- then skipped the activity clock, so a record passed between people looked
+    -- progressively more neglected the more attention it actually received.
+    if new.responsible_enroll_email is distinct from old.responsible_enroll_email then
+      new.responsible_assigned_at := new.updated_at;
+    end if;
+    -- Comments and attachments reach the record through enrollment_touch_activity,
+    -- which never changes updated_at, so they cannot bump this. The cron sets
+    -- updated_by_email = 'system' and is excluded for the same reason.
+    if new.updated_at is distinct from old.updated_at
+      and coalesce(lower(new.updated_by_email), '') <> 'system' then
+      new.last_work_activity_at := new.updated_at;
+    end if;
   end if;
   return new;
 end;
@@ -3785,6 +3809,35 @@ drop trigger if exists enrollment_records_overview_timestamps on enrollment_reco
 create trigger enrollment_records_overview_timestamps
 before insert or update on enrollment_records
 for each row execute function enrollment_sync_overview_timestamps();
+
+-- ACA overview configuration. Keyed per program so an ACA toggle cannot
+-- silently govern another program, unlike the CS queue table.
+create table if not exists enrollment_queue_members (
+  email text not null,
+  program text not null default 'aca' check (program in ('aca', 'medicare')),
+  enabled boolean not null default true,
+  updated_by_email text not null,
+  updated_at timestamptz not null default now(),
+  primary key (email, program)
+);
+
+create table if not exists enrollment_overview_settings (
+  id boolean primary key default true check (id),
+  threshold_days integer not null default 3 check (threshold_days in (1,3,7,10)),
+  updated_by_email text not null,
+  updated_at timestamptz not null default now()
+);
+
+insert into enrollment_overview_settings (id, threshold_days, updated_by_email)
+values (true, 3, 'system')
+on conflict (id) do nothing;
+
+-- RLS for both is enabled through the `protected_tables` loop at the end of this
+-- file, which is the canonical registry. They must stay in that list: the anon
+-- key ships to the browser, so an unprotected table here would let any visitor
+-- read it, add themselves to the assignment queue, or rewrite the dashboard
+-- threshold. No policies are needed — the service role bypasses RLS and
+-- everyone else is denied.
 
 -- Enrollment stage-time mutation commands. These are intentionally RPCs rather
 -- than triggers: the route supplies one timestamp, locks the parent row, and
@@ -4777,7 +4830,9 @@ declare
     'enrollment_comment_edits',
     'enrollment_activity',
     'enrollment_attachments',
-    'enrollment_notifications'
+    'enrollment_notifications',
+    'enrollment_queue_members',
+    'enrollment_overview_settings'
   ];
 begin
   foreach table_name in array protected_tables loop

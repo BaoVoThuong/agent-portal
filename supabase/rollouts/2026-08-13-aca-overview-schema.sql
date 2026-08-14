@@ -34,11 +34,21 @@ begin
     if new.responsible_enroll_email is not null then
       new.responsible_assigned_at := coalesce(new.responsible_assigned_at, new.created_at);
     end if;
-  elsif new.responsible_enroll_email is distinct from old.responsible_enroll_email then
-    new.responsible_assigned_at := new.updated_at;
-  elsif new.updated_at is distinct from old.updated_at
-    and coalesce(lower(new.updated_by_email), '') <> 'system' then
-    new.last_work_activity_at := new.updated_at;
+  else
+    -- Independent branches, deliberately NOT elsif. Assigning a record IS real
+    -- work; chaining them meant a handover updated the assignment clock and
+    -- then skipped the activity clock, so a record passed between people looked
+    -- progressively more neglected the more attention it actually received.
+    if new.responsible_enroll_email is distinct from old.responsible_enroll_email then
+      new.responsible_assigned_at := new.updated_at;
+    end if;
+    -- Comments and attachments reach the record through enrollment_touch_activity,
+    -- which never changes updated_at, so they cannot bump this. The cron sets
+    -- updated_by_email = 'system' and is excluded for the same reason.
+    if new.updated_at is distinct from old.updated_at
+      and coalesce(lower(new.updated_by_email), '') <> 'system' then
+      new.last_work_activity_at := new.updated_at;
+    end if;
   end if;
   return new;
 end;
@@ -80,6 +90,21 @@ create table if not exists enrollment_queue_members (
   updated_at timestamptz not null default now()
 );
 
+-- Keyed per program. Without this the table repeats the flaw this design
+-- criticised in the CS queue, where one email row governs every program and
+-- disabling someone in one place silently disables them in another.
+alter table enrollment_queue_members
+  add column if not exists program text not null default 'aca';
+alter table enrollment_queue_members
+  drop constraint if exists enrollment_queue_members_program_check;
+alter table enrollment_queue_members
+  add constraint enrollment_queue_members_program_check
+  check (program in ('aca', 'medicare'));
+alter table enrollment_queue_members
+  drop constraint if exists enrollment_queue_members_pkey;
+alter table enrollment_queue_members
+  add constraint enrollment_queue_members_pkey primary key (email, program);
+
 create table if not exists enrollment_overview_settings (
   id boolean primary key default true check (id),
   threshold_days integer not null default 3 check (threshold_days in (1,3,7,10)),
@@ -90,6 +115,14 @@ create table if not exists enrollment_overview_settings (
 insert into enrollment_overview_settings (id, threshold_days, updated_by_email)
 values (true, 3, 'system')
 on conflict (id) do nothing;
+
+-- Both tables are written only through service-role routes. The anon key ships
+-- to the browser (NEXT_PUBLIC_SUPABASE_ANON_KEY), so without RLS any visitor
+-- could read them and add themselves to the assignment queue or rewrite the
+-- dashboard threshold. No policies: service_role bypasses RLS, everyone else
+-- is denied.
+alter table enrollment_queue_members enable row level security;
+alter table enrollment_overview_settings enable row level security;
 
 comment on table enrollment_queue_members is
   'Enrollment-only assignment queue membership; deliberately separate from the CS queue.';

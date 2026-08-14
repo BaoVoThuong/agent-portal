@@ -41,3 +41,76 @@ describe("ACA overview primitives", () => {
     expect(snapshot.queue[0]?.email).toBe("a@example.com");
   });
 });
+
+describe("ACA overview fairness guards", () => {
+  const stages = [
+    stage("open", "1-Need quote"),
+    stage("done", "10-DONE", { is_terminal: true }),
+    stage("terminated", "11-Terminated", { is_terminal: true }),
+  ];
+  const twoPeople = (records: AcaOverviewRecord[]): AcaOverviewInput => ({
+    records, stages,
+    people: [
+      { email: "a@example.com", name: "A", canWork: true, queueEnabled: true },
+      { email: "b@example.com", name: "B", canWork: true, queueEnabled: true },
+    ],
+    stageDwellMedianSeconds: new Map(), thresholdDays: 3, now,
+  });
+
+  it("averages assigned work per person, not the unassigned queue as well", () => {
+    const snapshot = aggregateAcaOverview(twoPeople([
+      record("r1", { responsible_enroll_email: "a@example.com" }),
+      record("r2", { responsible_enroll_email: "b@example.com" }),
+      record("r3", { responsible_enroll_email: null }),
+      record("r4", { responsible_enroll_email: null }),
+    ]));
+    expect(snapshot.scorecards.open).toBe(4);
+    expect(snapshot.scorecards.activePeople).toBe(2);
+    // 2 assigned / 2 people, not 4 open / 2 people.
+    expect(snapshot.scorecards.avgTasksPerPerson).toBe(1);
+  });
+
+  it("counts only 10-DONE as done, never a terminated record", () => {
+    const snapshot = aggregateAcaOverview(twoPeople([
+      record("won", { stage_id: "done", closed_at: "2026-08-12T00:00:00Z", responsible_enroll_email: "a@example.com" }),
+      record("lost", { stage_id: "terminated", closed_at: "2026-08-12T00:00:00Z", responsible_enroll_email: "a@example.com" }),
+    ]));
+    const a = snapshot.people.find((row) => row.email === "a@example.com");
+    expect(a?.doneInPeriod).toBe(1);
+    expect(snapshot.scorecards.done).toBe(1);
+    expect(snapshot.scorecards.terminated).toBe(1);
+  });
+
+  it("emits a team baseline row and an unassigned row that are not people", () => {
+    const snapshot = aggregateAcaOverview(twoPeople([
+      record("r1", { responsible_enroll_email: "a@example.com" }),
+      record("r2", { responsible_enroll_email: "b@example.com" }),
+      record("r3", { responsible_enroll_email: null }),
+    ]));
+    const team = snapshot.people.find((row) => row.kind === "team");
+    const unassigned = snapshot.people.find((row) => row.kind === "unassigned");
+    expect(team?.holding).toBe(2);
+    expect(unassigned?.holding).toBe(1);
+    expect(snapshot.people.filter((row) => row.kind === "person")).toHaveLength(2);
+  });
+
+  it("reports how many stage clocks in a row are estimated rather than a single flag", () => {
+    const snapshot = aggregateAcaOverview(twoPeople([
+      record("measured", { responsible_enroll_email: "a@example.com" }),
+      record("guessed", { responsible_enroll_email: "a@example.com", stage_entered_source: "history_backfill" }),
+    ]));
+    const row = snapshot.stageTable.find((entry) => entry.stageId === "open");
+    expect(row?.inStage).toBe(2);
+    expect(row?.estimatedCount).toBe(1);
+  });
+
+  it("leaves terminal rows with no waiting figures at all", () => {
+    const snapshot = aggregateAcaOverview(twoPeople([
+      record("won", { stage_id: "done", closed_at: "2026-08-12T00:00:00Z" }),
+    ]));
+    const row = snapshot.stageTable.find((entry) => entry.stageId === "done");
+    expect(row?.estimatedCount).toBeNull();
+    expect(row?.stuckCount).toBeNull();
+    expect(row?.sharePercent).toBeNull();
+  });
+});

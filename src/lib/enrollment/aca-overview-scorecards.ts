@@ -14,7 +14,8 @@ export function buildScorecards(input: AcaOverviewInput): AcaOverviewScorecards 
   const terminalIds = new Set([...done, ...terminated].map((r) => r.id));
   const open = active.filter((r) => !terminalIds.has(r.id));
   const countable = open.filter((r) => !stageOf(r) || !isDashboardTerminal(stageOf(r)!));
-  const holders = new Set(open.map((r) => r.responsible_enroll_email).filter(Boolean));
+  const assignedOpen = open.filter((r) => Boolean(r.responsible_enroll_email));
+  const holders = new Set(assignedOpen.map((r) => r.responsible_enroll_email));
   const timeToDone = done.map((r) => r.closed_at ? ageDays(r.created_at, new Date(r.closed_at)) : null);
   let slowestStage: AcaOverviewScorecards["slowestStage"] = null;
   for (const [stageId, seconds] of input.stageDwellMedianSeconds) {
@@ -34,6 +35,9 @@ export function buildScorecards(input: AcaOverviewInput): AcaOverviewScorecards 
     slowestStage,
     medianTimeInCurrentStageDays: medianDays(countable.map((r) => daysInStage(r, input.now))),
     activePeople: holders.size,
-    avgTasksPerPerson: holders.size ? open.length / holders.size : null,
+    // Assigned open records only. Dividing total open work by the number of
+    // people holding work counted the unassigned queue against people who are
+    // not holding it, inflating every person's apparent load.
+    avgTasksPerPerson: holders.size ? assignedOpen.length / holders.size : null,
   };
 }

@@ -25,9 +25,20 @@ export function exclusiveDateUpperBound(value: string): string {
   date.setUTCDate(date.getUTCDate() + 1);
   return date.toISOString();
 }
+/**
+ * True when the failure is "this table has not been created yet", so the two
+ * optional config tables can degrade to their defaults instead of taking the
+ * whole dashboard down before the rollout is applied. Matches on the Postgres
+ * and PostgREST error codes rather than on the message text, which is localised
+ * and changes between versions.
+ */
+function isMissingTable(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === "42P01" || error.code === "PGRST205" || (error.message ?? "").toLowerCase().includes("does not exist");
+}
 async function fetchConfiguredThreshold(): Promise<AcaOverviewThresholdDays> {
   const result = await getSupabaseAdmin().from("enrollment_overview_settings").select("threshold_days").eq("id", true).maybeSingle();
-  if (result.error) throw new Error(result.error.message);
+  if (result.error && !isMissingTable(result.error)) throw new Error(result.error.message);
   const value = (result.data as { threshold_days?: number } | null)?.threshold_days;
   return (ACA_OVERVIEW_THRESHOLD_DAYS as readonly number[]).includes(value ?? -1) ? value as AcaOverviewThresholdDays : ACA_OVERVIEW_DEFAULT_THRESHOLD_DAYS;
 }
@@ -49,10 +60,10 @@ async function fetchPeople(): Promise<AcaOverviewPerson[]> {
   const supabase = getSupabaseAdmin();
   const [accounts, members] = await Promise.all([
     supabase.from("portal_account").select("email,name,is_active").eq("is_active", true).order("name", { ascending: true }),
-    supabase.from("enrollment_queue_members").select("email,enabled"),
+    supabase.from("enrollment_queue_members").select("email,enabled").eq("program", "aca"),
   ]);
   if (accounts.error) throw new Error(accounts.error.message);
-  if (members.error && !members.error.message.toLowerCase().includes("does not exist")) throw new Error(members.error.message);
+  if (members.error && !isMissingTable(members.error)) throw new Error(members.error.message);
   const enabled = new Map(((members.data ?? []) as { email: string; enabled: boolean }[]).map((row) => [row.email.toLowerCase(), row.enabled]));
   return ((accounts.data ?? []) as { email: string; name: string | null }[]).map((row) => ({ email: row.email.toLowerCase(), name: row.name, canWork: true, queueEnabled: enabled.get(row.email.toLowerCase()) ?? true }));
 }
@@ -81,7 +92,14 @@ export async function fetchAttributedCycles(recordIds: readonly string[], now = 
       const result = await supabase.from("enrollment_stage_cycles").select("stage_id,responsible_start_email,responsible_end_email,duration_seconds", { count: "exact" }).in("record_id", ids).eq("program", "aca").eq("kind", "dwell").eq("source", "live").gte("ended_at", cutoff).not("ended_at", "is", null).not("responsible_start_email", "is", null).range(offset, offset + PAGE_SIZE - 1);
       if (result.error) throw new Error(result.error.message);
       const page = (result.data ?? []) as (AttributedCycleRow & { responsible_end_email: string | null })[];
-      rows.push(...page.filter((row) => normalizeOverviewEmail(row.responsible_start_email) === normalizeOverviewEmail(row.responsible_end_email)));
+      // Normalise on the way out, not just for the comparison. The consumer
+      // looks these emails up against the lower-cased account roster, so a row
+      // stored with different casing would be silently dropped from the stats.
+      for (const row of page) {
+        const start = normalizeOverviewEmail(row.responsible_start_email);
+        if (start === null || start !== normalizeOverviewEmail(row.responsible_end_email)) continue;
+        rows.push({ stage_id: row.stage_id, responsible_start_email: start, duration_seconds: row.duration_seconds });
+      }
       if (!result.data || result.data.length < PAGE_SIZE || (typeof result.count === "number" && offset + result.data.length >= result.count)) break;
     }
   }
