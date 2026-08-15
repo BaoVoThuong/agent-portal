@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
   closestCenter,
@@ -800,6 +800,7 @@ function ConfigTableSection({
         title={`Archive "${confirmArchiveColumn.label}"?`}
         description="The column will stop appearing anywhere in Create, Detail, List, and Board. This can't be undone from the UI."
         confirmLabel="Archive"
+        busy={busy}
         onCancel={() => setConfirmArchiveColumnId(null)}
         onConfirm={archiveConfirmedColumn}
       />
@@ -809,6 +810,7 @@ function ConfigTableSection({
         title={`Restore "${restoreColumnCandidate.label}"?`}
         description={`This restores the archived ${restoreColumnCandidate.type} column with its existing options and settings. Saved table layouts will be reset so every user can see the restored column.`}
         confirmLabel="Restore column"
+        busy={busy}
         onCancel={() => setRestoreColumnCandidate(null)}
         onConfirm={() => {
           const candidate = restoreColumnCandidate;
@@ -1798,6 +1800,7 @@ function ConfigDropdownValuesSection({
               : "This value will be removed from pickers going forward. Existing records that reference it keep showing it."
           }
           confirmLabel="Archive"
+          busy={busy}
           onCancel={() => setConfirmArchiveId(null)}
           onConfirm={() => {
             const id = confirmRow.id;
@@ -1814,17 +1817,28 @@ function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  busy = false,
   onCancel,
   onConfirm,
 }: {
   title: string;
   description: string;
   confirmLabel: string;
+  busy?: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const cancelHandlerRef = useRef(onCancel);
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  useEffect(() => {
+    cancelHandlerRef.current = onCancel;
+  }, [onCancel]);
 
   useEffect(() => {
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -1835,7 +1849,7 @@ function ConfirmDialog({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onCancel();
+        if (!submittingRef.current) cancelHandlerRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialogRef.current) return;
@@ -1862,40 +1876,50 @@ function ConfirmDialog({
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus();
     };
-  }, [onCancel]);
+  }, []);
+
+  function handleConfirm() {
+    if (busy || submitting) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    void onConfirm();
+  }
 
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center bg-[#091e42]/50 p-4"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
+        if (event.target === event.currentTarget && !busy && !submitting) onCancel();
       }}
     >
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
         className="w-full max-w-sm rounded-lg bg-white p-5 shadow-2xl"
       >
-        <h2 className="text-lg font-bold text-[#172b4d]">{title}</h2>
-        <p className="mt-2 text-sm leading-6 text-[#5e6c84]">{description}</p>
+        <h2 id={titleId} className="text-lg font-bold text-[#172b4d]">{title}</h2>
+        <p id={descriptionId} className="mt-2 text-sm leading-6 text-[#5e6c84]">{description}</p>
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
             ref={cancelRef}
             onClick={onCancel}
+            disabled={busy || submitting}
             className="rounded px-3 py-2 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
           >
             Cancel
           </button>
           <button
             type="button"
-            onClick={onConfirm}
-            className="rounded bg-[#ca3521] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#ae2a19]"
+            onClick={handleConfirm}
+            disabled={busy || submitting}
+            className="rounded bg-[#ca3521] px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#ae2a19] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {confirmLabel}
+            {busy || submitting ? "Working…" : confirmLabel}
           </button>
         </div>
       </div>
