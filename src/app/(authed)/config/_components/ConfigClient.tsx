@@ -737,59 +737,63 @@ function ConfigTableSection({
           <Plus className="h-4 w-4" /> Add
         </button>
       </form>
-      <div className="grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_104px_112px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
-        <span>Order</span>
-        <span>Label</span>
-        <span>Type</span>
-        <span>Pinned</span>
-        <span>Required</span>
-        <span>Hidden</span>
-        <span>In detail</span>
-        <span>Action</span>
-      </div>
-      {dragReady ? (
-        <DndContext
-          id="config-table-columns"
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={localColumns.map((column) => column.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            {localColumns.map((column, index) => (
-              <SortableColumnRow
-                key={column.id}
-                column={column}
-                scope={scope}
-                index={index}
-                busy={busy || !available}
-                onPatch={(patch) =>
-                  run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
-                }
-                onArchive={() => setConfirmArchiveColumnId(column.id)}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
-      ) : (
-        <div>
-          {localColumns.map((column, index) => (
-            <StaticColumnRow
-              key={column.id}
-              column={column}
-              scope={scope}
-              index={index}
-              busy={busy || !available}
-              onPatch={(patch) =>
-                run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
-              }
-              onArchive={() => setConfirmArchiveColumnId(column.id)}
-            />
-          ))}
+      <div className="min-w-0 overflow-x-auto">
+        <div className="min-w-[1016px]">
+          <div className="grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_104px_112px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
+            <span>Order</span>
+            <span>Label</span>
+            <span>Type</span>
+            <span>Pinned</span>
+            <span>Required</span>
+            <span>Hidden</span>
+            <span>In detail</span>
+            <span>Action</span>
+          </div>
+          {dragReady ? (
+            <DndContext
+              id="config-table-columns"
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={localColumns.map((column) => column.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {localColumns.map((column, index) => (
+                  <SortableColumnRow
+                    key={column.id}
+                    column={column}
+                    scope={scope}
+                    index={index}
+                    busy={busy || !available}
+                    onPatch={(patch) =>
+                      run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
+                    }
+                    onArchive={() => setConfirmArchiveColumnId(column.id)}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          ) : (
+            <div>
+              {localColumns.map((column, index) => (
+                <StaticColumnRow
+                  key={column.id}
+                  column={column}
+                  scope={scope}
+                  index={index}
+                  busy={busy || !available}
+                  onPatch={(patch) =>
+                    run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
+                  }
+                  onArchive={() => setConfirmArchiveColumnId(column.id)}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </section>
     {confirmArchiveColumn ? (
       <ConfirmDialog
@@ -1662,8 +1666,8 @@ function ConfigDropdownValuesSection({
                 <Plus className="h-4 w-4" /> Add
               </button>
             </form>
-            <div className="mt-4 overflow-auto rounded-lg border border-[#dfe1e6]">
-              <table className="w-full border-collapse text-sm">
+            <div className="mt-4 min-w-0 overflow-x-auto rounded-lg border border-[#dfe1e6]">
+              <table className="w-full min-w-[900px] border-collapse text-sm">
                 <thead className="bg-[#f7f8fa] text-xs font-bold uppercase text-[#6b778c]">
                   <tr>
                     <th className="border-b border-r border-[#dfe1e6] px-3 py-2 text-left">Label</th>
