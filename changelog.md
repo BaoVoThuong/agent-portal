@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Refresh Config an toàn trước response lỗi/cũ
+- **Loại**: fix, consistency, reliability
+- **Cái gì**: Scope columns/options, categories, enrollment option sets, agents và assistant memberships giờ kiểm tra HTTP status trước khi dùng payload, chịu được invalid JSON, validate shape tối thiểu và dùng request sequence riêng để response cũ không ghi đè state mới. Khi refresh mới nhất lỗi, UI giữ last-good data, hiển thị lỗi endpoint-safe và khóa mutation của section tương ứng; các section độc lập không bị reset. Không thêm retry hay request tự động.
+- **Vì sao**: Refresh sau mutation có thể nhận 500/HTML/JSON lỗi hoặc response out-of-order; trước đây có thể đọc payload lỗi như success, văng parser error hoặc để optimistic state/response cũ tồn tại mà không báo section stale.
+- **File**: `src/lib/table-config/refresh-state.ts`, `src/lib/table-config/refresh-state.test.ts`, `src/app/(authed)/config/_components/ConfigClient.tsx`
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 14
+
 ## 2026-08-15 — Cô lập lỗi từng section của Table Config
 - **Loại**: fix, reliability
 - **Cái gì**: `/config` dùng settled loaders cho các section tùy chọn; chỉ coi Table Columns là load-bearing. Categories, dropdown options, agents/assistant memberships, SLA và enrollment option sets có trạng thái `available/error` riêng, giữ dữ liệu tốt cuối cùng và khóa mutation khi section không tải được. Schema readiness được suy ra từ các column id synthetic `system-*`, không thêm schema-probe query. Thêm `error.tsx` cho lỗi load cấu hình cốt lõi với Retry an toàn.

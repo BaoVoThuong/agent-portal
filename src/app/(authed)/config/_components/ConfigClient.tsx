@@ -70,6 +70,7 @@ import {
 } from "@/lib/table-config/value-colors";
 import { ConfigSlaSection } from "./ConfigSlaSection";
 import { isConfigMutationWarning } from "@/lib/table-config/partial-success";
+import { isLatestRefresh, readRefreshResponse } from "@/lib/table-config/refresh-state";
 
 type AssistantMember = {
   agent_email: string;
@@ -163,36 +164,72 @@ export function ConfigClient({
   const [notice, setNotice] = useState<string | null>(null);
   const [noticeTone, setNoticeTone] = useState<ToastTone>("info");
   const [busy, setBusy] = useState(false);
+  const [refreshErrors, setRefreshErrors] = useState<Record<string, string | undefined>>({});
   const scopeRefreshSequenceRef = useRef(new Map<TableScope, number>());
   const optionRefreshSequenceRef = useRef(new Map<"aca" | "medicare", number>());
+
+  function setRefreshError(key: string, error?: string) {
+    setRefreshErrors((current) => {
+      const next = { ...current };
+      if (error) next[key] = error;
+      else delete next[key];
+      return next;
+    });
+  }
 
   async function refreshScope(nextScope = scope) {
     const requestSequence = (scopeRefreshSequenceRef.current.get(nextScope) ?? 0) + 1;
     scopeRefreshSequenceRef.current.set(nextScope, requestSequence);
-    const response = await fetch(`/api/config/columns?scope=${nextScope}`, {
-      cache: "no-store",
-    });
-    const payload = await response.json();
-    if (scopeRefreshSequenceRef.current.get(nextScope) !== requestSequence) return;
-    if (!response.ok) throw new Error(payload.error ?? "Could not load columns.");
-    setColumns((current) => ({ ...current, [nextScope]: payload.columns }));
-    setOptions((current) => ({ ...current, [nextScope]: payload.options }));
+    const columnsKey = `columns:${nextScope}`;
+    const optionsKey = `options:${nextScope}`;
+    try {
+      const response = await fetch(`/api/config/columns?scope=${nextScope}`, {
+        cache: "no-store",
+      });
+      const payload = await readRefreshResponse<unknown>(
+        response,
+        `Could not refresh ${SCOPE_LABEL[nextScope]} columns.`
+      );
+      if (!isLatestRefresh(requestSequence, scopeRefreshSequenceRef.current.get(nextScope) ?? 0)) return;
+      if (!payload || typeof payload !== "object" || !Array.isArray((payload as { columns?: unknown }).columns) || !Array.isArray((payload as { options?: unknown }).options)) {
+        throw new Error(`Could not refresh ${SCOPE_LABEL[nextScope]} columns.`);
+      }
+      setColumns((current) => ({ ...current, [nextScope]: (payload as { columns: TableColumn[] }).columns }));
+      setOptions((current) => ({ ...current, [nextScope]: (payload as { options: TableColumnOption[] }).options }));
+      setRefreshError(columnsKey);
+      setRefreshError(optionsKey);
+    } catch (error) {
+      if (!isLatestRefresh(requestSequence, scopeRefreshSequenceRef.current.get(nextScope) ?? 0)) return;
+      const message = error instanceof Error ? error.message : `Could not refresh ${SCOPE_LABEL[nextScope]} columns.`;
+      setRefreshError(columnsKey, message);
+      setRefreshError(optionsKey, message);
+      throw error;
+    }
   }
 
   async function refreshOptionData(program: "aca" | "medicare") {
     const requestSequence = (optionRefreshSequenceRef.current.get(program) ?? 0) + 1;
     optionRefreshSequenceRef.current.set(program, requestSequence);
-    const response = await fetch(`/api/enrollment/option-sets?program=${program}`, {
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (optionRefreshSequenceRef.current.get(program) !== requestSequence) return;
-      throw new Error(payload?.error ?? "Could not refresh enrollment options.");
+    const key = `enrollment-options:${program}`;
+    try {
+      const response = await fetch(`/api/enrollment/option-sets?program=${program}`, {
+        cache: "no-store",
+      });
+      const data = await readRefreshResponse<unknown>(
+        response,
+        `Could not refresh ${program.toUpperCase()} enrollment options.`
+      );
+      if (!isLatestRefresh(requestSequence, optionRefreshSequenceRef.current.get(program) ?? 0)) return;
+      if (!data || typeof data !== "object" || !Array.isArray((data as EnrollmentOptionData).sets) || !Array.isArray((data as EnrollmentOptionData).options) || !((data as EnrollmentOptionData).optionsBySet && typeof (data as EnrollmentOptionData).optionsBySet === "object")) {
+        throw new Error(`Could not refresh ${program.toUpperCase()} enrollment options.`);
+      }
+      setOptionData((current) => ({ ...current, [program]: data as EnrollmentOptionData }));
+      setRefreshError(key);
+    } catch (error) {
+      if (!isLatestRefresh(requestSequence, optionRefreshSequenceRef.current.get(program) ?? 0)) return;
+      setRefreshError(key, error instanceof Error ? error.message : `Could not refresh ${program.toUpperCase()} enrollment options.`);
+      throw error;
     }
-    const data = (await response.json()) as EnrollmentOptionData;
-    if (optionRefreshSequenceRef.current.get(program) !== requestSequence) return;
-    setOptionData((current) => ({ ...current, [program]: data }));
   }
 
   async function run(action: () => Promise<unknown>, success: string) {
@@ -225,6 +262,10 @@ export function ConfigClient({
 
   const activeColumns = columns[scope] ?? [];
   const activeOptions = options[scope] ?? [];
+  const columnsRefreshError = refreshErrors[`columns:${scope}`];
+  const optionsRefreshError = refreshErrors[`options:${scope}`];
+  const enrollmentOptionsRefreshError =
+    scope === "aca" || scope === "medicare" ? refreshErrors[`enrollment-options:${scope}`] : undefined;
 
   return (
     <main className="min-h-screen bg-[#f7f8fa] px-8 py-10 text-[#172b4d]">
@@ -267,8 +308,8 @@ export function ConfigClient({
             scope={scope}
             columns={activeColumns}
             busy={busy}
-            available={sectionStatus.columns.available}
-            availabilityError={sectionStatus.columns.error}
+            available={sectionStatus.columns.available && !columnsRefreshError}
+            availabilityError={columnsRefreshError ?? sectionStatus.columns.error}
             run={run}
             refreshScope={refreshScope}
           />
@@ -294,16 +335,19 @@ export function ConfigClient({
             busy={busy}
             available={
               sectionStatus.options.available &&
+              !optionsRefreshError &&
               (scope === "cs"
-                ? sectionStatus.categories.available
-                : sectionStatus.enrollmentOptions[scope].available)
+                ? true
+                : sectionStatus.enrollmentOptions[scope].available && !enrollmentOptionsRefreshError)
             }
             availabilityError={
+              optionsRefreshError ??
+              enrollmentOptionsRefreshError ??
               sectionStatus.options.error ??
-              (scope === "cs"
-                ? sectionStatus.categories.error
-                : sectionStatus.enrollmentOptions[scope].error)
+              (scope === "cs" ? undefined : sectionStatus.enrollmentOptions[scope].error)
             }
+            categoriesAvailable={sectionStatus.categories.available}
+            categoriesError={sectionStatus.categories.error}
             run={run}
             refreshScope={refreshScope}
             onCategoriesChange={setCategories}
@@ -1264,6 +1308,8 @@ function ConfigDropdownValuesSection({
   busy,
   available,
   availabilityError,
+  categoriesAvailable,
+  categoriesError,
   run,
   refreshScope,
   onCategoriesChange,
@@ -1279,12 +1325,15 @@ function ConfigDropdownValuesSection({
   busy: boolean;
   available: boolean;
   availabilityError?: string;
+  categoriesAvailable: boolean;
+  categoriesError?: string;
   run: (action: () => Promise<unknown>, success: string) => Promise<void>;
   refreshScope: (scope?: TableScope) => Promise<void>;
   onCategoriesChange: Dispatch<SetStateAction<TaskCategory[]>>;
   onOptionDataChange: () => Promise<void>;
 }) {
-  const controlsDisabled = busy || !available;
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const categoryRefreshSequenceRef = useRef(0);
   const isEnrollmentScope = scope === "aca" || scope === "medicare";
   // KHÔNG nhận Status/Priority (CS) — cũng is_system+dropdown nhưng giá trị
   // hardcode trong TASK_STATUSES/TASK_PRIORITIES (TS enum), không có bảng để sửa.
@@ -1315,6 +1364,9 @@ function ConfigDropdownValuesSection({
 
   const [selectedKey, setSelectedKey] = useState(groups[0]?.key ?? "");
   const selected = groups.find((g) => g.key === selectedKey) ?? groups[0];
+  const categoryUnavailable = selected?.kind === "category" && !categoriesAvailable;
+  const controlsDisabled = busy || !available || Boolean(refreshError) || categoryUnavailable;
+  const sectionError = refreshError ?? (categoryUnavailable ? categoriesError : availabilityError);
   const isStageGroup = selected?.kind === "optionSet" && selected.setKey === "stage";
   // Dashboard-terminal semantics belong only to the ACA Overview. They are
   // not a shared CS/Medicare workflow rule.
@@ -1363,12 +1415,29 @@ function ConfigDropdownValuesSection({
       : "category";
 
   async function refreshCategories() {
-    const response = await fetch("/api/tasks/categories", { cache: "no-store" });
-    if (response.ok) onCategoriesChange((await response.json()).categories as TaskCategory[]);
+    const requestSequence = categoryRefreshSequenceRef.current + 1;
+    categoryRefreshSequenceRef.current = requestSequence;
+    try {
+      const response = await fetch("/api/tasks/categories", { cache: "no-store" });
+      const payload = await readRefreshResponse<unknown>(
+        response,
+        "Could not refresh task categories."
+      );
+      if (!isLatestRefresh(requestSequence, categoryRefreshSequenceRef.current)) return;
+      if (!payload || typeof payload !== "object" || !Array.isArray((payload as { categories?: unknown }).categories)) {
+        throw new Error("Could not refresh task categories.");
+      }
+      onCategoriesChange((payload as { categories: TaskCategory[] }).categories);
+      setRefreshError(null);
+    } catch (error) {
+      if (!isLatestRefresh(requestSequence, categoryRefreshSequenceRef.current)) return;
+      setRefreshError(error instanceof Error ? error.message : "Could not refresh task categories.");
+      throw error;
+    }
   }
 
   async function addValue() {
-    if (!selected || !available) return;
+    if (!selected || controlsDisabled) return;
     if (selected.kind === "category") {
       await requestJson("/api/tasks/categories", {
         method: "POST",
@@ -1402,7 +1471,7 @@ function ConfigDropdownValuesSection({
   }
 
   async function renameValue(id: string, nextLabel: string) {
-    if (!selected || !available) return;
+    if (!selected || controlsDisabled) return;
     if (selected.kind === "category") {
       await requestJson(`/api/tasks/categories/${id}`, { method: "PATCH", body: JSON.stringify({ name: nextLabel }) });
       await refreshCategories();
@@ -1419,7 +1488,7 @@ function ConfigDropdownValuesSection({
   }
 
   async function recolorValue(id: string, nextColor: string) {
-    if (!selected || !available) return;
+    if (!selected || controlsDisabled) return;
     if (selected.kind === "category") {
       await requestJson(`/api/tasks/categories/${id}`, { method: "PATCH", body: JSON.stringify({ color: nextColor }) });
       await refreshCategories();
@@ -1436,7 +1505,7 @@ function ConfigDropdownValuesSection({
   }
 
   async function toggleStageRule(id: string, patch: { is_terminal?: boolean; treat_as_terminal?: boolean; triggers_qc?: boolean }) {
-    if (!available) return;
+    if (controlsDisabled) return;
     const pendingCount = (pendingStageRuleCountsRef.current.get(id) ?? 0) + 1;
     pendingStageRuleCountsRef.current.set(id, pendingCount);
     setPendingStageRuleIds((current) => new Set(current).add(id));
@@ -1473,7 +1542,7 @@ function ConfigDropdownValuesSection({
   }
 
   async function archiveValue(id: string) {
-    if (!selected || !available) return;
+    if (!selected || controlsDisabled) return;
     if (selected.kind === "category") {
       await requestJson(`/api/tasks/categories/${id}`, { method: "DELETE" });
       await refreshCategories();
@@ -1508,7 +1577,9 @@ function ConfigDropdownValuesSection({
           sets — is managed here in one place.
         </p>
       </div>
-      {!available ? <ConfigSectionUnavailable message={availabilityError} /> : null}
+      {!available || refreshError || categoryUnavailable ? (
+        <ConfigSectionUnavailable message={sectionError} />
+      ) : null}
       {groups.length === 0 ? (
         <div className="px-6 py-10 text-sm font-semibold text-[#6b778c]">No dropdown values yet.</div>
       ) : (
@@ -1897,6 +1968,13 @@ function ConfigAssistantSection({
   const [agentEmail, setAgentEmail] = useState(agents[0]?.email ?? "");
   const [assistantEmail, setAssistantEmail] = useState("");
   const [newAgentEmail, setNewAgentEmail] = useState("");
+  const [agentsRefreshError, setAgentsRefreshError] = useState<string | null>(null);
+  const [membersRefreshError, setMembersRefreshError] = useState<string | null>(null);
+  const agentsRefreshSequenceRef = useRef(0);
+  const membersRefreshSequenceRef = useRef(0);
+  const agentsControlsDisabled = busy || !available || Boolean(agentsRefreshError);
+  const membersControlsDisabled =
+    busy || !available || Boolean(agentsRefreshError) || Boolean(membersRefreshError);
   const agentEmails = new Set(agents.map((a) => a.email));
   // Agent picker: MỌI account active (khớp AgentGroupsModal cũ) — Agent không
   // bắt buộc có quyền task.work, họ có thể chưa từng dùng CS board.
@@ -1909,10 +1987,22 @@ function ConfigAssistantSection({
 
   async function refreshAgents() {
     if (!available) return;
-    const response = await fetch("/api/config/agents", { cache: "no-store" });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error ?? "Could not load agents.");
-    onAgentsChange(payload.agents);
+    const requestSequence = agentsRefreshSequenceRef.current + 1;
+    agentsRefreshSequenceRef.current = requestSequence;
+    try {
+      const response = await fetch("/api/config/agents", { cache: "no-store" });
+      const payload = await readRefreshResponse<unknown>(response, "Could not refresh agents.");
+      if (!isLatestRefresh(requestSequence, agentsRefreshSequenceRef.current)) return;
+      if (!payload || typeof payload !== "object" || !Array.isArray((payload as { agents?: unknown }).agents)) {
+        throw new Error("Could not refresh agents.");
+      }
+      onAgentsChange((payload as { agents: TaskAgent[] }).agents);
+      setAgentsRefreshError(null);
+    } catch (error) {
+      if (!isLatestRefresh(requestSequence, agentsRefreshSequenceRef.current)) return;
+      setAgentsRefreshError(error instanceof Error ? error.message : "Could not refresh agents.");
+      throw error;
+    }
   }
 
   // Gộp cả 2 nguồn để label luôn resolve được tên — member.agent_email có thể
@@ -1952,10 +2042,27 @@ function ConfigAssistantSection({
 
   async function refreshMembers() {
     if (!available) return;
-    const response = await fetch("/api/config/assistants", { cache: "no-store" });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error ?? "Could not load assistants.");
-    setMembers(payload.members);
+    const requestSequence = membersRefreshSequenceRef.current + 1;
+    membersRefreshSequenceRef.current = requestSequence;
+    try {
+      const response = await fetch("/api/config/assistants", { cache: "no-store" });
+      const payload = await readRefreshResponse<unknown>(
+        response,
+        "Could not refresh assistant memberships."
+      );
+      if (!isLatestRefresh(requestSequence, membersRefreshSequenceRef.current)) return;
+      if (!payload || typeof payload !== "object" || !Array.isArray((payload as { members?: unknown }).members)) {
+        throw new Error("Could not refresh assistant memberships.");
+      }
+      setMembers((payload as { members: AssistantMember[] }).members);
+      setMembersRefreshError(null);
+    } catch (error) {
+      if (!isLatestRefresh(requestSequence, membersRefreshSequenceRef.current)) return;
+      setMembersRefreshError(
+        error instanceof Error ? error.message : "Could not refresh assistant memberships."
+      );
+      throw error;
+    }
   }
 
   return (
@@ -1967,7 +2074,9 @@ function ConfigAssistantSection({
             Add people as Agents. Removing an agent also unlinks all of their assistants.
           </p>
         </div>
-        {!available ? <ConfigSectionUnavailable message={availabilityError} /> : null}
+        {!available || agentsRefreshError ? (
+          <ConfigSectionUnavailable message={agentsRefreshError ?? availabilityError} />
+        ) : null}
         <form
           className="grid gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4 md:grid-cols-[1fr_120px]"
           onSubmit={(event) => {
@@ -1992,7 +2101,7 @@ function ConfigAssistantSection({
           />
           <button
             type="submit"
-            disabled={busy || !available || !newAgentEmail}
+            disabled={agentsControlsDisabled || !newAgentEmail}
             className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
           >
             <Plus className="h-4 w-4" /> Add
@@ -2009,7 +2118,7 @@ function ConfigAssistantSection({
             </div>
             <button
               type="button"
-              disabled={busy || !available}
+              disabled={agentsControlsDisabled}
               onClick={() =>
                 void run(async () => {
                   await requestJson("/api/config/agents", {
@@ -2037,6 +2146,11 @@ function ConfigAssistantSection({
             Link an existing Agent to the people who assist them.
           </p>
         </div>
+        {!available || agentsRefreshError || membersRefreshError ? (
+          <ConfigSectionUnavailable
+            message={agentsRefreshError ?? membersRefreshError ?? availabilityError}
+          />
+        ) : null}
         <form
           className="grid gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4 md:grid-cols-[280px_1fr_120px]"
           onSubmit={(event) => {
@@ -2067,7 +2181,7 @@ function ConfigAssistantSection({
         />
         <button
           type="submit"
-            disabled={busy || !available || !agentEmail || !assistantEmail}
+            disabled={membersControlsDisabled || !agentEmail || !assistantEmail}
           className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
         >
           <Plus className="h-4 w-4" /> Add
@@ -2086,7 +2200,7 @@ function ConfigAssistantSection({
           </div>
           <button
             type="button"
-            disabled={busy || !available}
+            disabled={membersControlsDisabled}
             onClick={() =>
               void run(async () => {
                 await requestJson("/api/config/assistants", {
