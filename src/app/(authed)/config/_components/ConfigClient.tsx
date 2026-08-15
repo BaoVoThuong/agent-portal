@@ -1591,7 +1591,7 @@ function ConfigDropdownValuesSection({
               </button>
             ))}
           </nav>
-          <div className="p-4">
+          <div className="min-w-0 p-4">
             <form
               className={`grid grid-cols-1 gap-2 border-b border-[#dfe1e6] pb-4 ${
                 isAcaStageGroup
@@ -1694,8 +1694,14 @@ function ConfigDropdownValuesSection({
                 <Plus className="h-4 w-4" /> Add
               </button>
             </form>
-            <div className="mt-4 min-w-0 overflow-x-auto rounded-lg border border-[#dfe1e6]">
-              <table className="w-full min-w-[900px] border-collapse text-sm">
+            <div className="mt-4 min-w-0 overflow-hidden rounded-lg border border-[#dfe1e6]">
+              <table className="w-full table-fixed border-collapse text-sm">
+                <colgroup>
+                  <col className={isStageGroup ? "w-[28%]" : "w-[40%]"} />
+                  <col className={isStageGroup ? "w-[32%]" : "w-[45%]"} />
+                  {isStageGroup ? <col className="w-[28%]" /> : null}
+                  <col className={isStageGroup ? "w-[12%]" : "w-[15%]"} />
+                </colgroup>
                 <thead className="bg-[#f7f8fa] text-xs font-bold uppercase text-[#6b778c]">
                   <tr>
                     <th className="border-b border-r border-[#dfe1e6] px-3 py-2 text-left">Label</th>
