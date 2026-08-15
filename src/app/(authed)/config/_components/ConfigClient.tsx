@@ -1433,6 +1433,7 @@ function ConfigDropdownValuesSection({
                 className={`flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e] ${
                   isStageGroup ? "" : "opacity-40"
                 }`}
+                title="Workflow terminal: entering this stage closes the enrollment record."
               >
                 <input
                   type="checkbox"
@@ -1440,7 +1441,7 @@ function ConfigDropdownValuesSection({
                   checked={isStageGroup && isTerminal}
                   onChange={(event) => setIsTerminal(event.target.checked)}
                 />
-                Terminal
+                Workflow terminal
               </label>
               <label
                 className={`flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e] ${
@@ -1459,7 +1460,7 @@ function ConfigDropdownValuesSection({
                 className={`flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e] ${
                   isStageGroup ? "" : "opacity-40"
                 }`}
-                title="Used by the ACA overview only; it does not close the enrollment record."
+                title="ACA overview only: excludes this stage from active-work metrics; does not close the enrollment record."
               >
                 <input
                   type="checkbox"
@@ -1467,7 +1468,7 @@ function ConfigDropdownValuesSection({
                   checked={isStageGroup && treatAsTerminal}
                   onChange={(event) => setTreatAsTerminal(event.target.checked)}
                 />
-                ACA terminal
+                Dashboard terminal (ACA only)
               </label>
               <button
                 type="submit"
@@ -1536,7 +1537,7 @@ function ConfigDropdownValuesSection({
                         {isStageGroup ? (
                           <td className="border-b border-r border-[#dfe1e6] px-3 py-2 text-xs font-semibold text-[#42526e]">
                             <div className="flex flex-wrap gap-2">
-                              <label className="flex items-center gap-1.5">
+                              <label className="flex items-center gap-1.5" title="Workflow terminal: entering this stage closes the enrollment record.">
                                 <input
                                   type="checkbox"
                                   disabled={busy || pendingStageRuleIds.has(row.id)}
@@ -1548,9 +1549,9 @@ function ConfigDropdownValuesSection({
                                     )
                                   }
                                 />
-                                Terminal
+                                Workflow terminal
                               </label>
-                              <label className="flex items-center gap-1.5">
+                              <label className="flex items-center gap-1.5" title="ACA overview only: excludes this stage from active-work metrics; does not close the enrollment record.">
                                 <input
                                   type="checkbox"
                                   disabled={busy || pendingStageRuleIds.has(row.id)}
@@ -1562,7 +1563,7 @@ function ConfigDropdownValuesSection({
                                     )
                                   }
                                 />
-                                ACA dashboard terminal
+                                Dashboard terminal (ACA only)
                               </label>
                               <label className="flex items-center gap-1.5">
                                 <input
