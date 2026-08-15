@@ -2394,6 +2394,8 @@ function EnrollmentOptionMenu({
   // the record is, so each option keeps its own solid colour. Stage remains
   // distinguishable through its tinted workflow-state badge.
   const style = enrollmentIdentityBadgeStyle(option);
+  const identityBadgeClass =
+    "inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]";
 
   return (
     <span className="block min-w-0">
@@ -2424,15 +2426,25 @@ function EnrollmentOptionMenu({
             : undefined
         }
       >
-        <span
-          className={`min-w-0 truncate text-left ${
-            rendersIdentityBadge ? "" : "flex-1"
-          } ${
-            !rendersIdentityBadge && !option ? "font-normal text-[#97a0af]" : ""
-          }`}
-        >
-          {option?.label ?? emptyDisplayLabel}
-        </span>
+        {option && !rendersIdentityBadge ? (
+          <span
+            className={identityBadgeClass}
+            style={{ backgroundColor: style.bg, color: style.fg }}
+            title={option.label}
+          >
+            {option.label}
+          </span>
+        ) : (
+          <span
+            className={`min-w-0 truncate text-left ${
+              rendersIdentityBadge ? "" : "flex-1"
+            } ${
+              !rendersIdentityBadge && !option ? "font-normal text-[#97a0af]" : ""
+            }`}
+          >
+            {option?.label ?? emptyDisplayLabel}
+          </span>
+        )}
         {/* Identity badges match CS CategoryBadge: no chevron in List. */}
         {showsChevron ? <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" /> : null}
       </button>
@@ -2454,6 +2466,32 @@ function EnrollmentOptionMenu({
                 closeMenu({ restoreFocus: true });
               }}
               onTabExit={closeMenuForTab}
+              renderChoice={(choice, state) => {
+                const choiceOption = options.find((item) => item.id === choice.value) ?? null;
+                const choiceStyle = enrollmentIdentityBadgeStyle(choiceOption);
+                return (
+                  <>
+                    {choiceOption ? (
+                      <span
+                        className={identityBadgeClass}
+                        style={{
+                          backgroundColor: choiceStyle.bg,
+                          color: choiceStyle.fg,
+                        }}
+                      >
+                        {choice.label}
+                      </span>
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                        {choice.label}
+                      </span>
+                    )}
+                    {state.selected ? (
+                      <Check className="ml-auto h-4 w-4 shrink-0 text-[#0c66e4]" />
+                    ) : null}
+                  </>
+                );
+              }}
             />,
             document.body
           )

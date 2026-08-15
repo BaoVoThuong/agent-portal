@@ -1,4 +1,7 @@
-import { TASK_CATEGORY_COLORS } from "@/lib/tasks/category-colors";
+import {
+  TASK_CATEGORY_COLORS,
+  taskCategoryBadgePalette,
+} from "@/lib/tasks/category-colors";
 
 export const DEFAULT_DROPDOWN_VALUE_COLOR = TASK_CATEGORY_COLORS[0];
 
@@ -31,6 +34,23 @@ export function parseConfiguredColor(value: unknown): ConfiguredColorResult {
 export function normalizeConfiguredColor(value: unknown): string | null {
   const parsed = parseConfiguredColor(value);
   return parsed.ok ? parsed.color : null;
+}
+
+/**
+ * The identity-badge palette for a custom dropdown option. Keeping this
+ * wrapper beside the recommendation logic makes Config previews and the
+ * shared CS/Enrollment cell renderer use the exact same fallback/hash rules.
+ */
+export function tableColumnOptionBadgePalette(option: {
+  id: string;
+  label: string;
+  color: string | null | undefined;
+}) {
+  return taskCategoryBadgePalette({
+    id: option.id,
+    name: option.label,
+    color: normalizeConfiguredColor(option.color),
+  });
 }
 
 function normalizeColor(value: string | null | undefined): string | null {

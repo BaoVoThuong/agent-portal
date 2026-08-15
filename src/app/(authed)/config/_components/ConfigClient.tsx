@@ -34,7 +34,6 @@ import {
 import { Toast, type ToastTone } from "../../_shared/Toast";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
-import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import {
   COLUMN_TYPES,
   TABLE_SCOPES,
@@ -67,6 +66,7 @@ import {
 import {
   nextRecommendedDropdownValueColor,
   recommendDropdownValueColor,
+  tableColumnOptionBadgePalette,
 } from "@/lib/table-config/value-colors";
 import { ConfigSlaSection } from "./ConfigSlaSection";
 import { isConfigMutationWarning } from "@/lib/table-config/partial-success";
@@ -1215,9 +1215,9 @@ function DropdownValueColorControl({
       : appearance === "enrollment-identity"
         ? enrollmentIdentityBadgeStyle({ color: previewColor })
         : (() => {
-          const palette = taskCategoryBadgePalette({
+          const palette = tableColumnOptionBadgePalette({
             id: identityKey,
-            name: label || "Dropdown value",
+            label: label || "Dropdown value",
             color: previewColor,
           });
           return { bg: palette.background, fg: palette.foreground };

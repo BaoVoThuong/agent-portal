@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CATEGORY_COLORS } from "@/lib/tasks/category-colors";
+import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import {
   CONFIGURED_COLOR_ERROR,
   DEFAULT_DROPDOWN_VALUE_COLOR,
@@ -7,7 +8,27 @@ import {
   normalizeConfiguredColor,
   parseConfiguredColor,
   recommendDropdownValueColor,
+  tableColumnOptionBadgePalette,
 } from "./value-colors";
+
+describe("tableColumnOptionBadgePalette", () => {
+  it("matches the category badge palette used by list consumers", () => {
+    const option = { id: "option-1", label: "Call Doctor Office", color: "#FFAB00" };
+    expect(tableColumnOptionBadgePalette(option)).toEqual(
+      taskCategoryBadgePalette({
+        id: option.id,
+        name: option.label,
+        color: "#ffab00",
+      })
+    );
+  });
+
+  it("uses the same deterministic fallback for missing or legacy-invalid colors", () => {
+    expect(tableColumnOptionBadgePalette({ id: "option-1", label: "Value", color: null })).toEqual(
+      tableColumnOptionBadgePalette({ id: "option-1", label: "Value", color: "#123" })
+    );
+  });
+});
 
 describe("parseConfiguredColor", () => {
   it("normalizes valid colors to lowercase", () => {

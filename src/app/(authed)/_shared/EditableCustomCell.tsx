@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Check, ExternalLink } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { formatCustomValue, normalizedValueEquals } from "@/lib/table-config/values";
+import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { SearchableListboxPanel } from "./SearchableListboxPanel";
 import { useAnchoredMenu } from "../tasks/_components/use-anchored-menu";
 import { AvatarStack } from "../tasks/_components/board-ui";
@@ -53,6 +54,10 @@ export function EditableCustomCell({
   });
   const empty = value === null || value === undefined || value === "";
   const optionLabel = optionLabelById?.get(String(value));
+  const selectedOption =
+    column.type === "dropdown"
+      ? options.find((option) => option.id === String(value)) ?? null
+      : null;
   const label = column.type === "dropdown" && optionLabel ? optionLabel : display;
   const personEmptyLabel = column.type === "person" ? "Unassigned" : emptyLabel;
   const title = label || personEmptyLabel || column.label;
@@ -171,6 +176,7 @@ export function EditableCustomCell({
       ])
     );
     const menuLabel = column.label;
+    const optionById = new Map(options.map((option) => [option.id, option]));
 
     return (
       <span className={`relative block min-w-0 ${className}`}>
@@ -194,9 +200,22 @@ export function EditableCustomCell({
               max={1}
             />
           ) : null}
-          <span className={`min-w-0 flex-1 truncate ${empty ? "text-[#97a0af]" : ""}`}>
-            {label || personEmptyLabel}
-          </span>
+          {selectedOption ? (
+            <span
+              className="inline-flex min-w-0 max-w-full items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+              style={(() => {
+                const palette = tableColumnOptionBadgePalette(selectedOption);
+                return { backgroundColor: palette.background, color: palette.foreground };
+              })()}
+              title={selectedOption.label}
+            >
+              <span className="min-w-0 truncate">{selectedOption.label}</span>
+            </span>
+          ) : (
+            <span className={`min-w-0 flex-1 truncate ${empty ? "text-[#97a0af]" : ""}`}>
+              {label || personEmptyLabel}
+            </span>
+          )}
         </button>
         {isOpen
           ? createPortal(
@@ -229,7 +248,34 @@ export function EditableCustomCell({
                           ) : null}
                         </>
                       )
-                    : undefined
+                    : (choice, state) => {
+                        const option = optionById.get(choice.value);
+                        const palette = option
+                          ? tableColumnOptionBadgePalette(option)
+                          : null;
+                        return (
+                          <>
+                            {palette ? (
+                              <span
+                                className="min-w-0 max-w-full truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+                                style={{
+                                  backgroundColor: palette.background,
+                                  color: palette.foreground,
+                                }}
+                              >
+                                {choice.label}
+                              </span>
+                            ) : (
+                              <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                                {choice.label}
+                              </span>
+                            )}
+                            {state.selected ? (
+                              <Check className="ml-auto h-4 w-4 shrink-0 text-[#0c66e4]" />
+                            ) : null}
+                          </>
+                        );
+                      }
                 }
               />,
               document.body
