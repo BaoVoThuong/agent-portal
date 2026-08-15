@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Chỉ đếm usage option khi admin yêu cầu archive
+- **Loại**: fix, performance, data-integrity
+- **Cái gì**: Bỏ eager `enrollment_option_usage_counts()` khỏi `/config`; archive custom dropdown và Enrollment option giờ kiểm tra usage đúng một lần sau khi admin bấm Archive. Custom values dùng JSONB containment trên index GIN partial của các record active; lỗi kiểm tra usage chặn archive và không giả mạo số 0.
+- **Vì sao**: Scan toàn bộ enrollment records khi mở `/config` làm tăng latency dù admin không archive gì; usage thất bại có thể bị hiểu nhầm là option không được dùng.
+- **File**: `supabase/schema.sql`, `supabase/rollouts/2026-08-15-config-option-usage.sql`, `src/app/api/config/columns/[id]/options/[optionId]/usage/route.ts`, `src/app/api/enrollment/option-sets/[id]/usage/route.ts`, `src/app/(authed)/config/page.tsx`, `src/app/(authed)/config/_components/ConfigClient.tsx`
+- **Ảnh hưởng**: Initial `/config` bớt một query scan; archive confirmation thêm một request có chủ đích. Rollout index/RPC phải được apply trước khi deploy UI.
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 19
+
 ## 2026-08-15 — Membership assistant ghi atomically và chặn cycle
 - **Loại**: fix, security, data-integrity
 - **Cái gì**: Thêm RPC service-role `create_agent_membership_atomic` để serialize membership writes, xác nhận agent/assistant còn active/eligible, chặn tự gán, duplicate và mọi cycle trong đồ thị assistant. API map lỗi thành mã 400/409 ổn định; UI loại self và membership đã tồn tại khỏi picker.

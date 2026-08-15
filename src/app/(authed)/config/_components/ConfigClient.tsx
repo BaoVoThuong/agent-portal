@@ -139,7 +139,6 @@ export function ConfigClient({
   initialCategories,
   initialSlaRules,
   initialOptionData,
-  enrollmentUsageCounts,
   sectionStatus,
 }: {
   initialColumns: Record<TableScope, TableColumn[]>;
@@ -151,7 +150,6 @@ export function ConfigClient({
   initialCategories: TaskCategory[];
   initialSlaRules: TaskSlaRule[];
   initialOptionData: Record<"aca" | "medicare", EnrollmentOptionData>;
-  enrollmentUsageCounts: Record<"aca" | "medicare", Record<string, number>>;
   sectionStatus: ConfigSectionStatuses;
 }) {
   const [tab, setTab] = useState<Tab>("table");
@@ -328,11 +326,6 @@ export function ConfigClient({
               scope === "aca" || scope === "medicare"
                 ? optionData[scope].optionsBySet
                 : emptyEnrollmentOptionsBySet()
-            }
-            optionUsageCounts={
-              scope === "aca" || scope === "medicare"
-                ? new Map(Object.entries(enrollmentUsageCounts[scope]))
-                : new Map()
             }
             busy={busy}
             available={
@@ -1258,8 +1251,8 @@ type DropdownValueGroup =
 
 // Mọi "dropdown value" của app — custom column, CS Category, Enrollment Option
 // Set — chuẩn hoá về 1 màn hình duy nhất: nav trái chọn nhóm, chi tiết phải
-// thêm/sửa/archive. Field đặc thù (Terminal/QC chỉ "stage"; cảnh báo archive
-// theo usage-count chỉ Option Set) hiện có điều kiện theo nhóm đang chọn.
+// thêm/sửa/archive. Field đặc thù (Terminal/QC chỉ "stage") hiện có điều kiện
+// theo nhóm đang chọn. Usage được kiểm tra chỉ sau khi admin bấm Archive.
 function ConfigDropdownValuesSection({
   scope,
   columns,
@@ -1267,7 +1260,6 @@ function ConfigDropdownValuesSection({
   categories,
   optionSets,
   optionsBySet,
-  optionUsageCounts,
   busy,
   available,
   availabilityError,
@@ -1284,7 +1276,6 @@ function ConfigDropdownValuesSection({
   categories: TaskCategory[];
   optionSets: EnrollmentOptionSet[];
   optionsBySet: EnrollmentOptionsBySet;
-  optionUsageCounts: Map<string, number>;
   busy: boolean;
   available: boolean;
   availabilityError?: string;
@@ -1345,6 +1336,7 @@ function ConfigDropdownValuesSection({
   const [treatAsTerminal, setTreatAsTerminal] = useState(false);
   const [triggersQc, setTriggersQc] = useState(false);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
+  const [archiveUsage, setArchiveUsage] = useState<{ id: string; count: number } | null>(null);
   const [pendingStageRuleIds, setPendingStageRuleIds] = useState<Set<string>>(new Set());
   const stageRuleQueuesRef = useRef(new Map<string, Promise<void>>());
   const pendingStageRuleCountsRef = useRef(new Map<string, number>());
@@ -1518,6 +1510,30 @@ function ConfigDropdownValuesSection({
     }
   }
 
+  async function prepareArchive(id: string) {
+    if (!selected || controlsDisabled) return;
+    const selectedSnapshot = selected;
+    setArchiveUsage(null);
+    if (selectedSnapshot.kind === "category") {
+      setConfirmArchiveId(id);
+      return;
+    }
+
+    const usageUrl = selectedSnapshot.kind === "custom"
+      ? `/api/config/columns/${selectedSnapshot.columnId}/options/${id}/usage`
+      : `/api/enrollment/option-sets/${id}/usage`;
+    const payload = await requestJson(usageUrl, { cache: "no-store" });
+    const usageCount = Number(payload?.usage_count);
+    if (!Number.isSafeInteger(usageCount) || usageCount < 0) {
+      throw new Error("Could not check option usage.");
+    }
+    // Do not open a confirmation for a different group if the admin changed
+    // scope/group while the on-demand request was in flight.
+    if (selectedKey !== selectedSnapshot.key) return;
+    setArchiveUsage({ id, count: usageCount });
+    setConfirmArchiveId(id);
+  }
+
   const confirmRow = valueRows.find((r) => r.id === confirmArchiveId) ?? null;
   const wouldDropConsentBelowTwo = isConsentGroup && activeConsentCount <= 2;
 
@@ -1529,6 +1545,7 @@ function ConfigDropdownValuesSection({
     setTreatAsTerminal(false);
     setTriggersQc(false);
     setConfirmArchiveId(null);
+    setArchiveUsage(null);
   }
 
   return (
@@ -1774,7 +1791,10 @@ function ConfigDropdownValuesSection({
                             type="button"
                             disabled={controlsDisabled || disableArchive}
                             title={disableArchive ? "Consent needs at least 2 active options." : undefined}
-                            onClick={() => setConfirmArchiveId(row.id)}
+                            onClick={() => void run(
+                              () => prepareArchive(row.id),
+                              "Archive confirmation ready."
+                            )}
                             className="text-xs font-bold text-[#bf2600] hover:underline disabled:opacity-40 disabled:no-underline"
                           >
                             Archive
@@ -1793,18 +1813,24 @@ function ConfigDropdownValuesSection({
         <ConfirmDialog
           title={`Archive "${confirmRow.label}"?`}
           description={
-            selected?.kind === "optionSet"
-              ? (optionUsageCounts.get(confirmRow.id) ?? 0) > 0
-                ? `${optionUsageCounts.get(confirmRow.id)} record(s) currently use this option. Archiving removes it from pickers going forward — those records keep showing it, but nobody can select it for a new record until it's restored.`
-                : "No live records currently use this option. It will be removed from pickers going forward."
+            selected?.kind === "optionSet" || selected?.kind === "custom"
+              ? archiveUsage?.id === confirmRow.id
+                ? archiveUsage.count > 0
+                  ? `${archiveUsage.count} record(s) currently use this option. Archiving removes it from pickers going forward — those records keep showing it, but nobody can select it for a new record until it's restored.`
+                  : "No live records currently use this option. It will be removed from pickers going forward."
+                : "Usage could not be verified. Close this dialog and retry before archiving."
               : "This value will be removed from pickers going forward. Existing records that reference it keep showing it."
           }
           confirmLabel="Archive"
           busy={busy}
-          onCancel={() => setConfirmArchiveId(null)}
+          onCancel={() => {
+            setConfirmArchiveId(null);
+            setArchiveUsage(null);
+          }}
           onConfirm={() => {
             const id = confirmRow.id;
             setConfirmArchiveId(null);
+            setArchiveUsage(null);
             void run(() => archiveValue(id), "Option archived.");
           }}
         />

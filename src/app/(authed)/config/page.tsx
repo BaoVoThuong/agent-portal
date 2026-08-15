@@ -74,7 +74,6 @@ export default async function ConfigPage() {
     slaRulesResult,
     acaOptionDataResult,
     medicareOptionDataResult,
-    usageCountResult,
   ] = await Promise.all([
     loadOptional("Table columns", () => fetchAllTableColumns(supabase)),
     loadOptional("Custom dropdown values", () => fetchAllTableColumnOptions(supabase)),
@@ -107,11 +106,6 @@ export default async function ConfigPage() {
     }),
     loadOptional("ACA enrollment options", () => fetchEnrollmentOptionData("aca")),
     loadOptional("Medicare enrollment options", () => fetchEnrollmentOptionData("medicare")),
-    loadOptional("Enrollment option usage", async () => {
-      const result = await supabase.rpc("enrollment_option_usage_counts");
-      if (result.error) throw new Error(result.error.message);
-      return result.data ?? [];
-    }),
   ]);
 
   if (!columnsResult.ok) throw new Error(columnsResult.error);
@@ -139,17 +133,6 @@ export default async function ConfigPage() {
     ? medicareOptionDataResult.data
     : emptyEnrollmentOptionData();
 
-  function buildUsageCounts(): Record<string, number> {
-    const counts: Record<string, number> = {};
-    for (const row of (usageCountResult.ok ? usageCountResult.data : []) as Array<{
-      option_id: string;
-      usage_count: number | string;
-    }>) {
-      counts[row.option_id] = Number(row.usage_count) || 0;
-    }
-    return counts;
-  }
-
   return (
     <ConfigClient
       initialColumns={columns}
@@ -168,7 +151,6 @@ export default async function ConfigPage() {
       initialCategories={categoryRows as TaskCategory[]}
       initialSlaRules={slaRows as TaskSlaRule[]}
       initialOptionData={{ aca: acaOptionData, medicare: medicareOptionData }}
-      enrollmentUsageCounts={{ aca: buildUsageCounts(), medicare: buildUsageCounts() }}
       sectionStatus={{
         columns: {
           available: columnsReady,
