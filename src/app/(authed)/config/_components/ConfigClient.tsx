@@ -667,10 +667,6 @@ function ConfigTableSection({
     <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
       <div className="border-b border-[#dfe1e6] px-6 py-4">
         <h2 className="text-lg font-bold">Table columns</h2>
-        <p className="mt-1 text-sm text-[#6b778c]">
-          System columns can be renamed, reordered, and hidden by default. Custom
-          columns can also be archived.
-        </p>
       </div>
       {!available ? <ConfigSectionUnavailable message={availabilityError} /> : null}
       <form
