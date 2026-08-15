@@ -268,11 +268,13 @@ export function ConfigClient({
     scope === "aca" || scope === "medicare" ? refreshErrors[`enrollment-options:${scope}`] : undefined;
 
   return (
-    <main className="min-h-screen bg-[#f7f8fa] px-8 py-10 text-[#172b4d]">
+    <main className="min-h-screen bg-[#f7f8fa] px-6 pb-6 pt-5 text-[#172b4d]">
       <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="mt-2 text-3xl font-bold">Health Table Configuration</h1>
+            <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
+              Health Table Configuration
+            </h1>
           </div>
           <DropdownSelect
             label="Table"
