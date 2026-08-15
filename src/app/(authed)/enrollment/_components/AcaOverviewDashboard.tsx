@@ -33,11 +33,10 @@ export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
     finally { if (current === sequence.current) setLoading(false); }
   }, [from, threshold, to]);
   useEffect(() => { void load(); return () => { sequence.current += 1; }; }, [load]);
-  if (loading && !snapshot) return <Message>Loading ACA operations...</Message>;
-  if (error && !snapshot) return <Message error={error} onRetry={() => void load()} />;
-  if (!snapshot) return <Message>No ACA overview data.</Message>;
-  const period = snapshot.period.from && snapshot.period.to ? `${snapshot.period.from} – ${snapshot.period.to}` : "All dates";
-  const handleAssigned = (recordId: string, email: string | null, updatedAt?: string) => setSnapshot((current) => current ? { ...current, actions: applyResponsibleAssignment(current.actions, recordId, email), unassigned: current.unassigned.filter((row) => row.recordId !== recordId), people: current.people.map((row) => row.email === email ? { ...row, holding: row.holding + 1 } : row) } : current);
+  // Every hook must run before the guards below. These early returns fire while
+  // the first snapshot is loading, so a hook placed after them is skipped on
+  // that render and called on the next one — which is exactly the "rendered
+  // more hooks than during the previous render" crash.
   const handleToggleQueue = useCallback(async (email: string, enabled: boolean) => {
     setUpdatingQueueEmail(email); setQueueError(null);
     try {
