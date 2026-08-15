@@ -5222,16 +5222,14 @@ with option_seed(set_key, label, color, position, is_terminal, triggers_qc) as (
     ('stage', '2-Quoted', '#0C66E4', 20, false, false),
     ('stage', '3-Waiting for Confirmation', '#F5A524', 30, false, false),
     ('stage', '4-Need documents', '#FFAB00', 40, false, false),
-    ('stage', '5-Ready to enroll', '#36B37E', 50, false, false),
+    ('stage', '5-Ready to Enroll', '#36B37E', 50, false, false),
     ('stage', '6-Enrolled', '#00A3BF', 60, false, false),
     ('stage', '7-1st payment done', '#6554C0', 70, false, false),
     ('stage', '8-Need assign PCP', '#FF7452', 80, false, false),
-    ('stage', '9-Assigned PCP/Get ID Card', '#00875A', 90, false, false),
-    ('stage', '10-DONE', '#00875A', 100, true, true),
-    ('stage', '11-Terminated', '#C9372C', 110, true, false),
-    ('stage', 'Need call to renewal', '#8F7EE7', 120, false, false),
-    ('stage', 'Can''t Contact', '#C9372C', 130, false, false),
-    ('stage', 'Can not get ID card', '#FF7452', 140, false, false),
+    ('stage', '9-Need ID card', '#00875A', 90, false, false),
+    ('stage', '10-ID card done', '#00875A', 100, true, true),
+    ('stage', '11-ID card unavailable', '#FF7452', 110, false, false),
+    ('stage', '12-Terminated', '#C9372C', 120, true, false),
     ('carrier', 'Oscar HMO', '#0C66E4', 10, false, false),
     ('carrier', 'Oscar EPO', '#0C66E4', 20, false, false),
     ('carrier', 'CHC 019', '#00875A', 30, false, false),
@@ -5272,7 +5270,7 @@ insert into enrollment_options (
   set_id, label, color, position, is_terminal, treat_as_terminal, triggers_qc
 )
 select sets.id, seed.label, seed.color, seed.position, seed.is_terminal,
-       (seed.set_key = 'stage' and lower(seed.label) in ('can''t contact', 'can not get id card')),
+       (seed.set_key = 'stage' and lower(seed.label) = '11-id card unavailable'),
        seed.triggers_qc
 from option_seed seed
 join enrollment_option_sets sets on sets.key = seed.set_key and sets.program = 'aca'
@@ -5284,19 +5282,23 @@ where not exists (
     and existing.archived_at is null
 );
 
--- Medicare seed — grounded in the real Slack List (7-record crawl at
--- ann_strambler_medicare_2026_crawler/medicare_list_raw.csv). Medicare has no
--- Payment/Consent/Platform/AC concepts in that data, so only Stage and Carrier
--- get option sets. The sample only evidenced two Stage
--- values ("10 - DONE" and "E- ID Card Unavailable") across 7 rows — far too
--- thin to infer a full pipeline the way the 200-row ACA sample allowed, so
--- this is a deliberately minimal starter (plus one neutral "New" entry stage)
--- for admins to extend via Option Sets, same as any other option set.
+-- Medicare uses the same ordered enrollment workflow as ACA, with the
+-- Medicare-specific combined "Enrolled-1stpayment done" step and no ACA-only
+-- option sets. Existing databases receive the same setup through the
+-- 2026-08-15 rollout migration below; this seed keeps fresh databases aligned.
 with medicare_option_seed(set_key, label, color, position, is_terminal, triggers_qc) as (
   values
-    ('stage', 'New', '#6B778C', 10, false, false),
-    ('stage', 'E- ID Card Unavailable', '#FF7452', 20, false, false),
-    ('stage', '10 - DONE', '#00875A', 30, true, true),
+    ('stage', '1-Need quote', '#6B778C', 10, false, false),
+    ('stage', '2-Quoted', '#0C66E4', 20, false, false),
+    ('stage', '3-Waiting for Confirmation', '#F5A524', 30, false, false),
+    ('stage', '4-Need documents', '#FFAB00', 40, false, false),
+    ('stage', '5-Ready to Enroll', '#36B37E', 50, false, false),
+    ('stage', '6-Enrolled-1stpayment done', '#6554C0', 60, false, false),
+    ('stage', '7-Need assign PCP', '#FF7452', 70, false, false),
+    ('stage', '8-Need ID card', '#00875A', 80, false, false),
+    ('stage', '9-ID card done', '#00875A', 90, true, true),
+    ('stage', '10-ID card unavailable', '#FF7452', 100, false, false),
+    ('stage', '11-Terminated', '#C9372C', 110, true, false),
     ('carrier', 'Healthspring/Cigna', '#0C66E4', 10, false, false),
     ('carrier', 'Devoted', '#36B37E', 20, false, false),
     ('carrier', 'UHC', '#0052CC', 30, false, false),

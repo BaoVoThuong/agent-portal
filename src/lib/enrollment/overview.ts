@@ -50,6 +50,9 @@ const ACA_COLLECTABLE_KEYS: EnrollmentOverviewCollectableKey[] = [
   "pcp2026",
 ];
 const MEDICARE_COLLECTABLE_KEYS: EnrollmentOverviewCollectableKey[] = ["carrier", "pcp2025"];
+const MEDICARE_BLOCKING_STAGE_LABELS = new Set(["10-id card unavailable", "e- id card unavailable"]);
+const SUCCESS_STAGE_LABELS = new Set(["10-id card done", "10-done", "9-id card done"]);
+const TERMINATED_STAGE_LABELS = new Set(["12-terminated", "11-terminated"]);
 
 function normalizeLabel(label: string | null | undefined): string {
   return (label ?? "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -166,7 +169,7 @@ function requiredMissingItems(
 function stageIsBlocking(program: EnrollmentProgram, stage: EnrollmentOption | null): boolean {
   if (!stage) return false;
   if (program === "aca") return Boolean(stage.treat_as_terminal);
-  return normalizeLabel(stage.label) === "e- id card unavailable";
+  return MEDICARE_BLOCKING_STAGE_LABELS.has(normalizeLabel(stage.label));
 }
 
 function summaryFor(
@@ -383,8 +386,8 @@ export function aggregateEnrollmentOverview(input: {
   const terminalClosed = activeRecords.filter(
     (record) => record.closed_at && isInPeriod(record.closed_at, period) && record.stage_id
   );
-  const successCount = terminalClosed.filter((record) => normalizeLabel(stageById.get(record.stage_id!)?.label) === "10-done").length;
-  const lostCount = terminalClosed.filter((record) => normalizeLabel(stageById.get(record.stage_id!)?.label) === "11-terminated").length;
+  const successCount = terminalClosed.filter((record) => SUCCESS_STAGE_LABELS.has(normalizeLabel(stageById.get(record.stage_id!)?.label))).length;
+  const lostCount = terminalClosed.filter((record) => TERMINATED_STAGE_LABELS.has(normalizeLabel(stageById.get(record.stage_id!)?.label))).length;
 
   return {
     program: input.program,

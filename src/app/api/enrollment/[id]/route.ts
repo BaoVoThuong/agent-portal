@@ -82,8 +82,9 @@ const OPTION_FIELDS = {
 } as const;
 
 const KEY_STAGE_NOTIFICATIONS = new Set([
-  "5-Ready to enroll",
-  "11-Terminated",
+  "5-ready to enroll",
+  "11-terminated",
+  "12-terminated",
 ]);
 
 export async function GET(_request: Request, { params }: Ctx) {
@@ -539,7 +540,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
           detail: toStage.label,
         });
       }
-    } else if (toStage && KEY_STAGE_NOTIFICATIONS.has(toStage.label)) {
+    } else if (
+      toStage &&
+      KEY_STAGE_NOTIFICATIONS.has(toStage.label.trim().toLowerCase())
+    ) {
       for (const recipient of uniqueEnrollmentNotificationRecipients(
         [updated.caller_email, updated.responsible_enroll_email],
         [actorResult.actor.email]

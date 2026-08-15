@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Chuẩn hoá stage Health ACA và Health Medicare Enrollment
+- **Loại**: fix, data-integrity, workflow
+- **Cái gì**: ACA dùng đúng 12 stage theo workflow mới; Medicare dùng đúng 11 stage, trong đó Medicare giữ bước gộp `6-Enrolled-1stpayment done`. Seed cho database mới và rollout hiện hữu dùng chung thứ tự, màu, terminal/QC semantics; stage cũ được map khi chắc chắn và archive thay vì xoá để giữ nguyên foreign key/history.
+- **Vì sao**: Catalog hiện tại còn stage cũ (`9-Assigned PCP/Get ID Card`, `10-DONE`, `New`, `E- ID Card Unavailable`) và các stage ngoài workflow, khiến create/list/detail/dashboard hiển thị không nhất quán giữa hai chương trình.
+- **File**: `supabase/schema.sql`, `supabase/rollouts/2026-08-15-enrollment-stage-setup.sql`, `supabase/rollouts/2026-08-15-enrollment-stage-setup-test.sql`
+- **Ảnh hưởng**: Record lịch sử không bị xoá hoặc đổi ID; stage ngoài danh sách canonical không còn xuất hiện trong picker sau rollout nhưng vẫn đọc được cho record cũ. Cần apply rollout trước khi kiểm tra UI production.
+
 ## 2026-08-15 — Chỉ đếm usage option khi admin yêu cầu archive
 - **Loại**: fix, performance, data-integrity
 - **Cái gì**: Bỏ eager `enrollment_option_usage_counts()` khỏi `/config`; archive custom dropdown và Enrollment option giờ kiểm tra usage đúng một lần sau khi admin bấm Archive. Custom values dùng JSONB containment trên index GIN partial của các record active; lỗi kiểm tra usage chặn archive và không giả mạo số 0.

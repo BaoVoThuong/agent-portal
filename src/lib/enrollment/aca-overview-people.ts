@@ -5,10 +5,14 @@ const empty = (): AcaOverviewMatrixCell => ({ tasks: 0, stuck: 0, silent: 0, med
 export function buildPeopleRows(input: AcaOverviewInput): AcaOverviewPeopleRow[] {
   const byId = new Map(input.stages.map((s) => [s.id, s]));
   const open = input.records.filter((r) => !r.archived_at && !r.closed_at && (!byId.get(r.stage_id ?? "") || !isDashboardTerminal(byId.get(r.stage_id ?? "")!)));
-  // "Done" is reaching 10-DONE, not merely being closed. `closed_at` is set for
-  // 11-Terminated too, so counting closed records credited people for losing
+  // "Done" is reaching the ID-card-done stage, not merely being closed.
+  // `closed_at` is set for terminated records too, so counting closed records credited people for losing
   // customers in the column used to judge their throughput.
-  const isDone = (r: AcaOverviewRecord) => !r.archived_at && (byId.get(r.stage_id ?? "")?.label ?? "").trim().toLowerCase() === "10-done";
+  const isDone = (r: AcaOverviewRecord) => {
+    if (r.archived_at) return false;
+    const label = (byId.get(r.stage_id ?? "")?.label ?? "").trim().toLowerCase();
+    return label === "10-id card done" || label === "10-done";
+  };
   const done = input.records.filter(isDone);
   const stats = (mine: readonly AcaOverviewRecord[]) => {
     const waits = mine.map((r) => daysInStage(r, input.now));
