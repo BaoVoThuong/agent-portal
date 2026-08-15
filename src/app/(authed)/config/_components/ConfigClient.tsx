@@ -2005,9 +2005,16 @@ function ConfigAssistantSection({
   // cũ, prop `cs`) — làm Assistant = được cấp quyền ngang agent-owner trên task
   // của agent đó, người không có quyền task.work không vào được /tasks nên
   // gán họ làm Assistant là vô nghĩa.
+  const existingAssistantEmails = new Set(
+    members
+      .filter((member) => member.agent_email === agentEmail && member.is_assistant)
+      .map((member) => member.cs_email)
+  );
   const assistantOptions: SelectOption<string>[] = [
     { value: "", label: "Select assistant" },
-    ...assignees.map((person) => ({
+    ...assignees.filter(
+      (person) => person.email !== agentEmail && !existingAssistantEmails.has(person.email)
+    ).map((person) => ({
       value: person.email,
       label: person.name?.trim() || person.email,
     })),

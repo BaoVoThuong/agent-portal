@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Membership assistant ghi atomically và chặn cycle
+- **Loại**: fix, security, data-integrity
+- **Cái gì**: Thêm RPC service-role `create_agent_membership_atomic` để serialize membership writes, xác nhận agent/assistant còn active/eligible, chặn tự gán, duplicate và mọi cycle trong đồ thị assistant. API map lỗi thành mã 400/409 ổn định; UI loại self và membership đã tồn tại khỏi picker.
+- **Vì sao**: Read-then-upsert trước đây cho phép duplicate bị coi là success, hai chiều tạo vòng quyền, hoặc account bị deactivate giữa lúc kiểm tra và ghi.
+- **File**: `supabase/schema.sql`, `supabase/rollouts/2026-08-15-agent-membership-invariants.sql`, `src/app/api/config/assistants/route.ts`, `src/lib/tasks/membership-mutation.ts`, `src/lib/tasks/membership-mutation.test.ts`, `src/app/(authed)/config/_components/ConfigClient.tsx`
+- **Ảnh hưởng**: Authorization vẫn one-hop/explicit như trước; function/rollout phải được apply trước khi deploy API. Không mở rộng quyền đệ quy.
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 17
+
 ## 2026-08-15 — Chuẩn hóa màu dropdown ở API boundary
 - **Loại**: fix, data-integrity, consistency
 - **Cái gì**: Category, custom-column option và Enrollment option mutations giờ dùng cùng parser màu: giá trị hex 6 ký tự được trim/lowercase, giá trị rỗng/null có thể clear, còn input không hợp lệ trả 400 với thông báo ổn định thay vì âm thầm lưu/null. Không thay đổi semantics màu riêng của Stage.

@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTaskAgentCandidates, fetchTaskAgents } from "@/lib/tasks/assignees";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
+import { mapAssistantMembershipError } from "@/lib/tasks/membership-mutation";
 
 export const dynamic = "force-dynamic";
 
@@ -62,40 +63,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = getSupabaseAdmin();
-  const { data: agent, error: agentError } = await supabase
-    .from("task_agents")
-    .select("email")
-    .eq("email", agent_email)
-    .maybeSingle();
-  if (agentError) return NextResponse.json({ error: agentError.message }, { status: 500 });
-  if (!agent) {
+  const { error } = await getSupabaseAdmin().rpc("create_agent_membership_atomic", {
+    p_agent_email: agent_email,
+    p_cs_email: cs_email,
+  });
+  if (error) {
+    const mapped = mapAssistantMembershipError(error);
     return NextResponse.json(
-      { error: "Select this person as an agent first." },
-      { status: 400 }
+      { code: mapped.code, error: mapped.error },
+      { status: mapped.status }
     );
   }
-
-  const { data: account, error: accountError } = await supabase
-    .from("portal_account")
-    .select("email,is_active")
-    .eq("email", cs_email)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (accountError) {
-    return NextResponse.json({ error: accountError.message }, { status: 500 });
-  }
-  if (!account) {
-    return NextResponse.json({ error: "Assistant account not found." }, { status: 404 });
-  }
-
-  const { error } = await supabase
-    .from("agent_members")
-    .upsert(
-      { agent_email, cs_email, is_assistant: true },
-      { onConflict: "agent_email,cs_email" }
-    );
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
