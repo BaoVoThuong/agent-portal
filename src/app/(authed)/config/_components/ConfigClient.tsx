@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
@@ -21,7 +22,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronDown,
-  Check,
   Clock,
   GripVertical,
   Plus,
@@ -32,6 +32,8 @@ import {
   UserRoundCog,
 } from "lucide-react";
 import { Toast, type ToastTone } from "../../_shared/Toast";
+import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
+import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import {
@@ -79,7 +81,7 @@ type AssistantMember = {
 };
 
 type Tab = "table" | "value" | "assistant" | "sla";
-type SelectOption<T extends string> = { value: T; label: string };
+type SelectOption<T extends string> = { value: T; label: string; disabled?: boolean };
 
 const SCOPE_LABEL: Record<TableScope, string> = {
   cs: "Health Customer Service",
@@ -442,106 +444,61 @@ function DropdownSelect<T extends string>({
   className?: string;
   buttonClassName?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const [openUpward, setOpenUpward] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const {
+    isOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  } = useAnchoredMenu();
   const selected = options.find((option) => option.value === value);
-  const POPUP_MAX_HEIGHT = 288; // px, matches max-h-72 below
-
-  function toggleOpen() {
-    setOpen((current) => {
-      const next = !current;
-      if (next) {
-        const rect = triggerRef.current?.getBoundingClientRect();
-        const spaceBelow = rect ? window.innerHeight - rect.bottom : Infinity;
-        setOpenUpward(spaceBelow < POPUP_MAX_HEIGHT && (rect?.top ?? 0) > spaceBelow);
-      }
-      return next;
-    });
-  }
 
   return (
-    <div
-      className={`relative ${className}`}
-      onBlur={(event) => {
-        const nextTarget = event.relatedTarget;
-        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
-          return;
-        }
-        setOpen(false);
-      }}
-    >
+    <div className={`relative ${className}`}>
       <button
         ref={triggerRef}
         type="button"
         aria-label={label}
         aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={toggleOpen}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            setOpen(false);
-          }
-          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            if (!open) toggleOpen();
-          }
-        }}
+        aria-expanded={isOpen}
+        onClick={toggle}
         className={`flex h-10 w-full items-center justify-between gap-3 rounded border border-[#dfe1e6] bg-white px-3 text-left text-sm font-semibold text-[#172b4d] shadow-sm outline-none transition hover:border-[#b8c7dc] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#0c66e4]/20 ${buttonClassName}`}
       >
         <span className={`truncate ${selected ? "" : "text-[#97a0af]"}`}>
           {selected?.label ?? placeholder}
         </span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-[#6b778c] transition ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-[#6b778c] transition ${isOpen ? "rotate-180" : ""}`}
           aria-hidden="true"
         />
       </button>
 
-      {open ? (
-        <div
-          role="listbox"
-          aria-label={label}
-          tabIndex={-1}
-          className={`absolute left-0 right-0 z-50 max-h-72 overflow-auto rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_14px_32px_rgba(22,35,58,0.18)] ${
-            openUpward ? "bottom-full mb-1" : "top-full mt-1"
-          }`}
-        >
-          {options.length === 0 ? (
-            <div className="px-3 py-2 text-sm font-semibold text-[#6b778c]">
-              No options
-            </div>
-          ) : (
-            options.map((option) => {
-              const active = option.value === value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    onChange(option.value);
-                    setOpen(false);
-                  }}
-                  className={`flex min-h-9 w-full items-center gap-2 rounded px-3 py-2 text-left text-sm font-semibold transition ${
-                    active
-                      ? "bg-[#deebff] text-[#0c66e4]"
-                      : "text-[#172b4d] hover:bg-[#f1f2f4]"
-                  }`}
-                >
-                  <Check
-                    className={`h-4 w-4 shrink-0 ${active ? "opacity-100" : "opacity-0"}`}
-                    aria-hidden="true"
-                  />
-                  <span className="truncate">{option.label}</span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      ) : null}
+      {isOpen
+        ? createPortal(
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              className="min-w-[16rem]"
+              ariaLabel={label}
+              queryPlaceholder={`Search ${label.toLowerCase()}…`}
+              emptyMessage="No matching options."
+              choices={options.map((option) => ({
+                value: option.value,
+                label: option.label,
+                disabled: option.disabled,
+              }))}
+              selectedValue={value}
+              onSelect={(nextValue) => {
+                onChange(nextValue as T);
+                closeMenu({ restoreFocus: true });
+              }}
+              onTabExit={closeMenuForTab}
+            />,
+            document.body
+          )
+        : null}
     </div>
   );
 }
