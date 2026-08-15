@@ -742,14 +742,14 @@ function ConfigTableSection({
       <div className="min-w-0 overflow-x-auto">
         <div className="min-w-[1016px]">
           <div className="grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_104px_112px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
-            <ColumnHeader label="Display order" help="Drag a row to change its position in the table." />
-            <ColumnHeader label="Column label" help="The name users see for this column." />
-            <ColumnHeader label="Data type" help="Controls how values are stored, displayed, and edited." />
-            <ColumnHeader label="Pin to left" help="Keep this column visible while horizontally scrolling." />
-            <ColumnHeader label="Required on create" help="Require a value when creating a new record." />
-            <ColumnHeader label="Hidden by default" help="Hide this column from the table by default." />
-            <ColumnHeader label="Show in details" help="Include this column in the record detail view." />
-            <ColumnHeader label="Manage" help="Archive or restore custom columns." />
+            <ColumnHeader label="Order" help="Drag a row to change its position in the table." />
+            <ColumnHeader label="Column name" help="The name users see for this column." />
+            <ColumnHeader label="Type" help="Controls how values are stored, displayed, and edited." />
+            <ColumnHeader label="Pinned" help="Keep this column visible while horizontally scrolling." />
+            <ColumnHeader label="Required" help="Require a value when creating a new record." />
+            <ColumnHeader label="Hidden" help="Hide this column from the table by default." />
+            <ColumnHeader label="Details" help="Include this column in the record detail view." />
+            <ColumnHeader label="Actions" help="Archive or restore custom columns." />
           </div>
           {dragReady ? (
             <DndContext
