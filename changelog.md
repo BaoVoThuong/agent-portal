@@ -837,3 +837,7 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   partial edits, and enforce Required custom fields in the ACA/Medicare Create
   dialog with controlled dropdown, Person, checkbox, text, number, date and
   link inputs.
+- Config column, custom-option, enrollment-option and task-category mutations
+  now target active rows atomically and return a stable conflict when an id is
+  archived, missing or belongs to another parent; raw database errors are not
+  sent to callers on these mutation paths.

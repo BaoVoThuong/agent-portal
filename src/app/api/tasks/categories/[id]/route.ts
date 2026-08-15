@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canManageCategories } from "@/lib/tasks/access";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +37,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
     .from("task_categories")
     .update(patch)
     .eq("id", id)
+    .eq("is_active", true)
     .select("id,name,color,position")
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: "Could not update category." }, { status: 500 });
+  if (!data) return NextResponse.json(inactiveConfigValueResponse("Category"), { status: 409 });
   await broadcastTasksChanged();
   return NextResponse.json({ category: data });
 }
@@ -49,11 +52,15 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   if ("error" in ctx) return NextResponse.json({ error: ctx.error }, { status: ctx.status });
 
   // Soft delete so tasks that reference it keep their (now-hidden) category.
-  const { error } = await ctx.supabase
+  const { data, error } = await ctx.supabase
     .from("task_categories")
     .update({ is_active: false })
-    .eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    .eq("id", id)
+    .eq("is_active", true)
+    .select("id")
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: "Could not archive category." }, { status: 500 });
+  if (!data) return NextResponse.json(inactiveConfigValueResponse("Category"), { status: 409 });
   await broadcastTasksChanged();
   return NextResponse.json({ ok: true });
 }

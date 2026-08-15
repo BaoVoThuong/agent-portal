@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { fetchTableColumnById } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
+import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   const supabase = getSupabaseAdmin();
   const column = await fetchTableColumnById(id, supabase);
-  if (!column) return NextResponse.json({ error: "Column not found." }, { status: 404 });
+  if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
   if (column.type !== "dropdown" || column.is_system) {
     return NextResponse.json(
       { error: "Only custom dropdown columns can use custom options." },
@@ -49,10 +50,11 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .update(patch)
     .eq("id", optionId)
     .eq("column_id", id)
+    .is("archived_at", null)
     .select("id,column_id,label,color,position,created_at,updated_at,archived_at")
     .maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Option not found." }, { status: 404 });
+  if (error) return NextResponse.json({ error: "Could not update option." }, { status: 500 });
+  if (!data) return NextResponse.json(inactiveConfigValueResponse("Option"), { status: 409 });
 
   await broadcastTableConfigInvalidation();
   return NextResponse.json({ option: data });
@@ -67,7 +69,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
 
   const supabase = getSupabaseAdmin();
   const column = await fetchTableColumnById(id, supabase);
-  if (!column) return NextResponse.json({ error: "Column not found." }, { status: 404 });
+  if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
   if (column.type !== "dropdown" || column.is_system) {
     return NextResponse.json(
       { error: "Only custom dropdown columns can use custom options." },
@@ -81,10 +83,11 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     .update({ archived_at: nowIso, updated_at: nowIso })
     .eq("id", optionId)
     .eq("column_id", id)
+    .is("archived_at", null)
     .select("id")
     .maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Option not found." }, { status: 404 });
+  if (error) return NextResponse.json({ error: "Could not archive option." }, { status: 500 });
+  if (!data) return NextResponse.json(inactiveConfigValueResponse("Option"), { status: 409 });
 
   await broadcastTableConfigInvalidation();
   return NextResponse.json({ ok: true });

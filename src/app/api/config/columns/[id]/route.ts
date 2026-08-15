@@ -12,6 +12,7 @@ import {
 } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { isColumnType, isTableScope } from "@/lib/table-config/types";
+import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   const supabase = getSupabaseAdmin();
   const column = await fetchColumnForPatch(id, supabase);
-  if (!column) return NextResponse.json({ error: "Column not found." }, { status: 404 });
+  if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -94,12 +95,13 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .from("table_column")
     .update(finalPatch)
     .eq("id", column.id)
+    .is("archived_at", null)
     .select(
       "id,scope,key,label,type,is_system,position,pinned,hidden_default,show_in_detail,required,created_by_email,created_at,updated_at,archived_at"
     )
     .maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Column not found." }, { status: 404 });
+  if (error) return NextResponse.json({ error: "Could not update column." }, { status: 500 });
+  if (!data) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
   const warnings: string[] = [];
 
   // hidden_default/pinned are meant to apply to everyone, same as reordering
@@ -135,7 +137,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
 
   const supabase = getSupabaseAdmin();
   const column = await fetchTableColumnById(id, supabase);
-  if (!column) return NextResponse.json({ error: "Column not found." }, { status: 404 });
+  if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
   if (column.is_system) {
     return NextResponse.json({ error: "System columns cannot be archived." }, { status: 400 });
   }
@@ -151,10 +153,11 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     .from("table_column")
     .update({ archived_at: nowIso, updated_at: nowIso })
     .eq("id", id)
+    .is("archived_at", null)
     .select("id")
     .maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Column not found." }, { status: 404 });
+  if (error) return NextResponse.json({ error: "Could not archive column." }, { status: 500 });
+  if (!data) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
 
   await broadcastTableConfigInvalidation();
   return NextResponse.json({ ok: true });
