@@ -34,9 +34,18 @@ import {
   validateEnrollmentOwnership,
 } from "@/lib/enrollment/ownership";
 import {
-  findMissingRequiredFields,
+  findMissingRequiredFieldsFromContext,
   missingRequiredFieldsMessage,
 } from "@/lib/table-config/required";
+import {
+  customValueIssuesMessage,
+  isCustomValueRecord,
+  validateCustomValues,
+} from "@/lib/table-config/custom-values";
+import {
+  fetchWriteValidationContext,
+  TableConfigUnavailableError,
+} from "@/lib/table-config/write-context";
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
 
 export const dynamic = "force-dynamic";
@@ -156,6 +165,14 @@ export async function POST(request: Request) {
     }
   }
 
+  let submittedCustomValues: Record<string, unknown> = {};
+  if (body.custom_values !== undefined) {
+    if (!isCustomValueRecord(body.custom_values)) {
+      return NextResponse.json({ error: "Invalid custom values." }, { status: 400 });
+    }
+    submittedCustomValues = body.custom_values;
+  }
+
   try {
     const invalidOwner = await validateEnrollmentOwnership({
       agent_email: patch.agent_email as string | null,
@@ -198,14 +215,38 @@ export async function POST(request: Request) {
     );
   }
 
-  // No more either/or (client_name OR fub_link) — each field's required-ness
-  // is now independently controlled by table_column.required (Config →
-  // Table Columns), read fresh from the DB inside findMissingRequiredFields.
-  // That function keys fieldValues by table_column.key, which differs from
-  // this table's own column names for most of these — translate here, at
-  // the point where both names are already in scope, rather than via a
-  // separate shared table.
-  const missingRequired = await findMissingRequiredFields(program, {
+  const supabase = getSupabaseAdmin();
+  let writeContext: Awaited<ReturnType<typeof fetchWriteValidationContext>>;
+  try {
+    writeContext = await fetchWriteValidationContext({
+      scope: program,
+      mode: "create",
+      touchedSystemKeys: [
+        "client", "description", "fub", "due", "stage", "carrier", "platform",
+        "consent", "payment", "aca", "pcp2025", "pcp2026", "agent", "caller", "responsible",
+      ],
+      touchedCustomKeys: Object.keys(submittedCustomValues),
+      submittedCustomValues,
+    }, supabase);
+  } catch (error) {
+    if (error instanceof TableConfigUnavailableError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 503 });
+    }
+    throw error;
+  }
+  const customValueValidation = validateCustomValues(submittedCustomValues, writeContext);
+  if (!customValueValidation.ok) {
+    return NextResponse.json(
+      { error: customValueIssuesMessage(customValueValidation.issues) },
+      { status: 400 }
+    );
+  }
+  patch.custom_values = customValueValidation.values;
+
+  // Each field's required-ness is controlled by table_column.required. The
+  // same one-request context supplies live columns and custom-value rules.
+  // table_column keys differ from enrollment DB field names, so translate here.
+  const missingRequired = findMissingRequiredFieldsFromContext(writeContext, {
     fieldValues: {
       client: patch.client_name,
       description: patch.description,
@@ -223,7 +264,7 @@ export async function POST(request: Request) {
       caller: patch.caller_email,
       responsible: patch.responsible_enroll_email,
     },
-    checkCustom: false,
+    customValues: customValueValidation.values,
   });
   if (missingRequired.length > 0) {
     return NextResponse.json(
@@ -243,7 +284,6 @@ export async function POST(request: Request) {
 
   const sanitizedPatch = sanitizeEnrollmentPatchForProgram(program, patch);
 
-  const supabase = getSupabaseAdmin();
   const activityRows: {
     type: string;
     meta: Record<string, unknown> | null;

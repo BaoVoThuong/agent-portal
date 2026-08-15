@@ -34,9 +34,19 @@ import {
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
 import {
-  findMissingRequiredFields,
+  findMissingRequiredFieldsFromContext,
   missingRequiredFieldsMessage,
 } from "@/lib/table-config/required";
+import {
+  customValueIssuesMessage,
+  isCustomValueRecord,
+  validateCustomValues,
+  type CustomValueRecord,
+} from "@/lib/table-config/custom-values";
+import {
+  fetchWriteValidationContext,
+  TableConfigUnavailableError,
+} from "@/lib/table-config/write-context";
 import type {
   EnrollmentOption,
   EnrollmentOptionSetKey,
@@ -237,10 +247,16 @@ export async function PATCH(request: Request, { params }: Ctx) {
     changedFields.push(qcChecked ? "qc_checked" : "qc_cleared");
   }
 
-  if (isPlainRecord(body.custom_values)) {
+  const customValuesPresent = "custom_values" in body;
+  let submittedCustomValues: CustomValueRecord = {};
+  if (customValuesPresent) {
+    if (!isCustomValueRecord(body.custom_values)) {
+      return NextResponse.json({ error: "Invalid custom values." }, { status: 400 });
+    }
+    submittedCustomValues = body.custom_values;
     patch.custom_values = {
       ...(isPlainRecord(current.custom_values) ? current.custom_values : {}),
-      ...cleanCustomValues(body.custom_values),
+      ...submittedCustomValues,
     };
     changedFields.push("custom_values");
   }
@@ -312,6 +328,60 @@ export async function PATCH(request: Request, { params }: Ctx) {
     );
   }
 
+  const systemKeyByPatchField: Record<string, string> = {
+    client_name: "client",
+    description: "description",
+    fub_link: "fub",
+    due_date: "due",
+    stage_id: "stage",
+    carrier_id: "carrier",
+    platform_id: "platform",
+    consent_id: "consent",
+    payment_status_id: "payment",
+    aca_status_id: "aca",
+    pcp_2025: "pcp2025",
+    pcp_2026: "pcp2026",
+    agent_email: "agent",
+    caller_email: "caller",
+    responsible_enroll_email: "responsible",
+  };
+  const writeContext = await (async () => {
+    try {
+      return await fetchWriteValidationContext({
+        scope: current.program,
+        mode: "patch",
+        touchedSystemKeys: Object.keys(patch)
+          .map((field) => systemKeyByPatchField[field])
+          .filter((key): key is string => Boolean(key)),
+        touchedCustomKeys: Object.keys(submittedCustomValues),
+        submittedCustomValues,
+      }, supabase);
+    } catch (error) {
+      if (error instanceof TableConfigUnavailableError) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: 503 });
+      }
+      throw error;
+    }
+  })();
+  if (writeContext instanceof NextResponse) return writeContext;
+
+  const customValueValidation = validateCustomValues(
+    submittedCustomValues,
+    writeContext
+  );
+  if (!customValueValidation.ok) {
+    return NextResponse.json(
+      { error: customValueIssuesMessage(customValueValidation.issues) },
+      { status: 400 }
+    );
+  }
+  if (customValuesPresent) {
+    patch.custom_values = {
+      ...(isPlainRecord(current.custom_values) ? current.custom_values : {}),
+      ...customValueValidation.values,
+    };
+  }
+
   try {
     const invalidOwner = await validateEnrollmentOwnership({
       agent_email: patch.agent_email as string | null | undefined,
@@ -357,15 +427,11 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if ("agent_email" in patch) requiredFieldValues.agent = patch.agent_email;
   if ("caller_email" in patch) requiredFieldValues.caller = patch.caller_email;
   if ("responsible_enroll_email" in patch) requiredFieldValues.responsible = patch.responsible_enroll_email;
-  const missingRequired = await findMissingRequiredFields(
-    current.program,
-    {
-      fieldValues: requiredFieldValues,
-      customValues: isPlainRecord(patch.custom_values) ? patch.custom_values : undefined,
-      partial: true,
-    },
-    supabase
-  );
+  const missingRequired = findMissingRequiredFieldsFromContext(writeContext, {
+    fieldValues: requiredFieldValues,
+    customValues: customValueValidation.values,
+    partial: true,
+  });
   if (missingRequired.length > 0) {
     return NextResponse.json(
       { error: missingRequiredFieldsMessage(missingRequired) },
@@ -623,20 +689,4 @@ function cleanText(value: unknown): string | null {
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function cleanCustomValues(values: Record<string, unknown>): Record<string, unknown> {
-  const next: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(values)) {
-    if (!key.trim()) continue;
-    if (
-      value === null ||
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
-    ) {
-      next[key] = value;
-    }
-  }
-  return next;
 }

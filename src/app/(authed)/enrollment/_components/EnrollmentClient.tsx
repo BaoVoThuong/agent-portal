@@ -80,6 +80,7 @@ import {
   type LayoutEntry,
 } from "@/lib/table-config/layout";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
+import { ControlledCustomField } from "../../_shared/ControlledCustomField";
 import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { Toast } from "../../_shared/Toast";
 import { CommentThread } from "../../tasks/_components/CommentThread";
@@ -611,7 +612,17 @@ export function EnrollmentClient({
           column.show_in_detail &&
           !column.is_system &&
           !column.archived_at &&
-          !column.hidden_default
+          (column.required || !column.hidden_default)
+      ),
+    [layoutTableColumns]
+  );
+  const createCustomColumns = useMemo(
+    () =>
+      layoutTableColumns.filter(
+        (column) =>
+          !column.is_system &&
+          !column.archived_at &&
+          (column.required || !column.hidden_default)
       ),
     [layoutTableColumns]
   );
@@ -1338,6 +1349,8 @@ export function EnrollmentClient({
           visibleColumnKeys={adminVisibleColumnKeys}
           requiredColumnKeys={requiredColumnKeys}
           columnByKey={columnByKey}
+          customColumns={createCustomColumns}
+          tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           onClose={() => setCreating(false)}
           onCreate={async (payload) => {
@@ -3512,6 +3525,8 @@ function NewEnrollmentDialog({
   visibleColumnKeys,
   requiredColumnKeys,
   columnByKey,
+  customColumns,
+  tableColumnOptions,
   currentEmail,
   onClose,
   onCreate,
@@ -3523,6 +3538,8 @@ function NewEnrollmentDialog({
   visibleColumnKeys: ReadonlySet<EnrollmentColumnKey>;
   requiredColumnKeys: ReadonlySet<string>;
   columnByKey: ReadonlyMap<string, { label: string }>;
+  customColumns: readonly TableColumn[];
+  tableColumnOptions: readonly TableColumnOption[];
   currentEmail: string;
   onClose: () => void;
   onCreate: (payload: Record<string, unknown>) => Promise<void>;
@@ -3549,6 +3566,17 @@ function NewEnrollmentDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
+  const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
+  const customOptionsByColumnId = useMemo(() => {
+    const result = new Map<string, TableColumnOption[]>();
+    for (const option of tableColumnOptions) {
+      if (option.archived_at) continue;
+      const list = result.get(option.column_id) ?? [];
+      list.push(option);
+      result.set(option.column_id, list);
+    }
+    return result;
+  }, [tableColumnOptions]);
 
   useEffect(() => {
     const removedFields = findInvalidEnrollmentOptionFields(form, optionsBySet);
@@ -3596,17 +3624,30 @@ function NewEnrollmentDialog({
   }
   function isInvalid(key: string): boolean {
     const formField = ENROLLMENT_FORM_FIELD_BY_KEY[key];
-    return invalidKeys.has(key) && !isFilled(formField ? form[formField] : undefined);
+    return (
+      invalidKeys.has(key) &&
+      !isFilled(formField ? form[formField] : customValues[key])
+    );
   }
 
   function update(field: string, value: string | null) {
     setForm((current) => ({ ...current, [field]: value ?? "" }));
   }
 
+  function updateCustom(key: string, value: unknown) {
+    setCustomValues((current) => ({ ...current, [key]: value }));
+    setInvalidKeys((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  }
+
   async function submit() {
     const missing = [...requiredColumnKeys].filter((key) => {
       const formField = ENROLLMENT_FORM_FIELD_BY_KEY[key];
-      return formField && !isFilled(form[formField]);
+      return !isFilled(formField ? form[formField] : customValues[key]);
     });
     if (missing.length > 0) {
       setInvalidKeys(new Set(missing));
@@ -3637,8 +3678,9 @@ function NewEnrollmentDialog({
             consent_id: "",
             platform_id: "",
             pcp_2026: "",
+            custom_values: customValues,
           }
-        : form;
+        : { ...form, custom_values: customValues };
       await onCreate(payload);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create record.");
@@ -3927,6 +3969,23 @@ function NewEnrollmentDialog({
                   ) : null}
                 </CreatePropertySection>
               ) : null}
+
+              {customColumns.length > 0 ? (
+                <CreatePropertySection>
+                  {customColumns.map((column) => (
+                    <CreateEnrollmentCustomField
+                      key={column.id}
+                      column={column}
+                      value={customValues[column.key]}
+                      options={customOptionsByColumnId.get(column.id) ?? []}
+                      peopleByEmail={peopleByEmail}
+                      required={requiredColumnKeys.has(column.key)}
+                      invalid={isInvalid(column.key)}
+                      onChange={(value) => updateCustom(column.key, value)}
+                    />
+                  ))}
+                </CreatePropertySection>
+              ) : null}
             </aside>
           </div>
         </div>
@@ -3949,6 +4008,119 @@ function NewEnrollmentDialog({
         </footer>
       </div>
     </div>
+  );
+}
+
+function CreateEnrollmentCustomField({
+  column,
+  value,
+  options,
+  peopleByEmail,
+  required,
+  invalid,
+  onChange,
+}: {
+  column: TableColumn;
+  value: unknown;
+  options: readonly TableColumnOption[];
+  peopleByEmail: Map<string, string>;
+  required: boolean;
+  invalid: boolean;
+  onChange: (value: unknown) => void;
+}) {
+  const label = column.label;
+
+  if (column.type === "dropdown") {
+    return (
+      <CreatePropertyField label={label} required={required} invalid={invalid}>
+        <CreateEnrollmentOptionMenu
+          value={typeof value === "string" ? value : null}
+          options={options}
+          placeholder={`Select ${label.toLowerCase()}`}
+          onChange={onChange}
+        />
+      </CreatePropertyField>
+    );
+  }
+
+  if (column.type === "person") {
+    return (
+      <CreatePropertyField label={label} required={required} invalid={invalid}>
+        <EnrollmentPersonMenu
+          value={typeof value === "string" ? value : null}
+          peopleByEmail={peopleByEmail}
+          emptyLabel="Unassigned"
+          placeholderLabel={`Select ${label.toLowerCase()}`}
+          surface="form-bare"
+          variant="assignee"
+          onChange={onChange}
+        />
+      </CreatePropertyField>
+    );
+  }
+
+  if (column.type === "checkbox") {
+    return (
+      <CreatePropertyField label={label} required={required} invalid={invalid}>
+        <ControlledCustomField column={column} value={value} invalid={invalid} onChange={onChange} />
+      </CreatePropertyField>
+    );
+  }
+  return (
+    <CreatePropertyField label={label} required={required} invalid={invalid}>
+      <ControlledCustomField column={column} value={value} invalid={invalid} onChange={onChange} />
+    </CreatePropertyField>
+  );
+}
+
+function CreateEnrollmentOptionMenu({
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  value: string | null;
+  options: readonly TableColumnOption[];
+  placeholder: string;
+  onChange: (value: string | null) => void;
+}) {
+  const { isOpen, toggle, triggerRef, menuRef, menuStyle, closeMenu, closeMenuForTab } = useAnchoredMenu();
+  const selected = value ? options.find((option) => option.id === value) ?? null : null;
+  return (
+    <span className="block min-w-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggle}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        className="flex w-full min-w-0 items-center gap-2 text-left"
+      >
+        <span className={`min-w-0 flex-1 truncate text-sm ${selected ? "font-semibold text-[#172b4d]" : "font-normal text-[#97a0af]"}`}>
+          {selected?.label ?? placeholder}
+        </span>
+        <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+      </button>
+      {isOpen
+        ? createPortal(
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              ariaLabel={placeholder}
+              queryPlaceholder={`Search ${placeholder.toLowerCase()}…`}
+              emptyMessage="No matching options."
+              choices={options.map((option) => ({ value: option.id, label: option.label }))}
+              selectedValue={value}
+              onSelect={(next) => {
+                onChange(next);
+                closeMenu({ restoreFocus: true });
+              }}
+              onTabExit={closeMenuForTab}
+            />,
+            document.body
+          )
+        : null}
+    </span>
   );
 }
 
