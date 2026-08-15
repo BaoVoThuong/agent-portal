@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin } from "@/lib/table-config/access";
-import { fetchTableColumns, resetTableLayoutsForScope } from "@/lib/table-config/queries";
+import { resetTableLayoutsForScope } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { isTableScope } from "@/lib/table-config/types";
+import {
+  normalizeColumnKeyArray,
+  validateColumnOrderRequest,
+} from "@/lib/table-config/column-order";
 
 export const dynamic = "force-dynamic";
 
@@ -19,36 +23,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
   }
 
-  const columnKeys = normalizeStringArray(body?.column_keys);
-  const columnIds = normalizeStringArray(body?.column_ids);
-  if (!columnKeys && !columnIds) {
-    return NextResponse.json({ error: "Column order is required." }, { status: 400 });
+  const expectedColumnKeys = normalizeColumnKeyArray(body?.expected_column_keys);
+  const columnKeys = normalizeColumnKeyArray(body?.column_keys);
+  if (!expectedColumnKeys || !columnKeys) {
+    return NextResponse.json({ error: "Expected and desired column order are required." }, { status: 400 });
   }
-
-  const supabase = getSupabaseAdmin();
-  const columns = await fetchTableColumns(scope, supabase);
-  const orderedColumns = columnKeys
-    ? mapOrderedColumns(columnKeys, new Map(columns.map((column) => [column.key, column])))
-    : mapOrderedColumns(columnIds ?? [], new Map(columns.map((column) => [column.id, column])));
-
-  if (!orderedColumns || orderedColumns.length !== columns.length) {
+  const requestValidation = validateColumnOrderRequest(expectedColumnKeys, columnKeys);
+  if (!requestValidation.ok) {
     return NextResponse.json({ error: "Invalid column order." }, { status: 400 });
   }
 
-  const nowIso = new Date().toISOString();
-  const updates = await Promise.all(
-    orderedColumns.map((column, index) =>
-      supabase
-        .from("table_column")
-        .update({ position: index + 1, updated_at: nowIso })
-        .eq("id", column.id)
-        .eq("scope", scope)
-        .is("archived_at", null)
-    )
-  );
-  const updateError = updates.find((result) => result.error)?.error;
-  if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  const supabase = getSupabaseAdmin();
+  const { data, error: reorderError } = await supabase.rpc("reorder_table_columns_atomic", {
+    p_scope: scope,
+    p_expected_column_keys: expectedColumnKeys,
+    p_column_keys: columnKeys,
+  });
+  if (reorderError) {
+    if (reorderError.message === "COLUMN_ORDER_STALE") {
+      return NextResponse.json(
+        { error: "Column order changed elsewhere. Refresh and try again.", code: "COLUMN_ORDER_STALE" },
+        { status: 409 }
+      );
+    }
+    if (reorderError.message === "COLUMN_ORDER_INVALID") {
+      return NextResponse.json({ error: "Invalid column order." }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Could not update column order." }, { status: 500 });
   }
 
   const resetResult = await resetTableLayoutsForScope(scope, supabase);
@@ -62,29 +63,10 @@ export async function POST(request: Request) {
   }
 
   await broadcastTableConfigInvalidation();
-  return NextResponse.json({ ok: true, scope, ...(warnings.length > 0 ? { warnings } : {}) });
-}
-
-function normalizeStringArray(value: unknown): string[] | null {
-  if (!Array.isArray(value)) return null;
-  const values = value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
-  return values.length === value.length ? values : null;
-}
-
-function mapOrderedColumns<T extends { id: string }>(
-  orderedKeys: string[],
-  columnsByKey: Map<string, T>
-): T[] | null {
-  const seen = new Set<string>();
-  const orderedColumns: T[] = [];
-  for (const key of orderedKeys) {
-    if (seen.has(key)) return null;
-    const column = columnsByKey.get(key);
-    if (!column) return null;
-    seen.add(key);
-    orderedColumns.push(column);
-  }
-  return orderedColumns;
+  return NextResponse.json({
+    ok: true,
+    scope,
+    canonical_order: data,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  });
 }

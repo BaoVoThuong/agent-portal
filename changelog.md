@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Atomic và version-aware reorder cột
+- **Loại**: fix, perf
+- **Cái gì**: Drag reorder gửi `expected_column_keys` cùng thứ tự mong muốn vào một RPC service-role. RPC lock active rows theo id, kiểm tra membership/duplicate sau lock, trả `COLUMN_ORDER_STALE` nếu snapshot cũ và cập nhật toàn bộ position trong một statement. Layout reset vẫn là bước hậu commit và trả warning nếu thất bại.
+- **Vì sao**: N lần PATCH song song có thể để vị trí nửa cũ/nửa mới và writer đến sau âm thầm ghi đè thay đổi của writer trước.
+- **File**: `src/app/api/config/columns/reorder/route.ts`, `src/app/(authed)/config/_components/ConfigClient.tsx`, `src/lib/table-config/column-order.ts`, `supabase/schema.sql`, `supabase/rollouts/2026-08-15-table-config-reorder-rpc.sql`
+- **Ảnh hưởng**: Reorder của CS/ACA/Medicare; stale editor phải refresh thay vì overwrite. Không thêm request bình thường ngoài RPC + bước reset layout hiện có. Function/rollout chưa được apply vào target DB trong môi trường này.
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 8
+
 ## 2026-08-15 — Xác nhận rõ ràng khi khôi phục cột đã archive
 - **Loại**: fix, security
 - **Cái gì**: Tạo cột trùng label/key với một cột archived nay trả 409 kèm id/label/type an toàn; UI yêu cầu admin xác nhận và gọi restore riêng để khôi phục nguyên options/settings. Restore reset saved layouts và trả cảnh báo rõ nếu việc reset không hoàn tất. Dialog dùng focus trap, Escape, backdrop close, scroll lock và trả focus về opener.
