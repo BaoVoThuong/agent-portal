@@ -111,6 +111,7 @@ export async function POST(request: Request) {
         Boolean((setRow as { is_stage: boolean }).is_stage) &&
         Boolean(body?.triggers_qc),
       treat_as_terminal:
+        program === "aca" &&
         Boolean((setRow as { is_stage: boolean }).is_stage) &&
         Boolean(body?.treat_as_terminal),
     })

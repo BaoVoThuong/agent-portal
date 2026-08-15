@@ -32,7 +32,8 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   const supabase = getSupabaseAdmin();
-  if ("label" in body) {
+  let optionSet: { key: string; program: string; is_stage: boolean } | null = null;
+  if ("label" in body || "treat_as_terminal" in body) {
     const { data: option, error: optionError } = await supabase
       .from("enrollment_options")
       .select("set_id")
@@ -41,20 +42,24 @@ export async function PATCH(request: Request, { params }: Ctx) {
     if (optionError) return NextResponse.json({ error: optionError.message }, { status: 500 });
     if (!option) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const { data: optionSet, error: optionSetError } = await supabase
+    const { data: optionSetRow, error: optionSetError } = await supabase
       .from("enrollment_option_sets")
-      .select("key")
+      .select("key,program,is_stage")
       .eq("id", option.set_id)
       .maybeSingle();
     if (optionSetError) {
       return NextResponse.json({ error: optionSetError.message }, { status: 500 });
     }
-    if (optionSet?.key === "stage" || optionSet?.key === "consent") {
+    if (!optionSetRow) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if ("label" in body && (optionSetRow.key === "stage" || optionSetRow.key === "consent")) {
       return NextResponse.json(
         { error: "Stage and Consent option labels are protected workflow identities." },
         { status: 409 }
       );
     }
+    // Keep the local variable available to the patch builder below. The
+    // dashboard-terminal flag is intentionally valid only for ACA stages.
+    optionSet = optionSetRow as { key: string; program: string; is_stage: boolean };
   }
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -69,7 +74,12 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
   if ("is_terminal" in body) patch.is_terminal = Boolean(body.is_terminal);
   if ("triggers_qc" in body) patch.triggers_qc = Boolean(body.triggers_qc);
-  if ("treat_as_terminal" in body) patch.treat_as_terminal = Boolean(body.treat_as_terminal);
+  if ("treat_as_terminal" in body) {
+    patch.treat_as_terminal =
+      optionSet?.program === "aca" &&
+      optionSet.is_stage &&
+      Boolean(body.treat_as_terminal);
+  }
 
   const { data, error } = await supabase
     .from("enrollment_options")

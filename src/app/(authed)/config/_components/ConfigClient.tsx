@@ -1177,6 +1177,9 @@ function ConfigDropdownValuesSection({
   const [selectedKey, setSelectedKey] = useState(groups[0]?.key ?? "");
   const selected = groups.find((g) => g.key === selectedKey) ?? groups[0];
   const isStageGroup = selected?.kind === "optionSet" && selected.setKey === "stage";
+  // Dashboard-terminal semantics belong only to the ACA Overview. They are
+  // not a shared CS/Medicare workflow rule.
+  const isAcaStageGroup = scope === "aca" && isStageGroup;
   const isConsentGroup = selected?.kind === "optionSet" && selected.setKey === "consent";
   const protectsLabelIdentity =
     selected?.kind === "optionSet" && (selected.setKey === "stage" || selected.setKey === "consent");
@@ -1248,7 +1251,10 @@ function ConfigDropdownValuesSection({
           label,
           color: draftColor,
           is_terminal: isTerminal,
-          treat_as_terminal: treatAsTerminal,
+          // This flag has meaning only for the ACA Overview. The UI hides it
+          // outside ACA, and the guard here prevents stale form state from
+          // leaking it into a Medicare option after switching scopes.
+          treat_as_terminal: isAcaStageGroup && treatAsTerminal,
           triggers_qc: triggersQc,
         }),
       });
@@ -1456,20 +1462,20 @@ function ConfigDropdownValuesSection({
                 />
                 QC
               </label>
-              <label
-                className={`flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e] ${
-                  isStageGroup ? "" : "opacity-40"
-                }`}
-                title="ACA overview only: excludes this stage from active-work metrics; does not close the enrollment record."
-              >
-                <input
-                  type="checkbox"
-                  disabled={!isStageGroup}
-                  checked={isStageGroup && treatAsTerminal}
-                  onChange={(event) => setTreatAsTerminal(event.target.checked)}
-                />
-                Dashboard terminal (ACA only)
-              </label>
+              {isAcaStageGroup ? (
+                <label
+                  className="flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e]"
+                  title="ACA overview only: excludes this stage from active-work metrics; does not close the enrollment record."
+                >
+                  <input
+                    type="checkbox"
+                    disabled={busy}
+                    checked={treatAsTerminal}
+                    onChange={(event) => setTreatAsTerminal(event.target.checked)}
+                  />
+                  Dashboard terminal (ACA only)
+                </label>
+              ) : null}
               <button
                 type="submit"
                 disabled={busy || !label.trim() || (isConsentGroup && activeConsentCount >= 2)}
@@ -1551,20 +1557,22 @@ function ConfigDropdownValuesSection({
                                 />
                                 Workflow terminal
                               </label>
-                              <label className="flex items-center gap-1.5" title="ACA overview only: excludes this stage from active-work metrics; does not close the enrollment record.">
-                                <input
-                                  type="checkbox"
-                                  disabled={busy || pendingStageRuleIds.has(row.id)}
-                                  checked={Boolean(row.treatAsTerminal)}
-                                  onChange={(event) =>
-                                    void run(
-                                      () => toggleStageRule(row.id, { treat_as_terminal: event.target.checked }),
-                                      "Option updated."
-                                    )
-                                  }
-                                />
-                                Dashboard terminal (ACA only)
-                              </label>
+                              {isAcaStageGroup ? (
+                                <label className="flex items-center gap-1.5" title="ACA overview only: excludes this stage from active-work metrics; does not close the enrollment record.">
+                                  <input
+                                    type="checkbox"
+                                    disabled={busy || pendingStageRuleIds.has(row.id)}
+                                    checked={Boolean(row.treatAsTerminal)}
+                                    onChange={(event) =>
+                                      void run(
+                                        () => toggleStageRule(row.id, { treat_as_terminal: event.target.checked }),
+                                        "Option updated."
+                                      )
+                                    }
+                                  />
+                                  Dashboard terminal (ACA only)
+                                </label>
+                              ) : null}
                               <label className="flex items-center gap-1.5">
                                 <input
                                   type="checkbox"
