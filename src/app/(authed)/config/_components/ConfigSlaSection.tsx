@@ -27,6 +27,7 @@ import {
   type ReminderSettingKey,
 } from "@/lib/tasks/reminder-settings";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
+import { broadcastSlaConfigChanged } from "@/lib/table-config/realtime-client";
 
 type ReminderSettingsResponse = {
   settings?: ReminderSettings;
@@ -172,6 +173,7 @@ export function ConfigSlaSection({
         ),
         data.rule!,
       ]);
+      void broadcastSlaConfigChanged();
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save this rule.");
@@ -207,6 +209,7 @@ export function ConfigSlaSection({
           (r) => !(r.priority === priority && r.category_id === categoryId)
         )
       );
+      void broadcastSlaConfigChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not reset this rule.");
     } finally {
@@ -257,6 +260,7 @@ export function ConfigSlaSection({
           if (pendingReminderValuesRef.current.get(key) === intendedValue) {
             pendingReminderValuesRef.current.delete(key);
           }
+          void broadcastSlaConfigChanged();
         } catch (err) {
           setError(err instanceof Error ? err.message : "Could not save reminder settings.");
         } finally {

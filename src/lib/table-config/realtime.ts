@@ -1,8 +1,8 @@
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { TABLE_CONFIG_TOPIC } from "./realtime-topics";
+import { SLA_CONFIG_TOPIC, TABLE_CONFIG_TOPIC } from "./realtime-topics";
 
-async function broadcastConfigInvalidation(): Promise<void> {
+async function broadcastTopic(topic: string): Promise<void> {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return;
@@ -15,7 +15,7 @@ async function broadcastConfigInvalidation(): Promise<void> {
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        messages: [{ topic: TABLE_CONFIG_TOPIC, event: "changed", payload: {} }],
+        messages: [{ topic, event: "changed", payload: {} }],
       }),
     });
   } catch {
@@ -24,7 +24,11 @@ async function broadcastConfigInvalidation(): Promise<void> {
 }
 
 export async function broadcastTableConfigInvalidation(): Promise<void> {
-  await broadcastConfigInvalidation();
+  await broadcastTopic(TABLE_CONFIG_TOPIC);
+}
+
+export async function broadcastSlaConfigInvalidation(): Promise<void> {
+  await broadcastTopic(SLA_CONFIG_TOPIC);
 }
 
 export async function broadcastTableConfigChanged(): Promise<void> {

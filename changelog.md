@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Làm mới SLA trên Task Board đang mở
+- **Loại**: fix, consistency
+- **Cái gì**: Config phát broadcast invalidation riêng cho SLA sau khi save/reset reminder hoặc rule thành công; Task Board refetch rule qua API mà không reset danh sách task, tự hồi phục khi reconnect và focus. Các lần refresh trùng được gộp bằng guard in-flight/latest, lỗi refresh SLA hiển thị riêng với lỗi table config.
+- **Vì sao**: Board đang mở có thể tiếp tục tính Overdue theo SLA cũ cho tới khi reload trang, và broadcast/reconnect có thể tạo nhiều request cạnh tranh.
+- **File**: `src/lib/table-config/realtime-topics.ts`, `src/lib/table-config/realtime.ts`, `src/lib/table-config/realtime-client.ts`, `src/app/(authed)/config/_components/ConfigSlaSection.tsx`, `src/app/(authed)/tasks/_components/TaskBoardClient.tsx`
+- **Ảnh hưởng**: Chỉ invalidation metadata rỗng được gửi; giá trị SLA vẫn đọc qua route đã xác thực. Broadcast là best-effort và không kéo dài response của mutation.
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 11
+
 ## 2026-08-15 — Reminder settings partial và integer-safe
 - **Loại**: fix, data-integrity
 - **Cái gì**: Reminder API nhận đúng một key/value qua PATCH, chặn số fractional/non-safe/out-of-range (due-soon tối đa 7 ngày, các reminder giờ tối đa 1 năm), cập nhật một cột trong RPC có row lock và trả canonical full settings. Config serialize theo từng key, giữ pending edit của key khác khi merge response, và không cho sửa khi GET lỗi cho tới khi Retry thành công.

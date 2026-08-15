@@ -6,7 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
 import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
-import { TABLE_CONFIG_TOPIC } from "@/lib/table-config/realtime-topics";
+import {
+  CONFIG_CHANGED_EVENT,
+  SLA_CONFIG_TOPIC,
+  TABLE_CONFIG_TOPIC,
+} from "@/lib/table-config/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
 import { ChevronDown, Download, Loader2, Plus } from "lucide-react";
 import type {
@@ -176,6 +180,9 @@ export function TaskBoardClient({
   );
   const [error, setError] = useState<string | null>(null);
   const [configStale, setConfigStale] = useState(false);
+  const [slaRefreshError, setSlaRefreshError] = useState<string | null>(null);
+  const slaRefreshInFlightRef = useRef(false);
+  const slaRefreshQueuedRef = useRef(false);
   const missingOpenRefetchId = useRef<string | null>(null);
   // Full-list refetches race with direct mutations (drag status PATCH,
   // assign, reopen, delete). Keep separate clocks so a realtime/refetch
@@ -576,7 +583,7 @@ export function TaskBoardClient({
     if (!sb) return;
     const channel = sb
       .channel(TABLE_CONFIG_TOPIC)
-      .on("broadcast", { event: "changed" }, () => setConfigStale(true))
+      .on("broadcast", { event: CONFIG_CHANGED_EVENT }, () => setConfigStale(true))
       .subscribe();
     return () => {
       void sb.removeChannel(channel);
@@ -599,13 +606,65 @@ export function TaskBoardClient({
   }, [openId, tasks, refetchTasks]);
 
   const reloadSlaRules = useCallback(async () => {
-    const res = await fetch("/api/admin/task-sla-rules");
-    if (res.ok) setSlaRules((await res.json()).rules as TaskSlaRule[]);
+    if (slaRefreshInFlightRef.current) {
+      slaRefreshQueuedRef.current = true;
+      return;
+    }
+
+    slaRefreshInFlightRef.current = true;
+    try {
+      do {
+        slaRefreshQueuedRef.current = false;
+        try {
+          const res = await fetch("/api/admin/task-sla-rules", { cache: "no-store" });
+          const data = (await res.json().catch(() => null)) as
+            | { rules?: TaskSlaRule[]; error?: string }
+            | null;
+          if (!res.ok || !Array.isArray(data?.rules)) {
+            throw new Error(data?.error ?? "Could not refresh SLA rules.");
+          }
+          setSlaRules(data.rules);
+          setSlaRefreshError(null);
+        } catch (err) {
+          setSlaRefreshError(
+            err instanceof Error ? err.message : "Could not refresh SLA rules."
+          );
+        }
+      } while (slaRefreshQueuedRef.current);
+    } finally {
+      slaRefreshInFlightRef.current = false;
+    }
   }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => void reloadSlaRules(), 0);
     return () => clearTimeout(timer);
+  }, [reloadSlaRules]);
+
+  useEffect(() => {
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+    const channel = sb
+      .channel(SLA_CONFIG_TOPIC)
+      .on("broadcast", { event: CONFIG_CHANGED_EVENT }, () => void reloadSlaRules())
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") void reloadSlaRules();
+      });
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [reloadSlaRules]);
+
+  useEffect(() => {
+    const refreshSlaRules = () => {
+      if (document.visibilityState === "visible") void reloadSlaRules();
+    };
+    window.addEventListener("focus", refreshSlaRules);
+    document.addEventListener("visibilitychange", refreshSlaRules);
+    return () => {
+      window.removeEventListener("focus", refreshSlaRules);
+      document.removeEventListener("visibilitychange", refreshSlaRules);
+    };
   }, [reloadSlaRules]);
 
   useEffect(() => {
@@ -1529,6 +1588,21 @@ export function TaskBoardClient({
           <span>Table configuration changed. Reload before editing tasks.</span>
           <button type="button" className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]" onClick={() => window.location.reload()}>
             Reload
+          </button>
+        </div>
+      ) : null}
+      {slaRefreshError ? (
+        <div
+          className="flex items-center justify-between gap-3 border-b border-[#ffab00] bg-[#fff7d6] px-6 py-2 text-sm font-semibold text-[#7f5f00]"
+          role="alert"
+        >
+          <span>SLA rules could not be refreshed. Existing task data is unchanged.</span>
+          <button
+            type="button"
+            className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]"
+            onClick={() => void reloadSlaRules()}
+          >
+            Retry
           </button>
         </div>
       ) : null}
