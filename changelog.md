@@ -14,6 +14,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - **Ảnh hưởng**: Initial `/config` bớt một query scan; archive confirmation thêm một request có chủ đích. Rollout index/RPC phải được apply trước khi deploy UI.
 - **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 19
 
+## 2026-08-15 — Chặn category inactive trong cùng transaction tạo/sửa task
+- **Loại**: fix, data-integrity
+- **Cái gì**: Task create/PATCH kiểm tra UUID category ở memory và map lỗi category không tồn tại/inactive thành 409 `TASK_CATEGORY_INACTIVE`. Trigger DB chỉ kiểm tra khi category được ghi hoặc thay đổi; các task lịch sử vẫn giữ category đã archive để đọc/export.
+- **Vì sao**: Route pre-read không thể chống race với thao tác archive đồng thời, còn UUID sai trước đây có thể rơi thành lỗi 500 không rõ nguyên nhân.
+- **File**: `supabase/schema.sql`, `supabase/rollouts/2026-08-15-task-category-active-guard.sql`, `src/lib/tasks/category-mutation.ts`, `src/app/api/tasks/route.ts`, `src/app/api/tasks/[id]/route.ts`
+- **Ảnh hưởng**: Không thêm query mạng; invariant active-category được kiểm tra tại transaction boundary của RPC.
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 18
+
 ## 2026-08-15 — Membership assistant ghi atomically và chặn cycle
 - **Loại**: fix, security, data-integrity
 - **Cái gì**: Thêm RPC service-role `create_agent_membership_atomic` để serialize membership writes, xác nhận agent/assistant còn active/eligible, chặn tự gán, duplicate và mọi cycle trong đồ thị assistant. API map lỗi thành mã 400/409 ổn định; UI loại self và membership đã tồn tại khỏi picker.
