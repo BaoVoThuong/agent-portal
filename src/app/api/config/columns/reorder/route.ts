@@ -8,6 +8,7 @@ import {
   normalizeColumnKeyArray,
   validateColumnOrderRequest,
 } from "@/lib/table-config/column-order";
+import { layoutResetFailedWarning, type ConfigMutationWarning } from "@/lib/table-config/partial-success";
 
 export const dynamic = "force-dynamic";
 
@@ -53,9 +54,9 @@ export async function POST(request: Request) {
   }
 
   const resetResult = await resetTableLayoutsForScope(scope, supabase);
-  const warnings: string[] = [];
+  const warnings: ConfigMutationWarning[] = [];
   if (!resetResult.ok) {
-    warnings.push(`Layout reset failed after the column order commit: ${resetResult.error}`);
+    warnings.push(layoutResetFailedWarning());
     console.error("Config column layout reset failed after reorder commit", {
       scope,
       error: resetResult.error,

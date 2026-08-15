@@ -20,6 +20,10 @@ import {
   type TableScope,
 } from "@/lib/table-config/types";
 import { archivedColumnConflictResponse } from "@/lib/table-config/mutation-errors";
+import {
+  layoutResetFailedWarning,
+  type ConfigMutationWarning,
+} from "@/lib/table-config/partial-success";
 
 export const dynamic = "force-dynamic";
 
@@ -103,13 +107,14 @@ export async function POST(request: Request) {
     }
 
     const resetResult = await resetTableLayoutsForScope(scope, supabase);
-    const warnings: string[] = [];
+    const warnings: ConfigMutationWarning[] = [];
     if (!resetResult.ok) {
-      warnings.push("Saved layouts could not be reset; some users may need to refresh their table.");
+      warnings.push(layoutResetFailedWarning());
       console.error("Config column layout reset failed after restore", { scope, error: resetResult.error });
     }
     await broadcastTableConfigInvalidation();
     return NextResponse.json({
+      ok: true,
       column: restoredColumn,
       restored: true,
       ...(warnings.length > 0 ? { warnings } : {}),

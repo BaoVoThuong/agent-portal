@@ -13,6 +13,7 @@ import {
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { isColumnType, isTableScope } from "@/lib/table-config/types";
 import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
+import { layoutResetFailedWarning, type ConfigMutationWarning } from "@/lib/table-config/partial-success";
 
 export const dynamic = "force-dynamic";
 
@@ -102,7 +103,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .maybeSingle();
   if (error) return NextResponse.json({ error: "Could not update column." }, { status: 500 });
   if (!data) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
-  const warnings: string[] = [];
+  const warnings: ConfigMutationWarning[] = [];
 
   // hidden_default/pinned are meant to apply to everyone, same as reordering
   // — but resolveLayout() prefers a user's saved layout entry over
@@ -115,7 +116,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if ("hidden_default" in finalPatch || "pinned" in finalPatch) {
     const resetResult = await resetTableLayoutsForScope(column.scope, supabase);
     if (!resetResult.ok) {
-      warnings.push(`Layout reset failed after the column commit: ${resetResult.error}`);
+      warnings.push(layoutResetFailedWarning());
       console.error("Config column layout reset failed after commit", {
         columnId: column.id,
         scope: column.scope,
@@ -125,7 +126,11 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   await broadcastTableConfigInvalidation();
-  return NextResponse.json({ column: data, ...(warnings.length > 0 ? { warnings } : {}) });
+  return NextResponse.json({
+    ok: true,
+    column: data,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  });
 }
 
 export async function DELETE(_request: Request, { params }: Ctx) {

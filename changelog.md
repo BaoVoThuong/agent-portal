@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Báo đúng partial success khi reset layout thất bại
+- **Loại**: fix, reliability
+- **Cái gì**: Column PATCH và reorder trả `ok: true` cùng warning có mã ổn định khi thay đổi chính đã commit nhưng reset saved layouts thất bại. Server log chi tiết nội bộ; Config hiển thị thông báo info rằng thay đổi đã lưu nhưng layout chưa reset, không báo full success và không leak lỗi DB.
+- **Vì sao**: Response trước đây có thể trả nội dung lỗi hạ tầng vào UI và client chỉ hiểu warning string, khiến partial success không có contract rõ ràng.
+- **File**: `src/lib/table-config/partial-success.ts`, `src/app/api/config/columns/route.ts`, `src/app/api/config/columns/[id]/route.ts`, `src/app/api/config/columns/reorder/route.ts`, `src/app/(authed)/config/_components/ConfigClient.tsx`
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 12
+
 ## 2026-08-15 — Làm mới SLA trên Task Board đang mở
 - **Loại**: fix, consistency
 - **Cái gì**: Config phát broadcast invalidation riêng cho SLA sau khi save/reset reminder hoặc rule thành công; Task Board refetch rule qua API mà không reset danh sách task, tự hồi phục khi reconnect và focus. Các lần refresh trùng được gộp bằng guard in-flight/latest, lỗi refresh SLA hiển thị riêng với lỗi table config.

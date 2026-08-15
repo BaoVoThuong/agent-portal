@@ -69,6 +69,7 @@ import {
   recommendDropdownValueColor,
 } from "@/lib/table-config/value-colors";
 import { ConfigSlaSection } from "./ConfigSlaSection";
+import { isConfigMutationWarning } from "@/lib/table-config/partial-success";
 
 type AssistantMember = {
   agent_email: string;
@@ -186,7 +187,15 @@ export function ConfigClient({
       const result = await action();
       const warnings =
         result && typeof result === "object" && "warnings" in result && Array.isArray(result.warnings)
-          ? result.warnings.filter((warning): warning is string => typeof warning === "string")
+          ? result.warnings
+              .map((warning) =>
+                typeof warning === "string"
+                  ? warning
+                  : isConfigMutationWarning(warning)
+                    ? warning.message
+                    : null
+              )
+              .filter((warning): warning is string => Boolean(warning))
           : [];
       setNoticeTone(warnings.length > 0 ? "info" : "success");
       setNotice(warnings.length > 0 ? warnings.join(" ") : success);
