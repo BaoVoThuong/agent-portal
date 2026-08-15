@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CONFIG_VALUE_INACTIVE_OR_MISSING,
   CONFIG_DUPLICATE_OPTION_LABEL,
+  archivedColumnConflictResponse,
   duplicateOptionLabelResponse,
   inactiveConfigValueResponse,
   isUniqueViolation,
@@ -23,5 +24,13 @@ describe("table config mutation errors", () => {
 
   it("returns a stable duplicate-label conflict", () => {
     expect(duplicateOptionLabelResponse().code).toBe(CONFIG_DUPLICATE_OPTION_LABEL);
+  });
+
+  it("returns only safe archived-column restore details", () => {
+    expect(archivedColumnConflictResponse({ id: "c1", label: "Old", type: "text" })).toEqual({
+      error: "An archived column with this label already exists.",
+      code: "CONFIG_ARCHIVED_COLUMN_EXISTS",
+      archived_column: { id: "c1", label: "Old", type: "text" },
+    });
   });
 });

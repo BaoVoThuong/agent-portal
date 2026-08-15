@@ -42,6 +42,7 @@ import {
   type TableColumn,
   type TableColumnOption,
   type TableScope,
+  isColumnType,
 } from "@/lib/table-config/types";
 import {
   applyColumnPatchInvariants,
@@ -176,14 +177,18 @@ export function ConfigClient({
     setOptionData((current) => ({ ...current, [program]: data }));
   }
 
-  async function run(action: () => Promise<void>, success: string) {
+  async function run(action: () => Promise<unknown>, success: string) {
     setBusy(true);
     setNotice(null);
     setNoticeTone("info");
     try {
-      await action();
-      setNoticeTone("success");
-      setNotice(success);
+      const result = await action();
+      const warnings =
+        result && typeof result === "object" && "warnings" in result && Array.isArray(result.warnings)
+          ? result.warnings.filter((warning): warning is string => typeof warning === "string")
+          : [];
+      setNoticeTone(warnings.length > 0 ? "info" : "success");
+      setNotice(warnings.length > 0 ? warnings.join(" ") : success);
     } catch (error) {
       setNoticeTone("error");
       setNotice(error instanceof Error ? error.message : "Something went wrong.");
@@ -452,13 +457,18 @@ function ConfigTableSection({
   scope: TableScope;
   columns: TableColumn[];
   busy: boolean;
-  run: (action: () => Promise<void>, success: string) => Promise<void>;
+  run: (action: () => Promise<unknown>, success: string) => Promise<void>;
   refreshScope: (scope?: TableScope) => Promise<void>;
 }) {
   const [newLabel, setNewLabel] = useState("");
   const [newType, setNewType] = useState<ColumnType>("text");
   const [dragReady, setDragReady] = useState(false);
   const [confirmArchiveColumnId, setConfirmArchiveColumnId] = useState<string | null>(null);
+  const [restoreColumnCandidate, setRestoreColumnCandidate] = useState<{
+    id: string;
+    label: string;
+    type: ColumnType;
+  } | null>(null);
   // Counts column PATCHes still in flight. Only the last one to settle
   // refreshes from the server — see patchColumn for why.
   const pendingColumnPatchesRef = useRef(0);
@@ -601,10 +611,31 @@ function ConfigTableSection({
         onSubmit={(event) => {
           event.preventDefault();
           void run(async () => {
-            await requestJson("/api/config/columns", {
-              method: "POST",
-              body: JSON.stringify({ scope, label: newLabel, type: newType }),
-            });
+            try {
+              await requestJson("/api/config/columns", {
+                method: "POST",
+                body: JSON.stringify({ scope, label: newLabel, type: newType }),
+              });
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                (error as RequestJsonError).code === "CONFIG_ARCHIVED_COLUMN_EXISTS" &&
+                isColumnType((error as RequestJsonError).payload?.archived_column?.type) &&
+                typeof (error as RequestJsonError).payload?.archived_column?.id === "string" &&
+                typeof (error as RequestJsonError).payload?.archived_column?.label === "string"
+              ) {
+                const archived = (error as RequestJsonError).payload!.archived_column!;
+                setRestoreColumnCandidate({
+                  id: archived.id as string,
+                  label: archived.label as string,
+                  type: archived.type as ColumnType,
+                });
+                throw new Error(
+                  `An archived column named "${archived.label}" already exists. Confirm restore to bring back its saved options and settings.`
+                );
+              }
+              throw error;
+            }
             setNewLabel("");
             await refreshScope(scope);
           }, "Column added.");
@@ -692,6 +723,35 @@ function ConfigTableSection({
         confirmLabel="Archive"
         onCancel={() => setConfirmArchiveColumnId(null)}
         onConfirm={archiveConfirmedColumn}
+      />
+    ) : null}
+    {restoreColumnCandidate ? (
+      <ConfirmDialog
+        title={`Restore "${restoreColumnCandidate.label}"?`}
+        description={`This restores the archived ${restoreColumnCandidate.type} column with its existing options and settings. Saved table layouts will be reset so every user can see the restored column.`}
+        confirmLabel="Restore column"
+        onCancel={() => setRestoreColumnCandidate(null)}
+        onConfirm={() => {
+          const candidate = restoreColumnCandidate;
+          setRestoreColumnCandidate(null);
+          void run(
+            () =>
+              requestJson("/api/config/columns", {
+                method: "POST",
+                body: JSON.stringify({
+                  scope,
+                  type: candidate.type,
+                  restore: true,
+                  archived_column_id: candidate.id,
+                }),
+              }).then(async (payload) => {
+                setNewLabel("");
+                await refreshScope(scope);
+                return payload;
+              }),
+            "Column restored."
+          );
+        }}
       />
     ) : null}
     </>
@@ -1141,7 +1201,7 @@ function ConfigDropdownValuesSection({
   optionsBySet: EnrollmentOptionsBySet;
   optionUsageCounts: Map<string, number>;
   busy: boolean;
-  run: (action: () => Promise<void>, success: string) => Promise<void>;
+  run: (action: () => Promise<unknown>, success: string) => Promise<void>;
   refreshScope: (scope?: TableScope) => Promise<void>;
   onCategoriesChange: Dispatch<SetStateAction<TaskCategory[]>>;
   onOptionDataChange: () => Promise<void>;
@@ -1650,14 +1710,68 @@ function ConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    cancelRef.current?.focus();
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [onCancel]);
+
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[#091e42]/50 p-4">
-      <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-2xl">
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-[#091e42]/50 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="w-full max-w-sm rounded-lg bg-white p-5 shadow-2xl"
+      >
         <h2 className="text-lg font-bold text-[#172b4d]">{title}</h2>
         <p className="mt-2 text-sm leading-6 text-[#5e6c84]">{description}</p>
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
+            ref={cancelRef}
             onClick={onCancel}
             className="rounded px-3 py-2 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
           >
@@ -1691,7 +1805,7 @@ function ConfigAssistantSection({
   assignees: TaskAssignee[];
   members: AssistantMember[];
   busy: boolean;
-  run: (action: () => Promise<void>, success: string) => Promise<void>;
+  run: (action: () => Promise<unknown>, success: string) => Promise<void>;
   setMembers: Dispatch<SetStateAction<AssistantMember[]>>;
   onAgentsChange: Dispatch<SetStateAction<TaskAgent[]>>;
 }) {
@@ -1918,10 +2032,27 @@ async function requestJson(url: string, init: RequestInit = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error ?? "Request failed.");
+    const error = new Error(payload.error ?? "Request failed.") as RequestJsonError;
+    error.code = typeof payload.code === "string" ? payload.code : undefined;
+    error.payload = payload;
+    throw error;
   }
   return payload;
 }
+
+type RequestJsonError = Error & {
+  code?: string;
+  payload?: RequestJsonPayload;
+};
+
+type RequestJsonPayload = {
+  [key: string]: unknown;
+  archived_column?: {
+    id?: unknown;
+    label?: unknown;
+    type?: unknown;
+  };
+};
 
 function labelForEmail(
   email: string,

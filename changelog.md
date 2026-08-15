@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Xác nhận rõ ràng khi khôi phục cột đã archive
+- **Loại**: fix, security
+- **Cái gì**: Tạo cột trùng label/key với một cột archived nay trả 409 kèm id/label/type an toàn; UI yêu cầu admin xác nhận và gọi restore riêng để khôi phục nguyên options/settings. Restore reset saved layouts và trả cảnh báo rõ nếu việc reset không hoàn tất. Dialog dùng focus trap, Escape, backdrop close, scroll lock và trả focus về opener.
+- **Vì sao**: Luồng tạo cột trước đây có thể va unique key hoặc khôi phục ngầm qua nhánh fallback, khiến admin không biết cột cũ được dùng lại và có thể làm mất layout cá nhân.
+- **File**: `src/app/api/config/columns/route.ts`, `src/app/(authed)/config/_components/ConfigClient.tsx`, `src/lib/table-config/mutation-errors.ts`
+- **Ảnh hưởng**: Chỉ Config admin; dữ liệu archived không bị xoá/đổi type. Restore giữ nguyên id/options/settings và không tự động chạy khi admin chỉ bấm Add.
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 7
+
 ## 2026-08-15 — Chặn option label trùng trong cùng cột
 - **Loại**: fix, migration
 - **Cái gì**: Thêm unique partial index chuẩn hoá `lower(btrim(label))` cho active `table_column_option` theo `column_id`; các route tạo/cập nhật option dịch lỗi unique thành `CONFIG_DUPLICATE_OPTION_LABEL` (409) thay vì trả lỗi DB thô.
