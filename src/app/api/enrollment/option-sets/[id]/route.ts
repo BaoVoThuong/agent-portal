@@ -9,6 +9,7 @@ import {
 } from "@/lib/table-config/realtime";
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
+import { validateEnrollmentOptionRules } from "@/lib/table-config/values";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,12 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   const supabase = getSupabaseAdmin();
   let optionSet: { key: string; program: string; is_stage: boolean } | null = null;
-  if ("label" in body || "treat_as_terminal" in body) {
+  if (
+    "label" in body ||
+    "is_terminal" in body ||
+    "triggers_qc" in body ||
+    "treat_as_terminal" in body
+  ) {
     const { data: option, error: optionError } = await supabase
       .from("enrollment_options")
       .select("set_id")
@@ -77,10 +83,18 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if ("is_terminal" in body) patch.is_terminal = Boolean(body.is_terminal);
   if ("triggers_qc" in body) patch.triggers_qc = Boolean(body.triggers_qc);
   if ("treat_as_terminal" in body) {
-    patch.treat_as_terminal =
-      optionSet?.program === "aca" &&
-      optionSet.is_stage &&
-      Boolean(body.treat_as_terminal);
+    patch.treat_as_terminal = Boolean(body.treat_as_terminal);
+  }
+  const ruleValidation = validateEnrollmentOptionRules({
+    program: optionSet?.program ?? "",
+    setKey: optionSet?.key ?? "",
+    isStage: Boolean(optionSet?.is_stage),
+    isTerminal: body.is_terminal,
+    triggersQc: body.triggers_qc,
+    treatAsTerminal: body.treat_as_terminal,
+  });
+  if (!ruleValidation.ok) {
+    return NextResponse.json({ error: ruleValidation.error }, { status: 400 });
   }
 
   const { data, error } = await supabase

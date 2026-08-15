@@ -841,3 +841,8 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   now target active rows atomically and return a stable conflict when an id is
   archived, missing or belongs to another parent; raw database errors are not
   sent to callers on these mutation paths.
+- Enrollment option-rule writes now reject terminal/QC flags outside Stage and
+  ACA dashboard-terminal flags outside ACA Stage instead of coercing invalid
+  values. Config only renders those controls for eligible Stage groups, and
+  the option-set read response reports legacy invalid rule ids for explicit
+  cleanup.

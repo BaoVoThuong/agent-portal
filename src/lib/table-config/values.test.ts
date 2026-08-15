@@ -3,7 +3,16 @@ import {
   coerceCustomValue,
   formatCustomValue,
   normalizedValueEquals,
+  validateEnrollmentOptionRules,
 } from "./values";
+
+describe("validateEnrollmentOptionRules", () => {
+  it("allows rules only on Stage and ACA dashboard terminal only on ACA Stage", () => {
+    expect(validateEnrollmentOptionRules({ program: "cs", setKey: "category", isStage: false, isTerminal: true }).ok).toBe(false);
+    expect(validateEnrollmentOptionRules({ program: "aca", setKey: "stage", isStage: true, treatAsTerminal: true })).toEqual({ ok: true });
+    expect(validateEnrollmentOptionRules({ program: "medicare", setKey: "stage", isStage: true, treatAsTerminal: true }).ok).toBe(false);
+  });
+});
 
 describe("normalizedValueEquals", () => {
   it("recognizes unchanged values across supported custom field types", () => {

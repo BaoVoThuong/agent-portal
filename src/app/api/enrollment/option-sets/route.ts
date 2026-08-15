@@ -18,6 +18,7 @@ import {
   parseEnrollmentProgram,
   type EnrollmentOptionSetKey,
 } from "@/lib/enrollment/types";
+import { validateEnrollmentOptionRules } from "@/lib/table-config/values";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
   }
   const data = await fetchEnrollmentOptionData(program);
-  return NextResponse.json(data);
+  const invalidRuleOptionIds = data.options
+    .filter((option) =>
+      !validateEnrollmentOptionRules({
+        program,
+        setKey: option.set_key,
+        isStage: option.set_key === "stage",
+        isTerminal: option.is_terminal,
+        triggersQc: option.triggers_qc,
+        treatAsTerminal: option.treat_as_terminal,
+      }).ok
+    )
+    .map((option) => option.id);
+  return NextResponse.json({
+    ...data,
+    diagnostics: { invalidRuleOptionIds },
+  });
 }
 
 export async function POST(request: Request) {
@@ -79,15 +95,24 @@ export async function POST(request: Request) {
   const supabase = getSupabaseAdmin();
   const { data: setRow, error: setError } = await supabase
     .from("enrollment_option_sets")
-    .select("id,is_stage")
+    .select("id,key,is_stage")
     .eq("program", program)
     .eq("key", setKey)
     .maybeSingle();
   if (setError) return NextResponse.json({ error: setError.message }, { status: 500 });
   if (!setRow) return NextResponse.json({ error: "Option set not found." }, { status: 404 });
+  const ruleValidation = validateEnrollmentOptionRules({
+    program,
+    setKey,
+    isStage: Boolean(setRow.is_stage),
+    isTerminal: body?.is_terminal,
+    triggersQc: body?.triggers_qc,
+    treatAsTerminal: body?.treat_as_terminal,
+  });
+  if (!ruleValidation.ok) return NextResponse.json({ error: ruleValidation.error }, { status: 400 });
 
   const { data: last } = await supabase
-    .from("enrollment_options")
+      .from("enrollment_options")
     .select("position")
     .eq("set_id", (setRow as { id: string }).id)
     .order("position", { ascending: false })

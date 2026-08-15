@@ -13,6 +13,33 @@ export type CoerceResult =
   | { ok: true; value: unknown }
   | { ok: false; error: string };
 
+export type EnrollmentOptionRuleInput = {
+  program: string;
+  setKey: string;
+  isStage: boolean;
+  isTerminal?: unknown;
+  triggersQc?: unknown;
+  treatAsTerminal?: unknown;
+};
+
+export function validateEnrollmentOptionRules(
+  input: EnrollmentOptionRuleInput
+): { ok: true } | { ok: false; error: string } {
+  if (input.isTerminal === true && !input.isStage) {
+    return { ok: false, error: "Workflow terminal is only valid for Stage options." };
+  }
+  if (input.triggersQc === true && !input.isStage) {
+    return { ok: false, error: "QC is only valid for Stage options." };
+  }
+  if (
+    input.treatAsTerminal === true &&
+    !(input.program === "aca" && input.setKey === "stage" && input.isStage)
+  ) {
+    return { ok: false, error: "ACA dashboard terminal is only valid for ACA Stage options." };
+  }
+  return { ok: true };
+}
+
 /**
  * Compare a pending custom-field value with the persisted value using the
  * same canonicalization rules as the custom-field editor.
