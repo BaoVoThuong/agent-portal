@@ -288,7 +288,7 @@ export function ConfigClient({
 
         <div className="flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm">
           <TabButton active={tab === "table"} onClick={() => setTab("table")}>
-            <Settings2 className="h-4 w-4" /> Table Columns
+            <Settings2 className="h-4 w-4" /> Columns
           </TabButton>
           <TabButton active={tab === "value"} onClick={() => setTab("value")}>
             <SlidersHorizontal className="h-4 w-4" /> Dropdown Values
@@ -666,7 +666,7 @@ function ConfigTableSection({
     <>
     <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
       <div className="border-b border-[#dfe1e6] px-6 py-4">
-        <h2 className="text-lg font-bold">Table columns</h2>
+        <h2 className="text-lg font-bold">Column settings</h2>
       </div>
       {!available ? <ConfigSectionUnavailable message={availabilityError} /> : null}
       <form
