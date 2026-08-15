@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   CONFIG_VALUE_INACTIVE_OR_MISSING,
+  CONFIG_DUPLICATE_OPTION_LABEL,
+  duplicateOptionLabelResponse,
   inactiveConfigValueResponse,
   isUniqueViolation,
 } from "./mutation-errors";
@@ -17,5 +19,9 @@ describe("table config mutation errors", () => {
     expect(isUniqueViolation({ code: "23505" })).toBe(true);
     expect(isUniqueViolation({ code: "42P01" })).toBe(false);
     expect(isUniqueViolation(null)).toBe(false);
+  });
+
+  it("returns a stable duplicate-label conflict", () => {
+    expect(duplicateOptionLabelResponse().code).toBe(CONFIG_DUPLICATE_OPTION_LABEL);
   });
 });

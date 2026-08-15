@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { fetchTableColumnById } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
-import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
+import { duplicateOptionLabelResponse, inactiveConfigValueResponse, isUniqueViolation } from "@/lib/table-config/mutation-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +53,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .is("archived_at", null)
     .select("id,column_id,label,color,position,created_at,updated_at,archived_at")
     .maybeSingle();
-  if (error) return NextResponse.json({ error: "Could not update option." }, { status: 500 });
+  if (error) {
+    if (isUniqueViolation(error)) return NextResponse.json(duplicateOptionLabelResponse(), { status: 409 });
+    return NextResponse.json({ error: "Could not update option." }, { status: 500 });
+  }
   if (!data) return NextResponse.json(inactiveConfigValueResponse("Option"), { status: 409 });
 
   await broadcastTableConfigInvalidation();

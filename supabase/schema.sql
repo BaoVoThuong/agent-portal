@@ -3602,6 +3602,9 @@ create index if not exists table_column_scope_position_idx
   on table_column (scope, archived_at, position, label);
 create index if not exists table_column_option_column_idx
   on table_column_option (column_id, archived_at, position, label);
+create unique index if not exists table_column_option_active_label_uniq
+  on table_column_option (column_id, lower(btrim(label)))
+  where archived_at is null;
 
 alter table table_column
   add column if not exists pinned boolean not null default false;

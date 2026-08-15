@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin, loadConfigActor } from "@/lib/table-config/access";
 import { fetchTableColumnById } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
+import { duplicateOptionLabelResponse, inactiveConfigValueResponse, isUniqueViolation } from "@/lib/table-config/mutation-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export async function POST(request: Request, { params }: Ctx) {
 
   const supabase = getSupabaseAdmin();
   const column = await fetchTableColumnById(id, supabase);
-  if (!column) return NextResponse.json({ error: "Column not found." }, { status: 404 });
+  if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
   if (column.type !== "dropdown" || column.is_system) {
     return NextResponse.json(
       { error: "Only custom dropdown columns can use custom options." },
@@ -64,7 +65,10 @@ export async function POST(request: Request, { params }: Ctx) {
     p_color: cleanColor(body?.color),
     p_position: requestedPosition,
   });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (isUniqueViolation(error)) return NextResponse.json(duplicateOptionLabelResponse(), { status: 409 });
+    return NextResponse.json({ error: "Could not create option." }, { status: 500 });
+  }
 
   await broadcastTableConfigInvalidation();
   return NextResponse.json({ option: rpcData });

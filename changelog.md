@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Chặn option label trùng trong cùng cột
+- **Loại**: fix, migration
+- **Cái gì**: Thêm unique partial index chuẩn hoá `lower(btrim(label))` cho active `table_column_option` theo `column_id`; các route tạo/cập nhật option dịch lỗi unique thành `CONFIG_DUPLICATE_OPTION_LABEL` (409) thay vì trả lỗi DB thô.
+- **Vì sao**: Hai option active khác casing/khoảng trắng tạo ra giá trị mơ hồ, làm filter/validation và màu hiển thị không xác định.
+- **File**: `supabase/schema.sql`, `supabase/rollouts/2026-08-15-table-config-option-label-unique.sql`, `src/app/api/config/columns/[id]/options/route.ts`, `src/app/api/config/columns/[id]/options/[optionId]/route.ts`, `src/lib/table-config/mutation-errors.ts`
+- **Ảnh hưởng**: Chỉ option active trong cùng custom column; option archived vẫn có thể giữ lịch sử. Preflight hiện tại không phát hiện nhóm trùng (0 nhóm), nên không tự xoá hay đổi dữ liệu production. Rollout phải chạy `CREATE INDEX CONCURRENTLY` ngoài transaction sau preflight.
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 6
+
 ## 2026-08-11 — Add standalone display-number rollout
 - **Loại**: fix, migration
 - **Cái gì**: Added an idempotent transactional rollout for the sequence-backed `tasks.display_number` and `enrollment_records.display_number` columns, including exclusive table locks, deterministic backfill, sequence advancement, non-null defaults, and unique indexes.
