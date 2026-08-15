@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canManageCategories } from "@/lib/tasks/access";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
+import { parseConfiguredColor } from "@/lib/table-config/value-colors";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const body = await req.json().catch(() => null);
   const patch: Record<string, unknown> = {};
   if (typeof body?.name === "string" && body.name.trim()) patch.name = body.name.trim();
-  if (typeof body?.color === "string") patch.color = body.color.trim() || null;
+  if ("color" in (body ?? {})) {
+    const colorResult = parseConfiguredColor(body.color);
+    if (!colorResult.ok) {
+      return NextResponse.json({ error: colorResult.error }, { status: 400 });
+    }
+    patch.color = colorResult.color;
+  }
   if (typeof body?.is_active === "boolean") patch.is_active = body.is_active;
   if (Object.keys(patch).length === 0)
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });

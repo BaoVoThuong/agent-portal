@@ -4,6 +4,7 @@ import { loadConfigAdmin, loadConfigActor } from "@/lib/table-config/access";
 import { fetchTableColumnById } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { duplicateOptionLabelResponse, inactiveConfigValueResponse, isUniqueViolation } from "@/lib/table-config/mutation-errors";
+import { parseConfiguredColor } from "@/lib/table-config/value-colors";
 
 export const dynamic = "force-dynamic";
 
@@ -59,10 +60,15 @@ export async function POST(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Option position must be a safe integer." }, { status: 400 });
   }
 
+  const colorResult = parseConfiguredColor(body?.color);
+  if (!colorResult.ok) {
+    return NextResponse.json({ error: colorResult.error }, { status: 400 });
+  }
+
   const { data: rpcData, error } = await supabase.rpc("create_table_column_option", {
     p_column_id: id,
     p_label: label,
-    p_color: cleanColor(body?.color),
+    p_color: colorResult.color,
     p_position: requestedPosition,
   });
   if (error) {
@@ -72,10 +78,4 @@ export async function POST(request: Request, { params }: Ctx) {
 
   await broadcastTableConfigInvalidation();
   return NextResponse.json({ option: rpcData });
-}
-
-function cleanColor(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return /^#[0-9a-f]{6}$/i.test(trimmed) ? trimmed : null;
 }

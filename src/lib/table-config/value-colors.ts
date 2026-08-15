@@ -2,9 +2,39 @@ import { TASK_CATEGORY_COLORS } from "@/lib/tasks/category-colors";
 
 export const DEFAULT_DROPDOWN_VALUE_COLOR = TASK_CATEGORY_COLORS[0];
 
+export const CONFIGURED_COLOR_ERROR =
+  "Color must be a six-digit hex value such as #0c66e4.";
+
+export type ConfiguredColorResult =
+  | { ok: true; color: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Normalize one API color input without silently accepting malformed values.
+ * Empty/null values intentionally clear a color; non-empty values must be a
+ * six-digit hex color so every consumer can share the same stored format.
+ */
+export function parseConfiguredColor(value: unknown): ConfiguredColorResult {
+  if (value === undefined || value === null) return { ok: true, color: null };
+  if (typeof value !== "string") {
+    return { ok: false, error: CONFIGURED_COLOR_ERROR };
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return { ok: true, color: null };
+  if (!/^#[0-9a-f]{6}$/.test(normalized)) {
+    return { ok: false, error: CONFIGURED_COLOR_ERROR };
+  }
+  return { ok: true, color: normalized };
+}
+
+export function normalizeConfiguredColor(value: unknown): string | null {
+  const parsed = parseConfiguredColor(value);
+  return parsed.ok ? parsed.color : null;
+}
+
 function normalizeColor(value: string | null | undefined): string | null {
-  const normalized = value?.trim().toLowerCase() ?? "";
-  return /^#[0-9a-f]{6}$/.test(normalized) ? normalized : null;
+  return normalizeConfiguredColor(value);
 }
 
 /**

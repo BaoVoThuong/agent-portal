@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Chuẩn hóa màu dropdown ở API boundary
+- **Loại**: fix, data-integrity, consistency
+- **Cái gì**: Category, custom-column option và Enrollment option mutations giờ dùng cùng parser màu: giá trị hex 6 ký tự được trim/lowercase, giá trị rỗng/null có thể clear, còn input không hợp lệ trả 400 với thông báo ổn định thay vì âm thầm lưu/null. Không thay đổi semantics màu riêng của Stage.
+- **Vì sao**: Màu viết hoa/định dạng sai làm các consumer render không nhất quán; silent fallback khiến admin tưởng đã lưu màu nhưng list/detail lại dùng palette khác.
+- **File**: `src/lib/table-config/value-colors.ts`, `src/app/api/tasks/categories/route.ts`, `src/app/api/tasks/categories/[id]/route.ts`, `src/app/api/config/columns/[id]/options/route.ts`, `src/app/api/config/columns/[id]/options/[optionId]/route.ts`, `src/app/api/enrollment/option-sets/route.ts`, `src/app/api/enrollment/option-sets/[id]/route.ts`
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 15 (commit 1)
+
 ## 2026-08-15 — Refresh Config an toàn trước response lỗi/cũ
 - **Loại**: fix, consistency, reliability
 - **Cái gì**: Scope columns/options, categories, enrollment option sets, agents và assistant memberships giờ kiểm tra HTTP status trước khi dùng payload, chịu được invalid JSON, validate shape tối thiểu và dùng request sequence riêng để response cũ không ghi đè state mới. Khi refresh mới nhất lỗi, UI giữ last-good data, hiển thị lỗi endpoint-safe và khóa mutation của section tương ứng; các section độc lập không bị reset. Không thêm retry hay request tự động.

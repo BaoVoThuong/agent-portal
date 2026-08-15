@@ -10,6 +10,7 @@ import {
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
 import { validateEnrollmentOptionRules } from "@/lib/table-config/values";
+import { parseConfiguredColor } from "@/lib/table-config/value-colors";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +77,13 @@ export async function PATCH(request: Request, { params }: Ctx) {
     if (!label) return NextResponse.json({ error: "Label is required." }, { status: 400 });
     patch.label = label;
   }
-  if ("color" in body) patch.color = cleanColor(body.color);
+  if ("color" in body) {
+    const colorResult = parseConfiguredColor(body.color);
+    if (!colorResult.ok) {
+      return NextResponse.json({ error: colorResult.error }, { status: 400 });
+    }
+    patch.color = colorResult.color;
+  }
   if ("position" in body && typeof body.position === "number") {
     patch.position = Math.round(body.position);
   }
@@ -176,10 +183,4 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     broadcastTableConfigInvalidation(),
   ]);
   return NextResponse.json({ ok: true });
-}
-
-function cleanColor(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return /^#[0-9a-f]{6}$/i.test(trimmed) ? trimmed : null;
 }

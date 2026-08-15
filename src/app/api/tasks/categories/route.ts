@@ -8,6 +8,7 @@ import {
   canManageCategories,
 } from "@/lib/tasks/access";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { parseConfiguredColor } from "@/lib/table-config/value-colors";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,11 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   if (!name) return NextResponse.json({ error: "Name is required." }, { status: 400 });
-  const color = typeof body?.color === "string" ? body.color.trim() : null;
+  const colorResult = parseConfiguredColor(body?.color);
+  if (!colorResult.ok) {
+    return NextResponse.json({ error: colorResult.error }, { status: 400 });
+  }
+  const color = colorResult.color;
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase

@@ -19,6 +19,7 @@ import {
   type EnrollmentOptionSetKey,
 } from "@/lib/enrollment/types";
 import { validateEnrollmentOptionRules } from "@/lib/table-config/values";
+import { parseConfiguredColor } from "@/lib/table-config/value-colors";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const colorResult = parseConfiguredColor(body?.color);
+  if (!colorResult.ok) {
+    return NextResponse.json({ error: colorResult.error }, { status: 400 });
+  }
+
   const supabase = getSupabaseAdmin();
   const { data: setRow, error: setError } = await supabase
     .from("enrollment_option_sets")
@@ -124,7 +130,7 @@ export async function POST(request: Request) {
     .insert({
       set_id: (setRow as { id: string }).id,
       label,
-      color: cleanColor(body?.color),
+      color: colorResult.color,
       position:
         typeof body?.position === "number"
           ? Math.round(body.position)
@@ -153,10 +159,4 @@ export async function POST(request: Request) {
 
 function isEnrollmentOptionSetKey(value: string): value is EnrollmentOptionSetKey {
   return ENROLLMENT_OPTION_SET_KEYS.includes(value as EnrollmentOptionSetKey);
-}
-
-function cleanColor(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return /^#[0-9a-f]{6}$/i.test(trimmed) ? trimmed : null;
 }

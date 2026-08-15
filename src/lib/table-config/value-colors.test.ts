@@ -1,10 +1,43 @@
 import { describe, expect, it } from "vitest";
 import { TASK_CATEGORY_COLORS } from "@/lib/tasks/category-colors";
 import {
+  CONFIGURED_COLOR_ERROR,
   DEFAULT_DROPDOWN_VALUE_COLOR,
   nextRecommendedDropdownValueColor,
+  normalizeConfiguredColor,
+  parseConfiguredColor,
   recommendDropdownValueColor,
 } from "./value-colors";
+
+describe("parseConfiguredColor", () => {
+  it("normalizes valid colors to lowercase", () => {
+    expect(parseConfiguredColor("  #0C66E4 ")).toEqual({
+      ok: true,
+      color: "#0c66e4",
+    });
+  });
+
+  it("allows an explicit clear", () => {
+    expect(parseConfiguredColor(null)).toEqual({ ok: true, color: null });
+    expect(parseConfiguredColor(" ")).toEqual({ ok: true, color: null });
+  });
+
+  it("rejects malformed non-empty values instead of silently clearing them", () => {
+    expect(parseConfiguredColor("red")).toEqual({
+      ok: false,
+      error: CONFIGURED_COLOR_ERROR,
+    });
+    expect(parseConfiguredColor(123)).toEqual({
+      ok: false,
+      error: CONFIGURED_COLOR_ERROR,
+    });
+  });
+
+  it("provides a safe normalized value for rendering", () => {
+    expect(normalizeConfiguredColor("#ABCDEF")).toBe("#abcdef");
+    expect(normalizeConfiguredColor("invalid")).toBeNull();
+  });
+});
 
 describe("recommendDropdownValueColor", () => {
   it("starts with the shared palette default", () => {

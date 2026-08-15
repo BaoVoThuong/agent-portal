@@ -4,6 +4,7 @@ import { loadConfigAdmin } from "@/lib/table-config/access";
 import { fetchTableColumnById } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { duplicateOptionLabelResponse, inactiveConfigValueResponse, isUniqueViolation } from "@/lib/table-config/mutation-errors";
+import { parseConfiguredColor } from "@/lib/table-config/value-colors";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,13 @@ export async function PATCH(request: Request, { params }: Ctx) {
     if (!label) return NextResponse.json({ error: "Option label is required." }, { status: 400 });
     patch.label = label;
   }
-  if ("color" in body) patch.color = cleanColor(body.color);
+  if ("color" in body) {
+    const colorResult = parseConfiguredColor(body.color);
+    if (!colorResult.ok) {
+      return NextResponse.json({ error: colorResult.error }, { status: 400 });
+    }
+    patch.color = colorResult.color;
+  }
   if ("position" in body) {
     if (typeof body.position !== "number") {
       return NextResponse.json({ error: "Position must be a number." }, { status: 400 });
@@ -94,10 +101,4 @@ export async function DELETE(_request: Request, { params }: Ctx) {
 
   await broadcastTableConfigInvalidation();
   return NextResponse.json({ ok: true });
-}
-
-function cleanColor(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return /^#[0-9a-f]{6}$/i.test(trimmed) ? trimmed : null;
 }
