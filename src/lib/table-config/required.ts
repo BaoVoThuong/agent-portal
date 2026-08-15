@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumns } from "./queries";
-import type { ColumnType, TableScope } from "./types";
+import type { ColumnType, TableScope, TableColumn } from "./types";
+import type { CustomValueRecord, WriteValidationContext } from "./custom-values";
 
 export function isRequiredValueFilled(type: ColumnType, value: unknown): boolean {
   // A checkbox's `false` value is a deliberate answer and therefore counts as
@@ -19,6 +20,35 @@ export function isRequiredValueFilled(type: ColumnType, value: unknown): boolean
 }
 
 export type MissingRequiredField = { key: string; label: string };
+
+export function findMissingRequiredFieldsFromContext(
+  context: Pick<WriteValidationContext, "columns">,
+  options: {
+    fieldValues: Record<string, unknown>;
+    customValues?: CustomValueRecord | null;
+    partial?: boolean;
+    checkCustom?: boolean;
+  }
+): MissingRequiredField[] {
+  const missing: MissingRequiredField[] = [];
+  for (const column of context.columns as TableColumn[]) {
+    if (!column.required || column.archived_at) continue;
+    if (column.is_system) {
+      if (options.partial && !(column.key in options.fieldValues)) continue;
+      if (!isRequiredValueFilled(column.type, options.fieldValues[column.key])) {
+        missing.push({ key: column.key, label: column.label });
+      }
+      continue;
+    }
+    if (options.checkCustom === false) continue;
+    const customValues = options.customValues ?? {};
+    if (options.partial && !(column.key in customValues)) continue;
+    if (!isRequiredValueFilled(column.type, customValues[column.key])) {
+      missing.push({ key: column.key, label: column.label });
+    }
+  }
+  return missing;
+}
 
 /**
  * Finds required columns (table_column.required = true) whose value is
@@ -57,28 +87,7 @@ export async function findMissingRequiredFields(
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<MissingRequiredField[]> {
   const columns = await fetchTableColumns(scope, supabase);
-  const missing: MissingRequiredField[] = [];
-
-  for (const column of columns) {
-    if (!column.required || column.archived_at) continue;
-
-    if (column.is_system) {
-      if (options.partial && !(column.key in options.fieldValues)) continue;
-      if (!isRequiredValueFilled(column.type, options.fieldValues[column.key])) {
-        missing.push({ key: column.key, label: column.label });
-      }
-      continue;
-    }
-
-    if (options.checkCustom === false) continue;
-    const customValues = options.customValues ?? {};
-    if (options.partial && !(column.key in customValues)) continue;
-    if (!isRequiredValueFilled(column.type, customValues[column.key])) {
-      missing.push({ key: column.key, label: column.label });
-    }
-  }
-
-  return missing;
+  return findMissingRequiredFieldsFromContext({ columns }, options);
 }
 
 export function missingRequiredFieldsMessage(missing: MissingRequiredField[]): string {

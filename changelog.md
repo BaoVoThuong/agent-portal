@@ -819,3 +819,12 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   05, directly below the assignment queue. The queue answers who is next and the
   list is what to hand them; splitting them meant reading one section and acting
   in another. Section 03 is now the single full-width Needs-action list.
+
+## 2026-08-15 — Table Config write validation foundation
+
+- Added a service-role-only `table_config_write_context` RPC and typed loader so
+  Task and Enrollment mutations can validate only touched columns/options in one
+  request, with conditional Person matching and no full roster fetch.
+- Added pure custom-value type, active-option, archived-column and scoped-Person
+  validation plus context-based Required checks; explicit checkbox `false` and
+  optional `null` remain valid values.
