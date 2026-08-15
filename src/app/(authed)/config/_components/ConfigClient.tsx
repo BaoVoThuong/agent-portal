@@ -286,7 +286,7 @@ export function ConfigClient({
           />
         </header>
 
-        <div className="flex w-fit rounded bg-[#f1f2f4] p-1">
+        <div className="flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm">
           <TabButton active={tab === "table"} onClick={() => setTab("table")}>
             <Settings2 className="h-4 w-4" /> Table Columns
           </TabButton>
@@ -397,10 +397,10 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-10 items-center gap-2 rounded px-4 text-sm font-bold ${
+      className={`inline-flex items-center gap-2 rounded px-3 py-1.5 text-sm font-semibold transition ${
         active
-          ? "bg-white text-[#0c66e4] shadow-sm"
-          : "text-[#44546f] hover:text-[#172b4d]"
+          ? "bg-white text-[#0c66e4] shadow-sm ring-1 ring-[#d8dee7]"
+          : "text-[#44546f] hover:bg-white/70 hover:text-[#172b4d]"
       }`}
     >
       {children}
