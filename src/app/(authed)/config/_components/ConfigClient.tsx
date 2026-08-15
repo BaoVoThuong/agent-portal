@@ -1392,7 +1392,13 @@ function ConfigDropdownValuesSection({
           </nav>
           <div className="p-4">
             <form
-              className="grid grid-cols-1 gap-2 border-b border-[#dfe1e6] pb-4 md:grid-cols-[minmax(0,1fr)_240px_110px_110px_auto]"
+              className={`grid grid-cols-1 gap-2 border-b border-[#dfe1e6] pb-4 ${
+                isAcaStageGroup
+                  ? "md:grid-cols-[minmax(0,1fr)_240px_110px_110px_110px_auto]"
+                  : isStageGroup
+                    ? "md:grid-cols-[minmax(0,1fr)_240px_110px_110px_auto]"
+                    : "md:grid-cols-[minmax(0,1fr)_240px_auto]"
+              }`}
               onSubmit={(event) => {
                 event.preventDefault();
                 if (!selected || !label.trim()) return;
@@ -1435,33 +1441,31 @@ function ConfigDropdownValuesSection({
                   setUsesRecommendedColor(false);
                 }}
               />
-              <label
-                className={`flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e] ${
-                  isStageGroup ? "" : "opacity-40"
-                }`}
-                title="Workflow terminal: entering this stage closes the enrollment record."
-              >
-                <input
-                  type="checkbox"
-                  disabled={!isStageGroup}
-                  checked={isStageGroup && isTerminal}
-                  onChange={(event) => setIsTerminal(event.target.checked)}
-                />
-                Workflow terminal
-              </label>
-              <label
-                className={`flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e] ${
-                  isStageGroup ? "" : "opacity-40"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  disabled={!isStageGroup}
-                  checked={isStageGroup && triggersQc}
-                  onChange={(event) => setTriggersQc(event.target.checked)}
-                />
-                QC
-              </label>
+              {isStageGroup ? (
+                <>
+                  <label
+                    className="flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e]"
+                    title="Workflow terminal: entering this stage closes the enrollment record."
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={busy}
+                      checked={isTerminal}
+                      onChange={(event) => setIsTerminal(event.target.checked)}
+                    />
+                    Workflow terminal
+                  </label>
+                  <label className="flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e]">
+                    <input
+                      type="checkbox"
+                      disabled={busy}
+                      checked={triggersQc}
+                      onChange={(event) => setTriggersQc(event.target.checked)}
+                    />
+                    QC
+                  </label>
+                </>
+              ) : null}
               {isAcaStageGroup ? (
                 <label
                   className="flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e]"
