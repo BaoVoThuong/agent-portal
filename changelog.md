@@ -953,3 +953,31 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
   values. Config only renders those controls for eligible Stage groups, and
   the option-set read response reports legacy invalid rule ids for explicit
   cleanup.
+
+## 2026-08-16 — Migration runbook and two rollout fixes
+
+- Fixed `supabase/rollouts/2026-08-15-enrollment-stage-setup.sql`. It created
+  `create temporary table ... on commit drop` at the top level and referenced
+  those tables from later statements, so any client that does not execute the
+  script as a single unit (the Supabase Studio SQL editor among them) dropped
+  them in between and failed with `42P01: relation "_enrollment_stage_setup"
+  does not exist`. The migration is now one `DO` block: no client can split it,
+  the temp tables live for its whole duration, and any failure rolls everything
+  back. The SQL logic is unchanged.
+- The same migration now clears `stage_id` (with the matching
+  `stage_entered_at` / `stage_entered_source` pair) on active records whose
+  stage falls outside the canonical catalog and is about to be archived.
+  Previously such a record kept pointing at an archived stage that no picker
+  could show or re-select. Archived records keep their historical reference.
+- Fixed `supabase/rollouts/2026-08-13-aca-overview-schema.sql`. Its
+  `last_work_activity_at` backfill used `update ... from lateral (... where
+  activity.record_id = records.id)`, but PostgreSQL does not put an UPDATE's
+  target table in scope for a LATERAL item, so the statement always failed with
+  `42P10: invalid reference to FROM-clause entry for table "records"`. That is
+  why this backfill had never been applied. Pre-aggregating by `record_id` and
+  joining is equivalent and runs.
+- Added `supabase/run-order/`: the pending migrations split into numbered,
+  individually runnable files with a README covering apply order, rollback,
+  per-step verification, and which Supabase Studio "destructive operation"
+  warnings are false positives. `CREATE INDEX CONCURRENTLY` is dropped in the
+  two index files because Studio wraps every submission in a transaction.

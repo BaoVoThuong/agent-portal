@@ -64,16 +64,26 @@ create index if not exists enrollment_records_aca_overview_created_idx
 -- noise and cron rows. Assignment history predates a reliable owner snapshot,
 -- so creation time is the only safe lower bound for currently assigned rows;
 -- cycles are not rewritten and the per-person timing plan remains no-backfill.
+-- 2026-08-15 FIX. The previous form was `from lateral (... where
+-- activity.record_id = records.id)`. PostgreSQL does not put an UPDATE's target
+-- table in scope for a LATERAL item in its FROM clause, so that statement could
+-- never run:
+--     ERROR: 42P10: invalid reference to FROM-clause entry for table "records"
+-- This is why the backfill below had never been applied. Pre-aggregating by
+-- record_id and joining is equivalent: GROUP BY only emits rows for records that
+-- actually have qualifying activity, which is exactly what the old
+-- `latest.work_at is not null` guard selected.
 update enrollment_records records
 set last_work_activity_at = latest.work_at
-from lateral (
-  select max(activity.created_at) as work_at
+from (
+  select activity.record_id, max(activity.created_at) as work_at
   from enrollment_activity activity
-  where activity.record_id = records.id
-    and lower(coalesce(activity.actor_email, '')) <> 'system'
+  where lower(coalesce(activity.actor_email, '')) <> 'system'
     and activity.type not in ('comment_added', 'mentioned', 'attachment_added')
+  group by activity.record_id
 ) latest
-where records.program = 'aca'
+where latest.record_id = records.id
+  and records.program = 'aca'
   and records.last_work_activity_at is null
   and latest.work_at is not null;
 
