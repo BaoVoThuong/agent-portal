@@ -47,6 +47,11 @@ import {
   fetchWriteValidationContext,
   TableConfigUnavailableError,
 } from "@/lib/table-config/write-context";
+import {
+  invalidTaskCategoryResponse,
+  isTaskCategoryId,
+  mapTaskCategoryMutationError,
+} from "@/lib/tasks/category-mutation";
 
 export const dynamic = "force-dynamic";
 
@@ -174,6 +179,9 @@ export async function POST(request: Request) {
       : null;
   if (!categoryId) {
     return NextResponse.json({ error: "Category is required." }, { status: 400 });
+  }
+  if (!isTaskCategoryId(categoryId)) {
+    return NextResponse.json(invalidTaskCategoryResponse(), { status: 400 });
   }
   const supabase = getSupabaseAdmin();
   let customValues: Record<string, unknown> = {};
@@ -303,6 +311,8 @@ export async function POST(request: Request) {
     if (createError.message.includes("TASK_TITLE_REQUIRED")) {
       return NextResponse.json({ error: "Title is required." }, { status: 400 });
     }
+    const categoryError = mapTaskCategoryMutationError(createError);
+    if (categoryError) return NextResponse.json(categoryError, { status: 409 });
     return NextResponse.json({ error: createError.message }, { status: 500 });
   }
   const result = created as {

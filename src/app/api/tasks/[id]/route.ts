@@ -45,6 +45,11 @@ import {
   fetchWriteValidationContext,
   TableConfigUnavailableError,
 } from "@/lib/table-config/write-context";
+import {
+  invalidTaskCategoryResponse,
+  isTaskCategoryId,
+  mapTaskCategoryMutationError,
+} from "@/lib/tasks/category-mutation";
 
 export const dynamic = "force-dynamic";
 
@@ -361,6 +366,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
     );
   }
 
+  if (
+    Object.prototype.hasOwnProperty.call(resolved.patch, "category_id") &&
+    resolved.patch.category_id !== null &&
+    !isTaskCategoryId(resolved.patch.category_id)
+  ) {
+    return NextResponse.json(invalidTaskCategoryResponse(), { status: 400 });
+  }
+
   if (reassigning) {
     const nextAssignee = resolved.patch.assignee_email as string | null;
     const currentPrimaryAssignee = currentAssignees[0] ?? r.task.assignee_email ?? null;
@@ -528,6 +541,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
     if (atomicError.message.includes("TASK_NOT_FOUND")) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
+    const categoryError = mapTaskCategoryMutationError(atomicError);
+    if (categoryError) return NextResponse.json(categoryError, { status: 409 });
     return NextResponse.json({ error: atomicError.message }, { status: 500 });
   }
   if (!atomicData || typeof atomicData !== "object") {

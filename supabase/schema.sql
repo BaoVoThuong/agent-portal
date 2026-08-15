@@ -1339,6 +1339,40 @@ create table if not exists tasks (
     check (status = 'backlog' or assignee_email is not null)
 );
 
+-- A category can remain referenced by historical tasks after it is archived,
+-- but new references must point to an active category. Keep this invariant in
+-- the same transaction as both atomic task commands so no route pre-read can
+-- race a concurrent archive.
+create or replace function enforce_active_task_category()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.category_id is not null then
+    if tg_op = 'INSERT' or new.category_id is distinct from old.category_id then
+      if not exists (
+        select 1
+        from task_categories c
+        where c.id = new.category_id
+          and c.is_active = true
+      ) then
+        raise exception 'TASK_CATEGORY_INACTIVE';
+      end if;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists tasks_active_category_guard on tasks;
+create trigger tasks_active_category_guard
+before insert or update of category_id on tasks
+for each row execute function enforce_active_task_category();
+
+revoke all on function enforce_active_task_category() from public, anon, authenticated;
+
 alter table tasks
 add column if not exists agent_email text;
 
