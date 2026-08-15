@@ -1850,6 +1850,62 @@ insert into task_reminder_settings (id)
 values (true)
 on conflict (id) do nothing;
 
+create or replace function update_task_reminder_setting_atomic(
+  p_key text,
+  p_value integer
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  settings_row task_reminder_settings%rowtype;
+begin
+  if p_key not in ('dueSoonMinutes', 'todoHours', 'overdueReminderHours', 'waitingHours', 'staleHours', 'qcHours')
+    or p_value is null or p_value <= 0 then
+    raise exception 'REMINDER_SETTING_INVALID';
+  end if;
+  if (p_key = 'dueSoonMinutes' and p_value > 10080)
+    or (p_key <> 'dueSoonMinutes' and p_value > 8760) then
+    raise exception 'REMINDER_SETTING_INVALID';
+  end if;
+
+  select * into settings_row
+  from task_reminder_settings
+  where id = true
+  for update;
+  if not found then
+    insert into task_reminder_settings (id) values (true);
+    select * into settings_row from task_reminder_settings where id = true for update;
+  end if;
+
+  update task_reminder_settings
+  set due_soon_minutes = case when p_key = 'dueSoonMinutes' then p_value else due_soon_minutes end,
+      todo_hours = case when p_key = 'todoHours' then p_value else todo_hours end,
+      overdue_reminder_hours = case when p_key = 'overdueReminderHours' then p_value else overdue_reminder_hours end,
+      waiting_hours = case when p_key = 'waitingHours' then p_value else waiting_hours end,
+      stale_hours = case when p_key = 'staleHours' then p_value else stale_hours end,
+      qc_hours = case when p_key = 'qcHours' then p_value else qc_hours end,
+      updated_at = clock_timestamp()
+  where id = true
+  returning * into settings_row;
+
+  return jsonb_build_object(
+    'due_soon_minutes', settings_row.due_soon_minutes,
+    'todo_hours', settings_row.todo_hours,
+    'overdue_reminder_hours', settings_row.overdue_reminder_hours,
+    'waiting_hours', settings_row.waiting_hours,
+    'stale_hours', settings_row.stale_hours,
+    'qc_hours', settings_row.qc_hours,
+    'updated_at', settings_row.updated_at
+  );
+end;
+$$;
+
+revoke all on function update_task_reminder_setting_atomic(text, integer) from public, anon, authenticated;
+grant execute on function update_task_reminder_setting_atomic(text, integer) to service_role;
+
 create table if not exists task_comments (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references tasks(id) on delete cascade,

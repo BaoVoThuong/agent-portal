@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Reminder settings partial và integer-safe
+- **Loại**: fix, data-integrity
+- **Cái gì**: Reminder API nhận đúng một key/value qua PATCH, chặn số fractional/non-safe/out-of-range (due-soon tối đa 7 ngày, các reminder giờ tối đa 1 năm), cập nhật một cột trong RPC có row lock và trả canonical full settings. Config serialize theo từng key, giữ pending edit của key khác khi merge response, và không cho sửa khi GET lỗi cho tới khi Retry thành công.
+- **Vì sao**: PUT toàn object + `Math.round` biến input `1.5` thành giá trị hợp lệ và cho phép tab cũ ghi đè các reminder khác bằng snapshot stale.
+- **File**: `src/app/api/admin/task-reminder-settings/route.ts`, `src/app/(authed)/config/_components/ConfigSlaSection.tsx`, `src/lib/tasks/reminder-settings.ts`, `supabase/schema.sql`, `supabase/rollouts/2026-08-15-reminder-partial-update.sql`
+- **Ảnh hưởng**: SLA reminder cron đọc cùng singleton settings; không đổi tên field response. Client cũ dùng PUT nhận 405 có hướng dẫn nâng cấp. RPC chưa apply vào target DB trong môi trường này.
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 10
+
 ## 2026-08-15 — SLA rule mutations có optimistic concurrency
 - **Loại**: fix, data-integrity
 - **Cái gì**: SLA GET trả `updated_at`; save/delete yêu cầu token của row hiện tại và chạy qua RPC lock-compare-write/delete. Stale token trả 409; insert đua nhau dựa trên unique index và map 23505 thành conflict. Category id được kiểm tra UUID trước khi gọi DB.

@@ -22,7 +22,9 @@ import {
 import { taskCategoryPalette } from "@/lib/tasks/category-colors";
 import {
   DEFAULT_REMINDER_SETTINGS,
+  isReminderSettingValueInBounds,
   type ReminderSettings,
+  type ReminderSettingKey,
 } from "@/lib/tasks/reminder-settings";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 
@@ -55,9 +57,13 @@ export function ConfigSlaSection({
     DEFAULT_REMINDER_SETTINGS
   );
   const [loadingReminders, setLoadingReminders] = useState(false);
-  const [savingReminderKey, setSavingReminderKey] = useState<
-    keyof ReminderSettings | null
-  >(null);
+  const [savingReminderKeys, setSavingReminderKeys] = useState<Set<ReminderSettingKey>>(
+    () => new Set()
+  );
+  const [reminderSettingsAvailable, setReminderSettingsAvailable] = useState(false);
+  const [reminderLoadAttempt, setReminderLoadAttempt] = useState(0);
+  const reminderQueuesRef = useRef(new Map<ReminderSettingKey, Promise<void>>());
+  const pendingReminderValuesRef = useRef(new Map<ReminderSettingKey, number>());
   const [error, setError] = useState<string | null>(null);
 
   function markSaving(key: string, saving: boolean) {
@@ -87,9 +93,13 @@ export function ConfigSlaSection({
         if (!res.ok || !data?.settings) {
           throw new Error(data?.error ?? "Could not load reminder settings.");
         }
-        if (!ignore) setReminderSettings(data.settings);
+        if (!ignore) {
+          setReminderSettings(data.settings);
+          setReminderSettingsAvailable(true);
+        }
       } catch (err) {
         if (!ignore) {
+          setReminderSettingsAvailable(false);
           setError(
             err instanceof Error ? err.message : "Could not load reminder settings."
           );
@@ -104,7 +114,7 @@ export function ConfigSlaSection({
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [reminderLoadAttempt]);
 
   function minutesFor(categoryId: string | null): number {
     return resolveSlaMinutes(priority, categoryId, rules);
@@ -204,39 +214,56 @@ export function ConfigSlaSection({
     }
   }
 
-  async function saveReminderSetting(key: keyof ReminderSettings, value: number) {
-    if (!Number.isFinite(value) || value <= 0) {
-      setError("Reminder values must be greater than 0.");
+  function setReminderSaving(key: ReminderSettingKey, saving: boolean) {
+    setSavingReminderKeys((current) => {
+      const next = new Set(current);
+      if (saving) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  function saveReminderSetting(key: ReminderSettingKey, value: number) {
+    if (!isReminderSettingValueInBounds(key, value)) {
+      setError("Reminder values must be whole numbers within the supported range.");
       return;
     }
-
-    const nextSettings = {
-      ...reminderSettings,
-      [key]: Math.round(value),
-    };
-
-    setSavingReminderKey(key);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/task-reminder-settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nextSettings),
+    pendingReminderValuesRef.current.set(key, value);
+    const previous = reminderQueuesRef.current.get(key) ?? Promise.resolve();
+    const operation = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const intendedValue = pendingReminderValuesRef.current.get(key);
+        if (intendedValue === undefined) return;
+        setReminderSaving(key, true);
+        setError(null);
+        try {
+          const res = await fetch("/api/admin/task-reminder-settings", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key, value: intendedValue }),
+          });
+          const data = (await res.json().catch(() => null)) as ReminderSettingsResponse | null;
+          if (!res.ok || !data?.settings) {
+            throw new Error(data?.error ?? "Could not save reminder settings.");
+          }
+          setReminderSettings((current) => {
+            const merged = { ...current, ...data.settings };
+            for (const [pendingKey, pendingValue] of pendingReminderValuesRef.current) {
+              merged[pendingKey] = pendingValue;
+            }
+            return merged;
+          });
+          if (pendingReminderValuesRef.current.get(key) === intendedValue) {
+            pendingReminderValuesRef.current.delete(key);
+          }
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not save reminder settings.");
+        } finally {
+          setReminderSaving(key, false);
+        }
       });
-      const data = (await res.json().catch(() => null)) as
-        | ReminderSettingsResponse
-        | null;
-      if (!res.ok || !data?.settings) {
-        throw new Error(data?.error ?? "Could not save reminder settings.");
-      }
-      setReminderSettings(data.settings);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not save reminder settings."
-      );
-    } finally {
-      setSavingReminderKey(null);
-    }
+    reminderQueuesRef.current.set(key, operation);
   }
 
   return (
@@ -338,12 +365,24 @@ export function ConfigSlaSection({
                     label={row.label}
                     value={reminderSettings[row.key]}
                     unit={row.unit}
-                    saving={savingReminderKey === row.key}
-                    disabled={loadingReminders}
+                    saving={savingReminderKeys.has(row.key)}
+                    disabled={loadingReminders || !reminderSettingsAvailable}
                     onSave={(value) => saveReminderSetting(row.key, value)}
                   />
                 ))}
               </ul>
+              {!reminderSettingsAvailable && !loadingReminders ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReminderSettingsAvailable(false);
+                    setReminderLoadAttempt((attempt) => attempt + 1);
+                  }}
+                  className="mt-3 inline-flex items-center gap-2 rounded border border-[#0c66e4] px-3 py-2 text-sm font-bold text-[#0c66e4] hover:bg-[#e9f2ff]"
+                >
+                  <RotateCcw className="h-4 w-4" /> Retry loading reminders
+                </button>
+              ) : null}
             </>
           )}
           {error ? (
@@ -374,14 +413,12 @@ function ReminderSettingRow({
 }) {
   function commit(input: HTMLInputElement) {
     const next = Number(input.value);
-    if (!Number.isFinite(next) || next <= 0) {
+    if (!Number.isSafeInteger(next) || next <= 0) {
       input.value = String(value);
       return;
     }
-
-    const rounded = Math.round(next);
-    input.value = String(rounded);
-    if (rounded !== value) onSave(rounded);
+    input.value = String(next);
+    if (next !== value) onSave(next);
   }
 
   return (

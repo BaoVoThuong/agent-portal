@@ -7,7 +7,7 @@
 // SLA math stays in ./sla.ts. This file is deliberately free of logic that
 // the cron/overdue engine depends on.
 import { TASK_PRIORITIES, type TaskPriority } from "./types";
-import type { ReminderSettings } from "./reminder-settings";
+import type { ReminderSettingKey } from "./reminder-settings";
 
 /** Allowed range for a single SLA rule, in minutes. */
 export const SLA_DURATION_BOUNDS = {
@@ -62,7 +62,7 @@ export const TASK_PRIORITY_LABEL: Record<TaskPriority, string> = {
 
 /** Editable reminder fields in display order. */
 export const REMINDER_FIELDS: ReadonlyArray<{
-  key: keyof ReminderSettings;
+  key: ReminderSettingKey;
   label: string;
   unit: string;
 }> = [

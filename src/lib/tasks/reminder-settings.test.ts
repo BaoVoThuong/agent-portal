@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_REMINDER_SETTINGS,
+  isReminderSettingValueInBounds,
   resolveReminderSettings,
 } from "@/lib/tasks/reminder-settings";
 
@@ -38,5 +39,14 @@ describe("resolveReminderSettings", () => {
       DEFAULT_REMINDER_SETTINGS.dueSoonMinutes
     );
     expect(r.staleHours).toBe(DEFAULT_REMINDER_SETTINGS.staleHours);
+  });
+
+  it("preserves the DB version and rejects fractional or impractical values", () => {
+    expect(resolveReminderSettings({ updated_at: "2026-08-15T00:00:00.000Z" }).updatedAt).toBe(
+      "2026-08-15T00:00:00.000Z"
+    );
+    expect(isReminderSettingValueInBounds("todoHours", 24)).toBe(true);
+    expect(isReminderSettingValueInBounds("todoHours", 1.5)).toBe(false);
+    expect(isReminderSettingValueInBounds("dueSoonMinutes", 7 * 24 * 60 + 1)).toBe(false);
   });
 });

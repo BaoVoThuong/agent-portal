@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SLA_MINUTES } from "./sla";
 import {
   DEFAULT_REMINDER_SETTINGS,
+  type ReminderSettingKey,
   type ReminderSettings,
 } from "./reminder-settings";
 import {
@@ -39,7 +40,7 @@ describe("SLA defaults stay in sync with the database", () => {
   });
 
   it("DEFAULT_REMINDER_SETTINGS matches the task_reminder_settings column defaults", () => {
-    const columnByField: Record<keyof ReminderSettings, string> = {
+    const columnByField: Record<ReminderSettingKey, string> = {
       dueSoonMinutes: "due_soon_minutes",
       todoHours: "todo_hours",
       overdueReminderHours: "overdue_reminder_hours",

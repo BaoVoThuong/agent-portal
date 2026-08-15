@@ -5,6 +5,24 @@ export type ReminderSettings = {
   waitingHours: number;
   staleHours: number;
   qcHours: number;
+  updatedAt?: string | null;
+};
+
+export type ReminderSettingKey =
+  | "dueSoonMinutes"
+  | "todoHours"
+  | "overdueReminderHours"
+  | "waitingHours"
+  | "staleHours"
+  | "qcHours";
+
+export const REMINDER_SETTING_BOUNDS: Record<ReminderSettingKey, { min: number; max: number }> = {
+  dueSoonMinutes: { min: 1, max: 7 * 24 * 60 },
+  todoHours: { min: 1, max: 365 * 24 },
+  overdueReminderHours: { min: 1, max: 365 * 24 },
+  waitingHours: { min: 1, max: 365 * 24 },
+  staleHours: { min: 1, max: 365 * 24 },
+  qcHours: { min: 1, max: 365 * 24 },
 };
 
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
@@ -17,15 +35,23 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
 };
 
 function posInt(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? Math.round(value)
-    : fallback;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+export function isReminderSettingKey(value: unknown): value is ReminderSettingKey {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(REMINDER_SETTING_BOUNDS, value);
+}
+
+export function isReminderSettingValueInBounds(key: ReminderSettingKey, value: unknown): value is number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) return false;
+  const bounds = REMINDER_SETTING_BOUNDS[key];
+  return value >= bounds.min && value <= bounds.max;
 }
 
 export function resolveReminderSettings(row: unknown): ReminderSettings {
   const r = (row ?? {}) as Record<string, unknown>;
 
-  return {
+  const settings: ReminderSettings = {
     dueSoonMinutes: posInt(
       r.due_soon_minutes,
       DEFAULT_REMINDER_SETTINGS.dueSoonMinutes
@@ -42,4 +68,6 @@ export function resolveReminderSettings(row: unknown): ReminderSettings {
     staleHours: posInt(r.stale_hours, DEFAULT_REMINDER_SETTINGS.staleHours),
     qcHours: posInt(r.qc_hours, DEFAULT_REMINDER_SETTINGS.qcHours),
   };
+  if (typeof r.updated_at === "string") settings.updatedAt = r.updated_at;
+  return settings;
 }
