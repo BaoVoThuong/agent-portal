@@ -79,6 +79,7 @@ export type TaskSlaRule = {
   priority: TaskPriority;
   category_id: string | null;
   duration_minutes: number;
+  updated_at?: string | null;
 };
 
 // Derived from the session; the only source of truth for permissions.

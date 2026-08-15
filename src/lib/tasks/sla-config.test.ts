@@ -14,6 +14,7 @@ import {
   SLA_MINUTE_STEP,
   TASK_PRIORITY_LABEL,
   isSlaDurationInBounds,
+  isUuid,
   normalizeSlaMinutesForHours,
   slaMinuteOptionsForHours,
 } from "./sla-config";
@@ -119,5 +120,10 @@ describe("SLA config constants are derived, not re-typed", () => {
     expect(isSlaDurationInBounds(1.5)).toBe(false);
     expect(isSlaDurationInBounds(SLA_DURATION_BOUNDS.maxMinutes + 1)).toBe(false);
     expect(isSlaDurationInBounds(SLA_DURATION_BOUNDS.maxMinutes)).toBe(true);
+  });
+
+  it("accepts only UUID category identifiers", () => {
+    expect(isUuid("00000000-0000-4000-8000-000000000000")).toBe(true);
+    expect(isUuid("not-a-uuid")).toBe(false);
   });
 });

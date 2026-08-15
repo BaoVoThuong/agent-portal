@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — SLA rule mutations có optimistic concurrency
+- **Loại**: fix, data-integrity
+- **Cái gì**: SLA GET trả `updated_at`; save/delete yêu cầu token của row hiện tại và chạy qua RPC lock-compare-write/delete. Stale token trả 409; insert đua nhau dựa trên unique index và map 23505 thành conflict. Category id được kiểm tra UUID trước khi gọi DB.
+- **Vì sao**: Read-then-write và last-write-wins có thể để một tab ghi đè SLA của tab khác hoặc xoá rule mới hơn.
+- **File**: `src/app/api/admin/task-sla-rules/route.ts`, `src/app/(authed)/config/_components/ConfigSlaSection.tsx`, `src/lib/tasks/types.ts`, `src/lib/tasks/sla-config.ts`, `supabase/schema.sql`, `supabase/rollouts/2026-08-15-sla-versioned-mutations.sql`
+- **Ảnh hưởng**: Chỉ manager chỉnh SLA; Task Board đọc vẫn tương thích. Khi stale, Config reload rules và giữ lỗi để admin biết cần thử lại. RPC chưa apply vào target DB trong môi trường này.
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 9
+
 ## 2026-08-15 — Atomic và version-aware reorder cột
 - **Loại**: fix, perf
 - **Cái gì**: Drag reorder gửi `expected_column_keys` cùng thứ tự mong muốn vào một RPC service-role. RPC lock active rows theo id, kiểm tra membership/duplicate sau lock, trả `COLUMN_ORDER_STALE` nếu snapshot cũ và cập nhật toàn bộ position trong một statement. Layout reset vẫn là bước hậu commit và trả warning nếu thất bại.

@@ -114,6 +114,15 @@ export function ConfigSlaSection({
     return rules.some((r) => r.priority === priority && r.category_id === categoryId);
   }
 
+  async function reloadRules() {
+    const res = await fetch("/api/admin/task-sla-rules", { cache: "no-store" });
+    const data = (await res.json().catch(() => null)) as
+      | { rules?: TaskSlaRule[]; error?: string }
+      | null;
+    if (!res.ok || !data?.rules) throw new Error(data?.error ?? "Could not reload SLA rules.");
+    onRulesChange(data.rules);
+  }
+
   async function save(
     categoryId: string | null,
     totalMinutes: number,
@@ -125,6 +134,9 @@ export function ConfigSlaSection({
     }
     markSaving(key, true);
     setError(null);
+    const existing = rules.find(
+      (rule) => rule.priority === priority && rule.category_id === categoryId
+    );
     try {
       const res = await fetch("/api/admin/task-sla-rules", {
         method: "POST",
@@ -133,12 +145,16 @@ export function ConfigSlaSection({
           priority,
           category_id: categoryId,
           duration_minutes: totalMinutes,
+          expected_updated_at: existing?.updated_at ?? null,
         }),
       });
       const data = (await res.json().catch(() => null)) as
         | { rule?: TaskSlaRule; error?: string }
         | null;
-      if (!res.ok || !data?.rule) throw new Error(data?.error ?? "Save failed");
+      if (!res.ok || !data?.rule) {
+        if (res.status === 409) await reloadRules().catch(() => undefined);
+        throw new Error(data?.error ?? "Save failed");
+      }
 
       onRulesChange((currentRules) => [
         ...currentRules.filter(
@@ -158,14 +174,22 @@ export function ConfigSlaSection({
   async function reset(categoryId: string | null, key: string) {
     markSaving(key, true);
     setError(null);
+    const existing = rules.find(
+      (rule) => rule.priority === priority && rule.category_id === categoryId
+    );
     try {
       const res = await fetch("/api/admin/task-sla-rules", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priority, category_id: categoryId }),
+        body: JSON.stringify({
+          priority,
+          category_id: categoryId,
+          expected_updated_at: existing?.updated_at ?? null,
+        }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        if (res.status === 409) await reloadRules().catch(() => undefined);
         throw new Error(data?.error ?? "Reset failed");
       }
       onRulesChange((currentRules) =>

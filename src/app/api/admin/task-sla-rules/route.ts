@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canAccessBoard, isTaskViewAdmin } from "@/lib/tasks/access";
-import { SLA_DURATION_BOUNDS, isSlaDurationInBounds } from "@/lib/tasks/sla-config";
+import { SLA_DURATION_BOUNDS, isSlaDurationInBounds, isUuid } from "@/lib/tasks/sla-config";
 import { TASK_PRIORITIES } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,8 @@ export async function GET() {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("task_sla_rules")
-    .select("id,priority,category_id,duration_minutes");
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    .select("id,priority,category_id,duration_minutes,updated_at");
+  if (error) return NextResponse.json({ error: "Could not load SLA rules." }, { status: 500 });
 
   return NextResponse.json({ rules: data ?? [] });
 }
@@ -49,7 +49,10 @@ export async function POST(req: Request) {
     typeof body?.category_id === "string" && body.category_id.trim() !== ""
       ? body.category_id.trim()
       : null;
-  const durationMinutes = Math.round(Number(body?.duration_minutes));
+  if (categoryId && !isUuid(categoryId)) {
+    return NextResponse.json({ error: "Invalid category id." }, { status: 400 });
+  }
+  const durationMinutes = Number(body?.duration_minutes);
   if (!isSlaDurationInBounds(durationMinutes)) {
     return NextResponse.json(
       {
@@ -58,44 +61,20 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-
-  const supabase = getSupabaseAdmin();
-  // Upsert by hand (not .upsert/onConflict): the uniqueness constraint is a
-  // functional index over coalesce(category_id, sentinel), which onConflict
-  // can't target directly by column list.
-  let existing = supabase
-    .from("task_sla_rules")
-    .select("id")
-    .eq("priority", priority);
-  existing = categoryId
-    ? existing.eq("category_id", categoryId)
-    : existing.is("category_id", null);
-  const { data: existingRow, error: existingError } = await existing.maybeSingle();
-  if (existingError) {
-    return NextResponse.json({ error: existingError.message }, { status: 500 });
+  const hasExpected = Object.prototype.hasOwnProperty.call(body ?? {}, "expected_updated_at");
+  const expectedUpdatedAt = body?.expected_updated_at;
+  if (!hasExpected || (expectedUpdatedAt !== null && typeof expectedUpdatedAt !== "string")) {
+    return NextResponse.json({ error: "SLA rule version is required." }, { status: 400 });
   }
 
-  const patch = {
-    priority,
-    category_id: categoryId,
-    duration_minutes: durationMinutes,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { data, error } = existingRow
-    ? await supabase
-        .from("task_sla_rules")
-        .update(patch)
-        .eq("id", (existingRow as { id: string }).id)
-        .select("id,priority,category_id,duration_minutes")
-        .single()
-    : await supabase
-        .from("task_sla_rules")
-        .insert(patch)
-        .select("id,priority,category_id,duration_minutes")
-        .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
+  const { data, error } = await getSupabaseAdmin().rpc("save_task_sla_rule_atomic", {
+    p_priority: priority,
+    p_category_id: categoryId,
+    p_duration_minutes: durationMinutes,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_has_expected: true,
+  });
+  if (error) return mapSlaMutationError(error);
   return NextResponse.json({ rule: data });
 }
 
@@ -121,12 +100,37 @@ export async function DELETE(req: Request) {
     typeof body?.category_id === "string" && body.category_id.trim() !== ""
       ? body.category_id.trim()
       : null;
+  if (categoryId && !isUuid(categoryId)) {
+    return NextResponse.json({ error: "Invalid category id." }, { status: 400 });
+  }
+  const hasExpected = Object.prototype.hasOwnProperty.call(body ?? {}, "expected_updated_at");
+  const expectedUpdatedAt = body?.expected_updated_at;
+  if (!hasExpected || (expectedUpdatedAt !== null && typeof expectedUpdatedAt !== "string")) {
+    return NextResponse.json({ error: "SLA rule version is required." }, { status: 400 });
+  }
 
-  const supabase = getSupabaseAdmin();
-  let query = supabase.from("task_sla_rules").delete().eq("priority", priority);
-  query = categoryId ? query.eq("category_id", categoryId) : query.is("category_id", null);
-  const { error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const { data, error } = await getSupabaseAdmin().rpc("delete_task_sla_rule_atomic", {
+    p_priority: priority,
+    p_category_id: categoryId,
+    p_expected_updated_at: expectedUpdatedAt,
+    p_has_expected: true,
+  });
+  if (error) return mapSlaMutationError(error);
+  return NextResponse.json({ ok: true, ...(data ?? {}) });
+}
 
-  return NextResponse.json({ ok: true });
+function mapSlaMutationError(error: { code?: string; message?: string }) {
+  if (error.message === "SLA_RULE_STALE") {
+    return NextResponse.json(
+      { error: "This SLA rule changed elsewhere. Reload it before saving again.", code: "SLA_RULE_STALE" },
+      { status: 409 }
+    );
+  }
+  if (error.message === "SLA_RULE_VERSION_REQUIRED") {
+    return NextResponse.json({ error: "Reload this SLA rule before saving.", code: "SLA_RULE_VERSION_REQUIRED" }, { status: 409 });
+  }
+  if (error.code === "23505") {
+    return NextResponse.json({ error: "Another SLA rule already exists for this priority and category.", code: "SLA_RULE_CONFLICT" }, { status: 409 });
+  }
+  return NextResponse.json({ error: "Could not save SLA rule." }, { status: 500 });
 }
