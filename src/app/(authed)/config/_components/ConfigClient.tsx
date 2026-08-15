@@ -24,6 +24,7 @@ import {
   ChevronDown,
   Clock,
   GripVertical,
+  Info,
   Plus,
   RefreshCw,
   Settings2,
@@ -408,6 +409,19 @@ function TabButton({
   );
 }
 
+function ColumnHeader({ label, help }: { label: string; help: string }) {
+  return (
+    <span
+      className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap"
+      title={help}
+      aria-label={`${label}: ${help}`}
+    >
+      <span className="truncate">{label}</span>
+      <Info aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#8993a4]" />
+    </span>
+  );
+}
+
 function ConfigSectionUnavailable({ message }: { message?: string }) {
   return (
     <div
@@ -728,14 +742,14 @@ function ConfigTableSection({
       <div className="min-w-0 overflow-x-auto">
         <div className="min-w-[1016px]">
           <div className="grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_104px_112px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
-            <span>Order</span>
-            <span>Label</span>
-            <span>Type</span>
-            <span>Pinned</span>
-            <span>Required</span>
-            <span>Hidden</span>
-            <span>In detail</span>
-            <span>Action</span>
+            <ColumnHeader label="Display order" help="Drag a row to change its position in the table." />
+            <ColumnHeader label="Column label" help="The name users see for this column." />
+            <ColumnHeader label="Data type" help="Controls how values are stored, displayed, and edited." />
+            <ColumnHeader label="Pin to left" help="Keep this column visible while horizontally scrolling." />
+            <ColumnHeader label="Required on create" help="Require a value when creating a new record." />
+            <ColumnHeader label="Hidden by default" help="Hide this column from the table by default." />
+            <ColumnHeader label="Show in details" help="Include this column in the record detail view." />
+            <ColumnHeader label="Manage" help="Archive or restore custom columns." />
           </div>
           {dragReady ? (
             <DndContext
