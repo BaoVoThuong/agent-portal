@@ -272,9 +272,6 @@ export function ConfigClient({
       <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#0c66e4]">
-              Health Admin
-            </p>
             <h1 className="mt-2 text-3xl font-bold">Health Table Configuration</h1>
           </div>
           <DropdownSelect
