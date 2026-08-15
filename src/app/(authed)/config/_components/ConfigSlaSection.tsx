@@ -43,10 +43,14 @@ function formatDuration(minutes: number): string {
 export function ConfigSlaSection({
   categories,
   rules,
+  available = true,
+  availabilityError,
   onRulesChange,
 }: {
   categories: TaskCategory[];
   rules: TaskSlaRule[];
+  available?: boolean;
+  availabilityError?: string;
   onRulesChange: (
     next: TaskSlaRule[] | ((currentRules: TaskSlaRule[]) => TaskSlaRule[])
   ) => void;
@@ -139,6 +143,7 @@ export function ConfigSlaSection({
     totalMinutes: number,
     key: string
   ): Promise<boolean> {
+    if (!available) return false;
     if (!isSlaDurationInBounds(totalMinutes)) {
       setError("Duration must be between 1 minute and 168 hours.");
       return false;
@@ -184,6 +189,7 @@ export function ConfigSlaSection({
   }
 
   async function reset(categoryId: string | null, key: string) {
+    if (!available) return;
     markSaving(key, true);
     setError(null);
     const existing = rules.find(
@@ -227,6 +233,7 @@ export function ConfigSlaSection({
   }
 
   function saveReminderSetting(key: ReminderSettingKey, value: number) {
+    if (!available) return;
     if (!isReminderSettingValueInBounds(key, value)) {
       setError("Reminder values must be whole numbers within the supported range.");
       return;
@@ -290,6 +297,7 @@ export function ConfigSlaSection({
               <button
                 key={p}
                 type="button"
+                disabled={!available}
                 onClick={() => {
                   setView("priority");
                   setPriority(p);
@@ -309,6 +317,7 @@ export function ConfigSlaSection({
           <div className="mt-4 border-t border-[#dfe1e6] pt-3">
             <button
               type="button"
+              disabled={!available}
               onClick={() => setView("reminders")}
               className={`flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm font-semibold transition ${
                 view === "reminders"
@@ -323,6 +332,14 @@ export function ConfigSlaSection({
         </section>
 
         <section className="flex min-h-0 flex-col overflow-y-auto p-4">
+          {!available ? (
+            <div
+              className="mb-3 rounded border border-[#ffab00] bg-[#fff7d6] px-4 py-3 text-sm font-semibold text-[#7f5f00]"
+              role="status"
+            >
+              {availabilityError ?? "SLA settings are temporarily unavailable. Editing is disabled."}
+            </div>
+          ) : null}
           {view === "priority" ? (
             <>
               <ul className="space-y-1.5">
@@ -343,6 +360,7 @@ export function ConfigSlaSection({
                       saving={saving}
                       onSave={(totalMinutes) => save(categoryId, totalMinutes, key)}
                       onReset={() => reset(categoryId, key)}
+                      disabled={!available}
                     />
                   );
                 })}
@@ -467,6 +485,7 @@ function SlaRuleRow({
   saving,
   onSave,
   onReset,
+  disabled = false,
 }: {
   label: string;
   color: string | null;
@@ -475,6 +494,7 @@ function SlaRuleRow({
   saving: boolean;
   onSave: (totalMinutes: number) => void;
   onReset: () => void;
+  disabled?: boolean;
 }) {
   const [hours, setHours] = useState(Math.floor(minutes / 60));
   const [mins, setMins] = useState(minutes % 60);
@@ -514,7 +534,7 @@ function SlaRuleRow({
           options={SLA_HOUR_OPTIONS}
           suffix="h"
           ariaLabel={`${label} — hours`}
-          disabled={saving}
+          disabled={disabled || saving}
           onChange={(next) => commit(next, normalizeSlaMinutesForHours(next, mins))}
         />
         <DurationDropdown
@@ -522,7 +542,7 @@ function SlaRuleRow({
           options={minuteOptions}
           suffix="m"
           ariaLabel={`${label} — minutes`}
-          disabled={saving}
+          disabled={disabled || saving}
           onChange={(next) => commit(hours, next)}
         />
       </div>
@@ -531,7 +551,7 @@ function SlaRuleRow({
           type="button"
           title="Reset to default"
           onClick={onReset}
-          disabled={saving}
+          disabled={disabled || saving}
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[#6b778c] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]"
         >
           <RotateCcw className="h-3.5 w-3.5" />

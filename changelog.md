@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-15 — Cô lập lỗi từng section của Table Config
+- **Loại**: fix, reliability
+- **Cái gì**: `/config` dùng settled loaders cho các section tùy chọn; chỉ coi Table Columns là load-bearing. Categories, dropdown options, agents/assistant memberships, SLA và enrollment option sets có trạng thái `available/error` riêng, giữ dữ liệu tốt cuối cùng và khóa mutation khi section không tải được. Schema readiness được suy ra từ các column id synthetic `system-*`, không thêm schema-probe query. Thêm `error.tsx` cho lỗi load cấu hình cốt lõi với Retry an toàn.
+- **Vì sao**: Một lỗi schema/quyền/mạng ở một dependency trước đây có thể làm cả trang Config fail hoặc để UI tiếp tục ghi vào dữ liệu fallback không đầy đủ.
+- **File**: `src/app/(authed)/config/page.tsx`, `src/app/(authed)/config/error.tsx`, `src/app/(authed)/config/_components/ConfigClient.tsx`, `src/app/(authed)/config/_components/ConfigSlaSection.tsx`
+- **Ref**: `docs/superpowers/plans/2026-08-15-table-config-remediation.md`, Task 13
+
 ## 2026-08-15 — Báo đúng partial success khi reset layout thất bại
 - **Loại**: fix, reliability
 - **Cái gì**: Column PATCH và reorder trả `ok: true` cùng warning có mã ổn định khi thay đổi chính đã commit nhưng reset saved layouts thất bại. Server log chi tiết nội bộ; Config hiển thị thông báo info rằng thay đổi đã lưu nhưng layout chưa reset, không báo full success và không leak lỗi DB.

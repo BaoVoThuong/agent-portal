@@ -11,7 +11,12 @@ import {
   fetchAllTableColumnOptions,
   fetchAllTableColumns,
 } from "@/lib/table-config/queries";
-import { fetchEnrollmentOptionData } from "@/lib/enrollment/options";
+import type { TableColumnOption } from "@/lib/table-config/types";
+import {
+  emptyEnrollmentOptionsBySet,
+  fetchEnrollmentOptionData,
+  type EnrollmentOptionData,
+} from "@/lib/enrollment/options";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import { ConfigClient } from "./_components/ConfigClient";
 
@@ -21,6 +26,36 @@ export const metadata: Metadata = {
   title: "Health Table Configuration",
 };
 
+type LoadResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+async function loadOptional<T>(label: string, loader: () => Promise<T>): Promise<LoadResult<T>> {
+  try {
+    return { ok: true, data: await loader() };
+  } catch (error) {
+    const raw = error instanceof Error ? error.message.toLowerCase() : "";
+    const schemaMissing =
+      raw.includes("42p01") ||
+      raw.includes("pgrst205") ||
+      raw.includes("does not exist") ||
+      raw.includes("schema cache");
+    return {
+      ok: false,
+      error: schemaMissing
+        ? `${label} schema is not available. Apply the table-config migration before editing this section.`
+        : `Could not load ${label}. Retry after checking the connection or permissions.`,
+    };
+  }
+}
+
+function emptyEnrollmentOptionData(): EnrollmentOptionData {
+  return {
+    sets: [],
+    options: [],
+    optionsBySet: emptyEnrollmentOptionsBySet(),
+    optionsById: new Map(),
+  };
+}
+
 export default async function ConfigPage() {
   const admin = await loadConfigAdmin();
   if (!admin.ok) {
@@ -29,56 +64,84 @@ export default async function ConfigPage() {
 
   const supabase = getSupabaseAdmin();
   const [
-    columns,
-    options,
-    agents,
-    candidates,
-    assignees,
-    memberResult,
+    columnsResult,
+    optionsResult,
+    agentsResult,
+    candidatesResult,
+    assigneesResult,
+    membersResult,
     categoriesResult,
     slaRulesResult,
-    acaOptionData,
-    medicareOptionData,
+    acaOptionDataResult,
+    medicareOptionDataResult,
     usageCountResult,
   ] = await Promise.all([
-    fetchAllTableColumns(supabase),
-    fetchAllTableColumnOptions(supabase),
-    fetchTaskAgents(),
-    fetchTaskAgentCandidates(),
-    fetchTaskAssignees(),
-    supabase
-      .from("agent_members")
-      .select("agent_email,cs_email,is_assistant")
-      .eq("is_assistant", true),
-    supabase
-      .from("task_categories")
-      .select("id,name,color")
-      .eq("is_active", true)
-      .order("position", { ascending: true }),
-    supabase
-      .from("task_sla_rules")
-      .select("id,priority,category_id,duration_minutes"),
-    fetchEnrollmentOptionData("aca"),
-    fetchEnrollmentOptionData("medicare"),
-    supabase.rpc("enrollment_option_usage_counts"),
+    loadOptional("Table columns", () => fetchAllTableColumns(supabase)),
+    loadOptional("Custom dropdown values", () => fetchAllTableColumnOptions(supabase)),
+    loadOptional("Agents", () => fetchTaskAgents()),
+    loadOptional("Agent candidates", () => fetchTaskAgentCandidates()),
+    loadOptional("Task assignees", () => fetchTaskAssignees()),
+    loadOptional("Assistant memberships", async () => {
+      const result = await supabase
+        .from("agent_members")
+        .select("agent_email,cs_email,is_assistant")
+        .eq("is_assistant", true);
+      if (result.error) throw new Error(result.error.message);
+      return result.data ?? [];
+    }),
+    loadOptional("Categories", async () => {
+      const result = await supabase
+        .from("task_categories")
+        .select("id,name,color")
+        .eq("is_active", true)
+        .order("position", { ascending: true });
+      if (result.error) throw new Error(result.error.message);
+      return result.data ?? [];
+    }),
+    loadOptional("SLA rules", async () => {
+      const result = await supabase
+        .from("task_sla_rules")
+        .select("id,priority,category_id,duration_minutes,updated_at");
+      if (result.error) throw new Error(result.error.message);
+      return result.data ?? [];
+    }),
+    loadOptional("ACA enrollment options", () => fetchEnrollmentOptionData("aca")),
+    loadOptional("Medicare enrollment options", () => fetchEnrollmentOptionData("medicare")),
+    loadOptional("Enrollment option usage", async () => {
+      const result = await supabase.rpc("enrollment_option_usage_counts");
+      if (result.error) throw new Error(result.error.message);
+      return result.data ?? [];
+    }),
   ]);
 
-  if (memberResult.error) {
-    throw new Error(memberResult.error.message);
-  }
-  if (categoriesResult.error) {
-    throw new Error(categoriesResult.error.message);
-  }
-  if (slaRulesResult.error) {
-    throw new Error(slaRulesResult.error.message);
-  }
-  if (usageCountResult.error) {
-    throw new Error(usageCountResult.error.message);
-  }
+  if (!columnsResult.ok) throw new Error(columnsResult.error);
+  const columns = columnsResult.data;
+  const columnsReady = Object.values(columns).every((rows) =>
+    rows.every((column) => !column.id.startsWith("system-"))
+  );
+  const emptyOptions: Record<"cs" | "aca" | "medicare", TableColumnOption[]> = {
+    cs: [],
+    aca: [],
+    medicare: [],
+  };
+  const options = optionsResult.ok && columnsReady ? optionsResult.data : emptyOptions;
+  const emptyPeople: never[] = [];
+  const agents = agentsResult.ok ? agentsResult.data : emptyPeople;
+  const candidates = candidatesResult.ok ? candidatesResult.data : emptyPeople;
+  const assignees = assigneesResult.ok ? assigneesResult.data : emptyPeople;
+  const memberRows = membersResult.ok ? membersResult.data : [];
+  const categoryRows = categoriesResult.ok ? categoriesResult.data : [];
+  const slaRows = slaRulesResult.ok ? slaRulesResult.data : [];
+  const acaOptionData = acaOptionDataResult.ok
+    ? acaOptionDataResult.data
+    : emptyEnrollmentOptionData();
+  const medicareOptionData = medicareOptionDataResult.ok
+    ? medicareOptionDataResult.data
+    : emptyEnrollmentOptionData();
 
   function buildUsageCounts(): Record<string, number> {
     const counts: Record<string, number> = {};
-    for (const row of (usageCountResult.data ?? []) as Array<{
+    for (const row of (usageCountResult.ok ? usageCountResult.data : []) as Array<{
       option_id: string;
       usage_count: number | string;
     }>) {
@@ -94,7 +157,7 @@ export default async function ConfigPage() {
       initialAgents={agents}
       candidates={candidates}
       assignees={assignees}
-      initialMembers={(memberResult.data ?? []).map((row) => {
+      initialMembers={memberRows.map((row) => {
         const member = row as {
           agent_email: string;
           cs_email: string;
@@ -102,10 +165,49 @@ export default async function ConfigPage() {
         };
         return member;
       })}
-      initialCategories={(categoriesResult.data ?? []) as TaskCategory[]}
-      initialSlaRules={(slaRulesResult.data ?? []) as TaskSlaRule[]}
+      initialCategories={categoryRows as TaskCategory[]}
+      initialSlaRules={slaRows as TaskSlaRule[]}
       initialOptionData={{ aca: acaOptionData, medicare: medicareOptionData }}
       enrollmentUsageCounts={{ aca: buildUsageCounts(), medicare: buildUsageCounts() }}
+      sectionStatus={{
+        columns: {
+          available: columnsReady,
+          error: columnsReady
+            ? undefined
+            : "Table columns are using a migration fallback. Editing is disabled until the schema is applied.",
+        },
+        options: {
+          available: optionsResult.ok && columnsReady,
+          error: optionsResult.ok
+            ? columnsReady
+              ? undefined
+              : "Custom dropdown values are unavailable until the table-config schema is applied."
+            : optionsResult.error,
+        },
+        categories: {
+          available: categoriesResult.ok,
+          error: categoriesResult.ok ? undefined : categoriesResult.error,
+        },
+        assistants: {
+          available: agentsResult.ok && candidatesResult.ok && assigneesResult.ok && membersResult.ok,
+          error: [agentsResult, candidatesResult, assigneesResult, membersResult]
+            .find((result) => !result.ok)?.error,
+        },
+        sla: {
+          available: slaRulesResult.ok,
+          error: slaRulesResult.ok ? undefined : slaRulesResult.error,
+        },
+        enrollmentOptions: {
+          aca: {
+            available: acaOptionDataResult.ok,
+            error: acaOptionDataResult.ok ? undefined : acaOptionDataResult.error,
+          },
+          medicare: {
+            available: medicareOptionDataResult.ok,
+            error: medicareOptionDataResult.ok ? undefined : medicareOptionDataResult.error,
+          },
+        },
+      }}
     />
   );
 }

@@ -112,6 +112,20 @@ type EnrollmentOptionData = {
   optionsBySet: EnrollmentOptionsBySet;
 };
 
+export type ConfigSectionStatus = {
+  available: boolean;
+  error?: string;
+};
+
+type ConfigSectionStatuses = {
+  columns: ConfigSectionStatus;
+  options: ConfigSectionStatus;
+  categories: ConfigSectionStatus;
+  assistants: ConfigSectionStatus;
+  sla: ConfigSectionStatus;
+  enrollmentOptions: Record<"aca" | "medicare", ConfigSectionStatus>;
+};
+
 export function ConfigClient({
   initialColumns,
   initialOptions,
@@ -123,6 +137,7 @@ export function ConfigClient({
   initialSlaRules,
   initialOptionData,
   enrollmentUsageCounts,
+  sectionStatus,
 }: {
   initialColumns: Record<TableScope, TableColumn[]>;
   initialOptions: Record<TableScope, TableColumnOption[]>;
@@ -134,6 +149,7 @@ export function ConfigClient({
   initialSlaRules: TaskSlaRule[];
   initialOptionData: Record<"aca" | "medicare", EnrollmentOptionData>;
   enrollmentUsageCounts: Record<"aca" | "medicare", Record<string, number>>;
+  sectionStatus: ConfigSectionStatuses;
 }) {
   const [tab, setTab] = useState<Tab>("table");
   const [scope, setScope] = useState<TableScope>("cs");
@@ -251,6 +267,8 @@ export function ConfigClient({
             scope={scope}
             columns={activeColumns}
             busy={busy}
+            available={sectionStatus.columns.available}
+            availabilityError={sectionStatus.columns.error}
             run={run}
             refreshScope={refreshScope}
           />
@@ -274,6 +292,18 @@ export function ConfigClient({
                 : new Map()
             }
             busy={busy}
+            available={
+              sectionStatus.options.available &&
+              (scope === "cs"
+                ? sectionStatus.categories.available
+                : sectionStatus.enrollmentOptions[scope].available)
+            }
+            availabilityError={
+              sectionStatus.options.error ??
+              (scope === "cs"
+                ? sectionStatus.categories.error
+                : sectionStatus.enrollmentOptions[scope].error)
+            }
             run={run}
             refreshScope={refreshScope}
             onCategoriesChange={setCategories}
@@ -289,6 +319,8 @@ export function ConfigClient({
             assignees={assignees}
             members={members}
             busy={busy}
+            available={sectionStatus.assistants.available}
+            availabilityError={sectionStatus.assistants.error}
             run={run}
             setMembers={setMembers}
             onAgentsChange={setAgents}
@@ -298,6 +330,8 @@ export function ConfigClient({
           <ConfigSlaSection
             categories={categories}
             rules={slaRules}
+            available={sectionStatus.sla.available}
+            availabilityError={sectionStatus.sla.error}
             onRulesChange={setSlaRules}
           />
         ) : null}
@@ -333,6 +367,17 @@ function TabButton({
     >
       {children}
     </button>
+  );
+}
+
+function ConfigSectionUnavailable({ message }: { message?: string }) {
+  return (
+    <div
+      className="mx-4 mt-4 rounded border border-[#ffab00] bg-[#fff7d6] px-4 py-3 text-sm font-semibold text-[#7f5f00]"
+      role="status"
+    >
+      {message ?? "This section is temporarily unavailable. Editing is disabled."}
+    </div>
   );
 }
 
@@ -461,12 +506,16 @@ function ConfigTableSection({
   scope,
   columns,
   busy,
+  available,
+  availabilityError,
   run,
   refreshScope,
 }: {
   scope: TableScope;
   columns: TableColumn[];
   busy: boolean;
+  available: boolean;
+  availabilityError?: string;
   run: (action: () => Promise<unknown>, success: string) => Promise<void>;
   refreshScope: (scope?: TableScope) => Promise<void>;
 }) {
@@ -522,6 +571,7 @@ function ConfigTableSection({
   }
 
   async function updateColumn(id: string, patch: Record<string, unknown>) {
+    if (!available) throw new Error(availabilityError ?? "Table columns are unavailable.");
     await requestJson(`/api/config/columns/${id}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
@@ -529,6 +579,7 @@ function ConfigTableSection({
   }
 
   async function patchColumn(id: string, patch: Record<string, unknown>) {
+    if (!available) return;
     setLocalColumns((current) =>
       current.map((column) => {
         if (column.id !== id) return column;
@@ -568,6 +619,7 @@ function ConfigTableSection({
   }
 
   function handleDragEnd(event: DragEndEvent) {
+    if (!available) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -627,6 +679,7 @@ function ConfigTableSection({
           columns can also be archived.
         </p>
       </div>
+      {!available ? <ConfigSectionUnavailable message={availabilityError} /> : null}
       <form
         className="flex flex-wrap items-center gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4"
         onSubmit={(event) => {
@@ -677,7 +730,7 @@ function ConfigTableSection({
         />
         <button
           type="submit"
-          disabled={busy || !newLabel.trim()}
+          disabled={busy || !available || !newLabel.trim()}
           className="inline-flex h-10 w-[140px] items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
         >
           <Plus className="h-4 w-4" /> Add
@@ -710,7 +763,7 @@ function ConfigTableSection({
                 column={column}
                 scope={scope}
                 index={index}
-                busy={busy}
+                busy={busy || !available}
                 onPatch={(patch) =>
                   run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
                 }
@@ -727,7 +780,7 @@ function ConfigTableSection({
               column={column}
               scope={scope}
               index={index}
-              busy={busy}
+              busy={busy || !available}
               onPatch={(patch) =>
                 run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
               }
@@ -1209,6 +1262,8 @@ function ConfigDropdownValuesSection({
   optionsBySet,
   optionUsageCounts,
   busy,
+  available,
+  availabilityError,
   run,
   refreshScope,
   onCategoriesChange,
@@ -1222,11 +1277,14 @@ function ConfigDropdownValuesSection({
   optionsBySet: EnrollmentOptionsBySet;
   optionUsageCounts: Map<string, number>;
   busy: boolean;
+  available: boolean;
+  availabilityError?: string;
   run: (action: () => Promise<unknown>, success: string) => Promise<void>;
   refreshScope: (scope?: TableScope) => Promise<void>;
   onCategoriesChange: Dispatch<SetStateAction<TaskCategory[]>>;
   onOptionDataChange: () => Promise<void>;
 }) {
+  const controlsDisabled = busy || !available;
   const isEnrollmentScope = scope === "aca" || scope === "medicare";
   // KHÔNG nhận Status/Priority (CS) — cũng is_system+dropdown nhưng giá trị
   // hardcode trong TASK_STATUSES/TASK_PRIORITIES (TS enum), không có bảng để sửa.
@@ -1310,7 +1368,7 @@ function ConfigDropdownValuesSection({
   }
 
   async function addValue() {
-    if (!selected) return;
+    if (!selected || !available) return;
     if (selected.kind === "category") {
       await requestJson("/api/tasks/categories", {
         method: "POST",
@@ -1344,7 +1402,7 @@ function ConfigDropdownValuesSection({
   }
 
   async function renameValue(id: string, nextLabel: string) {
-    if (!selected) return;
+    if (!selected || !available) return;
     if (selected.kind === "category") {
       await requestJson(`/api/tasks/categories/${id}`, { method: "PATCH", body: JSON.stringify({ name: nextLabel }) });
       await refreshCategories();
@@ -1361,7 +1419,7 @@ function ConfigDropdownValuesSection({
   }
 
   async function recolorValue(id: string, nextColor: string) {
-    if (!selected) return;
+    if (!selected || !available) return;
     if (selected.kind === "category") {
       await requestJson(`/api/tasks/categories/${id}`, { method: "PATCH", body: JSON.stringify({ color: nextColor }) });
       await refreshCategories();
@@ -1378,6 +1436,7 @@ function ConfigDropdownValuesSection({
   }
 
   async function toggleStageRule(id: string, patch: { is_terminal?: boolean; treat_as_terminal?: boolean; triggers_qc?: boolean }) {
+    if (!available) return;
     const pendingCount = (pendingStageRuleCountsRef.current.get(id) ?? 0) + 1;
     pendingStageRuleCountsRef.current.set(id, pendingCount);
     setPendingStageRuleIds((current) => new Set(current).add(id));
@@ -1414,7 +1473,7 @@ function ConfigDropdownValuesSection({
   }
 
   async function archiveValue(id: string) {
-    if (!selected) return;
+    if (!selected || !available) return;
     if (selected.kind === "category") {
       await requestJson(`/api/tasks/categories/${id}`, { method: "DELETE" });
       await refreshCategories();
@@ -1449,6 +1508,7 @@ function ConfigDropdownValuesSection({
           sets — is managed here in one place.
         </p>
       </div>
+      {!available ? <ConfigSectionUnavailable message={availabilityError} /> : null}
       {groups.length === 0 ? (
         <div className="px-6 py-10 text-sm font-semibold text-[#6b778c]">No dropdown values yet.</div>
       ) : (
@@ -1507,7 +1567,7 @@ function ConfigDropdownValuesSection({
                 fallbackColor={recommendedColor}
                 appearance={colorAppearance}
                 recommended={usesRecommendedColor}
-                disabled={busy}
+                disabled={controlsDisabled}
                 onRecommendNext={() => {
                   setColor(
                     nextRecommendedDropdownValueColor(
@@ -1530,7 +1590,7 @@ function ConfigDropdownValuesSection({
                   >
                     <input
                       type="checkbox"
-                      disabled={busy}
+                      disabled={controlsDisabled}
                       checked={isTerminal}
                       onChange={(event) => setIsTerminal(event.target.checked)}
                     />
@@ -1539,7 +1599,7 @@ function ConfigDropdownValuesSection({
                   <label className="flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e]">
                     <input
                       type="checkbox"
-                      disabled={busy}
+                      disabled={controlsDisabled}
                       checked={triggersQc}
                       onChange={(event) => setTriggersQc(event.target.checked)}
                     />
@@ -1554,7 +1614,7 @@ function ConfigDropdownValuesSection({
                 >
                   <input
                     type="checkbox"
-                    disabled={busy}
+                    disabled={controlsDisabled}
                     checked={treatAsTerminal}
                     onChange={(event) => setTreatAsTerminal(event.target.checked)}
                   />
@@ -1563,7 +1623,7 @@ function ConfigDropdownValuesSection({
               ) : null}
               <button
                 type="submit"
-                disabled={busy || !label.trim() || (isConsentGroup && activeConsentCount >= 2)}
+                disabled={controlsDisabled || !label.trim() || (isConsentGroup && activeConsentCount >= 2)}
                 title={
                   isConsentGroup && activeConsentCount >= 2
                     ? "Consent supports exactly 2 active options (Yes / other)."
@@ -1594,7 +1654,7 @@ function ConfigDropdownValuesSection({
                         <td className="border-b border-r border-[#dfe1e6] px-3 py-2">
                           <input
                             defaultValue={row.label}
-                            disabled={protectsLabelIdentity}
+                            disabled={controlsDisabled || protectsLabelIdentity}
                             title={
                               protectsLabelIdentity
                                 ? "Stage and Consent labels are protected workflow identities."
@@ -1616,7 +1676,7 @@ function ConfigDropdownValuesSection({
                             color={row.color}
                             fallbackColor={recommendedColor}
                             appearance={colorAppearance}
-                            disabled={busy}
+                            disabled={controlsDisabled}
                             onColorCommit={(nextColor) =>
                               void run(
                                 () => recolorValue(row.id, nextColor),
@@ -1631,7 +1691,7 @@ function ConfigDropdownValuesSection({
                               <label className="flex items-center gap-1.5" title="Workflow terminal: entering this stage closes the enrollment record.">
                                 <input
                                   type="checkbox"
-                                  disabled={busy || pendingStageRuleIds.has(row.id)}
+                                  disabled={controlsDisabled || pendingStageRuleIds.has(row.id)}
                                   checked={Boolean(row.isTerminal)}
                                   onChange={(event) =>
                                     void run(
@@ -1646,7 +1706,7 @@ function ConfigDropdownValuesSection({
                                 <label className="flex items-center gap-1.5" title="ACA overview only: excludes this stage from active-work metrics; does not close the enrollment record.">
                                   <input
                                     type="checkbox"
-                                    disabled={busy || pendingStageRuleIds.has(row.id)}
+                                    disabled={controlsDisabled || pendingStageRuleIds.has(row.id)}
                                     checked={Boolean(row.treatAsTerminal)}
                                     onChange={(event) =>
                                       void run(
@@ -1661,7 +1721,7 @@ function ConfigDropdownValuesSection({
                               <label className="flex items-center gap-1.5">
                                 <input
                                   type="checkbox"
-                                  disabled={busy || pendingStageRuleIds.has(row.id)}
+                                  disabled={controlsDisabled || pendingStageRuleIds.has(row.id)}
                                   checked={Boolean(row.triggersQc)}
                                   onChange={(event) =>
                                     void run(
@@ -1678,7 +1738,7 @@ function ConfigDropdownValuesSection({
                         <td className="border-b border-[#dfe1e6] px-3 py-2 text-right">
                           <button
                             type="button"
-                            disabled={disableArchive}
+                            disabled={controlsDisabled || disableArchive}
                             title={disableArchive ? "Consent needs at least 2 active options." : undefined}
                             onClick={() => setConfirmArchiveId(row.id)}
                             className="text-xs font-bold text-[#bf2600] hover:underline disabled:opacity-40 disabled:no-underline"
@@ -1817,6 +1877,8 @@ function ConfigAssistantSection({
   assignees,
   members,
   busy,
+  available,
+  availabilityError,
   run,
   setMembers,
   onAgentsChange,
@@ -1826,6 +1888,8 @@ function ConfigAssistantSection({
   assignees: TaskAssignee[];
   members: AssistantMember[];
   busy: boolean;
+  available: boolean;
+  availabilityError?: string;
   run: (action: () => Promise<unknown>, success: string) => Promise<void>;
   setMembers: Dispatch<SetStateAction<AssistantMember[]>>;
   onAgentsChange: Dispatch<SetStateAction<TaskAgent[]>>;
@@ -1844,6 +1908,7 @@ function ConfigAssistantSection({
   ];
 
   async function refreshAgents() {
+    if (!available) return;
     const response = await fetch("/api/config/agents", { cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? "Could not load agents.");
@@ -1886,6 +1951,7 @@ function ConfigAssistantSection({
   });
 
   async function refreshMembers() {
+    if (!available) return;
     const response = await fetch("/api/config/assistants", { cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? "Could not load assistants.");
@@ -1901,6 +1967,7 @@ function ConfigAssistantSection({
             Add people as Agents. Removing an agent also unlinks all of their assistants.
           </p>
         </div>
+        {!available ? <ConfigSectionUnavailable message={availabilityError} /> : null}
         <form
           className="grid gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4 md:grid-cols-[1fr_120px]"
           onSubmit={(event) => {
@@ -1925,7 +1992,7 @@ function ConfigAssistantSection({
           />
           <button
             type="submit"
-            disabled={busy || !newAgentEmail}
+            disabled={busy || !available || !newAgentEmail}
             className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
           >
             <Plus className="h-4 w-4" /> Add
@@ -1942,7 +2009,7 @@ function ConfigAssistantSection({
             </div>
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || !available}
               onClick={() =>
                 void run(async () => {
                   await requestJson("/api/config/agents", {
@@ -2000,7 +2067,7 @@ function ConfigAssistantSection({
         />
         <button
           type="submit"
-          disabled={busy || !agentEmail || !assistantEmail}
+            disabled={busy || !available || !agentEmail || !assistantEmail}
           className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
         >
           <Plus className="h-4 w-4" /> Add
@@ -2019,7 +2086,7 @@ function ConfigAssistantSection({
           </div>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !available}
             onClick={() =>
               void run(async () => {
                 await requestJson("/api/config/assistants", {
