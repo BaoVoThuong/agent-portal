@@ -32,9 +32,19 @@ import {
   isTaskAssignee,
 } from "@/lib/tasks/assignees";
 import {
-  findMissingRequiredFields,
+  findMissingRequiredFieldsFromContext,
   missingRequiredFieldsMessage,
 } from "@/lib/table-config/required";
+import {
+  customValueIssuesMessage,
+  isCustomValueRecord,
+  validateCustomValues,
+  type CustomValueRecord,
+} from "@/lib/table-config/custom-values";
+import {
+  fetchWriteValidationContext,
+  TableConfigUnavailableError,
+} from "@/lib/table-config/write-context";
 
 export const dynamic = "force-dynamic";
 
@@ -254,7 +264,53 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: capabilityError }, { status: 403 });
   }
 
-  const resolved = resolveTaskPatch(r.actor, currentForPatch, bodyRecord, {
+  const customValuesPresent = bodyRecord.custom_values !== undefined;
+  let submittedCustomValues: CustomValueRecord = {};
+  if (customValuesPresent) {
+    if (!isCustomValueRecord(bodyRecord.custom_values)) {
+      return NextResponse.json({ error: "Invalid custom values." }, { status: 400 });
+    }
+    submittedCustomValues = bodyRecord.custom_values;
+  }
+  const touchedSystemKeys = [
+    ...(Object.prototype.hasOwnProperty.call(bodyRecord, "title") ? ["summary"] : []),
+    ...(Object.prototype.hasOwnProperty.call(bodyRecord, "description") ? ["description"] : []),
+    ...(Object.prototype.hasOwnProperty.call(bodyRecord, "fub_link") ? ["fub"] : []),
+    ...(Object.prototype.hasOwnProperty.call(bodyRecord, "priority") ? ["priority"] : []),
+    ...(Object.prototype.hasOwnProperty.call(bodyRecord, "category_id") ? ["category"] : []),
+    ...(Object.prototype.hasOwnProperty.call(bodyRecord, "agent_email") ? ["agent"] : []),
+  ];
+  let writeContext: Awaited<ReturnType<typeof fetchWriteValidationContext>>;
+  try {
+    writeContext = await fetchWriteValidationContext({
+      scope: "cs",
+      mode: "patch",
+      touchedSystemKeys,
+      touchedCustomKeys: Object.keys(submittedCustomValues),
+      submittedCustomValues,
+    }, r.supabase);
+  } catch (error) {
+    if (error instanceof TableConfigUnavailableError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 503 });
+    }
+    throw error;
+  }
+  let validatedCustomValues: CustomValueRecord = {};
+  if (customValuesPresent) {
+    const validation = validateCustomValues(submittedCustomValues, writeContext);
+    if (!validation.ok) {
+      return NextResponse.json(
+        { error: customValueIssuesMessage(validation.issues) },
+        { status: 400 }
+      );
+    }
+    validatedCustomValues = validation.values;
+  }
+  const transitionBody = customValuesPresent
+    ? { ...bodyRecord, custom_values: validatedCustomValues }
+    : bodyRecord;
+
+  const resolved = resolveTaskPatch(r.actor, currentForPatch, transitionBody, {
     canAssign: capabilities.canAssign,
     canReviewDone: capabilities.canReviewQC,
     rules: slaRules,
@@ -272,10 +328,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
     );
   }
 
-  if (isRecord(resolved.patch.custom_values)) {
+  if (customValuesPresent) {
     resolved.patch.custom_values = {
       ...(isRecord(r.task.custom_values) ? r.task.custom_values : {}),
-      ...resolved.patch.custom_values,
+      ...validatedCustomValues,
     };
   }
 
@@ -293,17 +349,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if ("priority" in resolved.patch) requiredFieldValues.priority = resolved.patch.priority;
   if ("category_id" in resolved.patch) requiredFieldValues.category = resolved.patch.category_id;
   if ("agent_email" in resolved.patch) requiredFieldValues.agent = resolved.patch.agent_email;
-  const missingRequired = await findMissingRequiredFields(
-    "cs",
-    {
-      fieldValues: requiredFieldValues,
-      customValues: isRecord(resolved.patch.custom_values)
-        ? resolved.patch.custom_values
-        : undefined,
-      partial: true,
-    },
-    r.supabase
-  );
+  const missingRequired = findMissingRequiredFieldsFromContext(writeContext, {
+    fieldValues: requiredFieldValues,
+    customValues: validatedCustomValues,
+    partial: true,
+  });
   if (missingRequired.length > 0) {
     return NextResponse.json(
       { error: missingRequiredFieldsMessage(missingRequired) },

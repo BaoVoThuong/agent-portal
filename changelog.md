@@ -828,3 +828,7 @@ Cho 1 agent review lại đúng phần code Phase 0 vừa viết, nó bắt đư
 - Added pure custom-value type, active-option, archived-column and scoped-Person
   validation plus context-based Required checks; explicit checkbox `false` and
   optional `null` remain valid values.
+- Task Create/PATCH now validate custom values and Required fields from that
+  same context. Existing transition cleaning and custom-values-only edits remain
+  owned by `resolveTaskPatch`; no full table metadata or assignee roster is
+  loaded on the inline-edit path.

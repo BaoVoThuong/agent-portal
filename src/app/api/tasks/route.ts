@@ -35,33 +35,22 @@ import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import {
-  findMissingRequiredFields,
+  findMissingRequiredFieldsFromContext,
   missingRequiredFieldsMessage,
 } from "@/lib/table-config/required";
+import {
+  customValueIssuesMessage,
+  isCustomValueRecord,
+  validateCustomValues,
+} from "@/lib/table-config/custom-values";
+import {
+  fetchWriteValidationContext,
+  TableConfigUnavailableError,
+} from "@/lib/table-config/write-context";
 
 export const dynamic = "force-dynamic";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function cleanCustomValues(values: Record<string, unknown>): Record<string, unknown> {
-  const next: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(values)) {
-    if (!key.trim()) continue;
-    if (
-      value === null ||
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
-    ) {
-      next[key] = value;
-    }
-  }
-  return next;
-}
 
 export async function GET() {
   const session = await auth();
@@ -186,20 +175,46 @@ export async function POST(request: Request) {
   if (!categoryId) {
     return NextResponse.json({ error: "Category is required." }, { status: 400 });
   }
+  const supabase = getSupabaseAdmin();
   let customValues: Record<string, unknown> = {};
   if (body?.custom_values !== undefined) {
-    if (!isPlainRecord(body.custom_values)) {
+    if (!isCustomValueRecord(body.custom_values)) {
       return NextResponse.json(
         { error: "Invalid custom values." },
         { status: 400 }
       );
     }
-    customValues = cleanCustomValues(body.custom_values);
+    customValues = body.custom_values;
   }
+  let writeContext;
+  try {
+    writeContext = await fetchWriteValidationContext({
+      scope: "cs",
+      mode: "create",
+      touchedSystemKeys: ["summary", "description", "fub", "priority", "category", "agent"],
+      touchedCustomKeys: Object.keys(customValues),
+      submittedCustomValues: customValues,
+    }, supabase);
+  } catch (error) {
+    if (error instanceof TableConfigUnavailableError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 503 });
+    }
+    throw error;
+  }
+  const customValueValidation = body?.custom_values === undefined
+    ? { ok: true as const, values: {} }
+    : validateCustomValues(customValues, writeContext);
+  if (!customValueValidation.ok) {
+    return NextResponse.json(
+      { error: customValueIssuesMessage(customValueValidation.issues) },
+      { status: 400 }
+    );
+  }
+  customValues = customValueValidation.values;
   // Title/Agent/Category are validated above with field-specific messages;
   // this additionally covers any OTHER column an admin has marked Required —
-  // findMissingRequiredFields() reads the live table_column rows itself, so
-  // WHICH fields get checked is 100% driven by Config, not this file. This
+  // The write context reads live table_column rows, so WHICH fields get checked
+  // is 100% driven by Config, not this file. This
   // object only needs to name every CS system column that has a real
   // Create-time input at all (table_column.key on the left — not the DB
   // column name, that would only make sense by coincidence for a couple of
@@ -208,7 +223,7 @@ export async function POST(request: Request) {
   // for that full list. Leaving one out here means Config would let an admin
   // mark it Required while nothing could ever satisfy it (this is exactly
   // how Priority broke Create on 2026-08-07 — see changelog.md).
-  const missingRequired = await findMissingRequiredFields("cs", {
+  const missingRequired = findMissingRequiredFieldsFromContext(writeContext, {
     fieldValues: {
       summary: title,
       description,
@@ -226,7 +241,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = getSupabaseAdmin();
   // Place new card at the bottom of its column.
   const { data: last } = await supabase
     .from("tasks")
