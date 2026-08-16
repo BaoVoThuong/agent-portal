@@ -8,7 +8,7 @@ Ba thư mục, ba vai trò khác nhau:
 | Thư mục | Vai trò | Chạy lại được? |
 |---|---|---|
 | `schema.sql` | Bản dựng database MỚI từ đầu | Chỉ cho DB trống — xem cảnh báo cuối trang |
-| `rollouts/` | Lịch sử migration, đặt tên theo ngày | Có, đều idempotent |
+| `rollouts/` | Lịch sử migration, đặt tên theo ngày | Có, đều idempotent — **trừ một ngoại lệ dưới đây** |
 | `checks/` | Công cụ kiểm tra, chỉ đọc | Có, chạy bất cứ lúc nào |
 
 ---
@@ -55,6 +55,22 @@ workflow dùng `curl --fail` nên Actions chỉ hiện `exit code 22`. Cả hai 
 File 15 làm hai việc: đóng các sự kiện mồ côi, và thêm
 `on conflict (task_id) where resolved_at is null do nothing` để RPC thật sự
 idempotent — trước đó nó chỉ idempotent ở bước UPDATE.
+
+---
+
+## ⛔ Ngoại lệ duy nhất KHÔNG idempotent
+
+`rollouts/2026-08-17-reset-cs-for-golive.sql` — reset dữ liệu Customer Service
+trước go-live. **Chạy đúng một lần.**
+
+Mọi file khác trong `rollouts/` chạy lại đều vô hại. File này thì không: chạy lần
+hai sẽ xoá dữ liệu thật phát sinh sau go-live, và khối kiểm tra vẫn báo ✅ vì nó
+chỉ khẳng định `tasks = 0` — đúng y kết quả của một lần chạy nhầm.
+
+Đã cài chốt chặn ở đầu file: thấy bảng `_bk_20260817_*` là dừng ngay. Nhưng
+đừng dựa vào đó — hãy đọc file trước khi chạy.
+
+Trước khi chạy nhớ **tắt workflow "Task reminders cron"**, bật lại sau khi xong.
 
 ---
 

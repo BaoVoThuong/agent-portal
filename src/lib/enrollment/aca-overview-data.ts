@@ -6,7 +6,7 @@ import type { AttributedCycleRow } from "./aca-person-stage-timing";
 import { MIN_DURATION_SAMPLE } from "./stage-time";
 
 const PAGE_SIZE = 1000;
-const RECORD_COLUMNS = "id,display_number,client_name,stage_id,agent_email,caller_email,responsible_enroll_email,created_at,closed_at,archived_at,stage_entered_at,stage_entered_source,last_work_activity_at,responsible_assigned_at,updated_at";
+const RECORD_COLUMNS = "id,display_number,client_name,stage_id,agent_email,caller_email,responsible_enroll_email,due_date,qc_checked_at,created_at,closed_at,archived_at,stage_entered_at,stage_entered_source,last_work_activity_at,responsible_assigned_at,updated_at";
 type RawRecord = Omit<AcaOverviewRecord, "display_number"> & { display_number: string | number | null };
 export function normalizeOverviewEmail(value: string | null): string | null {
   const normalized = value?.trim().toLowerCase() ?? "";

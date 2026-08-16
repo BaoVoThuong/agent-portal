@@ -13,6 +13,8 @@ export type AcaOverviewRecord = {
   agent_email: string | null;
   caller_email: string | null;
   responsible_enroll_email: string | null;
+  due_date: string | null;
+  qc_checked_at: string | null;
   created_at: string;
   closed_at: string | null;
   archived_at: string | null;
@@ -43,7 +45,7 @@ export type AcaOverviewInput = {
 
 export type AcaOverviewScorecards = {
   totalTasks: number; done: number; open: number; terminated: number;
-  unassigned: number; noActivity: number; stuckInStage: number;
+  unassigned: number; noActivity: number; stuckInStage: number; qcPending: number; overdue: number;
   cantContact: number; cannotGetIdCard: number; medianOpenAgeDays: number | null;
   medianTimeToDoneDays: number | null;
   slowestStage: { stageId: string; stageLabel: string; medianDays: number } | null;

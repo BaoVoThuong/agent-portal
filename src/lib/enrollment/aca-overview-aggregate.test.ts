@@ -12,7 +12,7 @@ const stage = (id: string, label: string, extra: Partial<EnrollmentOption> = {})
 });
 const record = (id: string, extra: Partial<AcaOverviewRecord> = {}): AcaOverviewRecord => ({
   id, display_number: `ENR-${id}`, client_name: id, stage_id: "open", agent_email: null,
-  caller_email: null, responsible_enroll_email: "a@example.com", created_at: "2026-08-01T00:00:00Z",
+  caller_email: null, responsible_enroll_email: "a@example.com", due_date: null, qc_checked_at: null, created_at: "2026-08-01T00:00:00Z",
   closed_at: null, archived_at: null, stage_entered_at: "2026-08-03T00:00:00Z", stage_entered_source: "live",
   last_work_activity_at: null, responsible_assigned_at: null, updated_at: "2026-08-13T00:00:00Z", ...extra,
 });
@@ -52,8 +52,8 @@ describe("ACA overview primitives", () => {
 describe("ACA overview fairness guards", () => {
   const stages = [
     stage("open", "1-Need quote"),
-    stage("done", "10-DONE", { is_terminal: true }),
-    stage("terminated", "11-Terminated", { is_terminal: true }),
+    stage("done", "10-ID card done", { is_terminal: true }),
+    stage("terminated", "12-Terminated", { is_terminal: true }),
   ];
   const twoPeople = (records: AcaOverviewRecord[]): AcaOverviewInput => ({
     records, stages,
@@ -77,7 +77,7 @@ describe("ACA overview fairness guards", () => {
     expect(snapshot.scorecards.avgTasksPerPerson).toBe(1);
   });
 
-  it("counts only 10-DONE as done, never a terminated record", () => {
+  it("counts ACA outcome stages separately", () => {
     const snapshot = aggregateAcaOverview(twoPeople([
       record("won", { stage_id: "done", closed_at: "2026-08-12T00:00:00Z", responsible_enroll_email: "a@example.com" }),
       record("lost", { stage_id: "terminated", closed_at: "2026-08-12T00:00:00Z", responsible_enroll_email: "a@example.com" }),
@@ -86,6 +86,26 @@ describe("ACA overview fairness guards", () => {
     expect(a?.doneInPeriod).toBe(1);
     expect(snapshot.scorecards.done).toBe(1);
     expect(snapshot.scorecards.terminated).toBe(1);
+  });
+
+  it("counts QC pending and overdue only for open records", () => {
+    const qcStages = [
+      stage("open", "1-Need quote", { triggers_qc: true }),
+      stage("done", "10-ID card done", { is_terminal: true }),
+    ];
+    const snapshot = aggregateAcaOverview({
+      ...twoPeople([]),
+      stages: qcStages,
+      records: [
+        record("qc", { stage_id: "open" }),
+        record("reviewed", { stage_id: "open", qc_checked_at: "2026-08-12T00:00:00Z" }),
+        record("overdue", { stage_id: "open", due_date: "2026-08-01" }),
+        record("due-today", { stage_id: "open", due_date: "2026-08-13" }),
+        record("closed-overdue", { stage_id: "done", due_date: "2026-08-01", closed_at: "2026-08-02T00:00:00Z" }),
+      ],
+    });
+    expect(snapshot.scorecards.qcPending).toBe(3);
+    expect(snapshot.scorecards.overdue).toBe(1);
   });
 
   it("emits a team baseline row and an unassigned row that are not people", () => {
