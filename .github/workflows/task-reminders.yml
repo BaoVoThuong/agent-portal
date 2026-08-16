@@ -27,7 +27,26 @@ jobs:
             exit 1
           fi
 
-          curl --fail --show-error --silent --retry 2 --max-time 60 \
+          # Deliberately NOT using --fail. With --fail curl exits 22 and throws
+          # the response body away, so a 500 shows up in Actions as nothing but
+          # "exit code 22" — which is how this cron failed for five hours on
+          # 2026-08-16 with nobody able to see why. The route returns its reason
+          # in the body ({"error": "..."}), so capture the body, print it, and
+          # decide the exit status ourselves.
+          response=$(curl --show-error --silent --retry 2 --max-time 60 \
+            -w '\n%{http_code}' \
             -X GET \
             -H "Authorization: Bearer $TASK_CRON_SECRET" \
-            "$TASK_CRON_URL"
+            "$TASK_CRON_URL")
+
+          status=$(printf '%s' "$response" | tail -n1)
+          body=$(printf '%s' "$response" | sed '$d')
+
+          echo "HTTP $status"
+          echo "Response body:"
+          echo "$body"
+
+          if [ -z "$status" ] || [ "$status" -ge 400 ] 2>/dev/null; then
+            echo "::error::Cron endpoint returned HTTP ${status:-<none>}"
+            exit 1
+          fi
