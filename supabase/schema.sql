@@ -2889,7 +2889,15 @@ begin
     p_due_at,
     v_now,
     p_sla_minutes
-  );
+  )
+  -- Targets task_overdue_events_open_idx (unique on task_id where resolved_at
+  -- is null). The guard above only proves tasks.overdue_flagged_at was null;
+  -- it does not prove there is no open event, and those two drifted apart on
+  -- 2026-08-16 (60 tasks). The insert then raised a duplicate-key error that
+  -- escaped the cron handler and killed the whole sweep every 15 minutes.
+  -- Keeping the existing open event is the correct outcome: the task is
+  -- already recorded as overdue.
+  on conflict (task_id) where resolved_at is null do nothing;
 
   insert into task_activity (task_id, actor_email, type, meta)
   values (
@@ -3820,8 +3828,19 @@ begin
     ) then
     raise exception 'WRITE_CONTEXT_INPUT_TOO_LARGE';
   end if;
-  if jsonb_typeof(coalesce(p_submitted_custom_values, '{}'::jsonb)) <> 'object'
-    or jsonb_object_length(coalesce(p_submitted_custom_values, '{}'::jsonb)) > 100 then
+  -- These two guards MUST stay separate. PostgreSQL does not promise
+  -- left-to-right short-circuiting of OR, so folding them into one condition
+  -- lets jsonb_object_keys() run against a non-object and raise 22023 before
+  -- the type check can reject it.
+  if jsonb_typeof(coalesce(p_submitted_custom_values, '{}'::jsonb)) <> 'object' then
+    raise exception 'WRITE_CONTEXT_VALUES_INVALID';
+  end if;
+  -- There is no jsonb_object_length() in PostgreSQL. The earlier call to it
+  -- parsed fine (plpgsql bodies are not resolved at CREATE time) and then
+  -- failed at 42883 on every single invocation, which the client mapped to
+  -- "Table configuration is temporarily unavailable" and hid the real cause.
+  if (select count(*)
+      from jsonb_object_keys(coalesce(p_submitted_custom_values, '{}'::jsonb))) > 100 then
     raise exception 'WRITE_CONTEXT_VALUES_INVALID';
   end if;
 
@@ -4438,6 +4457,15 @@ for each row execute function enrollment_sync_cycle_responsibility();
 create index if not exists enrollment_stage_cycles_dwell_idx
   on enrollment_stage_cycles (record_id, ended_at desc)
   where kind = 'dwell' and source = 'live';
+-- Backs the per-person stage-timing query, which only counts a visit whose
+-- owner did not change mid-visit. Shipped in
+-- rollouts/2026-08-13-aca-person-stage-timing.sql but never mirrored here, so
+-- a rebuild from this file alone silently lost it. Added 2026-08-16.
+create index if not exists enrollment_stage_cycles_attributed_idx
+  on enrollment_stage_cycles (stage_id, responsible_start_email, ended_at desc)
+  where kind = 'dwell' and source = 'live' and ended_at is not null
+    and responsible_start_email is not null
+    and responsible_start_email = responsible_end_email;
 create index if not exists enrollment_records_stage_entered_idx
   on enrollment_records (program, stage_id, stage_entered_at)
   where archived_at is null and closed_at is null;

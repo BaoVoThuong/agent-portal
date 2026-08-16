@@ -76,6 +76,31 @@ checks(sort, name, actual, expected) as (
     (select count(*) from enrollment_records
       where program = 'aca' and responsible_enroll_email is not null
         and responsible_assigned_at is null), 0
+
+  -- ── Kỳ quá hạn của task — bất biến BA CHIỀU ──────────────────────────
+  -- Kỳ quá hạn ĐANG MỞ ⟺ task đang in_progress VÀ mang cờ overdue_flagged_at.
+  -- Lệch chiều 1 hoặc 2 → cron nhắc việc chết vì trùng khoá trên
+  -- task_overdue_events_open_idx. Lệch chiều 3 → thời lượng quá hạn biến mất
+  -- khỏi báo cáo dù bảng task vẫn hiện là đang trễ.
+  -- Cả ba đã từng lệch cùng lúc ngày 2026-08-16 (60 + 7 + 18 dòng).
+  union all
+  select 12, 'Chiều 1 — task không mang cờ mà còn sự kiện quá hạn mở',
+    (select count(*) from task_overdue_events e join tasks t on t.id = e.task_id
+      where e.resolved_at is null and t.overdue_flagged_at is null), 0
+  union all
+  select 13, 'Chiều 2 — sự kiện còn mở trên task đã rời in_progress',
+    (select count(*) from task_overdue_events e join tasks t on t.id = e.task_id
+      where e.resolved_at is null
+        and (t.status <> 'in_progress' or t.archived_at is not null)), 0
+  union all
+  select 14, 'Chiều 3 — task đang trễ nhưng thiếu sự kiện quá hạn mở',
+    (select count(*) from tasks t
+      where t.archived_at is null and t.status = 'in_progress'
+        and t.overdue_flagged_at is not null
+        and not exists (
+          select 1 from task_overdue_events e
+          where e.task_id = t.id and e.resolved_at is null
+        )), 0
 )
 select
   sort                                                     as "#",

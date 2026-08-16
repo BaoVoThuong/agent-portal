@@ -70,7 +70,13 @@ function isMissingContextSchema(error: { code?: string; message?: string } | nul
   const message = error?.message?.toLowerCase() ?? "";
   return (
     code === "42P01" ||
-    code === "42883" ||
+    // 42883 (undefined_function) must name THIS function to count as "not
+    // installed". A bare 42883 also fires when the RPC exists but its body
+    // calls something that does not, and treating that as missing schema
+    // reports "temporarily unavailable" forever while hiding a real bug —
+    // exactly what a jsonb_object_length() call in the body did on
+    // 2026-08-16. Anything else must surface with its own message.
+    (code === "42883" && message.includes("table_config_write_context")) ||
     code === "PGRST202" ||
     (message.includes("table_config_write_context") &&
       (message.includes("does not exist") || message.includes("schema cache"))) ||
