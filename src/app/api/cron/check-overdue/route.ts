@@ -35,6 +35,25 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  try {
+    return await runReminderSweep();
+  } catch (error) {
+    // Every `throw` below sits inside a Promise.all callback, so without this
+    // the rejection escapes the handler and Next answers with a bare 500 and
+    // an EMPTY body. That is exactly how this cron failed silently for five
+    // hours on 2026-08-16: the schedule reported "exit code 22" and the
+    // response carried nothing to diagnose. Log the stack for the platform log
+    // and return the message so the caller can see it too.
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("check-overdue cron failed", error);
+    return NextResponse.json(
+      { error: message, stage: "reminder-sweep" },
+      { status: 500 }
+    );
+  }
+}
+
+async function runReminderSweep(): Promise<NextResponse> {
   const supabase = getSupabaseAdmin();
   const now = new Date();
   const nowIso = now.toISOString();
