@@ -211,6 +211,39 @@ Cả hai file đều đã `diff` với rollout gốc: **không câu SQL nào l�
 
 ---
 
+## Trạng thái ngày 2026-08-16 — DB đã đồng bộ, KHÔNG còn file bắt buộc phải chạy
+
+Đã kiểm bằng dữ liệu thật:
+
+- **28/28 RPC** mà app gọi đều có trong DB
+- **Đợt gộp terminal semantics đã áp dụng rồi.** `treat_as_terminal = true` còn **0** option,
+  và ACA `11-ID card unavailable` đã là `is_terminal = true`. Rollout
+  `2026-08-16-merge-terminal-semantics.sql` chạy lại cũng chỉ là no-op.
+- Catalog stage: ACA 12 active, Medicare 11 active, **Medicare khớp 100%** với catalog
+- 0 record trỏ vào stage đã archive
+- Backfill file 13 + 14 còn nguyên vẹn
+
+Chạy `16-full-state-verify.sql` bất cứ lúc nào để tự xác nhận. Chỉ đọc, không ghi.
+
+### QC trên stage kết thúc ACA — đã chốt: lấy production làm chuẩn
+
+Catalog trước đây ghi `triggers_qc = false` cho ACA `11-ID card unavailable` và `12-Terminated`,
+trong khi production đã bật QC bằng tay qua `/config`. Chạy lại file 11 sẽ xoá mất cấu hình thật đó.
+
+**Chốt ngày 2026-08-16: production đúng — mọi stage KẾT THÚC của ACA đều bắn QC.**
+Catalog đã sửa theo ở cả 3 nơi:
+
+- `supabase/run-order/11-stage-setup.sql`
+- `supabase/rollouts/2026-08-15-enrollment-stage-setup.sql`
+- `supabase/schema.sql` (khối seed)
+
+Không phải chạy gì thêm — DB vốn đã đúng, chỉ có file bị lệch. File 16 nay kiểm tra cứng điều kiện
+này (`is_terminal` ⇒ `triggers_qc` với mọi stage ACA), nên lần sau lệch là biết ngay.
+
+Medicare cố ý khác: chỉ `9-ID card done` bắn QC, `11-Terminated` thì không.
+
+---
+
 ## Việc riêng, chưa nằm trong thứ tự này
 
 `supabase/rollouts/2026-08-09-enrollment-stage-time-backfill.sql` **chưa từng chạy**:

@@ -97,7 +97,7 @@ describe("aggregateEnrollmentOverview", () => {
   });
 
   it("builds the needs-care union using the exact operational flags", () => {
-    const blocking = stageOption({ id: "blocking", label: "Can't Contact", treat_as_terminal: true });
+    const blocking = stageOption({ id: "blocking", label: "11-ID card unavailable", is_terminal: true });
     const qc = stageOption({ id: "qc", label: "10-DONE", is_terminal: true, triggers_qc: true });
     const snapshot = aggregate(
       [
@@ -111,7 +111,7 @@ describe("aggregateEnrollmentOverview", () => {
     );
     expect(snapshot.kpis.needsCareCount).toBe(5);
     expect(snapshot.kpis.overdueCount).toBe(1);
-    expect(snapshot.needsCare.find((need) => need.key === "blocking_stage")?.count).toBe(1);
+    expect(snapshot.needsCare.find((need) => need.key === "blocking_stage")?.count).toBe(2);
     expect(snapshot.needsCare.find((need) => need.key === "qc_pending")?.count).toBe(1);
   });
 

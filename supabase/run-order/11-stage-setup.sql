@@ -22,8 +22,9 @@
 --
 -- Gói tất cả vào một khối DO thì cả script là MỘT câu lệnh: Studio không tách
 -- được, Postgres chạy trọn trong một transaction, temp table sống xuyên suốt,
--- và bất kỳ lỗi nào cũng rollback toàn bộ. Logic giữ nguyên 100% so với
--- supabase/rollouts/2026-08-15-enrollment-stage-setup.sql.
+-- và bất kỳ lỗi nào cũng rollback toàn bộ. Stage terminal semantics are
+-- unified here: `is_terminal` is authoritative and the legacy compatibility
+-- column is always reset to false.
 -- ═══════════════════════════════════════════════════════════════════════
 
 do $mig$
@@ -73,8 +74,11 @@ begin
     ('aca', '8-Need assign PCP', '#FF7452', 80, false, false, false),
     ('aca', '9-Need ID card', '#00875A', 90, false, false, false),
     ('aca', '10-ID card done', '#00875A', 100, true, false, true),
-    ('aca', '11-ID card unavailable', '#FF7452', 110, false, true, false),
-    ('aca', '12-Terminated', '#C9372C', 120, true, false, false),
+    -- Mọi stage KẾT THÚC của ACA đều bắn QC. Trước đây catalog ghi false cho
+    -- hai dòng này trong khi production đã bật QC bằng tay qua /config, nên
+    -- chạy lại file này sẽ xoá mất cấu hình thật. Lấy production làm chuẩn.
+    ('aca', '11-ID card unavailable', '#FF7452', 110, true, false, true),
+    ('aca', '12-Terminated', '#C9372C', 120, true, false, true),
     ('medicare', '1-Need quote', '#6B778C', 10, false, false, false),
     ('medicare', '2-Quoted', '#0C66E4', 20, false, false, false),
     ('medicare', '3-Waiting for Confirmation', '#F5A524', 30, false, false, false),

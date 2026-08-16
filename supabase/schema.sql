@@ -5228,8 +5228,8 @@ with option_seed(set_key, label, color, position, is_terminal, triggers_qc) as (
     ('stage', '8-Need assign PCP', '#FF7452', 80, false, false),
     ('stage', '9-Need ID card', '#00875A', 90, false, false),
     ('stage', '10-ID card done', '#00875A', 100, true, true),
-    ('stage', '11-ID card unavailable', '#FF7452', 110, false, false),
-    ('stage', '12-Terminated', '#C9372C', 120, true, false),
+    ('stage', '11-ID card unavailable', '#FF7452', 110, true, true),
+    ('stage', '12-Terminated', '#C9372C', 120, true, true),
     ('carrier', 'Oscar HMO', '#0C66E4', 10, false, false),
     ('carrier', 'Oscar EPO', '#0C66E4', 20, false, false),
     ('carrier', 'CHC 019', '#00875A', 30, false, false),
@@ -5270,7 +5270,7 @@ insert into enrollment_options (
   set_id, label, color, position, is_terminal, treat_as_terminal, triggers_qc
 )
 select sets.id, seed.label, seed.color, seed.position, seed.is_terminal,
-       (seed.set_key = 'stage' and lower(seed.label) = '11-id card unavailable'),
+       false,
        seed.triggers_qc
 from option_seed seed
 join enrollment_option_sets sets on sets.key = seed.set_key and sets.program = 'aca'

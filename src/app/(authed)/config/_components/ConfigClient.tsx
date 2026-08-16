@@ -24,7 +24,6 @@ import {
   ChevronDown,
   Clock,
   GripVertical,
-  Info,
   Plus,
   RefreshCw,
   Settings2,
@@ -82,6 +81,7 @@ type AssistantMember = {
 };
 
 type Tab = "table" | "value" | "assistant" | "sla";
+type AssistantSettingsView = "agents" | "memberships";
 type SelectOption<T extends string> = { value: T; label: string; disabled?: boolean };
 
 const SCOPE_LABEL: Record<TableScope, string> = {
@@ -94,6 +94,11 @@ const SCOPE_OPTIONS: SelectOption<TableScope>[] = TABLE_SCOPES.map((scope) => ({
   value: scope,
   label: SCOPE_LABEL[scope],
 }));
+
+const ASSISTANT_SETTINGS_OPTIONS: SelectOption<AssistantSettingsView>[] = [
+  { value: "agents", label: "Agents" },
+  { value: "memberships", label: "Assistant membership" },
+];
 
 const COLUMN_TYPE_LABEL: Record<ColumnType, string> = {
   text: "Text",
@@ -154,6 +159,8 @@ export function ConfigClient({
   sectionStatus: ConfigSectionStatuses;
 }) {
   const [tab, setTab] = useState<Tab>("table");
+  const [assistantSettingsView, setAssistantSettingsView] =
+    useState<AssistantSettingsView>("agents");
   const [scope, setScope] = useState<TableScope>("cs");
   const [columns, setColumns] = useState(initialColumns);
   const [options, setOptions] = useState(initialOptions);
@@ -269,111 +276,128 @@ export function ConfigClient({
     scope === "aca" || scope === "medicare" ? refreshErrors[`enrollment-options:${scope}`] : undefined;
 
   return (
-    <main className="min-h-screen bg-[#f7f8fa] px-6 pb-6 pt-5 text-[#172b4d]">
-      <div className="mx-auto flex max-w-[1280px] flex-col gap-6">
+    <main className="h-full min-h-0 overflow-hidden bg-[#f7f8fa] px-6 pb-6 pt-5 text-[#172b4d]">
+      <div className="mx-auto flex h-full min-h-0 max-w-[1280px] flex-col gap-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
               Health Table Configuration
             </h1>
           </div>
-          <DropdownSelect
-            label="Table"
-            value={scope}
-            options={SCOPE_OPTIONS}
-            onChange={setScope}
-            className="w-[330px]"
-            buttonClassName="h-11 shadow-sm"
-          />
+          {tab === "table" || tab === "value" ? (
+            <DropdownSelect
+              label="Table"
+              value={scope}
+              options={SCOPE_OPTIONS}
+              onChange={setScope}
+              className="w-[330px]"
+              buttonClassName="h-11 shadow-sm"
+            />
+          ) : null}
         </header>
 
-        <div className="flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm">
-          <TabButton active={tab === "table"} onClick={() => setTab("table")}>
-            <Settings2 className="h-4 w-4" /> Columns
-          </TabButton>
-          <TabButton active={tab === "value"} onClick={() => setTab("value")}>
-            <SlidersHorizontal className="h-4 w-4" /> Dropdown Values
-          </TabButton>
-          <TabButton active={tab === "assistant"} onClick={() => setTab("assistant")}>
-            <UserRoundCog className="h-4 w-4" /> Assistant Membership
-          </TabButton>
-          <TabButton active={tab === "sla"} onClick={() => setTab("sla")}>
-            <Clock className="h-4 w-4" /> SLA Times
-          </TabButton>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm">
+            <TabButton active={tab === "table"} onClick={() => setTab("table")}>
+              <Settings2 className="h-4 w-4" /> Columns
+            </TabButton>
+            <TabButton active={tab === "value"} onClick={() => setTab("value")}>
+              <SlidersHorizontal className="h-4 w-4" /> Dropdown Values
+            </TabButton>
+            <TabButton active={tab === "assistant"} onClick={() => setTab("assistant")}>
+              <UserRoundCog className="h-4 w-4" /> Assistant Membership
+            </TabButton>
+            <TabButton active={tab === "sla"} onClick={() => setTab("sla")}>
+              <Clock className="h-4 w-4" /> SLA Times
+            </TabButton>
+          </div>
+          {tab === "assistant" ? (
+            <div className="w-[220px]">
+              <DropdownSelect
+                label="Assistant settings"
+                value={assistantSettingsView}
+                options={ASSISTANT_SETTINGS_OPTIONS}
+                onChange={setAssistantSettingsView}
+              />
+            </div>
+          ) : null}
         </div>
 
-        {tab === "table" ? (
-          <ConfigTableSection
-            key={scope}
-            scope={scope}
-            columns={activeColumns}
-            busy={busy}
-            available={sectionStatus.columns.available && !columnsRefreshError}
-            availabilityError={columnsRefreshError ?? sectionStatus.columns.error}
-            run={run}
-            refreshScope={refreshScope}
-          />
-        ) : null}
-        {tab === "value" ? (
-          <ConfigDropdownValuesSection
-            key={scope}
-            scope={scope}
-            columns={activeColumns}
-            options={activeOptions}
-            categories={categories}
-            optionSets={scope === "aca" || scope === "medicare" ? optionData[scope].sets : []}
-            optionsBySet={
-              scope === "aca" || scope === "medicare"
-                ? optionData[scope].optionsBySet
-                : emptyEnrollmentOptionsBySet()
-            }
-            busy={busy}
-            available={
-              sectionStatus.options.available &&
-              !optionsRefreshError &&
-              (scope === "cs"
-                ? true
-                : sectionStatus.enrollmentOptions[scope].available && !enrollmentOptionsRefreshError)
-            }
-            availabilityError={
-              optionsRefreshError ??
-              enrollmentOptionsRefreshError ??
-              sectionStatus.options.error ??
-              (scope === "cs" ? undefined : sectionStatus.enrollmentOptions[scope].error)
-            }
-            categoriesAvailable={sectionStatus.categories.available}
-            categoriesError={sectionStatus.categories.error}
-            run={run}
-            refreshScope={refreshScope}
-            onCategoriesChange={setCategories}
-            onOptionDataChange={() =>
-              scope === "aca" || scope === "medicare" ? refreshOptionData(scope) : Promise.resolve()
-            }
-          />
-        ) : null}
-        {tab === "assistant" ? (
-          <ConfigAssistantSection
-            agents={agents}
-            candidates={candidates}
-            assignees={assignees}
-            members={members}
-            busy={busy}
-            available={sectionStatus.assistants.available}
-            availabilityError={sectionStatus.assistants.error}
-            run={run}
-            setMembers={setMembers}
-            onAgentsChange={setAgents}
-          />
-        ) : null}
-        {tab === "sla" ? (
-          <ConfigSlaSection
-            categories={categories}
-            rules={slaRules}
-            available={sectionStatus.sla.available}
-            availabilityError={sectionStatus.sla.error}
-            onRulesChange={setSlaRules}
-          />
-        ) : null}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {tab === "table" ? (
+            <ConfigTableSection
+              key={scope}
+              scope={scope}
+              columns={activeColumns}
+              busy={busy}
+              available={sectionStatus.columns.available && !columnsRefreshError}
+              availabilityError={columnsRefreshError ?? sectionStatus.columns.error}
+              run={run}
+              refreshScope={refreshScope}
+            />
+          ) : null}
+          {tab === "value" ? (
+            <ConfigDropdownValuesSection
+              key={scope}
+              scope={scope}
+              columns={activeColumns}
+              options={activeOptions}
+              categories={categories}
+              optionSets={scope === "aca" || scope === "medicare" ? optionData[scope].sets : []}
+              optionsBySet={
+                scope === "aca" || scope === "medicare"
+                  ? optionData[scope].optionsBySet
+                  : emptyEnrollmentOptionsBySet()
+              }
+              busy={busy}
+              available={
+                sectionStatus.options.available &&
+                !optionsRefreshError &&
+                (scope === "cs"
+                  ? true
+                  : sectionStatus.enrollmentOptions[scope].available && !enrollmentOptionsRefreshError)
+              }
+              availabilityError={
+                optionsRefreshError ??
+                enrollmentOptionsRefreshError ??
+                sectionStatus.options.error ??
+                (scope === "cs" ? undefined : sectionStatus.enrollmentOptions[scope].error)
+              }
+              categoriesAvailable={sectionStatus.categories.available}
+              categoriesError={sectionStatus.categories.error}
+              run={run}
+              refreshScope={refreshScope}
+              onCategoriesChange={setCategories}
+              onOptionDataChange={() =>
+                scope === "aca" || scope === "medicare" ? refreshOptionData(scope) : Promise.resolve()
+              }
+            />
+          ) : null}
+          {tab === "assistant" ? (
+            <ConfigAssistantSection
+              agents={agents}
+              candidates={candidates}
+              assignees={assignees}
+              members={members}
+              busy={busy}
+              available={sectionStatus.assistants.available}
+              availabilityError={sectionStatus.assistants.error}
+              run={run}
+              setMembers={setMembers}
+              onAgentsChange={setAgents}
+              settingsView={assistantSettingsView}
+            />
+          ) : null}
+          {tab === "sla" ? (
+            <ConfigSlaSection
+              categories={categories}
+              rules={slaRules}
+              available={sectionStatus.sla.available}
+              availabilityError={sectionStatus.sla.error}
+              onRulesChange={setSlaRules}
+            />
+          ) : null}
+        </div>
       </div>
 
       <Toast
@@ -417,7 +441,6 @@ function ColumnHeader({ label, help }: { label: string; help: string }) {
       aria-label={`${label}: ${help}`}
     >
       <span className="truncate">{label}</span>
-      <Info aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#8993a4]" />
     </span>
   );
 }
@@ -678,13 +701,13 @@ function ConfigTableSection({
 
   return (
     <>
-    <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
       <div className="border-b border-[#dfe1e6] px-6 py-4">
         <h2 className="text-lg font-bold">Column settings for {SCOPE_LABEL[scope]}</h2>
       </div>
       {!available ? <ConfigSectionUnavailable message={availabilityError} /> : null}
       <form
-        className="flex flex-wrap items-center gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4"
+        className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4"
         onSubmit={(event) => {
           event.preventDefault();
           void run(async () => {
@@ -739,31 +762,49 @@ function ConfigTableSection({
           <Plus className="h-4 w-4" /> Add
         </button>
       </form>
-      <div className="min-w-0 overflow-x-auto">
-        <div className="min-w-[1016px]">
-          <div className="grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_104px_112px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
-            <ColumnHeader label="Order" help="Drag a row to change its position in the table." />
-            <ColumnHeader label="Column name" help="The name users see for this column." />
-            <ColumnHeader label="Type" help="Controls how values are stored, displayed, and edited." />
-            <ColumnHeader label="Pinned" help="Keep this column visible while horizontally scrolling." />
-            <ColumnHeader label="Required" help="Require a value when creating a new record." />
-            <ColumnHeader label="Hidden" help="Hide this column from the table by default." />
-            <ColumnHeader label="Details" help="Include this column in the record detail view." />
-            <ColumnHeader label="Actions" help="Archive or restore custom columns." />
-          </div>
-          {dragReady ? (
-            <DndContext
-              id="config-table-columns"
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={localColumns.map((column) => column.id)}
-                strategy={verticalListSortingStrategy}
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-auto">
+        <div className="flex h-full min-h-0 min-w-[1016px] flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="sticky top-0 z-10 grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_104px_112px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
+              <ColumnHeader label="Order" help="Drag a row to change its position in the table." />
+              <ColumnHeader label="Column name" help="The name users see for this column." />
+              <ColumnHeader label="Type" help="Controls how values are stored, displayed, and edited." />
+              <ColumnHeader label="Pinned" help="Keep this column visible while horizontally scrolling." />
+              <ColumnHeader label="Required" help="Require a value when creating a new record." />
+              <ColumnHeader label="Hidden" help="Hide this column from the table by default." />
+              <ColumnHeader label="Details" help="Include this column in the record detail view." />
+              <ColumnHeader label="Actions" help="Archive or restore custom columns." />
+            </div>
+            {dragReady ? (
+              <DndContext
+                id="config-table-columns"
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
               >
+                <SortableContext
+                  items={localColumns.map((column) => column.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {localColumns.map((column, index) => (
+                    <SortableColumnRow
+                      key={column.id}
+                      column={column}
+                      scope={scope}
+                      index={index}
+                      busy={busy || !available}
+                      onPatch={(patch) =>
+                        run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
+                      }
+                      onArchive={() => setConfirmArchiveColumnId(column.id)}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            ) : (
+              <div>
                 {localColumns.map((column, index) => (
-                  <SortableColumnRow
+                  <StaticColumnRow
                     key={column.id}
                     column={column}
                     scope={scope}
@@ -775,25 +816,9 @@ function ConfigTableSection({
                     onArchive={() => setConfirmArchiveColumnId(column.id)}
                   />
                 ))}
-              </SortableContext>
-            </DndContext>
-          ) : (
-            <div>
-              {localColumns.map((column, index) => (
-                <StaticColumnRow
-                  key={column.id}
-                  column={column}
-                  scope={scope}
-                  index={index}
-                  busy={busy || !available}
-                  onPatch={(patch) =>
-                    run(() => patchColumn(column.id, patch), patchSuccessMessage(patch))
-                  }
-                  onArchive={() => setConfirmArchiveColumnId(column.id)}
-                />
-              ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </section>
@@ -1131,7 +1156,6 @@ type DropdownValueRow = {
   label: string;
   color: string | null;
   isTerminal?: boolean;
-  treatAsTerminal?: boolean;
   triggersQc?: boolean;
 };
 
@@ -1331,9 +1355,6 @@ function ConfigDropdownValuesSection({
   const controlsDisabled = busy || !available || Boolean(refreshError) || categoryUnavailable;
   const sectionError = refreshError ?? (categoryUnavailable ? categoriesError : availabilityError);
   const isStageGroup = selected?.kind === "optionSet" && selected.setKey === "stage";
-  // Dashboard-terminal semantics belong only to the ACA Overview. They are
-  // not a shared CS/Medicare workflow rule.
-  const isAcaStageGroup = scope === "aca" && isStageGroup;
   const isConsentGroup = selected?.kind === "optionSet" && selected.setKey === "consent";
   const protectsLabelIdentity =
     selected?.kind === "optionSet" && (selected.setKey === "stage" || selected.setKey === "consent");
@@ -1342,7 +1363,6 @@ function ConfigDropdownValuesSection({
   const [color, setColor] = useState("");
   const [usesRecommendedColor, setUsesRecommendedColor] = useState(true);
   const [isTerminal, setIsTerminal] = useState(false);
-  const [treatAsTerminal, setTreatAsTerminal] = useState(false);
   const [triggersQc, setTriggersQc] = useState(false);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const [archiveUsage, setArchiveUsage] = useState<{ id: string; count: number } | null>(null);
@@ -1363,7 +1383,6 @@ function ConfigDropdownValuesSection({
             label: o.label,
             color: o.color,
             isTerminal: o.is_terminal,
-            treatAsTerminal: o.treat_as_terminal,
             triggersQc: o.triggers_qc,
           }));
   const activeConsentCount = isConsentGroup ? valueRows.length : 0;
@@ -1423,10 +1442,6 @@ function ConfigDropdownValuesSection({
           label,
           color: draftColor,
           is_terminal: isTerminal,
-          // This flag has meaning only for the ACA Overview. The UI hides it
-          // outside ACA, and the guard here prevents stale form state from
-          // leaking it into a Medicare option after switching scopes.
-          treat_as_terminal: isAcaStageGroup && treatAsTerminal,
           triggers_qc: triggersQc,
         }),
       });
@@ -1468,7 +1483,7 @@ function ConfigDropdownValuesSection({
     }
   }
 
-  async function toggleStageRule(id: string, patch: { is_terminal?: boolean; treat_as_terminal?: boolean; triggers_qc?: boolean }) {
+  async function toggleStageRule(id: string, patch: { is_terminal?: boolean; triggers_qc?: boolean }) {
     if (controlsDisabled) return;
     const pendingCount = (pendingStageRuleCountsRef.current.get(id) ?? 0) + 1;
     pendingStageRuleCountsRef.current.set(id, pendingCount);
@@ -1551,20 +1566,15 @@ function ConfigDropdownValuesSection({
     setColor("");
     setUsesRecommendedColor(true);
     setIsTerminal(false);
-    setTreatAsTerminal(false);
     setTriggersQc(false);
     setConfirmArchiveId(null);
     setArchiveUsage(null);
   }
 
   return (
-    <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
       <div className="border-b border-[#dfe1e6] px-6 py-4">
-        <h2 className="text-lg font-bold">Dropdown values</h2>
-        <p className="mt-1 text-sm text-[#6b778c]">
-          Every dropdown value — custom columns, Category, and Enrollment option
-          sets — is managed here in one place.
-        </p>
+        <h2 className="text-lg font-bold">Dropdown values for {SCOPE_LABEL[scope]}</h2>
       </div>
       {!available || refreshError || categoryUnavailable ? (
         <ConfigSectionUnavailable message={sectionError} />
@@ -1572,8 +1582,8 @@ function ConfigDropdownValuesSection({
       {groups.length === 0 ? (
         <div className="px-6 py-10 text-sm font-semibold text-[#6b778c]">No dropdown values yet.</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)]">
-          <nav className="border-b border-[#dfe1e6] bg-[#f7f8fa] p-3 md:border-b-0 md:border-r">
+        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)]">
+          <nav className="min-h-0 overflow-y-auto border-b border-[#dfe1e6] bg-[#f7f8fa] p-3 md:border-b-0 md:border-r">
             {groups.map((group) => (
               <button
                 key={group.key}
@@ -1591,14 +1601,12 @@ function ConfigDropdownValuesSection({
               </button>
             ))}
           </nav>
-          <div className="min-w-0 p-4">
+          <div className="flex min-h-0 min-w-0 flex-col p-4">
             <form
-              className={`grid grid-cols-1 gap-2 border-b border-[#dfe1e6] pb-4 ${
-                isAcaStageGroup
-                  ? "md:grid-cols-[minmax(0,1fr)_240px_110px_110px_110px_auto]"
-                  : isStageGroup
-                    ? "md:grid-cols-[minmax(0,1fr)_240px_110px_110px_auto]"
-                    : "md:grid-cols-[minmax(0,1fr)_240px_auto]"
+              className={`grid shrink-0 grid-cols-1 gap-2 border-b border-[#dfe1e6] pb-4 ${
+                isStageGroup
+                  ? "md:grid-cols-[minmax(0,1fr)_240px_110px_110px_auto]"
+                  : "md:grid-cols-[minmax(0,1fr)_240px_auto]"
               }`}
               onSubmit={(event) => {
                 event.preventDefault();
@@ -1609,7 +1617,6 @@ function ConfigDropdownValuesSection({
                   setColor("");
                   setUsesRecommendedColor(true);
                   setIsTerminal(false);
-                  setTreatAsTerminal(false);
                   setTriggersQc(false);
                 }, "Option added.");
               }}
@@ -1646,7 +1653,7 @@ function ConfigDropdownValuesSection({
                 <>
                   <label
                     className="flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e]"
-                    title="Workflow terminal: entering this stage closes the enrollment record."
+                    title="Final Stage: entering this stage closes the enrollment record."
                   >
                     <input
                       type="checkbox"
@@ -1654,7 +1661,7 @@ function ConfigDropdownValuesSection({
                       checked={isTerminal}
                       onChange={(event) => setIsTerminal(event.target.checked)}
                     />
-                    Workflow terminal
+                    Final Stage
                   </label>
                   <label className="flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e]">
                     <input
@@ -1666,20 +1673,6 @@ function ConfigDropdownValuesSection({
                     QC
                   </label>
                 </>
-              ) : null}
-              {isAcaStageGroup ? (
-                <label
-                  className="flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e]"
-                  title="ACA overview only: excludes this stage from active-work metrics; does not close the enrollment record."
-                >
-                  <input
-                    type="checkbox"
-                    disabled={controlsDisabled}
-                    checked={treatAsTerminal}
-                    onChange={(event) => setTreatAsTerminal(event.target.checked)}
-                  />
-                  Dashboard terminal (ACA only)
-                </label>
               ) : null}
               <button
                 type="submit"
@@ -1694,7 +1687,7 @@ function ConfigDropdownValuesSection({
                 <Plus className="h-4 w-4" /> Add
               </button>
             </form>
-            <div className="mt-4 min-w-0 overflow-hidden rounded-lg border border-[#dfe1e6]">
+            <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-[#dfe1e6]">
               <table className="w-full table-fixed border-collapse text-sm">
                 <colgroup>
                   <col className={isStageGroup ? "w-[28%]" : "w-[40%]"} />
@@ -1702,7 +1695,7 @@ function ConfigDropdownValuesSection({
                   {isStageGroup ? <col className="w-[28%]" /> : null}
                   <col className={isStageGroup ? "w-[12%]" : "w-[15%]"} />
                 </colgroup>
-                <thead className="bg-[#f7f8fa] text-xs font-bold uppercase text-[#6b778c]">
+                <thead className="sticky top-0 z-10 bg-[#f7f8fa] text-xs font-bold uppercase text-[#6b778c]">
                   <tr>
                     <th className="border-b border-r border-[#dfe1e6] px-3 py-2 text-left">Label</th>
                     <th className="border-b border-r border-[#dfe1e6] px-3 py-2 text-left">Color</th>
@@ -1754,7 +1747,7 @@ function ConfigDropdownValuesSection({
                         {isStageGroup ? (
                           <td className="border-b border-r border-[#dfe1e6] px-3 py-2 text-xs font-semibold text-[#42526e]">
                             <div className="flex flex-wrap gap-2">
-                              <label className="flex items-center gap-1.5" title="Workflow terminal: entering this stage closes the enrollment record.">
+                              <label className="flex items-center gap-1.5" title="Final Stage: entering this stage closes the enrollment record.">
                                 <input
                                   type="checkbox"
                                   disabled={controlsDisabled || pendingStageRuleIds.has(row.id)}
@@ -1766,24 +1759,8 @@ function ConfigDropdownValuesSection({
                                     )
                                   }
                                 />
-                                Workflow terminal
+                                Final Stage
                               </label>
-                              {isAcaStageGroup ? (
-                                <label className="flex items-center gap-1.5" title="ACA overview only: excludes this stage from active-work metrics; does not close the enrollment record.">
-                                  <input
-                                    type="checkbox"
-                                    disabled={controlsDisabled || pendingStageRuleIds.has(row.id)}
-                                    checked={Boolean(row.treatAsTerminal)}
-                                    onChange={(event) =>
-                                      void run(
-                                        () => toggleStageRule(row.id, { treat_as_terminal: event.target.checked }),
-                                        "Option updated."
-                                      )
-                                    }
-                                  />
-                                  Dashboard terminal (ACA only)
-                                </label>
-                              ) : null}
                               <label className="flex items-center gap-1.5">
                                 <input
                                   type="checkbox"
@@ -1979,6 +1956,7 @@ function ConfigAssistantSection({
   run,
   setMembers,
   onAgentsChange,
+  settingsView,
 }: {
   agents: TaskAgent[];
   candidates: TaskAssignee[];
@@ -1990,6 +1968,7 @@ function ConfigAssistantSection({
   run: (action: () => Promise<unknown>, success: string) => Promise<void>;
   setMembers: Dispatch<SetStateAction<AssistantMember[]>>;
   onAgentsChange: Dispatch<SetStateAction<TaskAgent[]>>;
+  settingsView: AssistantSettingsView;
 }) {
   const [agentEmail, setAgentEmail] = useState(agents[0]?.email ?? "");
   const [assistantEmail, setAssistantEmail] = useState("");
@@ -2100,46 +2079,48 @@ function ConfigAssistantSection({
 
   return (
     <>
-      <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
-        <div className="border-b border-[#dfe1e6] px-6 py-4">
+      {settingsView === "agents" ? (
+      <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#dfe1e6] px-4 py-3">
           <h2 className="text-lg font-bold">Agents</h2>
-          <p className="mt-1 text-sm text-[#6b778c]">
-            Add people as Agents. Removing an agent also unlinks all of their assistants.
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!newAgentEmail) return;
+                void run(async () => {
+                  await requestJson("/api/config/agents", {
+                    method: "POST",
+                    body: JSON.stringify({ email: newAgentEmail }),
+                  });
+                  setNewAgentEmail("");
+                  await refreshAgents();
+                }, "Agent added.");
+              }}
+            >
+              <DropdownSelect
+                label="Person"
+                value={newAgentEmail}
+                options={agentCandidateOptions}
+                onChange={setNewAgentEmail}
+                placeholder="Select person"
+                className="w-[260px]"
+              />
+              <button
+                type="submit"
+                disabled={agentsControlsDisabled || !newAgentEmail}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" /> Add
+              </button>
+            </form>
+          </div>
         </div>
         {!available || agentsRefreshError ? (
           <ConfigSectionUnavailable message={agentsRefreshError ?? availabilityError} />
         ) : null}
-        <form
-          className="grid gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4 md:grid-cols-[1fr_120px]"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!newAgentEmail) return;
-            void run(async () => {
-              await requestJson("/api/config/agents", {
-                method: "POST",
-                body: JSON.stringify({ email: newAgentEmail }),
-              });
-              setNewAgentEmail("");
-              await refreshAgents();
-            }, "Agent added.");
-          }}
-        >
-          <DropdownSelect
-            label="Person"
-            value={newAgentEmail}
-            options={agentCandidateOptions}
-            onChange={setNewAgentEmail}
-            placeholder="Select person"
-          />
-          <button
-            type="submit"
-            disabled={agentsControlsDisabled || !newAgentEmail}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" /> Add
-          </button>
-        </form>
+        <div className="min-h-0 flex-1 overflow-y-auto">
         {agents.map((agent) => (
           <div
             key={agent.email}
@@ -2170,56 +2151,59 @@ function ConfigAssistantSection({
             </button>
           </div>
         ))}
+        </div>
       </section>
-
-      <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
-        <div className="border-b border-[#dfe1e6] px-6 py-4">
+      ) : (
+      <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#dfe1e6] px-4 py-3">
           <h2 className="text-lg font-bold">Assistant membership</h2>
-          <p className="mt-1 text-sm text-[#6b778c]">
-            Link an existing Agent to the people who assist them.
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <form
+              className="flex flex-wrap items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void run(async () => {
+                  await requestJson("/api/config/assistants", {
+                    method: "POST",
+                    body: JSON.stringify({ agent_email: agentEmail, cs_email: assistantEmail }),
+                  });
+                  setAssistantEmail("");
+                  await refreshMembers();
+                }, "Assistant added.");
+              }}
+            >
+              <DropdownSelect
+                label="Agent"
+                value={agentEmail}
+                options={agentOptions}
+                onChange={setAgentEmail}
+                placeholder="Select agent"
+                className="w-[220px]"
+              />
+              <DropdownSelect
+                label="Assistant"
+                value={assistantEmail}
+                options={assistantOptions}
+                onChange={setAssistantEmail}
+                placeholder="Select assistant"
+                className="w-[220px]"
+              />
+              <button
+                type="submit"
+                disabled={membersControlsDisabled || !agentEmail || !assistantEmail}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" /> Add
+              </button>
+            </form>
+          </div>
         </div>
         {!available || agentsRefreshError || membersRefreshError ? (
           <ConfigSectionUnavailable
             message={agentsRefreshError ?? membersRefreshError ?? availabilityError}
           />
         ) : null}
-        <form
-          className="grid gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] p-4 md:grid-cols-[280px_1fr_120px]"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void run(async () => {
-              await requestJson("/api/config/assistants", {
-                method: "POST",
-                body: JSON.stringify({ agent_email: agentEmail, cs_email: assistantEmail }),
-              });
-              setAssistantEmail("");
-              await refreshMembers();
-            }, "Assistant added.");
-          }}
-        >
-          <DropdownSelect
-          label="Agent"
-          value={agentEmail}
-          options={agentOptions}
-          onChange={setAgentEmail}
-          placeholder="Select agent"
-        />
-        <DropdownSelect
-          label="Assistant"
-          value={assistantEmail}
-          options={assistantOptions}
-          onChange={setAssistantEmail}
-          placeholder="Select assistant"
-        />
-        <button
-          type="submit"
-            disabled={membersControlsDisabled || !agentEmail || !assistantEmail}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
-        >
-          <Plus className="h-4 w-4" /> Add
-        </button>
-      </form>
+      <div className="min-h-0 flex-1 overflow-y-auto">
       {memberRows.map((member) => (
         <div
           key={`${member.agent_email}:${member.cs_email}`}
@@ -2252,7 +2236,9 @@ function ConfigAssistantSection({
           </button>
         </div>
       ))}
+      </div>
       </section>
+      )}
     </>
   );
 }

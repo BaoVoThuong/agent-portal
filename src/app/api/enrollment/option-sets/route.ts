@@ -47,7 +47,6 @@ export async function GET(request: Request) {
         isStage: option.set_key === "stage",
         isTerminal: option.is_terminal,
         triggersQc: option.triggers_qc,
-        treatAsTerminal: option.treat_as_terminal,
       }).ok
     )
     .map((option) => option.id);
@@ -113,7 +112,6 @@ export async function POST(request: Request) {
     isStage: Boolean(setRow.is_stage),
     isTerminal: body?.is_terminal,
     triggersQc: body?.triggers_qc,
-    treatAsTerminal: body?.treat_as_terminal,
   });
   if (!ruleValidation.ok) return NextResponse.json({ error: ruleValidation.error }, { status: 400 });
 
@@ -141,10 +139,9 @@ export async function POST(request: Request) {
       triggers_qc:
         Boolean((setRow as { is_stage: boolean }).is_stage) &&
         Boolean(body?.triggers_qc),
-      treat_as_terminal:
-        program === "aca" &&
-        Boolean((setRow as { is_stage: boolean }).is_stage) &&
-        Boolean(body?.treat_as_terminal),
+      // Kept as a database compatibility column while terminal semantics are
+      // unified on is_terminal. New options must never create a second flag.
+      treat_as_terminal: false,
     })
     .select("id")
     .single();

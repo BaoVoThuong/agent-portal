@@ -69,7 +69,8 @@ export type AcaOverviewStageRow = {
 export type AcaOverviewActionRow = {
   recordId: string; taskId: string | null; clientName: string | null;
   agentEmail: string | null; responsibleEmail: string | null; callerEmail: string | null;
-  stageLabel: string | null; daysInStage: number | null; daysSilent: number | null;
+  stageLabel: string | null; stageColor: string | null;
+  daysInStage: number | null; daysSilent: number | null;
   createdAt: string; lastActivityAt: string | null;
   sortDays: number; stageAgeEstimated: boolean; updatedAt?: string | null;
 };

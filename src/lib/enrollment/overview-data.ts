@@ -59,7 +59,7 @@ export async function fetchEnrollmentOverview(
   if (stageSet) {
     const { data, error } = await supabase
       .from("enrollment_options")
-      .select("id,set_id,label,color,position,is_terminal,treat_as_terminal,triggers_qc,archived_at")
+      .select("id,set_id,label,color,position,is_terminal,triggers_qc,archived_at")
       .eq("set_id", stageSet.id)
       ;
     if (error) throw new Error(error.message);

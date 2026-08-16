@@ -278,16 +278,13 @@ export function ConfigSlaSection({
   }
 
   return (
-    <section className="overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
-      <div className="border-b border-[#dfe1e6] px-6 py-4">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+      <div className="shrink-0 border-b border-[#dfe1e6] px-6 py-4">
         <h2 className="text-lg font-bold">SLA Times</h2>
-        <p className="mt-1 text-sm text-[#6b778c]">
-          Time before an In Progress task becomes Overdue, plus reminder timing.
-        </p>
       </div>
 
-      <div className="grid grid-cols-1 divide-y divide-[#dfe1e6] md:grid-cols-[14rem_minmax(0,1fr)] md:divide-x md:divide-y-0">
-        <section className="flex min-h-0 flex-col bg-[#f7f8f9] p-3">
+      <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-[#dfe1e6] md:grid-cols-[14rem_minmax(0,1fr)] md:divide-x md:divide-y-0">
+        <section className="flex min-h-0 flex-col overflow-y-auto bg-[#f7f8f9] p-3">
           <span className="mb-2 px-1 text-xs font-bold uppercase text-[#6b778c]">
             Priority
           </span>

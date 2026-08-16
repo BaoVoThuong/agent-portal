@@ -78,7 +78,7 @@ export async function fetchEnrollmentOptionData(
   const optionsRes = setIds.length
     ? await supabase
         .from("enrollment_options")
-        .select("id,set_id,label,color,position,is_terminal,treat_as_terminal,triggers_qc,archived_at")
+        .select("id,set_id,label,color,position,is_terminal,triggers_qc,archived_at")
         .in("set_id", setIds)
         .order("label", { ascending: true })
     : { data: [], error: null };

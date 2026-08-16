@@ -1,4 +1,4 @@
-import { isDashboardTerminal } from "./aca-overview-stages";
+import { isTerminalStage } from "./aca-overview-stages";
 import { daysInStage, daysSilent, isSilent, isStuck, medianDays } from "./aca-overview-timing";
 import { MIN_DURATION_SAMPLE } from "./stage-time";
 import type { AcaOverviewInput, AcaOverviewRecord, AcaOverviewScorecards } from "./aca-overview-types";
@@ -17,7 +17,7 @@ export function buildScorecards(input: AcaOverviewInput): AcaOverviewScorecards 
   const terminated = active.filter((r) => anyLabelMatches(stageOf(r), TERMINATED_STAGE_LABELS));
   const terminalIds = new Set([...done, ...terminated].map((r) => r.id));
   const open = active.filter((r) => !terminalIds.has(r.id));
-  const countable = open.filter((r) => !stageOf(r) || !isDashboardTerminal(stageOf(r)!));
+  const countable = open.filter((r) => !stageOf(r) || !isTerminalStage(stageOf(r)!));
   const assignedOpen = open.filter((r) => Boolean(r.responsible_enroll_email));
   const holders = new Set(assignedOpen.map((r) => r.responsible_enroll_email));
   const timeToDone = done.map((r) => r.closed_at ? ageDays(r.created_at, new Date(r.closed_at)) : null);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aggregateAcaOverview } from "./aca-overview-aggregate";
 import { daysSilent, medianDays } from "./aca-overview-timing";
+import { isTerminalStage } from "./aca-overview-stages";
 import type { AcaOverviewInput, AcaOverviewRecord } from "./aca-overview-types";
 import type { EnrollmentOption } from "./types";
 
@@ -16,11 +17,16 @@ const record = (id: string, extra: Partial<AcaOverviewRecord> = {}): AcaOverview
   last_work_activity_at: null, responsible_assigned_at: null, updated_at: "2026-08-13T00:00:00Z", ...extra,
 });
 const input = (records: AcaOverviewRecord[]): AcaOverviewInput => ({
-  records, stages: [stage("open", "1-Need quote"), stage("done", "10-DONE", { is_terminal: true }), stage("cc", "Can't Contact", { treat_as_terminal: true })],
+  records, stages: [stage("open", "1-Need quote"), stage("done", "10-ID card done", { is_terminal: true }), stage("cc", "11-ID card unavailable", { is_terminal: true })],
   people: [{ email: "a@example.com", name: "A", canWork: true, queueEnabled: true }], stageDwellMedianSeconds: new Map(), thresholdDays: 3, now,
 });
 
 describe("ACA overview primitives", () => {
+  it("uses Final Stage as the only terminal signal", () => {
+    expect(isTerminalStage(stage("legacy", "Legacy", { treat_as_terminal: true }))).toBe(false);
+    expect(isTerminalStage(stage("workflow", "Workflow", { is_terminal: true }))).toBe(true);
+  });
+
   it("uses maintained work activity and median ignores nulls", () => {
     expect(daysSilent(record("x", { last_work_activity_at: "2026-08-11T00:00:00Z" }), now)).toBe(2);
     expect(medianDays([null, 1, 5])).toBe(3);
@@ -35,6 +41,7 @@ describe("ACA overview primitives", () => {
     expect(snapshot.scorecards.done).toBe(1);
     expect(snapshot.scorecards.unassigned).toBe(1);
     expect(snapshot.actions.map((row) => row.recordId)).toEqual(["unassigned", "open"]);
+    expect(snapshot.actions.find((row) => row.recordId === "open")?.stageColor).toBe("#123456");
     expect(snapshot.stageTable.find((row) => row.stageId === "cc")?.inStage).toBe(1);
     expect(snapshot.stageTable.find((row) => row.stageId === "open")?.inStage).toBe(1);
     expect(snapshot.matrix.rows).toHaveLength(2);

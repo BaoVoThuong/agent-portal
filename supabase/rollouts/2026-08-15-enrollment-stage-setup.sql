@@ -81,8 +81,11 @@ begin
     ('aca', '8-Need assign PCP', '#FF7452', 80, false, false, false),
     ('aca', '9-Need ID card', '#00875A', 90, false, false, false),
     ('aca', '10-ID card done', '#00875A', 100, true, false, true),
-    ('aca', '11-ID card unavailable', '#FF7452', 110, false, true, false),
-    ('aca', '12-Terminated', '#C9372C', 120, true, false, false),
+    -- Every terminal ACA stage raises QC. The catalog previously said false for
+    -- these two while production had QC switched on through /config, so a re-run
+    -- would have wiped real configuration. Production is the source of truth.
+    ('aca', '11-ID card unavailable', '#FF7452', 110, true, false, true),
+    ('aca', '12-Terminated', '#C9372C', 120, true, false, true),
     ('medicare', '1-Need quote', '#6B778C', 10, false, false, false),
     ('medicare', '2-Quoted', '#0C66E4', 20, false, false, false),
     ('medicare', '3-Waiting for Confirmation', '#F5A524', 30, false, false, false),

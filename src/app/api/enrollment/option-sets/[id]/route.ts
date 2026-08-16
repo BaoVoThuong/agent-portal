@@ -66,8 +66,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
         { status: 409 }
       );
     }
-    // Keep the local variable available to the patch builder below. The
-    // dashboard-terminal flag is intentionally valid only for ACA stages.
+    // Keep the local variable available to the patch builder below.
     optionSet = optionSetRow as { key: string; program: string; is_stage: boolean };
   }
 
@@ -89,16 +88,15 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
   if ("is_terminal" in body) patch.is_terminal = Boolean(body.is_terminal);
   if ("triggers_qc" in body) patch.triggers_qc = Boolean(body.triggers_qc);
-  if ("treat_as_terminal" in body) {
-    patch.treat_as_terminal = Boolean(body.treat_as_terminal);
-  }
+  // Keep legacy rows from retaining the retired dashboard-only semantics when
+  // they are edited through the current API.
+  if (optionSet) patch.treat_as_terminal = false;
   const ruleValidation = validateEnrollmentOptionRules({
     program: optionSet?.program ?? "",
     setKey: optionSet?.key ?? "",
     isStage: Boolean(optionSet?.is_stage),
     isTerminal: body.is_terminal,
     triggersQc: body.triggers_qc,
-    treatAsTerminal: body.treat_as_terminal,
   });
   if (!ruleValidation.ok) {
     return NextResponse.json({ error: ruleValidation.error }, { status: 400 });

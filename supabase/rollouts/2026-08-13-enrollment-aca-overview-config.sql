@@ -1,21 +1,18 @@
--- ACA overview configuration semantics.
--- Additive and safe to run before the application deploy. The default keeps
--- existing records running until the two known ACA terminal outcomes are
--- explicitly marked below.
+-- Legacy compatibility for the retired ACA-only dashboard terminal flag.
+--
+-- The application now has one terminal definition: enrollment_options.is_terminal.
+-- Keep the old column during the rollout so mixed-version deployments and old
+-- snapshots remain readable, but clear every value so it cannot diverge from
+-- workflow semantics. The follow-up stage setup marks the canonical ACA
+-- terminal stages through is_terminal.
 alter table enrollment_options
   add column if not exists treat_as_terminal boolean not null default false;
 
 update enrollment_options options
-set treat_as_terminal = true,
+set treat_as_terminal = false,
     updated_at = now()
-from enrollment_option_sets sets
-where sets.id = options.set_id
-  and sets.program = 'aca'
-  and sets.key = 'stage'
-  and lower(options.label) in ('can''t contact', 'can not get id card')
-  and options.archived_at is null;
+where options.treat_as_terminal is distinct from false;
 
--- Keep the setting stable for future seed re-runs without changing user
--- overrides on unrelated stages.
+-- Keep the compatibility column documented while old clients are phased out.
 comment on column enrollment_options.treat_as_terminal is
-  'ACA overview semantics: stage is terminal for dashboard metrics; independent from is_terminal/QC.';
+  'Legacy compatibility only. Terminal semantics are defined by is_terminal.';

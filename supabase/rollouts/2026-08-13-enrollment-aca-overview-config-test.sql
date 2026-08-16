@@ -1,7 +1,7 @@
 -- Run after 2026-08-13-enrollment-aca-overview-config.sql.
 do $$
 declare
-  missing_count integer;
+  stale_count integer;
 begin
   if not exists (
     select 1 from information_schema.columns
@@ -12,17 +12,12 @@ begin
     raise exception 'enrollment_options.treat_as_terminal is missing';
   end if;
 
-  select count(*) into missing_count
+  select count(*) into stale_count
   from enrollment_options options
-  join enrollment_option_sets sets on sets.id = options.set_id
-  where sets.program = 'aca'
-    and sets.key = 'stage'
-    and lower(options.label) in ('can''t contact', 'can not get id card')
-    and options.archived_at is null
-    and options.treat_as_terminal is distinct from true;
+  where options.treat_as_terminal is distinct from false;
 
-  if missing_count > 0 then
-    raise exception 'expected ACA terminal stages to be configured, found %', missing_count;
+  if stale_count > 0 then
+    raise exception 'legacy treat_as_terminal values remain: %', stale_count;
   end if;
 end;
 $$;

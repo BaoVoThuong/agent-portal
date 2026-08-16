@@ -55,10 +55,10 @@ begin
       and sets.key = 'stage'
       and lower(options.label) = '11-id card unavailable'
       and options.archived_at is null
-      and options.treat_as_terminal
-      and not options.is_terminal
+      and options.is_terminal
+      and not options.treat_as_terminal
   ) then
-    raise exception 'ACA ID card unavailable dashboard semantics are incorrect';
+    raise exception 'ACA ID card unavailable terminal semantics are incorrect';
   end if;
 
   if not exists (

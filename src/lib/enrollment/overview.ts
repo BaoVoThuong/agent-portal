@@ -168,7 +168,7 @@ function requiredMissingItems(
 
 function stageIsBlocking(program: EnrollmentProgram, stage: EnrollmentOption | null): boolean {
   if (!stage) return false;
-  if (program === "aca") return Boolean(stage.treat_as_terminal);
+  if (program === "aca") return Boolean(stage.is_terminal);
   return MEDICARE_BLOCKING_STAGE_LABELS.has(normalizeLabel(stage.label));
 }
 

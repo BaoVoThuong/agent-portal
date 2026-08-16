@@ -7,10 +7,10 @@ import {
 } from "./values";
 
 describe("validateEnrollmentOptionRules", () => {
-  it("allows rules only on Stage and ACA dashboard terminal only on ACA Stage", () => {
+  it("allows terminal and QC rules only on Stage", () => {
     expect(validateEnrollmentOptionRules({ program: "cs", setKey: "category", isStage: false, isTerminal: true }).ok).toBe(false);
-    expect(validateEnrollmentOptionRules({ program: "aca", setKey: "stage", isStage: true, treatAsTerminal: true })).toEqual({ ok: true });
-    expect(validateEnrollmentOptionRules({ program: "medicare", setKey: "stage", isStage: true, treatAsTerminal: true }).ok).toBe(false);
+    expect(validateEnrollmentOptionRules({ program: "aca", setKey: "stage", isStage: true, isTerminal: true, triggersQc: true })).toEqual({ ok: true });
+    expect(validateEnrollmentOptionRules({ program: "medicare", setKey: "carrier", isStage: false, triggersQc: true }).ok).toBe(false);
   });
 });
 
