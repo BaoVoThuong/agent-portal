@@ -269,7 +269,7 @@ function Column({
   return (
     <section
       ref={setNodeRef}
-      className={`flex min-w-0 flex-col rounded border border-transparent bg-[#f4f5f7] p-1.5 transition-colors ${
+      className={`flex min-h-[16rem] min-w-0 flex-col rounded border border-transparent bg-[#f4f5f7] p-1.5 transition-colors ${
         isOver ? "bg-[#deebff]" : ""
       }`}
     >
@@ -540,7 +540,12 @@ export function KanbanBoard({
           setDragItems(null);
         }}
       >
-        <div className="grid min-w-0 grid-cols-5 items-start gap-3">
+        {/* Bỏ items-start, để grid dùng items-stretch mặc định: mọi cột cao
+            bằng cột cao nhất nên nền chạy suốt và đều nhau. Với items-start,
+            cột chỉ cao bằng nội dung — cột rỗng như WAITING/CANCEL co lại
+            thành một hộp tí xíu và trông như mất nền. min-h trên từng cột giữ
+            cho cả bàn vẫn có nền khi CHƯA có task nào. */}
+        <div className="grid min-w-0 grid-cols-5 gap-3">
           {KANBAN_COLUMNS.map((column) => renderColumn(column))}
         </div>
 
