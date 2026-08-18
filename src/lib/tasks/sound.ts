@@ -1,10 +1,13 @@
 // Synthesized chime for new task notifications — no binary asset,
-// just a short arpeggio repeated for a clear 5 second ring. Browsers suspend AudioContext until a
+// just a short arpeggio. Browsers suspend AudioContext until a
 // user gesture; primeNotificationSound() should be called from an early
 // pointerdown/click handler so playback isn't silently dropped later.
 let sharedContext: AudioContext | null = null;
 
-const NOTIFICATION_RING_SECONDS = 5;
+// 1s = arpeggio kêu 2 lượt (mốc 0 và 0.6). Trước đây là 5s ~ 8 lượt, 24 nốt
+// mỗi lần có thông báo — cố ý để nghe thấy khi rời tab, nhưng realtime đẩy
+// tức thì nên mỗi bình luận thành một đợt riêng và reo suốt 5 giây.
+const NOTIFICATION_RING_SECONDS = 1;
 const RING_REPEAT_SECONDS = 0.6;
 const RING_NOTES = [
   { frequency: 784, offset: 0, duration: 0.1 },
