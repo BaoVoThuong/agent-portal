@@ -39,14 +39,31 @@ const LABEL_CLASS =
 // keep their natural height and let the thread absorb the leftover space.
 const COMPACT_DETAIL_FIELD_CLASS = "block shrink-0 space-y-1";
 const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
-const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] resize-none overflow-hidden !px-2 !py-2 leading-6`;
+// The drawer is a fixed 760px column and the description field is shrink-0, so
+// every pixel it grows is a pixel taken from the comment thread below it. Cap
+// it at 5 lines and let it scroll internally instead. max-h mirrors
+// DESCRIPTION_MAX_HEIGHT — Tailwind cannot read the constant, so keep them in
+// sync — and is the fallback ceiling if autosizeTextarea never runs.
+const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] max-h-[138px] resize-none overflow-x-hidden !px-2 !py-2 leading-6`;
 const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
 const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
 
+/** 5 lines at leading-6 (24px) plus the 16px of !py-2 padding. */
+const DESCRIPTION_MAX_HEIGHT = 138;
+const DESCRIPTION_MIN_HEIGHT = 72;
+
 function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
   if (!textarea) return;
+  // Measure against an unclipped box: a leftover height or an existing
+  // scrollbar both feed back into scrollHeight and would ratchet the value.
+  textarea.style.overflowY = "hidden";
   textarea.style.height = "auto";
-  textarea.style.height = `${Math.max(72, textarea.scrollHeight)}px`;
+  const contentHeight = textarea.scrollHeight;
+  textarea.style.height = `${Math.min(
+    DESCRIPTION_MAX_HEIGHT,
+    Math.max(DESCRIPTION_MIN_HEIGHT, contentHeight)
+  )}px`;
+  if (contentHeight > DESCRIPTION_MAX_HEIGHT) textarea.style.overflowY = "auto";
 }
 
 type DetailTab = "comments" | "activity" | "overdue";
