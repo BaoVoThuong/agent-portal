@@ -804,10 +804,10 @@ export function TaskDetailDrawer({
           >
             <h2 className="text-lg font-semibold text-[#172b4d]">Archive task?</h2>
             <p className="mt-2 text-sm leading-6 text-[#5e6c84]">
-              Lưu trữ{" "}
-              <span className="font-semibold text-[#172b4d]">{task.title}</span> kèm
-              toàn bộ comment và file đính kèm. Task sẽ bị ẩn khỏi danh sách active;
-              dữ liệu không bị xoá vĩnh viễn.
+              Archives{" "}
+              <span className="font-semibold text-[#172b4d]">{task.title}</span> along
+              with all its comments and attachments. The task is hidden from active
+              lists; nothing is permanently deleted.
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button

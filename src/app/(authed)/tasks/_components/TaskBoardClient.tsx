@@ -994,12 +994,12 @@ export function TaskBoardClient({
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(data?.error ?? "Không thể xuất task.");
+        setError(data?.error ?? "Could not export tasks.");
         return;
       }
       await downloadResponseFile(response, "health-tasks.xlsx");
     } catch {
-      setError("Không thể xuất task.");
+      setError("Could not export tasks.");
     } finally {
       setExporting(false);
     }
@@ -1180,7 +1180,7 @@ export function TaskBoardClient({
             }),
           });
         } catch {
-          setError("Mất kết nối — không lưu được thay đổi.");
+          setError("Connection lost — your changes were not saved.");
           return;
         }
 
@@ -1192,12 +1192,12 @@ export function TaskBoardClient({
             const canonical = await fetchCanonicalTask(id);
             if (canonical) {
               state.confirmed = canonical;
-              setError("Task đã thay đổi ở nơi khác; đã tải lại bản ghi chuẩn.");
+              setError("This task changed elsewhere; reloaded the current version.");
             } else {
-              setError("Task đã thay đổi ở nơi khác; hãy tải lại để tiếp tục.");
+              setError("This task changed elsewhere; reload to continue.");
             }
           } else {
-            setError(data?.error ?? "Không cập nhật được task.");
+            setError(data?.error ?? "Could not update the task.");
           }
           return;
         }
@@ -1206,11 +1206,11 @@ export function TaskBoardClient({
         if (data.task?.id === id) {
           state.confirmed = data.task;
         } else {
-          setError("Server không trả về task sau khi cập nhật.");
+          setError("The server did not return the task after updating.");
         }
       })
       .catch(() => {
-        setError("Không cập nhật được task.");
+        setError("Could not update the task.");
       })
       .finally(() => {
         state.pending = state.pending.filter((pending) => pending.sequence !== sequence);
@@ -1344,7 +1344,7 @@ export function TaskBoardClient({
     } catch {
       finishPendingMutation();
       updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
-      setError("Mất kết nối — không cập nhật được assignee.");
+      setError("Connection lost — the assignee was not updated.");
       return;
     }
 
@@ -1361,7 +1361,7 @@ export function TaskBoardClient({
       } else {
         updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
       }
-      setError(data?.error ?? "Không cập nhật được assignee.");
+      setError(data?.error ?? "Could not update the assignee.");
       return;
     }
 
@@ -1421,12 +1421,12 @@ export function TaskBoardClient({
         body: JSON.stringify(payload),
       });
     } catch {
-      setError("Mất kết nối — không tạo được task.");
+      setError("Connection lost — the task was not created.");
       throw new Error("Failed to create task.");
     }
     if (!res.ok) {
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
-      setError(data?.error ?? "Không tạo được task.");
+      setError(data?.error ?? "Could not create the task.");
       throw new Error(data?.error ?? "Failed to create task.");
     }
     const data = await res.json();
@@ -1455,7 +1455,7 @@ export function TaskBoardClient({
         restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
         return restored;
       });
-      setError("Mất kết nối — không xoá được task.");
+      setError("Connection lost — the task was not archived.");
       return;
     }
     if (!res.ok) {
@@ -1483,7 +1483,7 @@ export function TaskBoardClient({
           return restored;
         });
       }
-      setError(data?.error ?? "Không xoá được task.");
+      setError(data?.error ?? "Could not archive the task.");
       return;
     }
     finishPendingMutation();
@@ -1553,7 +1553,7 @@ export function TaskBoardClient({
         | { error?: string }
         | null
         | undefined;
-      setError(data?.error ?? "Không lưu được cấu hình bảng.");
+      setError(data?.error ?? "Could not save the table layout.");
     };
 
     const queued = taskLayoutSaveQueueRef.current.then(save, save);
@@ -1609,7 +1609,7 @@ export function TaskBoardClient({
       {exporting ? (
         <div className="notif-toast fixed bottom-4 right-4 z-[200] flex items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-4 py-3 text-sm font-bold text-[#172b4d] shadow-xl">
           <Loader2 className="h-4 w-4 animate-spin text-[#0c66e4]" />
-          Đang xuất Excel…
+          Exporting to Excel…
         </div>
       ) : null}
       <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">

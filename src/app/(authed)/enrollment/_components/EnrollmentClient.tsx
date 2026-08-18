@@ -723,7 +723,7 @@ export function EnrollmentClient({
           | { error?: string }
           | null
           | undefined;
-        setError(data?.error ?? "Không lưu được cấu hình bảng.");
+        setError(data?.error ?? "Could not save the table layout.");
       };
 
       const queued = enrollmentLayoutSaveQueueRef.current.then(save, save);
