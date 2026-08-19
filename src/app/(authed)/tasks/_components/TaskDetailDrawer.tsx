@@ -25,6 +25,10 @@ import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 import { AttachmentStrip } from "./AttachmentStrip";
+import {
+  AttachmentPreviewDialog,
+  type AttachmentPreview,
+} from "./AttachmentPreviewDialog";
 
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
@@ -160,7 +164,11 @@ export function TaskDetailDrawer({
   );
   const [reloadStatus, setReloadStatus] = useState<"idle" | "failed">("idle");
   const [tab, setTab] = useState<DetailTab>("comments");
+  const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const closeAttachmentPreview = useCallback(() => {
+    setAttachmentPreview(null);
+  }, []);
   const onMetadataUpdatedRef = useRef(onMetadataUpdated);
   useEffect(() => {
     onMetadataUpdatedRef.current = onMetadataUpdated;
@@ -539,9 +547,11 @@ export function TaskDetailDrawer({
                     {descriptionContentHeight > DESCRIPTION_MIN_HEIGHT ? (
                       <button
                         type="button"
+                        aria-expanded={descriptionExpanded}
                         // This button sits inside a <label>, whose default is to
                         // focus its control on any click. preventDefault stops
                         // the toggle from also opening the editor.
+                        onMouseDown={(event) => event.preventDefault()}
                         onClick={(event) => {
                           event.preventDefault();
                           setDescriptionExpanded((current) => !current);
@@ -591,7 +601,10 @@ export function TaskDetailDrawer({
                 </label>
               ) : null}
 
-              <AttachmentStrip attachments={detail?.attachments ?? []} />
+              <AttachmentStrip
+                attachments={detail?.attachments ?? []}
+                onPreviewAttachment={setAttachmentPreview}
+              />
 
               <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
@@ -850,6 +863,12 @@ export function TaskDetailDrawer({
           </div>
         </div>
       </div>
+
+      <AttachmentPreviewDialog
+        key={attachmentPreview ? `${attachmentPreview.url}:${attachmentPreview.fileName}` : "closed"}
+        preview={attachmentPreview}
+        onClose={closeAttachmentPreview}
+      />
 
       {confirmingDelete && (
         <div

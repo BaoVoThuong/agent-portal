@@ -14,8 +14,11 @@ import {
   ImageIcon,
   MoreHorizontal,
   Paperclip,
+  RotateCcw,
   Send,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
@@ -115,6 +118,9 @@ const MENTION_MENU_MAX_HEIGHT = 224;
 const MENTION_MENU_ROW_HEIGHT = 44;
 const MENTION_MENU_GAP = 6;
 const MENTION_MENU_VIEWPORT_PADDING = 8;
+const PREVIEW_ZOOM_MIN = 0.5;
+const PREVIEW_ZOOM_MAX = 3;
+const PREVIEW_ZOOM_STEP = 0.25;
 
 async function readResponseError(
   response: Response,
@@ -126,21 +132,36 @@ async function readResponseError(
   return data?.error ?? fallback;
 }
 
-type ImagePreview = {
+type AttachmentPreview = {
   url: string;
   fileName: string;
+  mimeType: string | null;
   trigger?: HTMLElement | null;
 };
 
-const isImage = (mime: string | null) =>
-  Boolean(mime && mime.startsWith("image/"));
+const PREVIEWABLE_IMAGE_MIMES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const isPreviewableImage = (mime: string | null) =>
+  Boolean(mime && PREVIEWABLE_IMAGE_MIMES.has(mime));
+const isInlinePreview = (mime: string | null) =>
+  mime === "application/pdf" || mime === "text/csv" || mime === "text/plain";
 
 function isAllowedClientAttachment(file: File): boolean {
   const inferred = inferAttachmentMimeType(file.name, file.type || undefined);
   return ATTACHMENT_ALLOWED_MIME_TYPES.includes(inferred);
 }
 
-function AttachmentLink({ attachment }: { attachment: SignedAttachment }) {
+function AttachmentLink({
+  attachment,
+  onPreview,
+}: {
+  attachment: SignedAttachment;
+  onPreview?: (preview: AttachmentPreview) => void;
+}) {
   const size = attachment.size_bytes == null ? "Size unavailable" : formatAttachmentSize(attachment.size_bytes);
   if (attachment.unavailable || !attachment.url) {
     return (
@@ -152,18 +173,39 @@ function AttachmentLink({ attachment }: { attachment: SignedAttachment }) {
       </span>
     );
   }
+  if (!onPreview) {
+    return (
+      <a
+        href={attachment.url}
+        download={attachment.file_name}
+        aria-label={`Download ${attachment.file_name}`}
+        title={`${attachment.file_name} · ${size}`}
+        className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-[#fafbfc] px-2 py-1 text-xs font-medium text-[#0c66e4] transition hover:bg-[#e9f2ff] hover:underline"
+      >
+        <FileText className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{attachment.file_name} · {size}</span>
+      </a>
+    );
+  }
+
   return (
-    <a
-      href={attachment.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={`Open ${attachment.file_name}`}
+    <button
+      type="button"
+      onClick={(event) =>
+        onPreview({
+          url: attachment.url!,
+          fileName: attachment.file_name,
+          mimeType: attachment.mime_type,
+          trigger: event.currentTarget,
+        })
+      }
+      aria-label={`Preview ${attachment.file_name}`}
       title={`${attachment.file_name} · ${size}`}
       className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-[#fafbfc] px-2 py-1 text-xs font-medium text-[#0c66e4] transition hover:bg-[#e9f2ff] hover:underline"
     >
       <FileText className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 truncate">{attachment.file_name} · {size}</span>
-    </a>
+    </button>
   );
 }
 
@@ -365,8 +407,9 @@ export function CommentThread({
 }) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
-  const [imagePreview, setImagePreview] = useState<ImagePreview | null>(null);
+  const [imagePreview, setImagePreview] = useState<AttachmentPreview | null>(null);
   const [previewStatus, setPreviewStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const [previewZoom, setPreviewZoom] = useState(1);
   const rootRef = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const previewCloseRef = useRef<HTMLButtonElement | null>(null);
@@ -439,6 +482,7 @@ export function CommentThread({
   useEffect(() => {
     if (!imagePreview) return;
     setPreviewStatus("loading");
+    setPreviewZoom(1);
     previewTriggerRef.current = imagePreview.trigger ?? (document.activeElement as HTMLElement | null);
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -448,6 +492,25 @@ export function CommentThread({
       if (event.key === "Escape") {
         event.preventDefault();
         setImagePreview(null);
+        return;
+      }
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        setPreviewZoom((current) =>
+          Math.min(PREVIEW_ZOOM_MAX, current + PREVIEW_ZOOM_STEP),
+        );
+        return;
+      }
+      if (event.key === "-") {
+        event.preventDefault();
+        setPreviewZoom((current) =>
+          Math.max(PREVIEW_ZOOM_MIN, current - PREVIEW_ZOOM_STEP),
+        );
+        return;
+      }
+      if (event.key === "0") {
+        event.preventDefault();
+        setPreviewZoom(1);
         return;
       }
       if (event.key !== "Tab") return;
@@ -871,6 +934,12 @@ export function CommentThread({
     .sort((a, b) => timestampOf(a) - timestampOf(b));
   const rowIds = rows.map((comment) => comment.id);
   const rowSignature = rowIds.join("|");
+  const previewIsImage = imagePreview
+    ? isPreviewableImage(imagePreview.mimeType)
+    : false;
+  const previewIsInlineFile = imagePreview
+    ? isInlinePreview(imagePreview.mimeType)
+    : false;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -980,7 +1049,7 @@ export function CommentThread({
                   onEdit={edit}
                   onReply={c.optimistic ? undefined : () => setReplyTo(c.id)}
                   onRetryFile={c.optimistic ? (fileId) => void retryFile(c.id, fileId) : undefined}
-                  onPreviewImage={setImagePreview}
+                  onPreviewAttachment={setImagePreview}
                 />
                 <div className="ml-3 space-y-2 border-l-2 border-[#dfe1e6] pl-3 sm:ml-5 sm:pl-4">
                   {repliesOf(c.id).map((rc) => (
@@ -996,7 +1065,7 @@ export function CommentThread({
                         onDelete={rc.optimistic ? releaseOptimistic : remove}
                         onEdit={edit}
                         onRetryFile={rc.optimistic ? (fileId) => void retryFile(rc.id, fileId) : undefined}
-                        onPreviewImage={setImagePreview}
+                        onPreviewAttachment={setImagePreview}
                       />
                     </div>
                   ))}
@@ -1076,27 +1145,124 @@ export function CommentThread({
                   </button>
                 </div>
                 <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[#f7f8f9] p-3">
-                  {previewStatus === "loading" ? (
-                    <p className="px-4 py-8 text-sm font-semibold text-[#6b778c]" role="status">
-                      Loading preview…
-                    </p>
-                  ) : null}
-                  {previewStatus === "error" ? (
-                    <div className="px-4 py-8 text-center" role="alert">
-                      <p className="text-sm font-semibold text-[#bf2600]">Preview unavailable.</p>
-                      <p className="mt-1 text-xs text-[#6b778c]">The signed link may have expired.</p>
+                  {previewIsImage ? (
+                    <>
+                      {previewStatus === "loading" ? (
+                        <p className="px-4 py-8 text-sm font-semibold text-[#6b778c]" role="status">
+                          Loading preview…
+                        </p>
+                      ) : null}
+                      {previewStatus === "error" ? (
+                        <div className="px-4 py-8 text-center" role="alert">
+                          <p className="text-sm font-semibold text-[#bf2600]">Preview unavailable.</p>
+                          <p className="mt-1 text-xs text-[#6b778c]">The signed link may have expired.</p>
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPreviewZoom((current) =>
+                            current >= PREVIEW_ZOOM_MAX
+                              ? 1
+                              : Math.min(PREVIEW_ZOOM_MAX, current + 0.5),
+                          )
+                        }
+                        disabled={previewStatus !== "loaded"}
+                        aria-label={
+                          previewZoom >= PREVIEW_ZOOM_MAX
+                            ? "Reset image zoom"
+                            : "Zoom in image"
+                        }
+                        className={`border-0 bg-transparent p-0 outline-none transition-opacity focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[#85b8ff] disabled:pointer-events-none ${previewZoom >= PREVIEW_ZOOM_MAX ? "cursor-zoom-out" : "cursor-zoom-in"}`}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={imagePreview.url}
+                          alt={imagePreview.fileName}
+                          onLoad={() => setPreviewStatus("loaded")}
+                          onError={() => setPreviewStatus("error")}
+                          className={`max-h-[calc(100vh-10rem)] max-w-full object-contain transition-transform duration-150 ${previewStatus === "loaded" ? "" : "hidden"}`}
+                          style={{
+                            transform: `scale(${previewZoom})`,
+                            transformOrigin: "center center",
+                          }}
+                        />
+                      </button>
+                    </>
+                  ) : previewIsInlineFile ? (
+                    <iframe
+                      src={imagePreview.url}
+                      title={`Preview of ${imagePreview.fileName}`}
+                      className="h-full min-h-[min(70vh,48rem)] w-full rounded border border-[#dfe1e6] bg-white"
+                    />
+                  ) : (
+                    <div className="max-w-md px-4 py-8 text-center">
+                      <FileText className="mx-auto h-10 w-10 text-[#97a0af]" />
+                      <p className="mt-3 text-sm font-semibold text-[#44546f]">
+                        Preview is not available for this file type.
+                      </p>
+                      <p className="mt-1 text-xs text-[#6b778c]">
+                        Use Open or Download to view the file with a compatible application.
+                      </p>
                     </div>
-                  ) : null}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={imagePreview.url}
-                    alt={imagePreview.fileName}
-                    onLoad={() => setPreviewStatus("loaded")}
-                    onError={() => setPreviewStatus("error")}
-                    className={`max-h-[calc(100vh-10rem)] max-w-full object-contain ${previewStatus === "loaded" ? "" : "hidden"}`}
-                  />
+                  )}
                 </div>
-                <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[#dfe1e6] px-4 py-2.5">
+                <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#dfe1e6] px-4 py-2.5">
+                  {previewIsImage ? (
+                  <div className="flex items-center gap-1 rounded border border-[#dfe1e6] bg-[#fafbfc] p-1" aria-label="Image zoom controls">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPreviewZoom((current) =>
+                          Math.max(PREVIEW_ZOOM_MIN, current - PREVIEW_ZOOM_STEP),
+                        )
+                      }
+                      disabled={previewZoom <= PREVIEW_ZOOM_MIN}
+                      aria-label="Zoom out"
+                      title="Zoom out"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded text-[#44546f] transition hover:bg-[#e9f2ff] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ZoomOut className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewZoom(1)}
+                      aria-label="Reset image zoom"
+                      title="Reset zoom"
+                      className="min-w-14 rounded px-2 py-1.5 text-xs font-semibold text-[#44546f] transition hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                    >
+                      {Math.round(previewZoom * 100)}%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPreviewZoom((current) =>
+                          Math.min(PREVIEW_ZOOM_MAX, current + PREVIEW_ZOOM_STEP),
+                        )
+                      }
+                      disabled={previewZoom >= PREVIEW_ZOOM_MAX}
+                      aria-label="Zoom in"
+                      title="Zoom in"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded text-[#44546f] transition hover:bg-[#e9f2ff] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ZoomIn className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewZoom(1)}
+                      aria-label="Reset image zoom"
+                      title="Reset zoom"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded text-[#44546f] transition hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  ) : (
+                    <span className="text-xs font-semibold text-[#6b778c]">
+                      {previewIsInlineFile ? "File preview" : "File attachment"}
+                    </span>
+                  )}
+                  <div className="flex items-center justify-end gap-2">
                   <a
                     href={imagePreview.url}
                     target="_blank"
@@ -1112,6 +1278,7 @@ export function CommentThread({
                   >
                     Download
                   </a>
+                  </div>
                 </div>
               </div>
             </div>,
@@ -1157,7 +1324,7 @@ function CommentItem({
   onEdit,
   onReply,
   onRetryFile,
-  onPreviewImage,
+  onPreviewAttachment,
 }: {
   c: Comment;
   taskId: string;
@@ -1170,7 +1337,7 @@ function CommentItem({
   onEdit: (id: string, body: string, expectedUpdatedAt: string | null, newMentions?: string[]) => Promise<EditOutcome>;
   onReply?: () => void;
   onRetryFile?: (fileId: string) => void;
-  onPreviewImage: (preview: ImagePreview) => void;
+  onPreviewAttachment: (preview: AttachmentPreview) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -1353,15 +1520,19 @@ function CommentItem({
                 <div className="mt-1.5 flex flex-wrap gap-2">
                   {c.attachments.map((a) =>
                     a.unavailable || !a.url ? (
-                      <AttachmentLink key={a.id} attachment={a} />
-                    ) : isImage(a.mime_type) ? (
+                      <AttachmentLink
+                        key={a.id}
+                        attachment={a}
+                      />
+                    ) : isPreviewableImage(a.mime_type) ? (
                       <button
                         key={a.id}
                         type="button"
                         onClick={(event) =>
-                          onPreviewImage({
+                          onPreviewAttachment({
                             url: a.url!,
                             fileName: a.file_name,
+                            mimeType: a.mime_type,
                             trigger: event.currentTarget,
                           })
                         }
@@ -1375,7 +1546,15 @@ function CommentItem({
                         />
                       </button>
                     ) : (
-                      <AttachmentLink key={a.id} attachment={a} />
+                      <AttachmentLink
+                        key={a.id}
+                        attachment={a}
+                        onPreview={
+                          isInlinePreview(a.mime_type)
+                            ? onPreviewAttachment
+                            : undefined
+                        }
+                      />
                     ),
                   )}
                 </div>

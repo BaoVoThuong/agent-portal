@@ -2,8 +2,18 @@
 
 import { ExternalLink, Paperclip } from "lucide-react";
 import type { SignedAttachment } from "@/lib/tasks/detail";
+import {
+  canPreviewAttachment,
+  type AttachmentPreview,
+} from "./AttachmentPreviewDialog";
 
-export function AttachmentStrip({ attachments }: { attachments: SignedAttachment[] }) {
+export function AttachmentStrip({
+  attachments,
+  onPreviewAttachment,
+}: {
+  attachments: SignedAttachment[];
+  onPreviewAttachment?: (preview: AttachmentPreview) => void;
+}) {
   if (attachments.length === 0) return null;
 
   return (
@@ -22,13 +32,32 @@ export function AttachmentStrip({ attachments }: { attachments: SignedAttachment
                 <Paperclip className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">{attachment.file_name}</span>
               </span>
+            ) : canPreviewAttachment(attachment.mime_type) && onPreviewAttachment ? (
+              <button
+                type="button"
+                onClick={(event) =>
+                  onPreviewAttachment({
+                    url: attachment.url!,
+                    fileName: attachment.file_name,
+                    mimeType: attachment.mime_type,
+                    trigger: event.currentTarget,
+                  })
+                }
+                className="inline-flex max-w-full items-center gap-1 rounded border-0 bg-[#e9f2ff] px-2 py-1 text-xs font-semibold text-[#0c66e4] hover:bg-[#deebff]"
+                title={`Preview ${attachment.file_name}`}
+                aria-label={`Preview ${attachment.file_name}`}
+              >
+                <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{attachment.file_name}</span>
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+              </button>
             ) : (
               <a
                 href={attachment.url}
-                target="_blank"
-                rel="noopener noreferrer"
+                download={attachment.file_name}
                 className="inline-flex max-w-full items-center gap-1 rounded bg-[#e9f2ff] px-2 py-1 text-xs font-semibold text-[#0c66e4] hover:bg-[#deebff]"
                 title={attachment.file_name}
+                aria-label={`Download ${attachment.file_name}`}
               >
                 <Paperclip className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">{attachment.file_name}</span>
