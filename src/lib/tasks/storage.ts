@@ -83,6 +83,26 @@ export async function signTaskFile(path: string, expiresIn = 3600): Promise<stri
   return data.signedUrl;
 }
 
+export type BatchSignedTaskFile = {
+  error: string | null;
+  path: string | null;
+  signedUrl: string | null;
+};
+
+/** Sign many private task objects with one Storage API round-trip. */
+export async function signTaskFiles(
+  paths: string[],
+  expiresIn = 3600,
+): Promise<BatchSignedTaskFile[]> {
+  if (paths.length === 0) return [];
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.storage
+    .from(TASK_BUCKET)
+    .createSignedUrls(paths, expiresIn);
+  if (error || !data) throw new Error(error?.message ?? "Could not sign files");
+  return data;
+}
+
 export async function removeTaskFile(path: string): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.storage.from(TASK_BUCKET).remove([path]);

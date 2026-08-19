@@ -8,8 +8,12 @@ import { formatEmailAsName } from "@/lib/tasks/people";
 import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
 import type { TaskDetail, TaskDetailMetadata } from "@/lib/tasks/detail";
 import {
+  DETAIL_OPEN_FRESH_MS,
+  fetchTaskDetail,
   getCachedTaskDetail,
+  getCachedTaskDetailAgeMs,
   invalidateTaskDetail,
+  refreshTaskDetail,
   setCachedTaskDetail,
 } from "@/lib/tasks/detail-cache";
 import { taskDisplayKey } from "@/lib/tasks/sorting";
@@ -170,32 +174,37 @@ export function TaskDetailDrawer({
     setAttachmentPreview(null);
   }, []);
   const onMetadataUpdatedRef = useRef(onMetadataUpdated);
+  const detailRequestSequenceRef = useRef(0);
+  const suppressOpenRevalidationRef = useRef(false);
   useEffect(() => {
     onMetadataUpdatedRef.current = onMetadataUpdated;
   }, [onMetadataUpdated]);
 
+  const applyLoadedDetail = useCallback((data: TaskDetail, sequence: number) => {
+    if (sequence !== detailRequestSequenceRef.current) return;
+    setDetail(data);
+    if (data.metadata) onMetadataUpdatedRef.current?.(data.metadata);
+    setReloadStatus("idle");
+  }, []);
+
   const reload = useCallback(async (): Promise<"ok" | "failed"> => {
-    invalidateTaskDetail(task.id);
+    // Mutation/realtime data supersedes the one-off open reconciliation.
+    suppressOpenRevalidationRef.current = true;
+    const sequence = ++detailRequestSequenceRef.current;
     try {
-      const params = highlightCommentId
-        ? `?comment_id=${encodeURIComponent(highlightCommentId)}`
-        : "";
-      const res = await fetch(`/api/tasks/${task.id}/detail${params}`);
-      if (!res.ok) {
-        setReloadStatus("failed");
-        return "failed";
-      }
-      const data = (await res.json()) as TaskDetail;
-      setCachedTaskDetail(task.id, data);
-      setDetail(data);
-      if (data.metadata) onMetadataUpdatedRef.current?.(data.metadata);
-      setReloadStatus("idle");
+      const data = await refreshTaskDetail(task.id, {
+        commentId: highlightCommentId,
+        source: "mutation",
+      });
+      applyLoadedDetail(data, sequence);
       return "ok";
     } catch {
-      setReloadStatus("failed");
+      if (sequence === detailRequestSequenceRef.current) {
+        setReloadStatus("failed");
+      }
       return "failed";
     }
-  }, [highlightCommentId, task.id]);
+  }, [applyLoadedDetail, highlightCommentId, task.id]);
 
   const loadOlderComments = useCallback(async () => {
     if (!detail?.commentsHasMore) return;
@@ -203,14 +212,21 @@ export function TaskDetailDrawer({
       .filter((comment) => typeof comment.created_at === "string")
       .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id.localeCompare(b.id))[0];
     if (!oldest) return;
+    suppressOpenRevalidationRef.current = true;
     const params = new URLSearchParams({
       comments_before_created_at: String(oldest.created_at),
       comments_before_id: oldest.id,
+      request_source: "open",
     });
+    const sequence = ++detailRequestSequenceRef.current;
+    // Supersede any first-page revalidation. Its response may still finish,
+    // but cannot overwrite the cache or the expanded thread.
+    invalidateTaskDetail(task.id);
     const res = await fetch(`/api/tasks/${task.id}/detail?${params.toString()}`);
     if (!res.ok) throw new Error("Could not load older comments.");
     const older = (await res.json()) as TaskDetail;
     setDetail((current) => {
+      if (sequence !== detailRequestSequenceRef.current) return current;
       if (!current) return older;
       const byId = new Map(current.comments.map((comment) => [comment.id, comment]));
       for (const comment of older.comments) byId.set(comment.id, comment);
@@ -295,9 +311,64 @@ export function TaskDetailDrawer({
   }, [task.fub_link]);
 
   useEffect(() => {
-    const timer = setTimeout(() => void reload(), 0);
-    return () => clearTimeout(timer);
-  }, [reload]);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    suppressOpenRevalidationRef.current = false;
+
+    const load = (source: "open" | "revalidate") => {
+      const sequence = ++detailRequestSequenceRef.current;
+      void fetchTaskDetail(task.id, {
+        commentId: highlightCommentId,
+        source,
+      })
+        .then((data) => {
+          if (!cancelled) applyLoadedDetail(data, sequence);
+        })
+        .catch(() => {
+          if (!cancelled && sequence === detailRequestSequenceRef.current) {
+            setReloadStatus("failed");
+          }
+        });
+    };
+
+    const revalidateWhenStale = () => {
+      if (suppressOpenRevalidationRef.current) return;
+      const age = getCachedTaskDetailAgeMs(task.id);
+      if (age !== null && age < DETAIL_OPEN_FRESH_MS) {
+        timer = setTimeout(
+          revalidateWhenStale,
+          Math.max(1, DETAIL_OPEN_FRESH_MS - age),
+        );
+        return;
+      }
+      load("revalidate");
+    };
+
+    const cached = getCachedTaskDetail(task.id);
+    const cachedAge = cached ? getCachedTaskDetailAgeMs(task.id) : null;
+    if (!cached || cachedAge === null) {
+      load("open");
+    } else {
+      // Covers the narrow race where hover-prefetch resolves after the state
+      // initializer ran but before this effect starts.
+      applyLoadedDetail(cached, ++detailRequestSequenceRef.current);
+      if (highlightCommentId) {
+        // A deep-link variant may need a comment outside the cached first page.
+        load("revalidate");
+      } else {
+        // Keep the cached UI visible. If it came from a just-finished hover,
+        // defer the background refresh long enough to avoid an immediate second
+        // request; an older cache revalidates now.
+        const delay = Math.max(0, DETAIL_OPEN_FRESH_MS - cachedAge);
+        timer = setTimeout(revalidateWhenStale, delay);
+      }
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [applyLoadedDetail, highlightCommentId, task.id]);
 
   useEffect(() => {
     if (!highlightCommentId) return;
