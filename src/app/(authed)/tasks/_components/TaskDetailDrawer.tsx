@@ -49,22 +49,31 @@ const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] max-h-[138px] res
 const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
 const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
 
-/** 5 lines at leading-6 (24px) plus the 16px of !py-2 padding. */
-const DESCRIPTION_MAX_HEIGHT = 138;
+/** Collapsed: 2 lines at leading-6 (24px) plus the 16px of !py-2 padding. */
 const DESCRIPTION_MIN_HEIGHT = 72;
+/** Expanded: 5 lines plus the same padding. Mirrors max-h-[138px] in the class. */
+const DESCRIPTION_MAX_HEIGHT = 138;
 
-function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
-  if (!textarea) return;
+/**
+ * Returns the untruncated content height so the caller can decide whether a
+ * "Show more" control is warranted.
+ */
+function autosizeTextarea(
+  textarea: HTMLTextAreaElement | null,
+  maxHeight: number
+): number {
+  if (!textarea) return 0;
   // Measure against an unclipped box: a leftover height or an existing
   // scrollbar both feed back into scrollHeight and would ratchet the value.
   textarea.style.overflowY = "hidden";
   textarea.style.height = "auto";
   const contentHeight = textarea.scrollHeight;
   textarea.style.height = `${Math.min(
-    DESCRIPTION_MAX_HEIGHT,
+    maxHeight,
     Math.max(DESCRIPTION_MIN_HEIGHT, contentHeight)
   )}px`;
-  if (contentHeight > DESCRIPTION_MAX_HEIGHT) textarea.style.overflowY = "auto";
+  if (contentHeight > maxHeight) textarea.style.overflowY = "auto";
+  return contentHeight;
 }
 
 type DetailTab = "comments" | "activity" | "overdue";
@@ -206,9 +215,30 @@ export function TaskDetailDrawer({
     });
   }, [detail, task.id]);
 
+  // Collapsed by default so the comment thread — the only flex-1 child of this
+  // fixed-height column — starts with usable room. Expands on demand and on
+  // focus, because you cannot edit what you cannot see.
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const [descriptionContentHeight, setDescriptionContentHeight] = useState(0);
+  const descriptionCeiling = descriptionExpanded
+    ? DESCRIPTION_MAX_HEIGHT
+    : DESCRIPTION_MIN_HEIGHT;
+
   useEffect(() => {
-    autosizeTextarea(descriptionRef.current);
-  }, [description]);
+    setDescriptionContentHeight(
+      autosizeTextarea(descriptionRef.current, descriptionCeiling)
+    );
+  }, [description, descriptionCeiling]);
+
+  // Collapse again when a different task is opened: the drawer is reused across
+  // tasks rather than remounted, so this would otherwise carry over. Adjusted
+  // during render rather than in an effect — that is React's documented pattern
+  // for resetting state on a prop change, and react-hooks flags the effect form.
+  const [collapseSyncedTaskId, setCollapseSyncedTaskId] = useState(task.id);
+  if (collapseSyncedTaskId !== task.id) {
+    setCollapseSyncedTaskId(task.id);
+    setDescriptionExpanded(false);
+  }
 
   useEffect(() => {
     const draft = draftStateRef.current.summary;
@@ -405,101 +435,122 @@ export function TaskDetailDrawer({
         <div className="flex-1 overflow-y-auto lg:overflow-hidden">
           <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
             <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
-              {showTitle ? (
-                <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>
-                    {columnByKey.get("summary")?.label ?? "Client Name"}
-                    {requiredColumnKeys.has("summary") ? REQUIRED_MARK : null}
-                  </span>
-                  <input
-                    value={title}
-                    disabled={!canEdit}
-                    onChange={(e) => {
-                      beginDraft("summary", task.title);
-                      setTitle(e.target.value);
-                      clearInvalid("summary");
-                    }}
-                    onBlur={() => {
-                      if (!canEdit) return;
-                      const trimmed = title.trim();
-                      if (requiredColumnKeys.has("summary") && !trimmed) {
-                        setTitle(task.title);
-                        finishDraft("summary");
-                        markInvalid("summary");
-                        return;
-                      }
-                      if (trimmed && title !== task.title) {
-                        onPatch({ title: trimmed });
-                      }
-                      finishDraft("summary");
-                    }}
-                    className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("summary") ? INVALID_RING_CLASS : ""}`}
-                  />
-                  {hasDraftConflict("summary") ? (
-                    <span role="alert" className="text-xs font-semibold text-[#bf2600]">
-                      This value changed elsewhere while you were editing. Review before saving.
+              {showTitle || showFub ? (
+                <>
+                {showTitle ? (
+                  <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("summary")?.label ?? "Client Name"}
+                      {requiredColumnKeys.has("summary") ? REQUIRED_MARK : null}
                     </span>
-                  ) : null}
-                </label>
-              ) : null}
-
-              {showFub ? (
-                <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>
-                    {columnByKey.get("fub")?.label ?? "FUB Link"}
-                    {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
-                  </span>
-                  <div className="flex gap-1.5">
                     <input
-                      value={fubLink}
+                      value={title}
                       disabled={!canEdit}
                       onChange={(e) => {
-                        beginDraft("fub", task.fub_link ?? "");
-                        setFubLink(e.target.value);
-                        clearInvalid("fub");
+                        beginDraft("summary", task.title);
+                        setTitle(e.target.value);
+                        clearInvalid("summary");
                       }}
                       onBlur={() => {
                         if (!canEdit) return;
-                        const next = fubLink.trim();
-                        if (requiredColumnKeys.has("fub") && !next) {
-                          setFubLink(task.fub_link ?? "");
-                          finishDraft("fub");
-                          markInvalid("fub");
+                        const trimmed = title.trim();
+                        if (requiredColumnKeys.has("summary") && !trimmed) {
+                          setTitle(task.title);
+                          finishDraft("summary");
+                          markInvalid("summary");
                           return;
                         }
-                        if (next !== (task.fub_link ?? "")) {
-                          onPatch({ fub_link: next || null });
+                        if (trimmed && title !== task.title) {
+                          onPatch({ title: trimmed });
                         }
-                        finishDraft("fub");
+                        finishDraft("summary");
                       }}
-                      placeholder="No FUB link"
-                      className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("fub") ? INVALID_RING_CLASS : ""}`}
+                      className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("summary") ? INVALID_RING_CLASS : ""}`}
                     />
-                    {fubHref ? (
-                      <a
-                        href={fubHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label="Open FUB link"
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
+                    {hasDraftConflict("summary") ? (
+                      <span role="alert" className="text-xs font-semibold text-[#bf2600]">
+                        This value changed elsewhere while you were editing. Review before saving.
+                      </span>
                     ) : null}
-                  </div>
-                  {hasDraftConflict("fub") ? (
-                    <span role="alert" className="text-xs font-semibold text-[#bf2600]">
-                      This value changed elsewhere while you were editing. Review before saving.
+                  </label>
+                ) : null}
+
+                {showFub ? (
+                  <label className={COMPACT_DETAIL_FIELD_CLASS}>
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("fub")?.label ?? "FUB Link"}
+                      {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
                     </span>
-                  ) : null}
-                </label>
+                    <div className="flex gap-1.5">
+                      <input
+                        value={fubLink}
+                        disabled={!canEdit}
+                        onChange={(e) => {
+                          beginDraft("fub", task.fub_link ?? "");
+                          setFubLink(e.target.value);
+                          clearInvalid("fub");
+                        }}
+                        onBlur={() => {
+                          if (!canEdit) return;
+                          const next = fubLink.trim();
+                          if (requiredColumnKeys.has("fub") && !next) {
+                            setFubLink(task.fub_link ?? "");
+                            finishDraft("fub");
+                            markInvalid("fub");
+                            return;
+                          }
+                          if (next !== (task.fub_link ?? "")) {
+                            onPatch({ fub_link: next || null });
+                          }
+                          finishDraft("fub");
+                        }}
+                        placeholder="No FUB link"
+                        className={`${COMPACT_DETAIL_INPUT_CLASS} ${isInvalid("fub") ? INVALID_RING_CLASS : ""}`}
+                      />
+                      {fubHref ? (
+                        <a
+                          href={fubHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label="Open FUB link"
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-[#dfe1e6] bg-white text-[#44546f] transition hover:border-[#85b8ff] hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null}
+                    </div>
+                    {hasDraftConflict("fub") ? (
+                      <span role="alert" className="text-xs font-semibold text-[#bf2600]">
+                        This value changed elsewhere while you were editing. Review before saving.
+                      </span>
+                    ) : null}
+                  </label>
+                ) : null}
+                </>
               ) : null}
 
               {showDescription ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>
-                    {columnByKey.get("description")?.label ?? "Description"}
-                    {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
+                  <span className={`${LABEL_CLASS} flex items-center justify-between gap-2`}>
+                    <span className="min-w-0 truncate">
+                      {columnByKey.get("description")?.label ?? "Description"}
+                      {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
+                    </span>
+                    {descriptionContentHeight > DESCRIPTION_MIN_HEIGHT ? (
+                      <button
+                        type="button"
+                        // This button sits inside a <label>, whose default is to
+                        // focus its control on any click. preventDefault stops
+                        // the toggle from also opening the editor.
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setDescriptionExpanded((current) => !current);
+                        }}
+                        className="shrink-0 rounded px-1 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[#0c66e4] transition hover:bg-[#e9f2ff]"
+                      >
+                        {descriptionExpanded ? "Show less" : "Show more"}
+                      </button>
+                    ) : null}
                   </span>
                   <textarea
                     ref={descriptionRef}
@@ -508,10 +559,14 @@ export function TaskDetailDrawer({
                     onChange={(e) => {
                       beginDraft("description", task.description ?? "");
                       setDescription(e.target.value);
-                      autosizeTextarea(e.currentTarget);
+                      setDescriptionContentHeight(
+                        autosizeTextarea(e.currentTarget, descriptionCeiling)
+                      );
                       clearInvalid("description");
                     }}
+                    onFocus={() => setDescriptionExpanded(true)}
                     onBlur={() => {
+                      setDescriptionExpanded(false);
                       if (!canEdit) return;
                       if (requiredColumnKeys.has("description") && !description.trim()) {
                         setDescription(task.description ?? "");
