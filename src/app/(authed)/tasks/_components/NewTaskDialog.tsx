@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Paperclip, X } from "lucide-react";
 import {
   TASK_STATUSES,
   STATUS_LABEL,
@@ -15,6 +15,14 @@ import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { TaskSelect } from "./TaskSelect";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
 import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
+import {
+  addPendingFiles,
+  ATTACHMENT_ACCEPT_ATTRIBUTE,
+  removePendingFile,
+  summariseUploadResults,
+  type PendingFile,
+} from "@/lib/tasks/pending-attachments";
+import { formatAttachmentSize } from "@/lib/tasks/attachments";
 
 const SIDE_INPUT_CLASS =
   "h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none transition placeholder:font-normal placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
@@ -86,7 +94,7 @@ export function NewTaskDialog({
   requiredColumnKeys: ReadonlySet<string>;
   columnByKey: ReadonlyMap<string, { label: string }>;
   onClose: () => void;
-  onCreate: (payload: NewTaskPayload) => Promise<void>;
+  onCreate: (payload: NewTaskPayload) => Promise<{ id: string }>;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -99,6 +107,10 @@ export function NewTaskDialog({
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [saving, setSaving] = useState(false);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const createRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -209,7 +221,7 @@ export function NewTaskDialog({
       visibleDetailColumns
     );
     try {
-      await onCreate({
+      const created = await onCreate({
         title: title.trim(),
         description: description.trim(),
         fub_link: fubLink.trim() || undefined,
@@ -223,6 +235,36 @@ export function NewTaskDialog({
           : {}),
         client_request_id: createRequestIdRef.current ?? crypto.randomUUID(),
       });
+      if (pendingFiles.length > 0) {
+        const results: { name: string; ok: boolean }[] = [];
+        const failedKeys = new Set<string>();
+        for (const [index, item] of pendingFiles.entries()) {
+          setUploadingIndex(index);
+          const body = new FormData();
+          body.append("file", item.file);
+          body.append("silent", "1");
+          body.append("client_request_id", item.key);
+          try {
+            const response = await fetch(`/api/tasks/${created.id}/attachments`, {
+              method: "POST",
+              body,
+            });
+            const ok = response.ok;
+            results.push({ name: item.name, ok });
+            if (!ok) failedKeys.add(item.key);
+          } catch {
+            results.push({ name: item.name, ok: false });
+            failedKeys.add(item.key);
+          }
+        }
+        setUploadingIndex(null);
+        const uploadSummary = summariseUploadResults(results);
+        if (uploadSummary) {
+          setPendingFiles((current) => current.filter((item) => failedKeys.has(item.key)));
+          setFileError(uploadSummary);
+          return;
+        }
+      }
       setTitle("");
       setDescription("");
       setFubLink("");
@@ -232,10 +274,16 @@ export function NewTaskDialog({
       setStatus("todo");
       setCategoryId("");
       setCustomValues({});
+      setPendingFiles([]);
+      setFileError(null);
       onClose();
     } catch {
       // TaskBoardClient owns the visible error toast.
     } finally {
+      // Belt and braces: the loop clears this on its own path, but a throw
+      // between two files would otherwise leave "Uploading file N of M…" on
+      // screen for as long as the dialog stays open.
+      setUploadingIndex(null);
       setSaving(false);
     }
   }
@@ -254,6 +302,7 @@ export function NewTaskDialog({
             <button
               type="button"
               onClick={onClose}
+              disabled={saving}
               aria-label="Close"
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-[#626f86] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]"
             >
@@ -309,6 +358,61 @@ export function NewTaskDialog({
                   />
                 </label>
               ) : null}
+              <div className="space-y-1">
+                <span className={PRIMARY_LABEL_CLASS}>Attachments</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={saving}
+                    className="inline-flex h-9 items-center gap-1.5 rounded border-2 border-dashed border-[#85b8ff] px-3 text-sm font-semibold text-[#0c66e4] transition hover:bg-[#e9f2ff] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                    Add files
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept={ATTACHMENT_ACCEPT_ATTRIBUTE}
+                    className="hidden"
+                    onChange={(event) => {
+                      const incoming = Array.from(event.target.files ?? []);
+                      event.target.value = "";
+                      const result = addPendingFiles(pendingFiles, incoming);
+                      if (!result.ok) {
+                        setFileError(result.message);
+                        return;
+                      }
+                      setPendingFiles(result.files);
+                      setFileError(null);
+                    }}
+                  />
+                </div>
+                {pendingFiles.length > 0 ? (
+                  <ul className="flex max-h-[58px] flex-wrap gap-1.5 overflow-y-auto pt-1">
+                    {pendingFiles.map((item) => (
+                      <li key={item.key} className="inline-flex max-w-[16rem] items-center gap-1 rounded bg-[#f4f5f7] px-2 py-1 text-xs text-[#42526e]">
+                        <span className="truncate" title={item.name}>{item.name}</span>
+                        <span className="shrink-0 text-[#7a869a]">{formatAttachmentSize(item.size)}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${item.name}`}
+                          disabled={saving}
+                          onClick={() => setPendingFiles((current) => removePendingFile(current, item.key))}
+                          className="shrink-0 rounded p-0.5 hover:bg-[#dfe1e6] disabled:opacity-50"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {uploadingIndex !== null ? (
+                  <p className="text-xs font-semibold text-[#5e6c84]">Uploading file {uploadingIndex + 1} of {pendingFiles.length}…</p>
+                ) : null}
+                {fileError ? <p role="alert" className="text-xs font-semibold text-[#bf2600]">{fileError}</p> : null}
+              </div>
             </section>
 
             <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
@@ -443,6 +547,7 @@ export function NewTaskDialog({
           <button
             type="button"
             onClick={onClose}
+            disabled={saving}
             className="rounded px-4 py-2 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7]"
           >
             Cancel

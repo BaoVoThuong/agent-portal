@@ -1412,7 +1412,7 @@ export function TaskBoardClient({
     }
   }
 
-  async function createTask(payload: NewTaskPayload) {
+  async function createTask(payload: NewTaskPayload): Promise<TaskRow> {
     let res: Response;
     try {
       res = await fetch("/api/tasks", {
@@ -1430,7 +1430,15 @@ export function TaskBoardClient({
       throw new Error(data?.error ?? "Failed to create task.");
     }
     const data = await res.json();
-    updateTasks((cur) => [...cur, data.task as TaskRow]);
+    const created = data.task as TaskRow;
+    // POST /api/tasks replays on client_request_id and returns the SAME task
+    // with 200, so pressing Create again after a partial attachment upload
+    // would otherwise append this row a second time — two cards, duplicate
+    // React keys — until the next refetch.
+    updateTasks((cur) =>
+      cur.some((task) => task.id === created.id) ? cur : [...cur, created]
+    );
+    return created;
   }
 
   async function deleteTask(id: string) {

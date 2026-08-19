@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-19 — CS: đính kèm file ngay khi tạo task
+- **Loại**: feature, data-integrity
+- **Cái gì**: Dialog "New task" có trường Attachments ngay dưới Description — chọn file, bỏ file chọn nhầm, y như sửa Description trước khi bấm tạo. File giữ trong bộ nhớ trình duyệt; tạo task trước rồi upload tuần tự theo id trả về. Task drawer hiển thị danh sách file dưới Description, CHỈ ĐỂ XEM: sau khi tạo thì không thêm không xoá.
+- **Vì sao**: Yêu cầu nghiệp vụ — đính kèm phải là một trường của form tạo, và mở task ra phải thấy ngay file. Trước đó CS không có giao diện đính kèm cấp task nào cả.
+- **File**: `src/lib/tasks/pending-attachments.ts`, `src/lib/tasks/attachments.ts`, `src/app/(authed)/tasks/_components/AttachmentStrip.tsx`, `TaskDetailDrawer.tsx`, `NewTaskDialog.tsx`, `TaskBoardClient.tsx`, `src/app/api/tasks/[id]/detail/route.ts`, `src/app/api/tasks/[id]/attachments/route.ts`
+- **Ảnh hưởng**: Không đổi schema, không thêm endpoint — `comment_id` vốn cho phép NULL và route POST đã nhận trường hợp đó. Ba thay đổi hành vi phía server: (1) `includeTaskAttachments` bật lên nên `/api/tasks/[id]/detail` thêm một truy vấn và một lượt ký URL, và endpoint này còn bị gọi bởi `prefetchTaskDetail` khi rê chuột qua từng card/row; (2) cờ `silent=1` khiến upload lúc tạo KHÔNG bắn `attachment_added`, upload đường khác vẫn bắn; (3) giới hạn 10 file / 50MB trước đây CHỈ áp cho đính kèm của comment (`checkOperationLimits` nằm trong `if (commentId)`), giờ áp cho cả đính kèm cấp task. Mỗi file mang một `client_request_id` UUID riêng nên bấm Create lại sau khi upload trượt một phần sẽ không nhân đôi file. Upload chạy SAU khi tạo: task tạo xong mà file trượt thì dialog giữ nguyên, bỏ các file đã lên, nêu tên file hỏng để bấm Create lại chỉ gửi phần còn thiếu.
+
 ## 2026-08-18 — Cài staging cho sheet sync và sửa lỗi mất DEFAULT của health_raw_data.id
 - **Loại**: fix, data-integrity, datasync
 - **Cái gì**: Cài 2 bảng (`sheet_sync_runs`, `sheet_sync_staging`) và 3 hàm (`begin_sheet_sync`, `finalize_sheet_sync`, `purge_sheet_sync_staging`) mà commit f0b327d (2026-08-11) thêm vào file schema nhưng chưa bao giờ đưa lên database. Đồng thời sửa `finalize_sheet_sync`: thay vì `insert ... select (jsonb_populate_record(null::<bảng>, payload)).*` — cách này cấp giá trị tường minh cho MỌI cột của rowtype — giờ chỉ ghi những cột mà payload thực sự mang theo, cột generated/identity bị loại.

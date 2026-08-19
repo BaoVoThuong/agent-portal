@@ -54,9 +54,8 @@ export async function GET(req: Request, { params }: Ctx) {
     // Comment attachments are rendered inline in the thread, so they must be
     // signed and returned with the comments themselves.
     includeCommentAttachments: true,
-    // Task-level (non-comment) attachments have no UI on the task drawer —
-    // every task file is attached through a comment. Skip signing them.
-    includeTaskAttachments: false,
+    // Rendered by AttachmentStrip under the description field.
+    includeTaskAttachments: true,
   } as const;
   const loadDetailAndMetadata = async (includeActivity: boolean) => {
     const [detail, metadataRows] = await Promise.all([

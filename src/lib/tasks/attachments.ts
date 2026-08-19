@@ -14,6 +14,8 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
+export const ATTACHMENT_ALLOWED_EXTENSIONS = Object.keys(MIME_BY_EXTENSION);
+
 export const ATTACHMENT_ALLOWED_MIME_TYPES = [...new Set(Object.values(MIME_BY_EXTENSION))];
 
 const EXTENSIONS_WITH_MAGIC_CHECK = new Set([

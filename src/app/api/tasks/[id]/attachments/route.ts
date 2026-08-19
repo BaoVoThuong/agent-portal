@@ -145,6 +145,7 @@ export async function POST(req: Request, { params }: Ctx) {
 
   const rawCid = form?.get("comment_id");
   const commentId = typeof rawCid === "string" && rawCid ? rawCid : null;
+  const silent = form?.get("silent") === "1";
 
   const rawRequestId = form?.get("client_request_id");
   const requestId =
@@ -172,16 +173,19 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  // A comment can receive several sequential uploads. Re-check the running
-  // count and aggregate before reading/validating bytes so retries cannot grow
-  // an unbounded thread attachment set.
-  if (commentId) {
-    const { data: existing, error: existingError } = await r.supabase
+  // Re-check the running count and aggregate before reading/validating bytes
+  // so sequential retries cannot grow either a comment or task attachment set
+  // beyond the shared limits.
+  {
+    let existingQuery = r.supabase
       .from("task_attachments")
       .select("size_bytes")
       .eq("task_id", id)
-      .eq("comment_id", commentId)
       .is("deleted_at", null);
+    existingQuery = commentId
+      ? existingQuery.eq("comment_id", commentId)
+      : existingQuery.is("comment_id", null);
+    const { data: existing, error: existingError } = await existingQuery;
     if (existingError) {
       return NextResponse.json({ error: existingError.message }, { status: 500 });
     }
@@ -314,7 +318,7 @@ export async function POST(req: Request, { params }: Ctx) {
       },
     },
   ];
-  if (!commentId) {
+  if (!commentId && !silent) {
     sideEffects.push({
       code: "notification_failed",
       message: "The attachment was saved but some people may not have been notified.",
