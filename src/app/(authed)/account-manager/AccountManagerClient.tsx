@@ -469,9 +469,9 @@ export default function AccountManagerClient({
       </section>
 
       {showCreateForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f2349]/35 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#0f2349]/35 px-4 py-4">
           <form
-            className="w-full max-w-[520px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl"
+            className="h-[560px] max-h-[calc(100dvh-2rem)] w-full max-w-[520px] overflow-visible rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl"
             onSubmit={handleSubmit}
           >
             <div className="mb-5 flex items-center justify-between gap-4">
@@ -689,8 +689,8 @@ export default function AccountManagerClient({
 	      )}
 
 	      {roleUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f2349]/35 px-4">
-          <div className="w-full max-w-[460px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#0f2349]/35 px-4 py-4">
+          <div className="h-[420px] max-h-[calc(100dvh-2rem)] w-full max-w-[460px] overflow-visible rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl">
             <div className="mb-5">
               <h2 className="text-lg font-semibold text-[#16233a]">
                 Change Role
@@ -981,7 +981,7 @@ function RoleDropdownList({
       </button>
 
       {isOpen && (
-        <div className="absolute z-20 mt-2 max-h-72 w-full overflow-auto rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg">
+        <div className="absolute left-0 right-0 top-full z-20 mt-2 max-h-[160px] overscroll-contain overflow-y-scroll rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg">
           {activeRoles.map((role) => {
             const selected = value[0] === role.id;
 
@@ -1000,9 +1000,6 @@ function RoleDropdownList({
                 <span className="min-w-0">
                   <span className="block font-semibold text-[#16233a]">
                     {role.name}
-                  </span>
-                  <span className="mt-0.5 block text-xs leading-5 text-[#667085]">
-                    {role.description || "No description"}
                   </span>
                 </span>
               </label>
