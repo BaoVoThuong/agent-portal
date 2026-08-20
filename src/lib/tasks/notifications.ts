@@ -78,8 +78,8 @@ export function resolveCommentRecipients(
 
 export async function insertNotifications(
   rows: NotificationInsertInput[]
-): Promise<void> {
-  if (rows.length === 0) return;
+): Promise<boolean> {
+  if (rows.length === 0) return true;
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.from("task_notifications").insert(
     toNotificationInsertRows(rows)
@@ -87,7 +87,7 @@ export async function insertNotifications(
   if (error) throw new Error(error.message);
 
   // Realtime "ping" so recipients' open tabs toast instantly (content stays in DB).
-  await broadcastNotif(rows.map((r) => r.recipient_email));
+  return broadcastNotif(rows.map((r) => r.recipient_email));
 }
 
 export function toNotificationInsertRows(

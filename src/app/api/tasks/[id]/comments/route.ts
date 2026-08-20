@@ -181,7 +181,7 @@ export async function POST(req: Request, { params }: Ctx) {
               r.actor.email,
               validMentions
             );
-            await insertNotifications(
+            return insertNotifications(
               recipients.map((rec) => ({
                 recipient_email: rec.email,
                 task_id: id,
@@ -196,8 +196,11 @@ export async function POST(req: Request, { params }: Ctx) {
           code: "broadcast_failed",
           message: "Other open tabs may need a refresh to see this comment.",
           run: async () => {
-            await broadcastTasksChanged();
-            await broadcastTaskRoom(id);
+            const delivered = await Promise.all([
+              broadcastTasksChanged(),
+              broadcastTaskRoom(id),
+            ]);
+            return delivered.every(Boolean);
           },
         },
       ])

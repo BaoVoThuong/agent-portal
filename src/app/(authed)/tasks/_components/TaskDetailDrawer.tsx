@@ -1,11 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Check, CheckCircle2, Circle, ExternalLink, X } from "lucide-react";
 import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
+import { getBrowserSupabase } from "@/lib/supabase-browser";
+import {
+  publishTaskDataInvalidation,
+  subscribeTaskDataInvalidation,
+} from "@/lib/tasks/client-events";
 import type { TaskDetail, TaskDetailMetadata } from "@/lib/tasks/detail";
 import {
   DETAIL_OPEN_FRESH_MS,
@@ -16,6 +21,18 @@ import {
   refreshTaskDetail,
   setCachedTaskDetail,
 } from "@/lib/tasks/detail-cache";
+import {
+  canRefreshTaskData,
+  TASK_LIVE_EVENT_DEBOUNCE_MS,
+  TASK_LIVE_REFRESH_THROTTLE_MS,
+  taskLivePollInterval,
+  type TaskLiveStatus,
+} from "@/lib/tasks/live-sync";
+import { taskRoomTopic } from "@/lib/tasks/realtime-topics";
+import {
+  COMMENT_PAGE_SIZE,
+  COMMENT_REFRESH_MAX,
+} from "@/lib/collaboration/comment-pagination";
 import { taskDisplayKey } from "@/lib/tasks/sorting";
 import { CommentThread } from "./CommentThread";
 import { ActivityFeed } from "./ActivityFeed";
@@ -167,8 +184,11 @@ export function TaskDetailDrawer({
     () => getCachedTaskDetail(task.id) ?? null
   );
   const [reloadStatus, setReloadStatus] = useState<"idle" | "failed">("idle");
+  const [detailLiveStatus, setDetailLiveStatus] =
+    useState<TaskLiveStatus>("connecting");
   const [tab, setTab] = useState<DetailTab>("comments");
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
+  const invalidationSourceId = useId();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const closeAttachmentPreview = useCallback(() => {
     setAttachmentPreview(null);
@@ -176,6 +196,15 @@ export function TaskDetailDrawer({
   const onMetadataUpdatedRef = useRef(onMetadataUpdated);
   const detailRequestSequenceRef = useRef(0);
   const suppressOpenRevalidationRef = useRef(false);
+  const lastForegroundDetailRefreshAtRef = useRef(0);
+  // The drawer is keyed by task id, so this initializes once per opened task.
+  // A warm cache may already contain multiple loaded comment pages.
+  const loadedCommentLimitRef = useRef(
+    Math.min(
+      COMMENT_REFRESH_MAX,
+      Math.max(COMMENT_PAGE_SIZE, detail?.comments.length ?? 0),
+    ),
+  );
   useEffect(() => {
     onMetadataUpdatedRef.current = onMetadataUpdated;
   }, [onMetadataUpdated]);
@@ -187,14 +216,17 @@ export function TaskDetailDrawer({
     setReloadStatus("idle");
   }, []);
 
-  const reload = useCallback(async (): Promise<"ok" | "failed"> => {
+  const reload = useCallback(async (
+    source: "mutation" | "realtime" = "mutation",
+  ): Promise<"ok" | "failed"> => {
     // Mutation/realtime data supersedes the one-off open reconciliation.
     suppressOpenRevalidationRef.current = true;
     const sequence = ++detailRequestSequenceRef.current;
     try {
       const data = await refreshTaskDetail(task.id, {
         commentId: highlightCommentId,
-        source: "mutation",
+        commentLimit: loadedCommentLimitRef.current,
+        source,
       });
       applyLoadedDetail(data, sequence);
       return "ok";
@@ -205,6 +237,117 @@ export function TaskDetailDrawer({
       return "failed";
     }
   }, [applyLoadedDetail, highlightCommentId, task.id]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = subscribeTaskDataInvalidation((invalidation) => {
+      if (
+        invalidation.origin === "document" &&
+        invalidation.sourceId === invalidationSourceId
+      ) {
+        return;
+      }
+      if (invalidation.taskId && invalidation.taskId !== task.id) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(
+        () => void reload("realtime"),
+        TASK_LIVE_EVENT_DEBOUNCE_MS,
+      );
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [invalidationSourceId, reload, task.id]);
+
+  // Keep the task room alive for the entire drawer, not only while the
+  // Comments tab is mounted. A room ping can change comments, Files, Activity,
+  // Overdue, and metadata, all of which come from the same detail response.
+  useEffect(() => {
+    const sb = getBrowserSupabase();
+    if (!sb) {
+      const statusTimer = window.setTimeout(
+        () => setDetailLiveStatus("degraded"),
+        0,
+      );
+      return () => window.clearTimeout(statusTimer);
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let hasSubscribed = false;
+    let active = true;
+    const schedule = () => {
+      if (!active) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(
+        () => void reload("realtime"),
+        TASK_LIVE_EVENT_DEBOUNCE_MS,
+      );
+    };
+    const channel = sb
+      .channel(taskRoomTopic(task.id))
+      .on("broadcast", { event: "changed" }, schedule)
+      .subscribe((status) => {
+        if (!active) return;
+        if (status === "SUBSCRIBED") {
+          const reconnected = hasSubscribed;
+          hasSubscribed = true;
+          setDetailLiveStatus("live");
+          if (reconnected) schedule();
+          return;
+        }
+        if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          setDetailLiveStatus("degraded");
+        }
+      });
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+      void sb.removeChannel(channel);
+    };
+  }, [reload, task.id]);
+
+  useEffect(() => {
+    const refreshFromForeground = () => {
+      if (
+        !canRefreshTaskData(document.visibilityState, navigator.onLine)
+      ) {
+        return;
+      }
+      const now = Date.now();
+      if (
+        now - lastForegroundDetailRefreshAtRef.current <
+        TASK_LIVE_REFRESH_THROTTLE_MS
+      ) {
+        return;
+      }
+      lastForegroundDetailRefreshAtRef.current = now;
+      getBrowserSupabase()?.realtime.connect();
+      void reload("realtime");
+    };
+    window.addEventListener("focus", refreshFromForeground);
+    window.addEventListener("online", refreshFromForeground);
+    document.addEventListener("visibilitychange", refreshFromForeground);
+    return () => {
+      window.removeEventListener("focus", refreshFromForeground);
+      window.removeEventListener("online", refreshFromForeground);
+      document.removeEventListener("visibilitychange", refreshFromForeground);
+    };
+  }, [reload]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (
+        canRefreshTaskData(document.visibilityState, navigator.onLine)
+      ) {
+        void reload("realtime");
+      }
+    }, taskLivePollInterval(detailLiveStatus));
+    return () => window.clearInterval(timer);
+  }, [detailLiveStatus, reload]);
 
   const loadOlderComments = useCallback(async () => {
     if (!detail?.commentsHasMore) return;
@@ -222,7 +365,10 @@ export function TaskDetailDrawer({
     // Supersede any first-page revalidation. Its response may still finish,
     // but cannot overwrite the cache or the expanded thread.
     invalidateTaskDetail(task.id);
-    const res = await fetch(`/api/tasks/${task.id}/detail?${params.toString()}`);
+    const res = await fetch(
+      `/api/tasks/${task.id}/detail?${params.toString()}`,
+      { cache: "no-store" },
+    );
     if (!res.ok) throw new Error("Could not load older comments.");
     const older = (await res.json()) as TaskDetail;
     setDetail((current) => {
@@ -234,6 +380,10 @@ export function TaskDetailDrawer({
         (a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id.localeCompare(b.id)
       );
       const next = { ...current, comments, commentsHasMore: older.commentsHasMore };
+      loadedCommentLimitRef.current = Math.min(
+        COMMENT_REFRESH_MAX,
+        Math.max(COMMENT_PAGE_SIZE, comments.length),
+      );
       setCachedTaskDetail(task.id, next);
       return next;
     });
@@ -253,16 +403,6 @@ export function TaskDetailDrawer({
       autosizeTextarea(descriptionRef.current, descriptionCeiling)
     );
   }, [description, descriptionCeiling]);
-
-  // Collapse again when a different task is opened: the drawer is reused across
-  // tasks rather than remounted, so this would otherwise carry over. Adjusted
-  // during render rather than in an effect — that is React's documented pattern
-  // for resetting state on a prop change, and react-hooks flags the effect form.
-  const [collapseSyncedTaskId, setCollapseSyncedTaskId] = useState(task.id);
-  if (collapseSyncedTaskId !== task.id) {
-    setCollapseSyncedTaskId(task.id);
-    setDescriptionExpanded(false);
-  }
 
   useEffect(() => {
     const draft = draftStateRef.current.summary;
@@ -722,6 +862,13 @@ export function TaskDetailDrawer({
                     {tab === "comments" && (
                       <CommentThread
                         taskId={task.id}
+                        realtimeManagedExternally
+                        onCommitted={() =>
+                          publishTaskDataInvalidation({
+                            taskId: task.id,
+                            sourceId: invalidationSourceId,
+                          })
+                        }
                         currentEmail={currentEmail}
                         members={mentionMembers}
                         comments={detail.comments}

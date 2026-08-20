@@ -13,6 +13,12 @@ export function getBrowserSupabase(): SupabaseClient | null {
   if (!cached) {
     cached = createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
+      realtime: {
+        worker: true,
+        heartbeatCallback: (status) => {
+          if (status === "disconnected") cached?.realtime.connect();
+        },
+      },
     });
   }
   return cached;

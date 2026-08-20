@@ -7,9 +7,14 @@ import {
   isEligibleTaskAssigneeEmail,
 } from "@/lib/tasks/assignees";
 import { insertNotifications } from "@/lib/tasks/notifications";
-import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskRoom,
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
 import type { TaskRow } from "@/lib/tasks/types";
+import { settleSideEffects } from "@/lib/tasks/mutation-result";
 
 export const dynamic = "force-dynamic";
 
@@ -65,27 +70,57 @@ export async function POST(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: assignError.message }, { status: 500 });
   }
 
-  const { data, error: taskError } = await supabase
-    .from("tasks")
-    .select(TASK_COLUMNS)
-    .eq("id", id)
-    .single();
-  if (taskError) return NextResponse.json({ error: taskError.message }, { status: 500 });
-
-  await insertNotifications([
-    {
-      recipient_email: email,
-      task_id: id,
-      type: "assigned",
-      actor_email: actorEmail,
-    },
+  const [taskResult, warnings] = await Promise.all([
+    supabase.from("tasks").select(TASK_COLUMNS).eq("id", id).single(),
+    settleSideEffects([
+      {
+        code: "notification_failed",
+        message: "The task was assigned but the assignee notification may be delayed.",
+        run: () =>
+          insertNotifications([
+            {
+              recipient_email: email,
+              task_id: id,
+              type: "assigned",
+              actor_email: actorEmail,
+            },
+          ]),
+      },
+      {
+        code: "board_broadcast_failed",
+        message: "The task was assigned but other boards may refresh on fallback.",
+        run: () =>
+          broadcastTasksChanged(readTaskMutationSourceId(request)),
+      },
+      {
+        code: "detail_broadcast_failed",
+        message: "The task was assigned but open task details may refresh on fallback.",
+        run: () => broadcastTaskRoom(id),
+      },
+    ]),
   ]);
-  await Promise.all([broadcastTasksChanged(), broadcastTaskRoom(id)]);
 
-  const [task] = await attachAssigneesToTasks(
-    [data as unknown as TaskRow],
-    supabase,
-    { currentEmail: actorEmail }
-  );
-  return NextResponse.json({ task });
+  const { data, error: taskError } = taskResult;
+  if (taskError || !data) {
+    warnings.push({
+      code: "task_reload_failed",
+      message: "The task was assigned but its updated row could not be reloaded.",
+    });
+    console.warn("Task assignment committed but reload failed", taskError);
+    return NextResponse.json({ task: null, warnings });
+  }
+
+  let task = data as unknown as TaskRow;
+  try {
+    [task] = await attachAssigneesToTasks([task], supabase, {
+      currentEmail: actorEmail,
+    });
+  } catch (error) {
+    warnings.push({
+      code: "assignee_enrichment_failed",
+      message: "The task was assigned but assignee details need a refresh.",
+    });
+    console.warn("Task assignment committed but assignee enrichment failed", error);
+  }
+  return NextResponse.json({ task, warnings });
 }

@@ -155,8 +155,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
       code: "mention_notification_failed",
       message: "The edit was saved but newly mentioned people may not have been notified.",
       run: async () => {
-        if (newMentions.length === 0) return;
-        await insertNotifications(
+        if (newMentions.length === 0) return true;
+        return insertNotifications(
           newMentions.map((recipient) => ({
             recipient_email: recipient,
             task_id: id,
@@ -171,8 +171,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
       code: "broadcast_failed",
       message: "Other open tabs may need a refresh to see this edit.",
       run: async () => {
-        await broadcastTasksChanged();
-        await broadcastTaskRoom(id);
+        const delivered = await Promise.all([
+          broadcastTasksChanged(),
+          broadcastTaskRoom(id),
+        ]);
+        return delivered.every(Boolean);
       },
     },
   ]);
@@ -217,8 +220,11 @@ export async function DELETE(_req: Request, { params }: Ctx) {
       code: "broadcast_failed",
       message: "Other open tabs may show a stale comment or attachment count until they refresh.",
       run: async () => {
-        await broadcastTaskRoom(id);
-        await broadcastTasksChanged();
+        const delivered = await Promise.all([
+          broadcastTaskRoom(id),
+          broadcastTasksChanged(),
+        ]);
+        return delivered.every(Boolean);
       },
     },
   ]);

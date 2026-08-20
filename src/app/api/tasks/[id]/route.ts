@@ -18,7 +18,11 @@ import {
   uniqueNotificationRows,
   type NotificationInsertInput,
 } from "@/lib/tasks/notifications";
-import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskRoom,
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import {
   fetchAgentOwnerAndAssistantEmails,
   fetchAgentsForCs,
@@ -555,21 +559,25 @@ export async function PATCH(req: Request, { params }: Ctx) {
     notificationRows.length > 0 ? insertNotifications(notificationRows) : null,
   ]);
   for (const result of notificationResults) {
-    if (result.status === "rejected") {
+    if (result.status === "rejected" || result.value === false) {
       mutationWarnings.push(
-        result.reason instanceof Error ? result.reason.message : "Task notification write failed."
+        result.status === "rejected" && result.reason instanceof Error
+          ? result.reason.message
+          : "Task notification delivery failed."
       );
     }
   }
 
   const broadcastResults = await Promise.allSettled([
-    broadcastTasksChanged(),
+    broadcastTasksChanged(readTaskMutationSourceId(req)),
     broadcastTaskRoom(id),
   ]);
   for (const result of broadcastResults) {
-    if (result.status === "rejected") {
+    if (result.status === "rejected" || !result.value) {
       mutationWarnings.push(
-        result.reason instanceof Error ? result.reason.message : "Task broadcast failed."
+        result.status === "rejected" && result.reason instanceof Error
+          ? result.reason.message
+          : "Task broadcast failed."
       );
     }
   }
@@ -642,11 +650,17 @@ export async function DELETE(req: Request, { params }: Ctx) {
   }
 
   const warnings: string[] = [];
-  const broadcastResult = await Promise.allSettled([broadcastTasksChanged()]);
-  if (broadcastResult[0]?.status === "rejected") {
+  const broadcastResult = await Promise.allSettled([
+    broadcastTasksChanged(readTaskMutationSourceId(req)),
+  ]);
+  const taskBroadcast = broadcastResult[0];
+  if (
+    taskBroadcast?.status === "rejected" ||
+    (taskBroadcast?.status === "fulfilled" && !taskBroadcast.value)
+  ) {
     warnings.push(
-      broadcastResult[0].reason instanceof Error
-        ? broadcastResult[0].reason.message
+      taskBroadcast?.status === "rejected" && taskBroadcast.reason instanceof Error
+        ? taskBroadcast.reason.message
         : "Task broadcast failed."
     );
   }

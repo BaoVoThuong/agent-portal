@@ -18,7 +18,10 @@ import {
 } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskRow } from "@/lib/tasks/types";
-import { broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import {
   fetchAdminEmails,
   fetchAgentOwnerAndAssistantEmails,
@@ -52,39 +55,50 @@ import {
   isTaskCategoryId,
   mapTaskCategoryMutationError,
 } from "@/lib/tasks/category-mutation";
+import { RouteTiming } from "@/lib/server-timing";
 
 export const dynamic = "force-dynamic";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET() {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
-  if (!canAccessBoard(actor))
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+  const timing = new RouteTiming("tasks-list");
+  const respond = (body: unknown, status = 200) => {
+    const response = NextResponse.json(body, { status });
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(status);
+    return response;
+  };
   try {
-    const tasks = await fetchTasksForActor(actor);
-    return NextResponse.json({ tasks });
+    const session = await timing.measure("auth", async () => auth());
+    const email = session?.user?.email;
+    if (!email) return respond({ error: "Unauthorized" }, 401);
+    const actor = buildTaskActor(session.user.permissions, email, {
+      isAdmin: isTaskViewAdmin(session.user),
+    });
+    if (!canAccessBoard(actor)) {
+      return respond({ error: "Unauthorized" }, 401);
+    }
+
+    const tasks = await timing.measure("tasks", async () =>
+      fetchTasksForActor(actor),
+    );
+    return respond({ tasks });
   } catch (error) {
     if (error instanceof TaskListTruncatedError) {
-      return NextResponse.json(
+      return respond(
         {
           error: error.message,
           code: "TASK_LIST_TRUNCATED",
           total: error.total,
           loaded: error.loaded,
         },
-        { status: 503 }
+        503,
       );
     }
-    return NextResponse.json(
+    return respond(
       { error: error instanceof Error ? error.message : "Could not load tasks." },
-      { status: 500 }
+      500,
     );
   }
 }
@@ -378,13 +392,15 @@ export async function POST(request: Request) {
                 detail: `${priority} backlog task needs assignment`,
               })),
             ]);
-            if (notificationRows.length > 0) await insertNotifications(notificationRows);
+            if (notificationRows.length === 0) return true;
+            return insertNotifications(notificationRows);
           },
         },
         {
           code: "broadcast_failed",
           message: "Other open task boards may need a refresh to see this task.",
-          run: () => broadcastTasksChanged(),
+          run: () =>
+            broadcastTasksChanged(readTaskMutationSourceId(request)),
         },
       ])
     : [];

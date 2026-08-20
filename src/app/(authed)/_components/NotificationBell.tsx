@@ -8,7 +8,11 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { taskDisplayKey } from "@/lib/tasks/sorting";
 import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
-import { dispatchOpenTask } from "@/lib/tasks/client-events";
+import {
+  dispatchOpenTask,
+  publishTaskDataInvalidation,
+} from "@/lib/tasks/client-events";
+import { resolveNotificationInvalidation } from "@/lib/tasks/notification-invalidation";
 import { playNotificationChime, primeNotificationSound } from "@/lib/tasks/sound";
 
 type Notif = {
@@ -215,7 +219,9 @@ export function NotificationBell() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/tasks/notifications");
+      const res = await fetch("/api/tasks/notifications", {
+        cache: "no-store",
+      });
       if (!res.ok) return;
       const data = await res.json();
       const list = data.notifications as Notif[];
@@ -227,11 +233,31 @@ export function NotificationBell() {
         // First load: remember what already exists; don't pop toasts for old items.
         list.forEach((n) => seenIds.current.add(n.id));
         initialized.current = true;
+        if (
+          list.some(
+            (notification) =>
+              !notification.is_read && entityKind(notification) === "task",
+          )
+        ) {
+          publishTaskDataInvalidation();
+        }
         return;
       }
 
-      const fresh = list.filter((n) => !seenIds.current.has(n.id) && !n.is_read);
+      const unseen = list.filter((n) => !seenIds.current.has(n.id));
+      const fresh = unseen.filter((n) => !n.is_read);
       list.forEach((n) => seenIds.current.add(n.id));
+
+      // Assignment and other task notifications are a second reliable signal
+      // that the board snapshot is stale. This repairs the list immediately
+      // even when the separate global tasks-stream ping was missed.
+      const invalidation = resolveNotificationInvalidation(
+        unseen.map((notification) => ({
+          kind: entityKind(notification),
+          id: entityId(notification),
+        })),
+      );
+      if (invalidation) publishTaskDataInvalidation(invalidation);
 
       // One chime per batch, not per item, so a burst doesn't overlap tones.
       if (fresh.length > 0) playNotificationChime();

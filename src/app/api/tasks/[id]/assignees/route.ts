@@ -11,7 +11,11 @@ import {
 import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
-import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskRoom,
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -172,10 +176,14 @@ export async function POST(req: Request, { params }: Ctx) {
           },
         ]),
       ]);
-      if (notificationResult[0]?.status === "rejected") {
+      const assigneeNotification = notificationResult[0];
+      if (
+        assigneeNotification?.status === "rejected" ||
+        (assigneeNotification?.status === "fulfilled" && !assigneeNotification.value)
+      ) {
         mutationWarnings.push(
-          notificationResult[0].reason instanceof Error
-            ? notificationResult[0].reason.message
+          assigneeNotification?.status === "rejected" && assigneeNotification.reason instanceof Error
+            ? assigneeNotification.reason.message
             : "Task assignment notification failed."
         );
       }
@@ -185,13 +193,15 @@ export async function POST(req: Request, { params }: Ctx) {
   const taskData = updated as TaskRow;
 
   const broadcastResults = await Promise.allSettled([
-    broadcastTasksChanged(),
+    broadcastTasksChanged(readTaskMutationSourceId(req)),
     broadcastTaskRoom(id),
   ]);
   for (const result of broadcastResults) {
-    if (result.status === "rejected") {
+    if (result.status === "rejected" || !result.value) {
       mutationWarnings.push(
-        result.reason instanceof Error ? result.reason.message : "Task broadcast failed."
+        result.status === "rejected" && result.reason instanceof Error
+          ? result.reason.message
+          : "Task broadcast failed."
       );
     }
   }

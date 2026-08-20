@@ -15,7 +15,11 @@ import {
   inProgressConsumedSeconds,
   isTaskOverdue,
 } from "@/lib/tasks/sla";
-import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskRoom,
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -173,23 +177,29 @@ export async function POST(req: Request, { params }: Ctx) {
         }))
       ),
     ]);
-    if (notificationResult[0]?.status === "rejected") {
+    const overdueNotification = notificationResult[0];
+    if (
+      overdueNotification?.status === "rejected" ||
+      (overdueNotification?.status === "fulfilled" && !overdueNotification.value)
+    ) {
       mutationWarnings.push(
-        notificationResult[0].reason instanceof Error
-          ? notificationResult[0].reason.message
+        overdueNotification?.status === "rejected" && overdueNotification.reason instanceof Error
+          ? overdueNotification.reason.message
           : "Overdue unlock notification failed."
       );
     }
   }
 
   const broadcastResults = await Promise.allSettled([
-    broadcastTasksChanged(),
+    broadcastTasksChanged(readTaskMutationSourceId(req)),
     broadcastTaskRoom(id),
   ]);
   for (const result of broadcastResults) {
-    if (result.status === "rejected") {
+    if (result.status === "rejected" || !result.value) {
       mutationWarnings.push(
-        result.reason instanceof Error ? result.reason.message : "Task broadcast failed."
+        result.status === "rejected" && result.reason instanceof Error
+          ? result.reason.message
+          : "Task broadcast failed."
       );
     }
   }

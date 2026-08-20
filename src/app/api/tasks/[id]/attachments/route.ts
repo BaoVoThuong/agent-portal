@@ -313,8 +313,11 @@ export async function POST(req: Request, { params }: Ctx) {
       code: "broadcast_failed",
       message: "Other open tabs may need a refresh to see this attachment.",
       run: async () => {
-        await broadcastTaskRoom(id);
-        await broadcastTasksChanged();
+        const delivered = await Promise.all([
+          broadcastTaskRoom(id),
+          broadcastTasksChanged(),
+        ]);
+        return delivered.every(Boolean);
       },
     },
   ];
@@ -331,7 +334,7 @@ export async function POST(req: Request, { params }: Ctx) {
           [...assignees, r.task.reporter_email, ...agentRecipients],
           [r.actor.email]
         );
-        await insertNotifications(
+        return insertNotifications(
           recipients.map((recipient) => ({
             recipient_email: recipient,
             task_id: id,

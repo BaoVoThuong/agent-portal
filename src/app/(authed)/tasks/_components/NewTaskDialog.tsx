@@ -23,6 +23,7 @@ import {
   type PendingFile,
 } from "@/lib/tasks/pending-attachments";
 import { formatAttachmentSize } from "@/lib/tasks/attachments";
+import { publishTaskDataInvalidation } from "@/lib/tasks/client-events";
 
 const SIDE_INPUT_CLASS =
   "h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none transition placeholder:font-normal placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
@@ -238,6 +239,7 @@ export function NewTaskDialog({
       if (pendingFiles.length > 0) {
         const results: { name: string; ok: boolean }[] = [];
         const failedKeys = new Set<string>();
+        let uploadedAny = false;
         for (const [index, item] of pendingFiles.entries()) {
           setUploadingIndex(index);
           const body = new FormData();
@@ -251,11 +253,15 @@ export function NewTaskDialog({
             });
             const ok = response.ok;
             results.push({ name: item.name, ok });
-            if (!ok) failedKeys.add(item.key);
+            if (ok) uploadedAny = true;
+            else failedKeys.add(item.key);
           } catch {
             results.push({ name: item.name, ok: false });
             failedKeys.add(item.key);
           }
+        }
+        if (uploadedAny) {
+          publishTaskDataInvalidation({ taskId: created.id });
         }
         setUploadingIndex(null);
         const uploadSummary = summariseUploadResults(results);

@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-20 — Bỏ realtime echo cục bộ và sửa notification batch nhiều task
+- **Loại**: fix, performance, reliability
+- **Cái gì**: Mỗi Task Board dùng một source id ngẫu nhiên theo tab cho mutation. DOM invalidation và server broadcast mang source id này để tab tạo mutation bỏ qua lượt reconcile của chính nó, trong khi tab khác vẫn refetch. Task-scoped event chỉ tải lại task rows; lượt full luôn được ưu tiên khi nhiều trigger bị gộp. Notification poll có nhiều task phát một broad invalidation thay vì chỉ lấy task đầu tiên.
+- **Vì sao**: Một field edit đã có canonical row từ response nhưng vẫn tự kéo lại task list và category config; chỉ lọc DOM event chưa đủ vì server REST broadcast cũng quay lại mọi browser đang subscribe. Với notification batch, drawer có thể bỏ qua task đang mở nếu task khác đứng đầu danh sách.
+- **File**: TaskBoardClient.tsx, NotificationBell.tsx, TaskDetailDrawer.tsx, src/lib/tasks/live-sync.ts, src/lib/tasks/notification-invalidation.ts, src/lib/tasks/realtime.ts và các task mutation routes
+- **Ảnh hưởng**: Mutation từ chính tab giữ PATCH và refresh detail cần thiết, không tự refetch board/config khi response đã đủ dữ liệu. Cross-tab/cross-device vẫn reconcile; broadcast không có source id như category/config change vẫn chạy full refresh. Không đổi schema hay response API.
+
+## 2026-08-20 — Task Board và Detail tự đồng bộ khi tab mở lâu
+- **Loại**: fix, reliability, performance-observability
+- **Cái gì**: Board/List nhận snapshot mới nhất từ server sau khi vượt qua guard của local mutation, thay vì giữ nguyên cả task vừa được sửa trong 3 giây. Mutation thành công phát invalidation qua DOM + `localStorage`, nên tab cùng trình duyệt refetch ngay; notification task mới cũng kích hoạt cùng đường này cho tab của người nhận, kể cả notification đã được tab khác mark-read. Các trigger được debounce + single-flight để chỉ giữ tối đa một lượt trailing refresh. Task Detail giữ subscription ở cấp drawer nên Comments, Files, Activity, Overdue và metadata vẫn cập nhật dù người dùng đang ở tab nào; cache đóng được invalidate và realtime refresh giữ nguyên độ sâu comment mà người dùng đã Load older.
+- **Vì sao**: Cooldown theo thời gian có thể nuốt vĩnh viễn update của agent khác; subscription cũ chỉ tồn tại khi tab Comments được mount; notification và danh sách dùng hai topic khác nhau nên notification đến không chứng minh `tasks-stream` đã đến. REST broadcast cũ còn không kiểm tra HTTP status, vì vậy cả response 500 cũng bị coi là success và không log.
+- **File**: `src/lib/tasks/live-sync.ts`, `src/lib/tasks/client-events.ts`, `TaskBoardClient.tsx`, `TaskDetailDrawer.tsx`, `CommentThread.tsx`, `NotificationBell.tsx`, `src/lib/tasks/realtime.ts`, `src/lib/supabase-browser.ts`, `src/app/api/tasks/route.ts`
+- **Ảnh hưởng**: Realtime khỏe reconcile mỗi 60 giây; khi mất/kém realtime dùng fallback 15 giây và báo trạng thái. Tab ẩn hoặc offline không polling. Broadcast server có timeout 1.5 giây mỗi attempt, retry một lần khi lỗi mạng/non-2xx rồi trả warning + log status/count nếu vẫn hỏng; mutation đã commit không bị đổi thành 500 giả, kể cả đường overview assignment. Cross-tab storage chỉ chứa nonce, không chứa task id hay dữ liệu khách hàng. `/api/tasks` thêm `Server-Timing` và log `[perf:tasks-list]` để đo riêng auth, query tasks và tổng route; không đổi schema.
+
 ## 2026-08-19 — CS: đính kèm file ngay khi tạo task
 - **Loại**: feature, data-integrity
 - **Cái gì**: Dialog "New task" có trường Attachments ngay dưới Description — chọn file, bỏ file chọn nhầm, y như sửa Description trước khi bấm tạo. File giữ trong bộ nhớ trình duyệt; tạo task trước rồi upload tuần tự theo id trả về. Task drawer hiển thị danh sách file dưới Description, CHỈ ĐỂ XEM: sau khi tạo thì không thêm không xoá.

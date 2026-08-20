@@ -1,4 +1,7 @@
 export const COMMENT_PAGE_SIZE = 50;
+// Only used after a user explicitly expands a long thread. The cap prevents an
+// unbounded query while retaining up to twenty pages across live refreshes.
+export const COMMENT_REFRESH_MAX = COMMENT_PAGE_SIZE * 20;
 
 export type CommentCursor = {
   created_at: string;

@@ -13,6 +13,10 @@ import { isTaskParticipant } from "@/lib/tasks/participants";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskRow } from "@/lib/tasks/types";
 import { RouteTiming } from "@/lib/server-timing";
+import {
+  COMMENT_PAGE_SIZE,
+  COMMENT_REFRESH_MAX,
+} from "@/lib/collaboration/comment-pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +37,15 @@ export async function GET(req: Request, { params }: Ctx) {
       "comments_before_created_at",
     );
     const beforeId = url.searchParams.get("comments_before_id");
+    const requestedCommentLimit = Number(
+      url.searchParams.get("comments_limit") ?? COMMENT_PAGE_SIZE,
+    );
+    const commentLimit = Number.isInteger(requestedCommentLimit)
+      ? Math.min(
+          COMMENT_REFRESH_MAX,
+          Math.max(COMMENT_PAGE_SIZE, requestedCommentLimit),
+        )
+      : COMMENT_PAGE_SIZE;
     const isUuid = (value: string | null) =>
       Boolean(
         value &&
@@ -88,6 +101,7 @@ export async function GET(req: Request, { params }: Ctx) {
             ...detailOpts,
             includeActivity,
             commentsBefore,
+            commentLimit: commentsBefore ? COMMENT_PAGE_SIZE : commentLimit,
             highlightCommentId,
             timing,
           }),

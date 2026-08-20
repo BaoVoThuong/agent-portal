@@ -381,6 +381,8 @@ export function CommentThread({
   taskId,
   apiBase = "/api/tasks",
   roomTopic,
+  realtimeManagedExternally = false,
+  onCommitted,
   currentEmail,
   members,
   comments,
@@ -393,6 +395,8 @@ export function CommentThread({
   taskId: string;
   apiBase?: string;
   roomTopic?: string;
+  realtimeManagedExternally?: boolean;
+  onCommitted?: () => void;
   currentEmail: string;
   members: TaskAssignee[];
   comments: CommentWithAttachments[];
@@ -434,6 +438,7 @@ export function CommentThread({
 
   // Live thread: refetch when the task room pings (someone commented/attached).
   useEffect(() => {
+    if (realtimeManagedExternally) return;
     const sb = getBrowserSupabase();
     if (!sb) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -449,7 +454,7 @@ export function CommentThread({
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
-  }, [roomTopic, taskId, onReload]);
+  }, [realtimeManagedExternally, roomTopic, taskId, onReload]);
 
   // Revoke every optimistic blob URL when the drawer unmounts or switches to
   // another task. Without this, failed sends keep file previews alive for the
@@ -680,6 +685,7 @@ export function CommentThread({
     // The comment is now durable even if a file or reload fails. Keep the
     // optimistic row linked to its real id until every file has a server row.
     if (parentUpdatedAt) onParentUpdatedAt?.(parentUpdatedAt);
+    onCommitted?.();
     const committed = commentCommitted(
       { files: files.map((_, index) => ({ id: `${tempId}-file-${index}`, status: "pending" })) },
       comment.id,
@@ -693,6 +699,7 @@ export function CommentThread({
     );
 
     let uploadFailed = false;
+    let uploadedAny = false;
     for (const [index, file] of files.entries()) {
       const fileId = `${tempId}-file-${index}`;
       setOptimisticComments((current) =>
@@ -715,6 +722,7 @@ export function CommentThread({
         if (!upload.ok) {
           throw new Error(await readResponseError(upload, "Failed to upload attachment."));
         }
+        uploadedAny = true;
         setOptimisticComments((current) =>
           current.map((item) =>
             item.id === tempId && item.fileStates
@@ -734,6 +742,7 @@ export function CommentThread({
         );
       }
     }
+    if (uploadedAny) onCommitted?.();
 
     let reloadDidFail = false;
     try {
@@ -798,6 +807,7 @@ export function CommentThread({
       if (!upload.ok) {
         throw new Error(await readResponseError(upload, "Failed to upload attachment."));
       }
+      onCommitted?.();
       setOptimisticComments((current) =>
         current.map((item) =>
           item.id === tempId && item.fileStates
@@ -860,6 +870,7 @@ export function CommentThread({
     if (!res.ok) {
       return { ok: false, message: "Could not delete the comment. Try again." };
     }
+    onCommitted?.();
     try {
       const reloadResult = await onReload();
       return reloadResult === "failed"
@@ -898,6 +909,7 @@ export function CommentThread({
         message,
       };
     }
+    onCommitted?.();
     const result = (await res.json().catch(() => null)) as {
       parent_updated_at?: string;
     } | null;

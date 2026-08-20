@@ -3,6 +3,7 @@ import type { TaskDetail } from "@/lib/tasks/detail";
 import {
   DETAIL_OPEN_FRESH_MS,
   DETAIL_CACHE_TTL_MS,
+  clearCachedTaskDetails,
   fetchTaskDetail,
   getCachedTaskDetail,
   getCachedTaskDetailAgeMs,
@@ -50,6 +51,14 @@ describe("detail cache", () => {
     expect(getCachedTaskDetail("t2")).toBeUndefined();
   });
 
+  it("drops all entries after an unscoped cross-tab invalidation", () => {
+    setCachedTaskDetail("clear-1", detail);
+    setCachedTaskDetail("clear-2", detail);
+    clearCachedTaskDetails();
+    expect(getCachedTaskDetail("clear-1")).toBeUndefined();
+    expect(getCachedTaskDetail("clear-2")).toBeUndefined();
+  });
+
   it("reports cache age for stale-while-revalidate decisions", () => {
     vi.useFakeTimers();
     try {
@@ -65,15 +74,32 @@ describe("detail cache", () => {
 describe("detail request coordinator", () => {
   it("shares one in-flight request between hover and open", async () => {
     const pending = deferredResponse();
-    const fetcher = vi.fn(() => pending.promise);
+    const fetcher = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    >(() => pending.promise);
 
     const hover = fetchTaskDetail("dedupe", { source: "prefetch", fetcher });
     const open = fetchTaskDetail("dedupe", { source: "open", fetcher });
 
     expect(open).toBe(hover);
     expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]?.[1]).toEqual({ cache: "no-store" });
     pending.resolve(Response.json(detail));
     await expect(open).resolves.toEqual(detail);
+  });
+
+  it("keeps expanded comment windows as separate request variants", async () => {
+    const fetcher = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    >(async () => Response.json(detail));
+
+    await Promise.all([
+      fetchTaskDetail("comment-window", { fetcher, commentLimit: 50 }),
+      fetchTaskDetail("comment-window", { fetcher, commentLimit: 100 }),
+    ]);
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(String(fetcher.mock.calls[1]?.[0])).toContain("comments_limit=100");
   });
 
   it("does not merge a deep-link variant with the base request", async () => {

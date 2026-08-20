@@ -21,6 +21,7 @@ const inFlight = new Map<string, InFlightEntry>();
 const refreshes = new Map<string, RefreshState>();
 const generations = new Map<string, number>();
 const requestVersions = new Map<string, number>();
+let globalGeneration = 0;
 
 export type TaskDetailRequestSource =
   | "prefetch"
@@ -31,20 +32,30 @@ export type TaskDetailRequestSource =
 
 export type TaskDetailFetchOptions = {
   commentId?: string | null;
+  commentLimit?: number;
   source?: TaskDetailRequestSource;
   fetcher?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 };
 
 function generationOf(id: string): number {
-  return generations.get(id) ?? 0;
+  return globalGeneration + (generations.get(id) ?? 0);
 }
 
-function requestVariant(commentId?: string | null): string {
-  return commentId ? `comment:${commentId}` : "base";
+function requestVariant(
+  commentId?: string | null,
+  commentLimit?: number,
+): string {
+  const comment = commentId ? `comment:${commentId}` : "base";
+  return `${comment}|limit:${commentLimit ?? "default"}`;
 }
 
-function requestKey(id: string, commentId: string | null | undefined, generation: number): string {
-  return `${id}|${requestVariant(commentId)}|${generation}`;
+function requestKey(
+  id: string,
+  commentId: string | null | undefined,
+  commentLimit: number | undefined,
+  generation: number,
+): string {
+  return `${id}|${requestVariant(commentId, commentLimit)}|${generation}`;
 }
 
 function nextRequestVersion(id: string): number {
@@ -56,10 +67,12 @@ function nextRequestVersion(id: string): number {
 function detailUrl(
   id: string,
   commentId: string | null | undefined,
+  commentLimit: number | undefined,
   source: TaskDetailRequestSource,
 ): string {
   const params = new URLSearchParams({ request_source: source });
   if (commentId) params.set("comment_id", commentId);
+  if (commentLimit) params.set("comments_limit", String(commentLimit));
   return `/api/tasks/${id}/detail?${params.toString()}`;
 }
 
@@ -101,7 +114,12 @@ export function setCachedTaskDetail(id: string, detail: TaskDetail): void {
 
 export function invalidateTaskDetail(id: string): void {
   cache.delete(id);
-  generations.set(id, generationOf(id) + 1);
+  generations.set(id, (generations.get(id) ?? 0) + 1);
+}
+
+export function clearCachedTaskDetails(): void {
+  cache.clear();
+  globalGeneration += 1;
 }
 
 /**
@@ -116,7 +134,12 @@ export function fetchTaskDetail(
   options: TaskDetailFetchOptions = {},
 ): Promise<TaskDetail> {
   const generation = generationOf(id);
-  const key = requestKey(id, options.commentId, generation);
+  const key = requestKey(
+    id,
+    options.commentId,
+    options.commentLimit,
+    generation,
+  );
   const matching = inFlight.get(key);
   if (matching) return matching.promise;
 
@@ -124,7 +147,10 @@ export function fetchTaskDetail(
   const source = options.source ?? "open";
   const requestVersion = nextRequestVersion(id);
   const request = (async () => {
-    const response = await fetcher(detailUrl(id, options.commentId, source));
+    const response = await fetcher(
+      detailUrl(id, options.commentId, options.commentLimit, source),
+      { cache: "no-store" },
+    );
     if (!response.ok) {
       throw new Error(`Could not load task detail (${response.status}).`);
     }
@@ -156,7 +182,10 @@ export function refreshTaskDetail(
     source?: "mutation" | "realtime";
   } = {},
 ): Promise<TaskDetail> {
-  const key = `${id}|${requestVariant(options.commentId)}`;
+  const key = `${id}|${requestVariant(
+    options.commentId,
+    options.commentLimit,
+  )}`;
   const current = refreshes.get(key);
   if (current) {
     current.queued = true;

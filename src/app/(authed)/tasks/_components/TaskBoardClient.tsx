@@ -4,8 +4,31 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
-import { OPEN_TASK_EVENT, writeTaskDeepLink } from "@/lib/tasks/client-events";
-import { TASKS_TOPIC } from "@/lib/tasks/realtime-topics";
+import {
+  createTaskDataInvalidationSourceId,
+  OPEN_TASK_EVENT,
+  publishTaskDataInvalidation,
+  subscribeTaskDataInvalidation,
+  writeTaskDeepLink,
+} from "@/lib/tasks/client-events";
+import {
+  TASK_MUTATION_SOURCE_HEADER,
+  TASKS_TOPIC,
+} from "@/lib/tasks/realtime-topics";
+import {
+  authoritativeTaskSnapshot,
+  canRefreshTaskData,
+  mergeTaskReconcileScope,
+  TASK_LIVE_EVENT_DEBOUNCE_MS,
+  TASK_LIVE_REFRESH_THROTTLE_MS,
+  taskBroadcastReconcileScope,
+  taskInvalidationReconcileScope,
+  taskLivePollInterval,
+  taskRefetchDisposition,
+  type TaskReconcileScope,
+  type TaskLiveStatus,
+} from "@/lib/tasks/live-sync";
+import { clearCachedTaskDetails } from "@/lib/tasks/detail-cache";
 import {
   CONFIG_CHANGED_EVENT,
   SLA_CONFIG_TOPIC,
@@ -179,6 +202,18 @@ export function TaskBoardClient({
     resolveTaskDateRangeDefault(initialDateRangeDefault)
   );
   const [error, setError] = useState<string | null>(null);
+  const [taskLiveStatus, setTaskLiveStatus] =
+    useState<TaskLiveStatus>("connecting");
+  const [boardInvalidationSourceId] = useState(() =>
+    createTaskDataInvalidationSourceId("task-board"),
+  );
+  const taskMutationHeaders = useMemo(
+    () => ({
+      "Content-Type": "application/json",
+      [TASK_MUTATION_SOURCE_HEADER]: boardInvalidationSourceId,
+    }),
+    [boardInvalidationSourceId],
+  );
   const [configStale, setConfigStale] = useState(false);
   const [slaRefreshError, setSlaRefreshError] = useState<string | null>(null);
   const slaRefreshInFlightRef = useRef(false);
@@ -189,28 +224,29 @@ export function TaskBoardClient({
   // response that started from an older snapshot cannot overwrite an
   // optimistic local move and cause the card to flash back for a second.
   const tasksWriteVersionRef = useRef(0);
-  const tasksRefetchRequestRef = useRef(0);
+  const tasksRefetchInFlightRef = useRef<Promise<void> | null>(null);
+  const tasksRefetchQueuedRef = useRef(false);
   const pendingTaskMutationsRef = useRef(new Map<string, number>());
   // Set when a refetch response was withheld because a local write was in
   // flight. Those responses can carry OTHER people's updates, so they must be
   // re-run once writes settle rather than discarded until the next ping.
   const tasksRefetchDirtyRef = useRef(false);
-  // Lets refetchTasks re-run itself without a self-referencing useCallback.
+  // Lets mutation completion flush a deferred full-list refresh.
   const refetchTasksRef = useRef<(() => void) | null>(null);
+  const taskReconcileInFlightRef = useRef<Promise<void> | null>(null);
+  const taskReconcileQueuedScopeRef = useRef<TaskReconcileScope | null>(null);
+  const taskReconcileScheduledScopeRef = useRef<TaskReconcileScope | null>(
+    null,
+  );
+  const taskReconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const lastForegroundTaskRefreshAtRef = useRef(0);
   const overviewRangeKeyRef = useRef<string | null>(null);
   const taskLayoutHydratedRef = useRef(false);
   const taskLayoutUpdatedAtRef = useRef<string | null>(null);
   const taskLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const taskLayoutSaveSequenceRef = useRef(0);
-  // Per-task safety net on top of the version/pending guards above: even if a
-  // background refetch's response somehow reflects a slightly-behind snapshot
-  // (a race the in-flight/version checks don't fully rule out — e.g. a
-  // realtime broadcast arriving before this tab's own PATCH response), a task
-  // that was written to locally within the last few seconds keeps its LOCAL
-  // value instead of being overwritten by that refetch. This is what stops a
-  // just-moved card from flashing back to its old column for ~1s.
-  const recentTaskWritesRef = useRef(new Map<string, number>());
-
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
@@ -346,7 +382,9 @@ export function TaskBoardClient({
 
   const loadUnreadAssignedTaskIds = useCallback(async () => {
     try {
-      const res = await fetch("/api/tasks/notifications");
+      const res = await fetch("/api/tasks/notifications", {
+        cache: "no-store",
+      });
       if (!res.ok) return;
       const data = (await res.json()) as { unreadAssignedTaskIds?: unknown };
       const ids = Array.isArray(data.unreadAssignedTaskIds)
@@ -390,52 +428,67 @@ export function TaskBoardClient({
   }, [markNewAssignedTaskSeen, newAssignedTaskIds, openId]);
 
   // Live board: refetch the role-filtered list when the server pings that tasks
-  // changed, plus once on (re)connect to catch anything missed while offline.
-  // No polling — the reconnect refetch is the self-heal path.
-  const refetchTasks = useCallback(async () => {
-    const requestId = ++tasksRefetchRequestRef.current;
-    const writeVersionAtStart = tasksWriteVersionRef.current;
-    try {
-      const res = await fetch("/api/tasks");
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        if (data?.error) setError(data.error);
-        return;
-      }
-      const data = await res.json();
-      // A newer refetch, a local write, or an in-flight direct mutation means
-      // this full-list payload may be older than what the user just did.
-      // A superseded request needs no re-run — the newer one carries at least
-      // as much. The other two DO: they mean this payload had real updates
-      // (possibly other people's tasks) that we are choosing not to apply
-      // right now, so mark it dirty and re-run once writes settle instead of
-      // dropping those updates on the floor until some unrelated ping arrives.
-      if (tasksRefetchRequestRef.current !== requestId) return;
-      if (
-        tasksWriteVersionRef.current !== writeVersionAtStart ||
-        pendingTaskMutationsRef.current.size > 0
-      ) {
-        // In the common case the mutation has ALREADY settled by the time
-        // this response lands, so its flush already ran and will never run
-        // again — re-run right here instead of waiting for a future mutation
-        // that may never come. Only park the flag while a write is genuinely
-        // still open.
-        if (pendingTaskMutationsRef.current.size === 0) {
-          tasksRefetchDirtyRef.current = false;
-          refetchTasksRef.current?.();
-          return;
-        }
-        tasksRefetchDirtyRef.current = true;
-        return;
-      }
-      tasksRefetchDirtyRef.current = false;
-      updateTasks((prev) => mergeRefetchedTasks(prev, data.tasks as TaskRow[], recentTaskWritesRef));
-      void loadUnreadAssignedTaskIds();
-    } catch {
-      // ignore; the next ping or reconnect retries
+  // changed. Reconnect, foreground revalidation, and a low-frequency reconcile
+  // repair events missed while a tab or socket was offline.
+  const refetchTasks = useCallback((): Promise<void> => {
+    const current = tasksRefetchInFlightRef.current;
+    if (current) {
+      // Coalesce every trigger that arrives during a request into exactly one
+      // trailing request. This avoids overlapping snapshots while ensuring a
+      // failed newer trigger cannot suppress an older successful response.
+      tasksRefetchQueuedRef.current = true;
+      return current;
     }
+
+    const operation = (async () => {
+      do {
+        tasksRefetchQueuedRef.current = false;
+        const writeVersionAtStart = tasksWriteVersionRef.current;
+        try {
+          const res = await fetch("/api/tasks", { cache: "no-store" });
+          if (!res.ok) {
+            const data = (await res.json().catch(() => null)) as
+              | { error?: string }
+              | null;
+            if (data?.error) setError(data.error);
+            continue;
+          }
+          const data = (await res.json()) as { tasks?: TaskRow[] };
+          const fetchedTasks = data.tasks;
+          if (!Array.isArray(fetchedTasks)) {
+            setError("The task list response was invalid. Retrying automatically.");
+            continue;
+          }
+          const disposition = taskRefetchDisposition({
+            writeVersionAtStart,
+            currentWriteVersion: tasksWriteVersionRef.current,
+            pendingMutationCount: pendingTaskMutationsRef.current.size,
+          });
+          if (disposition === "defer") {
+            tasksRefetchDirtyRef.current = true;
+            return;
+          }
+          if (disposition === "retry") {
+            tasksRefetchQueuedRef.current = true;
+            continue;
+          }
+          tasksRefetchDirtyRef.current = false;
+          updateTasks((currentTasks) =>
+            authoritativeTaskSnapshot(currentTasks, fetchedTasks),
+          );
+          void loadUnreadAssignedTaskIds();
+        } catch {
+          // A queued trigger gets one trailing attempt now; otherwise the next
+          // realtime/focus/reconcile signal retries without a tight error loop.
+        }
+      } while (tasksRefetchQueuedRef.current);
+    })().finally(() => {
+      if (tasksRefetchInFlightRef.current === operation) {
+        tasksRefetchInFlightRef.current = null;
+      }
+    });
+    tasksRefetchInFlightRef.current = operation;
+    return operation;
   }, [loadUnreadAssignedTaskIds]);
 
   useEffect(() => {
@@ -453,7 +506,7 @@ export function TaskBoardClient({
   }, [refetchTasks]);
 
   const reloadCategories = useCallback(async () => {
-    const res = await fetch("/api/tasks/categories");
+    const res = await fetch("/api/tasks/categories", { cache: "no-store" });
     if (res.ok) setCategories((await res.json()).categories as TaskCategory[]);
   }, []);
 
@@ -546,37 +599,169 @@ export function TaskBoardClient({
     return () => window.clearInterval(timer);
   }, [isManager, loadOverview, overviewSnapshot, view]);
 
+  const reconcileTaskData = useCallback((
+    requestedScope: TaskReconcileScope = "full",
+  ): Promise<void> => {
+    const current = taskReconcileInFlightRef.current;
+    if (current) {
+      taskReconcileQueuedScopeRef.current = mergeTaskReconcileScope(
+        taskReconcileQueuedScopeRef.current,
+        requestedScope,
+      );
+      return current;
+    }
+    let nextScope: TaskReconcileScope | null = requestedScope;
+    const operation = (async () => {
+      while (nextScope) {
+        const scope = nextScope;
+        nextScope = null;
+        taskReconcileQueuedScopeRef.current = null;
+        const refreshes: Promise<unknown>[] = [refetchTasks()];
+        if (scope === "full") refreshes.push(reloadCategories());
+        if (isManager && viewRef.current === "overview") {
+          const overviewRefresh = loadOverviewRef.current?.(true);
+          if (overviewRefresh) refreshes.push(overviewRefresh);
+        }
+        await Promise.allSettled(refreshes);
+        nextScope = taskReconcileQueuedScopeRef.current;
+      }
+    })().finally(() => {
+      if (taskReconcileInFlightRef.current === operation) {
+        taskReconcileInFlightRef.current = null;
+      }
+    });
+    taskReconcileInFlightRef.current = operation;
+    return operation;
+  }, [isManager, refetchTasks, reloadCategories]);
+
+  const scheduleTaskReconcile = useCallback((
+    requestedScope: TaskReconcileScope = "full",
+  ) => {
+    taskReconcileScheduledScopeRef.current = mergeTaskReconcileScope(
+      taskReconcileScheduledScopeRef.current,
+      requestedScope,
+    );
+    if (taskReconcileTimerRef.current) {
+      clearTimeout(taskReconcileTimerRef.current);
+    }
+    taskReconcileTimerRef.current = setTimeout(() => {
+      taskReconcileTimerRef.current = null;
+      const scope = taskReconcileScheduledScopeRef.current ?? "full";
+      taskReconcileScheduledScopeRef.current = null;
+      void reconcileTaskData(scope);
+    }, TASK_LIVE_EVENT_DEBOUNCE_MS);
+  }, [reconcileTaskData]);
+
+  useEffect(
+    () => () => {
+      if (taskReconcileTimerRef.current) {
+        clearTimeout(taskReconcileTimerRef.current);
+      }
+      taskReconcileScheduledScopeRef.current = null;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return subscribeTaskDataInvalidation((invalidation) => {
+      const scope = taskInvalidationReconcileScope(
+        invalidation,
+        boardInvalidationSourceId,
+      );
+      if (scope) scheduleTaskReconcile(scope);
+    });
+  }, [boardInvalidationSourceId, scheduleTaskReconcile]);
+
   useEffect(() => {
     const sb = getBrowserSupabase();
-    if (!sb) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const refreshOverviewIfVisible = () => {
-      if (isManager && viewRef.current === "overview") {
-        void loadOverviewRef.current?.(true);
-      }
-    };
-    const schedule = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        refetchTasksRef.current?.();
-        void reloadCategories();
-        refreshOverviewIfVisible();
-      }, 300);
+    if (!sb) {
+      const statusTimer = window.setTimeout(
+        () => setTaskLiveStatus("degraded"),
+        0,
+      );
+      return () => window.clearTimeout(statusTimer);
+    }
+    let active = true;
+    const schedule = (message: { payload?: { sourceId?: unknown } }) => {
+      if (!active) return;
+      const sourceId =
+        typeof message.payload?.sourceId === "string"
+          ? message.payload.sourceId
+          : undefined;
+      const scope = taskBroadcastReconcileScope(
+        sourceId,
+        boardInvalidationSourceId,
+      );
+      if (!scope) return;
+      clearCachedTaskDetails();
+      scheduleTaskReconcile(scope);
     };
     const channel = sb
       .channel(TASKS_TOPIC)
       .on("broadcast", { event: "changed" }, schedule)
       .subscribe((status) => {
+        if (!active) return;
         if (status === "SUBSCRIBED") {
-          refetchTasksRef.current?.();
-          refreshOverviewIfVisible();
+          setTaskLiveStatus("live");
+          clearCachedTaskDetails();
+          void reconcileTaskData();
+          return;
+        }
+        if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          setTaskLiveStatus("degraded");
         }
       });
     return () => {
-      if (timer) clearTimeout(timer);
+      active = false;
       void sb.removeChannel(channel);
     };
-  }, [isManager, reloadCategories]);
+  }, [boardInvalidationSourceId, reconcileTaskData, scheduleTaskReconcile]);
+
+  useEffect(() => {
+    const refreshFromForeground = () => {
+      if (
+        !canRefreshTaskData(
+          document.visibilityState,
+          navigator.onLine,
+        )
+      ) {
+        return;
+      }
+      const now = Date.now();
+      if (
+        now - lastForegroundTaskRefreshAtRef.current <
+        TASK_LIVE_REFRESH_THROTTLE_MS
+      ) {
+        return;
+      }
+      lastForegroundTaskRefreshAtRef.current = now;
+      getBrowserSupabase()?.realtime.connect();
+      void reconcileTaskData();
+    };
+    window.addEventListener("focus", refreshFromForeground);
+    window.addEventListener("online", refreshFromForeground);
+    document.addEventListener("visibilitychange", refreshFromForeground);
+    return () => {
+      window.removeEventListener("focus", refreshFromForeground);
+      window.removeEventListener("online", refreshFromForeground);
+      document.removeEventListener("visibilitychange", refreshFromForeground);
+    };
+  }, [reconcileTaskData]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (
+        canRefreshTaskData(document.visibilityState, navigator.onLine)
+      ) {
+        void reconcileTaskData();
+      }
+    }, taskLivePollInterval(taskLiveStatus));
+    return () => window.clearInterval(timer);
+  }, [reconcileTaskData, taskLiveStatus]);
 
   useEffect(() => {
     const sb = getBrowserSupabase();
@@ -1030,7 +1215,7 @@ export function TaskBoardClient({
   function beginTaskMutation(id: string) {
     const current = pendingTaskMutationsRef.current.get(id) ?? 0;
     pendingTaskMutationsRef.current.set(id, current + 1);
-    return () => {
+    return (committed = false) => {
       const next = (pendingTaskMutationsRef.current.get(id) ?? 1) - 1;
       if (next > 0) {
         pendingTaskMutationsRef.current.set(id, next);
@@ -1038,27 +1223,23 @@ export function TaskBoardClient({
         pendingTaskMutationsRef.current.delete(id);
       }
       flushDeferredTaskRefetch();
+      if (committed) {
+        publishTaskDataInvalidation({
+          taskId: id,
+          sourceId: boardInvalidationSourceId,
+        });
+      }
     };
   }
 
   // Every write to `tasks` — optimistic or confirmed — goes through this so a
-  // stale in-flight refetch can never clobber a more-recent one. It also
-  // stamps recentTaskWritesRef for every task that actually changed, which
-  // refetchTasks uses to protect against the narrower race the version/pending
-  // checks alone don't fully close (see the comment on that ref above).
+  // stale in-flight refetch can never clobber a more-recent one.
   function updateTasks(updater: (prev: TaskRow[]) => TaskRow[]) {
     tasksWriteVersionRef.current += 1;
     setTasks((prev) => {
       const next = updater(prev);
       if (next !== prev) {
         taskRowsRef.current = new Map(next.map((task) => [task.id, task]));
-        const prevById = new Map(prev.map((t) => [t.id, t]));
-        const now = Date.now();
-        for (const task of next) {
-          if (prevById.get(task.id) !== task) {
-            recentTaskWritesRef.current.set(task.id, now);
-          }
-        }
       }
       return next;
     });
@@ -1118,7 +1299,7 @@ export function TaskBoardClient({
 
   async function fetchCanonicalTask(id: string): Promise<TaskRow | null> {
     try {
-      const response = await fetch(`/api/tasks/${id}`);
+      const response = await fetch(`/api/tasks/${id}`, { cache: "no-store" });
       if (!response.ok) return null;
       const data = (await response.json()) as { task?: TaskRow };
       return data.task?.id === id ? data.task : null;
@@ -1166,6 +1347,7 @@ export function TaskBoardClient({
     } as TaskRow;
     applyLocalTask(optimistic);
     const finishPendingMutation = beginTaskMutation(id);
+    let committed = false;
 
     const operation = state.tail
       .then(async () => {
@@ -1173,7 +1355,7 @@ export function TaskBoardClient({
         try {
           response = await fetch(`/api/tasks/${id}`, {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: taskMutationHeaders,
             body: JSON.stringify({
               ...patch,
               expected_updated_at: state.confirmed.updated_at,
@@ -1181,6 +1363,7 @@ export function TaskBoardClient({
           });
         } catch {
           setError("Connection lost — your changes were not saved.");
+          void refetchTasks();
           return;
         }
 
@@ -1202,20 +1385,25 @@ export function TaskBoardClient({
           return;
         }
 
-        const data = (await response.json()) as { task?: TaskRow };
-        if (data.task?.id === id) {
+        committed = true;
+        const data = (await response.json().catch(() => null)) as
+          | { task?: TaskRow }
+          | null;
+        if (data?.task?.id === id) {
           state.confirmed = data.task;
         } else {
           setError("The server did not return the task after updating.");
+          void refetchTasks();
         }
       })
       .catch(() => {
         setError("Could not update the task.");
+        void refetchTasks();
       })
       .finally(() => {
         state.pending = state.pending.filter((pending) => pending.sequence !== sequence);
         rebasePendingTaskPatches(id, state);
-        finishPendingMutation();
+        finishPendingMutation(committed);
       });
 
     state.tail = operation;
@@ -1239,12 +1427,13 @@ export function TaskBoardClient({
     try {
       res = await fetch(`/api/tasks/${id}/overdue-unlock`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: taskMutationHeaders,
         body: JSON.stringify({ reason, expected_updated_at: before.updated_at }),
       });
     } catch {
       finishPendingMutation();
       setError("Connection lost — could not unlock the overdue task.");
+      void refetchTasks();
       return false;
     }
     if (!res.ok) {
@@ -1257,9 +1446,12 @@ export function TaskBoardClient({
       setError(data?.error ?? "Could not unlock the overdue task.");
       return false;
     }
-    const data = await res.json();
-    replaceTask(data.task as TaskRow);
-    finishPendingMutation();
+    const data = (await res.json().catch(() => null)) as
+      | { task?: TaskRow }
+      | null;
+    if (data?.task) replaceTask(data.task);
+    else void refetchTasks();
+    finishPendingMutation(true);
     setUnlockingTaskId(null);
     return true;
   }
@@ -1277,12 +1469,13 @@ export function TaskBoardClient({
     try {
       res = await fetch(`/api/tasks/${id}/reopen`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: taskMutationHeaders,
         body: JSON.stringify({ reason, expected_updated_at: before.updated_at }),
       });
     } catch {
       finishPendingMutation();
       setError("Connection lost — could not reopen the task.");
+      void refetchTasks();
       return false;
     }
     if (!res.ok) {
@@ -1295,9 +1488,12 @@ export function TaskBoardClient({
       setError(data?.error ?? "Could not reopen the task.");
       return false;
     }
-    const data = await res.json();
-    replaceTask(data.task as TaskRow);
-    finishPendingMutation();
+    const data = (await res.json().catch(() => null)) as
+      | { task?: TaskRow }
+      | null;
+    if (data?.task) replaceTask(data.task);
+    else void refetchTasks();
+    finishPendingMutation(true);
     setReopeningTaskId(null);
     return true;
   }
@@ -1337,7 +1533,7 @@ export function TaskBoardClient({
           : `/api/tasks/${id}/assignees/${encodeURIComponent(email)}`,
         {
           method: assigned ? "POST" : "DELETE",
-          headers: { "Content-Type": "application/json" },
+          headers: taskMutationHeaders,
           body: JSON.stringify({ email, expected_updated_at: before.updated_at }),
         }
       );
@@ -1345,6 +1541,7 @@ export function TaskBoardClient({
       finishPendingMutation();
       updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
       setError("Connection lost — the assignee was not updated.");
+      void refetchTasks();
       return;
     }
 
@@ -1365,9 +1562,12 @@ export function TaskBoardClient({
       return;
     }
 
-    const data = await res.json();
-    replaceTask(data.task as TaskRow);
-    finishPendingMutation();
+    const data = (await res.json().catch(() => null)) as
+      | { task?: TaskRow }
+      | null;
+    if (data?.task) replaceTask(data.task);
+    else void refetchTasks();
+    finishPendingMutation(true);
   }
 
   async function assignOverviewTask(
@@ -1385,10 +1585,12 @@ export function TaskBoardClient({
     try {
       const response = await fetch(`/api/tasks/${taskId}/assign`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: taskMutationHeaders,
         body: JSON.stringify({ email, expectedUpdatedAt }),
       });
-      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+      const data = (await response.json().catch(() => null)) as
+        | { error?: string; task?: TaskRow | null }
+        | null;
       if (!response.ok) {
         setOverviewSnapshot(before);
         await loadOverview(true);
@@ -1399,6 +1601,14 @@ export function TaskBoardClient({
         );
         return;
       }
+      const replacedLocalTask = Boolean(
+        data?.task && taskRowsRef.current.has(taskId),
+      );
+      if (data?.task && replacedLocalTask) replaceTask(data.task);
+      publishTaskDataInvalidation({
+        taskId,
+        sourceId: replacedLocalTask ? boardInvalidationSourceId : undefined,
+      });
       setOverviewError(null);
       await loadOverview(true);
       setOverviewNotice(
@@ -1407,6 +1617,7 @@ export function TaskBoardClient({
     } catch {
       setOverviewSnapshot(before);
       setOverviewError("Connection lost — the assignment was not confirmed.");
+      void refetchTasks();
     } finally {
       setAssigningOverviewTaskId(null);
     }
@@ -1417,11 +1628,12 @@ export function TaskBoardClient({
     try {
       res = await fetch("/api/tasks", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: taskMutationHeaders,
         body: JSON.stringify(payload),
       });
     } catch {
       setError("Connection lost — the task was not created.");
+      void refetchTasks();
       throw new Error("Failed to create task.");
     }
     if (!res.ok) {
@@ -1429,8 +1641,15 @@ export function TaskBoardClient({
       setError(data?.error ?? "Could not create the task.");
       throw new Error(data?.error ?? "Failed to create task.");
     }
-    const data = await res.json();
-    const created = data.task as TaskRow;
+    const data = (await res.json().catch(() => null)) as
+      | { task?: TaskRow }
+      | null;
+    const created = data?.task;
+    if (!created) {
+      setError("The task may have been created, but its row could not be loaded.");
+      void refetchTasks();
+      throw new Error("Task response was incomplete.");
+    }
     // POST /api/tasks replays on client_request_id and returns the SAME task
     // with 200, so pressing Create again after a partial attachment upload
     // would otherwise append this row a second time — two cards, duplicate
@@ -1438,6 +1657,10 @@ export function TaskBoardClient({
     updateTasks((cur) =>
       cur.some((task) => task.id === created.id) ? cur : [...cur, created]
     );
+    publishTaskDataInvalidation({
+      taskId: created.id,
+      sourceId: boardInvalidationSourceId,
+    });
     return created;
   }
 
@@ -1452,7 +1675,7 @@ export function TaskBoardClient({
     try {
       res = await fetch(`/api/tasks/${id}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: taskMutationHeaders,
         body: JSON.stringify({ expected_updated_at: before.updated_at }),
       });
     } catch {
@@ -1464,6 +1687,7 @@ export function TaskBoardClient({
         return restored;
       });
       setError("Connection lost — the task was not archived.");
+      void refetchTasks();
       return;
     }
     if (!res.ok) {
@@ -1494,7 +1718,7 @@ export function TaskBoardClient({
       setError(data?.error ?? "Could not archive the task.");
       return;
     }
-    finishPendingMutation();
+    finishPendingMutation(true);
   }
 
   function clearAllFilters() {
@@ -1596,6 +1820,24 @@ export function TaskBoardClient({
           <span>Table configuration changed. Reload before editing tasks.</span>
           <button type="button" className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]" onClick={() => window.location.reload()}>
             Reload
+          </button>
+        </div>
+      ) : null}
+      {taskLiveStatus === "degraded" ? (
+        <div
+          className="flex items-center justify-between gap-3 border-b border-[#ffab00] bg-[#fff7d6] px-6 py-2 text-sm font-semibold text-[#7f5f00]"
+          role="status"
+        >
+          <span>Live updates are reconnecting. Data will keep refreshing automatically.</span>
+          <button
+            type="button"
+            className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]"
+            onClick={() => {
+              getBrowserSupabase()?.realtime.connect();
+              void reconcileTaskData();
+            }}
+          >
+            Refresh now
           </button>
         </div>
       ) : null}
@@ -1956,34 +2198,6 @@ function optimisticBankWaitingSeconds(before: TaskRow, nowIso: string): number {
     ? optimisticElapsedSeconds(before.waiting_started_at, nowIso)
     : 0;
   return Math.max(1, (before.waiting_seconds ?? 0) + elapsed);
-}
-
-// How long a task stays "protected" from a background refetch after any local
-// write to it. Generous on purpose: it only matters while genuinely racing a
-// slow request, and being a bit too long just means a rare late-arriving
-// server correction is delayed slightly rather than a card flashing.
-const RECENT_WRITE_COOLDOWN_MS = 3000;
-
-// Applies a fresh full-list fetch, but for any task written to locally within
-// the cooldown window, keeps the CURRENT local version instead of the fetched
-// one. Prunes expired entries out of `recentWrites` as it goes so the map
-// doesn't grow unbounded over a long session.
-function mergeRefetchedTasks(
-  prev: TaskRow[],
-  fetched: TaskRow[],
-  recentWrites: { current: Map<string, number> }
-): TaskRow[] {
-  const now = Date.now();
-  for (const [id, writtenAt] of recentWrites.current) {
-    if (now - writtenAt >= RECENT_WRITE_COOLDOWN_MS) recentWrites.current.delete(id);
-  }
-  if (recentWrites.current.size === 0) return fetched;
-
-  const prevById = new Map(prev.map((t) => [t.id, t]));
-  return fetched.map((task) => {
-    if (!recentWrites.current.has(task.id)) return task;
-    return prevById.get(task.id) ?? task;
-  });
 }
 
 function buildOptimisticTaskPatch(

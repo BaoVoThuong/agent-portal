@@ -18,9 +18,12 @@ export async function settleSideEffects(
   const results = await Promise.allSettled(effects.map((effect) => effect.run()));
   const warnings: Warning[] = [];
   results.forEach((result, index) => {
-    if (result.status === "rejected") {
+    if (result.status === "rejected" || result.value === false) {
       const effect = effects[index];
-      console.warn(`[side-effect] ${effect.code}`, result.reason);
+      console.warn(
+        `[side-effect] ${effect.code}`,
+        result.status === "rejected" ? result.reason : "reported failure",
+      );
       warnings.push({ code: effect.code, message: effect.message });
     }
   });

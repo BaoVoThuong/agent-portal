@@ -104,6 +104,7 @@ export async function loadComments(
   opts: {
     includeAttachments?: boolean;
     before?: CommentCursor;
+    limit?: number;
     highlightCommentId?: string | null;
     timing?: TimingRecorder;
     displayNameResolver?: typeof resolveDisplayNames;
@@ -119,6 +120,7 @@ export async function loadComments(
       `created_at.lt.${opts.before.created_at},and(created_at.eq.${opts.before.created_at},id.lt.${opts.before.id})`
     );
   }
+  const limit = Math.max(1, Math.floor(opts.limit ?? COMMENT_PAGE_SIZE));
   const { data: comments, error: commentsError } = await measureTiming(
     opts.timing,
     "comment_query",
@@ -126,7 +128,7 @@ export async function loadComments(
       query
         .order("created_at", { ascending: false })
         .order("id", { ascending: false })
-        .limit(COMMENT_PAGE_SIZE + 1),
+        .limit(limit + 1),
   );
   if (commentsError) throw new Error(commentsError.message);
 
@@ -136,8 +138,8 @@ export async function loadComments(
     author_email: string;
     created_at: string;
   }>;
-  const hasMore = rawComments.length > COMMENT_PAGE_SIZE;
-  rawComments = rawComments.slice(0, COMMENT_PAGE_SIZE);
+  const hasMore = rawComments.length > limit;
+  rawComments = rawComments.slice(0, limit);
   if (opts.highlightCommentId && !rawComments.some((row) => row.id === opts.highlightCommentId)) {
     const { data: highlighted, error } = await measureTiming(
       opts.timing,
@@ -301,6 +303,7 @@ export async function loadTaskDetail(
     includeCommentAttachments?: boolean;
     includeTaskAttachments?: boolean;
     commentsBefore?: CommentCursor;
+    commentLimit?: number;
     highlightCommentId?: string | null;
     timing?: TimingRecorder;
   } = {}
@@ -310,6 +313,7 @@ export async function loadTaskDetail(
       loadComments(supabase, taskId, {
         includeAttachments: opts.includeCommentAttachments,
         before: opts.commentsBefore,
+        limit: opts.commentLimit,
         highlightCommentId: opts.highlightCommentId,
         timing: opts.timing,
       }),

@@ -10,7 +10,11 @@ import {
 import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
-import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskRoom,
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -136,10 +140,14 @@ export async function DELETE(req: Request, { params }: Ctx) {
           },
         ]),
       ]);
-      if (notificationResult[0]?.status === "rejected") {
+      const unassignmentNotification = notificationResult[0];
+      if (
+        unassignmentNotification?.status === "rejected" ||
+        (unassignmentNotification?.status === "fulfilled" && !unassignmentNotification.value)
+      ) {
         mutationWarnings.push(
-          notificationResult[0].reason instanceof Error
-            ? notificationResult[0].reason.message
+          unassignmentNotification?.status === "rejected" && unassignmentNotification.reason instanceof Error
+            ? unassignmentNotification.reason.message
             : "Task unassignment notification failed."
         );
       }
@@ -149,13 +157,15 @@ export async function DELETE(req: Request, { params }: Ctx) {
   const taskData = updated as TaskRow;
 
   const broadcastResults = await Promise.allSettled([
-    broadcastTasksChanged(),
+    broadcastTasksChanged(readTaskMutationSourceId(req)),
     broadcastTaskRoom(id),
   ]);
   for (const result of broadcastResults) {
-    if (result.status === "rejected") {
+    if (result.status === "rejected" || !result.value) {
       mutationWarnings.push(
-        result.reason instanceof Error ? result.reason.message : "Task broadcast failed."
+        result.status === "rejected" && result.reason instanceof Error
+          ? result.reason.message
+          : "Task broadcast failed."
       );
     }
   }
