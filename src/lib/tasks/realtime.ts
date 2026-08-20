@@ -2,14 +2,17 @@ import { createHmac } from "crypto";
 import {
   TASK_MUTATION_SOURCE_HEADER,
   TASKS_TOPIC,
+  taskReactionTopic,
   taskRoomTopic,
 } from "./realtime-topics";
 
-export { TASKS_TOPIC, taskRoomTopic };
+export { TASKS_TOPIC, taskReactionTopic, taskRoomTopic };
 
 export type RealtimeMessage = {
   topic: string;
   event: string;
+  // Public Realtime channels carry invalidation hints only. Canonical task
+  // data is always re-read through an authenticated API.
   payload: Record<string, string>;
 };
 
@@ -160,5 +163,27 @@ export async function broadcastTasksChanged(
 export async function broadcastTaskRoom(taskId: string): Promise<boolean> {
   return sendBroadcastMessages([
     { topic: taskRoomTopic(taskId), event: "changed", payload: {} },
+  ]);
+}
+
+/**
+ * A dedicated event, NOT "changed". Drawers answer "changed" by refetching the
+ * whole task detail — up to a thousand comments with every attachment URL
+ * re-signed — which is far too much for one emoji. Existing handlers subscribe
+ * to "changed" only, so they ignore this cleanly.
+ *
+ * The channel is intentionally content-free. Task room names are predictable,
+ * so clients must fetch canonical rows through the authenticated API instead
+ * of trusting or exposing reaction data in a public broadcast payload.
+ */
+export async function broadcastTaskCommentReaction(
+  taskId: string,
+): Promise<boolean> {
+  return sendBroadcastMessages([
+    {
+      topic: taskReactionTopic(taskId),
+      event: "reaction",
+      payload: {},
+    },
   ]);
 }

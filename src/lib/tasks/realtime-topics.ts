@@ -13,3 +13,10 @@ export const TASK_MUTATION_SOURCE_HEADER = "x-task-client-source";
 export function taskRoomTopic(taskId: string): string {
   return `task-${taskId}`;
 }
+
+// Reactions use a separate event stream so one emoji does not trigger the
+// expensive full-detail refresh used by the task room's `changed` event.
+// Keep this helper shared by server and browser to prevent topic drift.
+export function taskReactionTopic(taskId: string): string {
+  return `${taskRoomTopic(taskId)}:reactions`;
+}

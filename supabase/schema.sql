@@ -1961,6 +1961,157 @@ create unique index if not exists task_comments_client_request_id_key
 
 create index if not exists task_comments_task_idx on task_comments (task_id, created_at);
 
+-- Emoji reactions. No task_id column on purpose: the loader queries by the
+-- comment ids it just fetched, and an independent FK to tasks could not prove
+-- the reaction's comment belongs to that task. No separate comment_id index
+-- either — the unique constraint below already leads with it.
+-- RLS comes from the `protected_tables` loop at the end of this file.
+create table if not exists task_comment_reactions (
+  id uuid primary key default gen_random_uuid(),
+  comment_id uuid not null references task_comments(id) on delete cascade,
+  reactor_email text not null
+    constraint task_comment_reactions_reactor_email_normalized
+    check (
+      reactor_email <> ''
+      and reactor_email = lower(btrim(reactor_email))
+    ),
+  emoji text not null,
+  created_at timestamptz not null default now(),
+  -- Makes PUT idempotent via `on conflict do nothing`, so a retry after a lost
+  -- response re-adds the reaction instead of toggling it off.
+  unique (comment_id, reactor_email, emoji)
+);
+
+-- Keep identity canonical even when this idempotent schema is applied over a
+-- database created by an earlier reaction rollout.
+delete from task_comment_reactions
+where btrim(reactor_email) = '';
+
+with ranked as (
+  select
+    id,
+    row_number() over (
+      partition by comment_id, lower(btrim(reactor_email)), emoji
+      order by created_at, id
+    ) as duplicate_number
+  from task_comment_reactions
+)
+delete from task_comment_reactions as reaction
+using ranked
+where reaction.id = ranked.id
+  and ranked.duplicate_number > 1;
+
+update task_comment_reactions
+set reactor_email = lower(btrim(reactor_email))
+where reactor_email <> lower(btrim(reactor_email));
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'task_comment_reactions'::regclass
+      and conname = 'task_comment_reactions_reactor_email_normalized'
+  ) then
+    alter table task_comment_reactions
+      add constraint task_comment_reactions_reactor_email_normalized
+      check (
+        reactor_email <> ''
+        and reactor_email = lower(btrim(reactor_email))
+      );
+  end if;
+end $$;
+
+create or replace function set_task_comment_reaction_atomic(
+  p_comment_id uuid,
+  p_task_id uuid,
+  p_reactor_email text,
+  p_emoji text,
+  p_present boolean
+) returns table (
+  comment_id uuid,
+  emoji text,
+  reactor_email text
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_comment_id uuid;
+  v_deleted_at timestamptz;
+  v_reactor_email text;
+begin
+  v_reactor_email := lower(btrim(coalesce(p_reactor_email, '')));
+  if v_reactor_email = '' then
+    raise exception 'INVALID_REACTOR_EMAIL';
+  end if;
+  if coalesce(char_length(p_emoji), 0) < 1 or char_length(p_emoji) > 16 then
+    raise exception 'INVALID_EMOJI';
+  end if;
+
+  select comment.id, comment.deleted_at
+  into v_comment_id, v_deleted_at
+  from task_comments as comment
+  where comment.id = p_comment_id
+    and comment.task_id = p_task_id
+  for update;
+  if not found or v_deleted_at is not null then
+    raise exception 'COMMENT_NOT_FOUND';
+  end if;
+
+  if p_present then
+    insert into task_comment_reactions (comment_id, reactor_email, emoji)
+    values (p_comment_id, v_reactor_email, p_emoji)
+    on conflict do nothing;
+  else
+    delete from task_comment_reactions as reaction
+    where reaction.comment_id = p_comment_id
+      and reaction.reactor_email = v_reactor_email
+      and reaction.emoji = p_emoji;
+  end if;
+
+  return query
+  select reaction.comment_id, reaction.emoji, reaction.reactor_email
+  from task_comment_reactions as reaction
+  where reaction.comment_id = p_comment_id
+  order by reaction.created_at, reaction.id;
+end;
+$$;
+
+revoke all on function set_task_comment_reaction_atomic(
+  uuid, uuid, text, text, boolean
+) from public, anon, authenticated;
+grant execute on function set_task_comment_reaction_atomic(
+  uuid, uuid, text, text, boolean
+) to service_role;
+
+create or replace function task_comment_reactions_for_task(
+  p_task_id uuid
+) returns table (
+  comment_id uuid,
+  emoji text,
+  reactor_email text
+)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select reaction.comment_id, reaction.emoji, reaction.reactor_email
+  from task_comment_reactions as reaction
+  join task_comments as comment
+    on comment.id = reaction.comment_id
+  where comment.task_id = p_task_id
+    and comment.deleted_at is null
+  order by reaction.created_at, reaction.id;
+$$;
+
+revoke all on function task_comment_reactions_for_task(uuid)
+  from public, anon, authenticated;
+grant execute on function task_comment_reactions_for_task(uuid)
+  to service_role;
+
 -- Edit history: one row per edit, holding the body BEFORE that edit.
 create table if not exists task_comment_edits (
   id uuid primary key default gen_random_uuid(),
@@ -2537,6 +2688,11 @@ begin
   update task_attachments
   set deleted_at = v_now
   where comment_id = p_comment_id and deleted_at is null;
+
+  -- Reactions mean nothing once the body is blanked, and because this is a
+  -- SOFT delete the comment row survives, so the FK cascade never collects
+  -- them. Without this they leak forever, invisibly.
+  delete from task_comment_reactions where comment_id = p_comment_id;
 
   insert into task_activity (task_id, actor_email, type, meta)
   values (
@@ -5505,6 +5661,7 @@ declare
     'task_categories',
     'tasks',
     'task_comments',
+    'task_comment_reactions',
     'task_attachments',
     'task_activity',
     'task_notifications',

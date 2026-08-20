@@ -384,8 +384,7 @@ export function TaskDetailDrawer({
         COMMENT_REFRESH_MAX,
         Math.max(COMMENT_PAGE_SIZE, comments.length),
       );
-      setCachedTaskDetail(task.id, next);
-      return next;
+      return setCachedTaskDetail(task.id, next);
     });
   }, [detail, task.id]);
 
@@ -863,6 +862,7 @@ export function TaskDetailDrawer({
                       <CommentThread
                         taskId={task.id}
                         realtimeManagedExternally
+                        reactionsEnabled
                         onCommitted={() =>
                           publishTaskDataInvalidation({
                             taskId: task.id,

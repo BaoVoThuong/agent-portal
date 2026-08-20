@@ -9,6 +9,8 @@ import {
   getCachedTaskDetailAgeMs,
   invalidateTaskDetail,
   MAX_CACHED_TASK_DETAILS,
+  patchCachedCommentReactionRows,
+  patchCachedTaskReactionRows,
   refreshTaskDetail,
   setCachedTaskDetail,
 } from "@/lib/tasks/detail-cache";
@@ -68,6 +70,119 @@ describe("detail cache", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("patches a canonical reaction snapshot without refreshing cache age", () => {
+    vi.useFakeTimers();
+    try {
+      const detailWithReactions: TaskDetail = {
+        ...detail,
+        comments: [
+          {
+            id: "c1",
+            attachments: [],
+            reactions: [
+              { comment_id: "c1", emoji: "👍", reactor_email: "old@example.com" },
+            ],
+          },
+          {
+            id: "c2",
+            attachments: [],
+            reactions: [
+              { comment_id: "c2", emoji: "❤️", reactor_email: "old@example.com" },
+            ],
+          },
+        ],
+      };
+      setCachedTaskDetail("reaction-snapshot", detailWithReactions);
+      vi.advanceTimersByTime(1_234);
+
+      patchCachedTaskReactionRows("reaction-snapshot", [
+        { comment_id: "c1", emoji: "🎉", reactor_email: "new@example.com" },
+      ]);
+
+      const cached = getCachedTaskDetail("reaction-snapshot");
+      expect(cached?.comments[0]?.reactions).toEqual([
+        { comment_id: "c1", emoji: "🎉", reactor_email: "new@example.com" },
+      ]);
+      expect(cached?.comments[1]?.reactions).toEqual([]);
+      expect(getCachedTaskDetailAgeMs("reaction-snapshot")).toBe(1_234);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("patches only the mutated comment in a warm detail", () => {
+    const originalSecond = {
+      comment_id: "c2",
+      emoji: "❤️",
+      reactor_email: "second@example.com",
+    };
+    setCachedTaskDetail("reaction-comment", {
+      ...detail,
+      comments: [
+        { id: "c1", attachments: [], reactions: [] },
+        { id: "c2", attachments: [], reactions: [originalSecond] },
+      ],
+    });
+
+    patchCachedCommentReactionRows("reaction-comment", "c1", [
+      { comment_id: "c1", emoji: "👍", reactor_email: "first@example.com" },
+    ]);
+
+    const cached = getCachedTaskDetail("reaction-comment");
+    expect(cached?.comments[0]?.reactions).toEqual([
+      { comment_id: "c1", emoji: "👍", reactor_email: "first@example.com" },
+    ]);
+    expect(cached?.comments[1]?.reactions).toEqual([originalSecond]);
+  });
+
+  it("preserves warm reactions when a detail revalidation omits them", async () => {
+    const reaction = {
+      comment_id: "c1",
+      emoji: "👍",
+      reactor_email: "person@example.com",
+    };
+    setCachedTaskDetail("reaction-revalidate", {
+      ...detail,
+      comments: [{ id: "c1", attachments: [], reactions: [reaction] }],
+    });
+    const refreshed: TaskDetail = {
+      ...detail,
+      comments: [{ id: "c1", attachments: [] }],
+    };
+
+    const returned = await fetchTaskDetail("reaction-revalidate", {
+      source: "revalidate",
+      fetcher: async () => Response.json(refreshed),
+    });
+
+    expect(returned.comments[0]?.reactions).toEqual([reaction]);
+    expect(
+      getCachedTaskDetail("reaction-revalidate")?.comments[0]?.reactions,
+    ).toEqual([reaction]);
+  });
+
+  it("respects an explicit canonical empty reaction list", () => {
+    setCachedTaskDetail("reaction-explicit-empty", {
+      ...detail,
+      comments: [
+        {
+          id: "c1",
+          attachments: [],
+          reactions: [
+            { comment_id: "c1", emoji: "👍", reactor_email: "old@example.com" },
+          ],
+        },
+      ],
+    });
+
+    const merged = setCachedTaskDetail("reaction-explicit-empty", {
+      ...detail,
+      comments: [{ id: "c1", attachments: [], reactions: [] }],
+    });
+
+    expect(merged.comments[0]?.reactions).toEqual([]);
   });
 });
 

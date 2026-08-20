@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildBroadcastMessages,
+  broadcastTaskCommentReaction,
   broadcastTasksChanged,
   notifTopic,
   readTaskMutationSourceId,
   sendBroadcastMessages,
 } from "@/lib/tasks/realtime";
+import { taskReactionTopic } from "@/lib/tasks/realtime-topics";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -166,5 +168,26 @@ describe("task mutation source correlation", () => {
     await expect(broadcastTasksChanged("board-a")).resolves.toBe(true);
     const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
     expect(body.messages[0].payload).toEqual({ sourceId: "board-a" });
+  });
+});
+
+describe("comment reaction broadcasts", () => {
+  it("uses the shared reaction topic and carries no reaction data", async () => {
+    vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-key");
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(broadcastTaskCommentReaction("task-1")).resolves.toBe(true);
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(body.messages).toEqual([
+      {
+        topic: taskReactionTopic("task-1"),
+        event: "reaction",
+        payload: {},
+      },
+    ]);
   });
 });

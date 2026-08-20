@@ -1,4 +1,5 @@
 import type { TaskDetail } from "./detail";
+import { indexReactionRows, type ReactionRow } from "./reactions";
 
 // Client-side cache of task detail (comments/activity/attachments), shared by
 // the drawer and by hover-prefetch so opening a task feels instant: the network
@@ -104,12 +105,86 @@ export function getCachedTaskDetailAgeMs(id: string): number | null {
 // simpler than tracking access order.
 export const MAX_CACHED_TASK_DETAILS = 50;
 
-export function setCachedTaskDetail(id: string, detail: TaskDetail): void {
+function preserveCachedReactionRows(
+  previous: TaskDetail | undefined,
+  detail: TaskDetail,
+): TaskDetail {
+  if (!previous) return detail;
+  const previousByComment = new Map(
+    previous.comments
+      .filter((comment) => comment.reactions !== undefined)
+      .map((comment) => [comment.id, comment.reactions!]),
+  );
+  if (previousByComment.size === 0) return detail;
+  let changed = false;
+  const comments = detail.comments.map((comment) => {
+    if (comment.reactions !== undefined) return comment;
+    const reactions = previousByComment.get(comment.id);
+    if (reactions === undefined) return comment;
+    changed = true;
+    return { ...comment, reactions };
+  });
+  return changed ? { ...detail, comments } : detail;
+}
+
+export function setCachedTaskDetail(id: string, detail: TaskDetail): TaskDetail {
+  const existing = cache.get(id);
+  const previous =
+    existing && Date.now() - existing.storedAt <= DETAIL_CACHE_TTL_MS
+      ? existing.detail
+      : undefined;
+  const merged = preserveCachedReactionRows(previous, detail);
   if (cache.size >= MAX_CACHED_TASK_DETAILS && !cache.has(id)) {
     const oldest = cache.keys().next();
     if (!oldest.done) cache.delete(oldest.value);
   }
-  cache.set(id, { detail, storedAt: Date.now() });
+  cache.set(id, { detail: merged, storedAt: Date.now() });
+  return merged;
+}
+
+/**
+ * Merge a canonical task reaction snapshot into an existing warm detail.
+ * Keep storedAt unchanged: refreshing reactions must not extend the freshness
+ * of task fields, comments, activity, or signed attachment URLs.
+ */
+export function patchCachedTaskReactionRows(
+  id: string,
+  rows: readonly ReactionRow[],
+): void {
+  const entry = cache.get(id);
+  if (!entry) return;
+  const indexed = indexReactionRows(rows);
+  cache.set(id, {
+    storedAt: entry.storedAt,
+    detail: {
+      ...entry.detail,
+      comments: entry.detail.comments.map((comment) => ({
+        ...comment,
+        reactions: indexed.get(comment.id) ?? [],
+      })),
+    },
+  });
+}
+
+/** Patch one mutation response without evicting the rest of task detail. */
+export function patchCachedCommentReactionRows(
+  id: string,
+  commentId: string,
+  rows: readonly ReactionRow[],
+): void {
+  const entry = cache.get(id);
+  if (!entry) return;
+  cache.set(id, {
+    storedAt: entry.storedAt,
+    detail: {
+      ...entry.detail,
+      comments: entry.detail.comments.map((comment) =>
+        comment.id === commentId
+          ? { ...comment, reactions: [...rows] }
+          : comment,
+      ),
+    },
+  });
 }
 
 export function invalidateTaskDetail(id: string): void {
@@ -154,12 +229,12 @@ export function fetchTaskDetail(
     if (!response.ok) {
       throw new Error(`Could not load task detail (${response.status}).`);
     }
-    const detail = (await response.json()) as TaskDetail;
+    let detail = (await response.json()) as TaskDetail;
     if (
       generationOf(id) === generation &&
       requestVersions.get(id) === requestVersion
     ) {
-      setCachedTaskDetail(id, detail);
+      detail = setCachedTaskDetail(id, detail);
     }
     return detail;
   })();

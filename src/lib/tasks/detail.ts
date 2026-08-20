@@ -9,6 +9,7 @@ import {
   COMMENT_PAGE_SIZE,
   type CommentCursor,
 } from "@/lib/collaboration/comment-pagination";
+import type { ReactionRow } from "./reactions";
 import type { TimingRecorder } from "@/lib/server-timing";
 
 export type SignedAttachment = {
@@ -24,6 +25,13 @@ export type CommentWithAttachments = Record<string, unknown> & {
   id: string;
   attachments: SignedAttachment[];
   author_name?: string;
+  /**
+   * Raw rows, not grouped: `reactedByMe` depends on the viewer and this shape
+   * is stored in the shared detail-cache. The client calls groupReactions().
+   * Optional so Enrollment — which shares CommentThread but has no reactions
+   * table — and optimistic rows keep compiling.
+   */
+  reactions?: ReactionRow[];
 };
 
 export type ActivityRow = {

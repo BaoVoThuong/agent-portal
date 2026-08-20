@@ -79,7 +79,7 @@ describe("loadActivity", () => {
 });
 
 describe("loadComments", () => {
-  it("loads display names and attachment rows concurrently", async () => {
+  it("loads names and attachments concurrently without a reaction query", async () => {
     const names = deferred<Map<string, string>>();
     const attachmentRows = deferred<{ data: unknown[]; error: null }>();
     const started = new Set<string>();
@@ -113,8 +113,11 @@ describe("loadComments", () => {
       },
     };
     const supabase = {
-      from: (table: string) =>
-        table === "task_comments" ? commentQuery : attachmentQuery,
+      from: (table: string) => {
+        if (table === "task_comments") return commentQuery;
+        if (table === "task_attachments") return attachmentQuery;
+        throw new Error(`Unexpected comment-loader table: ${table}`);
+      },
     } as unknown as SupabaseClient;
 
     const request = loadComments(supabase, "task-1", {
@@ -131,7 +134,11 @@ describe("loadComments", () => {
     attachmentRows.resolve({ data: [], error: null });
 
     await expect(request).resolves.toMatchObject({
-      comments: [{ id: "c1", author_name: "Person", attachments: [] }],
+      comments: [{
+        id: "c1",
+        author_name: "Person",
+        attachments: [],
+      }],
       hasMore: false,
     });
   });

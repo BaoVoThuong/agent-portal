@@ -16,6 +16,7 @@ import {
   Paperclip,
   RotateCcw,
   Send,
+  Smile,
   X,
   ZoomIn,
   ZoomOut,
@@ -23,6 +24,15 @@ import {
 import { createPortal } from "react-dom";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
+import { insertAtCaret, QUICK_EMOJI } from "@/lib/tasks/emoji";
+import {
+  groupReactions,
+  indexReactionRows,
+  reconcileReactionOverrides,
+  setReactionPresence,
+  type ReactionGroup,
+  type ReactionRow,
+} from "@/lib/tasks/reactions";
 import {
   decodeMentions,
   diffMentionEmails,
@@ -53,7 +63,14 @@ import type {
   CommentWithAttachments,
   SignedAttachment,
 } from "@/lib/tasks/detail";
-import { taskRoomTopic } from "@/lib/tasks/realtime-topics";
+import {
+  taskReactionTopic,
+  taskRoomTopic,
+} from "@/lib/tasks/realtime-topics";
+import {
+  patchCachedCommentReactionRows,
+  patchCachedTaskReactionRows,
+} from "@/lib/tasks/detail-cache";
 import {
   beginSubmission,
   canSubmit,
@@ -121,6 +138,16 @@ const MENTION_MENU_VIEWPORT_PADDING = 8;
 const PREVIEW_ZOOM_MIN = 0.5;
 const PREVIEW_ZOOM_MAX = 3;
 const PREVIEW_ZOOM_STEP = 0.25;
+
+function isReactionRow(value: unknown): value is ReactionRow {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<ReactionRow>;
+  return (
+    typeof row.comment_id === "string" &&
+    typeof row.emoji === "string" &&
+    typeof row.reactor_email === "string"
+  );
+}
 
 async function readResponseError(
   response: Response,
@@ -382,6 +409,7 @@ export function CommentThread({
   apiBase = "/api/tasks",
   roomTopic,
   realtimeManagedExternally = false,
+  reactionsEnabled = false,
   onCommitted,
   currentEmail,
   members,
@@ -396,6 +424,12 @@ export function CommentThread({
   apiBase?: string;
   roomTopic?: string;
   realtimeManagedExternally?: boolean;
+  /**
+   * Off by default because this component is shared with Enrollment, which has
+   * no reactions table and no reactions route — rendering the bar there would
+   * 404 on every tap. Only the CS task drawer turns it on.
+   */
+  reactionsEnabled?: boolean;
   onCommitted?: () => void;
   currentEmail: string;
   members: TaskAssignee[];
@@ -456,17 +490,300 @@ export function CommentThread({
     };
   }, [realtimeManagedExternally, roomTopic, taskId, onReload]);
 
+  // Reaction state lives here rather than in keyed CommentItem instances.
+  // Refs let rapid clicks build from the latest optimistic state instead of a
+  // render-old closure, while state remains the render trigger.
+  const [reactionOverrides, setReactionOverrides] = useState<
+    Record<string, ReactionRow[]>
+  >({});
+  const [reactionError, setReactionError] = useState<string | null>(null);
+  const reactionOverridesRef = useRef<Record<string, ReactionRow[]>>({});
+  const commentsRef = useRef(comments);
+  const reactionStateTaskIdRef = useRef(taskId);
+  const reactionTaskIdRef = useRef(taskId);
+  reactionTaskIdRef.current = taskId;
+  const reactionQueuesRef = useRef(new Map<string, Promise<void>>());
+  const reactionVersionsRef = useRef(new Map<string, number>());
+  const reactionPendingRef = useRef(new Map<string, number>());
+  const reactionMutationErrorRef = useRef(false);
+  const reactionRefreshSequenceRef = useRef(0);
+  const reactionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const reactionFetchAbortRef = useRef<AbortController | null>(null);
+
+  const applyReactionOverride = useCallback(
+    (commentId: string, rows: ReactionRow[]) => {
+      const next = {
+        ...reactionOverridesRef.current,
+        [commentId]: rows,
+      };
+      reactionOverridesRef.current = next;
+      setReactionOverrides(next);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const next = reconcileReactionOverrides(
+      comments,
+      reactionOverridesRef.current,
+      reactionStateTaskIdRef.current === taskId,
+    );
+    commentsRef.current = comments;
+    reactionStateTaskIdRef.current = taskId;
+    reactionRefreshSequenceRef.current += 1;
+    reactionFetchAbortRef.current?.abort();
+    reactionFetchAbortRef.current = null;
+    reactionOverridesRef.current = next;
+    setReactionOverrides(next);
+    reactionMutationErrorRef.current = false;
+    setReactionError(null);
+  }, [comments, taskId]);
+
+  const refreshReactions = useCallback(async () => {
+    const sequence = reactionRefreshSequenceRef.current + 1;
+    reactionRefreshSequenceRef.current = sequence;
+    reactionFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    reactionFetchAbortRef.current = controller;
+
+    try {
+      const response = await fetch(`${apiBase}/${taskId}/comment-reactions`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(
+          await readResponseError(response, "Could not sync reactions."),
+        );
+      }
+      const data = (await response.json()) as { reactions?: unknown };
+      if (
+        !Array.isArray(data.reactions) ||
+        !data.reactions.every(isReactionRow)
+      ) {
+        throw new Error("The reaction response was invalid.");
+      }
+      if (
+        controller.signal.aborted ||
+        reactionTaskIdRef.current !== taskId ||
+        sequence !== reactionRefreshSequenceRef.current
+      ) {
+        return;
+      }
+
+      const indexed = indexReactionRows(data.reactions);
+      const next: Record<string, ReactionRow[]> = {};
+      for (const comment of commentsRef.current) {
+        if ((reactionPendingRef.current.get(comment.id) ?? 0) > 0) {
+          if (
+            Object.prototype.hasOwnProperty.call(
+              reactionOverridesRef.current,
+              comment.id,
+            )
+          ) {
+            next[comment.id] = reactionOverridesRef.current[comment.id];
+          }
+          continue;
+        }
+        next[comment.id] = indexed.get(comment.id) ?? [];
+      }
+      reactionOverridesRef.current = next;
+      setReactionOverrides(next);
+      if (!reactionMutationErrorRef.current) setReactionError(null);
+      patchCachedTaskReactionRows(taskId, data.reactions);
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        (error instanceof DOMException && error.name === "AbortError")
+      ) {
+        return;
+      }
+      if (sequence === reactionRefreshSequenceRef.current) {
+        if (reactionTaskIdRef.current !== taskId) return;
+        setReactionError(
+          getErrorMessage(error, "Could not sync reactions."),
+        );
+      }
+    } finally {
+      if (reactionFetchAbortRef.current === controller) {
+        reactionFetchAbortRef.current = null;
+      }
+    }
+  }, [apiBase, taskId]);
+
+  const scheduleReactionRefresh = useCallback(
+    (delayMs = 150) => {
+      if (reactionRefreshTimerRef.current) {
+        clearTimeout(reactionRefreshTimerRef.current);
+      }
+      reactionRefreshTimerRef.current = setTimeout(() => {
+        reactionRefreshTimerRef.current = null;
+        void refreshReactions();
+      }, delayMs);
+    },
+    [refreshReactions],
+  );
+
+  // Reactions are intentionally outside the task-detail critical path. Paint
+  // comments first, then hydrate the lightweight reaction state independently.
+  useEffect(() => {
+    if (!reactionsEnabled || comments.length === 0) return;
+    scheduleReactionRefresh(0);
+  }, [comments, reactionsEnabled, scheduleReactionRefresh]);
+
+  // Broadcasts carry only a ping. Canonical rows come from the authenticated,
+  // lightweight endpoint instead of trusting public-channel payload data.
+  useEffect(() => {
+    if (!reactionsEnabled) return;
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+    const channel = sb
+      .channel(taskReactionTopic(taskId))
+      .on("broadcast", { event: "reaction" }, () =>
+        scheduleReactionRefresh(),
+      )
+      .subscribe();
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [reactionsEnabled, scheduleReactionRefresh, taskId]);
+
+  useEffect(() => {
+    return () => {
+      if (reactionRefreshTimerRef.current) {
+        clearTimeout(reactionRefreshTimerRef.current);
+      }
+      reactionRefreshSequenceRef.current += 1;
+      reactionFetchAbortRef.current?.abort();
+    };
+  }, [taskId]);
+
+  const reactionsOf = useCallback(
+    (comment: Comment): ReactionGroup[] => {
+      if (!reactionsEnabled) return [];
+      const rows = reactionOverrides[comment.id] ?? comment.reactions ?? [];
+      return groupReactions(rows, currentEmail).get(comment.id) ?? [];
+    },
+    [currentEmail, reactionOverrides, reactionsEnabled],
+  );
+
+  const toggleReaction = useCallback(
+    (commentId: string, emoji: string, add: boolean) => {
+      const current = Object.prototype.hasOwnProperty.call(
+        reactionOverridesRef.current,
+        commentId,
+      )
+        ? reactionOverridesRef.current[commentId]
+        : commentsRef.current.find((comment) => comment.id === commentId)
+            ?.reactions ?? [];
+      applyReactionOverride(
+        commentId,
+        setReactionPresence(current, commentId, emoji, currentEmail, add),
+      );
+      reactionMutationErrorRef.current = false;
+      setReactionError(null);
+
+      const version = (reactionVersionsRef.current.get(commentId) ?? 0) + 1;
+      reactionVersionsRef.current.set(commentId, version);
+      reactionPendingRef.current.set(
+        commentId,
+        (reactionPendingRef.current.get(commentId) ?? 0) + 1,
+      );
+
+      const request = async () => {
+        try {
+          const response = await fetch(
+            `${apiBase}/${taskId}/comments/${commentId}/reactions`,
+            {
+              method: add ? "PUT" : "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ emoji }),
+            },
+          );
+          if (!response.ok) {
+            throw new Error(
+              await readResponseError(
+                response,
+                "Could not save the reaction.",
+              ),
+            );
+          }
+          const data = (await response.json()) as { reactions?: unknown };
+          if (
+            !Array.isArray(data.reactions) ||
+            !data.reactions.every(isReactionRow)
+          ) {
+            throw new Error("The reaction response was invalid.");
+          }
+          if (reactionTaskIdRef.current !== taskId) return;
+          if (reactionVersionsRef.current.get(commentId) === version) {
+            applyReactionOverride(commentId, data.reactions);
+            reactionMutationErrorRef.current = false;
+            setReactionError(null);
+          }
+          patchCachedCommentReactionRows(taskId, commentId, data.reactions);
+        } catch (error) {
+          if (
+            reactionTaskIdRef.current === taskId &&
+            reactionVersionsRef.current.get(commentId) === version
+          ) {
+            reactionMutationErrorRef.current = true;
+            setReactionError(
+              getErrorMessage(error, "Could not save the reaction."),
+            );
+          }
+        } finally {
+          const pending =
+            (reactionPendingRef.current.get(commentId) ?? 1) - 1;
+          if (pending > 0) {
+            reactionPendingRef.current.set(commentId, pending);
+          } else {
+            reactionPendingRef.current.delete(commentId);
+            // A canonical read is also the rollback path for failed queued
+            // operations; a stale optimistic snapshot is never restored.
+            if (reactionTaskIdRef.current === taskId) {
+              scheduleReactionRefresh(0);
+            }
+          }
+        }
+      };
+
+      const previous = reactionQueuesRef.current.get(commentId);
+      const queued = (previous ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(request);
+      reactionQueuesRef.current.set(commentId, queued);
+      void queued.then(() => {
+        if (reactionQueuesRef.current.get(commentId) === queued) {
+          reactionQueuesRef.current.delete(commentId);
+        }
+      });
+    },
+    [
+      apiBase,
+      applyReactionOverride,
+      currentEmail,
+      scheduleReactionRefresh,
+      taskId,
+    ],
+  );
+
   // Revoke every optimistic blob URL when the drawer unmounts or switches to
   // another task. Without this, failed sends keep file previews alive for the
   // entire session even though the composer is no longer visible.
   useEffect(() => {
+    const optimisticUrls = optimisticUrlsRef.current;
+    const optimisticFiles = optimisticFilesRef.current;
+    const optimisticFileRequestIds = optimisticFileRequestIdsRef.current;
     return () => {
-      for (const urls of optimisticUrlsRef.current.values()) {
+      for (const urls of optimisticUrls.values()) {
         for (const url of urls) URL.revokeObjectURL(url);
       }
-      optimisticUrlsRef.current.clear();
-      optimisticFilesRef.current.clear();
-      optimisticFileRequestIdsRef.current.clear();
+      optimisticUrls.clear();
+      optimisticFiles.clear();
+      optimisticFileRequestIds.clear();
     };
   }, [taskId]);
 
@@ -1062,6 +1379,12 @@ export function CommentThread({
                   onReply={c.optimistic ? undefined : () => setReplyTo(c.id)}
                   onRetryFile={c.optimistic ? (fileId) => void retryFile(c.id, fileId) : undefined}
                   onPreviewAttachment={setImagePreview}
+                  reactions={reactionsOf(c)}
+                  onToggleReaction={
+                    reactionsEnabled && !c.optimistic
+                      ? (emoji, add) => void toggleReaction(c.id, emoji, add)
+                      : undefined
+                  }
                 />
                 <div className="ml-3 space-y-2 border-l-2 border-[#dfe1e6] pl-3 sm:ml-5 sm:pl-4">
                   {repliesOf(c.id).map((rc) => (
@@ -1078,6 +1401,12 @@ export function CommentThread({
                         onEdit={edit}
                         onRetryFile={rc.optimistic ? (fileId) => void retryFile(rc.id, fileId) : undefined}
                         onPreviewAttachment={setImagePreview}
+                        reactions={reactionsOf(rc)}
+                        onToggleReaction={
+                          reactionsEnabled && !rc.optimistic
+                            ? (emoji, add) => void toggleReaction(rc.id, emoji, add)
+                            : undefined
+                        }
                       />
                     </div>
                   ))}
@@ -1099,6 +1428,11 @@ export function CommentThread({
           </div>
         )}
         </div>
+        {reactionError ? (
+          <div role="alert" className="mt-2 shrink-0 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-center text-xs font-semibold text-[#bf2600]">
+            {reactionError}
+          </div>
+        ) : null}
         {newRowsCount > 0 ? (
           <button
             type="button"
@@ -1337,6 +1671,8 @@ function CommentItem({
   onReply,
   onRetryFile,
   onPreviewAttachment,
+  reactions,
+  onToggleReaction,
 }: {
   c: Comment;
   taskId: string;
@@ -1350,6 +1686,10 @@ function CommentItem({
   onReply?: () => void;
   onRetryFile?: (fileId: string) => void;
   onPreviewAttachment: (preview: AttachmentPreview) => void;
+  reactions: ReactionGroup[];
+  /** Absent when reactions are off for this module, or for optimistic rows
+   *  that have no server id yet. */
+  onToggleReaction?: (emoji: string, add: boolean) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -1359,6 +1699,15 @@ function CommentItem({
   >(null);
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
     useAnchoredMenu();
+  // Second instance: the overflow menu above owns the first one.
+  const {
+    isOpen: reactOpen,
+    setIsOpen: setReactOpen,
+    toggle: toggleReact,
+    triggerRef: reactTriggerRef,
+    menuRef: reactMenuRef,
+    menuStyle: reactMenuStyle,
+  } = useAnchoredMenu();
   const canReply = Boolean(onReply && !c.optimistic);
   const canEdit = c.author_email === currentEmail && !c.optimistic && !c.failed;
   const canDelete =
@@ -1688,6 +2037,81 @@ function CommentItem({
                         {c.failed ? "Remove" : "Delete"}
                       </button>
                     ) : null}
+                  </div>,
+                  document.body,
+                )
+              : null}
+          </div>
+        ) : null}
+        {onToggleReaction || reactions.length > 0 ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {reactions.map((group) => (
+              <button
+                key={group.emoji}
+                type="button"
+                disabled={!onToggleReaction}
+                aria-pressed={group.reactedByMe}
+                // An emoji-only button announces as a raw Unicode name or
+                // nothing, so the count and intent go in the label.
+                aria-label={`React with ${group.emoji}, ${group.count} ${
+                  group.count === 1 ? "person" : "people"
+                }`}
+                title={group.reactors.map((email) => nameOf(email)).join(", ")}
+                onClick={() =>
+                  onToggleReaction?.(group.emoji, !group.reactedByMe)
+                }
+                className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs font-semibold transition ${
+                  group.reactedByMe
+                    ? "border-[#0c66e4] bg-[#e9f2ff] text-[#0c66e4]"
+                    : "border-[#dfe1e6] bg-[#f4f5f7] text-[#44546f] hover:bg-[#ebecf0]"
+                } disabled:cursor-default disabled:hover:bg-[#f4f5f7]`}
+              >
+                <span aria-hidden>{group.emoji}</span>
+                <span>{group.count}</span>
+              </button>
+            ))}
+            {onToggleReaction ? (
+              <button
+                ref={reactTriggerRef}
+                type="button"
+                onClick={toggleReact}
+                aria-label="Add a reaction"
+                title="Add a reaction"
+                aria-haspopup="dialog"
+                aria-expanded={reactOpen}
+                className="inline-flex h-6 items-center rounded-full border border-dashed border-[#c1c7d0] px-2 text-[#6b778c] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+              >
+                <Smile className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+            {reactOpen && onToggleReaction
+              ? createPortal(
+                  <div
+                    ref={reactMenuRef}
+                    role="dialog"
+                    aria-label="Add a reaction"
+                    style={reactMenuStyle}
+                    className="z-[100] grid grid-cols-8 gap-0.5 rounded border border-[#dfe1e6] bg-white p-1.5 shadow-[0_8px_24px_rgba(9,30,66,0.25)]"
+                  >
+                    {QUICK_EMOJI.map((emoji) => {
+                      const mine = reactions.some(
+                        (group) => group.emoji === emoji && group.reactedByMe,
+                      );
+                      return (
+                        <button
+                          key={emoji}
+                          type="button"
+                          aria-label={`React with ${emoji}`}
+                          onClick={() => {
+                            setReactOpen(false);
+                            onToggleReaction(emoji, !mine);
+                          }}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-base transition hover:bg-[#ebecf0]"
+                        >
+                          {emoji}
+                        </button>
+                      );
+                    })}
                   </div>,
                   document.body,
                 )
@@ -2025,6 +2449,17 @@ function Composer({
   const activeMentionRef = useRef<ActiveMention | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const listId = useId();
+  // Its own instance: sharing one with the comment overflow menu would make
+  // the two fight over isOpen. Destructured at the call site because
+  // react-hooks/refs rejects reading a ref off an object during render.
+  const {
+    isOpen: emojiOpen,
+    setIsOpen: setEmojiOpen,
+    toggle: toggleEmoji,
+    triggerRef: emojiTriggerRef,
+    menuRef: emojiMenuRef,
+    menuStyle: emojiMenuStyle,
+  } = useAnchoredMenu();
 
   // Apply a programmatic caret position after a mention insert.
   useEffect(() => {
@@ -2127,6 +2562,33 @@ function Composer({
     activeMentionRef.current = null;
     setQuery(null);
     setMentionPosition(null);
+  }
+
+  function insertEmoji(emoji: string) {
+    const el = taRef.current;
+    const currentText = el?.value ?? text;
+    const caret = el?.selectionStart ?? currentText.length;
+    const selectionEnd = el?.selectionEnd ?? caret;
+    const { text: next, caret: nextCaret } = insertAtCaret(
+      currentText,
+      caret,
+      emoji,
+      selectionEnd,
+    );
+    // Mention offsets are absolute, so inserting before one shifts it, and
+    // encodeMentions silently DROPS any mention whose slice no longer reads
+    // "@label" — skipping this posts the comment with the tag missing.
+    setDraftMentions(rebaseMentions(currentText, next, draftMentions));
+    setText(next);
+    textRef.current = next;
+    caretRef.current = nextCaret;
+    // Same teardown pick() performs. Leaving the mention menu alive keeps a
+    // pre-insert {start,end} in activeMentionRef, and the next pick() would
+    // splice at those stale offsets and mangle the body.
+    activeMentionRef.current = null;
+    setQuery(null);
+    setMentionPosition(null);
+    setEmojiOpen(false);
   }
 
   function addFiles(list: FileList | null) {
@@ -2345,16 +2807,57 @@ function Composer({
               if (fileRef.current) fileRef.current.value = "";
             }}
           />
-          {/* Icon-only: the bar is tight and the paperclip reads on its own. */}
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            aria-label="Attach files"
-            title="Attach files"
-            className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
-          >
-            <Paperclip className="h-4 w-4" />
-          </button>
+          {/* Icon-only: the bar is tight and these read on their own. Grouped
+              so the row keeps its two-child justify-between layout. */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              aria-label="Attach files"
+              title="Attach files"
+              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+            <button
+              ref={emojiTriggerRef}
+              type="button"
+              onClick={toggleEmoji}
+              aria-label="Insert emoji"
+              title="Insert emoji"
+              aria-haspopup="dialog"
+              aria-expanded={emojiOpen}
+              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
+            >
+              <Smile className="h-4 w-4" />
+            </button>
+            {emojiOpen
+              ? createPortal(
+                  <div
+                    ref={emojiMenuRef}
+                    role="dialog"
+                    aria-label="Insert emoji"
+                    style={emojiMenuStyle}
+                    className="z-[100] grid grid-cols-8 gap-0.5 rounded border border-[#dfe1e6] bg-white p-1.5 shadow-[0_8px_24px_rgba(9,30,66,0.25)]"
+                  >
+                    {QUICK_EMOJI.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        // Emoji-only buttons announce as a raw Unicode name or
+                        // nothing at all, so every one needs a real label.
+                        aria-label={`Insert ${emoji}`}
+                        onClick={() => insertEmoji(emoji)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded text-base transition hover:bg-[#ebecf0]"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>,
+                  document.body,
+                )
+              : null}
+          </div>
           <div className="flex items-center gap-2">
             {/* An always-open box has nothing to collapse back to, so Cancel
                 only appears once there is a draft — there it means "clear". */}
