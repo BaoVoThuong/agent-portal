@@ -242,8 +242,9 @@ describe("canViewTask with flags", () => {
       )
     ).toBe(false);
   });
-  it("agent member cannot view an unassigned team task", () => {
-    expect(canViewTask(cs, { assignee_email: null }, { isAgentMember: true })).toBe(false);
+  it("agent member can collaborate on an unassigned team task", () => {
+    expect(canViewTask(cs, { assignee_email: null }, { isAgentMember: true })).toBe(true);
+    expect(canMutateTask(cs, { assignee_email: null }, { isAgentOwner: false })).toBe(false);
   });
   it("no flags, not assignee → cannot view", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, {})).toBe(false);

@@ -68,7 +68,7 @@ describe("isHitVisible", () => {
     ).toBe(true);
   });
 
-  it("worker sees a member-team hit only when the task has an assignee", () => {
+  it("worker sees assigned and backlog hits for their agent team", () => {
     expect(
       isHitVisible(
         cs,
@@ -86,7 +86,7 @@ describe("isHitVisible", () => {
         { task_id: "t3", agent_email: "agentA@x.com", assignee_email: null },
         scope
       )
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("worker cannot see an unrelated task hit", () => {

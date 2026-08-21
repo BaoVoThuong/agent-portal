@@ -96,7 +96,7 @@ export function canViewTask(
   if (!actor.isWorker) return false;
   return (
     Boolean(flags.isAssignee) ||
-    (Boolean(flags.isAgentMember) && Boolean(task.assignee_email)) ||
+    Boolean(flags.isAgentMember) ||
     Boolean(flags.isAgentOwner) ||
     Boolean(flags.isParticipant)
   );
