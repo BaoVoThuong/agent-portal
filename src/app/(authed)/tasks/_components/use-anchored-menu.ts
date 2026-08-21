@@ -12,11 +12,18 @@ export type AnchoredMenuCloseOptions = {
   restoreFocus?: boolean;
 };
 
-// A dropdown menu anchored to a trigger button but rendered in a portal, so it
-// is never clipped by an ancestor's overflow (e.g. a scrollable table). Computes
-// fixed coordinates on open, flips up when there is little space below, and
-// closes on outside-click / Escape / scroll / resize.
-export function useAnchoredMenu() {
+type AnchoredMenuPlacement = "default" | "above-right";
+
+// Shared menu controller for both inline menus and portal-rendered dropdowns.
+// Portal callers get fixed coordinates and viewport flipping; all callers get
+// outside-click / Escape / scroll / resize handling.
+export function useAnchoredMenu({
+  estimatedHeight = 300,
+  placement = "default",
+}: {
+  estimatedHeight?: number;
+  placement?: AnchoredMenuPlacement;
+} = {}) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -43,8 +50,24 @@ export function useAnchoredMenu() {
     const el = triggerRef.current;
     if (el) {
       const rect = el.getBoundingClientRect();
-      const maxHeight = 300;
+      const maxHeight = estimatedHeight;
       const estWidth = 320;
+      if (placement === "above-right") {
+        const canOpenRight = rect.right + estWidth + 8 <= window.innerWidth;
+        const left = canOpenRight
+          ? { left: rect.right + 8 }
+          : { right: Math.max(8, window.innerWidth - rect.left + 8) };
+        setMenuStyle({
+          position: "fixed",
+          minWidth: rect.width,
+          maxHeight,
+          ...left,
+          // Keep the compose textarea visible below the picker, like Slack.
+          bottom: window.innerHeight - rect.top + 72,
+        });
+        setIsOpen(true);
+        return;
+      }
       const spaceBelow = window.innerHeight - rect.bottom;
       const flipUp = spaceBelow < maxHeight && rect.top > spaceBelow;
       // Not enough room to grow rightward → anchor the menu's right edge to the
@@ -63,7 +86,7 @@ export function useAnchoredMenu() {
       });
     }
     setIsOpen(true);
-  }, []);
+  }, [estimatedHeight, placement]);
 
   const toggle = useCallback(() => {
     if (isOpen) setIsOpen(false);

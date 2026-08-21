@@ -24,7 +24,8 @@ import {
 import { createPortal } from "react-dom";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
-import { insertAtCaret, QUICK_EMOJI } from "@/lib/tasks/emoji";
+import { insertAtCaret } from "@/lib/tasks/emoji";
+import { EmojiPicker } from "./EmojiPicker";
 import {
   groupReactions,
   indexReactionRows,
@@ -1707,7 +1708,7 @@ function CommentItem({
     triggerRef: reactTriggerRef,
     menuRef: reactMenuRef,
     menuStyle: reactMenuStyle,
-  } = useAnchoredMenu();
+  } = useAnchoredMenu({ estimatedHeight: 420, placement: "above-right" });
   const canReply = Boolean(onReply && !c.optimistic);
   const canEdit = c.author_email === currentEmail && !c.optimistic && !c.failed;
   const canDelete =
@@ -1976,17 +1977,90 @@ function CommentItem({
                 </p>
               ) : null}
 
-              {canReply ? (
-                <div className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-[#44546f]">
-                  <button
-                    type="button"
-                    onClick={onReply}
-                    className="rounded px-1 py-0.5 transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
-                  >
-                    Reply
-                  </button>
+              {reactions.length > 0 ? (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  {reactions.map((group) => (
+                    <button
+                      key={group.emoji}
+                      type="button"
+                      disabled={!onToggleReaction}
+                      aria-pressed={group.reactedByMe}
+                      aria-label={`React with ${group.emoji}, ${group.count} ${
+                        group.count === 1 ? "person" : "people"
+                      }`}
+                      title={group.reactors.map((email) => nameOf(email)).join(", ")}
+                      onClick={() =>
+                        onToggleReaction?.(group.emoji, !group.reactedByMe)
+                      }
+                      className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs font-semibold transition ${
+                        group.reactedByMe
+                          ? "border-[#0c66e4] bg-[#e9f2ff] text-[#0c66e4]"
+                          : "border-[#dfe1e6] bg-[#f4f5f7] text-[#44546f] hover:bg-[#ebecf0]"
+                      } disabled:cursor-default disabled:hover:bg-[#f4f5f7]`}
+                    >
+                      <span aria-hidden>{group.emoji}</span>
+                      <span>{group.count}</span>
+                    </button>
+                  ))}
                 </div>
               ) : null}
+
+              {canReply || onToggleReaction ? (
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-[#44546f]">
+                  {canReply ? (
+                    <button
+                      type="button"
+                      onClick={onReply}
+                      className="rounded px-1 py-0.5 transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
+                    >
+                      Reply
+                    </button>
+                  ) : null}
+                  {canReply && onToggleReaction ? (
+                    <span aria-hidden className="text-[#c1c7d0]">·</span>
+                  ) : null}
+                  {onToggleReaction ? (
+                    <button
+                      ref={reactTriggerRef}
+                      type="button"
+                      onClick={toggleReact}
+                      aria-haspopup="dialog"
+                      aria-expanded={reactOpen}
+                      className="rounded px-1 py-0.5 transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
+                    >
+                      React
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {reactOpen && onToggleReaction
+                ? createPortal(
+                    <div
+                      ref={reactMenuRef}
+                      style={{ ...reactMenuStyle, zIndex: 150 }}
+                    >
+                      <EmojiPicker
+                        action="React with"
+                        selected={new Set(
+                          reactions
+                            .filter((group) => group.reactedByMe)
+                            .map((group) => group.emoji),
+                        )}
+                        onClose={() => setReactOpen(false)}
+                        onPick={(emoji) => {
+                          setReactOpen(false);
+                          const mine = reactions.some(
+                            (group) =>
+                              group.emoji === emoji && group.reactedByMe,
+                          );
+                          onToggleReaction(emoji, !mine);
+                        }}
+                      />
+                    </div>,
+                    document.body,
+                  )
+                : null}
             </>
           )}
         </div>
@@ -2037,81 +2111,6 @@ function CommentItem({
                         {c.failed ? "Remove" : "Delete"}
                       </button>
                     ) : null}
-                  </div>,
-                  document.body,
-                )
-              : null}
-          </div>
-        ) : null}
-        {onToggleReaction || reactions.length > 0 ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            {reactions.map((group) => (
-              <button
-                key={group.emoji}
-                type="button"
-                disabled={!onToggleReaction}
-                aria-pressed={group.reactedByMe}
-                // An emoji-only button announces as a raw Unicode name or
-                // nothing, so the count and intent go in the label.
-                aria-label={`React with ${group.emoji}, ${group.count} ${
-                  group.count === 1 ? "person" : "people"
-                }`}
-                title={group.reactors.map((email) => nameOf(email)).join(", ")}
-                onClick={() =>
-                  onToggleReaction?.(group.emoji, !group.reactedByMe)
-                }
-                className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs font-semibold transition ${
-                  group.reactedByMe
-                    ? "border-[#0c66e4] bg-[#e9f2ff] text-[#0c66e4]"
-                    : "border-[#dfe1e6] bg-[#f4f5f7] text-[#44546f] hover:bg-[#ebecf0]"
-                } disabled:cursor-default disabled:hover:bg-[#f4f5f7]`}
-              >
-                <span aria-hidden>{group.emoji}</span>
-                <span>{group.count}</span>
-              </button>
-            ))}
-            {onToggleReaction ? (
-              <button
-                ref={reactTriggerRef}
-                type="button"
-                onClick={toggleReact}
-                aria-label="Add a reaction"
-                title="Add a reaction"
-                aria-haspopup="dialog"
-                aria-expanded={reactOpen}
-                className="inline-flex h-6 items-center rounded-full border border-dashed border-[#c1c7d0] px-2 text-[#6b778c] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-              >
-                <Smile className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-            {reactOpen && onToggleReaction
-              ? createPortal(
-                  <div
-                    ref={reactMenuRef}
-                    role="dialog"
-                    aria-label="Add a reaction"
-                    style={reactMenuStyle}
-                    className="z-[100] grid grid-cols-8 gap-0.5 rounded border border-[#dfe1e6] bg-white p-1.5 shadow-[0_8px_24px_rgba(9,30,66,0.25)]"
-                  >
-                    {QUICK_EMOJI.map((emoji) => {
-                      const mine = reactions.some(
-                        (group) => group.emoji === emoji && group.reactedByMe,
-                      );
-                      return (
-                        <button
-                          key={emoji}
-                          type="button"
-                          aria-label={`React with ${emoji}`}
-                          onClick={() => {
-                            setReactOpen(false);
-                            onToggleReaction(emoji, !mine);
-                          }}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-base transition hover:bg-[#ebecf0]"
-                        >
-                          {emoji}
-                        </button>
-                      );
-                    })}
                   </div>,
                   document.body,
                 )
@@ -2459,7 +2458,7 @@ function Composer({
     triggerRef: emojiTriggerRef,
     menuRef: emojiMenuRef,
     menuStyle: emojiMenuStyle,
-  } = useAnchoredMenu();
+  } = useAnchoredMenu({ estimatedHeight: 420, placement: "above-right" });
 
   // Apply a programmatic caret position after a mention insert.
   useEffect(() => {
@@ -2835,24 +2834,12 @@ function Composer({
               ? createPortal(
                   <div
                     ref={emojiMenuRef}
-                    role="dialog"
-                    aria-label="Insert emoji"
-                    style={emojiMenuStyle}
-                    className="z-[100] grid grid-cols-8 gap-0.5 rounded border border-[#dfe1e6] bg-white p-1.5 shadow-[0_8px_24px_rgba(9,30,66,0.25)]"
+                    style={{ ...emojiMenuStyle, zIndex: 150 }}
                   >
-                    {QUICK_EMOJI.map((emoji) => (
-                      <button
-                        key={emoji}
-                        type="button"
-                        // Emoji-only buttons announce as a raw Unicode name or
-                        // nothing at all, so every one needs a real label.
-                        aria-label={`Insert ${emoji}`}
-                        onClick={() => insertEmoji(emoji)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded text-base transition hover:bg-[#ebecf0]"
-                      >
-                        {emoji}
-                      </button>
-                    ))}
+                    <EmojiPicker
+                      onClose={() => setEmojiOpen(false)}
+                      onPick={insertEmoji}
+                    />
                   </div>,
                   document.body,
                 )

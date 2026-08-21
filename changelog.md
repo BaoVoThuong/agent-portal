@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-21 — Đặt React cạnh Reply và mở rộng bộ emoji
+- **Loại**: feature, fix
+- **Cái gì**: Giữ UI reaction cũ trong comment nhưng mở picker searchable/full-set; ô soạn comment dùng cùng picker, nhóm theo category và bộ 1.914 emoji RGI sinh từ dataset Unicode. Server dùng `Set` exact-match trên dataset đã sinh, chuẩn hoá variation selector trước khi lưu, thay cho allowlist 16 emoji.
+- **Vì sao**: Giữ reaction comment quen thuộc theo UI cũ; phần nhập comment cần bộ emoji searchable. Regex không được dùng vì chỉ nhận diện chuỗi “giống emoji”, không bảo đảm emoji đó thuộc tập sản phẩm hỗ trợ.
+- **File**: `scripts/generate-emoji-data.mjs`, `scripts/emoji-data-source.mjs`, `scripts/check-emoji-length.mjs`, `src/lib/tasks/emoji-data.ts`, `src/lib/tasks/emoji-search.ts`, `src/app/(authed)/tasks/_components/EmojiPicker.tsx`, `CommentThread.tsx`, reaction route, `package.json`
+- **Ảnh hưởng**: Không thêm runtime dependency; hai package chỉ là devDependency và dataset được commit, dynamic import chỉ tải chunk khi mở picker. Max dataset hiện tại là 8 code point, vẫn nằm dưới guard RPC `char_length <= 16`. Skin-tone variants, custom emoji và edit-comment picker vẫn ngoài scope.
+
 ## 2026-08-20 — Bỏ realtime echo cục bộ và sửa notification batch nhiều task
 - **Loại**: fix, performance, reliability
 - **Cái gì**: Mỗi Task Board dùng một source id ngẫu nhiên theo tab cho mutation. DOM invalidation và server broadcast mang source id này để tab tạo mutation bỏ qua lượt reconcile của chính nó, trong khi tab khác vẫn refetch. Task-scoped event chỉ tải lại task rows; lượt full luôn được ưu tiên khi nhiều trigger bị gộp. Notification poll có nhiều task phát một broad invalidation thay vì chỉ lấy task đầu tiên.

@@ -1,16 +1,4 @@
-/**
- * Deliberately short and hard-coded: a full set means a new dependency and a
- * search index for a feature whose job is to save a keyboard shortcut. Typed
- * Unicode emoji already work — task_comments.body is plain text.
- *
- * The type is `readonly string[]`, NOT `as const`. A const-asserted literal
- * tuple makes `QUICK_EMOJI.includes(someString)` a TS2345 error, and the
- * reaction route validates exactly that way.
- *
- * No emoji here carries U+FE0F. Variation selectors survive some clients and
- * not others, so an allowlist keyed on the composed form would reject what a
- * user actually sent.
- */
+/** A small, stable row of common choices shown above the full picker. */
 export const QUICK_EMOJI: readonly string[] = [
   "👍", "🙏", "✅", "🎉", "🔥", "👀", "💯", "😄",
   "😅", "😍", "🤔", "😭", "🚀", "👏", "🙌", "😊",

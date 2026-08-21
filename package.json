@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
+    "generate:emoji": "node scripts/generate-emoji-data.mjs",
+    "check:emoji-length": "node scripts/check-emoji-length.mjs",
     "seed:enrollment": "node scripts/seed-enrollment-samples.mjs",
     "sync:data": "node datasync/sync.js --config all",
     "sync:list": "node datasync/sync.js --list",
@@ -51,10 +53,12 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "emojilib": "4.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "unicode-emoji-json": "0.9.0",
     "vitest": "^2.1.9"
   }
 }

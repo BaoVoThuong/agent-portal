@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { QUICK_EMOJI } from "@/lib/tasks/emoji";
+import {
+  isAllowedEmoji,
+  normalizeEmojiInput,
+} from "@/lib/tasks/emoji-search";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import { authorizeTaskReactionAccess } from "@/lib/tasks/reaction-access";
 import type { ReactionRow } from "@/lib/tasks/reactions";
@@ -20,8 +23,9 @@ async function readEmoji(req: Request): Promise<string | null> {
   const body = (await req.json().catch(() => null)) as
     | { emoji?: unknown }
     | null;
-  const emoji = typeof body?.emoji === "string" ? body.emoji : null;
-  return emoji && QUICK_EMOJI.includes(emoji) ? emoji : null;
+  if (typeof body?.emoji !== "string") return null;
+  const emoji = normalizeEmojiInput(body.emoji);
+  return isAllowedEmoji(emoji) ? emoji : null;
 }
 
 async function mutate(
