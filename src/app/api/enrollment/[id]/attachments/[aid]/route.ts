@@ -1,15 +1,19 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { removeTaskFile } from "@/lib/enrollment/storage";
-import { broadcastEnrollmentRoom } from "@/lib/enrollment/realtime";
+import {
+  broadcastEnrollmentRoom,
+  readEnrollmentMutationSourceId,
+} from "@/lib/enrollment/realtime";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string; aid: string }> };
 
-export async function DELETE(_request: Request, { params }: Ctx) {
+export async function DELETE(request: Request, { params }: Ctx) {
+  const sourceId = readEnrollmentMutationSourceId(request);
   const { id, aid } = await params;
   const actorResult = await loadEnrollmentActor();
   if (!actorResult.ok) {
@@ -69,13 +73,15 @@ export async function DELETE(_request: Request, { params }: Ctx) {
       `Attachment storage cleanup failed: ${storageError instanceof Error ? storageError.message : "unknown error"}`
     );
   }
-  try {
-    await broadcastEnrollmentRoom(id);
-  } catch (broadcastError) {
-    warnings.push(
-      `Attachment broadcast failed: ${broadcastError instanceof Error ? broadcastError.message : "unknown error"}`
-    );
-  }
+  after(async () => {
+    const delivered = await broadcastEnrollmentRoom(id, sourceId);
+    if (!delivered) {
+      console.error("Enrollment attachment delete broadcast failed after commit", {
+        recordId: id,
+        attachmentId: aid,
+      });
+    }
+  });
   if (warnings.length > 0) {
     console.error("Enrollment attachment delete committed with warnings", {
       recordId: id,

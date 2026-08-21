@@ -13,6 +13,8 @@
     "generate:emoji": "node scripts/generate-emoji-data.mjs",
     "check:emoji-length": "node scripts/check-emoji-length.mjs",
     "seed:enrollment": "node scripts/seed-enrollment-samples.mjs",
+    "seed:enrollment-comments": "node scripts/seed-enrollment-comment-samples.mjs",
+    "benchmark:enrollment-comments": "node scripts/benchmark-enrollment-comment-load.mjs",
     "sync:data": "node datasync/sync.js --config all",
     "sync:list": "node datasync/sync.js --list",
     "sync:health": "node datasync/sync.js --config health-mart",

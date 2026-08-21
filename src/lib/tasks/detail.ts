@@ -28,8 +28,8 @@ export type CommentWithAttachments = Record<string, unknown> & {
   /**
    * Raw rows, not grouped: `reactedByMe` depends on the viewer and this shape
    * is stored in the shared detail-cache. The client calls groupReactions().
-   * Optional so Enrollment — which shares CommentThread but has no reactions
-   * table — and optimistic rows keep compiling.
+   * Optional because reactions hydrate through a separate lightweight endpoint
+   * and optimistic rows do not have a canonical reaction snapshot yet.
    */
   reactions?: ReactionRow[];
 };

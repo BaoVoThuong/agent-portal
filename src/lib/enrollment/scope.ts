@@ -98,11 +98,18 @@ export async function loadScopedEnrollmentRecord(
   | { ok: true; record: EnrollmentRecordWithStats; scope: EnrollmentScope }
   | { ok: false; status: 404; error: "Not found" }
 > {
-  const [{ fetchEnrollmentRecordById }, scope] = await Promise.all([
-    import("./queries"),
-    resolveEnrollmentScope(actor),
-  ]);
-  const record = await fetchEnrollmentRecordById(id);
+  // The record lookup is needed to enforce the final scope decision, but it
+  // does not depend on resolving the actor's covered agents. Start both
+  // reads together to remove one network round-trip from every detail route.
+  // This remains fail-closed: the record is never returned until the scope
+  // check below has completed, and detail data is loaded only by the caller
+  // after this function succeeds.
+  const queriesPromise = import("./queries");
+  const scopePromise = resolveEnrollmentScope(actor);
+  const recordPromise = queriesPromise.then(({ fetchEnrollmentRecordById }) =>
+    fetchEnrollmentRecordById(id),
+  );
+  const [record, scope] = await Promise.all([recordPromise, scopePromise]);
   if (!record || !isRecordInScope(scope, record.agent_email)) {
     return { ok: false, status: 404, error: "Not found" };
   }

@@ -73,6 +73,10 @@ import {
   patchCachedTaskReactionRows,
 } from "@/lib/tasks/detail-cache";
 import {
+  patchCachedEnrollmentCommentReactionRows,
+  patchCachedEnrollmentReactionRows,
+} from "@/lib/enrollment/detail-cache";
+import {
   beginSubmission,
   canSubmit,
   commentCommitted,
@@ -409,8 +413,12 @@ export function CommentThread({
   taskId,
   apiBase = "/api/tasks",
   roomTopic,
+  reactionTopic,
   realtimeManagedExternally = false,
   reactionsEnabled = false,
+  reactionCache = "task",
+  mutationSourceId,
+  mutationSourceHeader = "x-task-client-source",
   onCommitted,
   currentEmail,
   members,
@@ -424,13 +432,16 @@ export function CommentThread({
   taskId: string;
   apiBase?: string;
   roomTopic?: string;
+  /** Separate lightweight reaction stream; defaults to the task topic. */
+  reactionTopic?: string;
   realtimeManagedExternally?: boolean;
-  /**
-   * Off by default because this component is shared with Enrollment, which has
-   * no reactions table and no reactions route — rendering the bar there would
-   * 404 on every tap. Only the CS task drawer turns it on.
-   */
+  /** Optional opaque source id used to suppress a mutation's own broadcast. */
+  mutationSourceId?: string;
+  mutationSourceHeader?: string;
+  /** Off by default; each surface opts in after its reaction API is ready. */
   reactionsEnabled?: boolean;
+  /** Enrollment shares this UI but has a separate detail cache namespace. */
+  reactionCache?: "task" | "enrollment" | "none";
   onCommitted?: () => void;
   currentEmail: string;
   members: TaskAssignee[];
@@ -470,6 +481,14 @@ export function CommentThread({
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
   const optimisticFilesRef = useRef(new Map<string, Map<string, File>>());
   const optimisticFileRequestIdsRef = useRef(new Map<string, Map<string, string>>());
+
+  const mutationHeaders = useCallback(
+    (contentType?: string): Record<string, string> => ({
+      ...(contentType ? { "Content-Type": contentType } : {}),
+      ...(mutationSourceId ? { [mutationSourceHeader]: mutationSourceId } : {}),
+    }),
+    [mutationSourceHeader, mutationSourceId],
+  );
 
   // Live thread: refetch when the task room pings (someone commented/attached).
   useEffect(() => {
@@ -593,7 +612,11 @@ export function CommentThread({
       reactionOverridesRef.current = next;
       setReactionOverrides(next);
       if (!reactionMutationErrorRef.current) setReactionError(null);
-      patchCachedTaskReactionRows(taskId, data.reactions);
+      if (reactionCache === "task") {
+        patchCachedTaskReactionRows(taskId, data.reactions);
+      } else if (reactionCache === "enrollment") {
+        patchCachedEnrollmentReactionRows(taskId, data.reactions);
+      }
     } catch (error) {
       if (
         controller.signal.aborted ||
@@ -612,7 +635,7 @@ export function CommentThread({
         reactionFetchAbortRef.current = null;
       }
     }
-  }, [apiBase, taskId]);
+  }, [apiBase, reactionCache, taskId]);
 
   const scheduleReactionRefresh = useCallback(
     (delayMs = 150) => {
@@ -641,15 +664,26 @@ export function CommentThread({
     const sb = getBrowserSupabase();
     if (!sb) return;
     const channel = sb
-      .channel(taskReactionTopic(taskId))
-      .on("broadcast", { event: "reaction" }, () =>
-        scheduleReactionRefresh(),
+      .channel(reactionTopic ?? taskReactionTopic(taskId))
+      .on(
+        "broadcast",
+        { event: "reaction" },
+        (message: { payload?: Record<string, unknown> }) => {
+          if (message.payload?.sourceId === mutationSourceId) return;
+          scheduleReactionRefresh();
+        },
       )
       .subscribe();
     return () => {
       void sb.removeChannel(channel);
     };
-  }, [reactionsEnabled, scheduleReactionRefresh, taskId]);
+  }, [
+    mutationSourceId,
+    reactionTopic,
+    reactionsEnabled,
+    scheduleReactionRefresh,
+    taskId,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -699,7 +733,7 @@ export function CommentThread({
             `${apiBase}/${taskId}/comments/${commentId}/reactions`,
             {
               method: add ? "PUT" : "DELETE",
-              headers: { "Content-Type": "application/json" },
+              headers: mutationHeaders("application/json"),
               body: JSON.stringify({ emoji }),
             },
           );
@@ -724,7 +758,15 @@ export function CommentThread({
             reactionMutationErrorRef.current = false;
             setReactionError(null);
           }
-          patchCachedCommentReactionRows(taskId, commentId, data.reactions);
+          if (reactionCache === "task") {
+            patchCachedCommentReactionRows(taskId, commentId, data.reactions);
+          } else if (reactionCache === "enrollment") {
+            patchCachedEnrollmentCommentReactionRows(
+              taskId,
+              commentId,
+              data.reactions,
+            );
+          }
         } catch (error) {
           if (
             reactionTaskIdRef.current === taskId &&
@@ -766,6 +808,8 @@ export function CommentThread({
       apiBase,
       applyReactionOverride,
       currentEmail,
+      mutationHeaders,
+      reactionCache,
       scheduleReactionRefresh,
       taskId,
     ],
@@ -970,7 +1014,7 @@ export function CommentThread({
     try {
       const res = await fetch(`${apiBase}/${taskId}/comments`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: mutationHeaders("application/json"),
         body: JSON.stringify({
           body,
           parentId,
@@ -1035,6 +1079,7 @@ export function CommentThread({
         if (requestIdForFile) form.append("client_request_id", requestIdForFile);
         const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
           method: "POST",
+          headers: mutationHeaders(),
           body: form,
         });
         if (!upload.ok) {
@@ -1120,6 +1165,7 @@ export function CommentThread({
       if (requestIdForFile) form.append("client_request_id", requestIdForFile);
       const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
         method: "POST",
+        headers: mutationHeaders(),
         body: form,
       });
       if (!upload.ok) {
@@ -1181,12 +1227,19 @@ export function CommentThread({
     try {
       res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
         method: "DELETE",
+        headers: mutationHeaders(),
       });
     } catch {
       return { ok: false, message: "Could not delete the comment. Try again." };
     }
     if (!res.ok) {
       return { ok: false, message: "Could not delete the comment. Try again." };
+    }
+    const deleted = (await res.json().catch(() => null)) as {
+      parent_updated_at?: string;
+    } | null;
+    if (deleted?.parent_updated_at) {
+      onParentUpdatedAt?.(deleted.parent_updated_at);
     }
     onCommitted?.();
     try {
@@ -1208,8 +1261,8 @@ export function CommentThread({
     let res: Response;
     try {
       res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+        method: "PATCH",
+        headers: mutationHeaders("application/json"),
         body: JSON.stringify({
           body,
           expected_updated_at: expectedUpdatedAt,

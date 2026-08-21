@@ -20,6 +20,7 @@ import {
   Circle,
   Download,
   ExternalLink,
+  Paperclip,
   Plus,
   Search,
   Settings2,
@@ -30,13 +31,42 @@ import { createPortal } from "react-dom";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import {
   OPEN_ENROLLMENT_EVENT,
+  createEnrollmentDataInvalidationSourceId,
+  publishEnrollmentDataInvalidation,
+  subscribeEnrollmentDataInvalidation,
   writeEnrollmentDeepLink,
 } from "@/lib/enrollment/client-events";
 import {
+  ENROLLMENT_DETAIL_OPEN_FRESH_MS,
+  fetchEnrollmentDetail,
+  getCachedEnrollmentDetail,
+  getCachedEnrollmentDetailAgeMs,
+  prefetchEnrollmentDetail,
+  refreshEnrollmentDetail,
+  setCachedEnrollmentDetail,
+} from "@/lib/enrollment/detail-cache";
+import {
+  ENROLLMENT_MUTATION_SOURCE_HEADER,
+  enrollmentReactionTopic,
   enrollmentRoomTopic,
   enrollmentTopic,
 } from "@/lib/enrollment/realtime-topics";
+import {
+  canRefreshEnrollmentData,
+  ENROLLMENT_DEGRADED_RECONCILE_MS,
+  ENROLLMENT_LIVE_EVENT_DEBOUNCE_MS,
+  ENROLLMENT_LIVE_REFRESH_THROTTLE_MS,
+  ENROLLMENT_LIVE_RECONCILE_MS,
+  enrollmentBroadcastReconcileScope,
+  enrollmentInvalidationReconcileScope,
+  enrollmentLivePollInterval,
+  type EnrollmentLiveStatus,
+} from "@/lib/enrollment/live-sync";
 import { TABLE_CONFIG_TOPIC } from "@/lib/table-config/realtime-topics";
+import {
+  COMMENT_PAGE_SIZE,
+  COMMENT_REFRESH_MAX,
+} from "@/lib/collaboration/comment-pagination";
 import {
   enrollmentDisplayKey,
   formatDateInput,
@@ -86,11 +116,23 @@ import { Toast } from "../../_shared/Toast";
 import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
 import { AttachmentPanel } from "../../tasks/_components/AttachmentPanel";
+import { AttachmentStrip } from "../../tasks/_components/AttachmentStrip";
+import {
+  AttachmentPreviewDialog,
+  type AttachmentPreview,
+} from "../../tasks/_components/AttachmentPreviewDialog";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import { TASK_ASSIGNEE_BUTTON_CLASS } from "../../tasks/_components/TaskAssigneePicker";
 import { DateRangeFilter, type TaskDateRangeValue } from "../../tasks/_components/TaskToolbar";
 import { ReasonModal } from "../../tasks/_components/ReasonModal";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
+import {
+  addPendingFiles,
+  ATTACHMENT_ACCEPT_ATTRIBUTE,
+  removePendingFile,
+  type PendingFile,
+} from "@/lib/tasks/pending-attachments";
+import { formatAttachmentSize } from "@/lib/tasks/attachments";
 import { AvatarStack, Initials } from "../../tasks/_components/board-ui";
 import { applyFrozenOrder } from "@/lib/tasks/frozen-order";
 import { toOptimisticEnrollmentPatch } from "@/lib/enrollment/optimistic-patch";
@@ -184,7 +226,7 @@ const LABEL_CLASS =
 // keep their natural height and let the thread absorb the leftover space.
 const COMPACT_DETAIL_FIELD_CLASS = "block shrink-0 space-y-1";
 const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
-const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] resize-none overflow-hidden !px-2 !py-2 leading-6`;
+const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] max-h-[138px] resize-none overflow-x-hidden !px-2 !py-2 leading-6`;
 const CREATE_DESCRIPTION_CLASS =
   "min-h-[21rem] w-full resize-none rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
 const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
@@ -197,10 +239,14 @@ function thisMonthDateRange(): TaskDateRangeValue {
   return { from: dateKey(new Date(today.getFullYear(), today.getMonth(), 1)), to: dateKey(today) };
 }
 
-function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
-  if (!textarea) return;
+function autosizeTextarea(textarea: HTMLTextAreaElement | null): number {
+  if (!textarea) return 0;
+  textarea.style.overflowY = "hidden";
   textarea.style.height = "auto";
-  textarea.style.height = `${Math.max(72, textarea.scrollHeight)}px`;
+  const contentHeight = textarea.scrollHeight;
+  textarea.style.height = `${Math.min(138, Math.max(72, contentHeight))}px`;
+  if (contentHeight > 138) textarea.style.overflowY = "auto";
+  return contentHeight;
 }
 
 // Column layout for the enrollment list — mirrors the Slack List this module
@@ -506,13 +552,19 @@ export function EnrollmentClient({
     dir: "desc",
   });
   const [openId, setOpenId] = useState<string | null>(null);
+  const [openCommentId, setOpenCommentId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
   const [configStale, setConfigStale] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<EnrollmentLiveStatus>("connecting");
   const recordRowsRef = useRef(new Map(initialRecords.map((record) => [record.id, record])));
   const recordMutationStatesRef = useRef(new Map<string, EnrollmentMutationState>());
   const pendingRef = useRef(new Map<string, number>());
+  const writeVersionRef = useRef(0);
+  const [liveSourceId] = useState(() =>
+    createEnrollmentDataInvalidationSourceId(`enrollment-${program}`),
+  );
   // Refetch sequencing. A GET issued BEFORE a write commits can resolve AFTER
   // it, and would then overwrite the fresh row with a pre-write snapshot —
   // the A→B→A→B revert. Two rules close it, both evaluated against state
@@ -948,14 +1000,21 @@ export function EnrollmentClient({
 
   useEffect(() => {
     const initialRecordTimer = window.setTimeout(() => {
-      setOpenId(new URL(window.location.href).searchParams.get("record"));
+      const params = new URL(window.location.href).searchParams;
+      setOpenId(params.get("record"));
+      setOpenCommentId(params.get("comment"));
     }, 0);
 
     const onOpen = (event: Event) => {
-      const detail = (event as CustomEvent<{ recordId?: unknown }>).detail;
+      const detail = (event as CustomEvent<{ recordId?: unknown; commentId?: unknown }>).detail;
       if (typeof detail?.recordId !== "string") return;
       setOpenId(detail.recordId);
-      writeEnrollmentDeepLink(detail.recordId, "push");
+      const commentId =
+        typeof detail.commentId === "string" && detail.commentId.length > 0
+          ? detail.commentId
+          : null;
+      setOpenCommentId(commentId);
+      writeEnrollmentDeepLink(detail.recordId, "push", commentId);
     };
     window.addEventListener(OPEN_ENROLLMENT_EVENT, onOpen);
     return () => {
@@ -966,7 +1025,9 @@ export function EnrollmentClient({
 
   useEffect(() => {
     const onHistoryNavigation = () => {
-      setOpenId(new URL(window.location.href).searchParams.get("record"));
+      const params = new URL(window.location.href).searchParams;
+      setOpenId(params.get("record"));
+      setOpenCommentId(params.get("comment"));
     };
     window.addEventListener("popstate", onHistoryNavigation);
     return () => window.removeEventListener("popstate", onHistoryNavigation);
@@ -974,26 +1035,103 @@ export function EnrollmentClient({
 
   useEffect(() => {
     const sb = getBrowserSupabase();
-    if (!sb) return;
+    if (!sb) {
+      const degradedTimer = window.setTimeout(() => setLiveStatus("degraded"), 0);
+      return () => window.clearTimeout(degradedTimer);
+    }
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
+    const schedule = (scope: "enrollments-only" | "full") => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         void refetch();
-        void reloadOptions();
-      }, 300);
+        if (scope === "full") void reloadOptions();
+      }, ENROLLMENT_LIVE_EVENT_DEBOUNCE_MS);
     };
     const channel = sb
       .channel(enrollmentTopic(program))
-      .on("broadcast", { event: "changed" }, schedule)
+      .on(
+        "broadcast",
+        { event: "changed" },
+        (message: { payload?: Record<string, unknown> }) => {
+          const sourceId =
+            typeof message.payload?.sourceId === "string"
+              ? message.payload.sourceId
+              : undefined;
+          const scope = enrollmentBroadcastReconcileScope(
+            sourceId,
+            liveSourceId,
+          );
+          if (scope) schedule(scope);
+        },
+      )
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") void refetch();
+        if (status === "SUBSCRIBED") {
+          setLiveStatus("live");
+          schedule("full");
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          setLiveStatus("degraded");
+        } else {
+          setLiveStatus("connecting");
+        }
       });
     return () => {
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
-  }, [program, refetch, reloadOptions]);
+  }, [liveSourceId, program, refetch, reloadOptions]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeEnrollmentDataInvalidation((invalidation) => {
+      const scope = enrollmentInvalidationReconcileScope(
+        invalidation,
+        liveSourceId,
+      );
+      if (!scope) return;
+      void refetch();
+      if (scope === "full") void reloadOptions();
+    });
+    return unsubscribe;
+  }, [liveSourceId, refetch, reloadOptions]);
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const reconcile = () => {
+      if (!canRefreshEnrollmentData(document.visibilityState, navigator.onLine)) return;
+      void refetch();
+      void reloadOptions();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") reconcile();
+    };
+    const onOnline = () => {
+      setLiveStatus("connecting");
+      reconcile();
+    };
+    const onOffline = () => setLiveStatus("degraded");
+    const onFocus = () => reconcile();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("focus", onFocus);
+    const schedulePoll = () => {
+      const delay =
+        liveStatus === "live"
+          ? ENROLLMENT_LIVE_RECONCILE_MS
+          : ENROLLMENT_DEGRADED_RECONCILE_MS;
+      timer = window.setTimeout(() => {
+        reconcile();
+        schedulePoll();
+      }, delay);
+    };
+    schedulePoll();
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [liveStatus, refetch, reloadOptions]);
 
   useEffect(() => {
     const sb = getBrowserSupabase();
@@ -1055,6 +1193,7 @@ export function EnrollmentClient({
       } satisfies EnrollmentMutationState);
     recordMutationStatesRef.current.set(id, state);
     const sequence = state.nextSequence++;
+    writeVersionRef.current += 1;
 
     // Translate request-only keys into the columns the row actually renders.
     // Without this the QC toggle wrote `qc_checked`, which nothing reads, and
@@ -1089,7 +1228,10 @@ export function EnrollmentClient({
         try {
           response = await fetch(`/api/enrollment/${id}`, {
             method: "PATCH",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "x-enrollment-client-source": liveSourceId,
+            },
             body: JSON.stringify({ ...patch, expected_updated_at: state.confirmed.updated_at }),
           });
         } catch {
@@ -1115,6 +1257,10 @@ export function EnrollmentClient({
           return;
         }
         state.confirmed = data.record;
+        publishEnrollmentDataInvalidation({
+          recordId: id,
+          sourceId: liveSourceId,
+        });
       })
       .catch(() => {
         setError("Could not update enrollment record.");
@@ -1129,18 +1275,49 @@ export function EnrollmentClient({
     return operation;
   }
 
-  async function createRecord(payload: Record<string, unknown>) {
+  async function uploadEnrollmentFiles(
+    recordId: string,
+    files: readonly PendingFile[],
+  ): Promise<string[]> {
+    const results = await Promise.all(
+      files.map(async (pending) => {
+        try {
+          const form = new FormData();
+          form.append("file", pending.file);
+          form.append("client_request_id", crypto.randomUUID());
+          const response = await fetch(`/api/enrollment/${recordId}/attachments`, {
+            method: "POST",
+            headers: { "x-enrollment-client-source": liveSourceId },
+            body: form,
+          });
+          return { name: pending.name, ok: response.ok };
+        } catch {
+          return { name: pending.name, ok: false };
+        }
+      }),
+    );
+    return results.filter((result) => !result.ok).map((result) => result.name);
+  }
+
+  async function createRecord(
+    payload: Record<string, unknown>,
+    pendingFiles: readonly PendingFile[] = [],
+  ) {
     // Registered in pendingRef like any other write: without it a refetch
     // that raced this POST is treated as clean and applied, and the record
     // the user just created disappears from the list until the next ping.
     // The id isn't known yet, so use a placeholder key — pendingRef is only
     // ever checked for emptiness.
     const pendingKey = `create:${Date.now()}`;
+    writeVersionRef.current += 1;
     const finishPendingMutation = beginPending(pendingKey);
     try {
       const response = await fetch("/api/enrollment", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-enrollment-client-source": liveSourceId,
+        },
         body: JSON.stringify({ ...payload, program }),
       });
       const data = (await response.json().catch(() => null)) as
@@ -1150,8 +1327,22 @@ export function EnrollmentClient({
         throw new Error(data?.error ?? "Could not create enrollment record.");
       }
       updateRecords((current) => [data.record!, ...current]);
+      publishEnrollmentDataInvalidation({ sourceId: liveSourceId });
       setOpenId(data.record.id);
+      setOpenCommentId(null);
       writeEnrollmentDeepLink(data.record.id, "push");
+      if (pendingFiles.length > 0) {
+        const failedFiles = await uploadEnrollmentFiles(data.record.id, pendingFiles);
+        if (failedFiles.length > 0) {
+          setError(
+            `Enrollment was created, but these files did not upload: ${failedFiles.join(", ")}.`,
+          );
+        }
+        publishEnrollmentDataInvalidation({
+          recordId: data.record.id,
+          sourceId: liveSourceId,
+        });
+      }
     } finally {
       finishPendingMutation();
     }
@@ -1161,23 +1352,50 @@ export function EnrollmentClient({
     const before = recordRowsRef.current.get(id) ?? records.find((record) => record.id === id);
     if (!before) return;
     const beforeIndex = records.findIndex((record) => record.id === id);
+    writeVersionRef.current += 1;
     // Same reason as createRecord: an unguarded refetch would resurrect the
     // row we just removed.
     const finishPendingMutation = beginPending(id);
     updateRecords((current) => current.filter((record) => record.id !== id));
     setOpenId(null);
+    setOpenCommentId(null);
     writeEnrollmentDeepLink(null);
     try {
-      const response = await fetch(`/api/enrollment/${id}`, { method: "DELETE" });
+      const response = await fetch(`/api/enrollment/${id}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "x-enrollment-client-source": liveSourceId,
+        },
+        body: JSON.stringify({ expected_updated_at: before.updated_at }),
+      });
       if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as {
+          error?: string;
+          record?: EnrollmentRecordWithStats;
+        } | null;
         updateRecords((current) => {
           if (current.some((record) => record.id === id)) return current;
           const restored = [...current];
-          restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
+          const restoredRecord = data?.record?.id === id ? data.record : before;
+          restored.splice(
+            Math.min(Math.max(beforeIndex, 0), restored.length),
+            0,
+            restoredRecord,
+          );
           return restored;
         });
-        const data = (await response.json().catch(() => null)) as { error?: string } | null;
-        setError(data?.error ?? "Could not archive record.");
+        setError(
+          response.status === 409
+            ? "Enrollment record changed elsewhere; it was restored with canonical data."
+            : data?.error ?? "Could not archive record.",
+        );
+      }
+      else {
+        publishEnrollmentDataInvalidation({
+          recordId: id,
+          sourceId: liveSourceId,
+        });
       }
     } catch {
       updateRecords((current) => {
@@ -1192,13 +1410,34 @@ export function EnrollmentClient({
     }
   }
 
+  function applyParentUpdatedAt(id: string, updatedAt: string) {
+    const current = recordRowsRef.current.get(id);
+    if (current && Date.parse(updatedAt) > Date.parse(current.updated_at)) {
+      updateRecords((rows) =>
+        rows.map((record) =>
+          record.id === id ? { ...record, updated_at: updatedAt } : record,
+        ),
+      );
+    }
+    const state = recordMutationStatesRef.current.get(id);
+    if (
+      state &&
+      Date.parse(updatedAt) > Date.parse(state.confirmed.updated_at)
+    ) {
+      state.confirmed = { ...state.confirmed, updated_at: updatedAt };
+    }
+  }
+
   function openRecordById(id: string) {
+    prefetchEnrollmentDetail(id);
     setOpenId(id);
+    setOpenCommentId(null);
     writeEnrollmentDeepLink(id, "push");
   }
 
   function closeRecord() {
     setOpenId(null);
+    setOpenCommentId(null);
     writeEnrollmentDeepLink(null);
   }
 
@@ -1224,6 +1463,11 @@ export function EnrollmentClient({
               <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
                 {ENROLLMENT_PROGRAM_LABELS[program]}
               </h1>
+              {liveStatus === "degraded" ? (
+                <p className="mt-1 text-xs font-semibold text-[#bf2600]">
+                  Live sync degraded — checking periodically
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {canExport ? (
@@ -1310,6 +1554,7 @@ export function EnrollmentClient({
 
       {openRecord ? (
         <EnrollmentDrawer
+          key={openRecord.id}
           record={openRecord}
           peopleByEmail={peopleByEmail}
           agentsByEmail={agentsByEmail}
@@ -1322,19 +1567,15 @@ export function EnrollmentClient({
           columnByKey={columnByKey}
           tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
+          mutationSourceId={liveSourceId}
+          highlightCommentId={openCommentId}
           isManager={canManageOptions}
           agentScopeEmails={ownedAgentEmails}
           onClose={closeRecord}
           onPatch={(patch) => patchRecord(openRecord.id, patch)}
           onArchive={() => archiveRecord(openRecord.id)}
           onParentUpdatedAt={(updatedAt) =>
-            updateRecords((current) =>
-              current.map((record) =>
-                record.id === openRecord.id
-                  ? { ...record, updated_at: updatedAt }
-                  : record
-              )
-            )
+            applyParentUpdatedAt(openRecord.id, updatedAt)
           }
           onParentRefresh={() => refetch()}
         />
@@ -1353,8 +1594,8 @@ export function EnrollmentClient({
           tableColumnOptions={tableColumnOptions}
           currentEmail={currentEmail}
           onClose={() => setCreating(false)}
-          onCreate={async (payload) => {
-            await createRecord(payload);
+          onCreate={async (payload, pendingFiles) => {
+            await createRecord(payload, pendingFiles);
             setCreating(false);
           }}
         />
@@ -1915,6 +2156,7 @@ function EnrollmentRowItem({
 
   return (
     <div
+      onMouseEnter={() => prefetchEnrollmentDetail(record.id)}
       onDoubleClick={() => onOpen(record.id)}
       className="group flex min-h-11 items-stretch whitespace-nowrap bg-white transition hover:bg-[#f7f8f9]"
     >
@@ -2905,6 +3147,8 @@ function EnrollmentDrawer({
   columnByKey,
   tableColumnOptions,
   currentEmail,
+  mutationSourceId,
+  highlightCommentId,
   isManager,
   agentScopeEmails,
   onClose,
@@ -2925,6 +3169,8 @@ function EnrollmentDrawer({
   columnByKey: ReadonlyMap<string, { label: string }>;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
+  mutationSourceId: string;
+  highlightCommentId?: string | null;
   isManager: boolean;
   agentScopeEmails: readonly string[];
   onClose: () => void;
@@ -2933,12 +3179,26 @@ function EnrollmentDrawer({
   onParentUpdatedAt?: (updatedAt: string) => void;
   onParentRefresh?: () => Promise<void> | void;
 }) {
-  const [detail, setDetail] = useState<EnrollmentDetail | null>(null);
+  const [detail, setDetail] = useState<EnrollmentDetail | null>(() =>
+    getCachedEnrollmentDetail(record.id) ?? null,
+  );
   const detailRequestSequenceRef = useRef(0);
   const [tab, setTab] = useState<"comments" | "activity" | "files">("comments");
+  const [attachmentPreview, setAttachmentPreview] =
+    useState<AttachmentPreview | null>(null);
+  const [reloadStatus, setReloadStatus] = useState<"idle" | "failed">("idle");
+  const [detailLiveStatus, setDetailLiveStatus] =
+    useState<EnrollmentLiveStatus>("connecting");
+  const loadedCommentLimitRef = useRef(
+    Math.min(
+      COMMENT_REFRESH_MAX,
+      Math.max(COMMENT_PAGE_SIZE, detail?.comments.length ?? 0),
+    ),
+  );
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [reopenReasonOpen, setReopenReasonOpen] = useState(false);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
+  const lastForegroundDetailRefreshAtRef = useRef(0);
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
   const reopenTarget = getReopenStage(stage, optionsBySet.stage);
   const fubHref = record.fub_link ? formatExternalLink(record.fub_link) : null;
@@ -2998,15 +3258,168 @@ function EnrollmentDrawer({
   }
   const isInvalid = (key: string) => invalidKeys.has(key);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (
+    force = false,
+    source: "mutation" | "realtime" = "mutation",
+  ) => {
     const sequence = ++detailRequestSequenceRef.current;
-    const response = await fetch(`/api/enrollment/${record.id}/detail`, {
-      cache: "no-store",
+    const cached = getCachedEnrollmentDetail(record.id);
+    if (cached) setDetail(cached);
+    const age = getCachedEnrollmentDetailAgeMs(record.id);
+    if (
+      !force &&
+      !highlightCommentId &&
+      cached &&
+      age !== null &&
+      age <= ENROLLMENT_DETAIL_OPEN_FRESH_MS
+    ) {
+      return;
+    }
+    setReloadStatus("idle");
+    try {
+      const commentLimit =
+        loadedCommentLimitRef.current > COMMENT_PAGE_SIZE
+          ? loadedCommentLimitRef.current
+          : undefined;
+      const loaded = force
+        ? await refreshEnrollmentDetail(record.id, {
+            commentId: highlightCommentId,
+            commentLimit,
+            source,
+          })
+        : await fetchEnrollmentDetail(record.id, {
+            commentId: highlightCommentId,
+            commentLimit,
+            source: cached ? "revalidate" : "open",
+          });
+      if (sequence !== detailRequestSequenceRef.current) return;
+      setDetail(loaded);
+      loadedCommentLimitRef.current = Math.min(
+        COMMENT_REFRESH_MAX,
+        Math.max(COMMENT_PAGE_SIZE, loaded.comments.length),
+      );
+      setReloadStatus("idle");
+    } catch {
+      if (sequence === detailRequestSequenceRef.current) {
+        setReloadStatus("failed");
+      }
+      // Keep a warm cached detail visible when a background revalidation fails.
+    }
+  }, [highlightCommentId, record.id]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = subscribeEnrollmentDataInvalidation((invalidation) => {
+      const scope = enrollmentInvalidationReconcileScope(
+        invalidation,
+        mutationSourceId,
+      );
+      if (!scope || (invalidation.recordId && invalidation.recordId !== record.id)) {
+        return;
+      }
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void reload(true, "realtime"), ENROLLMENT_LIVE_EVENT_DEBOUNCE_MS);
     });
-    if (!response.ok) return;
-    if (sequence !== detailRequestSequenceRef.current) return;
-    setDetail((await response.json()) as EnrollmentDetail);
-  }, [record.id]);
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [mutationSourceId, record.id, reload]);
+
+  useEffect(() => {
+    const sb = getBrowserSupabase();
+    if (!sb) {
+      const degradedTimer = window.setTimeout(
+        () => setDetailLiveStatus("degraded"),
+        0,
+      );
+      return () => window.clearTimeout(degradedTimer);
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let active = true;
+    let hasSubscribed = false;
+    const schedule = () => {
+      if (!active) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(
+        () => void reload(true, "realtime"),
+        ENROLLMENT_LIVE_EVENT_DEBOUNCE_MS,
+      );
+    };
+    const channel = sb
+      .channel(enrollmentRoomTopic(record.id))
+      .on(
+        "broadcast",
+        { event: "changed" },
+        (message: { payload?: Record<string, unknown> }) => {
+          if (message.payload?.sourceId === mutationSourceId) return;
+          schedule();
+        },
+      )
+      .subscribe((status) => {
+        if (!active) return;
+        if (status === "SUBSCRIBED") {
+          const reconnected = hasSubscribed;
+          hasSubscribed = true;
+          setDetailLiveStatus("live");
+          if (reconnected) schedule();
+        } else if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          setDetailLiveStatus("degraded");
+        } else {
+          setDetailLiveStatus("connecting");
+        }
+      });
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+      void sb.removeChannel(channel);
+    };
+  }, [mutationSourceId, record.id, reload]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (canRefreshEnrollmentData(document.visibilityState, navigator.onLine)) {
+        void reload(true, "realtime");
+      }
+    }, enrollmentLivePollInterval(detailLiveStatus));
+    return () => window.clearInterval(interval);
+  }, [detailLiveStatus, reload]);
+
+  useEffect(() => {
+    if (!highlightCommentId) return;
+    const timer = window.setTimeout(() => setTab("comments"), 0);
+    return () => window.clearTimeout(timer);
+  }, [highlightCommentId]);
+
+  useEffect(() => {
+    const refreshFromForeground = () => {
+      if (!canRefreshEnrollmentData(document.visibilityState, navigator.onLine)) {
+        return;
+      }
+      const now = Date.now();
+      if (
+        now - lastForegroundDetailRefreshAtRef.current <
+        ENROLLMENT_LIVE_REFRESH_THROTTLE_MS
+      ) {
+        return;
+      }
+      lastForegroundDetailRefreshAtRef.current = now;
+      getBrowserSupabase()?.realtime.connect();
+      void reload(true);
+    };
+    window.addEventListener("focus", refreshFromForeground);
+    window.addEventListener("online", refreshFromForeground);
+    document.addEventListener("visibilitychange", refreshFromForeground);
+    return () => {
+      window.removeEventListener("focus", refreshFromForeground);
+      window.removeEventListener("online", refreshFromForeground);
+      document.removeEventListener("visibilitychange", refreshFromForeground);
+    };
+  }, [reload]);
 
   const loadOlderComments = useCallback(async () => {
     if (!detail?.commentsHasMore) return;
@@ -3017,6 +3430,7 @@ function EnrollmentDrawer({
     const params = new URLSearchParams({
       comments_before_created_at: String(oldest.created_at),
       comments_before_id: oldest.id,
+      request_source: "open",
     });
     const response = await fetch(`/api/enrollment/${record.id}/detail?${params.toString()}`, {
       cache: "no-store",
@@ -3027,27 +3441,35 @@ function EnrollmentDrawer({
       if (!current) return older;
       const byId = new Map(current.comments.map((comment) => [comment.id, comment]));
       for (const comment of older.comments) byId.set(comment.id, comment);
-      return {
+      const next = {
         ...current,
         comments: [...byId.values()].sort(
           (a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id.localeCompare(b.id)
         ),
         commentsHasMore: older.commentsHasMore,
       };
+      loadedCommentLimitRef.current = Math.min(
+        COMMENT_REFRESH_MAX,
+        Math.max(COMMENT_PAGE_SIZE, next.comments.length),
+      );
+      setCachedEnrollmentDetail(record.id, next);
+      return next;
     });
   }, [detail, record.id]);
 
   const reloadDetailAndParent = useCallback(async () => {
-    await reload();
+    await reload(true);
     await onParentRefresh?.();
   }, [onParentRefresh, reload]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setDetail(null);
-      void reload();
-    }, 0);
-    return () => window.clearTimeout(timer);
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void reload();
+    });
+    return () => {
+      active = false;
+    };
   }, [reload]);
 
   function reopen() {
@@ -3164,6 +3586,11 @@ function EnrollmentDrawer({
                 />
               </label>
 
+              <AttachmentStrip
+                attachments={detail?.attachments ?? []}
+                onPreviewAttachment={setAttachmentPreview}
+              />
+
               <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
                   <DrawerTab
@@ -3188,32 +3615,66 @@ function EnrollmentDrawer({
 
                 {!detail ? (
                   <DetailSkeleton />
-                ) : tab === "comments" ? (
-                  <CommentThread
+                ) : (
+                  <>
+                    {reloadStatus === "failed" ? (
+                      <div
+                        className="flex shrink-0 items-center justify-between gap-3 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]"
+                        role="alert"
+                      >
+                        <span>Could not refresh the latest details.</span>
+                        <button
+                          type="button"
+                          onClick={() => void reload(true)}
+                          className="rounded bg-white px-2 py-1 text-[#bf2600] shadow-sm transition hover:bg-[#fff7f5]"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : null}
+                    {tab === "comments" ? (
+                      <CommentThread
                     taskId={record.id}
                     apiBase="/api/enrollment"
                     roomTopic={enrollmentRoomTopic(record.id)}
+                    reactionTopic={enrollmentReactionTopic(record.id)}
+                    mutationSourceId={mutationSourceId}
+                    mutationSourceHeader={ENROLLMENT_MUTATION_SOURCE_HEADER}
+                    realtimeManagedExternally
+                    reactionsEnabled
+                    reactionCache="enrollment"
+                    onCommitted={() =>
+                      publishEnrollmentDataInvalidation({
+                        recordId: record.id,
+                        sourceId: mutationSourceId,
+                      })
+                    }
                     currentEmail={currentEmail}
                     members={mentionMembers}
                     comments={detail.comments}
                     commentsHasMore={detail.commentsHasMore}
                     onLoadOlder={loadOlderComments}
+                    highlightCommentId={highlightCommentId}
                     onReload={reloadDetailAndParent}
                     onParentUpdatedAt={onParentUpdatedAt}
-                  />
-                ) : tab === "activity" ? (
-                  <ActivityFeed
-                    activity={detail.activity}
-                    personLabelByEmail={peopleByEmail}
-                  />
-                ) : (
-                  <AttachmentPanel
-                    attachments={detail.attachments}
-                    taskId={record.id}
-                    apiBase="/api/enrollment"
-                    canEdit={capabilities.canEditFields}
-                    onReload={reloadDetailAndParent}
-                  />
+                      />
+                    ) : tab === "activity" ? (
+                      <ActivityFeed
+                        activity={detail.activity}
+                        personLabelByEmail={peopleByEmail}
+                      />
+                    ) : (
+                      <AttachmentPanel
+                        attachments={detail.attachments}
+                        taskId={record.id}
+                        apiBase="/api/enrollment"
+                        canEdit={capabilities.canEditFields}
+                        onReload={reloadDetailAndParent}
+                        mutationSourceId={mutationSourceId}
+                        mutationSourceHeader={ENROLLMENT_MUTATION_SOURCE_HEADER}
+                      />
+                    )}
+                  </>
                 )}
               </section>
             </main>
@@ -3504,6 +3965,11 @@ function EnrollmentDrawer({
       </div>
       </div>
 
+      <AttachmentPreviewDialog
+        preview={attachmentPreview}
+        onClose={() => setAttachmentPreview(null)}
+      />
+
       {confirmArchive ? (
         <ConfirmDialog
           title="Archive enrollment record?"
@@ -3580,7 +4046,10 @@ function NewEnrollmentDialog({
   tableColumnOptions: readonly TableColumnOption[];
   currentEmail: string;
   onClose: () => void;
-  onCreate: (payload: Record<string, unknown>) => Promise<void>;
+  onCreate: (
+    payload: Record<string, unknown>,
+    pendingFiles: readonly PendingFile[],
+  ) => Promise<void>;
 }) {
   const isMedicare = program === "medicare";
   const ticketInputRef = useRef<HTMLInputElement | null>(null);
@@ -3605,6 +4074,9 @@ function NewEnrollmentDialog({
   const [error, setError] = useState<string | null>(null);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const customOptionsByColumnId = useMemo(() => {
     const result = new Map<string, TableColumnOption[]>();
     for (const option of tableColumnOptions) {
@@ -3719,7 +4191,7 @@ function NewEnrollmentDialog({
             custom_values: customValues,
           }
         : { ...form, custom_values: customValues };
-      await onCreate(payload);
+      await onCreate(payload, pendingFiles);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create record.");
     } finally {
@@ -3796,6 +4268,60 @@ function NewEnrollmentDialog({
                   className={`${CREATE_DESCRIPTION_CLASS} ${isInvalid("description") ? INVALID_RING_CLASS : ""}`}
                 />
               </label>
+
+              <div className="space-y-2 rounded border border-[#dfe1e6] bg-[#f7f8fa] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold uppercase tracking-wide text-[#6b778c]">
+                    Attachments
+                  </span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept={ATTACHMENT_ACCEPT_ATTRIBUTE}
+                    className="hidden"
+                    onChange={(event) => {
+                      const incoming = [...(event.target.files ?? [])];
+                      const result = addPendingFiles(pendingFiles, incoming);
+                      if (!result.ok) setFileError(result.message);
+                      else {
+                        setPendingFiles(result.files);
+                        setFileError(null);
+                      }
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-1 rounded border border-[#c1c7d0] bg-white px-2 py-1 text-xs font-semibold text-[#42526e] hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" /> Add files
+                  </button>
+                </div>
+                {fileError ? (
+                  <p role="alert" className="text-xs font-semibold text-[#bf2600]">
+                    {fileError}
+                  </p>
+                ) : null}
+                {pendingFiles.length > 0 ? (
+                  <ul className="space-y-1">
+                    {pendingFiles.map((file) => (
+                      <li key={file.key} className="flex items-center gap-2 text-xs text-[#42526e]">
+                        <span className="min-w-0 flex-1 truncate">{file.name} · {formatAttachmentSize(file.size)}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${file.name}`}
+                          onClick={() => setPendingFiles((current) => removePendingFile(current, file.key))}
+                          className="rounded p-0.5 text-[#6b778c] hover:bg-white hover:text-[#bf2600]"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
 
               {error ? (
                 <div className="rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-sm font-bold text-[#bf2600]">
@@ -4223,27 +4749,54 @@ function EditableTextarea({
   onSave: (value: string | null) => Promise<void>;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [contentHeight, setContentHeight] = useState(0);
 
   useEffect(() => {
-    autosizeTextarea(textareaRef.current);
-  }, [value]);
+    const textarea = textareaRef.current;
+    const measuredHeight = autosizeTextarea(textarea);
+    setContentHeight(measuredHeight);
+    if (!expanded && textarea) {
+      textarea.style.height = "72px";
+      textarea.style.overflowY = "hidden";
+    }
+  }, [expanded, value]);
 
   return (
-    <textarea
-      ref={textareaRef}
-      key={value}
-      defaultValue={value}
-      placeholder={placeholder}
-      disabled={!canEdit}
-      onClick={(event) => event.stopPropagation()}
-      onInput={(event) => autosizeTextarea(event.currentTarget)}
-      onBlur={(event) => {
-        const next = event.currentTarget.value.trim();
-        if (next !== value.trim()) void onSave(next || null);
-      }}
-      rows={2}
-      className={`${className} disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
-    />
+    <div className="space-y-1">
+      {contentHeight > 72 ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setExpanded((current) => !current)}
+            className="rounded px-1 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[#0c66e4] transition hover:bg-[#e9f2ff]"
+          >
+            {expanded ? "Show less" : "Show more"}
+          </button>
+        </div>
+      ) : null}
+      <textarea
+        ref={textareaRef}
+        key={value}
+        defaultValue={value}
+        placeholder={placeholder}
+        disabled={!canEdit}
+        onFocus={() => setExpanded(true)}
+        onClick={(event) => event.stopPropagation()}
+        onInput={(event) => {
+          setContentHeight(autosizeTextarea(event.currentTarget));
+        }}
+        onBlur={(event) => {
+          setExpanded(false);
+          const next = event.currentTarget.value.trim();
+          if (next !== value.trim()) void onSave(next || null);
+        }}
+        rows={2}
+        className={`${className} disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
+      />
+    </div>
   );
 }
 

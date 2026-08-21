@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   canCreateEnrollmentWithScope,
@@ -18,7 +18,10 @@ import {
   insertEnrollmentNotifications,
   uniqueEnrollmentNotificationRecipients,
 } from "@/lib/enrollment/notifications";
-import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
+import {
+  broadcastEnrollmentChanged,
+  readEnrollmentMutationSourceId,
+} from "@/lib/enrollment/realtime";
 import {
   fetchAdminEmails,
   isAgentOwnerOrAssistant,
@@ -47,6 +50,7 @@ import {
   TableConfigUnavailableError,
 } from "@/lib/table-config/write-context";
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
+import { RouteTiming } from "@/lib/server-timing";
 
 export const dynamic = "force-dynamic";
 
@@ -73,46 +77,55 @@ const OPTION_FIELDS = {
 } as const;
 
 export async function GET(request: Request) {
-  const actorResult = await loadEnrollmentActor();
+  const timing = new RouteTiming("enrollment-list");
+  const respond = (body: unknown, status = 200) => {
+    const response = NextResponse.json(body, { status });
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(status);
+    return response;
+  };
+  const actorResult = await timing.measure("auth", () => loadEnrollmentActor());
   if (!actorResult.ok) {
-    return NextResponse.json(
-      { error: actorResult.error },
-      { status: actorResult.status }
-    );
+    return respond({ error: actorResult.error }, actorResult.status);
   }
 
   const program = parseEnrollmentProgram(
     new URL(request.url).searchParams.get("program")
   );
   if (!program) {
-    return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
+    return respond({ error: "Invalid enrollment program." }, 400);
   }
   try {
-    const scope = await resolveEnrollmentScope(actorResult.actor);
-    const records = await fetchEnrollmentRecords(program, scope);
-    return NextResponse.json({ records });
+    const scope = await timing.measure("scope", () =>
+      resolveEnrollmentScope(actorResult.actor),
+    );
+    const records = await timing.measure("records", () =>
+      fetchEnrollmentRecords(program, scope),
+    );
+    return respond({ records });
   } catch (error) {
     const schemaResponse = enrollmentSchemaErrorResponse(error);
     if (schemaResponse) return schemaResponse;
     if (error instanceof EnrollmentListTruncatedError) {
-      return NextResponse.json(
+      return respond(
         {
           error: error.message,
           code: "ENROLLMENT_LIST_TRUNCATED",
           total: error.total,
           loaded: error.loaded,
         },
-        { status: 503 }
+        503,
       );
     }
-    return NextResponse.json(
+    return respond(
       { error: error instanceof Error ? error.message : "Could not load enrollment records." },
-      { status: 500 }
+      500,
     );
   }
 }
 
 export async function POST(request: Request) {
+  const sourceId = readEnrollmentMutationSourceId(request);
   const actorResult = await loadEnrollmentActor();
   if (!actorResult.ok) {
     return NextResponse.json(
@@ -362,13 +375,14 @@ export async function POST(request: Request) {
     }
   }
 
-  try {
-    await broadcastEnrollmentChanged(program);
-  } catch (error) {
-    mutationWarnings.push(
-      `Enrollment broadcast failed: ${error instanceof Error ? error.message : "unknown error"}`
-    );
-  }
+  after(async () => {
+    const delivered = await broadcastEnrollmentChanged(program, sourceId);
+    if (!delivered) {
+      console.error("Enrollment create broadcast failed after commit", {
+        recordId: record.id,
+      });
+    }
+  });
   if (mutationWarnings.length > 0) {
     console.error("Enrollment create committed with side-effect warnings", {
       recordId: record.id,

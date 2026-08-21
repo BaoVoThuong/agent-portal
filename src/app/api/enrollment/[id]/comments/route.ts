@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import {
@@ -8,6 +8,7 @@ import {
 import {
   broadcastEnrollmentChanged,
   broadcastEnrollmentRoom,
+  readEnrollmentMutationSourceId,
 } from "@/lib/enrollment/realtime";
 import { fetchEnrollmentRecordById } from "@/lib/enrollment/queries";
 import { resolveEnrollmentParentUpdatedAt } from "@/lib/enrollment/comments";
@@ -47,6 +48,7 @@ export async function GET(_request: Request, { params }: Ctx) {
 }
 
 export async function POST(request: Request, { params }: Ctx) {
+  const sourceId = readEnrollmentMutationSourceId(request);
   const { id } = await params;
   const loaded = await loadContext(id);
   if ("error" in loaded) {
@@ -99,21 +101,16 @@ export async function POST(request: Request, { params }: Ctx) {
     was_created: boolean;
   };
   if (!wasCreated) {
+    const canonical = await fetchEnrollmentRecordById(id).catch(() => null);
     return NextResponse.json({
       comment: { ...(comment as object), attachments: [] },
-      record: loaded.record,
-      parent_updated_at: parentUpdatedAt,
+      record: canonical ?? loaded.record,
+      parent_updated_at: canonical?.updated_at ?? parentUpdatedAt,
       warnings: [],
     });
   }
 
   const mutationWarnings: string[] = [];
-  const { error: touchError } = await loaded.supabase.rpc("enrollment_touch_activity", {
-    p_record_id: id,
-    p_actor_email: loaded.actor.email,
-    p_now: new Date().toISOString(),
-  });
-  if (touchError) mutationWarnings.push(`Enrollment activity touch failed: ${touchError.message}`);
   const { error: activityError } = await loaded.supabase.from("enrollment_activity").insert({
     record_id: id,
     actor_email: loaded.actor.email,
@@ -173,14 +170,17 @@ export async function POST(request: Request, { params }: Ctx) {
     );
   }
 
-  try {
-    await broadcastEnrollmentChanged(loaded.record.program);
-    await broadcastEnrollmentRoom(id);
-  } catch (error) {
-    mutationWarnings.push(
-      `Enrollment comment broadcast failed: ${error instanceof Error ? error.message : "unknown error"}`
-    );
-  }
+  after(async () => {
+    const delivered = await Promise.all([
+      broadcastEnrollmentChanged(loaded.record.program, sourceId),
+      broadcastEnrollmentRoom(id, sourceId),
+    ]);
+    if (!delivered.every(Boolean)) {
+      console.error("Enrollment comment broadcast failed after commit", {
+        recordId: id,
+      });
+    }
+  });
   let canonicalRecord: EnrollmentRecord | null = null;
   try {
     canonicalRecord = await fetchEnrollmentRecordById(id);

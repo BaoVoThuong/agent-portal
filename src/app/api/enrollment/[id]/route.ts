@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   loadEnrollmentActor,
@@ -22,6 +22,7 @@ import {
 import {
   broadcastEnrollmentChanged,
   broadcastEnrollmentRoom,
+  readEnrollmentMutationSourceId,
 } from "@/lib/enrollment/realtime";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
 import { parseEnrollmentDate } from "@/lib/enrollment/dates";
@@ -105,6 +106,7 @@ export async function GET(_request: Request, { params }: Ctx) {
 }
 
 export async function PATCH(request: Request, { params }: Ctx) {
+  const sourceId = readEnrollmentMutationSourceId(request);
   const { id } = await params;
   const actorResult = await loadEnrollmentActor();
   if (!actorResult.ok) {
@@ -597,14 +599,17 @@ export async function PATCH(request: Request, { params }: Ctx) {
       error instanceof Error ? error.message : "Enrollment notification write failed."
     );
   }
-  try {
-    await broadcastEnrollmentChanged(current.program);
-    await broadcastEnrollmentRoom(id);
-  } catch (error) {
-    mutationWarnings.push(
-      `Enrollment broadcast failed: ${error instanceof Error ? error.message : "unknown error"}`
-    );
-  }
+  after(async () => {
+    const delivered = await Promise.all([
+      broadcastEnrollmentChanged(current.program, sourceId),
+      broadcastEnrollmentRoom(id, sourceId),
+    ]);
+    if (!delivered.every(Boolean)) {
+      console.error("Enrollment update broadcast failed after commit", {
+        recordId: id,
+      });
+    }
+  });
 
   let record: EnrollmentRecordWithStats | null = null;
   try {
@@ -626,13 +631,23 @@ export async function PATCH(request: Request, { params }: Ctx) {
   });
 }
 
-export async function DELETE(_request: Request, { params }: Ctx) {
+export async function DELETE(request: Request, { params }: Ctx) {
+  const sourceId = readEnrollmentMutationSourceId(request);
   const { id } = await params;
   const actorResult = await loadEnrollmentActor();
   if (!actorResult.ok) {
     return NextResponse.json(
       { error: actorResult.error },
       { status: actorResult.status }
+    );
+  }
+
+  const body = (await request.json().catch(() => null)) as Body | null;
+  const expectedUpdatedAt = cleanText(body?.expected_updated_at);
+  if (!expectedUpdatedAt || Number.isNaN(Date.parse(expectedUpdatedAt))) {
+    return NextResponse.json(
+      { error: "A valid expected_updated_at is required." },
+      { status: 400 },
     );
   }
 
@@ -657,18 +672,44 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   const { data, error } = await supabase.rpc("archive_enrollment_atomic", {
     p_record_id: id,
     p_actor_email: actorResult.actor.email,
+    p_expected_updated_at: expectedUpdatedAt,
     p_activity: [{ type: "archived", meta: null }],
     p_now: nowIso,
   });
   const schemaResponse = enrollmentSchemaErrorResponse(error);
   if (schemaResponse) return schemaResponse;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (error.message?.includes("ENROLLMENT_CONFLICT")) {
+      const canonical = await fetchEnrollmentRecordById(id).catch(() => null);
+      return NextResponse.json(
+        {
+          error: "Enrollment record was updated by someone else. Refresh before archiving.",
+          record: canonical,
+        },
+        { status: 409 },
+      );
+    }
+    if (error.message?.includes("ENROLLMENT_NOT_FOUND")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  await broadcastEnrollmentChanged(
-    (currentData as { program: "aca" | "medicare" }).program
-  );
-  await broadcastEnrollmentRoom(id);
-  return NextResponse.json({ ok: true });
+  after(async () => {
+    const delivered = await Promise.all([
+      broadcastEnrollmentChanged(
+        (currentData as { program: "aca" | "medicare" }).program,
+        sourceId,
+      ),
+      broadcastEnrollmentRoom(id, sourceId),
+    ]);
+    if (!delivered.every(Boolean)) {
+      console.error("Enrollment archive broadcast failed after commit", {
+        recordId: id,
+      });
+    }
+  });
+  return NextResponse.json({ ok: true, record: data });
 }
 
 function optionEntries(): [keyof typeof OPTION_FIELDS, EnrollmentOptionSetKey][] {

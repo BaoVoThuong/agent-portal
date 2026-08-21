@@ -3,12 +3,24 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { loadEnrollmentDetail } from "@/lib/enrollment/detail";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
+import { RouteTiming } from "@/lib/server-timing";
+import {
+  COMMENT_PAGE_SIZE,
+  COMMENT_REFRESH_MAX,
+} from "@/lib/collaboration/comment-pagination";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, { params }: Ctx) {
+  const timing = new RouteTiming("enrollment-detail");
+  const respond = (body: unknown, status = 200) => {
+    const response = NextResponse.json(body, { status });
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(status);
+    return response;
+  };
   const { id } = await params;
   const url = new URL(request.url);
   const beforeCreatedAt = url.searchParams.get("comments_before_created_at");
@@ -22,36 +34,48 @@ export async function GET(request: Request, { params }: Ctx) {
   const highlightCommentId = isUuid(url.searchParams.get("comment_id"))
     ? url.searchParams.get("comment_id")
     : undefined;
-  const actorResult = await loadEnrollmentActor();
+  const requestedCommentLimit = Number(
+    url.searchParams.get("comments_limit") ?? COMMENT_PAGE_SIZE,
+  );
+  const commentLimit = Number.isInteger(requestedCommentLimit)
+    ? Math.min(
+        COMMENT_REFRESH_MAX,
+        Math.max(COMMENT_PAGE_SIZE, requestedCommentLimit),
+      )
+    : COMMENT_PAGE_SIZE;
+  const actorResult = await timing.measure("auth", () => loadEnrollmentActor());
   if (!actorResult.ok) {
-    return NextResponse.json(
-      { error: actorResult.error },
-      { status: actorResult.status }
-    );
+    return respond({ error: actorResult.error }, actorResult.status);
   }
 
-  const scoped = await loadScopedEnrollmentRecord(id, actorResult.actor);
+  const scoped = await timing.measure("scope", () =>
+    loadScopedEnrollmentRecord(id, actorResult.actor),
+  );
   if (!scoped.ok) {
-    return NextResponse.json({ error: scoped.error }, { status: scoped.status });
+    return respond({ error: scoped.error }, scoped.status);
   }
 
   try {
     const supabase = getSupabaseAdmin();
-    return NextResponse.json(
-      await loadEnrollmentDetail(supabase, id, {
-        commentsBefore,
-        highlightCommentId,
-      })
+    return respond(
+      await timing.measure("detail", () =>
+        loadEnrollmentDetail(supabase, id, {
+          commentsBefore,
+          highlightCommentId,
+          commentLimit: commentsBefore ? COMMENT_PAGE_SIZE : commentLimit,
+          timing,
+        }),
+      ),
     );
   } catch (detailError) {
-    return NextResponse.json(
+    return respond(
       {
         error:
           detailError instanceof Error
             ? detailError.message
             : "Unable to load enrollment detail.",
       },
-      { status: 500 }
+      500,
     );
   }
 }

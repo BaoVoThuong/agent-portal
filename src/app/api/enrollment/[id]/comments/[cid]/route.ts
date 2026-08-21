@@ -1,7 +1,11 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
-import { broadcastEnrollmentRoom } from "@/lib/enrollment/realtime";
+import {
+  broadcastEnrollmentRoom,
+  readEnrollmentMutationSourceId,
+} from "@/lib/enrollment/realtime";
+import { removeTaskFile } from "@/lib/enrollment/storage";
 import { insertEnrollmentNotifications } from "@/lib/enrollment/notifications";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import { parseMentions } from "@/lib/tasks/mentions";
@@ -11,6 +15,7 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string; cid: string }> };
 
 export async function PATCH(request: Request, { params }: Ctx) {
+  const sourceId = readEnrollmentMutationSourceId(request);
   const { id, cid } = await params;
   const context = await loadAuthorContext(id, cid);
   if ("error" in context) {
@@ -86,38 +91,78 @@ export async function PATCH(request: Request, { params }: Ctx) {
       `Enrollment mention notification failed: ${mentionError instanceof Error ? mentionError.message : "unknown error"}`,
     );
   }
-  try {
-    await broadcastEnrollmentRoom(id);
-  } catch (broadcastError) {
-    warnings.push(
-      `Enrollment comment broadcast failed: ${broadcastError instanceof Error ? broadcastError.message : "unknown error"}`,
-    );
-  }
+  after(async () => {
+    const delivered = await broadcastEnrollmentRoom(id, sourceId);
+    if (!delivered) {
+      console.error("Enrollment comment edit broadcast failed after commit", {
+        recordId: id,
+        commentId: cid,
+      });
+    }
+  });
   return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings });
 }
 
-export async function DELETE(_request: Request, { params }: Ctx) {
+export async function DELETE(request: Request, { params }: Ctx) {
+  const sourceId = readEnrollmentMutationSourceId(request);
   const { id, cid } = await params;
   const context = await loadAuthorContext(id, cid);
   if ("error" in context) {
     return NextResponse.json({ error: context.error }, { status: context.status });
   }
 
-  const { error } = await context.supabase
-    .from("enrollment_comments")
-    .update({ body: "", deleted_at: new Date().toISOString() })
-    .eq("id", cid);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const { data: deleted, error } = await context.supabase
+    .rpc("delete_enrollment_comment_atomic", {
+      p_comment_id: cid,
+      p_record_id: id,
+      p_actor_email: context.email,
+    })
+    .single();
+  if (error) {
+    if (error.message.includes("FORBIDDEN")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (error.message.includes("COMMENT_NOT_FOUND")) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
-  const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
-    p_record_id: id,
-    p_actor_email: context.email,
-    p_now: new Date().toISOString(),
+  const row = deleted as {
+    storage_paths?: string[] | null;
+    parent_updated_at?: string | null;
+  };
+  const cleanup = await Promise.allSettled(
+    (row.storage_paths ?? []).map((path) => removeTaskFile(path)),
+  );
+  const warnings = cleanup
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map((result) =>
+      result.reason instanceof Error
+        ? result.reason.message
+        : "Could not remove comment attachment storage object.",
+    );
+  if (warnings.length > 0) {
+    console.error("Enrollment comment attachment cleanup failed", {
+      recordId: id,
+      commentId: cid,
+      warnings,
+    });
+  }
+  after(async () => {
+    const delivered = await broadcastEnrollmentRoom(id, sourceId);
+    if (!delivered) {
+      console.error("Enrollment comment delete broadcast failed after commit", {
+        recordId: id,
+        commentId: cid,
+      });
+    }
   });
-  if (touchError) console.error("Enrollment comment delete activity touch failed", touchError);
-
-  await broadcastEnrollmentRoom(id);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    parent_updated_at: row.parent_updated_at ?? undefined,
+    warnings,
+  });
 }
 
 async function loadAuthorContext(id: string, cid: string) {

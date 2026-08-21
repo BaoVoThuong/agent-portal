@@ -14,12 +14,16 @@ export function AttachmentPanel({
   apiBase = "/api/tasks",
   canEdit,
   onReload,
+  mutationSourceId,
+  mutationSourceHeader,
 }: {
   attachments: SignedAttachment[];
   taskId: string;
   apiBase?: string;
   canEdit: boolean;
   onReload: () => Promise<void> | void;
+  mutationSourceId?: string;
+  mutationSourceHeader?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,8 +43,12 @@ export function AttachmentPanel({
     try {
       const form = new FormData();
       form.append("file", file);
+      form.append("client_request_id", crypto.randomUUID());
       const res = await fetch(`${apiBase}/${taskId}/attachments`, {
         method: "POST",
+        headers: mutationSourceId && mutationSourceHeader
+          ? { [mutationSourceHeader]: mutationSourceId }
+          : undefined,
         body: form,
       });
       if (!res.ok) {
@@ -75,6 +83,9 @@ export function AttachmentPanel({
     try {
       const res = await fetch(`${apiBase}/${taskId}/attachments/${aid}`, {
         method: "DELETE",
+        headers: mutationSourceId && mutationSourceHeader
+          ? { [mutationSourceHeader]: mutationSourceId }
+          : undefined,
       });
       const data = (await res.json().catch(() => null)) as
         | { error?: string }

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   loadEnrollmentActor,
@@ -23,15 +23,19 @@ import {
 import {
   broadcastEnrollmentChanged,
   broadcastEnrollmentRoom,
+  readEnrollmentMutationSourceId,
 } from "@/lib/enrollment/realtime";
 import { fetchEnrollmentRecordById } from "@/lib/enrollment/queries";
 import type { EnrollmentRecord } from "@/lib/enrollment/types";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
+import { signAttachmentsSafely } from "@/lib/tasks/detail";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(_request: Request, { params }: Ctx) {
   const { id } = await params;
@@ -48,28 +52,25 @@ export async function GET(_request: Request, { params }: Ctx) {
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const attachments = await Promise.all(
-    ((data ?? []) as {
-      id: string;
-      file_name: string;
-      mime_type: string | null;
-      size_bytes: number | null;
-      storage_path: string;
-      created_at: string;
-    }[]).map(async (row) => ({
-      id: row.id,
-      file_name: row.file_name,
-      mime_type: row.mime_type,
-      size_bytes: row.size_bytes,
-      created_at: row.created_at,
-      url: await signTaskFile(row.storage_path),
-    }))
-  );
+  const rows = (data ?? []) as {
+    id: string;
+    file_name: string;
+    mime_type: string | null;
+    size_bytes: number | null;
+    storage_path: string;
+    created_at: string;
+  }[];
+  const signed = await signAttachmentsSafely(rows);
+  const attachments = rows.map((row, index) => ({
+    ...signed[index],
+    created_at: row.created_at,
+  }));
 
   return NextResponse.json({ attachments });
 }
 
 export async function POST(request: Request, { params }: Ctx) {
+  const sourceId = readEnrollmentMutationSourceId(request);
   const { id } = await params;
   const context = await loadRecordContext(id);
   if ("error" in context) {
@@ -93,6 +94,14 @@ export async function POST(request: Request, { params }: Ctx) {
     typeof rawCommentId === "string" && rawCommentId.trim() !== ""
       ? rawCommentId.trim()
       : null;
+  const rawClientRequestId = form?.get("client_request_id");
+  const clientRequestId =
+    typeof rawClientRequestId === "string" && rawClientRequestId.trim() !== ""
+      ? rawClientRequestId.trim()
+      : null;
+  if (clientRequestId !== null && !UUID_RE.test(clientRequestId)) {
+    return NextResponse.json({ error: "Invalid request id." }, { status: 400 });
+  }
 
   if (commentId) {
     const { data: comment } = await context.supabase
@@ -137,6 +146,41 @@ export async function POST(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
+  if (clientRequestId) {
+    const { data: existing, error: existingError } = await context.supabase
+      .from("enrollment_attachments")
+      .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
+      .eq("record_id", id)
+      .eq("uploaded_by", context.actor.email)
+      .eq("client_request_id", clientRequestId)
+      .maybeSingle();
+    if (existingError) {
+      return NextResponse.json({ error: existingError.message }, { status: 500 });
+    }
+    if (existing) {
+      try {
+        return NextResponse.json({
+          attachment: {
+            ...(existing as object),
+            url: await signTaskFile((existing as { storage_path: string }).storage_path),
+          },
+          record: null,
+          warnings: [],
+        });
+      } catch (signError) {
+        return NextResponse.json(
+          {
+            error:
+              signError instanceof Error
+                ? signError.message
+                : "Could not sign attachment.",
+          },
+          { status: 500 },
+        );
+      }
+    }
+  }
+
   const storagePath = buildEnrollmentStoragePath(id, file.name);
   let signedUrl: string;
   try {
@@ -173,10 +217,54 @@ export async function POST(request: Request, { params }: Ctx) {
       mime_type: validation.contentType,
       size_bytes: file.size,
       uploaded_by: context.actor.email,
+      client_request_id: clientRequestId,
     })
     .select("id,file_name,mime_type,size_bytes,created_at")
     .single();
   if (error) {
+    // Two retries can pass the preflight lookup at the same time. The unique
+    // request key makes one metadata insert win; replay the winner instead of
+    // returning a misleading 500 for the losing request.
+    if (
+      clientRequestId &&
+      (error.code === "23505" || error.message.includes("enrollment_attachments_request_key"))
+    ) {
+      const { data: existing, error: existingError } = await context.supabase
+        .from("enrollment_attachments")
+        .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
+        .eq("record_id", id)
+        .eq("uploaded_by", context.actor.email)
+        .eq("client_request_id", clientRequestId)
+        .maybeSingle();
+      await removeTaskFile(storagePath).catch((cleanupError) => {
+        console.error("Enrollment duplicate attachment cleanup failed", cleanupError);
+      });
+      if (!existingError && existing) {
+        try {
+          return NextResponse.json({
+            attachment: {
+              ...(existing as object),
+              url: await signTaskFile((existing as { storage_path: string }).storage_path),
+            },
+            record: null,
+            warnings: [],
+          });
+        } catch (signError) {
+          return NextResponse.json(
+            {
+              error:
+                signError instanceof Error
+                  ? signError.message
+                  : "Could not sign attachment.",
+            },
+            { status: 500 },
+          );
+        }
+      }
+      if (existingError) {
+        return NextResponse.json({ error: existingError.message }, { status: 500 });
+      }
+    }
     try {
       await removeTaskFile(storagePath);
     } catch (cleanupError) {
@@ -225,14 +313,17 @@ export async function POST(request: Request, { params }: Ctx) {
     }
   }
 
-  try {
-    await broadcastEnrollmentChanged(context.record.program);
-    await broadcastEnrollmentRoom(id);
-  } catch (broadcastError) {
-    mutationWarnings.push(
-      `Attachment broadcast failed: ${broadcastError instanceof Error ? broadcastError.message : "unknown error"}`
-    );
-  }
+  after(async () => {
+    const delivered = await Promise.all([
+      broadcastEnrollmentChanged(context.record.program, sourceId),
+      broadcastEnrollmentRoom(id, sourceId),
+    ]);
+    if (!delivered.every(Boolean)) {
+      console.error("Enrollment attachment broadcast failed after commit", {
+        recordId: id,
+      });
+    }
+  });
   let canonicalRecord: Awaited<ReturnType<typeof fetchEnrollmentRecordById>> = null;
   try {
     canonicalRecord = await fetchEnrollmentRecordById(id);
