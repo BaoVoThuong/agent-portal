@@ -27,6 +27,16 @@ Commit: `268f90e`
 
 Verification: Benchmark merged flow cho CS khoảng 180–184ms p50 so với split flow khoảng 345ms; Enrollment khoảng 332ms so với 506ms. Typecheck, lint và 107 test files / 750 tests đã pass.
 
+### 4. Giảm chi phí polling và request nền
+
+- Notification bell chuyển sang polling summary, dừng request khi tab bị ẩn và giãn chu kỳ lên 120 giây khi realtime hoạt động; full notification chỉ tải khi cần.
+- Task board chỉ reconcile dữ liệu task trong polling thường; categories dùng realtime topic riêng nên không còn bị reload theo mọi task event.
+- Giảm RBAC lookup lặp bằng TTL 5 phút trong JWT và lazy-load dummy bcrypt hash để giảm chi phí xử lý lúc khởi động.
+
+Commit: `6f32194`
+
+Verification: Typecheck, lint, production build và toàn bộ 107 test files / 751 tests đã pass.
+
 # [Agent Portal Dev Log] — 21/08/2026
 
 > Ngày này gồm phần tài liệu còn thiếu của ngày 20/08 và các task đã hoàn tất trước ngày 22/08.
