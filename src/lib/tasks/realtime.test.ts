@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildBroadcastMessages,
+  broadcastTaskCategoriesChanged,
   broadcastTaskCommentReaction,
   broadcastTasksChanged,
   notifTopic,
@@ -186,6 +187,27 @@ describe("comment reaction broadcasts", () => {
       {
         topic: taskReactionTopic("task-1"),
         event: "reaction",
+        payload: {},
+      },
+    ]);
+  });
+});
+
+describe("category broadcasts", () => {
+  it("uses a dedicated topic so task changes do not reload categories", async () => {
+    vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-key");
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(broadcastTaskCategoriesChanged()).resolves.toBe(true);
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(body.messages).toEqual([
+      {
+        topic: "task-categories-stream",
+        event: "changed",
         payload: {},
       },
     ]);

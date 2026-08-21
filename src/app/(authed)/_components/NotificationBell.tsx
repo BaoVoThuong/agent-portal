@@ -51,10 +51,11 @@ type Notif = {
   created_at: string;
 };
 
-// Polling interval: slow safety net when realtime is configured (broadcast handles
-// instant delivery), faster when it isn't so notifications still feel responsive.
-const POLL_REALTIME_MS = 20000;
-const POLL_FALLBACK_MS = 10000;
+// Polling is only a safety net. Realtime delivers new-notification signals
+// immediately, so an active socket can use a much longer interval and hidden
+// tabs skip the request entirely.
+const POLL_REALTIME_MS = 120000;
+const POLL_FALLBACK_MS = 30000;
 const TOAST_MS = 7000;
 const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
 
@@ -211,6 +212,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [toasts, setToasts] = useState<Notif[]>([]);
   const [topic, setTopic] = useState<string | null>(null);
+  const [realtimeLive, setRealtimeLive] = useState(false);
   const pathname = usePathname();
   const ref = useRef<HTMLDivElement>(null);
   // Notification ids we have already processed, so a poll never re-pops a toast.
@@ -289,15 +291,52 @@ export function NotificationBell() {
     }
   }, []);
 
+  const loadSummary = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks/notifications?mode=summary", {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setUnread(data.unread as number);
+      setTopic((data.topic as string | null) ?? null);
+    } catch {
+      // The full load/realtime signal remains the fallback for transient
+      // failures; summary polling is only a badge freshness optimization.
+    }
+  }, []);
+
   useEffect(() => {
-    const pollMs = getBrowserSupabase() ? POLL_REALTIME_MS : POLL_FALLBACK_MS;
-    const first = setTimeout(() => void load(), 0);
-    const t = setInterval(() => void load(), pollMs);
+    const pollMs = realtimeLive ? POLL_REALTIME_MS : POLL_FALLBACK_MS;
+    const first = setTimeout(() => {
+      if (document.visibilityState !== "visible") return;
+      // Populate the initial list once. Every later background request is a
+      // summary-only request unless a realtime event asks for full content.
+      void (initialized.current ? loadSummary() : load());
+    }, 0);
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") void loadSummary();
+    }, pollMs);
     return () => {
       clearTimeout(first);
       clearInterval(t);
     };
-  }, [load]);
+  }, [load, loadSummary, realtimeLive]);
+
+  useEffect(() => {
+    const refreshFromForeground = () => {
+      if (document.visibilityState !== "visible") return;
+      // A visible dropdown should always show a fresh enriched list. The
+      // closed bell only needs its cheap unread summary.
+      void (open ? load() : initialized.current ? loadSummary() : load());
+    };
+    window.addEventListener("focus", refreshFromForeground);
+    document.addEventListener("visibilitychange", refreshFromForeground);
+    return () => {
+      window.removeEventListener("focus", refreshFromForeground);
+      document.removeEventListener("visibilitychange", refreshFromForeground);
+    };
+  }, [load, loadSummary, open]);
 
   // Ask once for OS-notification permission (so background toasts can fire).
   useEffect(() => {
@@ -327,11 +366,25 @@ export function NotificationBell() {
     if (!topic) return;
     const sb = getBrowserSupabase();
     if (!sb) return;
+    let active = true;
     const channel = sb
       .channel(topic)
       .on("broadcast", { event: "new" }, () => void load())
-      .subscribe();
+      .subscribe((status) => {
+        if (!active) return;
+        if (status === "SUBSCRIBED") {
+          setRealtimeLive(true);
+        } else if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          setRealtimeLive(false);
+        }
+      });
     return () => {
+      active = false;
+      setRealtimeLive(false);
       void sb.removeChannel(channel);
     };
   }, [topic, load]);
@@ -346,7 +399,11 @@ export function NotificationBell() {
   }, [open]);
 
   function toggleNotifications() {
-    setOpen((current) => !current);
+    setOpen((current) => {
+      const next = !current;
+      if (next) void load();
+      return next;
+    });
   }
 
   async function markRead(ids: string[]) {

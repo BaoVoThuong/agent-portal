@@ -5,12 +5,71 @@ import { notifTopic } from "@/lib/tasks/realtime";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = getSupabaseAdmin();
+  const mode = new URL(req.url).searchParams.get("mode");
+
+  // Background consumers only need the unread badge and the task ids used by
+  // the board's assignment hint. Keeping this path free of notification text
+  // and enrichment queries makes polling cheap; the full list is loaded when
+  // the user opens the dropdown or a realtime signal arrives.
+  if (mode === "summary") {
+    const [unreadRes, enrollmentUnreadRes, unreadAssignedRes] = await Promise.all([
+      supabase
+        .from("task_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_email", email)
+        .eq("is_read", false),
+      supabase
+        .from("enrollment_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_email", email)
+        .eq("is_read", false),
+      supabase
+        .from("task_notifications")
+        .select("task_id")
+        .eq("recipient_email", email)
+        .eq("type", "assigned")
+        .eq("is_read", false),
+    ]);
+
+    if (unreadRes.error) {
+      return NextResponse.json({ error: unreadRes.error.message }, { status: 500 });
+    }
+    if (
+      enrollmentUnreadRes.error &&
+      !isMissingEnrollmentTableError(enrollmentUnreadRes.error)
+    ) {
+      return NextResponse.json(
+        { error: enrollmentUnreadRes.error.message },
+        { status: 500 },
+      );
+    }
+    if (unreadAssignedRes.error) {
+      return NextResponse.json(
+        { error: unreadAssignedRes.error.message },
+        { status: 500 },
+      );
+    }
+
+    const unreadAssignedTaskIds = [
+      ...new Set(
+        ((unreadAssignedRes.data ?? []) as { task_id: string }[]).map(
+          (notification) => notification.task_id,
+        ),
+      ),
+    ];
+    return NextResponse.json({
+      unread: (unreadRes.count ?? 0) + (enrollmentUnreadRes.count ?? 0),
+      unreadAssignedTaskIds,
+      topic: notifTopic(email),
+    });
+  }
+
   const [
     { data, error },
     enrollmentRes,

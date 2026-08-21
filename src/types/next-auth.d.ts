@@ -16,6 +16,7 @@ declare module "next-auth" {
     roles?: string[];
     permissions?: string[];
     agentId?: string | null;
+    rbacRefreshedAt?: number;
   }
 }
 

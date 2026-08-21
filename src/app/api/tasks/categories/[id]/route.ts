@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canManageCategories } from "@/lib/tasks/access";
-import { broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { broadcastTaskCategoriesChanged } from "@/lib/tasks/realtime";
 import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
 import { parseConfiguredColor } from "@/lib/table-config/value-colors";
 
@@ -49,7 +49,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     .maybeSingle();
   if (error) return NextResponse.json({ error: "Could not update category." }, { status: 500 });
   if (!data) return NextResponse.json(inactiveConfigValueResponse("Category"), { status: 409 });
-  await broadcastTasksChanged();
+  await broadcastTaskCategoriesChanged();
   return NextResponse.json({ category: data });
 }
 
@@ -68,6 +68,6 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     .maybeSingle();
   if (error) return NextResponse.json({ error: "Could not archive category." }, { status: 500 });
   if (!data) return NextResponse.json(inactiveConfigValueResponse("Category"), { status: 409 });
-  await broadcastTasksChanged();
+  await broadcastTaskCategoriesChanged();
   return NextResponse.json({ ok: true });
 }

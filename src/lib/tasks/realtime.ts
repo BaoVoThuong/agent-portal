@@ -1,12 +1,13 @@
 import { createHmac } from "crypto";
 import {
   TASK_MUTATION_SOURCE_HEADER,
+  TASK_CATEGORIES_TOPIC,
   TASKS_TOPIC,
   taskReactionTopic,
   taskRoomTopic,
 } from "./realtime-topics";
 
-export { TASKS_TOPIC, taskReactionTopic, taskRoomTopic };
+export { TASK_CATEGORIES_TOPIC, TASKS_TOPIC, taskReactionTopic, taskRoomTopic };
 
 export type RealtimeMessage = {
   topic: string;
@@ -156,6 +157,16 @@ export async function broadcastTasksChanged(
       topic: TASKS_TOPIC,
       event: "changed",
       payload: sourceId ? { sourceId } : {},
+    },
+  ]);
+}
+
+export async function broadcastTaskCategoriesChanged(): Promise<boolean> {
+  return sendBroadcastMessages([
+    {
+      topic: TASK_CATEGORIES_TOPIC,
+      event: "changed",
+      payload: {},
     },
   ]);
 }

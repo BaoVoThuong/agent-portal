@@ -16,11 +16,21 @@ import {
 } from "@/lib/auth/rate-limit";
 
 // Fixed valid hash so bcrypt.compare runs at full cost even when the user does
-// not exist — prevents timing-based account enumeration.
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync(
-  "invalid-password-placeholder",
-  10
-);
+// not exist — prevents timing-based account enumeration. Keep it lazy so every
+// server/auth module load does not pay bcrypt cost before a credentials login.
+let dummyPasswordHash: string | null = null;
+function getDummyPasswordHash(): string {
+  return (dummyPasswordHash ??= bcrypt.hashSync(
+    "invalid-password-placeholder",
+    10,
+  ));
+}
+
+// Permission changes take effect on the next sign-in or within this bounded
+// window. The value travels in the encrypted JWT, so this avoids a repeated
+// portal_account/user_roles join on every auth() call without a process-global
+// cache leaking access between users.
+const RBAC_REFRESH_TTL_MS = 5 * 60 * 1000;
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -47,7 +57,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         // Always run a comparison (against a dummy hash when the account is
         // missing or has no password) to keep response timing constant.
-        const passwordHash = user?.password_hash ?? DUMMY_PASSWORD_HASH;
+        const passwordHash = user?.password_hash ?? getDummyPasswordHash();
         const isPasswordCorrect = await bcrypt.compare(
           credentials.password as string,
           passwordHash
@@ -142,17 +152,33 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.agentId = user.agentId ?? null;
       }
 
-      if (token.email) {
+      // Credentials already loaded access in authorize(). Reuse that result
+      // for the first JWT callback; OAuth users and expired tokens refresh
+      // from the canonical RBAC tables.
+      const accessProvidedAtSignIn = Boolean(
+        user && Array.isArray(user.roles) && Array.isArray(user.permissions),
+      );
+      if (accessProvidedAtSignIn) {
+        token.rbacRefreshedAt = Date.now();
+      }
+      const lastRbacRefresh = Number(token.rbacRefreshedAt ?? 0);
+      const shouldRefreshRbac =
+        !accessProvidedAtSignIn &&
+        Date.now() - lastRbacRefresh >= RBAC_REFRESH_TTL_MS;
+
+      if (token.email && shouldRefreshRbac) {
         const access = await getUserAccessByEmail(token.email);
         if (access.isActive) {
           token.role = access.legacyRole;
           token.roles = access.roles;
           token.permissions = access.permissions;
         } else {
+          token.role = "agent";
           token.roles = [];
           token.permissions = [];
         }
         token.agentId = access.agentId;
+        token.rbacRefreshedAt = Date.now();
       }
 
       return token;

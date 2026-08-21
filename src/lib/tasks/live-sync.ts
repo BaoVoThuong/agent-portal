@@ -37,7 +37,7 @@ export function taskBroadcastReconcileScope(
   ownSourceId: string,
 ): TaskReconcileScope | null {
   if (sourceId === ownSourceId) return null;
-  return sourceId ? "tasks-only" : "full";
+  return "tasks-only";
 }
 
 export type TaskRefetchDisposition =

@@ -5,6 +5,11 @@
 // Shared "the task list changed" topic for board/list viewers.
 export const TASKS_TOPIC = "tasks-stream";
 
+// Category labels are a separate, much rarer invalidation. Keeping them off
+// the task stream prevents every assignment/comment/status event from causing
+// a categories query in every open board.
+export const TASK_CATEGORIES_TOPIC = "task-categories-stream";
+
 // Correlates a browser mutation with the server broadcast it produces. The
 // value is an opaque per-tab nonce; it never contains task or customer data.
 export const TASK_MUTATION_SOURCE_HEADER = "x-task-client-source";

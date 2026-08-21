@@ -7,7 +7,7 @@ import {
   isTaskViewAdmin,
   canManageCategories,
 } from "@/lib/tasks/access";
-import { broadcastTasksChanged } from "@/lib/tasks/realtime";
+import { broadcastTaskCategoriesChanged } from "@/lib/tasks/realtime";
 import { parseConfiguredColor } from "@/lib/table-config/value-colors";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +61,6 @@ export async function POST(req: Request) {
     .select("id,name,color,position")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  await broadcastTasksChanged();
+  await broadcastTaskCategoriesChanged();
   return NextResponse.json({ category: data });
 }

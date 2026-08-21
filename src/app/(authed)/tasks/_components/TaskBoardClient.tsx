@@ -13,6 +13,7 @@ import {
 } from "@/lib/tasks/client-events";
 import {
   TASK_MUTATION_SOURCE_HEADER,
+  TASK_CATEGORIES_TOPIC,
   TASKS_TOPIC,
 } from "@/lib/tasks/realtime-topics";
 import {
@@ -393,7 +394,9 @@ export function TaskBoardClient({
 
   const loadUnreadAssignedTaskIds = useCallback(async () => {
     try {
-      const res = await fetch("/api/tasks/notifications", {
+      const res = await fetch("/api/tasks/notifications?mode=summary", {
+        // The board only needs the unread assignment ids, not the full
+        // enriched notification list.
         cache: "no-store",
       });
       if (!res.ok) return;
@@ -751,7 +754,7 @@ export function TaskBoardClient({
       }
       lastForegroundTaskRefreshAtRef.current = now;
       getBrowserSupabase()?.realtime.connect();
-      void reconcileTaskData();
+      void reconcileTaskData("tasks-only");
     };
     window.addEventListener("focus", refreshFromForeground);
     window.addEventListener("online", refreshFromForeground);
@@ -768,11 +771,23 @@ export function TaskBoardClient({
       if (
         canRefreshTaskData(document.visibilityState, navigator.onLine)
       ) {
-        void reconcileTaskData();
+        void reconcileTaskData("tasks-only");
       }
     }, taskLivePollInterval(taskLiveStatus));
     return () => window.clearInterval(timer);
   }, [reconcileTaskData, taskLiveStatus]);
+
+  useEffect(() => {
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+    const channel = sb
+      .channel(TASK_CATEGORIES_TOPIC)
+      .on("broadcast", { event: "changed" }, () => void reloadCategories())
+      .subscribe();
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [reloadCategories]);
 
   useEffect(() => {
     const sb = getBrowserSupabase();

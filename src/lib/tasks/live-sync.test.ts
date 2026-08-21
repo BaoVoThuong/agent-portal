@@ -96,7 +96,9 @@ describe("task reconcile scope", () => {
     expect(taskBroadcastReconcileScope("board-a", "board-b")).toBe(
       "tasks-only",
     );
-    expect(taskBroadcastReconcileScope(undefined, "board-b")).toBe("full");
+    expect(taskBroadcastReconcileScope(undefined, "board-b")).toBe(
+      "tasks-only",
+    );
   });
 
   it("lets a full reconcile dominate coalesced task-only work", () => {
