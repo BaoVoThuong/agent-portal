@@ -99,13 +99,24 @@ function browserStorage() {
 }
 
 type PendingTaskPatch = {
+  kind: "patch";
   sequence: number;
   patch: Record<string, unknown>;
 };
 
+type PendingAssigneeChange = {
+  kind: "assignee";
+  sequence: number;
+  email: string;
+  assigned: boolean;
+  nowIso: string;
+};
+
+type PendingTaskMutation = PendingTaskPatch | PendingAssigneeChange;
+
 type TaskMutationState = {
   confirmed: TaskRow;
-  pending: PendingTaskPatch[];
+  pending: PendingTaskMutation[];
   nextSequence: number;
   tail: Promise<void>;
 };
@@ -1311,10 +1322,19 @@ export function TaskBoardClient({
   function rebasePendingTaskPatches(id: string, state: TaskMutationState) {
     let next = state.confirmed;
     for (const pending of state.pending) {
-      next = {
-        ...next,
-        ...buildOptimisticTaskPatch(pending.patch, currentEmail, next),
-      } as TaskRow;
+      if (pending.kind === "patch") {
+        next = {
+          ...next,
+          ...buildOptimisticTaskPatch(pending.patch, currentEmail, next),
+        } as TaskRow;
+      } else {
+        next = applyOptimisticAssigneeChange(
+          next,
+          pending.email,
+          pending.assigned,
+          pending.nowIso
+        );
+      }
     }
     applyLocalTask(next);
     if (state.pending.length === 0) {
@@ -1339,7 +1359,7 @@ export function TaskBoardClient({
       } satisfies TaskMutationState);
     taskMutationStatesRef.current.set(id, state);
     const sequence = state.nextSequence++;
-    state.pending.push({ sequence, patch });
+    state.pending.push({ kind: "patch", sequence, patch });
 
     const optimistic = {
       ...before,
@@ -1374,7 +1394,11 @@ export function TaskBoardClient({
           if (response.status === 409) {
             const canonical = await fetchCanonicalTask(id);
             if (canonical) {
-              state.confirmed = canonical;
+              state.confirmed = {
+                ...canonical,
+                viewer_is_participant:
+                  canonical.viewer_is_participant ?? state.confirmed.viewer_is_participant,
+              };
               setError("This task changed elsewhere; reloaded the current version.");
             } else {
               setError("This task changed elsewhere; reload to continue.");
@@ -1390,7 +1414,11 @@ export function TaskBoardClient({
           | { task?: TaskRow }
           | null;
         if (data?.task?.id === id) {
-          state.confirmed = data.task;
+          state.confirmed = {
+            ...data.task,
+            viewer_is_participant:
+              data.task.viewer_is_participant ?? state.confirmed.viewer_is_participant,
+          };
         } else {
           setError("The server did not return the task after updating.");
           void refetchTasks();
@@ -1498,76 +1526,114 @@ export function TaskBoardClient({
     return true;
   }
 
-  async function changeAssignee(id: string, email: string, assigned: boolean) {
-    const before = tasks.find((t) => t.id === id) ?? null;
-    if (!before) return;
-    const finishPendingMutation = beginTaskMutation(id);
+  function changeAssignee(id: string, email: string, assigned: boolean): Promise<void> {
+    const before = taskRowsRef.current.get(id) ?? tasks.find((task) => task.id === id) ?? null;
+    if (!before) {
+      setError("Task is no longer available. Refresh and try again.");
+      return Promise.resolve();
+    }
 
-    const nextAssignees = assigned
-      ? [...new Set([...before.assignees, email])]
-      : before.assignees.filter((assignee) => assignee !== email);
-    const nextStatus =
-      nextAssignees.length === 0
-        ? "backlog"
-        : before.status === "backlog"
-          ? "todo"
-          : before.status;
-    const nowIso = new Date().toISOString();
-    const optimistic: TaskRow = {
-      ...before,
-      assignees: nextAssignees,
-      assignee_email: nextAssignees[0] ?? null,
-      status: nextStatus,
-      todo_started_at:
-        before.status === "backlog" && nextStatus === "todo"
-          ? nowIso
-          : before.todo_started_at,
+    const state =
+      taskMutationStatesRef.current.get(id) ??
+      ({
+        confirmed: before,
+        pending: [],
+        nextSequence: 0,
+        tail: Promise.resolve(),
+      } satisfies TaskMutationState);
+    taskMutationStatesRef.current.set(id, state);
+    const sequence = state.nextSequence++;
+    const pending: PendingAssigneeChange = {
+      kind: "assignee",
+      sequence,
+      email,
+      assigned,
+      nowIso: new Date().toISOString(),
     };
-    updateTasks((cur) => cur.map((task) => (task.id === id ? optimistic : task)));
+    state.pending.push(pending);
 
-    let res: Response;
-    try {
-      res = await fetch(
-        assigned
-          ? `/api/tasks/${id}/assignees`
-          : `/api/tasks/${id}/assignees/${encodeURIComponent(email)}`,
-        {
-          method: assigned ? "POST" : "DELETE",
-          headers: taskMutationHeaders,
-          body: JSON.stringify({ email, expected_updated_at: before.updated_at }),
+    const optimistic = applyOptimisticAssigneeChange(
+      before,
+      email,
+      assigned,
+      pending.nowIso
+    );
+    applyLocalTask(optimistic);
+    const finishPendingMutation = beginTaskMutation(id);
+    let committed = false;
+
+    const operation = state.tail
+      .then(async () => {
+        let response: Response;
+        try {
+          response = await fetch(
+            assigned
+              ? `/api/tasks/${id}/assignees`
+              : `/api/tasks/${id}/assignees/${encodeURIComponent(email)}`,
+            {
+              method: assigned ? "POST" : "DELETE",
+              headers: taskMutationHeaders,
+              body: JSON.stringify({
+                email,
+                expected_updated_at: state.confirmed.updated_at,
+              }),
+            }
+          );
+        } catch {
+          setError("Connection lost — the assignee was not updated.");
+          void refetchTasks();
+          return;
         }
-      );
-    } catch {
-      finishPendingMutation();
-      updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
-      setError("Connection lost — the assignee was not updated.");
-      void refetchTasks();
-      return;
-    }
 
-    if (!res.ok) {
-      finishPendingMutation();
-      const data = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (res.status === 409) {
-        const canonical = await fetchCanonicalTask(id);
-        if (canonical) {
-          replaceTask(canonical);
+        if (!response.ok) {
+          const data = (await response.json().catch(() => null)) as
+            | { error?: string }
+            | null;
+          if (response.status === 409) {
+            const canonical = await fetchCanonicalTask(id);
+            if (canonical) {
+              state.confirmed = {
+                ...canonical,
+                viewer_is_participant:
+                  canonical.viewer_is_participant ?? state.confirmed.viewer_is_participant,
+              };
+              setError("This task changed elsewhere; reloaded the current version.");
+            } else {
+              setError("This task changed elsewhere; reload to continue.");
+            }
+          } else {
+            setError(data?.error ?? "Could not update the assignee.");
+          }
+          return;
+        }
+
+        committed = true;
+        const data = (await response.json().catch(() => null)) as
+          | { task?: TaskRow }
+          | null;
+        if (data?.task?.id === id) {
+          state.confirmed = {
+            ...data.task,
+            viewer_is_participant:
+              data.task.viewer_is_participant ?? state.confirmed.viewer_is_participant,
+          };
         } else {
-          updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
+          setError("The server did not return the task after updating the assignee.");
+          void refetchTasks();
         }
-      } else {
-        updateTasks((cur) => cur.map((task) => (task.id === id ? before : task)));
-      }
-      setError(data?.error ?? "Could not update the assignee.");
-      return;
-    }
+      })
+      .catch(() => {
+        setError("Could not update the assignee.");
+        void refetchTasks();
+      })
+      .finally(() => {
+        state.pending = state.pending.filter((candidate) => candidate.sequence !== sequence);
+        rebasePendingTaskPatches(id, state);
+        finishPendingMutation(committed);
+      });
 
-    const data = (await res.json().catch(() => null)) as
-      | { task?: TaskRow }
-      | null;
-    if (data?.task) replaceTask(data.task);
-    else void refetchTasks();
-    finishPendingMutation(true);
+    state.tail = operation;
+    return operation;
   }
 
   async function assignOverviewTask(
@@ -2198,6 +2264,34 @@ function optimisticBankWaitingSeconds(before: TaskRow, nowIso: string): number {
     ? optimisticElapsedSeconds(before.waiting_started_at, nowIso)
     : 0;
   return Math.max(1, (before.waiting_seconds ?? 0) + elapsed);
+}
+
+function applyOptimisticAssigneeChange(
+  before: TaskRow,
+  email: string,
+  assigned: boolean,
+  nowIso: string
+): TaskRow {
+  const nextAssignees = assigned
+    ? [...new Set([...before.assignees, email])]
+    : before.assignees.filter((assignee) => assignee !== email);
+  const nextStatus: TaskStatus =
+    nextAssignees.length === 0
+      ? "backlog"
+      : before.status === "backlog"
+        ? "todo"
+        : before.status;
+
+  return {
+    ...before,
+    assignees: nextAssignees,
+    assignee_email: nextAssignees[0] ?? null,
+    status: nextStatus,
+    todo_started_at:
+      before.status === "backlog" && nextStatus === "todo"
+        ? nowIso
+        : before.todo_started_at,
+  };
 }
 
 function buildOptimisticTaskPatch(

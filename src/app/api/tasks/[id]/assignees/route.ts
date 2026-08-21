@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canAssignToTask } from "@/lib/tasks/access";
@@ -192,19 +192,22 @@ export async function POST(req: Request, { params }: Ctx) {
 
   const taskData = updated as TaskRow;
 
-  const broadcastResults = await Promise.allSettled([
-    broadcastTasksChanged(readTaskMutationSourceId(req)),
-    broadcastTaskRoom(id),
-  ]);
-  for (const result of broadcastResults) {
-    if (result.status === "rejected" || !result.value) {
-      mutationWarnings.push(
-        result.status === "rejected" && result.reason instanceof Error
-          ? result.reason.message
-          : "Task broadcast failed."
-      );
+  // The task row is already committed. Broadcast after the response so a
+  // slow/retrying realtime provider cannot hold the mutation queue hostage.
+  after(async () => {
+    const broadcastResults = await Promise.allSettled([
+      broadcastTasksChanged(readTaskMutationSourceId(req)),
+      broadcastTaskRoom(id),
+    ]);
+    for (const result of broadcastResults) {
+      if (result.status === "rejected" || !result.value) {
+        console.warn(
+          "[side-effect] task_broadcast_failed",
+          result.status === "rejected" ? result.reason : "reported failure"
+        );
+      }
     }
-  }
+  });
   let task = taskData as TaskRow;
   try {
     [task] = await attachAssigneesToTasks(
