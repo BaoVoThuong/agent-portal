@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveDisplayNames } from "@/lib/people/display-names";
 import { signAttachmentsSafely } from "@/lib/tasks/detail";
+import { indexReactionRows, type ReactionRow } from "@/lib/tasks/reactions";
 import type { TimingRecorder } from "@/lib/server-timing";
 import {
   COMMENT_PAGE_SIZE,
@@ -255,10 +256,11 @@ export async function loadEnrollmentDetail(
     includeActivity?: boolean;
     includeCommentAttachments?: boolean;
     includeAttachments?: boolean;
+    includeReactions?: boolean;
     timing?: TimingRecorder;
   } = {},
 ): Promise<EnrollmentDetail> {
-  const [commentPage, activity, attachments] = await Promise.all([
+  const [commentPage, activity, attachments, reactionRows] = await Promise.all([
     measureTiming(opts.timing, "comments", async () =>
       loadEnrollmentComments(supabase, recordId, {
         before: opts.commentsBefore,
@@ -278,9 +280,34 @@ export async function loadEnrollmentDetail(
       : measureTiming(opts.timing, "record_files", async () =>
           loadEnrollmentAttachments(supabase, recordId, opts.timing),
         ),
+    opts.includeReactions
+      ? measureTiming(opts.timing, "reactions", async () => {
+          const { data, error } = await supabase.rpc(
+            "enrollment_comment_reactions_for_record",
+            { p_record_id: recordId },
+          );
+          if (error) {
+            // Reactions are optional enrichment. Keep the enrollment detail
+            // usable and let CommentThread fall back to its old endpoint.
+            console.warn(
+              "[enrollment-detail] initial reaction snapshot unavailable",
+              error.message,
+            );
+            return null;
+          }
+          return (data ?? []) as ReactionRow[];
+        })
+      : Promise.resolve(null as ReactionRow[] | null),
   ]);
+  const reactionsByComment = reactionRows ? indexReactionRows(reactionRows) : null;
+  const comments = reactionsByComment
+    ? commentPage.comments.map((comment) => ({
+        ...comment,
+        reactions: reactionsByComment.get(comment.id) ?? [],
+      }))
+    : commentPage.comments;
   return {
-    comments: commentPage.comments,
+    comments,
     commentsHasMore: commentPage.hasMore,
     activity,
     attachments,

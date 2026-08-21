@@ -63,6 +63,7 @@ export async function GET(request: Request, { params }: Ctx) {
           commentsBefore,
           highlightCommentId,
           commentLimit: commentsBefore ? COMMENT_PAGE_SIZE : commentLimit,
+          includeReactions: true,
           timing,
         }),
       ),

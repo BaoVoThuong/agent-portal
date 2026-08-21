@@ -650,10 +650,17 @@ export function CommentThread({
     [refreshReactions],
   );
 
-  // Reactions are intentionally outside the task-detail critical path. Paint
-  // comments first, then hydrate the lightweight reaction state independently.
+  // Detail responses now include an initial reaction snapshot. Keep the
+  // standalone hydrate path for Enrollment, older cached payloads, and any
+  // comment page that intentionally omits reactions.
   useEffect(() => {
-    if (!reactionsEnabled || comments.length === 0) return;
+    if (
+      !reactionsEnabled ||
+      comments.length === 0 ||
+      comments.every((comment) => comment.reactions !== undefined)
+    ) {
+      return;
+    }
     scheduleReactionRefresh(0);
   }, [comments, reactionsEnabled, scheduleReactionRefresh]);
 

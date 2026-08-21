@@ -4,12 +4,12 @@ import {
   signTaskFiles,
   type BatchSignedTaskFile,
 } from "./storage";
+import { indexReactionRows, type ReactionRow } from "./reactions";
 import { resolveDisplayNames } from "@/lib/people/display-names";
 import {
   COMMENT_PAGE_SIZE,
   type CommentCursor,
 } from "@/lib/collaboration/comment-pagination";
-import type { ReactionRow } from "./reactions";
 import type { TimingRecorder } from "@/lib/server-timing";
 
 export type SignedAttachment = {
@@ -310,13 +310,14 @@ export async function loadTaskDetail(
     includeActivity?: boolean;
     includeCommentAttachments?: boolean;
     includeTaskAttachments?: boolean;
+    includeReactions?: boolean;
     commentsBefore?: CommentCursor;
     commentLimit?: number;
     highlightCommentId?: string | null;
     timing?: TimingRecorder;
   } = {}
 ): Promise<TaskDetail> {
-  const [commentPage, activity, attachments] = await Promise.all([
+  const [commentPage, activity, attachments, reactionRows] = await Promise.all([
     measureTiming(opts.timing, "comments", async () =>
       loadComments(supabase, taskId, {
         includeAttachments: opts.includeCommentAttachments,
@@ -336,9 +337,39 @@ export async function loadTaskDetail(
       : measureTiming(opts.timing, "task_files", async () =>
           loadTaskAttachments(supabase, taskId, opts.timing),
         ),
+    opts.includeReactions
+      ? measureTiming(opts.timing, "reactions", async () => {
+          const { data, error } = await supabase.rpc(
+            "task_comment_reactions_for_task",
+            { p_task_id: taskId },
+          );
+          if (error) {
+            // Reactions are an enhancement to the detail payload. Keep the
+            // comments path available if this optional snapshot is unavailable;
+            // CommentThread will use the standalone endpoint as a fallback.
+            console.warn(
+              "[task-detail] initial reaction snapshot unavailable",
+              error.message,
+            );
+            return null;
+          }
+          return (data ?? []) as ReactionRow[];
+        })
+      : Promise.resolve(null as ReactionRow[] | null),
   ]);
 
-  return { comments: commentPage.comments, commentsHasMore: commentPage.hasMore, activity, attachments };
+  const reactionsByComment = reactionRows ? indexReactionRows(reactionRows) : null;
+  const comments = reactionsByComment
+    ? commentPage.comments.map((comment) => ({
+        ...comment,
+        // An explicit empty array tells the client that the initial reaction
+        // snapshot is complete, so it does not immediately issue a second
+        // hydrate request after the detail response paints.
+        reactions: reactionsByComment.get(comment.id) ?? [],
+      }))
+    : commentPage.comments;
+
+  return { comments, commentsHasMore: commentPage.hasMore, activity, attachments };
 }
 
 export async function signAttachmentsSafely<

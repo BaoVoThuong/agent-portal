@@ -93,6 +93,11 @@ export async function GET(req: Request, { params }: Ctx) {
       includeCommentAttachments: true,
       // Rendered by AttachmentStrip under the description field.
       includeTaskAttachments: true,
+      // Reactions share the detail authorization and run in parallel with
+      // comments, activity, and attachments. This removes the initial client
+      // waterfall while the separate reactions endpoint remains available for
+      // realtime refreshes and reaction mutations.
+      includeReactions: true,
     } as const;
     const loadDetailAndMetadata = async (includeActivity: boolean) => {
       const [detail, metadataRows] = await Promise.all([
