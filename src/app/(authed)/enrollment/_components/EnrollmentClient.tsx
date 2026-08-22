@@ -2198,9 +2198,9 @@ function EnrollmentRowItem({
         >
           <span
             className="truncate font-mono text-xs font-bold text-[#97a0af]"
-            title={enrollmentDisplayKey(record.display_number)}
+            title={enrollmentDisplayKey(record.display_number, record.program)}
           >
-            {enrollmentDisplayKey(record.display_number)}
+            {enrollmentDisplayKey(record.display_number, record.program)}
           </span>
         </div>
       ) : null}
@@ -3530,7 +3530,7 @@ function EnrollmentDrawer({
       >
         <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
           <span className="font-mono text-sm font-bold text-[#97a0af]">
-            {enrollmentDisplayKey(record.display_number)}
+            {enrollmentDisplayKey(record.display_number, record.program)}
           </span>
           <button
             type="button"
@@ -5249,7 +5249,7 @@ function sortValue(
 ): string | number | null {
   switch (key) {
     case "key":
-      return enrollmentDisplayKey(record.display_number);
+      return enrollmentDisplayKey(record.display_number, record.program);
     case "attention":
       return enrollmentAttentionScore(record, optionsById);
     case "client":

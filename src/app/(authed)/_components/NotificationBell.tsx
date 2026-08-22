@@ -7,6 +7,7 @@ import { Bell, X } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { taskDisplayKey } from "@/lib/tasks/sorting";
 import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
+import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import {
   dispatchOpenTask,
@@ -47,6 +48,7 @@ type Notif = {
   task_title: string | null;
   comment_body: string | null;
   entity_display_number?: number | null;
+  entity_program?: EnrollmentProgram;
   detail: string | null;
   is_read: boolean;
   created_at: string;
@@ -100,7 +102,7 @@ function entityId(n: Notif): string {
 
 function entityKey(n: Notif): string {
   return entityKind(n) === "enrollment"
-    ? enrollmentDisplayKey(n.entity_display_number)
+    ? enrollmentDisplayKey(n.entity_display_number, n.entity_program)
     : taskDisplayKey(n.entity_display_number);
 }
 

@@ -11,7 +11,7 @@ const stage = (id: string, label: string, extra: Partial<EnrollmentOption> = {})
   is_terminal: false, triggers_qc: false, treat_as_terminal: false, archived_at: null, ...extra,
 });
 const record = (id: string, extra: Partial<AcaOverviewRecord> = {}): AcaOverviewRecord => ({
-  id, display_number: `ENR-${id}`, client_name: id, stage_id: "open", agent_email: null,
+  id, display_number: `ACA-${id}`, client_name: id, stage_id: "open", agent_email: null,
   caller_email: null, responsible_enroll_email: "a@example.com", due_date: null, qc_checked_at: null, created_at: "2026-08-01T00:00:00Z",
   closed_at: null, archived_at: null, stage_entered_at: "2026-08-03T00:00:00Z", stage_entered_source: "live",
   last_work_activity_at: null, responsible_assigned_at: null, updated_at: "2026-08-13T00:00:00Z", ...extra,

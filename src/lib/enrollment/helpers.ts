@@ -1,17 +1,33 @@
-import type { EnrollmentOption, EnrollmentRecord } from "./types";
+import type {
+  EnrollmentOption,
+  EnrollmentProgram,
+  EnrollmentRecord,
+} from "./types";
 
-export function enrollmentKey(id: string): string {
+const ENROLLMENT_PROGRAM_PREFIX: Record<EnrollmentProgram, string> = {
+  aca: "ACA",
+  medicare: "MED",
+};
+
+export function enrollmentKey(
+  id: string,
+  program: EnrollmentProgram = "aca"
+): string {
   let hash = 0;
   for (const character of id) {
     hash = (hash * 31 + character.charCodeAt(0)) % 9000;
   }
-  return `ENR-${hash + 1000}`;
+  return `${ENROLLMENT_PROGRAM_PREFIX[program]}-${hash + 1000}`;
 }
 
 export function enrollmentDisplayKey(
-  displayNumber: number | null | undefined
+  displayNumber: number | null | undefined,
+  program: EnrollmentProgram = "aca"
 ): string {
-  return typeof displayNumber === "number" ? `ENR-${displayNumber}` : "ENR-—";
+  const prefix = ENROLLMENT_PROGRAM_PREFIX[program];
+  return typeof displayNumber === "number"
+    ? `${prefix}-${displayNumber}`
+    : `${prefix}-—`;
 }
 
 export function enrollmentIsOverdue(

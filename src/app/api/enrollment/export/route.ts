@@ -150,7 +150,7 @@ async function exportEnrollment({
 function enrollmentExportValue(record: EnrollmentRecordWithStats, key: string): unknown {
   switch (key) {
     case "key":
-      return enrollmentDisplayKey(record.display_number);
+      return enrollmentDisplayKey(record.display_number, record.program);
     case "client":
       return record.client_name;
     case "agent":

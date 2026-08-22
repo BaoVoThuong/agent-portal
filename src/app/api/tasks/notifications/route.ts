@@ -194,8 +194,8 @@ export async function GET(req: Request) {
       ? supabase.from("tasks").select("id,title,display_number").in("id", taskIds)
       : Promise.resolve({ data: [] as { id: string; title: string; display_number: number | null }[], error: null }),
     enrollmentIds.length
-      ? supabase.from("enrollment_records").select("id,client_name,display_number").in("id", enrollmentIds)
-      : Promise.resolve({ data: [] as { id: string; client_name: string | null; display_number: number | null }[], error: null }),
+      ? supabase.from("enrollment_records").select("id,client_name,display_number,program").in("id", enrollmentIds)
+      : Promise.resolve({ data: [] as { id: string; client_name: string | null; display_number: number | null; program: "aca" | "medicare" }[], error: null }),
     actorEmails.length
       ? supabase.from("portal_account").select("email,name").in("email", actorEmails)
       : Promise.resolve({ data: [] as { email: string; name: string | null }[], error: null }),
@@ -232,6 +232,12 @@ export async function GET(req: Request) {
       (record) => [record.id, record.display_number]
     )
   );
+  const enrollmentProgramById = new Map(
+    ((enrollmentTitlesRes.data ?? []) as {
+      id: string;
+      program: "aca" | "medicare";
+    }[]).map((record) => [record.id, record.program])
+  );
   const nameByEmail = new Map(
     ((actorsRes.data ?? []) as { email: string; name: string | null }[]).map((a) => [
       a.email,
@@ -251,6 +257,10 @@ export async function GET(req: Request) {
       n.entity_type === "enrollment"
         ? enrollmentDisplayNumberById.get(n.entity_id) ?? null
         : taskDisplayNumberById.get(n.entity_id) ?? null,
+    entity_program:
+      n.entity_type === "enrollment"
+        ? enrollmentProgramById.get(n.entity_id) ?? "aca"
+        : undefined,
     task_title:
       n.entity_type === "enrollment"
         ? enrollmentTitleById.get(n.entity_id) ?? null

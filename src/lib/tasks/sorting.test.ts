@@ -110,12 +110,12 @@ describe("sortTasks", () => {
 
   it("taskKey is stable for the same id", () => {
     expect(taskKey("abc")).toBe(taskKey("abc"));
-    expect(taskKey("abc")).toMatch(/^TASK-\d+$/);
+    expect(taskKey("abc")).toMatch(/^CS-\d+$/);
   });
 
   it("uses the durable display number for visible keys", () => {
-    expect(taskDisplayKey(123)).toBe("TASK-123");
-    expect(taskDisplayKey(null)).toBe("TASK-—");
+    expect(taskDisplayKey(123)).toBe("CS-123");
+    expect(taskDisplayKey(null)).toBe("CS-—");
   });
 });
 

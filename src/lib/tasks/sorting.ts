@@ -79,11 +79,11 @@ export function taskKey(id: string): string {
   for (const character of id) {
     hash = (hash * 31 + character.charCodeAt(0)) % 900;
   }
-  return `TASK-${hash + 100}`;
+  return `CS-${hash + 100}`;
 }
 
 export function taskDisplayKey(displayNumber: number | null | undefined): string {
-  return typeof displayNumber === "number" ? `TASK-${displayNumber}` : "TASK-—";
+  return typeof displayNumber === "number" ? `CS-${displayNumber}` : "CS-—";
 }
 
 // A comparable value for a task on a given key. `null` => sorts last.
