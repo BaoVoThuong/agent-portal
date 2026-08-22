@@ -2,7 +2,15 @@
 
 > Ngày trong tiêu đề là ngày báo cáo. Công việc được thực hiện trước ngày báo cáo; vì vậy các commit hoàn tất trong ngày 22/08 được ghi vào báo cáo ngày 23/08.
 
-### 1. Đồng bộ quyền hiển thị task cho người tạo
+### 1. Đồng bộ quyền hiển thị Overview giữa Enrollment và CS
+
+- Ẩn tab Overview khỏi Enrollment đối với agent/assistant không có quyền manager, giống cách CS đang hiển thị.
+- Chặn cả luồng gọi API Overview trực tiếp đối với non-manager để không còn trường hợp thấy tab rồi bấm vào mới nhận lỗi quyền.
+- Giữ Enrollment client và component Overview fail-closed nếu bị render ngoài lớp kiểm tra quyền.
+
+Commit: `e35369d`
+
+### 2. Đồng bộ quyền hiển thị task cho người tạo
 
 - Enrollment scoped agents/assistants luôn thấy record do chính mình tạo, hoặc record mình là caller/responsible; deep link và detail cũng dùng cùng scope này.
 - CS creator luôn thấy task mình tạo trong board/list, search, detail, comments, attachments, edit history và reactions mà không được mở rộng quyền đổi stage hoặc xóa task.
@@ -10,7 +18,7 @@
 
 Commits: `cabe4d9`, `6ec65a3`
 
-### 2. Thông báo khi có người react comment
+### 3. Thông báo khi có người react comment
 
 - Khi reaction mới được thêm, chỉ tác giả comment nhận notification; người react không tự nhận notification.
 - Áp dụng đồng nhất cho CS và Enrollment, có chống gửi lặp khi thao tác reaction được retry.
@@ -18,7 +26,7 @@ Commits: `cabe4d9`, `6ec65a3`
 
 Commit: `6b63f9f`
 
-### 3. Đồng bộ trải nghiệm cộng tác của Enrollment với CS
+### 4. Đồng bộ trải nghiệm cộng tác của Enrollment với CS
 
 - Bổ sung đầy đủ luồng comment, mention, attachment, emoji và reaction cho Enrollment Task Detail theo cùng cơ chế với CS.
 - Đồng bộ cache, prefetch, realtime và cơ chế invalidation để mở task và cập nhật comment nhanh, ổn định hơn.
@@ -26,14 +34,14 @@ Commit: `6b63f9f`
 
 Commit: `fcdb658`
 
-### 4. Cho phép cộng tác trên task Backlog
+### 5. Cho phép cộng tác trên task Backlog
 
 - Bỏ chặn comment/reaction đối với task đang ở Backlog; thành viên trong team có thể tiếp tục trao đổi như các stage khác.
 - Cập nhật kiểm tra quyền và test để tránh trả về `Unauthorized` khi gửi comment trên Backlog.
 
 Commit: `faf7160`
 
-### 5. Gộp comments và reactions vào pipeline Task Detail
+### 6. Gộp comments và reactions vào pipeline Task Detail
 
 - Tải comments và reactions trong cùng request detail, loại bỏ request reaction riêng trong luồng bình thường.
 - Giữ fallback cho snapshot cũ hoặc dữ liệu thiếu, đồng thời áp dụng cho cả CS và Enrollment.
@@ -43,7 +51,7 @@ Commit: `268f90e`
 
 Verification: Benchmark merged flow cho CS khoảng 180–184ms p50 so với split flow khoảng 345ms; Enrollment khoảng 332ms so với 506ms. Typecheck, lint và 107 test files / 750 tests đã pass.
 
-### 6. Giảm chi phí polling và request nền
+### 7. Giảm chi phí polling và request nền
 
 - Notification bell chuyển sang polling summary, dừng request khi tab bị ẩn và giãn chu kỳ lên 120 giây khi realtime hoạt động; full notification chỉ tải khi cần.
 - Task board chỉ reconcile dữ liệu task trong polling thường; categories dùng realtime topic riêng nên không còn bị reload theo mọi task event.
