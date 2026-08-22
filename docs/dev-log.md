@@ -2,7 +2,21 @@
 
 > Ngày trong tiêu đề là ngày báo cáo. Công việc được thực hiện trước ngày báo cáo; vì vậy các commit hoàn tất trong ngày 22/08 được ghi vào báo cáo ngày 23/08.
 
-### 1. Giữ Enrollment ở List sau khi tạo record
+### 1. Chuẩn hóa key hiển thị và tách bộ đếm Enrollment
+
+- Đổi key hiển thị của Customer Service từ `TASK-*` sang `CS-*`.
+- Đổi key Enrollment theo chương trình: ACA dùng `ACA-*`, Medicare dùng `MED-*`.
+- Tách sequence database theo từng program để số mới của ACA và Medicare không dùng chung bộ đếm.
+- Giữ nguyên số hiện có khi migrate để tránh làm hỏng các key đã được tham chiếu; chỉ đổi prefix và dùng counter riêng cho record mới.
+- Đồng bộ prefix trong list, detail drawer, search/sort, export và notification bell.
+
+Commit: `8796298`
+
+Migration cần chạy trên Supabase: `supabase/rollouts/2026-08-23-enrollment-program-display-keys.sql`
+
+Verification: 108 test files / 759 tests, typecheck và lint đã pass.
+
+### 2. Giữ Enrollment ở List sau khi tạo record
 
 - Sau khi bấm Create, Enrollment chỉ thêm record mới vào danh sách và đóng form tạo, giống hành vi của CS.
 - Bỏ việc tự mở Task Detail và tự thêm `record` vào URL sau khi tạo, tránh drawer xuất hiện lại ngoài ý muốn.
@@ -10,7 +24,7 @@
 
 Commit: `1f36069`
 
-### 2. Đồng bộ quyền hiển thị Overview giữa Enrollment và CS
+### 3. Đồng bộ quyền hiển thị Overview giữa Enrollment và CS
 
 - Ẩn tab Overview khỏi Enrollment đối với agent/assistant không có quyền manager, giống cách CS đang hiển thị.
 - Chặn cả luồng gọi API Overview trực tiếp đối với non-manager để không còn trường hợp thấy tab rồi bấm vào mới nhận lỗi quyền.
@@ -18,7 +32,7 @@ Commit: `1f36069`
 
 Commit: `e35369d`
 
-### 3. Đồng bộ quyền hiển thị task cho người tạo
+### 4. Đồng bộ quyền hiển thị task cho người tạo
 
 - Enrollment scoped agents/assistants luôn thấy record do chính mình tạo, hoặc record mình là caller/responsible; deep link và detail cũng dùng cùng scope này.
 - CS creator luôn thấy task mình tạo trong board/list, search, detail, comments, attachments, edit history và reactions mà không được mở rộng quyền đổi stage hoặc xóa task.
@@ -26,7 +40,7 @@ Commit: `e35369d`
 
 Commits: `cabe4d9`, `6ec65a3`
 
-### 4. Thông báo khi có người react comment
+### 5. Thông báo khi có người react comment
 
 - Khi reaction mới được thêm, chỉ tác giả comment nhận notification; người react không tự nhận notification.
 - Áp dụng đồng nhất cho CS và Enrollment, có chống gửi lặp khi thao tác reaction được retry.
@@ -34,7 +48,7 @@ Commits: `cabe4d9`, `6ec65a3`
 
 Commit: `6b63f9f`
 
-### 5. Đồng bộ trải nghiệm cộng tác của Enrollment với CS
+### 6. Đồng bộ trải nghiệm cộng tác của Enrollment với CS
 
 - Bổ sung đầy đủ luồng comment, mention, attachment, emoji và reaction cho Enrollment Task Detail theo cùng cơ chế với CS.
 - Đồng bộ cache, prefetch, realtime và cơ chế invalidation để mở task và cập nhật comment nhanh, ổn định hơn.
@@ -42,14 +56,14 @@ Commit: `6b63f9f`
 
 Commit: `fcdb658`
 
-### 6. Cho phép cộng tác trên task Backlog
+### 7. Cho phép cộng tác trên task Backlog
 
 - Bỏ chặn comment/reaction đối với task đang ở Backlog; thành viên trong team có thể tiếp tục trao đổi như các stage khác.
 - Cập nhật kiểm tra quyền và test để tránh trả về `Unauthorized` khi gửi comment trên Backlog.
 
 Commit: `faf7160`
 
-### 7. Gộp comments và reactions vào pipeline Task Detail
+### 8. Gộp comments và reactions vào pipeline Task Detail
 
 - Tải comments và reactions trong cùng request detail, loại bỏ request reaction riêng trong luồng bình thường.
 - Giữ fallback cho snapshot cũ hoặc dữ liệu thiếu, đồng thời áp dụng cho cả CS và Enrollment.
@@ -59,7 +73,7 @@ Commit: `268f90e`
 
 Verification: Benchmark merged flow cho CS khoảng 180–184ms p50 so với split flow khoảng 345ms; Enrollment khoảng 332ms so với 506ms. Typecheck, lint và 107 test files / 750 tests đã pass.
 
-### 8. Giảm chi phí polling và request nền
+### 9. Giảm chi phí polling và request nền
 
 - Notification bell chuyển sang polling summary, dừng request khi tab bị ẩn và giãn chu kỳ lên 120 giây khi realtime hoạt động; full notification chỉ tải khi cần.
 - Task board chỉ reconcile dữ liệu task trong polling thường; categories dùng realtime topic riêng nên không còn bị reload theo mọi task event.

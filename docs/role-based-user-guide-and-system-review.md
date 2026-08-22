@@ -124,7 +124,7 @@ Ghi chú UI: route `/settings` có trong route guard, nhưng sidebar hiện chư
 
 Task có các field quan trọng:
 
-- Key: mã task hiển thị dạng `TASK-xxx`.
+- Key: mã task CS hiển thị dạng `CS-xxx`; enrollment hiển thị `ACA-xxx` hoặc `MED-xxx` theo chương trình.
 - Summary/title: nội dung chính.
 - Agent: agent/account liên quan đến task.
 - Assignee(s): người đang xử lý task.
