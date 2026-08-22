@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { formatEmailAsName } from "@/lib/tasks/people";
@@ -31,6 +31,7 @@ export function TaskSelect({
   className = "",
   buttonClassName = "",
   menuClassName = "",
+  renderOption,
   onChange,
   onValuesChange,
 }: {
@@ -51,6 +52,8 @@ export function TaskSelect({
   className?: string;
   buttonClassName?: string;
   menuClassName?: string;
+  /** Optional shared visual treatment for the selected value and menu rows. */
+  renderOption?: (option: TaskSelectOption, selected: boolean) => ReactNode;
   onChange?: (value: string) => void;
   onValuesChange?: (values: string[]) => void;
 }) {
@@ -175,13 +178,19 @@ export function TaskSelect({
           </>
         ) : (
           <>
-            <span
-              className={`whitespace-nowrap leading-5 ${
-                isPlaceholder ? "font-normal text-[#97a0af]" : "text-[#172b4d]"
-              }`}
-            >
-              {selectedLabel}
-            </span>
+            {selectedOption && renderOption ? (
+              <span className="min-w-0 flex-1 text-left">
+                {renderOption(selectedOption, true)}
+              </span>
+            ) : (
+              <span
+                className={`whitespace-nowrap leading-5 ${
+                  isPlaceholder ? "font-normal text-[#97a0af]" : "text-[#172b4d]"
+                }`}
+              >
+                {selectedLabel}
+              </span>
+            )}
             <ChevronDown
               className={`h-4 w-4 shrink-0 text-[#667085] transition ${
                 isOpen ? "rotate-180" : ""
@@ -227,9 +236,18 @@ export function TaskSelect({
                         max={1}
                       />
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate font-medium leading-5">
-                      {option.label}
-                    </span>
+                    {(() => {
+                      const sourceOption = options.find(
+                        (availableOption) => availableOption.value === option.value
+                      );
+                      return sourceOption && renderOption ? (
+                        renderOption(sourceOption, state.selected)
+                      ) : (
+                        <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                          {option.label}
+                        </span>
+                      );
+                    })()}
                     {isMulti ? (
                       <span
                         className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
@@ -289,9 +307,13 @@ export function TaskSelect({
                         max={1}
                       />
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate font-medium leading-5">
-                      {option.label}
-                    </span>
+                    {renderOption ? (
+                      renderOption(option, selected)
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                        {option.label}
+                      </span>
+                    )}
                     {isMulti ? (
                       <span
                         className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${

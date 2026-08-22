@@ -115,7 +115,6 @@ import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { Toast } from "../../_shared/Toast";
 import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
-import { AttachmentPanel } from "../../tasks/_components/AttachmentPanel";
 import { AttachmentStrip } from "../../tasks/_components/AttachmentStrip";
 import {
   AttachmentPreviewDialog,
@@ -3041,10 +3040,11 @@ function EnrollmentStagePill({
   const pill = field ? (
     <span className={DETAIL_FIELD_BUTTON_CLASS}>
       <span
-        className="h-2.5 w-2.5 shrink-0 rounded-full"
-        style={{ backgroundColor: style.fg }}
-      />
-      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+        className="inline-flex max-w-full min-w-0 items-center rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
+        style={{ backgroundColor: style.bg, color: style.fg }}
+      >
+        <span className="truncate">{label}</span>
+      </span>
       <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
     </span>
   ) : (
@@ -3183,7 +3183,7 @@ function EnrollmentDrawer({
     getCachedEnrollmentDetail(record.id) ?? null,
   );
   const detailRequestSequenceRef = useRef(0);
-  const [tab, setTab] = useState<"comments" | "activity" | "files">("comments");
+  const [tab, setTab] = useState<"comments" | "activity">("comments");
   const [attachmentPreview, setAttachmentPreview] =
     useState<AttachmentPreview | null>(null);
   const [reloadStatus, setReloadStatus] = useState<"idle" | "failed">("idle");
@@ -3541,7 +3541,7 @@ function EnrollmentDrawer({
 
               {showFub ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>
+                <span className="block text-xs font-bold uppercase text-[#6b778c]">
                     {columnByKey.get("fub")?.label ?? "FUB Link"}
                     {requiredColumnKeys.has("fub") ? REQUIRED_MARK : null}
                   </span>
@@ -3605,12 +3605,6 @@ function EnrollmentDrawer({
                     active={tab === "activity"}
                     onClick={() => setTab("activity")}
                   />
-                  <DrawerTab
-                    label="Files"
-                    count={detail?.attachments.length ?? record.attachment_count}
-                    active={tab === "files"}
-                    onClick={() => setTab("files")}
-                  />
                 </div>
 
                 {!detail ? (
@@ -3658,20 +3652,10 @@ function EnrollmentDrawer({
                     onReload={reloadDetailAndParent}
                     onParentUpdatedAt={onParentUpdatedAt}
                       />
-                    ) : tab === "activity" ? (
+                    ) : (
                       <ActivityFeed
                         activity={detail.activity}
                         personLabelByEmail={peopleByEmail}
-                      />
-                    ) : (
-                      <AttachmentPanel
-                        attachments={detail.attachments}
-                        taskId={record.id}
-                        apiBase="/api/enrollment"
-                        canEdit={capabilities.canEditFields}
-                        onReload={reloadDetailAndParent}
-                        mutationSourceId={mutationSourceId}
-                        mutationSourceHeader={ENROLLMENT_MUTATION_SOURCE_HEADER}
                       />
                     )}
                   </>
@@ -3680,9 +3664,10 @@ function EnrollmentDrawer({
             </main>
 
           <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               {showStage ? (
                 <FieldBlock
+                  className="order-2"
                   label={columnByKey.get("stage")?.label ?? "Stage"}
                   required={requiredColumnKeys.has("stage")}
                 >
@@ -3698,6 +3683,7 @@ function EnrollmentDrawer({
 
               {showDue ? (
                 <FieldBlock
+                  className="order-3"
                   label={columnByKey.get("due")?.label ?? "Due date"}
                   required={requiredColumnKeys.has("due")}
                 >
@@ -3717,6 +3703,7 @@ function EnrollmentDrawer({
 
               {showPayment ? (
                 <FieldBlock
+                  className="order-4"
                   label={columnByKey.get("payment")?.label ?? "Payment"}
                   required={requiredColumnKeys.has("payment")}
                 >
@@ -3733,6 +3720,7 @@ function EnrollmentDrawer({
 
               {showCarrier ? (
                 <FieldBlock
+                  className="order-4"
                   label={columnByKey.get("carrier")?.label ?? "Carrier"}
                   required={requiredColumnKeys.has("carrier")}
                 >
@@ -3749,6 +3737,7 @@ function EnrollmentDrawer({
 
               {showAca ? (
                   <FieldBlock
+                    className="order-4"
                     label={columnByKey.get("aca")?.label ?? "AC"}
                     required={requiredColumnKeys.has("aca")}
                   >
@@ -3765,6 +3754,7 @@ function EnrollmentDrawer({
 
               {showConsent ? (
                   <FieldBlock
+                    className="order-4"
                     label={columnByKey.get("consent")?.label ?? "Consent"}
                     required={requiredColumnKeys.has("consent")}
                   >
@@ -3780,6 +3770,7 @@ function EnrollmentDrawer({
 
               {showPlatform ? (
                   <FieldBlock
+                    className="order-4"
                     label={columnByKey.get("platform")?.label ?? "Platform"}
                     required={requiredColumnKeys.has("platform")}
                   >
@@ -3796,6 +3787,7 @@ function EnrollmentDrawer({
 
               {showAgent ? (
                 <FieldBlock
+                  className="order-1"
                   label={columnByKey.get("agent")?.label ?? "Agent"}
                   required={requiredColumnKeys.has("agent")}
                   invalid={isInvalid("agent")}
@@ -3822,6 +3814,7 @@ function EnrollmentDrawer({
 
               {showCaller ? (
                 <FieldBlock
+                  className="order-1"
                   label={columnByKey.get("caller")?.label ?? "Caller"}
                   required={requiredColumnKeys.has("caller")}
                 >
@@ -3840,6 +3833,7 @@ function EnrollmentDrawer({
 
               {showResponsible ? (
                 <FieldBlock
+                  className="order-1"
                   label={
                     columnByKey.get("responsible")?.label ??
                     (isMedicare ? "Assignee" : "Responsible enroll")
@@ -3861,7 +3855,7 @@ function EnrollmentDrawer({
               ) : null}
 
               {showCreatedBy ? (
-                <FieldBlock label={columnByKey.get("createdBy")?.label ?? "Created by"}>
+                <FieldBlock className="order-5" label={columnByKey.get("createdBy")?.label ?? "Created by"}>
                   <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
                     {personLabel(record.created_by_email, peopleByEmail)}
                   </div>
@@ -3870,6 +3864,7 @@ function EnrollmentDrawer({
 
               {showPcp2025 ? (
                 <FieldBlock
+                  className="order-6"
                   label={
                     columnByKey.get("pcp2025")?.label ?? (isMedicare ? "PCP" : "PCP 2025")
                   }
@@ -3891,6 +3886,7 @@ function EnrollmentDrawer({
 
               {showPcp2026 ? (
                 <FieldBlock
+                  className="order-6"
                   label={columnByKey.get("pcp2026")?.label ?? "PCP 2026"}
                   required={requiredColumnKeys.has("pcp2026")}
                 >
@@ -3909,7 +3905,7 @@ function EnrollmentDrawer({
               ) : null}
 
               {visibleDetailColumns.map((column) => (
-                <FieldBlock key={column.id} label={column.label} required={column.required}>
+                <FieldBlock className="order-7" key={column.id} label={column.label} required={column.required}>
                   <EnrollmentDetailCustomFieldControl
                     column={column}
                     value={record.custom_values?.[column.key]}
@@ -3926,7 +3922,7 @@ function EnrollmentDrawer({
               ))}
 
               {showQc ? (
-                <FieldBlock label={columnByKey.get("qc")?.label ?? "QC Review"}>
+                <FieldBlock className="order-8" label={columnByKey.get("qc")?.label ?? "QC Review"}>
                   <EnrollmentQCPanel
                     record={record}
                     stage={stage}
@@ -4122,6 +4118,8 @@ function NewEnrollmentDialog({
   const showResponsible = showField("responsible");
   const showPcp2025 = showField("pcp2025");
   const showPcp2026 = !isMedicare && showField("pcp2026");
+  const initialStage = optionsBySet.stage[0] ?? null;
+  const initialStageStyle = enrollmentStateBadgeStyle(initialStage);
   const showPipelineSection = showStage || showDue;
   const showPlanSection =
     showPayment || showCarrier || showAca || showConsent || showPlatform;
@@ -4134,9 +4132,15 @@ function NewEnrollmentDialog({
   }
   function isInvalid(key: string): boolean {
     const formField = ENROLLMENT_FORM_FIELD_BY_KEY[key];
+    const value =
+      key === "stage"
+        ? form.stage_id || initialStage?.id || ""
+        : formField
+          ? form[formField]
+          : customValues[key];
     return (
       invalidKeys.has(key) &&
-      !isFilled(formField ? form[formField] : customValues[key])
+      !isFilled(value)
     );
   }
 
@@ -4157,7 +4161,13 @@ function NewEnrollmentDialog({
   async function submit() {
     const missing = [...requiredColumnKeys].filter((key) => {
       const formField = ENROLLMENT_FORM_FIELD_BY_KEY[key];
-      return !isFilled(formField ? form[formField] : customValues[key]);
+      const value =
+        key === "stage"
+          ? form.stage_id || initialStage?.id || ""
+          : formField
+            ? form[formField]
+            : customValues[key];
+      return !isFilled(value);
     });
     if (missing.length > 0) {
       setInvalidKeys(new Set(missing));
@@ -4191,7 +4201,13 @@ function NewEnrollmentDialog({
             custom_values: customValues,
           }
         : { ...form, custom_values: customValues };
-      await onCreate(payload, pendingFiles);
+      await onCreate(
+        {
+          ...payload,
+          stage_id: form.stage_id || initialStage?.id || "",
+        },
+        pendingFiles,
+      );
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create record.");
     } finally {
@@ -4200,34 +4216,37 @@ function NewEnrollmentDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#091e42]/40 p-4">
-      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b border-[#d8dee8] px-5 py-3">
-          <div>
-            <h2 className="text-lg font-bold text-[#172b4d]">New enrollment</h2>
-            <p className="text-sm font-medium text-[#6b778c]">
-              Capture the client first, then set ownership and enrollment details.
-            </p>
-            {error ? (
-              <p role="alert" className="mt-2 text-sm font-semibold text-[#bf2600]">
-                {error}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6">
+      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-[0_16px_48px_rgba(9,30,66,0.32)]">
+        <header className="shrink-0 border-b border-[#dfe1e6] px-6 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-[#172b4d]">New enrollment</h2>
+              <p className="mt-1 text-sm text-[#626f86]">
+                Capture the client first, then set ownership and enrollment details.
               </p>
-            ) : null}
+              {error ? (
+                <p role="alert" className="mt-2 text-sm font-semibold text-[#bf2600]">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              aria-label="Close"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-[#626f86] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1.5 text-[#42526e] transition hover:bg-[#f4f5f7]"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto">
           <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_320px]">
             <main className="min-w-0 space-y-3 px-6 py-5">
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>
+                <span className="block text-xs font-bold uppercase text-[#6b778c]">
                   {columnByKey.get("client")?.label ?? "Client Name"}
                   {requiredColumnKeys.has("client") ? REQUIRED_MARK : null}
                 </span>
@@ -4256,7 +4275,7 @@ function NewEnrollmentDialog({
               ) : null}
 
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>
+                <span className="block text-xs font-bold uppercase text-[#6b778c]">
                   {columnByKey.get("description")?.label ?? "Description"}
                   {requiredColumnKeys.has("description") ? REQUIRED_MARK : null}
                 </span>
@@ -4269,11 +4288,11 @@ function NewEnrollmentDialog({
                 />
               </label>
 
-              <div className="space-y-2 rounded border border-[#dfe1e6] bg-[#f7f8fa] p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-bold uppercase tracking-wide text-[#6b778c]">
-                    Attachments
-                  </span>
+              <div className="space-y-1">
+                <span className="block text-xs font-bold uppercase text-[#6b778c]">
+                  Attachments
+                </span>
+                <div className="flex items-center gap-2">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -4294,32 +4313,39 @@ function NewEnrollmentDialog({
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex items-center gap-1 rounded border border-[#c1c7d0] bg-white px-2 py-1 text-xs font-semibold text-[#42526e] hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                    disabled={saving}
+                    className="inline-flex h-9 items-center gap-1.5 rounded border-2 border-dashed border-[#85b8ff] px-3 text-sm font-semibold text-[#0c66e4] transition hover:bg-[#e9f2ff] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Paperclip className="h-3.5 w-3.5" /> Add files
+                    <Paperclip className="h-4 w-4" />
+                    Add files
                   </button>
                 </div>
-                {fileError ? (
-                  <p role="alert" className="text-xs font-semibold text-[#bf2600]">
-                    {fileError}
-                  </p>
-                ) : null}
                 {pendingFiles.length > 0 ? (
-                  <ul className="space-y-1">
+                  <ul className="flex max-h-[58px] flex-wrap gap-1.5 overflow-y-auto pt-1">
                     {pendingFiles.map((file) => (
-                      <li key={file.key} className="flex items-center gap-2 text-xs text-[#42526e]">
-                        <span className="min-w-0 flex-1 truncate">{file.name} · {formatAttachmentSize(file.size)}</span>
+                      <li
+                        key={file.key}
+                        className="inline-flex max-w-[16rem] items-center gap-1 rounded bg-[#f4f5f7] px-2 py-1 text-xs text-[#42526e]"
+                      >
+                        <span className="truncate" title={file.name}>{file.name}</span>
+                        <span className="shrink-0 text-[#7a869a]">{formatAttachmentSize(file.size)}</span>
                         <button
                           type="button"
                           aria-label={`Remove ${file.name}`}
+                          disabled={saving}
                           onClick={() => setPendingFiles((current) => removePendingFile(current, file.key))}
-                          className="rounded p-0.5 text-[#6b778c] hover:bg-white hover:text-[#bf2600]"
+                          className="shrink-0 rounded p-0.5 hover:bg-[#dfe1e6] disabled:opacity-50"
                         >
                           <X className="h-3.5 w-3.5" />
                         </button>
                       </li>
                     ))}
                   </ul>
+                ) : null}
+                {fileError ? (
+                  <p role="alert" className="text-xs font-semibold text-[#bf2600]">
+                    {fileError}
+                  </p>
                 ) : null}
               </div>
 
@@ -4330,20 +4356,31 @@ function NewEnrollmentDialog({
               ) : null}
             </main>
 
-            <aside className="min-w-0 space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
+            <aside className="min-w-0 flex flex-col gap-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
               {showPipelineSection ? (
-                <CreatePropertySection>
+                <CreatePropertySection className="order-2 !border-t !pt-4">
                   {showStage ? (
                     <CreatePropertyField
                       label={columnByKey.get("stage")?.label ?? "Stage"}
                       required={requiredColumnKeys.has("stage")}
                       invalid={isInvalid("stage")}
                     >
-                      <EnrollmentStagePill
-                        stageId={form.stage_id || null}
-                        stages={optionsBySet.stage}
-                        onChange={async (value) => update("stage_id", value)}
-                      />
+                      <div
+                        className="flex h-9 w-full min-w-0 items-center gap-2 px-0 py-1 text-left text-sm font-semibold text-[#172b4d]"
+                        title="New records always start at the first stage. Change it from the record after creating."
+                      >
+                        <span
+                          className="inline-flex max-w-full min-w-0 items-center rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
+                          style={{
+                            backgroundColor: initialStageStyle.bg,
+                            color: initialStageStyle.fg,
+                          }}
+                        >
+                          <span className="truncate">
+                            {initialStage?.label ?? "No stage"}
+                          </span>
+                        </span>
+                      </div>
                     </CreatePropertyField>
                   ) : null}
 
@@ -4361,7 +4398,7 @@ function NewEnrollmentDialog({
               ) : null}
 
               {showPlanSection ? (
-                <CreatePropertySection>
+                <CreatePropertySection className="order-3 !border-t !pt-4">
                   {showPayment ? (
                     <CreatePropertyField
                       label={columnByKey.get("payment")?.label ?? "Payment"}
@@ -4447,7 +4484,7 @@ function NewEnrollmentDialog({
               ) : null}
 
               {showOwnershipSection ? (
-                <CreatePropertySection>
+                <CreatePropertySection className="order-1 !border-t-0 !pt-0">
                   {showAgent ? (
                     <CreatePropertyField
                       label={columnByKey.get("agent")?.label ?? "Agent"}
@@ -4507,7 +4544,7 @@ function NewEnrollmentDialog({
               ) : null}
 
               {showPcpSection ? (
-                <CreatePropertySection>
+                <CreatePropertySection className="order-4 !border-t !pt-4">
                   {showPcp2025 ? (
                     <CreatePropertyInput
                       label={
@@ -4535,7 +4572,7 @@ function NewEnrollmentDialog({
               ) : null}
 
               {customColumns.length > 0 ? (
-                <CreatePropertySection>
+                <CreatePropertySection className="order-5 !border-t !pt-4">
                   {customColumns.map((column) => (
                     <CreateEnrollmentCustomField
                       key={column.id}
@@ -4553,11 +4590,11 @@ function NewEnrollmentDialog({
             </aside>
           </div>
         </div>
-        <footer className="flex justify-end gap-2 border-t border-[#d8dee8] px-5 py-3">
+        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-[#dfe1e6] bg-white px-6 py-4">
           <button
             type="button"
             onClick={onClose}
-            className="h-9 rounded px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
+            className="rounded px-4 py-2 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7]"
           >
             Cancel
           </button>
@@ -4565,7 +4602,7 @@ function NewEnrollmentDialog({
             type="button"
             disabled={saving}
             onClick={() => void submit()}
-            className="h-9 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded bg-[#0c66e4] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saving ? "Creating..." : "Create"}
           </button>
@@ -4972,16 +5009,18 @@ function FieldBlock({
   label,
   required,
   invalid,
+  className = "",
   children,
 }: {
   label: string;
   required?: boolean;
   invalid?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <div
-      className="space-y-1.5"
+      className={`space-y-1.5 ${className}`}
       data-enrollment-invalid={invalid ? "true" : undefined}
     >
       <span className={LABEL_CLASS}>
@@ -4997,11 +5036,13 @@ function FieldBlock({
 
 function CreatePropertySection({
   children,
+  className = "",
 }: {
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="space-y-3 border-t border-[#dfe1e6] pt-4 first:border-t-0 first:pt-0">
+    <section className={`space-y-3 border-t border-[#dfe1e6] pt-4 first:border-t-0 first:pt-0 ${className}`}>
       {children}
     </section>
   );

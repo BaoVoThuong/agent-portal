@@ -40,6 +40,7 @@ import { OverdueLog } from "./OverdueLog";
 import { StageTimeBreakdown } from "./StageTimeBreakdown";
 import { StatusPill } from "./TaskRowItem";
 import { TaskSelect } from "./TaskSelect";
+import { TaskCategoryBadge } from "./TaskCategoryBadge";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
 import { AvatarStack } from "./board-ui";
 import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
@@ -525,6 +526,7 @@ export function TaskDetailDrawer({
     value: category.id,
     label: category.name,
   }));
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
   const agentOptions = agents.map((agent) => ({
     value: agent.email,
     label: agent.name?.trim() || formatEmailAsName(agent.email),
@@ -928,6 +930,10 @@ export function TaskDetailDrawer({
                       searchable
                       disabled={!canEdit}
                       options={categoryOptions}
+                      renderOption={(option) => {
+                        const category = categoryById.get(option.value);
+                        return category ? <TaskCategoryBadge category={category} /> : option.label;
+                      }}
                       placeholder="Select category"
                       buttonClassName={SIDE_SELECT_BUTTON_CLASS}
                       onChange={(nextCategoryId) => onPatch({ category_id: nextCategoryId })}

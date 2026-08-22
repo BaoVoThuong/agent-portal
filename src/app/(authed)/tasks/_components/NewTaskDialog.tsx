@@ -13,6 +13,7 @@ import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { TaskSelect } from "./TaskSelect";
+import { TaskCategoryBadge } from "./TaskCategoryBadge";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
 import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
 import {
@@ -121,6 +122,7 @@ export function NewTaskDialog({
       createRequestIdRef.current = null;
     }
   }, [open]);
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
   const categoryOptions = categories.map((category) => ({
     value: category.id,
     label: category.name,
@@ -455,6 +457,10 @@ export function NewTaskDialog({
                     searchable
                     options={categoryOptions}
                     placeholder="Select category"
+                    renderOption={(option) => {
+                      const category = categoryById.get(option.value);
+                      return category ? <TaskCategoryBadge category={category} /> : option.label;
+                    }}
                     onChange={setCategoryId}
                     buttonClassName={`${SIDE_SELECT_BUTTON_CLASS} ${isInvalid("category") ? INVALID_RING_CLASS : ""}`}
                     menuClassName="min-w-full"
