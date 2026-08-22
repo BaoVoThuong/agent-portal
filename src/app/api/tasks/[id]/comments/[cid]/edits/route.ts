@@ -36,11 +36,14 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const { data: task } = await supabase
     .from("tasks")
-    .select("id,assignee_email,agent_email")
+    .select("id,assignee_email,agent_email,reporter_email")
     .eq("id", id)
     .maybeSingle();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const taskScope = task as Pick<TaskRow, "assignee_email" | "agent_email">;
+  const taskScope = task as Pick<
+    TaskRow,
+    "assignee_email" | "agent_email" | "reporter_email"
+  >;
 
   if (!actor.isManager && !(await actorSeesAllTasks(actor))) {
     const [isParticipant, isAssignee, agents] = await Promise.all([
@@ -60,6 +63,7 @@ export async function GET(_req: Request, { params }: Ctx) {
         isAssignee,
         isAgentMember,
         isAgentOwner,
+        isReporter: taskScope.reporter_email === actor.email,
       })
     ) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });

@@ -40,7 +40,7 @@ export async function authorizeTaskReactionAccess(
     const supabase = getSupabaseAdmin();
     const { data: task, error } = await supabase
       .from("tasks")
-      .select("id,assignee_email,agent_email")
+      .select("id,assignee_email,agent_email,reporter_email")
       .eq("id", taskId)
       .maybeSingle();
     if (error) return { ok: false, error: error.message, status: 500 };
@@ -49,7 +49,7 @@ export async function authorizeTaskReactionAccess(
     if (!actor.isManager) {
       const taskScope = task as Pick<
         TaskRow,
-        "assignee_email" | "agent_email"
+        "assignee_email" | "agent_email" | "reporter_email"
       >;
       const [isParticipant, isAssignee, assistantAgents, seesAll] =
         await Promise.all([
@@ -80,6 +80,7 @@ export async function authorizeTaskReactionAccess(
           isAssignee,
           isAgentMember,
           isAgentOwner,
+          isReporter: taskScope.reporter_email === actor.email,
         })
       ) {
         return { ok: false, error: "Forbidden", status: 403 };

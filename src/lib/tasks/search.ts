@@ -53,6 +53,7 @@ export type TaskVisibilityMeta = {
   task_id: string;
   agent_email: string | null;
   assignee_email: string | null;
+  reporter_email: string | null;
 };
 
 export type VisibilityScope = {
@@ -115,6 +116,7 @@ export function isHitVisible(
             scope.assistantAgents.includes(meta.agent_email))
       ),
       isParticipant: scope.participantIds.has(meta.task_id),
+      isReporter: meta.reporter_email === actor.email,
     }
   );
 }
@@ -133,6 +135,7 @@ type TaskMetaRow = {
   title: string;
   agent_email: string | null;
   assignee_email: string | null;
+  reporter_email: string | null;
   status: TaskStatus;
   archived_at: string | null;
 };
@@ -182,7 +185,7 @@ async function loadSearchVisibility(
     taskIds.length > 0
       ? supabase
           .from("tasks")
-          .select("id,display_number,title,agent_email,assignee_email,status,archived_at")
+          .select("id,display_number,title,agent_email,assignee_email,reporter_email,status,archived_at")
           .in("id", taskIds)
           .is("archived_at", null)
       : Promise.resolve({ data: [], error: null }),
@@ -265,6 +268,7 @@ async function collectVisibleHits<Row, Hit>(params: {
             task_id: taskId,
             agent_email: meta.agent_email,
             assignee_email: meta.assignee_email,
+            reporter_email: meta.reporter_email,
           },
           scope ?? {
             agents: [],
@@ -333,7 +337,7 @@ export async function runTaskSearch(
       fetchPage: (offset, limit) =>
         supabase
           .from("tasks")
-          .select("id,display_number,title,agent_email,assignee_email,status,archived_at")
+          .select("id,display_number,title,agent_email,assignee_email,reporter_email,status,archived_at")
           .ilike("title", pattern)
           .is("archived_at", null)
           .order("updated_at", { ascending: false })

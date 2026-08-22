@@ -126,6 +126,11 @@ describe("per-task view/mutate scope", () => {
   it("reporter (creator) can edit content even when not assignee or agent owner", () => {
     expect(canMutateTask(cs, { assignee_email: "other@x.com" }, { isReporter: true })).toBe(true);
   });
+  it("reporter (creator) can view even when outside the task team", () => {
+    expect(
+      canViewTask(cs, { assignee_email: "other@x.com" }, { isReporter: true })
+    ).toBe(true);
+  });
   it("CS can view (not mutate) a task they participate in", () => {
     expect(canViewTask(cs, { assignee_email: "other@x.com" }, { isParticipant: true })).toBe(true);
     // participation grants view only — status changes still need assignment or agent ownership

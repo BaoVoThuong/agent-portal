@@ -62,6 +62,7 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
       const ors: string[] = [
         `assignee_email.eq.${quotedEmail}`,
         `agent_email.eq.${quotedEmail}`,
+        `reporter_email.eq.${quotedEmail}`,
       ];
       if (agents.length > 0) {
         ors.push(
@@ -143,6 +144,7 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
               workerScope.assistantAgents.includes(task.agent_email))
         ),
         isParticipant: task.viewer_is_participant,
+        isReporter: task.reporter_email === actor.email,
       });
     });
 
@@ -352,6 +354,7 @@ function buildWorkerTaskOrs(
   const ors: string[] = [
     `assignee_email.eq.${quotedEmail}`,
     `agent_email.eq.${quotedEmail}`,
+    `reporter_email.eq.${quotedEmail}`,
   ];
   if (!workerScope) return ors;
   if (workerScope.agents.length > 0) {

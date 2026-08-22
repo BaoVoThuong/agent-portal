@@ -40,7 +40,7 @@ const UUID_RE =
 // View access including agent membership and participants.
 async function canViewResolved(
   actor: ReturnType<typeof buildTaskActor>,
-  task: Pick<TaskRow, "assignee_email" | "agent_email">,
+  task: Pick<TaskRow, "assignee_email" | "agent_email" | "reporter_email">,
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
@@ -58,6 +58,7 @@ async function canViewResolved(
     isAgentMember,
     isAgentOwner,
     isAssignee,
+    isReporter: task.reporter_email === actor.email,
   });
 }
 

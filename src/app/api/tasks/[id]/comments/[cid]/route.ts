@@ -19,7 +19,7 @@ type Ctx = { params: Promise<{ id: string; cid: string }> };
 
 async function canViewResolved(
   actor: ReturnType<typeof buildTaskActor>,
-  task: Pick<TaskRow, "assignee_email" | "agent_email">,
+  task: Pick<TaskRow, "assignee_email" | "agent_email" | "reporter_email">,
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
@@ -36,6 +36,7 @@ async function canViewResolved(
     isAgentMember,
     isAgentOwner,
     isAssignee,
+    isReporter: task.reporter_email === actor.email,
   });
 }
 
@@ -73,7 +74,7 @@ async function loadAuthorContext(id: string, cid: string) {
   // 4. Actor must be able to view the task
   const { data: task, error: tErr } = await supabase
     .from("tasks")
-    .select("id,assignee_email,agent_email")
+    .select("id,assignee_email,agent_email,reporter_email")
     .eq("id", id)
     .maybeSingle();
   if (tErr) return { error: tErr.message, status: 500 };
@@ -81,7 +82,10 @@ async function loadAuthorContext(id: string, cid: string) {
   if (
     !(await canViewResolved(
       actor,
-      task as Pick<TaskRow, "assignee_email" | "agent_email">,
+      task as Pick<
+        TaskRow,
+        "assignee_email" | "agent_email" | "reporter_email"
+      >,
       id
     ))
   )

@@ -14,7 +14,7 @@ type Ctx = { params: Promise<{ id: string }> };
 // View access including agent membership and participants.
 async function canViewResolved(
   actor: ReturnType<typeof buildTaskActor>,
-  task: Pick<TaskRow, "assignee_email" | "agent_email">,
+  task: Pick<TaskRow, "assignee_email" | "agent_email" | "reporter_email">,
   taskId: string
 ): Promise<boolean> {
   if (actor.isManager) return true;
@@ -30,6 +30,7 @@ async function canViewResolved(
     isAgentMember,
     isAgentOwner,
     isAssignee,
+    isReporter: task.reporter_email === actor.email,
   });
 }
 
@@ -45,11 +46,14 @@ export async function GET(_req: Request, { params }: Ctx) {
   const supabase = getSupabaseAdmin();
   const { data: task } = await supabase
     .from("tasks")
-    .select("id,assignee_email,agent_email")
+    .select("id,assignee_email,agent_email,reporter_email")
     .eq("id", id)
     .maybeSingle();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const taskScope = task as Pick<TaskRow, "assignee_email" | "agent_email">;
+  const taskScope = task as Pick<
+    TaskRow,
+    "assignee_email" | "agent_email" | "reporter_email"
+  >;
   if (!(await canViewResolved(actor, taskScope, id)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   const canViewNonCommentDetail =

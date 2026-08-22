@@ -74,7 +74,7 @@ export async function GET(req: Request, { params }: Ctx) {
     const { data: task, error } = await timing.measure("task", async () =>
       supabase
         .from("tasks")
-        .select("id,assignee_email,agent_email")
+        .select("id,assignee_email,agent_email,reporter_email")
         .eq("id", id)
         .maybeSingle(),
     );
@@ -84,7 +84,7 @@ export async function GET(req: Request, { params }: Ctx) {
 
     const taskScope = task as Pick<
       TaskRow,
-      "assignee_email" | "agent_email"
+      "assignee_email" | "agent_email" | "reporter_email"
     >;
     const detailOpts = {
       includeActivity: true,
@@ -156,6 +156,7 @@ export async function GET(req: Request, { params }: Ctx) {
         isAgentMember,
         isAgentOwner,
         isAssignee,
+        isReporter: taskScope.reporter_email === actor.email,
       })
     ) {
       return respond({ error: "Unauthorized" }, 403);

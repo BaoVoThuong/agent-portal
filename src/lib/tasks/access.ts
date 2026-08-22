@@ -81,6 +81,7 @@ export function canManageCategories(actor: TaskActor): boolean {
 //   isAgentMember – worker assists the task's agent account
 //   isAgentOwner  – worker is the task's customer agent / final QC owner
 //   isParticipant – worker was @mentioned / added as a participant
+//   isReporter    – worker created/reported the task
 export function canViewTask(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">,
@@ -89,6 +90,7 @@ export function canViewTask(
     isAgentMember?: boolean;
     isAgentOwner?: boolean;
     isParticipant?: boolean;
+    isReporter?: boolean;
   } = {}
 ): boolean {
   void task;
@@ -98,7 +100,8 @@ export function canViewTask(
     Boolean(flags.isAssignee) ||
     Boolean(flags.isAgentMember) ||
     Boolean(flags.isAgentOwner) ||
-    Boolean(flags.isParticipant)
+    Boolean(flags.isParticipant) ||
+    Boolean(flags.isReporter)
   );
 }
 

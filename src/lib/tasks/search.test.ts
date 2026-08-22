@@ -45,7 +45,12 @@ describe("isHitVisible", () => {
     expect(
       isHitVisible(
         admin,
-        { task_id: "x", agent_email: "other@x.com", assignee_email: null },
+        {
+          task_id: "x",
+          agent_email: "other@x.com",
+          assignee_email: null,
+          reporter_email: "other@x.com",
+        },
         scope
       )
     ).toBe(true);
@@ -55,14 +60,24 @@ describe("isHitVisible", () => {
     expect(
       isHitVisible(
         cs,
-        { task_id: "t1", agent_email: "agentB@x.com", assignee_email: null },
+        {
+          task_id: "t1",
+          agent_email: "agentB@x.com",
+          assignee_email: null,
+          reporter_email: "other@x.com",
+        },
         scope
       )
     ).toBe(true);
     expect(
       isHitVisible(
         cs,
-        { task_id: "t-part", agent_email: "other@x.com", assignee_email: null },
+        {
+          task_id: "t-part",
+          agent_email: "other@x.com",
+          assignee_email: null,
+          reporter_email: "other@x.com",
+        },
         scope
       )
     ).toBe(true);
@@ -76,6 +91,7 @@ describe("isHitVisible", () => {
           task_id: "t2",
           agent_email: "agentA@x.com",
           assignee_email: "someone@x.com",
+          reporter_email: "other@x.com",
         },
         scope
       )
@@ -83,7 +99,12 @@ describe("isHitVisible", () => {
     expect(
       isHitVisible(
         cs,
-        { task_id: "t3", agent_email: "agentA@x.com", assignee_email: null },
+        {
+          task_id: "t3",
+          agent_email: "agentA@x.com",
+          assignee_email: null,
+          reporter_email: "other@x.com",
+        },
         scope
       )
     ).toBe(true);
@@ -97,9 +118,25 @@ describe("isHitVisible", () => {
           task_id: "zzz",
           agent_email: "stranger@x.com",
           assignee_email: "x@x.com",
+          reporter_email: "other@x.com",
         },
         scope
       )
     ).toBe(false);
+  });
+
+  it("worker sees a task they reported even outside the task team", () => {
+    expect(
+      isHitVisible(
+        cs,
+        {
+          task_id: "t-created",
+          agent_email: "stranger@x.com",
+          assignee_email: "someone@x.com",
+          reporter_email: "cs@x.com",
+        },
+        scope
+      )
+    ).toBe(true);
   });
 });

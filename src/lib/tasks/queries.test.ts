@@ -132,6 +132,7 @@ describe("fetchTasksForActor view scope", () => {
     });
 
     expect(orCalls.length).toBeGreaterThan(0);
+    expect(orCalls[0]).toContain('reporter_email.eq."agent@example.com"');
   });
 
   it("keeps assistant workers scoped", async () => {
