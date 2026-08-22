@@ -53,10 +53,8 @@ import {
 } from "@/lib/enrollment/realtime-topics";
 import {
   canRefreshEnrollmentData,
-  ENROLLMENT_DEGRADED_RECONCILE_MS,
   ENROLLMENT_LIVE_EVENT_DEBOUNCE_MS,
   ENROLLMENT_LIVE_REFRESH_THROTTLE_MS,
-  ENROLLMENT_LIVE_RECONCILE_MS,
   enrollmentBroadcastReconcileScope,
   enrollmentInvalidationReconcileScope,
   enrollmentLivePollInterval,
@@ -561,6 +559,7 @@ export function EnrollmentClient({
   const recordMutationStatesRef = useRef(new Map<string, EnrollmentMutationState>());
   const pendingRef = useRef(new Map<string, number>());
   const writeVersionRef = useRef(0);
+  const lastForegroundRefreshAtRef = useRef(0);
   const [liveSourceId] = useState(() =>
     createEnrollmentDataInvalidationSourceId(`enrollment-${program}`),
   );
@@ -1039,9 +1038,12 @@ export function EnrollmentClient({
       return () => window.clearTimeout(degradedTimer);
     }
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let active = true;
     const schedule = (scope: "enrollments-only" | "full") => {
+      if (!active) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
+        if (!active) return;
         void refetch();
         if (scope === "full") void reloadOptions();
       }, ENROLLMENT_LIVE_EVENT_DEBOUNCE_MS);
@@ -1052,6 +1054,7 @@ export function EnrollmentClient({
         "broadcast",
         { event: "changed" },
         (message: { payload?: Record<string, unknown> }) => {
+          if (!active) return;
           const sourceId =
             typeof message.payload?.sourceId === "string"
               ? message.payload.sourceId
@@ -1064,16 +1067,22 @@ export function EnrollmentClient({
         },
       )
       .subscribe((status) => {
+        if (!active) return;
         if (status === "SUBSCRIBED") {
           setLiveStatus("live");
           schedule("full");
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          return;
+        }
+        if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
           setLiveStatus("degraded");
-        } else {
-          setLiveStatus("connecting");
         }
       });
     return () => {
+      active = false;
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
@@ -1093,43 +1102,43 @@ export function EnrollmentClient({
   }, [liveSourceId, refetch, reloadOptions]);
 
   useEffect(() => {
-    let timer: number | null = null;
-    const reconcile = () => {
-      if (!canRefreshEnrollmentData(document.visibilityState, navigator.onLine)) return;
+    const refreshFromForeground = () => {
+      if (!canRefreshEnrollmentData(document.visibilityState, navigator.onLine)) {
+        return;
+      }
+      const now = Date.now();
+      if (
+        now - lastForegroundRefreshAtRef.current <
+        ENROLLMENT_LIVE_REFRESH_THROTTLE_MS
+      ) {
+        return;
+      }
+      lastForegroundRefreshAtRef.current = now;
+      getBrowserSupabase()?.realtime.connect();
       void refetch();
       void reloadOptions();
     };
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") reconcile();
-    };
-    const onOnline = () => {
-      setLiveStatus("connecting");
-      reconcile();
-    };
     const onOffline = () => setLiveStatus("degraded");
-    const onFocus = () => reconcile();
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
-    window.addEventListener("focus", onFocus);
-    const schedulePoll = () => {
-      const delay =
-        liveStatus === "live"
-          ? ENROLLMENT_LIVE_RECONCILE_MS
-          : ENROLLMENT_DEGRADED_RECONCILE_MS;
-      timer = window.setTimeout(() => {
-        reconcile();
-        schedulePoll();
-      }, delay);
-    };
-    schedulePoll();
+    window.addEventListener("focus", refreshFromForeground);
+    window.addEventListener("online", refreshFromForeground);
+    document.addEventListener("visibilitychange", refreshFromForeground);
     return () => {
-      if (timer !== null) window.clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("online", onOnline);
+      window.removeEventListener("focus", refreshFromForeground);
+      window.removeEventListener("online", refreshFromForeground);
+      document.removeEventListener("visibilitychange", refreshFromForeground);
       window.removeEventListener("offline", onOffline);
-      window.removeEventListener("focus", onFocus);
     };
+  }, [refetch, reloadOptions]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (canRefreshEnrollmentData(document.visibilityState, navigator.onLine)) {
+        void refetch();
+        void reloadOptions();
+      }
+    }, enrollmentLivePollInterval(liveStatus));
+    return () => window.clearInterval(timer);
   }, [liveStatus, refetch, reloadOptions]);
 
   useEffect(() => {
@@ -1455,6 +1464,25 @@ export function EnrollmentClient({
           </button>
         </div>
       ) : null}
+      {liveStatus === "degraded" ? (
+        <div
+          className="flex items-center justify-between gap-3 border-b border-[#ffab00] bg-[#fff7d6] px-6 py-2 text-sm font-semibold text-[#7f5f00]"
+          role="status"
+        >
+          <span>Live updates are reconnecting. Data will keep refreshing automatically.</span>
+          <button
+            type="button"
+            className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]"
+            onClick={() => {
+              getBrowserSupabase()?.realtime.connect();
+              void refetch();
+              void reloadOptions();
+            }}
+          >
+            Refresh now
+          </button>
+        </div>
+      ) : null}
       <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
           <header className="flex flex-wrap items-end justify-between gap-3">
@@ -1462,11 +1490,6 @@ export function EnrollmentClient({
               <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
                 {ENROLLMENT_PROGRAM_LABELS[program]}
               </h1>
-              {liveStatus === "degraded" ? (
-                <p className="mt-1 text-xs font-semibold text-[#bf2600]">
-                  Live sync degraded — checking periodically
-                </p>
-              ) : null}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               {canExport ? (
