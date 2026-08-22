@@ -536,6 +536,9 @@ export function EnrollmentClient({
   const [records, setRecords] = useState(initialRecords);
   const [options, setOptions] = useState(initialOptions);
   const [view, setView] = useState<"list" | "overview">("list");
+  // Keep the client-side view fail-closed as well as the API. Enrollment
+  // overview is manager-only, matching the CS board's hidden Overview tab.
+  const visibleView = canManageOptions ? view : "list";
   const [filters, setFilters] = useState<Filters>(() =>
     defaultToOwnAssignments
       ? { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
@@ -1491,7 +1494,7 @@ export function EnrollmentClient({
     writeEnrollmentDeepLink(null);
   }
 
-  const frameView = view === "list";
+  const frameView = visibleView === "list";
   const shellClassName = frameView
     ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
     : "flex min-h-full min-w-0 flex-col bg-[#f7f9fc] text-[#172b4d]";
@@ -1552,7 +1555,8 @@ export function EnrollmentClient({
 
           <EnrollmentToolbar
             program={program}
-            view={view}
+            view={visibleView}
+            canViewOverview={canManageOptions}
             onViewChange={setView}
             filters={filters}
             setFilters={setFilters}
@@ -1572,7 +1576,7 @@ export function EnrollmentClient({
         </div>
       </div>
 
-      {view === "overview" ? (
+      {visibleView === "overview" ? (
         <div className="min-w-0 px-6 pb-6">
           <div className="mx-auto max-w-[1760px]">
             <EnrollmentOverview
@@ -1739,6 +1743,7 @@ async function downloadResponseFile(response: Response, fallback: string) {
 function EnrollmentToolbar({
   program,
   view,
+  canViewOverview,
   onViewChange,
   filters,
   setFilters,
@@ -1755,6 +1760,7 @@ function EnrollmentToolbar({
 }: {
   program: EnrollmentProgram;
   view: "list" | "overview";
+  canViewOverview: boolean;
   onViewChange: (view: "list" | "overview") => void;
   filters: Filters;
   setFilters: Dispatch<SetStateAction<Filters>>;
@@ -1791,7 +1797,10 @@ function EnrollmentToolbar({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
-            {(["overview", "list"] as const).map((key) => (
+            {([
+              ...(canViewOverview ? (["overview"] as const) : []),
+              "list",
+            ] as const).map((key) => (
               <button
                 key={key}
                 type="button"

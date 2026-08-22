@@ -23,10 +23,11 @@ type OverviewProps = {
 };
 
 export function EnrollmentOverview(props: OverviewProps) {
+  // Keep the component fail-closed if it is ever rendered outside the toolbar
+  // guard. This matches the CS board, where non-managers do not get an
+  // Overview tab at all.
+  if (!props.isManager) return null;
   if (props.program === "aca") {
-    if (!props.isManager) {
-      return <div className="rounded-lg border border-[#dfe1e6] bg-white px-4 py-5 text-sm font-semibold text-[#6b778c]">ACA operations overview is available to managers only.</div>;
-    }
     return <AcaOverviewDashboard from={props.from} to={props.to} onOpenRecord={props.onOpenRecord} />;
   }
   return <LegacyEnrollmentOverview {...props} />;

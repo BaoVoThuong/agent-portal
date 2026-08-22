@@ -12,6 +12,9 @@ export async function GET(request: Request) {
   if (!actorResult.ok) {
     return NextResponse.json({ error: actorResult.error }, { status: actorResult.status });
   }
+  if (!actorResult.actor.isManager) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const program = parseEnrollmentProgram(new URL(request.url).searchParams.get("program"));
   if (!program) {
