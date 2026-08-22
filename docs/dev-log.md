@@ -2,7 +2,23 @@
 
 > Ngày trong tiêu đề là ngày báo cáo. Công việc được thực hiện trước ngày báo cáo; vì vậy các commit hoàn tất trong ngày 22/08 được ghi vào báo cáo ngày 23/08.
 
-### 1. Đồng bộ trải nghiệm cộng tác của Enrollment với CS
+### 1. Đồng bộ quyền hiển thị task cho người tạo
+
+- Enrollment scoped agents/assistants luôn thấy record do chính mình tạo, hoặc record mình là caller/responsible; deep link và detail cũng dùng cùng scope này.
+- CS creator luôn thấy task mình tạo trong board/list, search, detail, comments, attachments, edit history và reactions mà không được mở rộng quyền đổi stage hoặc xóa task.
+- Giữ drawer Enrollment đang mở sau khi tạo record trong thời gian live-sync/refetch chưa trả về snapshot mới.
+
+Commits: `cabe4d9`, `6ec65a3`
+
+### 2. Thông báo khi có người react comment
+
+- Khi reaction mới được thêm, chỉ tác giả comment nhận notification; người react không tự nhận notification.
+- Áp dụng đồng nhất cho CS và Enrollment, có chống gửi lặp khi thao tác reaction được retry.
+- Bổ sung schema rollout và hiển thị loại notification `reacted` trên notification bell.
+
+Commit: `6b63f9f`
+
+### 3. Đồng bộ trải nghiệm cộng tác của Enrollment với CS
 
 - Bổ sung đầy đủ luồng comment, mention, attachment, emoji và reaction cho Enrollment Task Detail theo cùng cơ chế với CS.
 - Đồng bộ cache, prefetch, realtime và cơ chế invalidation để mở task và cập nhật comment nhanh, ổn định hơn.
@@ -10,14 +26,14 @@
 
 Commit: `fcdb658`
 
-### 2. Cho phép cộng tác trên task Backlog
+### 4. Cho phép cộng tác trên task Backlog
 
 - Bỏ chặn comment/reaction đối với task đang ở Backlog; thành viên trong team có thể tiếp tục trao đổi như các stage khác.
 - Cập nhật kiểm tra quyền và test để tránh trả về `Unauthorized` khi gửi comment trên Backlog.
 
 Commit: `faf7160`
 
-### 3. Gộp comments và reactions vào pipeline Task Detail
+### 5. Gộp comments và reactions vào pipeline Task Detail
 
 - Tải comments và reactions trong cùng request detail, loại bỏ request reaction riêng trong luồng bình thường.
 - Giữ fallback cho snapshot cũ hoặc dữ liệu thiếu, đồng thời áp dụng cho cả CS và Enrollment.
@@ -27,7 +43,7 @@ Commit: `268f90e`
 
 Verification: Benchmark merged flow cho CS khoảng 180–184ms p50 so với split flow khoảng 345ms; Enrollment khoảng 332ms so với 506ms. Typecheck, lint và 107 test files / 750 tests đã pass.
 
-### 4. Giảm chi phí polling và request nền
+### 6. Giảm chi phí polling và request nền
 
 - Notification bell chuyển sang polling summary, dừng request khi tab bị ẩn và giãn chu kỳ lên 120 giây khi realtime hoạt động; full notification chỉ tải khi cần.
 - Task board chỉ reconcile dữ liệu task trong polling thường; categories dùng realtime topic riêng nên không còn bị reload theo mọi task event.
@@ -36,6 +52,8 @@ Verification: Benchmark merged flow cho CS khoảng 180–184ms p50 so với spl
 Commit: `6f32194`
 
 Verification: Typecheck, lint, production build và toàn bộ 107 test files / 751 tests đã pass.
+
+Verification bổ sung cho các task mới: toàn bộ 107 test files / 755 tests, typecheck, lint và production build đã pass.
 
 # [Agent Portal Dev Log] — 21/08/2026
 
