@@ -538,7 +538,11 @@ export function NewTaskDialog({
                     Custom fields
                   </span>
                   {visibleDetailColumns.map((column) => (
-                    <MetaField key={column.id} label={column.label} required={column.required}>
+                    <MetaField
+                      key={column.id}
+                      label={column.type === "date" ? `${column.label} (month/day/year)` : column.label}
+                      required={column.required}
+                    >
                       <NewTaskCustomField
                         column={column}
                         value={customValues[column.key]}
@@ -688,7 +692,7 @@ function inputTypeForCustomField(type: TableColumn["type"]): string {
 
 function placeholderForCustomField(type: TableColumn["type"]): string {
   if (type === "number") return "0";
-  if (type === "date") return "yyyy-mm-dd";
+  if (type === "date") return "month/day/year";
   if (type === "link") return "https://...";
   return "Enter value";
 }

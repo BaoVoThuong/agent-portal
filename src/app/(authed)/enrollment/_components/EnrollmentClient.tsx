@@ -3713,12 +3713,13 @@ function EnrollmentDrawer({
               {showDue ? (
                 <FieldBlock
                   className="order-3"
-                  label={columnByKey.get("due")?.label ?? "Due date"}
+                  label={`${columnByKey.get("due")?.label ?? "Due date"} (month/day/year)`}
                   required={requiredColumnKeys.has("due")}
                 >
                   <input
                     type="date"
                     value={formatDateInput(record.due_date)}
+                    placeholder="month/day/year"
                     disabled={!capabilities.canEditFields}
                     onChange={(event) => {
                       const nextDueDate = event.target.value || null;
@@ -5124,11 +5125,15 @@ function CreatePropertyInput({
   onChange: (value: string) => void;
 }) {
   return (
-    <CreatePropertyField label={label} required={required} invalid={invalid}>
+    <CreatePropertyField
+      label={type === "date" ? `${label} (month/day/year)` : label}
+      required={required}
+      invalid={invalid}
+    >
       <input
         type={type}
         value={value}
-        placeholder={placeholder}
+        placeholder={placeholder ?? (type === "date" ? "month/day/year" : undefined)}
         onChange={(event) => onChange(event.target.value)}
         className={`h-7 w-full min-w-0 bg-transparent px-0 text-sm outline-none placeholder:text-[#97a0af] ${type === "date" ? "font-medium text-[#42526e]" : "font-semibold text-[#172b4d]"}`}
       />

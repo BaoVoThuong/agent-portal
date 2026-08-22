@@ -117,6 +117,7 @@ export function EditableCustomCell({
             setEditing(false);
           }
         }}
+        placeholder={column.type === "date" ? "month/day/year" : undefined}
         className={`${baseInputClass} ${className}`}
       />
     );
