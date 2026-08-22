@@ -1532,8 +1532,8 @@ export function EnrollmentClient({
       </div>
 
       {visibleView === "overview" ? (
-        <div className="min-w-0 px-6 pb-6">
-          <div className="mx-auto max-w-[1760px]">
+        <div className="min-h-0 min-w-0 flex-1 pb-6">
+          <div className="mx-auto min-h-0 w-full max-w-[1480px]">
             <EnrollmentOverview
               key={program}
               program={program}

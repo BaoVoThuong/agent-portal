@@ -90,7 +90,7 @@ function LegacyEnrollmentOverview({ program, from, to, onOpenRecord }: OverviewP
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-h-0 space-y-4 px-4 pb-8 pt-0 sm:px-6">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-medium text-[#6b778c]">
           Snapshot as of {new Date(snapshot.generatedAt).toLocaleString()}
