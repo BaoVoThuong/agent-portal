@@ -2,7 +2,18 @@
 
 > Ngày trong tiêu đề là ngày báo cáo. Công việc được thực hiện trước ngày báo cáo; vì vậy các commit hoàn tất trong ngày 22/08 được ghi vào báo cáo ngày 23/08.
 
-### 1. Làm nhẹ và làm rõ giao diện ngày tháng cho CS và Enrollment
+### 1. Tối ưu giao diện Enrollment Overview
+
+- Thu gọn các scorecard tổng quan để giảm khoảng trống và giúp người dùng nhìn được nhiều chỉ số hơn ngay khi mở trang.
+- Làm dropdown Attention threshold thành custom dropdown có trạng thái chọn, hover, nút check và đóng bằng click bên ngoài hoặc phím Escape.
+- Cải thiện bố cục bảng Overview: tên cột rõ hơn, có đường phân cách dọc và Pipeline by stage vừa trong trang mà không cần kéo ngang.
+- Đồng bộ cơ chế cuộn và khung hiển thị của Enrollment Overview với CS.
+
+Commit: `961bcdc`
+
+Verification: typecheck, lint, production build và git diff check đã pass.
+
+### 2. Làm nhẹ và làm rõ giao diện ngày tháng cho CS và Enrollment
 
 - Bỏ kiểu chữ đậm không cần thiết ở các field kiểu date để Due Date cân bằng với các property khác.
 - Đồng bộ style cho Enrollment detail, form tạo mới, custom date field và các vị trí date trong CS detail/list/form.
@@ -14,7 +25,7 @@ Commits: `9b584ba`, `1c5c487`
 
 Verification: 108 test files / 759 tests, typecheck và lint đã pass.
 
-### 2. Chuẩn hóa key hiển thị và tách bộ đếm Enrollment
+### 3. Chuẩn hóa key hiển thị và tách bộ đếm Enrollment
 
 - Đổi key hiển thị của Customer Service từ `TASK-*` sang `CS-*`.
 - Đổi key Enrollment theo chương trình: ACA dùng `ACA-*`, Medicare dùng `MED-*`.
@@ -28,7 +39,7 @@ Migration cần chạy trên Supabase: `supabase/rollouts/2026-08-23-enrollment-
 
 Verification: 108 test files / 759 tests, typecheck và lint đã pass.
 
-### 3. Giữ Enrollment ở List sau khi tạo record
+### 4. Giữ Enrollment ở List sau khi tạo record
 
 - Sau khi bấm Create, Enrollment chỉ thêm record mới vào danh sách và đóng form tạo, giống hành vi của CS.
 - Bỏ việc tự mở Task Detail và tự thêm `record` vào URL sau khi tạo, tránh drawer xuất hiện lại ngoài ý muốn.
@@ -36,7 +47,7 @@ Verification: 108 test files / 759 tests, typecheck và lint đã pass.
 
 Commit: `1f36069`
 
-### 4. Đồng bộ quyền hiển thị Overview giữa Enrollment và CS
+### 5. Đồng bộ quyền hiển thị Overview giữa Enrollment và CS
 
 - Ẩn tab Overview khỏi Enrollment đối với agent/assistant không có quyền manager, giống cách CS đang hiển thị.
 - Chặn cả luồng gọi API Overview trực tiếp đối với non-manager để không còn trường hợp thấy tab rồi bấm vào mới nhận lỗi quyền.
@@ -44,7 +55,7 @@ Commit: `1f36069`
 
 Commit: `e35369d`
 
-### 5. Đồng bộ quyền hiển thị task cho người tạo
+### 6. Đồng bộ quyền hiển thị task cho người tạo
 
 - Enrollment scoped agents/assistants luôn thấy record do chính mình tạo, hoặc record mình là caller/responsible; deep link và detail cũng dùng cùng scope này.
 - CS creator luôn thấy task mình tạo trong board/list, search, detail, comments, attachments, edit history và reactions mà không được mở rộng quyền đổi stage hoặc xóa task.
@@ -52,7 +63,7 @@ Commit: `e35369d`
 
 Commits: `cabe4d9`, `6ec65a3`
 
-### 6. Thông báo khi có người react comment
+### 7. Thông báo khi có người react comment
 
 - Khi reaction mới được thêm, chỉ tác giả comment nhận notification; người react không tự nhận notification.
 - Áp dụng đồng nhất cho CS và Enrollment, có chống gửi lặp khi thao tác reaction được retry.
@@ -60,7 +71,7 @@ Commits: `cabe4d9`, `6ec65a3`
 
 Commit: `6b63f9f`
 
-### 7. Đồng bộ trải nghiệm cộng tác của Enrollment với CS
+### 8. Đồng bộ trải nghiệm cộng tác của Enrollment với CS
 
 - Bổ sung đầy đủ luồng comment, mention, attachment, emoji và reaction cho Enrollment Task Detail theo cùng cơ chế với CS.
 - Đồng bộ cache, prefetch, realtime và cơ chế invalidation để mở task và cập nhật comment nhanh, ổn định hơn.
@@ -68,14 +79,14 @@ Commit: `6b63f9f`
 
 Commit: `fcdb658`
 
-### 8. Cho phép cộng tác trên task Backlog
+### 9. Cho phép cộng tác trên task Backlog
 
 - Bỏ chặn comment/reaction đối với task đang ở Backlog; thành viên trong team có thể tiếp tục trao đổi như các stage khác.
 - Cập nhật kiểm tra quyền và test để tránh trả về `Unauthorized` khi gửi comment trên Backlog.
 
 Commit: `faf7160`
 
-### 9. Gộp comments và reactions vào pipeline Task Detail
+### 10. Gộp comments và reactions vào pipeline Task Detail
 
 - Tải comments và reactions trong cùng request detail, loại bỏ request reaction riêng trong luồng bình thường.
 - Giữ fallback cho snapshot cũ hoặc dữ liệu thiếu, đồng thời áp dụng cho cả CS và Enrollment.
@@ -85,7 +96,7 @@ Commit: `268f90e`
 
 Verification: Benchmark merged flow cho CS khoảng 180–184ms p50 so với split flow khoảng 345ms; Enrollment khoảng 332ms so với 506ms. Typecheck, lint và 107 test files / 750 tests đã pass.
 
-### 10. Giảm chi phí polling và request nền
+### 11. Giảm chi phí polling và request nền
 
 - Notification bell chuyển sang polling summary, dừng request khi tab bị ẩn và giãn chu kỳ lên 120 giây khi realtime hoạt động; full notification chỉ tải khi cần.
 - Task board chỉ reconcile dữ liệu task trong polling thường; categories dùng realtime topic riêng nên không còn bị reload theo mọi task event.
@@ -97,7 +108,7 @@ Verification: Typecheck, lint, production build và toàn bộ 107 test files / 
 
 Verification bổ sung cho các task mới: toàn bộ 107 test files / 755 tests, typecheck, lint và production build đã pass.
 
-### 11. Đồng bộ Enrollment Overview với giao diện CS — Version 1
+### 12. Đồng bộ Enrollment Overview với giao diện CS — Version 1
 
 - Đưa Enrollment Overview về cùng dashboard shell với CS: cùng max-width, khoảng cách, nền, KPI strip và section card.
 - Đổi tên scorecard theo ngữ nghĩa enrollment rõ ràng hơn như `Open enrollments`, `Unassigned owner`, `Median time to completion` và `Average open enrollments per owner`.
