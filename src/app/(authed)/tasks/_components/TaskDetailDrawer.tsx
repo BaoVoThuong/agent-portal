@@ -1201,8 +1201,8 @@ function DetailCustomFieldControl({
       personLabelByEmail={personLabelByEmail}
       canEdit={canEdit}
       onSave={onSave}
-      className={CUSTOM_FIELD_DISPLAY_CLASS}
-      inputClassName={CUSTOM_FIELD_INPUT_CLASS}
+      className={`${CUSTOM_FIELD_DISPLAY_CLASS} ${column.type === "date" ? "!font-medium !text-[#42526e]" : ""}`}
+      inputClassName={`${CUSTOM_FIELD_INPUT_CLASS} ${column.type === "date" ? "!font-medium !text-[#42526e]" : ""}`}
       emptyLabel={`No ${column.label}`}
     />
   );

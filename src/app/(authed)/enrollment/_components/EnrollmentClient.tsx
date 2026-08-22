@@ -3725,7 +3725,7 @@ function EnrollmentDrawer({
                       if (nextDueDate === formatDateInput(record.due_date)) return;
                       void onPatch({ due_date: nextDueDate });
                     }}
-                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
+                    className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-medium text-[#42526e] disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
                   />
                 </FieldBlock>
               ) : null}
@@ -4931,8 +4931,8 @@ function EnrollmentDetailCustomFieldControl({
       personLabelByEmail={personLabelByEmail}
       canEdit={canEdit}
       onSave={onSave}
-      className={DETAIL_FIELD_DISPLAY_CLASS}
-      inputClassName={DETAIL_FIELD_INPUT_CLASS}
+      className={`${DETAIL_FIELD_DISPLAY_CLASS} ${column.type === "date" ? "!font-medium !text-[#42526e]" : ""}`}
+      inputClassName={`${DETAIL_FIELD_INPUT_CLASS} ${column.type === "date" ? "!font-medium !text-[#42526e]" : ""}`}
       emptyLabel={`No ${column.label}`}
     />
   );
@@ -5130,7 +5130,7 @@ function CreatePropertyInput({
         value={value}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="h-7 w-full min-w-0 bg-transparent px-0 text-sm font-semibold text-[#172b4d] outline-none placeholder:text-[#97a0af]"
+        className={`h-7 w-full min-w-0 bg-transparent px-0 text-sm outline-none placeholder:text-[#97a0af] ${type === "date" ? "font-medium text-[#42526e]" : "font-semibold text-[#172b4d]"}`}
       />
     </CreatePropertyField>
   );

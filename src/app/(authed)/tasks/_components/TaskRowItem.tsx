@@ -859,7 +859,15 @@ export function TaskRowItem({
               onSave={(next) =>
                 onPatch(task.id, { custom_values: { [configColumn.key]: next } })
               }
-              className={configColumn.type === "checkbox" ? "" : "w-full"}
+              className={
+                configColumn.type === "checkbox"
+                  ? ""
+                  : `w-full ${
+                      configColumn.type === "date"
+                        ? "!font-medium !text-[#6b778c]"
+                        : ""
+                    }`
+              }
             />
           </span>
         );

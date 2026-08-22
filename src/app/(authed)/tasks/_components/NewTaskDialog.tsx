@@ -674,7 +674,7 @@ function NewTaskCustomField({
       value={inputValue(value)}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholderForCustomField(column.type)}
-      className={`${SIDE_INPUT_CLASS} ${invalid ? INVALID_RING_CLASS : ""}`}
+      className={`${SIDE_INPUT_CLASS} ${column.type === "date" ? "!font-medium !text-[#42526e]" : ""} ${invalid ? INVALID_RING_CLASS : ""}`}
     />
   );
 }
