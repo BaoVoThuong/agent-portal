@@ -4,18 +4,18 @@ import { MIN_DURATION_SAMPLE } from "./stage-time";
 import { enrollmentIsOverdue } from "./helpers";
 import type { AcaOverviewInput, AcaOverviewRecord, AcaOverviewScorecards } from "./aca-overview-types";
 import type { EnrollmentOption } from "./types";
-const labelMatches = (stage: EnrollmentOption | undefined, label: string) => (stage?.label ?? "").trim().toLowerCase() === label;
-const DONE_STAGE_LABEL = "10-id card done";
-const TERMINATED_STAGE_LABEL = "12-terminated";
-const UNAVAILABLE_STAGE_LABEL = "11-id card unavailable";
+const normalizedStageLabel = (stage: EnrollmentOption | undefined) => (stage?.label ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+const isDoneStage = (stage: EnrollmentOption | undefined) => normalizedStageLabel(stage).endsWith("id card done") || normalizedStageLabel(stage) === "10-done";
+const isUnavailableStage = (stage: EnrollmentOption | undefined) => normalizedStageLabel(stage).endsWith("id card unavailable");
+const isTerminatedStage = (stage: EnrollmentOption | undefined) => normalizedStageLabel(stage).endsWith("terminated");
 const ageDays = (from: string, to: Date) => { const t = new Date(from).getTime(); return Number.isFinite(t) ? Math.max(0, Math.floor((to.getTime() - t) / 86_400_000)) : null; };
 export function buildScorecards(input: AcaOverviewInput): AcaOverviewScorecards {
   const byId = new Map(input.stages.map((s) => [s.id, s]));
   const active = input.records.filter((r) => !r.archived_at);
   const stageOf = (r: AcaOverviewRecord) => r.stage_id ? byId.get(r.stage_id) : undefined;
-  const done = active.filter((r) => labelMatches(stageOf(r), DONE_STAGE_LABEL));
-  const unavailable = active.filter((r) => labelMatches(stageOf(r), UNAVAILABLE_STAGE_LABEL));
-  const terminated = active.filter((r) => labelMatches(stageOf(r), TERMINATED_STAGE_LABEL));
+  const done = active.filter((r) => isDoneStage(stageOf(r)));
+  const unavailable = active.filter((r) => isUnavailableStage(stageOf(r)));
+  const terminated = active.filter((r) => isTerminatedStage(stageOf(r)));
   // The ACA stage configuration is the source of truth for whether work is
   // still open. Keep all configured Final Stages out of Open, while the three
   // ACA outcome cards below remain split by their exact stage labels.
@@ -41,7 +41,7 @@ export function buildScorecards(input: AcaOverviewInput): AcaOverviewScorecards 
     stuckInStage: countable.filter((r) => isStuck(daysInStage(r, input.now), input.thresholdDays)).length,
     qcPending: open.filter((r) => Boolean(stageOf(r)?.triggers_qc && !r.qc_checked_at)).length,
     overdue: open.filter((r) => enrollmentIsOverdue(r, input.now)).length,
-    cantContact: open.filter((r) => labelMatches(stageOf(r), "can't contact")).length,
+    cantContact: open.filter((r) => normalizedStageLabel(stageOf(r)) === "can't contact").length,
     cannotGetIdCard: unavailable.length,
     medianOpenAgeDays: medianDays(open.map((r) => ageDays(r.created_at, input.now))),
     medianTimeToDoneDays: timeToDone.filter((v) => v !== null).length >= MIN_DURATION_SAMPLE ? medianDays(timeToDone) : null,

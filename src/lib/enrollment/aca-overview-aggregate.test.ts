@@ -88,6 +88,28 @@ describe("ACA overview fairness guards", () => {
     expect(snapshot.scorecards.terminated).toBe(1);
   });
 
+  it("counts Medicare outcome stages by meaning, not ACA stage numbers", () => {
+    const medicareStages = [
+      stage("open", "1-Need quote"),
+      stage("done", "9-ID card done", { is_terminal: true }),
+      stage("unavailable", "10-ID card unavailable", { is_terminal: true }),
+      stage("terminated", "11-Terminated", { is_terminal: true }),
+    ];
+    const snapshot = aggregateAcaOverview({
+      ...twoPeople([]),
+      stages: medicareStages,
+      records: [
+        record("done", { stage_id: "done", closed_at: "2026-08-12T00:00:00Z", responsible_enroll_email: "a@example.com" }),
+        record("unavailable", { stage_id: "unavailable", closed_at: "2026-08-12T00:00:00Z" }),
+        record("terminated", { stage_id: "terminated", closed_at: "2026-08-12T00:00:00Z" }),
+      ],
+    });
+    expect(snapshot.scorecards.done).toBe(1);
+    expect(snapshot.scorecards.cannotGetIdCard).toBe(1);
+    expect(snapshot.scorecards.terminated).toBe(1);
+    expect(snapshot.people.find((row) => row.email === "a@example.com")?.doneInPeriod).toBe(1);
+  });
+
   it("counts QC pending and overdue only for open records", () => {
     const qcStages = [
       stage("open", "1-Need quote", { triggers_qc: true }),

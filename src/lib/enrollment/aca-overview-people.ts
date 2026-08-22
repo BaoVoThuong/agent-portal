@@ -4,13 +4,15 @@ import type { AcaOverviewInput, AcaOverviewMatrix, AcaOverviewMatrixCell, AcaOve
 export function buildPeopleRows(input: AcaOverviewInput): AcaOverviewPeopleRow[] {
   const byId = new Map(input.stages.map((s) => [s.id, s]));
   const open = input.records.filter((r) => !r.archived_at && !r.closed_at && (!byId.get(r.stage_id ?? "") || !isTerminalStage(byId.get(r.stage_id ?? "")!)));
-  // "Done" is reaching the ID-card-done stage, not merely being closed.
+  // "Done" is reaching the ID-card-done stage, not merely being closed. The
+  // numeric prefix differs between ACA and Medicare, so match the meaning of
+  // the stage instead of one program's exact label.
   // `closed_at` is set for terminated records too, so counting closed records credited people for losing
   // customers in the column used to judge their throughput.
   const isDone = (r: AcaOverviewRecord) => {
     if (r.archived_at) return false;
     const label = (byId.get(r.stage_id ?? "")?.label ?? "").trim().toLowerCase();
-    return label === "10-id card done" || label === "10-done";
+    return label.endsWith("id card done") || label === "10-done";
   };
   const done = input.records.filter(isDone);
   const stats = (mine: readonly AcaOverviewRecord[]) => {

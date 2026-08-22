@@ -6,13 +6,15 @@ import { ACA_OVERVIEW_THRESHOLD_DAYS, type AcaOverviewPerson, type AcaOverviewSn
 import { applyResponsibleAssignment, reconcileAssignedRow } from "@/lib/enrollment/aca-overview-assign";
 import { enrollmentStateBadgeStyle } from "@/lib/enrollment/option-badge";
 import { formatEmailAsName } from "@/lib/tasks/people";
+import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { AvatarStack, Initials } from "../../tasks/_components/board-ui";
 import { AcaAssignPicker } from "./AcaAssignPicker";
 import { AcaOverviewScorecards } from "./AcaOverviewScorecards";
 
-type Props = { from: string; to: string; onOpenRecord: (id: string) => void };
+type Props = { program: EnrollmentProgram; from: string; to: string; onOpenRecord: (id: string) => void };
 
-export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
+export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props) {
+  const programLabel = program === "aca" ? "ACA" : "Medicare";
   const [snapshot, setSnapshot] = useState<AcaOverviewSnapshot | null>(null);
   const [matrixMode, setMatrixMode] = useState<"occupancy" | "speed">("occupancy");
   const [threshold, setThreshold] = useState<AcaOverviewThresholdDays | null>(null);
@@ -25,15 +27,16 @@ export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
     const current = ++sequence.current; setLoading(true); setError(null);
     try {
       const params = new URLSearchParams();
+      params.set("program", program);
       if (threshold !== null) params.set("thresholdDays", String(threshold));
       if (from) params.set("from", from); if (to) params.set("to", to);
       const response = await fetch(`/api/enrollment/aca-overview?${params}`, { cache: "no-store" });
       const payload = await response.json().catch(() => null) as AcaOverviewSnapshot | { error?: string } | null;
-      if (!response.ok) throw new Error(payload && "error" in payload ? payload.error : "Could not load ACA overview.");
+      if (!response.ok) throw new Error(payload && "error" in payload ? payload.error : `Could not load ${programLabel} overview.`);
       if (current === sequence.current) setSnapshot(payload as AcaOverviewSnapshot);
-    } catch (cause) { if (current === sequence.current) setError(cause instanceof Error ? cause.message : "Could not load ACA overview."); }
+    } catch (cause) { if (current === sequence.current) setError(cause instanceof Error ? cause.message : `Could not load ${programLabel} overview.`); }
     finally { if (current === sequence.current) setLoading(false); }
-  }, [from, threshold, to]);
+  }, [from, program, programLabel, threshold, to]);
   // Fetching the snapshot is the external synchronization this effect owns.
   // The loader also updates loading/error state while handling the request.
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -45,17 +48,17 @@ export function AcaOverviewDashboard({ from, to, onOpenRecord }: Props) {
   const handleToggleQueue = useCallback(async (email: string, enabled: boolean) => {
     setUpdatingQueueEmail(email); setQueueError(null);
     try {
-      const response = await fetch("/api/enrollment/aca-overview/queue-members", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, enabled }) });
+      const response = await fetch("/api/enrollment/aca-overview/queue-members", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, enabled, program }) });
       const payload = await response.json().catch(() => null) as { error?: string } | null;
       if (!response.ok) throw new Error(payload?.error ?? "Could not update the assignment queue.");
       await load();
     } catch (cause) {
       setQueueError(cause instanceof Error ? cause.message : "Could not update the assignment queue.");
     } finally { setUpdatingQueueEmail(null); }
-  }, [load]);
-  if (loading && !snapshot) return <Message>Loading ACA operations...</Message>;
+  }, [load, program]);
+  if (loading && !snapshot) return <Message>Loading {programLabel} operations...</Message>;
   if (error && !snapshot) return <Message error={error} onRetry={() => void load()} />;
-  if (!snapshot) return <Message>No ACA overview data.</Message>;
+  if (!snapshot) return <Message>No {programLabel} overview data.</Message>;
   const period = snapshot.period.from && snapshot.period.to ? `${snapshot.period.from} – ${snapshot.period.to}` : "All dates";
   const people = snapshot.people.filter((person) => person.email).map((person) => ({ email: person.email!, name: person.name, canWork: true, queueEnabled: true }));
   const handleAssigned = (recordId: string, email: string | null, updatedAt?: string) => setSnapshot((current) => {
