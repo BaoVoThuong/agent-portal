@@ -97,6 +97,18 @@ Verification: Typecheck, lint, production build và toàn bộ 107 test files / 
 
 Verification bổ sung cho các task mới: toàn bộ 107 test files / 755 tests, typecheck, lint và production build đã pass.
 
+### 11. Đồng bộ Enrollment Overview với giao diện CS — Version 1
+
+- Đưa Enrollment Overview về cùng dashboard shell với CS: cùng max-width, khoảng cách, nền, KPI strip và section card.
+- Đổi tên scorecard theo ngữ nghĩa enrollment rõ ràng hơn như `Open enrollments`, `Unassigned owner`, `Median time to completion` và `Average open enrollments per owner`.
+- Bổ sung các mô tả ngắn cho từng chỉ số để phân biệt phạm vi cohort, terminal stage, owner và thời gian đo.
+- Sửa optimistic update để scorecard Unassigned và các dòng People cập nhật ngay sau khi assign/unassign.
+- Tránh request ACA Overview thứ hai sau lần load đầu tiên nếu người dùng chưa tự đổi threshold.
+
+Commit: `d450e48`
+
+Verification: 2 test files / 12 tests, typecheck, lint và git diff check đã pass.
+
 # [Agent Portal Dev Log] — 21/08/2026
 
 > Ngày này gồm phần tài liệu còn thiếu của ngày 20/08 và các task đã hoàn tất trước ngày 22/08.
