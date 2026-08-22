@@ -158,6 +158,7 @@ export type EnrollmentNotificationType =
   | "assigned"
   | "mentioned"
   | "commented"
+  | "reacted"
   | "due_soon"
   | "overdue"
   | "overdue_reminder"

@@ -24,6 +24,7 @@ type Notif = {
     | "assigned"
     | "mentioned"
     | "commented"
+    | "reacted"
     | "overdue"
     | "todo_reminder"
     | "overdue_reminder"
@@ -126,6 +127,10 @@ function actionText(n: Notif): string {
       return kind === "enrollment"
         ? "commented on an enrollment record"
         : "commented on a task assigned to you";
+    case "reacted":
+      return kind === "enrollment"
+        ? "reacted to your enrollment comment"
+        : "reacted to your task comment";
     case "unassigned":
       return "removed you from a task";
     case "reopened":
@@ -188,6 +193,7 @@ function detailLabel(n: Notif): string {
   if (n.type === "overdue_unlocked") return "Reason";
   if (n.type === "attachment_added") return "File";
   if (n.type === "sla_escalated") return "SLA";
+  if (n.type === "reacted") return "Reaction";
   return "Detail";
 }
 

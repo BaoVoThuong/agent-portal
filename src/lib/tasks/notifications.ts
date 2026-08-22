@@ -5,6 +5,7 @@ export const TASK_NOTIFICATION_TYPES = [
   "assigned",
   "mentioned",
   "commented",
+  "reacted",
   "overdue",
   "todo_reminder",
   "overdue_reminder",

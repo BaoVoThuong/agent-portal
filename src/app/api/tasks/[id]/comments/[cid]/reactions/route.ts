@@ -4,6 +4,10 @@ import {
   normalizeEmojiInput,
 } from "@/lib/tasks/emoji-search";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
+import {
+  insertNotifications,
+  uniqueNotificationRecipients,
+} from "@/lib/tasks/notifications";
 import { authorizeTaskReactionAccess } from "@/lib/tasks/reaction-access";
 import type { ReactionRow } from "@/lib/tasks/reactions";
 import { broadcastTaskCommentReaction } from "@/lib/tasks/realtime";
@@ -14,9 +18,9 @@ type Ctx = { params: Promise<{ id: string; cid: string }> };
 
 /**
  * PUT adds and DELETE removes a reaction. Both operations are idempotent and
- * create no notification/activity row. The database RPC locks the active
- * comment while mutating so a concurrent soft-delete cannot leave orphaned
- * reaction state behind.
+ * notify only the comment author when a new reaction is added. The database
+ * RPC locks the active comment while mutating so a concurrent soft-delete
+ * cannot leave orphaned reaction state behind.
  */
 
 async function readEmoji(req: Request): Promise<string | null> {
@@ -73,15 +77,53 @@ async function mutate(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const reactions = (data ?? []) as ReactionRow[];
+  const rawReactions = (data ?? []) as Array<ReactionRow & { changed?: boolean }>;
+  const reactionChanged = present && rawReactions.some((row) => row.changed === true);
+  const reactions = rawReactions.map((row) => ({
+    comment_id: row.comment_id,
+    emoji: row.emoji,
+    reactor_email: row.reactor_email,
+  }));
   const warnings = await settleSideEffects([
+    ...(reactionChanged
+      ? [
+          {
+            code: "reaction_notification_failed",
+            message:
+              "The reaction was saved but the comment author may not have been notified.",
+            run: async () => {
+              const { data: comment, error: commentError } = await access.supabase
+                .from("task_comments")
+                .select("author_email")
+                .eq("id", cid)
+                .eq("task_id", id)
+                .maybeSingle();
+              if (commentError) throw new Error(commentError.message);
+              const recipients = uniqueNotificationRecipients(
+                [comment?.author_email?.trim().toLowerCase()],
+                [access.email],
+              );
+              return insertNotifications(
+                recipients.map((recipient) => ({
+                  recipient_email: recipient,
+                  task_id: id,
+                  type: "reacted" as const,
+                  actor_email: access.email,
+                  comment_id: cid,
+                  detail: emoji,
+                })),
+              );
+            },
+          },
+        ]
+      : []),
     {
       code: "reaction_broadcast_failed",
       message: "The reaction was saved but other viewers may need a refresh.",
       run: () => broadcastTaskCommentReaction(id),
     },
   ]);
-  return NextResponse.json({ reactions, warnings });
+  return NextResponse.json({ reactions: reactions as ReactionRow[], warnings });
 }
 
 export async function PUT(req: Request, context: Ctx) {

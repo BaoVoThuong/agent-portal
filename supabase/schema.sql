@@ -2031,7 +2031,8 @@ create or replace function set_task_comment_reaction_atomic(
 ) returns table (
   comment_id uuid,
   emoji text,
-  reactor_email text
+  reactor_email text,
+  changed boolean
 )
 language plpgsql
 security definer
@@ -2041,6 +2042,8 @@ declare
   v_comment_id uuid;
   v_deleted_at timestamptz;
   v_reactor_email text;
+  v_changed boolean := false;
+  v_row_count integer := 0;
 begin
   v_reactor_email := lower(btrim(coalesce(p_reactor_email, '')));
   if v_reactor_email = '' then
@@ -2064,15 +2067,19 @@ begin
     insert into task_comment_reactions (comment_id, reactor_email, emoji)
     values (p_comment_id, v_reactor_email, p_emoji)
     on conflict do nothing;
+    get diagnostics v_row_count = row_count;
+    v_changed := v_row_count > 0;
   else
     delete from task_comment_reactions as reaction
     where reaction.comment_id = p_comment_id
       and reaction.reactor_email = v_reactor_email
       and reaction.emoji = p_emoji;
+    get diagnostics v_row_count = row_count;
+    v_changed := v_row_count > 0;
   end if;
 
   return query
-  select reaction.comment_id, reaction.emoji, reaction.reactor_email
+  select reaction.comment_id, reaction.emoji, reaction.reactor_email, v_changed
   from task_comment_reactions as reaction
   where reaction.comment_id = p_comment_id
   order by reaction.created_at, reaction.id;
@@ -2755,6 +2762,7 @@ begin
       'assigned',
       'mentioned',
       'commented',
+      'reacted',
       'overdue',
       'todo_reminder',
       'overdue_reminder',
@@ -5294,7 +5302,8 @@ create or replace function set_enrollment_comment_reaction_atomic(
 ) returns table (
   comment_id uuid,
   emoji text,
-  reactor_email text
+  reactor_email text,
+  changed boolean
 )
 language plpgsql
 security definer
@@ -5304,6 +5313,8 @@ declare
   v_comment_id uuid;
   v_deleted_at timestamptz;
   v_reactor_email text;
+  v_changed boolean := false;
+  v_row_count integer := 0;
 begin
   v_reactor_email := lower(btrim(coalesce(p_reactor_email, '')));
   if v_reactor_email = '' then
@@ -5333,15 +5344,19 @@ begin
     insert into enrollment_comment_reactions (comment_id, reactor_email, emoji)
     values (p_comment_id, v_reactor_email, p_emoji)
     on conflict do nothing;
+    get diagnostics v_row_count = row_count;
+    v_changed := v_row_count > 0;
   else
     delete from enrollment_comment_reactions as reaction
     where reaction.comment_id = p_comment_id
       and reaction.reactor_email = v_reactor_email
       and reaction.emoji = p_emoji;
+    get diagnostics v_row_count = row_count;
+    v_changed := v_row_count > 0;
   end if;
 
   return query
-  select reaction.comment_id, reaction.emoji, reaction.reactor_email
+  select reaction.comment_id, reaction.emoji, reaction.reactor_email, v_changed
   from enrollment_comment_reactions as reaction
   where reaction.comment_id = p_comment_id
   order by reaction.created_at, reaction.id;
@@ -5671,6 +5686,7 @@ create table if not exists enrollment_notifications (
       'assigned',
       'mentioned',
       'commented',
+      'reacted',
       'due_soon',
       'overdue',
       'overdue_reminder',

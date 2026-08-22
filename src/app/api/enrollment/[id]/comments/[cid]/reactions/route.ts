@@ -4,6 +4,10 @@ import {
   normalizeEmojiInput,
 } from "@/lib/tasks/emoji-search";
 import { authorizeEnrollmentReactionAccess } from "@/lib/enrollment/reaction-access";
+import {
+  insertEnrollmentNotifications,
+  uniqueEnrollmentNotificationRecipients,
+} from "@/lib/enrollment/notifications";
 import type { ReactionRow } from "@/lib/tasks/reactions";
 import {
   broadcastEnrollmentCommentReaction,
@@ -66,6 +70,44 @@ async function mutate(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const rawReactions = (data ?? []) as Array<ReactionRow & { changed?: boolean }>;
+  const reactionChanged = present && rawReactions.some((row) => row.changed === true);
+  const reactions = rawReactions.map((row) => ({
+    comment_id: row.comment_id,
+    emoji: row.emoji,
+    reactor_email: row.reactor_email,
+  }));
+  const warnings: string[] = [];
+  if (reactionChanged) {
+    try {
+      const { data: comment, error: commentError } = await access.supabase
+        .from("enrollment_comments")
+        .select("author_email")
+        .eq("id", cid)
+        .eq("record_id", id)
+        .maybeSingle();
+      if (commentError) throw new Error(commentError.message);
+      const recipients = uniqueEnrollmentNotificationRecipients(
+        [comment?.author_email],
+        [access.email],
+      );
+      await insertEnrollmentNotifications(
+        recipients.map((recipient) => ({
+          recipient_email: recipient,
+          record_id: id,
+          type: "reacted" as const,
+          actor_email: access.email,
+          comment_id: cid,
+          detail: emoji,
+        })),
+      );
+    } catch (notificationError) {
+      warnings.push(
+        `Reaction notification failed: ${notificationError instanceof Error ? notificationError.message : "unknown error"}`,
+      );
+    }
+  }
+
   after(async () => {
     const delivered = await broadcastEnrollmentCommentReaction(id, sourceId);
     if (!delivered) {
@@ -75,7 +117,7 @@ async function mutate(
       });
     }
   });
-  return NextResponse.json({ reactions: (data ?? []) as ReactionRow[], warnings: [] });
+  return NextResponse.json({ reactions: reactions as ReactionRow[], warnings });
 }
 
 export async function PUT(request: Request, context: Ctx) {
