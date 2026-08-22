@@ -83,7 +83,7 @@ export default async function EnrollmentPage({
       : await fetchEnrollmentRecordById(recordId);
     const linkedRecord =
       records.find((record) => record.id === recordId) ??
-      (fallbackRecord && isRecordInScope(scope, fallbackRecord.agent_email)
+      (fallbackRecord && isRecordInScope(scope, fallbackRecord)
         ? fallbackRecord
         : null);
     if (linkedRecord && linkedRecord.program !== program) {

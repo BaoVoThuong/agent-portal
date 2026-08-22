@@ -8,11 +8,12 @@ import type { EnrollmentRecordWithStats } from "./types";
 
 export type EnrollmentScope =
   | { seeAll: true }
-  | { seeAll: false; agentEmails: string[] };
+  | { seeAll: false; agentEmails: string[]; viewerEmail: string };
 
 type ScopeableQuery = {
   eq: (column: string, value: unknown) => unknown;
   in: (column: string, values: readonly string[]) => unknown;
+  or: (filters: string) => unknown;
 };
 
 const NO_SCOPE_RECORD_ID = "00000000-0000-0000-0000-000000000000";
@@ -21,15 +22,29 @@ function normalize(email: string | null | undefined): string {
   return email?.trim().toLowerCase() ?? "";
 }
 
+// Values inside PostgREST `.or()` filters are parsed as filter grammar. Keep
+// actor identities data-only so an unusual email cannot alter the predicate.
+function quoteFilterValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 /**
  * Managers and plain workers see the shared queue. Agents and promoted
- * assistants are restricted to records owned by agents they cover.
+ * assistants are restricted to records owned by agents they cover, plus
+ * records where they are the creator, caller, or responsible enrollment
+ * owner.
  */
 export async function resolveEnrollmentScope(
   actor: EnrollmentActor
 ): Promise<EnrollmentScope> {
   if (actor.isManager) return { seeAll: true };
-  if (!actor.isWorker) return { seeAll: false, agentEmails: [] };
+  if (!actor.isWorker) {
+    return {
+      seeAll: false,
+      agentEmails: [],
+      viewerEmail: normalize(actor.email),
+    };
+  }
 
   const [selectedAgentEmails, assistantAgents] = await Promise.all([
     fetchSelectedAgentEmails(),
@@ -45,6 +60,7 @@ export async function resolveEnrollmentScope(
   const covered = await fetchAgentsForCs(actor.email);
   return {
     seeAll: false,
+    viewerEmail: normalizedActor,
     agentEmails: [
       ...new Set(
         [
@@ -59,16 +75,36 @@ export async function resolveEnrollmentScope(
   };
 }
 
-/** Fail closed: a null agent is never visible to a scoped viewer. */
+/** Fail closed: a null-agent record is visible only via direct assignment. */
 export function isRecordInScope(
   scope: EnrollmentScope,
-  agentEmail: string | null
+  record: Pick<
+    EnrollmentRecordWithStats,
+    | "agent_email"
+    | "caller_email"
+    | "responsible_enroll_email"
+    | "created_by_email"
+  >
 ): boolean {
   if (scope.seeAll) return true;
-  const normalizedAgent = normalize(agentEmail);
-  if (!normalizedAgent) return false;
-  return scope.agentEmails.some(
-    (email) => normalize(email) === normalizedAgent
+  const viewerEmail = normalize(scope.viewerEmail);
+  if (
+    viewerEmail &&
+    [
+      record.created_by_email,
+      record.caller_email,
+      record.responsible_enroll_email,
+    ].some((email) => normalize(email) === viewerEmail)
+  ) {
+    return true;
+  }
+
+  const normalizedAgent = normalize(record.agent_email);
+  return Boolean(
+    normalizedAgent &&
+      scope.agentEmails.some(
+        (email) => normalize(email) === normalizedAgent
+      )
   );
 }
 
@@ -79,10 +115,29 @@ export function applyEnrollmentScope<TQuery>(
 ): TQuery {
   if (scope.seeAll) return query;
   const scopeable = query as unknown as ScopeableQuery;
-  if (scope.agentEmails.length === 0) {
+  const filters: string[] = [];
+  if (scope.agentEmails.length > 0) {
+    filters.push(
+      `agent_email.in.(${scope.agentEmails
+        .map(normalize)
+        .filter(Boolean)
+        .map(quoteFilterValue)
+        .join(",")})`
+    );
+  }
+  const viewerEmail = normalize(scope.viewerEmail);
+  if (viewerEmail) {
+    const quotedViewer = quoteFilterValue(viewerEmail);
+    filters.push(
+      `created_by_email.eq.${quotedViewer}`,
+      `caller_email.eq.${quotedViewer}`,
+      `responsible_enroll_email.eq.${quotedViewer}`
+    );
+  }
+  if (filters.length === 0) {
     return scopeable.eq("id", NO_SCOPE_RECORD_ID) as TQuery;
   }
-  return scopeable.in("agent_email", scope.agentEmails) as TQuery;
+  return scopeable.or(filters.join(",")) as TQuery;
 }
 
 /**
@@ -110,7 +165,7 @@ export async function loadScopedEnrollmentRecord(
     fetchEnrollmentRecordById(id),
   );
   const [record, scope] = await Promise.all([recordPromise, scopePromise]);
-  if (!record || !isRecordInScope(scope, record.agent_email)) {
+  if (!record || !isRecordInScope(scope, record)) {
     return { ok: false, status: 404, error: "Not found" };
   }
   return { ok: true, record, scope };
