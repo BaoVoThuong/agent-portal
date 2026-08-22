@@ -1449,10 +1449,8 @@ export function EnrollmentClient({
     writeEnrollmentDeepLink(null);
   }
 
-  const frameView = visibleView === "list";
-  const shellClassName = frameView
-    ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
-    : "flex min-h-full min-w-0 flex-col bg-[#f7f9fc] text-[#172b4d]";
+  const shellClassName =
+    "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]";
 
   return (
     <div className={shellClassName}>
@@ -1532,8 +1530,8 @@ export function EnrollmentClient({
       </div>
 
       {visibleView === "overview" ? (
-        <div className="min-h-0 min-w-0 flex-1 pb-6">
-          <div className="mx-auto min-h-0 w-full max-w-[1480px]">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col pb-6">
+          <div className="mx-auto flex min-h-0 w-full max-w-[1480px] flex-1 flex-col">
             <EnrollmentOverview
               key={program}
               program={program}
