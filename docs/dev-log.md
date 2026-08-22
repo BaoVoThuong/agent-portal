@@ -2,13 +2,15 @@
 
 > Ngày trong tiêu đề là ngày báo cáo. Công việc được thực hiện trước ngày báo cáo; vì vậy các commit hoàn tất trong ngày 22/08 được ghi vào báo cáo ngày 23/08.
 
-### 1. Làm nhẹ giao diện Due Date cho CS và Enrollment
+### 1. Làm nhẹ và làm rõ giao diện ngày tháng cho CS và Enrollment
 
 - Bỏ kiểu chữ đậm không cần thiết ở các field kiểu date để Due Date cân bằng với các property khác.
 - Đồng bộ style cho Enrollment detail, form tạo mới, custom date field và các vị trí date trong CS detail/list/form.
+- Đổi hướng dẫn định dạng ngày sang `month/day/year` ở label và placeholder của các form, giúp người dùng dễ hiểu hơn.
+- Giữ native calendar picker để vẫn chọn ngày nhanh bằng lịch; không thay đổi dữ liệu lưu trữ hay validation.
 - Giữ nguyên trạng thái chỉnh sửa, validation và màu cảnh báo; chỉ điều chỉnh font weight và màu chữ cho dễ đọc hơn.
 
-Commit: `9b584ba`
+Commits: `9b584ba`, `1c5c487`
 
 Verification: 108 test files / 759 tests, typecheck và lint đã pass.
 
