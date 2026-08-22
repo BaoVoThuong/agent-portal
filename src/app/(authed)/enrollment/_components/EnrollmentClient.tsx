@@ -558,16 +558,6 @@ export function EnrollmentClient({
   const [error, setError] = useState<string | null>(null);
   const [configStale, setConfigStale] = useState(false);
   const [liveStatus, setLiveStatus] = useState<EnrollmentLiveStatus>("connecting");
-  const [createdRecordFallback, setCreatedRecordFallback] =
-    useState<EnrollmentRecordWithStats | null>(null);
-  const openIdRef = useRef<string | null>(null);
-  // A freshly-created record can briefly be absent from the next scoped list
-  // response (for example while assignment visibility catches up). Keep it
-  // available for the detail drawer that was just opened instead of letting a
-  // live-sync response close that drawer.
-  const createdRecordFallbacksRef = useRef(
-    new Map<string, EnrollmentRecordWithStats>(),
-  );
   const recordRowsRef = useRef(new Map(initialRecords.map((record) => [record.id, record])));
   const recordMutationStatesRef = useRef(new Map<string, EnrollmentMutationState>());
   const pendingRef = useRef(new Map<string, number>());
@@ -916,9 +906,7 @@ export function EnrollmentClient({
     () => visibleRecords.map((record) => record.id),
     [visibleRecords]
   );
-  const openRecord =
-    records.find((record) => record.id === openId) ??
-    (openId && createdRecordFallback?.id === openId ? createdRecordFallback : null);
+  const openRecord = records.find((record) => record.id === openId) ?? null;
   const overviewDateRange = overviewDateRanges[program];
 
   const exportVisibleRecords = useCallback(async () => {
@@ -977,24 +965,7 @@ export function EnrollmentClient({
         return;
       }
       refetchDirtyRef.current = false;
-      const openFallbackId = openIdRef.current;
-      const openFallback = openFallbackId
-        ? createdRecordFallbacksRef.current.get(openFallbackId) ?? null
-        : null;
-      const recordIsInServerSnapshot = openFallback
-        ? data.records.some((record) => record.id === openFallback.id)
-        : false;
-      if (openFallback && !recordIsInServerSnapshot) {
-        updateRecords(() => [openFallback, ...data.records]);
-      } else {
-        updateRecords(() => data.records);
-        if (openFallback && recordIsInServerSnapshot) {
-          createdRecordFallbacksRef.current.delete(openFallback.id);
-          setCreatedRecordFallback((current) =>
-            current?.id === openFallback.id ? null : current,
-          );
-        }
-      }
+      updateRecords(() => data.records);
     } catch {
       // The next realtime ping or manual refresh will retry.
     }
@@ -1003,10 +974,6 @@ export function EnrollmentClient({
   useEffect(() => {
     refetchRef.current = () => void refetch();
   }, [refetch]);
-
-  useEffect(() => {
-    openIdRef.current = openId;
-  }, [openId]);
 
   // Re-run an update that was dropped because a write was in flight, so we
   // never trade "UI reverts" for "UI silently stale".
@@ -1371,13 +1338,7 @@ export function EnrollmentClient({
         throw new Error(data?.error ?? "Could not create enrollment record.");
       }
       updateRecords((current) => [data.record!, ...current]);
-      createdRecordFallbacksRef.current.set(data.record.id, data.record);
-      setCreatedRecordFallback(data.record);
-      openIdRef.current = data.record.id;
       publishEnrollmentDataInvalidation({ sourceId: liveSourceId });
-      setOpenId(data.record.id);
-      setOpenCommentId(null);
-      writeEnrollmentDeepLink(data.record.id, "push");
       if (pendingFiles.length > 0) {
         const failedFiles = await uploadEnrollmentFiles(data.record.id, pendingFiles);
         if (failedFiles.length > 0) {
@@ -1403,8 +1364,6 @@ export function EnrollmentClient({
     // Same reason as createRecord: an unguarded refetch would resurrect the
     // row we just removed.
     const finishPendingMutation = beginPending(id);
-    createdRecordFallbacksRef.current.delete(id);
-    setCreatedRecordFallback((current) => (current?.id === id ? null : current));
     updateRecords((current) => current.filter((record) => record.id !== id));
     setOpenId(null);
     setOpenCommentId(null);
@@ -1485,10 +1444,6 @@ export function EnrollmentClient({
   }
 
   function closeRecord() {
-    if (openId) createdRecordFallbacksRef.current.delete(openId);
-    setCreatedRecordFallback((current) =>
-      current?.id === openId ? null : current,
-    );
     setOpenId(null);
     setOpenCommentId(null);
     writeEnrollmentDeepLink(null);
