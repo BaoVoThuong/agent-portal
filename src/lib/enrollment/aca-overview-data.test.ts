@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exclusiveDateUpperBound, normalizeOverviewEmail, parseThreshold } from "./aca-overview-data";
+import { chunkOverviewRecordIds, exclusiveDateUpperBound, normalizeOverviewEmail, parseThreshold } from "./aca-overview-data";
 
 describe("ACA overview date boundaries", () => {
   it("uses the first instant of the following UTC day", () => {
@@ -13,5 +13,16 @@ describe("ACA overview date boundaries", () => {
   it("normalizes snapshot emails for roster and cycle joins", () => {
     expect(normalizeOverviewEmail("  Agent@Example.COM ")).toBe("agent@example.com");
     expect(normalizeOverviewEmail("   ")).toBeNull();
+  });
+  it("keeps stage-cycle filters below the PostgREST URL limit", () => {
+    const ids = Array.from({ length: 101 }, (_, index) => `record-${index}`);
+    const chunks = chunkOverviewRecordIds(ids);
+
+    expect(chunks).toHaveLength(3);
+    expect(Math.max(...chunks.map((chunk) => chunk.length))).toBeLessThanOrEqual(50);
+    expect(chunks.flat()).toEqual(ids);
+  });
+  it("rejects invalid overview chunk sizes", () => {
+    expect(() => chunkOverviewRecordIds(["record-1"], 0)).toThrow("chunkSize must be a positive integer");
   });
 });

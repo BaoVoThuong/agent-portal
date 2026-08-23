@@ -72,6 +72,66 @@ export function isMissingEnrollmentCustomValuesColumn(error: SupabaseLikeError) 
 
 export const ENROLLMENT_TRACKING_COLUMNS =
   "stage_entered_at,stage_entered_source,last_activity_at,last_activity_by_email";
+const ENROLLMENT_CHILD_RECORD_ID_CHUNK_SIZE = 50;
+
+export function chunkEnrollmentRecordIds(
+  ids: readonly string[],
+  chunkSize = ENROLLMENT_CHILD_RECORD_ID_CHUNK_SIZE,
+): string[][] {
+  if (!Number.isInteger(chunkSize) || chunkSize < 1) {
+    throw new Error("chunkSize must be a positive integer.");
+  }
+  const chunks: string[][] = [];
+  for (let start = 0; start < ids.length; start += chunkSize) {
+    chunks.push([...ids.slice(start, start + chunkSize)]);
+  }
+  return chunks;
+}
+
+async function fetchEnrollmentListChildren(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  recordIds: readonly string[],
+): Promise<{
+  comments: Array<{ record_id?: string | null; body?: string | null }>;
+  attachments: Array<{ record_id?: string | null }>;
+}> {
+  if (recordIds.length === 0) return { comments: [], attachments: [] };
+
+  // PostgREST serializes `.in()` values into the request URL. A single query
+  // containing hundreds/thousands of UUIDs can fail before Supabase returns a
+  // structured error, so keep each request bounded while preserving parallel
+  // comment/attachment hydration.
+  const chunks = chunkEnrollmentRecordIds(recordIds);
+  const [commentResults, attachmentResults] = await Promise.all([
+    Promise.all(
+      chunks.map((chunk) =>
+        supabase
+          .from("enrollment_comments")
+          .select("record_id,body")
+          .in("record_id", chunk)
+          .is("deleted_at", null),
+      ),
+    ),
+    Promise.all(
+      chunks.map((chunk) =>
+        supabase
+          .from("enrollment_attachments")
+          .select("record_id")
+          .in("record_id", chunk),
+      ),
+    ),
+  ]);
+
+  const commentError = commentResults.find((result) => result.error)?.error;
+  if (commentError) throw new Error(commentError.message);
+  const attachmentError = attachmentResults.find((result) => result.error)?.error;
+  if (attachmentError) throw new Error(attachmentError.message);
+
+  return {
+    comments: commentResults.flatMap((result) => result.data ?? []),
+    attachments: attachmentResults.flatMap((result) => result.data ?? []),
+  };
+}
 
 export function isMissingEnrollmentTrackingColumn(error: SupabaseLikeError): boolean {
   return isEnrollmentSchemaOutOfDate(error);
@@ -136,23 +196,11 @@ export async function fetchEnrollmentRecords(
   const ids = records.map((record) => record.id);
   if (ids.length === 0) return [];
 
-  const [commentsRes, attachmentsRes] = await Promise.all([
-    supabase
-      .from("enrollment_comments")
-      .select("record_id,body")
-      .in("record_id", ids)
-      .is("deleted_at", null),
-    supabase
-      .from("enrollment_attachments")
-      .select("record_id")
-      .in("record_id", ids),
-  ]);
-  if (commentsRes.error) throw new Error(commentsRes.error.message);
-  if (attachmentsRes.error) throw new Error(attachmentsRes.error.message);
+  const { comments, attachments } = await fetchEnrollmentListChildren(supabase, ids);
 
-  const commentCounts = countByRecord(commentsRes.data ?? []);
-  const commentText = textByRecord(commentsRes.data ?? []);
-  const attachmentCounts = countByRecord(attachmentsRes.data ?? []);
+  const commentCounts = countByRecord(comments);
+  const commentText = textByRecord(comments);
+  const attachmentCounts = countByRecord(attachments);
   return records.map((record) => ({
     ...record,
     comment_count: commentCounts.get(record.id) ?? 0,

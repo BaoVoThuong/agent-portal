@@ -227,11 +227,28 @@ export async function fetchTaskListMetadata(
   const ids = [...new Set(taskIds.filter(Boolean))];
   if (ids.length === 0) return [];
 
-  const { data, error } = await supabase.rpc("task_list_metadata", {
-    task_ids: ids,
-  });
-  if (!error) return (data ?? []) as unknown as TaskListMetadataRow[];
-  if (!isMissingTaskListMetadataRpc(error)) throw new Error(error.message);
+  // Keep the RPC payload bounded as well. Unlike a PostgREST `.in()` filter,
+  // the RPC uses a POST body, but a large task queue can still create an
+  // unnecessarily large request and one expensive database operation. The
+  // legacy fallback below uses the same chunk size.
+  const rpcResults = await Promise.all(
+    chunkValues(ids, TASK_METADATA_TASK_ID_CHUNK_SIZE).map((chunk) =>
+      supabase.rpc("task_list_metadata", { task_ids: chunk }),
+    ),
+  );
+  const rpcErrors = rpcResults
+    .map((result) => result.error)
+    .filter((error): error is NonNullable<typeof error> => Boolean(error));
+  if (rpcErrors.length === 0) {
+    return rpcResults.flatMap(
+      ({ data }) => (data ?? []) as unknown as TaskListMetadataRow[],
+    );
+  }
+  const rpcError =
+    rpcErrors.find((error) => !isMissingTaskListMetadataRpc(error)) ?? rpcErrors[0];
+  if (!isMissingTaskListMetadataRpc(rpcError)) {
+    throw new Error(rpcError.message);
+  }
 
   const [actorRows, commentRows, attachmentRows] = await Promise.all([
     fetchTaskActorRows(ids, supabase),

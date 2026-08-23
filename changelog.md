@@ -6,6 +6,21 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-23 — Đồng bộ flow tải dữ liệu giữa Enrollment và CS
+- **Loại**: fix, performance, live-sync
+- **Cái gì**: Enroll khởi động truy vấn scope cùng lúc với records, people, options, columns và agents thay vì chờ scope xong mới tải phần còn lại. Client list dùng single-flight refetch: nếu realtime, focus hoặc polling cùng kích hoạt trong lúc request đang chạy thì chỉ giữ một lượt refresh bù ở cuối; snapshot đang hiển thị không bị thay bằng trạng thái loading/rỗng.
+- **Vì sao**: Enrollment list còn hydrate comment/attachment metadata nên mỗi request nặng hơn task list. Nhiều request chồng nhau làm Enroll hiện dữ liệu trễ, có thể nhảy giữa các snapshot và khác cảm giác tải của CS. Flow mới giữ dữ liệu cũ trong lúc tải và gộp trigger, khớp cơ chế stale-while-revalidate của CS.
+- **Ảnh hưởng**: Không đổi quyền, filter hay dữ liệu trả về; chỉ giảm request trùng và rút ngắn thời gian chờ lần tải đầu. Khi có thay đổi trong lúc mutation đang chạy, guard cũ vẫn defer/retry để không ghi đè dữ liệu mới.
+- **Kiểm chứng**: `npm run test:run` 108 files / 777 tests, `npm run typecheck`, `npm run lint`, `git diff --check` đều pass.
+
+## 2026-08-23 — Chặn request metadata và overview query quá lớn cho Enrollment và CS
+- **Loại**: fix, performance, test tooling
+- **Cái gì**: `fetchEnrollmentRecords()` chia batch 50 cho comments/attachments; `fetchTaskListMetadata()` của CS cũng chia batch 50 cho RPC metadata, trong khi fallback CS vốn đã chia batch. Các overview Enrollment cũng chia `record_id` thành batch 50 khi đọc stage cycles (ACA/MED dùng chung code, generic overview dùng cùng giới hạn). ACA/MED overview dùng một lượt đọc stage cycles để tính cả wait-time và owner metrics, bỏ `count: exact` ở các trang overview, và chạy các batch song song. Client giữ snapshot gần nhất theo program/date range để lần quay lại Overview hiển thị ngay rồi refresh nền. Các batch vẫn gộp kết quả trước khi trả dữ liệu; thêm regression test cho helper Enrollment, payload RPC CS và helper overview.
+- **Vì sao**: Với 500 ACA records, query list vẫn trả đủ, nhưng overview trước đây đưa 500 UUID vào một `.in("record_id", ...)` request cho stage cycles. URL/payload quá lớn làm `fetch` thất bại sau khoảng 9.5 giây và route trả 500. Sau khi chia batch, việc đọc stage cycles vẫn bị chậm vì cùng dữ liệu bị query hai lần và mỗi trang yêu cầu đếm chính xác; gộp còn một lần đọc, bỏ count thừa và chạy batch song song. Cache phía client giúp không phải chờ lại khi chuyển List/Overview hoặc quay lại cùng cohort. CS không tái hiện đúng lỗi request lớn vì phần task overview đã giới hạn batch assignee task ID ở 50; vẫn giữ giới hạn đồng nhất để các luồng không tái phát khi dữ liệu phình to.
+- **Tool test**: Thêm `scripts/seed-enrollment-performance-samples.mjs` và `scripts/benchmark-enrollment-list.mjs`. Seed 500 dòng ACA có marker `[Perf sample enrollment]`, phân bổ trên 17 agent, thêm activity/stage cycle tối thiểu; ghi chỉ khi có `SEED_PERF_ALLOW=1`, cleanup chỉ xóa đúng marker. Benchmark đo queue đầy đủ hoặc scope agent, không ghi dữ liệu.
+- **Đo được**: 503 dòng ACA, list-only p50 khoảng 373ms; hydration chia batch 50 chạy thành công khoảng 639ms ở lần đo đơn. HIGH-03 chưa cần pagination ngay vì chưa chạm truncation; HIGH-04 hiện scope agent đo được 1 agent và filter khoảng 220 bytes, chưa đủ bằng chứng để dựng visibility RPC.
+- **Lệnh**: `npm run seed:enrollment-perf -- --count=500 --program=aca --dry-run`; ghi thật cần `SEED_PERF_ALLOW=1`; dọn bằng `SEED_PERF_ALLOW=1 npm run seed:enrollment-perf -- --cleanup`; benchmark `npm run benchmark:enrollment-list -- --program=aca --all`.
+
 ## 2026-08-23 — Sửa các finding correctness/security từ code review 23/08
 - **Loại**: fix (security, correctness, perf)
 - **Cái gì**:

@@ -47,7 +47,11 @@ export default async function EnrollmentPage({
   const actor = buildTaskActor(session.user.permissions, email, {
     isAdmin: isTaskViewAdmin(session.user),
   });
-  const scope = await resolveEnrollmentScope(actor);
+  // Scope is only needed by the records query. Start it together with the
+  // independent page data so Enrollment does not serialize permission lookup
+  // before loading people, options, columns, and agents. The task board uses
+  // the same parallel-first pattern for its initial load.
+  const scopePromise = resolveEnrollmentScope(actor);
 
   const [
     records,
@@ -58,8 +62,11 @@ export default async function EnrollmentPage({
     tableColumnOptions,
     canExport,
     myAssistantAgents,
+    scope,
   ] = await Promise.all([
-    fetchEnrollmentRecords(program, scope),
+    scopePromise.then((resolvedScope) =>
+      fetchEnrollmentRecords(program, resolvedScope),
+    ),
     fetchEnrollmentPeople(),
     fetchTaskAgents(),
     fetchEnrollmentOptionData(program),
@@ -69,6 +76,7 @@ export default async function EnrollmentPage({
     actor.isManager
       ? Promise.resolve<string[]>([])
       : fetchAssistantAgentsForCs(email),
+    scopePromise,
   ]);
   const myAgents = actor.isManager
     ? agents.map((agent) => agent.email)

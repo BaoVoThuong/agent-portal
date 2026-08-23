@@ -6,7 +6,7 @@ import type { EnrollmentOption, EnrollmentProgram } from "./types";
 import type { EnrollmentOverviewStageDwellMetric } from "./overview-types";
 
 const PAGE_SIZE = 1000;
-const ID_CHUNK_SIZE = 500;
+const ID_CHUNK_SIZE = 50;
 const LOOKBACK_DAYS = 90;
 
 type CycleRow = { stage_id: string; duration_seconds: number | null };
@@ -57,13 +57,14 @@ export async function fetchStageDwellMetrics(
 
   const cutoff = new Date(now);
   cutoff.setUTCDate(cutoff.getUTCDate() - LOOKBACK_DAYS);
-  const rows: CycleRow[] = [];
-  for (let start = 0; start < recordIds.length; start += ID_CHUNK_SIZE) {
-    const ids = recordIds.slice(start, start + ID_CHUNK_SIZE);
+  const batches = await Promise.all(Array.from({ length: Math.ceil(recordIds.length / ID_CHUNK_SIZE) }, (_, chunkIndex) => {
+    const ids = recordIds.slice(chunkIndex * ID_CHUNK_SIZE, (chunkIndex + 1) * ID_CHUNK_SIZE);
+    return (async () => {
+      const rows: CycleRow[] = [];
     for (let offset = 0; ; offset += PAGE_SIZE) {
       const result = await supabase
         .from("enrollment_stage_cycles")
-        .select("stage_id,duration_seconds", { count: "exact" })
+        .select("stage_id,duration_seconds")
         .in("record_id", ids)
         .eq("program", program)
         .eq("kind", "dwell")
@@ -76,6 +77,8 @@ export async function fetchStageDwellMetrics(
       rows.push(...page);
       if (page.length < PAGE_SIZE || (typeof result.count === "number" && offset + page.length >= result.count)) break;
     }
-  }
-  return summarizeStageDwell(rows, stageOptions);
+      return rows;
+    })();
+  }));
+  return summarizeStageDwell(batches.flat(), stageOptions);
 }

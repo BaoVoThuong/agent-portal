@@ -576,8 +576,13 @@ export function EnrollmentClient({
   // re-run once writes settle, instead of being silently discarded.
   const refetchSeqRef = useRef(0);
   const refetchDirtyRef = useRef(false);
-  // Lets refetch re-run itself without a self-referencing useCallback.
-  const refetchRef = useRef<(() => void) | null>(null);
+  // Keep list refreshes single-flight. Enrollment list responses also hydrate
+  // comment and attachment metadata, so overlapping realtime/focus/poll
+  // requests are especially expensive and can make the UI appear to jump
+  // between snapshots. A trigger that arrives during a request becomes one
+  // trailing refresh, matching the task board's stale-while-revalidate flow.
+  const recordsRefetchInFlightRef = useRef<Promise<void> | null>(null);
+  const recordsRefetchQueuedRef = useRef(false);
   const enrollmentLayoutHydratedRef = useRef(false);
   const enrollmentLayoutUpdatedAtRef = useRef<string | null>(null);
   const enrollmentLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -934,46 +939,64 @@ export function EnrollmentClient({
     }
   }, [exportColumnKeys, exportRecordIds, program]);
 
-  const refetch = useCallback(async () => {
-    const seq = ++refetchSeqRef.current;
-    // Captured BEFORE the request goes out: if a write is already in flight,
-    // whatever the server returns cannot include it, so this snapshot is
-    // stale-by-construction no matter what pendingRef looks like later.
-    const hadPendingAtIssue = pendingRef.current.size > 0;
-    try {
-      const response = await fetch(`/api/enrollment?program=${program}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) return;
-      const data = (await response.json()) as { records: EnrollmentRecordWithStats[] };
-      // A newer refetch already superseded this one — dropping it is correct
-      // and needs no re-run, the newer one carries at least as much.
-      if (seq !== refetchSeqRef.current) return;
-      if (hadPendingAtIssue || pendingRef.current.size > 0) {
-        // Withheld, not discarded — this payload may carry other people's
-        // changes. Re-run it. In the common case the write has ALREADY
-        // settled by the time this response lands (the mutation is faster
-        // than the refetch it raced), so the mutation's flush already ran and
-        // will never run again — re-run right here instead of waiting for a
-        // future mutation that may never come.
-        if (pendingRef.current.size === 0) {
-          refetchDirtyRef.current = false;
-          refetchRef.current?.();
-          return;
-        }
-        refetchDirtyRef.current = true;
-        return;
-      }
-      refetchDirtyRef.current = false;
-      updateRecords(() => data.records);
-    } catch {
-      // The next realtime ping or manual refresh will retry.
+  const refetch = useCallback((): Promise<void> => {
+    const current = recordsRefetchInFlightRef.current;
+    if (current) {
+      // Coalesce every trigger that arrives during a request into exactly one
+      // trailing request. This prevents a realtime burst from creating a
+      // queue of equally expensive full-list queries.
+      recordsRefetchQueuedRef.current = true;
+      return current;
     }
-  }, [program]);
 
-  useEffect(() => {
-    refetchRef.current = () => void refetch();
-  }, [refetch]);
+    const operation = (async () => {
+      do {
+        recordsRefetchQueuedRef.current = false;
+        const seq = ++refetchSeqRef.current;
+        // Captured BEFORE the request goes out: if a write is already in
+        // flight, whatever the server returns cannot include it, so this
+        // snapshot is stale-by-construction no matter what pendingRef looks
+        // like later.
+        const hadPendingAtIssue = pendingRef.current.size > 0;
+        try {
+          const response = await fetch(`/api/enrollment?program=${program}`, {
+            cache: "no-store",
+          });
+          if (!response.ok) continue;
+          const data = (await response.json()) as {
+            records: EnrollmentRecordWithStats[];
+          };
+          // A newer sequence is not expected while single-flight is active,
+          // but keep the guard for future callers and hot-reload races.
+          if (seq !== refetchSeqRef.current) continue;
+          if (hadPendingAtIssue || pendingRef.current.size > 0) {
+            // Withheld, not discarded — this payload may carry other people's
+            // changes. Re-run it once writes settle instead of allowing the
+            // list to revert to a pre-write snapshot.
+            if (pendingRef.current.size === 0) {
+              refetchDirtyRef.current = false;
+              recordsRefetchQueuedRef.current = true;
+            } else {
+              refetchDirtyRef.current = true;
+            }
+            continue;
+          }
+          refetchDirtyRef.current = false;
+          updateRecords(() => data.records);
+        } catch {
+          // The next realtime ping or manual refresh will retry. If another
+          // trigger arrived meanwhile, the trailing pass below will retry it.
+        }
+      } while (recordsRefetchQueuedRef.current);
+    })().finally(() => {
+      if (recordsRefetchInFlightRef.current === operation) {
+        recordsRefetchInFlightRef.current = null;
+      }
+    });
+
+    recordsRefetchInFlightRef.current = operation;
+    return operation;
+  }, [program]);
 
   // Re-run an update that was dropped because a write was in flight, so we
   // never trade "UI reverts" for "UI silently stale".
@@ -1533,7 +1556,7 @@ export function EnrollmentClient({
         <div className="flex min-h-0 min-w-0 flex-1 flex-col pb-6">
           <div className="mx-auto flex min-h-0 w-full max-w-[1480px] flex-1 flex-col">
             <EnrollmentOverview
-              key={program}
+              key={`${program}|${overviewDateRange.from}|${overviewDateRange.to}`}
               program={program}
               from={overviewDateRange.from}
               to={overviewDateRange.to}

@@ -13,6 +13,8 @@
     "generate:emoji": "node scripts/generate-emoji-data.mjs",
     "check:emoji-length": "node scripts/check-emoji-length.mjs",
     "seed:enrollment": "node scripts/seed-enrollment-samples.mjs",
+    "seed:enrollment-perf": "node scripts/seed-enrollment-performance-samples.mjs",
+    "benchmark:enrollment-list": "node scripts/benchmark-enrollment-list.mjs",
     "seed:enrollment-comments": "node scripts/seed-enrollment-comment-samples.mjs",
     "benchmark:enrollment-comments": "node scripts/benchmark-enrollment-comment-load.mjs",
     "benchmark:task-detail-reactions": "node scripts/benchmark-task-detail-reactions.mjs",

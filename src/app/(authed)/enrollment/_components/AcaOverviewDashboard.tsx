@@ -13,15 +13,32 @@ import { AcaOverviewScorecards } from "./AcaOverviewScorecards";
 
 type Props = { program: EnrollmentProgram; from: string; to: string; onOpenRecord: (id: string) => void };
 
+const overviewSnapshotCache = new Map<string, AcaOverviewSnapshot>();
+
+function overviewCacheKey(program: EnrollmentProgram, from: string, to: string): string {
+  return `${program}|${from}|${to}`;
+}
+
+function rememberOverviewSnapshot(key: string, snapshot: AcaOverviewSnapshot): void {
+  overviewSnapshotCache.delete(key);
+  overviewSnapshotCache.set(key, snapshot);
+  while (overviewSnapshotCache.size > 8) {
+    const oldest = overviewSnapshotCache.keys().next().value;
+    if (!oldest) break;
+    overviewSnapshotCache.delete(oldest);
+  }
+}
+
 export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props) {
   const programLabel = program === "aca" ? "ACA" : "Medicare";
-  const [snapshot, setSnapshot] = useState<AcaOverviewSnapshot | null>(null);
+  const cacheKey = overviewCacheKey(program, from, to);
+  const [snapshot, setSnapshot] = useState<AcaOverviewSnapshot | null>(() => overviewSnapshotCache.get(cacheKey) ?? null);
   const [matrixMode, setMatrixMode] = useState<"occupancy" | "speed">("occupancy");
   const [threshold, setThreshold] = useState<AcaOverviewThresholdDays | null>(null);
   const [editingQueue, setEditingQueue] = useState(false);
   const [updatingQueueEmail, setUpdatingQueueEmail] = useState<string | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(() => !overviewSnapshotCache.has(cacheKey)); const [error, setError] = useState<string | null>(null);
   const sequence = useRef(0);
   const load = useCallback(async () => {
     const current = ++sequence.current; setLoading(true); setError(null);
@@ -33,10 +50,14 @@ export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props)
       const response = await fetch(`/api/enrollment/aca-overview?${params}`, { cache: "no-store" });
       const payload = await response.json().catch(() => null) as AcaOverviewSnapshot | { error?: string } | null;
       if (!response.ok) throw new Error(payload && "error" in payload ? payload.error : `Could not load ${programLabel} overview.`);
-      if (current === sequence.current) setSnapshot(payload as AcaOverviewSnapshot);
+      if (current === sequence.current) {
+        const nextSnapshot = payload as AcaOverviewSnapshot;
+        rememberOverviewSnapshot(cacheKey, nextSnapshot);
+        setSnapshot(nextSnapshot);
+      }
     } catch (cause) { if (current === sequence.current) setError(cause instanceof Error ? cause.message : `Could not load ${programLabel} overview.`); }
     finally { if (current === sequence.current) setLoading(false); }
-  }, [from, program, programLabel, threshold, to]);
+  }, [cacheKey, from, program, programLabel, threshold, to]);
   // Fetching the snapshot is the external synchronization this effect owns.
   // The loader also updates loading/error state while handling the request.
   // eslint-disable-next-line react-hooks/set-state-in-effect

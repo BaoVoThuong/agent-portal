@@ -74,6 +74,30 @@ describe("fetchTaskListMetadata", () => {
       },
     ]);
   });
+
+  it("bounds metadata RPC payloads for a large task queue", async () => {
+    const taskIds = Array.from({ length: 101 }, (_, index) => `task-${index}`);
+    const rpc = vi.fn(async (_name: string, args: { task_ids: string[] }) => ({
+      data: args.task_ids.map((task_id) => ({
+        task_id,
+        last_activity_by_email: null,
+        comment_count: 0,
+        attachment_count: 0,
+      })),
+      error: null,
+    }));
+
+    const rows = await fetchTaskListMetadata(taskIds, { rpc } as never);
+
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(
+      Math.max(
+        ...rpc.mock.calls.map(([, args]) => args.task_ids.length),
+      ),
+    ).toBeLessThanOrEqual(50);
+    expect(rows).toHaveLength(taskIds.length);
+    expect(rows.map((row) => row.task_id)).toEqual(taskIds);
+  });
 });
 
 describe("assertTaskListComplete", () => {
