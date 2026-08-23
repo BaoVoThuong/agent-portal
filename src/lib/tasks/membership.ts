@@ -2,6 +2,11 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchSelectedAgentEmails } from "./assignees";
 import type { TaskActor } from "./types";
 
+// NOTE: byte-for-byte the same query as fetchAssistantAgentsForCs below, but the
+// two are read differently: an empty list here only ever REMOVES an OR-branch or
+// clears isAgentMember, i.e. it denies access, so returning [] on error stays
+// fail-closed and is left as-is. Worth collapsing the two helpers, but that is a
+// naming decision, not a security one — see the 23/08 review, HIGH-01.
 export async function fetchAgentsForCs(email: string): Promise<string[]> {
   const { data, error } = await getSupabaseAdmin()
     .from("agent_members")
@@ -57,14 +62,56 @@ export async function fetchCsForAgents(
 
 // Agents this person is a promoted "Assistant" for — an Assistant gets the
 // same rights as the agent owner on that agent's tasks.
+//
+// Throws rather than returning [] on a query failure, because both callers read
+// an empty result as POSITIVE evidence that the actor is a plain CS and hand
+// them the whole company queue (actorSeesAllTasks below, and the mirrored branch
+// in fetchTasksForActor). Swallowing the error there turned a transient
+// agent_members failure — a schema-cache miss, a per-statement timeout, an RLS
+// change on that one table — into an assistant seeing every task in the company.
+// Its sibling fetchSelectedAgentEmails already throws, so a full outage was
+// always fail-closed; only a failure isolated to this table opened the hole.
 export async function fetchAssistantAgentsForCs(email: string): Promise<string[]> {
   const { data, error } = await getSupabaseAdmin()
     .from("agent_members")
     .select("agent_email")
     .eq("cs_email", email)
     .eq("is_assistant", true);
-  if (error) return [];
+  if (error) throw new Error(error.message);
   return [...new Set((data ?? []).map((r) => (r as { agent_email: string }).agent_email))];
+}
+
+export type TaskQueueScope = {
+  /** Agent emails whose tasks this worker may see through membership. */
+  agentEmails: string[];
+  /** Agent emails for which this worker is an assistant. */
+  assistantAgentEmails: string[];
+  /** Plain CS company-wide queue visibility. */
+  seesAllTasks: boolean;
+};
+
+// Resolve the two membership facts that define a worker's task queue in one
+// round trip to agent_members. The two public helpers above intentionally keep
+// their historical error semantics for callers that only need one fact; queue
+// authorization must use this fail-closed combined resolver instead.
+export async function resolveTaskQueueScope(
+  actor: TaskActor,
+): Promise<TaskQueueScope> {
+  if (actor.isManager || !actor.isWorker) {
+    return { agentEmails: [], assistantAgentEmails: [], seesAllTasks: actor.isManager };
+  }
+
+  const [selectedAgentEmails, assistantAgentEmails] = await Promise.all([
+    fetchSelectedAgentEmails(),
+    fetchAssistantAgentsForCs(actor.email),
+  ]);
+
+  return {
+    agentEmails: assistantAgentEmails,
+    assistantAgentEmails,
+    seesAllTasks:
+      !selectedAgentEmails.has(actor.email) && assistantAgentEmails.length === 0,
+  };
 }
 
 // The single check used everywhere "agent owner" rights are decided: either
@@ -124,11 +171,5 @@ export async function fetchAdminEmails(): Promise<string[]> {
 // Agents (in task_agents) and Assistants stay scoped to their agent's tasks.
 // Mirrors the plain-CS branch of fetchTasksForActor — keep the two in sync.
 export async function actorSeesAllTasks(actor: TaskActor): Promise<boolean> {
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  const [selectedAgentEmails, assistantAgents] = await Promise.all([
-    fetchSelectedAgentEmails(),
-    fetchAssistantAgentsForCs(actor.email),
-  ]);
-  return !selectedAgentEmails.has(actor.email) && assistantAgents.length === 0;
+  return (await resolveTaskQueueScope(actor)).seesAllTasks;
 }

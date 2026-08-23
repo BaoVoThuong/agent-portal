@@ -25,8 +25,8 @@ import {
 } from "@/lib/tasks/realtime";
 import {
   fetchAgentOwnerAndAssistantEmails,
-  fetchAgentsForCs,
   isAgentOwnerOrAssistant,
+  resolveTaskQueueScope,
 } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
@@ -126,13 +126,20 @@ async function resolveTaskAccess(
       isReporter: false,
     };
   }
-  const [isParticipant, isAssignee, agents, isAgentOwner] = await Promise.all([
-    isTaskParticipant(taskId, actor.email),
-    isTaskAssignee(taskId, actor.email),
-    fetchAgentsForCs(actor.email),
-    isAgentOwnerOrAssistant(task.agent_email, actor.email),
-  ]);
-  const isAgentMember = Boolean(task.agent_email && agents.includes(task.agent_email));
+  // seesAllTasks must be resolved here too, not just in detail/comments: a
+  // plain-CS opening a shared-queue task got 403 from this route while the
+  // board happily showed the same row, so conflict recovery after a 409 could
+  // never reload the canonical task.
+  const [isParticipant, isAssignee, scope, isAgentOwner] =
+    await Promise.all([
+      isTaskParticipant(taskId, actor.email),
+      isTaskAssignee(taskId, actor.email),
+      resolveTaskQueueScope(actor),
+      isAgentOwnerOrAssistant(task.agent_email, actor.email),
+    ]);
+  const isAgentMember = Boolean(
+    task.agent_email && scope.agentEmails.includes(task.agent_email),
+  );
   const isReporter = task.reporter_email === actor.email;
   const capabilities = resolveTaskCapabilities(actor, task, {
     isParticipant,
@@ -140,6 +147,7 @@ async function resolveTaskAccess(
     isAgentOwner,
     isAssignee,
     isReporter,
+    seesAllTasks: scope.seesAllTasks,
   });
   return {
     canView: capabilities.canView,

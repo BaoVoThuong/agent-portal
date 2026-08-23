@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-23 — Sửa các finding correctness/security từ code review 23/08
+- **Loại**: fix (security, correctness, perf)
+- **Cái gì**:
+  - **`seeAll` vào resolver chung** (`access.ts`): luật "plain-CS thấy toàn bộ company queue" trước đây sống ở `actorSeesAllTasks()` và bị chép lại lần hai trong `fetchTasksForActor()`, nên mỗi route đọc task phải tự nhớ OR nó vào. Comments/detail nhớ; **direct GET `/api/tasks/:id` và search thì quên**. Nay thành flag `seesAllTasks` trong `canViewTask`, và cả hai chỗ quên đã truyền vào. Flag chỉ mở **quyền đọc** — các helper mutation vẫn đọc flag riêng của chúng, có test chốt điều này.
+  - **Membership fail-closed** (`membership.ts`): `fetchAssistantAgentsForCs` trả `[]` khi query lỗi, trong khi caller dùng mảng rỗng làm **bằng chứng** user là plain CS → một assistant có thể được cấp toàn bộ queue. Nay throw. Sibling `fetchSelectedAgentEmails` vốn đã throw nên sự cố DB toàn phần luôn fail-closed; lỗ hổng chỉ mở khi riêng `agent_members` lỗi (schema-cache miss, timeout, đổi RLS).
+  - **Quyền assign** (`assign/route.ts`): route gác bằng `isTaskViewAdmin` — một phép thử **role**, không kiểm `task.manage`. RPC `assign_unassigned_task` là security-definer và không tự xác thực `p_actor_email`, nên route là hàng rào duy nhất. Nay dùng `buildTaskActor` + `canAssign`, khớp với route `/assignees` đã làm đúng.
+  - **Comment đã xoá bị rò** (`comments/route.ts` GET): query không lọc `deleted_at` và không giới hạn. Thêm `.is("deleted_at", null)` + lấy 50 comment mới nhất, đảo lại thứ tự tăng dần để giữ contract cũ. Không client nội bộ nào gọi GET này, nhưng route vẫn reachable.
+  - **Comment tạm không được release** (`CommentThread.tsx`): retry upload trước đây đọc state qua closure cũ. Nay đợi React commit trạng thái file thành công rồi mới release bằng effect, không dùng state updater như kênh trả kết quả và không tạo side effect trong updater.
+  - **Gom scope membership** (`membership.ts`, `queries.ts`, `search.ts`, direct GET): dùng một resolver fail-closed cho selected-agent/assistant scope, tránh lặp query `agent_members` trong list, search và direct GET.
+  - **Broadcast source cho upload lúc tạo task** (`NewTaskDialog.tsx`): upload attachment cấp task gửi cùng `x-task-client-source`, nên tab tạo task cũng bỏ qua echo tasks-only của chính nó. Source thiếu vẫn chỉ là tasks-only; comments/attachments không reload categories.
+- **Vì sao**: Ba mục đầu là phân quyền — hai mục fail-open (cấp quyền không nên có), một mục thiếu kiểm tra permission. Mục 4 là rò dữ liệu đã soft-delete. Mục 5-6 là correctness + chi phí.
+- **Không làm trong lượt này**: HIGH-03 (cursor pagination), HIGH-04 (visibility RPC), HIGH-05, HIGH-06, HIGH-07, MEDIUM-07/08/09/10. Sáu trong số đó là tối ưu kiến trúc mà chính report yêu cầu `EXPLAIN ANALYZE` hoặc đo production trước; số liệu Vercel cho thấy HIGH-05/06/07 gần như không xuất hiện trong top route. Chi tiết ở `docs/superpowers/plans/2026-08-23-task-review-remediation.md`.
+- **Kiểm chứng**: `npm run test:run` 108 files / **772 tests** (baseline 760, thêm 12 test hồi quy), `npm run typecheck`, `npm run lint` đều pass.
+
 ## 2026-08-21 — Đặt React cạnh Reply và mở rộng bộ emoji
 - **Loại**: feature, fix
 - **Cái gì**: Giữ UI reaction cũ trong comment nhưng mở picker searchable/full-set; ô soạn comment dùng cùng picker, nhóm theo category và bộ 1.914 emoji RGI sinh từ dataset Unicode. Server dùng `Set` exact-match trên dataset đã sinh, chuẩn hoá variation selector trước khi lưu, thay cho allowlist 16 emoji.

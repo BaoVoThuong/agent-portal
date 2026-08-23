@@ -35,6 +35,7 @@ describe("isHitVisible", () => {
     assignedIds: new Set(["t-assigned"]),
     participantIds: new Set(["t-part"]),
     assigneeByTask: new Map([["t-assigned", ["cs@x.com"]]]),
+    seesAllTasks: false,
   };
   const cs = buildTaskActor(["task.work"], "cs@x.com");
   const admin = buildTaskActor(["task.manage"], "admin@x.com", {
@@ -138,5 +139,37 @@ describe("isHitVisible", () => {
         scope
       )
     ).toBe(true);
+  });
+});
+
+describe("isHitVisible — plain-CS company queue", () => {
+  const cs = buildTaskActor(["task.work"], "cs@x.com");
+  const stranger = {
+    task_id: "t-stranger",
+    agent_email: "someoneelse@x.com",
+    assignee_email: "someoneelse@x.com",
+    reporter_email: "someoneelse@x.com",
+  };
+  const base = {
+    agents: [],
+    assistantAgents: [],
+    assignedIds: new Set<string>(),
+    participantIds: new Set<string>(),
+    assigneeByTask: new Map<string, string[]>(),
+  };
+
+  // fetchTasksForActor puts this task on the board for a plain CS. Search used
+  // to apply only canViewTask, so the same row was missing from search results
+  // and users read that as "the task was deleted".
+  it("finds a shared-queue task the actor has no specific claim on", () => {
+    expect(
+      isHitVisible(cs, stranger, { ...base, seesAllTasks: true })
+    ).toBe(true);
+  });
+
+  it("still hides it from an agent-scoped worker", () => {
+    expect(
+      isHitVisible(cs, stranger, { ...base, seesAllTasks: false })
+    ).toBe(false);
   });
 });

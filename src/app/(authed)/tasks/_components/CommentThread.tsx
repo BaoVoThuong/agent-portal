@@ -457,6 +457,7 @@ export function CommentThread({
 }) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
+  const [retryReleaseId, setRetryReleaseId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<AttachmentPreview | null>(null);
   const [previewStatus, setPreviewStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [previewZoom, setPreviewZoom] = useState(1);
@@ -926,7 +927,7 @@ export function CommentThread({
     [members],
   );
 
-  function releaseOptimistic(id: string) {
+  const releaseOptimistic = useCallback((id: string) => {
     const urls = optimisticUrlsRef.current.get(id);
     if (urls) {
       for (const url of urls) URL.revokeObjectURL(url);
@@ -941,7 +942,19 @@ export function CommentThread({
     // of the same draft keeps its id; a new draft must not replay the old row.
     submissionRef.current = finishSubmission();
     failedSubmissionIntentRef.current = null;
-  }
+  }, []);
+
+  // A state updater is not a synchronous return-value channel. After a retry,
+  // wait until React has committed the success state, then remove the
+  // optimistic row in an effect. This also keeps the cleanup side effect out of
+  // the functional updater, which React may invoke more than once.
+  useEffect(() => {
+    if (!retryReleaseId) return;
+    const latest = optimisticComments.find((item) => item.id === retryReleaseId);
+    if (!latest?.fileStates?.every((state) => state.status === "success")) return;
+    setRetryReleaseId(null);
+    releaseOptimistic(retryReleaseId);
+  }, [optimisticComments, releaseOptimistic, retryReleaseId]);
 
   function post(body: string, files: File[], parentId: string | null) {
     if (!canSubmit(submissionRef.current)) return false;
@@ -1197,10 +1210,10 @@ export function CommentThread({
         if (reloadResult === "failed") {
           throw new Error("Refresh failed.");
         }
-        const latest = optimisticComments.find((item) => item.id === tempId);
-        if (latest?.fileStates?.every((state) => state.status === "success")) {
-          releaseOptimistic(tempId);
-        }
+        // The success state was committed before this signal is observed by
+        // the effect above. If every file is now successful, that effect
+        // releases the temporary row without relying on a stale closure.
+        setRetryReleaseId(tempId);
       } catch (error) {
         setOptimisticComments((current) =>
           current.map((item) =>

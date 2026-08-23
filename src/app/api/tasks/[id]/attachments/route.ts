@@ -16,7 +16,11 @@ import {
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
-import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskRoom,
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import { signAttachmentsSafely } from "@/lib/tasks/detail";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import {
@@ -316,7 +320,10 @@ export async function POST(req: Request, { params }: Ctx) {
       run: async () => {
         const delivered = await Promise.all([
           broadcastTaskRoom(id),
-          broadcastTasksChanged(),
+          // Pass the caller's source id so the originating tab can skip its own
+          // tasks-only echo. Missing source ids also remain tasks-only here;
+          // comments and attachments never change task categories.
+          broadcastTasksChanged(readTaskMutationSourceId(req)),
         ]);
         return delivered.every(Boolean);
       },

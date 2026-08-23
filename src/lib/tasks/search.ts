@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { canViewTask } from "./access";
 import { fetchAssignedTaskIdsForEmail } from "./assignees";
-import { fetchAgentsForCs, fetchAssistantAgentsForCs } from "./membership";
+import { resolveTaskQueueScope } from "./membership";
 import { fetchParticipantTaskIds } from "./participants";
 import { taskDisplayKey } from "./sorting";
 import type { TaskActor, TaskStatus } from "./types";
@@ -62,6 +62,8 @@ export type VisibilityScope = {
   assignedIds: Set<string>;
   participantIds: Set<string>;
   assigneeByTask: Map<string, string[]>;
+  /** Plain-CS company-wide queue. Same rule fetchTasksForActor applies. */
+  seesAllTasks: boolean;
 };
 
 export function buildSnippet(
@@ -91,6 +93,9 @@ export function buildSnippet(
 }
 
 // Reuses canViewTask so search visibility cannot drift from board visibility.
+// That claim only became true once seesAllTasks moved into canViewTask: before
+// that, the board had a plain-CS company-queue branch this function never had,
+// so a task visible on the board simply did not appear in search results.
 export function isHitVisible(
   actor: TaskActor,
   meta: TaskVisibilityMeta,
@@ -117,6 +122,7 @@ export function isHitVisible(
       ),
       isParticipant: scope.participantIds.has(meta.task_id),
       isReporter: meta.reporter_email === actor.email,
+      seesAllTasks: scope.seesAllTasks,
     }
   );
 }
@@ -157,7 +163,7 @@ type FileSearchRow = {
 
 type SearchMembership =
   | null
-  | [string[], string[], string[], string[]];
+  | [string[], string[], string[], string[], boolean];
 
 type SearchPage<Row> = {
   data: Row[] | null;
@@ -206,7 +212,8 @@ async function loadSearchVisibility(
 
   if (!membership) return { metaById, scope: null };
 
-  const [agents, assistantAgents, assignedIds, participantIds] = membership;
+  const [agents, assistantAgents, assignedIds, participantIds, seesAllTasks] =
+    membership;
   const assigneeByTask = new Map<string, string[]>();
   for (const row of (assigneeRes.data ?? []) as unknown as {
     task_id: string;
@@ -225,6 +232,7 @@ async function loadSearchVisibility(
       assignedIds: new Set(assignedIds),
       participantIds: new Set(participantIds),
       assigneeByTask,
+      seesAllTasks,
     },
   };
 }
@@ -276,6 +284,8 @@ async function collectVisibleHits<Row, Hit>(params: {
             assignedIds: new Set(),
             participantIds: new Set(),
             assigneeByTask: new Map(),
+            // Only reachable for a manager, who short-circuits in canViewTask.
+            seesAllTasks: false,
           }
         )
       ) {
@@ -322,11 +332,16 @@ export async function runTaskSearch(
   const membershipPromise = actor.isManager
     ? Promise.resolve(null)
     : Promise.all([
-        fetchAgentsForCs(actor.email),
-        fetchAssistantAgentsForCs(actor.email),
+        resolveTaskQueueScope(actor),
         fetchAssignedTaskIdsForEmail(actor.email, supabase),
         fetchParticipantTaskIds(actor.email),
-      ]);
+      ]).then(([scope, assignedIds, participantIds]) => [
+        scope.agentEmails,
+        scope.assistantAgentEmails,
+        assignedIds,
+        participantIds,
+        scope.seesAllTasks,
+      ] as SearchMembership);
 
   const membership = await membershipPromise;
   const [taskResult, commentResult, fileResult] = await Promise.all([

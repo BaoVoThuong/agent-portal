@@ -25,6 +25,7 @@ import {
 } from "@/lib/tasks/pending-attachments";
 import { formatAttachmentSize } from "@/lib/tasks/attachments";
 import { publishTaskDataInvalidation } from "@/lib/tasks/client-events";
+import { TASK_MUTATION_SOURCE_HEADER } from "@/lib/tasks/realtime-topics";
 
 const SIDE_INPUT_CLASS =
   "h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none transition placeholder:font-normal placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
@@ -62,6 +63,7 @@ const ASSIGNED_STATUS_OPTIONS = TASK_STATUSES.filter((status) => status !== "bac
 
 export function NewTaskDialog({
   open,
+  mutationSourceId,
   isManager,
   currentEmail,
   myAssistantAgents,
@@ -80,6 +82,7 @@ export function NewTaskDialog({
   onCreate,
 }: {
   open: boolean;
+  mutationSourceId?: string;
   isManager: boolean;
   currentEmail: string;
   myAssistantAgents: string[];
@@ -251,6 +254,9 @@ export function NewTaskDialog({
           try {
             const response = await fetch(`/api/tasks/${created.id}/attachments`, {
               method: "POST",
+              headers: mutationSourceId
+                ? { [TASK_MUTATION_SOURCE_HEADER]: mutationSourceId }
+                : undefined,
               body,
             });
             const ok = response.ok;

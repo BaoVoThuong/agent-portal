@@ -357,3 +357,54 @@ describe("resolveTaskCapabilities", () => {
     expect(Object.values(c).every((v) => v === false)).toBe(true);
   });
 });
+
+describe("canViewTask — company queue flag", () => {
+  const cs = buildTaskActor(["task.work"], "cs@x.com");
+  const other = { assignee_email: "someoneelse@x.com" };
+
+  it("denies a worker with no claim on the task", () => {
+    expect(canViewTask(cs, other, {})).toBe(false);
+  });
+
+  it("grants read once the company-queue rule applies", () => {
+    expect(canViewTask(cs, other, { seesAllTasks: true })).toBe(true);
+  });
+
+  it("never grants a non-worker, whatever the queue says", () => {
+    const outsider = buildTaskActor([], "nobody@x.com");
+    expect(canViewTask(outsider, other, { seesAllTasks: true })).toBe(false);
+  });
+
+  it("widens reads only — the queue must not unlock edits", () => {
+    const caps = resolveTaskCapabilities(cs, other, { seesAllTasks: true });
+    expect(caps.canView).toBe(true);
+    expect(caps.canEditContent).toBe(false);
+    expect(caps.canAssign).toBe(false);
+    expect(caps.canDelete).toBe(false);
+  });
+});
+
+// /api/tasks/[id]/assign used to gate on isTaskViewAdmin alone. These cases pin
+// down why that was not equivalent to the assignment rule.
+describe("isTaskViewAdmin is not an assignment check", () => {
+  it("an admin role with task.manage revoked is still a task-view admin", () => {
+    const user = { role: "admin", roles: ["Admin Health Task"] };
+    expect(isTaskViewAdmin(user)).toBe(true);
+  });
+
+  it("...but must not be able to assign", () => {
+    const user = { role: "admin", roles: ["Admin Health Task"] };
+    const actor = buildTaskActor(["task.work"], "a@x.com", {
+      isAdmin: isTaskViewAdmin(user),
+    });
+    expect(canAssign(actor)).toBe(false);
+  });
+
+  it("a full admin keeps the ability", () => {
+    const user = { role: "admin", roles: ["Admin Health Task"] };
+    const actor = buildTaskActor(["task.manage"], "a@x.com", {
+      isAdmin: isTaskViewAdmin(user),
+    });
+    expect(canAssign(actor)).toBe(true);
+  });
+});

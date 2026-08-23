@@ -9,7 +9,11 @@ import { isTaskParticipant } from "@/lib/tasks/participants";
 import { parseMentions } from "@/lib/tasks/mentions";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
-import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskRoom,
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import { removeTaskFile } from "@/lib/tasks/storage";
 import type { TaskRow } from "@/lib/tasks/types";
 
@@ -176,7 +180,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
       message: "Other open tabs may need a refresh to see this edit.",
       run: async () => {
         const delivered = await Promise.all([
-          broadcastTasksChanged(),
+          // Pass the caller's source id so the originating tab can skip its own
+          // tasks-only echo. Missing source ids also remain tasks-only;
+          // comments and attachments never change task categories.
+          broadcastTasksChanged(readTaskMutationSourceId(req)),
           broadcastTaskRoom(id),
         ]);
         return delivered.every(Boolean);
@@ -186,7 +193,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings });
 }
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export async function DELETE(req: Request, { params }: Ctx) {
   const { id, cid } = await params;
   const ctx = await loadAuthorContext(id, cid);
   if ("error" in ctx)
@@ -226,7 +233,10 @@ export async function DELETE(_req: Request, { params }: Ctx) {
       run: async () => {
         const delivered = await Promise.all([
           broadcastTaskRoom(id),
-          broadcastTasksChanged(),
+          // Pass the caller's source id so the originating tab can skip its own
+          // tasks-only echo. Missing source ids also remain tasks-only;
+          // comments and attachments never change task categories.
+          broadcastTasksChanged(readTaskMutationSourceId(req)),
         ]);
         return delivered.every(Boolean);
       },

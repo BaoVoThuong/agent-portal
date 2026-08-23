@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { isTaskViewAdmin } from "@/lib/tasks/access";
+import { buildTaskActor, canAssign, isTaskViewAdmin } from "@/lib/tasks/access";
 import {
   attachAssigneesToTasks,
   isEligibleTaskAssigneeEmail,
@@ -30,7 +30,16 @@ export async function POST(request: Request, { params }: Ctx) {
   const session = await auth();
   const actorEmail = session?.user?.email;
   if (!actorEmail) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isTaskViewAdmin(session.user)) {
+  // isTaskViewAdmin alone is a ROLE test and says nothing about task.manage, so
+  // an admin-shaped role with that permission revoked used to pass here while
+  // failing every other assignment path. assign_unassigned_task is a
+  // security-definer RPC that only validates the assignee, never p_actor_email,
+  // so this route is the sole gate. Resolve the actor the same way the sibling
+  // /assignees route does.
+  const actor = buildTaskActor(session.user.permissions, actorEmail, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
+  if (!canAssign(actor)) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 

@@ -2,10 +2,9 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   attachAssigneesToTasks,
   fetchAssignedTaskIdsForEmail,
-  fetchSelectedAgentEmails,
 } from "./assignees";
 import { canViewTask } from "./access";
-import { fetchAgentsForCs, fetchAssistantAgentsForCs } from "./membership";
+import { resolveTaskQueueScope } from "./membership";
 import { fetchParticipantTaskIds } from "./participants";
 import type { TaskActor, TaskRow } from "./types";
 
@@ -44,29 +43,30 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<TaskRow[]> {
   // keep the narrower agent-scope view.
   let seeAll = actor.isManager;
   if (!actor.isManager) {
-    const [selectedAgentEmails, assistantAgents] = await Promise.all([
-      fetchSelectedAgentEmails(),
-      fetchAssistantAgentsForCs(actor.email),
-    ]);
-    const isAgent = selectedAgentEmails.has(actor.email);
-    const isAssistant = assistantAgents.length > 0;
-    seeAll = !isAgent && !isAssistant;
+    const scope = await resolveTaskQueueScope(actor);
+    seeAll = scope.seesAllTasks;
     if (!seeAll) {
-      const [agents, assignedIds, participantIds] = await Promise.all([
-        fetchAgentsForCs(actor.email),
+      const [assignedIds, participantIds] = await Promise.all([
         fetchAssignedTaskIdsForEmail(actor.email, supabase),
         fetchParticipantTaskIds(actor.email),
       ]);
-      workerScope = { agents, assistantAgents, assignedIds, participantIds };
+      workerScope = {
+        agents: scope.agentEmails,
+        assistantAgents: scope.assistantAgentEmails,
+        assignedIds,
+        participantIds,
+      };
       const quotedEmail = quotePostgrestFilterValue(actor.email);
       const ors: string[] = [
         `assignee_email.eq.${quotedEmail}`,
         `agent_email.eq.${quotedEmail}`,
         `reporter_email.eq.${quotedEmail}`,
       ];
-      if (agents.length > 0) {
+      if (scope.agentEmails.length > 0) {
         ors.push(
-          `agent_email.in.(${agents.map(quotePostgrestFilterValue).join(",")})`
+          `agent_email.in.(${scope.agentEmails
+            .map(quotePostgrestFilterValue)
+            .join(",")})`
         );
       }
       if (assignedIds.length > 0) {

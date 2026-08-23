@@ -187,6 +187,15 @@ async function loadFetchTasksForActor({
   vi.doMock("./membership", () => ({
     fetchAgentsForCs: vi.fn(async () => assistantAgents),
     fetchAssistantAgentsForCs: vi.fn(async () => assistantAgents),
+    resolveTaskQueueScope: vi.fn(async (actor: { email: string; isManager: boolean; isWorker: boolean }) => ({
+      agentEmails: assistantAgents,
+      assistantAgentEmails: assistantAgents,
+      seesAllTasks:
+        !actor.isManager &&
+        actor.isWorker &&
+        !selectedAgentEmails.includes(actor.email) &&
+        assistantAgents.length === 0,
+    })),
   }));
   vi.doMock("./participants", () => ({
     fetchParticipantTaskIds: vi.fn(async () => []),

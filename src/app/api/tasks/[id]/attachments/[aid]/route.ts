@@ -7,7 +7,11 @@ import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { removeTaskFile } from "@/lib/tasks/storage";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
-import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskRoom,
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +41,7 @@ async function canViewResolved(
   });
 }
 
-export async function DELETE(_req: Request, { params }: Ctx) {
+export async function DELETE(req: Request, { params }: Ctx) {
   const { id, aid } = await params;
   const session = await auth();
   const email = session?.user?.email;
@@ -105,7 +109,10 @@ export async function DELETE(_req: Request, { params }: Ctx) {
       run: async () => {
         const delivered = await Promise.all([
           broadcastTaskRoom(id),
-          broadcastTasksChanged(),
+          // Pass the caller's source id so the originating tab can skip its own
+          // tasks-only echo. Missing source ids also remain tasks-only here;
+          // comments and attachments never change task categories.
+          broadcastTasksChanged(readTaskMutationSourceId(req)),
         ]);
         return delivered.every(Boolean);
       },

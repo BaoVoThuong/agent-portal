@@ -2086,6 +2086,7 @@ export function TaskBoardClient({
       {creating && canCreateTasks ? (
         <NewTaskDialog
           open={creating}
+          mutationSourceId={boardInvalidationSourceId}
           isManager={isManager}
           currentEmail={currentEmail}
           myAssistantAgents={myAssistantAgents}

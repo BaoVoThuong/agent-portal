@@ -1,5 +1,8 @@
 // The ONLY place task-board permission/scope decisions are made. Pure functions
-// (no I/O) so they are fully unit-tested. API routes enforce these decisions,
+// (no I/O) so they are fully unit-tested. The company-queue rule that plain-CS
+// see every task is a `seesAllTasks` flag here rather than a separate branch in
+// each route: it used to live only in actorSeesAllTasks()/fetchTasksForActor(),
+// and two of the four read paths (direct GET, search) forgot to apply it. API routes enforce these decisions,
 // and the client uses the same resolver to render matching controls. Identity
 // is by email (no account id in session).
 import { can } from "@/lib/rbac/client";
@@ -82,6 +85,9 @@ export function canManageCategories(actor: TaskActor): boolean {
 //   isAgentOwner  – worker is the task's customer agent / final QC owner
 //   isParticipant – worker was @mentioned / added as a participant
 //   isReporter    – worker created/reported the task
+//   seesAllTasks  – plain-CS company-wide queue (actorSeesAllTasks). Widens
+//                   READ access only; every mutation helper below keeps reading
+//                   its own specific flags, so the queue never grants edits.
 export function canViewTask(
   actor: TaskActor,
   task: Pick<TaskRow, "assignee_email">,
@@ -91,12 +97,14 @@ export function canViewTask(
     isAgentOwner?: boolean;
     isParticipant?: boolean;
     isReporter?: boolean;
+    seesAllTasks?: boolean;
   } = {}
 ): boolean {
   void task;
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
   return (
+    Boolean(flags.seesAllTasks) ||
     Boolean(flags.isAssignee) ||
     Boolean(flags.isAgentMember) ||
     Boolean(flags.isAgentOwner) ||
@@ -166,6 +174,7 @@ export type TaskMembershipFlags = {
   isAgentMember?: boolean;
   isReporter?: boolean;
   isParticipant?: boolean;
+  seesAllTasks?: boolean;
 };
 
 export type TaskCapabilities = {

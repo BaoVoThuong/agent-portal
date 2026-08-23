@@ -13,7 +13,11 @@ import { fetchTaskParticipantEmails, isTaskParticipant } from "@/lib/tasks/parti
 import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
-import { broadcastTaskRoom, broadcastTasksChanged } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskRoom,
+  broadcastTasksChanged,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +25,9 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 const COMMENT_COLUMNS =
   "id,task_id,parent_id,author_email,body,client_request_id,created_at,updated_at,deleted_at";
+// Matches the drawer's first page size. This endpoint has no cursor, so the cap
+// is the only thing keeping a long thread from becoming an unbounded response.
+const LEGACY_COMMENT_LIMIT = 50;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -81,14 +88,21 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (!(await canViewResolved(r.actor, r.task, id)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
+  // Legacy read path: the drawer uses GET /detail, which goes through
+  // loadComments() and already filters soft-deletes and paginates. Nothing in
+  // this repo calls this handler, but it stays reachable, so it must not be the
+  // one place a redacted comment body leaks back out — and it must not try to
+  // serialize an unbounded thread either.
   const { data, error } = await r.supabase
     .from("task_comments")
     .select(COMMENT_COLUMNS)
     .eq("task_id", id)
-    .order("created_at", { ascending: true });
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(LEGACY_COMMENT_LIMIT);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const comments = (data ?? []).map((c) => {
+  const comments = [...(data ?? [])].reverse().map((c) => {
     const row = c as { id: string };
     return { ...(c as object), id: row.id, attachments: [] };
   });
@@ -198,7 +212,10 @@ export async function POST(req: Request, { params }: Ctx) {
           message: "Other open tabs may need a refresh to see this comment.",
           run: async () => {
             const delivered = await Promise.all([
-              broadcastTasksChanged(),
+              // Pass the caller's source id so the originating tab can skip its
+              // own tasks-only echo. Missing source ids also remain tasks-only;
+              // comments and attachments never change task categories.
+              broadcastTasksChanged(readTaskMutationSourceId(req)),
               broadcastTaskRoom(id),
             ]);
             return delivered.every(Boolean);
