@@ -1,6 +1,42 @@
+# [Agent Portal Dev Log] — 25/08/2026
+
+> Ngày trong tiêu đề là ngày report. Các commit được chọn từ backlog để gom thành một ngày làm việc khoảng 4 giờ.
+
+### 1. Tối ưu pipeline tải Task Detail
+
+- Chạy song song việc tải task detail, metadata, comment author và attachment thay vì chờ tuần tự từng nhóm dữ liệu.
+- Ký URL attachment theo batch và cô lập lỗi theo từng file để một attachment lỗi không làm hỏng toàn bộ detail.
+- Dùng chung request giữa hover prefetch và thao tác mở task, hiển thị snapshot cache trước rồi refresh nền để giảm thời gian chờ.
+- Bổ sung guard chống response cũ ghi đè dữ liệu mới và Server-Timing để đo riêng auth, query, comments, files và metadata.
+
+Commit: `2e12060`
+
+# [Agent Portal Dev Log] — 24/08/2026
+
+### 1. Nâng cấp file đính kèm cho CS Task
+
+- Cho phép chọn file ngay trong form tạo task; file được giữ tạm trong trình duyệt và upload sau khi task được tạo thành công.
+- Hiển thị attachment cấp task trong Task Detail, áp dụng giới hạn số lượng/dung lượng cho cả file của task và file trong comment.
+- Xử lý retry an toàn hơn: tránh thêm task trùng sau lần tạo lại và dọn đúng trạng thái tiến trình khi upload một phần bị lỗi.
+
+Commit: `7848ecf`
+
+### 2. Preview file trực tiếp trong Task Detail
+
+- Thu gọn Description mặc định để khu vực Comments có nhiều không gian hơn; nội dung dài vẫn có thể mở rộng khi cần.
+- Giữ trạng thái mở rộng đúng theo task hiện tại, không làm task sau bị kế thừa trạng thái của task trước.
+- Preview ảnh, PDF, TXT và CSV ngay trong giao diện; ảnh hỗ trợ zoom, reset zoom và phím tắt.
+- File không hỗ trợ preview vẫn có nút tải xuống; modal preview có đóng bằng Escape, quản lý focus và thông báo khi signed URL lỗi.
+
+Commits: `8495060`, `ece3386`
+
+Verification: Commit feature đã ghi nhận typecheck sạch, 656 tests pass và production build compile.
+
 # [Agent Portal Dev Log] — 23/08/2026
 
 > Ngày trong tiêu đề là ngày báo cáo. Công việc được thực hiện trước ngày báo cáo; vì vậy các commit hoàn tất trong ngày 22/08 được ghi vào báo cáo ngày 23/08.
+
+> Các commit chưa được report được theo dõi riêng tại [`docs/dev-log-backlog.md`](./dev-log-backlog.md).
 
 ### 1. Đồng bộ Medicare Overview với ACA
 

@@ -15,6 +15,8 @@ Use this guide whenever the user asks for an Agent Portal daily report, dev log,
 ## Where to record completed work
 
 - Write completed daily entries in `docs/dev-log.md`, with the newest report date first.
+- Track commits that have not been reported in `docs/dev-log-backlog.md`; do not mix the backlog table into the daily report file.
+- After a commit is added to a daily report, remove the same hash from `docs/dev-log-backlog.md` in the same change.
 - Add the entry after the task is complete and place the commit hash immediately after its description.
 - Do not add a `Commit date` line; use the commit hash for traceability when needed.
 - Keep `changelog.md` focused on logic changes; it is not the daily manager-facing report.
