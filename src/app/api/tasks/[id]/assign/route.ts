@@ -104,7 +104,7 @@ export async function POST(request: Request, { params }: Ctx) {
       {
         code: "detail_broadcast_failed",
         message: "The task was assigned but open task details may refresh on fallback.",
-        run: () => broadcastTaskRoom(id),
+        run: () => broadcastTaskRoom(id, readTaskMutationSourceId(request)),
       },
     ]),
   ]);

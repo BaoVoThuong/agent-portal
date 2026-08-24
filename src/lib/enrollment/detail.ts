@@ -53,6 +53,7 @@ export async function loadEnrollmentComments(
     highlightCommentId?: string | null;
     limit?: number;
     timing?: TimingRecorder;
+    displayNameResolver?: typeof resolveDisplayNames;
   } = {},
 ): Promise<{ comments: EnrollmentCommentWithAttachments[]; hasMore: boolean }> {
   const commentLimit = Math.max(1, Math.floor(opts.limit ?? COMMENT_PAGE_SIZE));
@@ -133,7 +134,10 @@ export async function loadEnrollmentComments(
   const displayNamesPromise = measureTiming(
     opts.timing,
     "comment_names",
-    async () => resolveDisplayNames(commentRows.map((comment) => comment.author_email)),
+    async () =>
+      (opts.displayNameResolver ?? resolveDisplayNames)(
+        commentRows.map((comment) => comment.author_email),
+      ),
   );
 
   if (commentRows.length === 0) {
@@ -153,25 +157,33 @@ export async function loadEnrollmentComments(
     };
   }
 
-  const { data: attachments, error: attachmentsError } = await measureTiming(
-    opts.timing,
-    "comment_file_rows",
-    async () =>
-      supabase
-        .from("enrollment_attachments")
-        .select("id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at")
-        .in("comment_id", commentRows.map((comment) => comment.id))
-        .not("comment_id", "is", null)
-        .order("created_at", { ascending: true }),
-  );
+  // Names and attachment rows are independent reads. Start both before
+  // signing so Enrollment follows the same critical path as CS instead of
+  // paying an extra database round-trip before file signing can begin.
+  const [displayNames, { data: attachments, error: attachmentsError }] =
+    await Promise.all([
+      displayNamesPromise,
+      measureTiming(
+        opts.timing,
+        "comment_file_rows",
+        async () =>
+          supabase
+            .from("enrollment_attachments")
+            .select("id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at")
+            .in("comment_id", commentRows.map((comment) => comment.id))
+            .not("comment_id", "is", null)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: true }),
+      ),
+    ]);
   if (attachmentsError) throw new Error(attachmentsError.message);
 
-  const [displayNames, signedAttachments] = await Promise.all([
-    displayNamesPromise,
-    measureTiming(opts.timing, "comment_file_sign", async () =>
+  const signedAttachments = await measureTiming(
+    opts.timing,
+    "comment_file_sign",
+    async () =>
       signAttachmentsSafely((attachments ?? []) as unknown as CommentAttachmentRow[]),
-    ),
-  ]);
+  );
   const attachmentRows = (attachments ?? []) as unknown as CommentAttachmentRow[];
   const byComment = new Map<string, EnrollmentSignedAttachment[]>();
   for (const [index, attachment] of signedAttachments.entries()) {
@@ -236,6 +248,7 @@ export async function loadEnrollmentAttachments(
         .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
         .eq("record_id", recordId)
         .is("comment_id", null)
+        .is("deleted_at", null)
         .order("created_at", { ascending: true }),
   );
   if (error) throw new Error(error.message);

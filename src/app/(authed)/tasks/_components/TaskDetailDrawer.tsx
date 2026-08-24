@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, CheckCircle2, Circle, ExternalLink, X } from "lucide-react";
 import type { TaskPriority, TaskRow, TaskCategory } from "@/lib/tasks/types";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
@@ -8,6 +8,7 @@ import { formatEmailAsName } from "@/lib/tasks/people";
 import { UNKNOWN_PERSON_LABEL } from "@/lib/people/display-names";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import {
+  createTaskDataInvalidationSourceId,
   publishTaskDataInvalidation,
   subscribeTaskDataInvalidation,
 } from "@/lib/tasks/client-events";
@@ -28,7 +29,12 @@ import {
   taskLivePollInterval,
   type TaskLiveStatus,
 } from "@/lib/tasks/live-sync";
-import { taskRoomTopic } from "@/lib/tasks/realtime-topics";
+import {
+  TASK_MUTATION_SOURCE_HEADER,
+  isOwnRealtimeMutation,
+  taskReactionTopic,
+  taskRoomTopic,
+} from "@/lib/tasks/realtime-topics";
 import {
   COMMENT_PAGE_SIZE,
   COMMENT_REFRESH_MAX,
@@ -189,7 +195,12 @@ export function TaskDetailDrawer({
     useState<TaskLiveStatus>("connecting");
   const [tab, setTab] = useState<DetailTab>("comments");
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreview | null>(null);
-  const invalidationSourceId = useId();
+  // React.useId() is stable for hydration, but it is not unique across tabs:
+  // two separately loaded accounts can receive the same deterministic id and
+  // incorrectly discard each other's realtime broadcasts as "own" mutations.
+  const [invalidationSourceId] = useState(() =>
+    createTaskDataInvalidationSourceId("task-drawer"),
+  );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const closeAttachmentPreview = useCallback(() => {
     setAttachmentPreview(null);
@@ -276,8 +287,16 @@ export function TaskDetailDrawer({
     let timer: ReturnType<typeof setTimeout> | null = null;
     let hasSubscribed = false;
     let active = true;
-    const schedule = () => {
+    const schedule = (message?: {
+      type?: string;
+      event?: string;
+      payload?: Record<string, unknown>;
+      meta?: unknown;
+    }) => {
       if (!active) return;
+      if (isOwnRealtimeMutation(invalidationSourceId, message?.payload?.sourceId)) {
+        return;
+      }
       if (timer) clearTimeout(timer);
       timer = setTimeout(
         () => void reload("realtime"),
@@ -286,7 +305,7 @@ export function TaskDetailDrawer({
     };
     const channel = sb
       .channel(taskRoomTopic(task.id))
-      .on("broadcast", { event: "changed" }, schedule)
+      .on("broadcast", { event: "changed" }, (message) => schedule(message))
       .subscribe((status) => {
         if (!active) return;
         if (status === "SUBSCRIBED") {
@@ -309,7 +328,7 @@ export function TaskDetailDrawer({
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };
-  }, [reload, task.id]);
+  }, [invalidationSourceId, reload, task.id]);
 
   useEffect(() => {
     const refreshFromForeground = () => {
@@ -863,6 +882,10 @@ export function TaskDetailDrawer({
                     {tab === "comments" && (
                       <CommentThread
                         taskId={task.id}
+                        roomTopic={taskRoomTopic(task.id)}
+                        reactionTopic={taskReactionTopic(task.id)}
+                        mutationSourceId={invalidationSourceId}
+                        mutationSourceHeader={TASK_MUTATION_SOURCE_HEADER}
                         realtimeManagedExternally
                         reactionsEnabled
                         onCommitted={() =>

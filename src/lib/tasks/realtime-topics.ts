@@ -14,6 +14,20 @@ export const TASK_CATEGORIES_TOPIC = "task-categories-stream";
 // value is an opaque per-tab nonce; it never contains task or customer data.
 export const TASK_MUTATION_SOURCE_HEADER = "x-task-client-source";
 
+/**
+ * Only suppress a realtime echo when both sides have a real source id.
+ *
+ * The old comparison was `messageSourceId === localSourceId`, which treats
+ * two missing ids as the same mutation. That silently dropped other users'
+ * updates whenever an older server route did not include a source id.
+ */
+export function isOwnRealtimeMutation(
+  localSourceId: string | undefined,
+  messageSourceId: unknown,
+): boolean {
+  return Boolean(localSourceId && messageSourceId === localSourceId);
+}
+
 // Per-task "room" topic — an open task drawer subscribes for live comments.
 export function taskRoomTopic(taskId: string): string {
   return `task-${taskId}`;

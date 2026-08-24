@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
+import { isOwnRealtimeMutation } from "@/lib/tasks/realtime-topics";
 import {
   OPEN_ENROLLMENT_EVENT,
   createEnrollmentDataInvalidationSourceId,
@@ -3402,7 +3403,7 @@ function EnrollmentDrawer({
         "broadcast",
         { event: "changed" },
         (message: { payload?: Record<string, unknown> }) => {
-          if (message.payload?.sourceId === mutationSourceId) return;
+          if (isOwnRealtimeMutation(mutationSourceId, message.payload?.sourceId)) return;
           schedule();
         },
       )

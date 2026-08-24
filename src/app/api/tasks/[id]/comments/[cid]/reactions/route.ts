@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import {
   isAllowedEmoji,
   normalizeEmojiInput,
@@ -10,7 +10,10 @@ import {
 } from "@/lib/tasks/notifications";
 import { authorizeTaskReactionAccess } from "@/lib/tasks/reaction-access";
 import type { ReactionRow } from "@/lib/tasks/reactions";
-import { broadcastTaskCommentReaction } from "@/lib/tasks/realtime";
+import {
+  broadcastTaskCommentReaction,
+  readTaskMutationSourceId,
+} from "@/lib/tasks/realtime";
 
 export const dynamic = "force-dynamic";
 
@@ -84,46 +87,56 @@ async function mutate(
     emoji: row.emoji,
     reactor_email: row.reactor_email,
   }));
-  const warnings = await settleSideEffects([
-    ...(reactionChanged
-      ? [
-          {
-            code: "reaction_notification_failed",
-            message:
-              "The reaction was saved but the comment author may not have been notified.",
-            run: async () => {
-              const { data: comment, error: commentError } = await access.supabase
-                .from("task_comments")
-                .select("author_email")
-                .eq("id", cid)
-                .eq("task_id", id)
-                .maybeSingle();
-              if (commentError) throw new Error(commentError.message);
-              const recipients = uniqueNotificationRecipients(
-                [comment?.author_email?.trim().toLowerCase()],
-                [access.email],
-              );
-              return insertNotifications(
-                recipients.map((recipient) => ({
-                  recipient_email: recipient,
-                  task_id: id,
-                  type: "reacted" as const,
-                  actor_email: access.email,
-                  comment_id: cid,
-                  detail: emoji,
-                })),
-              );
+  const sourceId = readTaskMutationSourceId(req);
+  after(async () => {
+    const warnings = await settleSideEffects([
+      ...(reactionChanged
+        ? [
+            {
+              code: "reaction_notification_failed",
+              message:
+                "The reaction was saved but the comment author may not have been notified.",
+              run: async () => {
+                const { data: comment, error: commentError } = await access.supabase
+                  .from("task_comments")
+                  .select("author_email")
+                  .eq("id", cid)
+                  .eq("task_id", id)
+                  .maybeSingle();
+                if (commentError) throw new Error(commentError.message);
+                const recipients = uniqueNotificationRecipients(
+                  [comment?.author_email?.trim().toLowerCase()],
+                  [access.email],
+                );
+                return insertNotifications(
+                  recipients.map((recipient) => ({
+                    recipient_email: recipient,
+                    task_id: id,
+                    type: "reacted" as const,
+                    actor_email: access.email,
+                    comment_id: cid,
+                    detail: emoji,
+                  })),
+                );
+              },
             },
-          },
-        ]
-      : []),
-    {
-      code: "reaction_broadcast_failed",
-      message: "The reaction was saved but other viewers may need a refresh.",
-      run: () => broadcastTaskCommentReaction(id),
-    },
-  ]);
-  return NextResponse.json({ reactions: reactions as ReactionRow[], warnings });
+          ]
+        : []),
+      {
+        code: "reaction_broadcast_failed",
+        message: "The reaction was saved but other viewers may need a refresh.",
+        run: () => broadcastTaskCommentReaction(id, sourceId),
+      },
+    ]);
+    if (warnings.length > 0) {
+      console.error("Task comment reaction committed with side-effect warnings", {
+        taskId: id,
+        commentId: cid,
+        warnings,
+      });
+    }
+  });
+  return NextResponse.json({ reactions: reactions as ReactionRow[], warnings: [] });
 }
 
 export async function PUT(req: Request, context: Ctx) {

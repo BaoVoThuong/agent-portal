@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
@@ -130,9 +130,17 @@ export async function POST(req: Request, { params }: Ctx) {
 
   // Mentions are parsed from the body (server is the source of truth), then
   // validated against board members before the atomic command grants access.
-  const taskMembers = await fetchTaskAssignees();
-  const actionableEmails = new Set(taskMembers.map((member) => member.email));
-  const validMentions = parseMentions(text).filter((m) => actionableEmails.has(m));
+  // Most comments do not contain a mention, so avoid the extra members query
+  // on that hot path. `null` means “no mention validation was needed”, not an
+  // empty allow-list; the notification path still needs to notify the normal
+  // task participants for a plain comment.
+  const parsedMentions = parseMentions(text);
+  const actionableEmails = parsedMentions.length
+    ? new Set((await fetchTaskAssignees()).map((member) => member.email))
+    : null;
+  const validMentions = actionableEmails
+    ? parsedMentions.filter((mention) => actionableEmails.has(mention))
+    : [];
 
   const requestId =
     typeof body?.client_request_id === "string" ? body.client_request_id : null;
@@ -171,10 +179,11 @@ export async function POST(req: Request, { params }: Ctx) {
   };
 
   // The comment is durable at this point. Notifications and realtime are
-  // useful but non-critical, so a provider outage returns a warning rather
-  // than turning a committed comment into a misleading 500.
-  const warnings = wasCreated
-    ? await settleSideEffects([
+  // useful but non-critical, so run them after the response is ready instead
+  // of making the composer wait for provider/network latency.
+  if (wasCreated) {
+    after(async () => {
+      const warnings = await settleSideEffects([
         {
           code: "notification_failed",
           message: "The comment was saved but some people may not have been notified.",
@@ -183,13 +192,15 @@ export async function POST(req: Request, { params }: Ctx) {
               fetchTaskAssigneeEmails(id, r.supabase),
               fetchTaskParticipantEmails(id, r.supabase),
             ]);
+            const isActionable = (email: string) =>
+              actionableEmails === null || actionableEmails.has(email);
             const activeOnly = (email: string | null | undefined) =>
-              email && actionableEmails.has(email) ? email : null;
+              email && isActionable(email) ? email : null;
             const recipients = resolveCommentRecipients(
               {
-                assignees: assigneeEmails.filter((email) => actionableEmails.has(email)),
+                assignees: assigneeEmails.filter(isActionable),
                 assignee_email: activeOnly(r.task.assignee_email),
-                participants: participantEmails.filter((email) => actionableEmails.has(email)),
+                participants: participantEmails.filter(isActionable),
                 reporter_email: activeOnly(r.task.reporter_email),
                 agent_email: activeOnly(r.task.agent_email),
               },
@@ -216,13 +227,21 @@ export async function POST(req: Request, { params }: Ctx) {
               // own tasks-only echo. Missing source ids also remain tasks-only;
               // comments and attachments never change task categories.
               broadcastTasksChanged(readTaskMutationSourceId(req)),
-              broadcastTaskRoom(id),
+              broadcastTaskRoom(id, readTaskMutationSourceId(req)),
             ]);
             return delivered.every(Boolean);
           },
         },
-      ])
-    : [];
+      ]);
+      if (warnings.length > 0) {
+        console.error("Task comment committed with side-effect warnings", {
+          taskId: id,
+          commentId: comment.id,
+          warnings,
+        });
+      }
+    });
+  }
 
-  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings });
+  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings: [] });
 }

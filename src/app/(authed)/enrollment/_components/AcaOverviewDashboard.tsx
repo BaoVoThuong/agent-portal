@@ -77,7 +77,14 @@ export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props)
       setQueueError(cause instanceof Error ? cause.message : "Could not update the assignment queue.");
     } finally { setUpdatingQueueEmail(null); }
   }, [load, program]);
-  if (loading && !snapshot) return <Message>Loading {programLabel} operations...</Message>;
+  if (loading && !snapshot) {
+    return (
+      <div className="flex min-h-[28rem] items-center justify-center text-sm text-[#667085]">
+        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+        Loading {programLabel.toLowerCase()} overview...
+      </div>
+    );
+  }
   if (error && !snapshot) return <Message error={error} onRetry={() => void load()} />;
   if (!snapshot) return <Message>No {programLabel} overview data.</Message>;
   const period = snapshot.period.from && snapshot.period.to ? `${snapshot.period.from} – ${snapshot.period.to}` : "All dates";

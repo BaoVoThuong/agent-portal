@@ -383,9 +383,13 @@ export async function signAttachmentsSafely<
   if (signMany && rows.length > 0) {
     try {
       const results = await signMany(rows.map((row) => row.storage_path));
+      // Batch signing returns one result per storage path, but not necessarily
+      // in the same order. A Map keeps the same behavior while avoiding the
+      // old O(rows × results) `.find()` scan for large comment threads.
+      const resultByPath = new Map(results.map((item) => [item.path, item]));
       return rows.map((row) => {
         const base = { id: row.id, file_name: row.file_name, mime_type: row.mime_type, size_bytes: row.size_bytes };
-        const result = results.find((item) => item.path === row.storage_path);
+        const result = resultByPath.get(row.storage_path);
         if (result?.signedUrl && !result.error) {
           return { ...base, url: result.signedUrl };
         }

@@ -5,9 +5,16 @@ import {
   TASKS_TOPIC,
   taskReactionTopic,
   taskRoomTopic,
+  isOwnRealtimeMutation,
 } from "./realtime-topics";
 
-export { TASK_CATEGORIES_TOPIC, TASKS_TOPIC, taskReactionTopic, taskRoomTopic };
+export {
+  TASK_CATEGORIES_TOPIC,
+  TASKS_TOPIC,
+  taskReactionTopic,
+  taskRoomTopic,
+  isOwnRealtimeMutation,
+};
 
 export type RealtimeMessage = {
   topic: string;
@@ -171,9 +178,16 @@ export async function broadcastTaskCategoriesChanged(): Promise<boolean> {
   ]);
 }
 
-export async function broadcastTaskRoom(taskId: string): Promise<boolean> {
+export async function broadcastTaskRoom(
+  taskId: string,
+  sourceId?: string,
+): Promise<boolean> {
   return sendBroadcastMessages([
-    { topic: taskRoomTopic(taskId), event: "changed", payload: {} },
+    {
+      topic: taskRoomTopic(taskId),
+      event: "changed",
+      payload: sourceId ? { sourceId } : {},
+    },
   ]);
 }
 
@@ -189,12 +203,13 @@ export async function broadcastTaskRoom(taskId: string): Promise<boolean> {
  */
 export async function broadcastTaskCommentReaction(
   taskId: string,
+  sourceId?: string,
 ): Promise<boolean> {
   return sendBroadcastMessages([
     {
       topic: taskReactionTopic(taskId),
       event: "reaction",
-      payload: {},
+      payload: sourceId ? { sourceId } : {},
     },
   ]);
 }

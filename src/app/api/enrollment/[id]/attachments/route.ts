@@ -25,7 +25,6 @@ import {
   broadcastEnrollmentRoom,
   readEnrollmentMutationSourceId,
 } from "@/lib/enrollment/realtime";
-import { fetchEnrollmentRecordById } from "@/lib/enrollment/queries";
 import type { EnrollmentRecord } from "@/lib/enrollment/types";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
@@ -49,6 +48,7 @@ export async function GET(_request: Request, { params }: Ctx) {
     .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
     .eq("record_id", id)
     .is("comment_id", null)
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -277,74 +277,64 @@ export async function POST(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const mutationWarnings: string[] = [];
-  const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
-    p_record_id: id,
-    p_actor_email: context.actor.email,
-    p_now: new Date().toISOString(),
-  });
-  if (touchError) mutationWarnings.push(`Attachment activity touch failed: ${touchError.message}`);
-  if (!commentId) {
-    const { error: activityError } = await context.supabase.from("enrollment_activity").insert({
-      record_id: id,
-      actor_email: context.actor.email,
-      type: "attachment_added",
-      meta: { file_name: file.name },
-    });
-    if (activityError) mutationWarnings.push(`Attachment activity failed: ${activityError.message}`);
-    const recipients = uniqueEnrollmentNotificationRecipients(
-      [context.record.caller_email, context.record.responsible_enroll_email],
-      [context.actor.email]
-    );
-    try {
-      await insertEnrollmentNotifications(
-        recipients.map((recipient) => ({
-          recipient_email: recipient,
-          record_id: id,
-          type: "attachment_added",
-          actor_email: context.actor.email,
-          detail: file.name,
-        }))
-      );
-    } catch (notificationError) {
-      mutationWarnings.push(
-        `Attachment notification failed: ${notificationError instanceof Error ? notificationError.message : "unknown error"}`
-      );
-    }
-  }
-
   after(async () => {
+    const warnings: string[] = [];
+    const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
+      p_record_id: id,
+      p_actor_email: context.actor.email,
+      p_now: new Date().toISOString(),
+    });
+    if (touchError) warnings.push(`Attachment activity touch failed: ${touchError.message}`);
+    if (!commentId) {
+      const { error: activityError } = await context.supabase.from("enrollment_activity").insert({
+        record_id: id,
+        actor_email: context.actor.email,
+        type: "attachment_added",
+        meta: { file_name: file.name },
+      });
+      if (activityError) warnings.push(`Attachment activity failed: ${activityError.message}`);
+      const recipients = uniqueEnrollmentNotificationRecipients(
+        [context.record.caller_email, context.record.responsible_enroll_email],
+        [context.actor.email],
+      );
+      try {
+        await insertEnrollmentNotifications(
+          recipients.map((recipient) => ({
+            recipient_email: recipient,
+            record_id: id,
+            type: "attachment_added",
+            actor_email: context.actor.email,
+            detail: file.name,
+          })),
+        );
+      } catch (notificationError) {
+        warnings.push(
+          `Attachment notification failed: ${notificationError instanceof Error ? notificationError.message : "unknown error"}`,
+        );
+      }
+    }
     const delivered = await Promise.all([
       broadcastEnrollmentChanged(context.record.program, sourceId),
       broadcastEnrollmentRoom(id, sourceId),
     ]);
-    if (!delivered.every(Boolean)) {
-      console.error("Enrollment attachment broadcast failed after commit", {
+    if (!delivered.every(Boolean)) warnings.push("Attachment broadcast failed.");
+    if (warnings.length > 0) {
+      console.error("Enrollment attachment committed with side-effect warnings", {
         recordId: id,
+        warnings,
       });
     }
   });
-  let canonicalRecord: Awaited<ReturnType<typeof fetchEnrollmentRecordById>> = null;
-  try {
-    canonicalRecord = await fetchEnrollmentRecordById(id);
-  } catch (reloadError) {
-    mutationWarnings.push(
-      `Attachment parent reload failed: ${reloadError instanceof Error ? reloadError.message : "unknown error"}`
-    );
-  }
-  if (mutationWarnings.length > 0) {
-    console.error("Enrollment attachment committed with side-effect warnings", {
-      recordId: id,
-      warnings: mutationWarnings,
-    });
-  }
   return NextResponse.json({
     attachment: {
       ...(data as object),
       url: signedUrl,
     },
-    record: canonicalRecord,
-    warnings: mutationWarnings,
+    // The metadata row is already durable. The parent record is reconciled by
+    // the room broadcast/cache reload, so do not block this upload on another
+    // full record query.
+    record: null,
+    warnings: [],
   });
 }
 

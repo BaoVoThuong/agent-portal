@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask, canMutateTask } from "@/lib/tasks/access";
@@ -319,7 +319,7 @@ export async function POST(req: Request, { params }: Ctx) {
       message: "Other open tabs may need a refresh to see this attachment.",
       run: async () => {
         const delivered = await Promise.all([
-          broadcastTaskRoom(id),
+          broadcastTaskRoom(id, readTaskMutationSourceId(req)),
           // Pass the caller's source id so the originating tab can skip its own
           // tasks-only echo. Missing source ids also remain tasks-only here;
           // comments and attachments never change task categories.
@@ -354,7 +354,15 @@ export async function POST(req: Request, { params }: Ctx) {
       },
     });
   }
-  warnings.push(...(await settleSideEffects(sideEffects)));
+  after(async () => {
+    const sideEffectWarnings = await settleSideEffects(sideEffects);
+    if (sideEffectWarnings.length > 0) {
+      console.error("Task attachment committed with side-effect warnings", {
+        taskId: id,
+        warnings: sideEffectWarnings,
+      });
+    }
+  });
 
   return NextResponse.json({
     attachment: {

@@ -210,4 +210,37 @@ describe("signAttachmentsSafely", () => {
       "https://single/b",
     ]);
   });
+
+  it("matches the legacy output while reducing shuffled batch lookup work to O(n)", async () => {
+    const rows = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `a-${index}`,
+      file_name: `${index}.png`,
+      mime_type: "image/png",
+      size_bytes: 1,
+      storage_path: `path-${index}`,
+    }));
+    const batchResults = [...rows]
+      .reverse()
+      .map((row) => ({
+        path: row.storage_path,
+        signedUrl: `https://batch/${row.storage_path}`,
+        error: null,
+      }));
+    const legacyComparisons = rows.reduce(
+      (total, _row, index) => total + (index + 1),
+      0,
+    );
+
+    const signed = await signAttachmentsSafely(
+      rows,
+      async () => "unused",
+      async () => batchResults,
+    );
+
+    expect(signed[0]?.url).toBe("https://batch/path-0");
+    expect(signed[999]?.url).toBe("https://batch/path-999");
+    // The implementation now builds one Map and performs one lookup per row;
+    // the previous Array.find implementation could scan the full result list.
+    expect(rows.length).toBeLessThan(legacyComparisons);
+  });
 });

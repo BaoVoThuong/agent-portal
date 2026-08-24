@@ -108,7 +108,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
       message: "Other open tabs may show a stale attachment count until they refresh.",
       run: async () => {
         const delivered = await Promise.all([
-          broadcastTaskRoom(id),
+          broadcastTaskRoom(id, readTaskMutationSourceId(req)),
           // Pass the caller's source id so the originating tab can skip its own
           // tasks-only echo. Missing source ids also remain tasks-only here;
           // comments and attachments never change task categories.

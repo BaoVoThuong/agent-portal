@@ -65,6 +65,7 @@ import type {
   SignedAttachment,
 } from "@/lib/tasks/detail";
 import {
+  isOwnRealtimeMutation,
   taskReactionTopic,
   taskRoomTopic,
 } from "@/lib/tasks/realtime-topics";
@@ -677,7 +678,12 @@ export function CommentThread({
         "broadcast",
         { event: "reaction" },
         (message: { payload?: Record<string, unknown> }) => {
-          if (message.payload?.sourceId === mutationSourceId) return;
+          // An older/CS reaction broadcast may not carry a source id. Do not
+          // treat two missing ids as the same tab; that would make every
+          // cross-account reaction event get discarded before refresh.
+          if (isOwnRealtimeMutation(mutationSourceId, message.payload?.sourceId)) {
+            return;
+          }
           scheduleReactionRefresh();
         },
       )
@@ -938,10 +944,6 @@ export function CommentThread({
     setOptimisticComments((current) =>
       current.filter((comment) => comment.id !== id),
     );
-    // Explicitly discarding a failed draft starts a new user intent. A retry
-    // of the same draft keeps its id; a new draft must not replay the old row.
-    submissionRef.current = finishSubmission();
-    failedSubmissionIntentRef.current = null;
   }, []);
 
   // A state updater is not a synchronous return-value channel. After a retry,
@@ -1080,6 +1082,48 @@ export function CommentThread({
       ),
     );
 
+    // A text-only comment is already durable and visible through the
+    // optimistic row. Do not keep the composer locked while the canonical
+    // detail refresh catches up; reconcile in the background and only remove
+    // the temporary row once that refresh succeeds.
+    if (files.length === 0) {
+      submissionRef.current = finishSubmission();
+      failedSubmissionIntentRef.current = null;
+      setSubmissionBusy(false);
+      void (async () => {
+        try {
+          const reloadResult = await onReload();
+          if (reloadResult === "failed") {
+            throw new Error("Comment saved; refresh failed.");
+          }
+          releaseOptimistic(tempId);
+        } catch (error) {
+          setOptimisticComments((current) =>
+            current.map((item) =>
+              item.id === tempId
+                ? {
+                    ...item,
+                    reloadFailed: true,
+                    error: getErrorMessage(error, "Comment saved; refresh failed."),
+                  }
+                : item,
+            ),
+          );
+        }
+      })();
+      return;
+    }
+
+    // The comment itself is already saved. File upload and reconciliation are
+    // background work, so do not make the composer show "Sending..." until
+    // every attachment and the detail reload have completed. The request id
+    // guard prevents this background work from unlocking a newer submission.
+    if (submissionRef.current.requestId === requestId) {
+      submissionRef.current = finishSubmission();
+      failedSubmissionIntentRef.current = null;
+      setSubmissionBusy(false);
+    }
+
     let uploadFailed = false;
     let uploadedAny = false;
     for (const [index, file] of files.entries()) {
@@ -1153,9 +1197,6 @@ export function CommentThread({
     }
 
     if (!uploadFailed && !reloadDidFail) releaseOptimistic(tempId);
-    submissionRef.current = finishSubmission();
-    failedSubmissionIntentRef.current = null;
-    setSubmissionBusy(false);
   }
 
   async function retryFile(tempId: string, fileId: string) {
@@ -1995,35 +2036,21 @@ function CommentItem({
                 </div>
               )}
 
-              {c.fileStates && c.fileStates.length > 0 ? (
+              {c.fileStates?.some((file) => file.status === "failed") ? (
                 <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
-                  {c.fileStates.map((file) => {
+                  {c.fileStates.filter((file) => file.status === "failed").map((file) => {
                     const attachment = c.attachments.find((item) => item.id === file.id);
                     const label = attachment?.file_name ?? "Attachment";
                     const size = attachment?.size_bytes == null ? null : formatAttachmentSize(attachment.size_bytes);
                     return (
                       <span
                         key={file.id}
-                        className={`inline-flex max-w-full items-center gap-1 rounded border px-2 py-1 font-semibold ${
-                          file.status === "failed"
-                            ? "border-[#ffbdad] bg-[#ffebe6] text-[#bf2600]"
-                            : file.status === "success"
-                              ? "border-[#abf5d1] bg-[#e3fcef] text-[#006644]"
-                              : "border-[#dfe1e6] bg-[#f7f8f9] text-[#6b778c]"
-                        }`}
+                        className="inline-flex max-w-full items-center gap-1 rounded border border-[#ffbdad] bg-[#ffebe6] px-2 py-1 font-semibold text-[#bf2600]"
                       >
                         <span className="min-w-0 truncate" title={label}>{label}</span>
                         {size ? <span className="shrink-0 text-[10px] font-medium text-[#8993a4]">{size}</span> : null}
-                        <span className="shrink-0">
-                          {file.status === "failed"
-                            ? "failed"
-                            : file.status === "uploading"
-                              ? "uploading…"
-                              : file.status === "success"
-                                ? "uploaded"
-                                : "pending"}
-                        </span>
-                        {file.status === "failed" && onRetryFile ? (
+                        <span className="shrink-0">Attachment upload failed</span>
+                        {onRetryFile ? (
                           <button
                             type="button"
                             onClick={() => onRetryFile(file.id)}

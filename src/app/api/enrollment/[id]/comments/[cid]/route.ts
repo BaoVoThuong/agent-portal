@@ -60,47 +60,50 @@ export async function PATCH(request: Request, { params }: Ctx) {
     comment: Record<string, unknown>;
     parent_updated_at: string;
   };
-  const warnings: string[] = [];
-  try {
-    const { data: people, error: peopleError } = await context.supabase
-      .from("portal_account")
-      .select("email")
-      .eq("is_active", true);
-    if (peopleError) throw new Error(peopleError.message);
-    const activeEmails = new Set(
-      ((people ?? []) as { email: string }[]).map((person) => person.email.trim().toLowerCase()),
-    );
-    const mentionsNow = parseMentions(text).filter((email) => activeEmails.has(email.toLowerCase()));
-    const mentionsBefore = parseMentions(context.currentBody);
-    const newMentions = mentionsNow.filter(
-      (email) => !mentionsBefore.some((previous) => previous.toLowerCase() === email.toLowerCase()),
-    );
-    if (newMentions.length > 0) {
-      await insertEnrollmentNotifications(
-        newMentions.map((recipient) => ({
-          recipient_email: recipient,
-          record_id: id,
-          type: "mentioned" as const,
-          actor_email: context.email,
-          comment_id: cid,
-        })),
+  after(async () => {
+    const warnings: string[] = [];
+    try {
+      const { data: people, error: peopleError } = await context.supabase
+        .from("portal_account")
+        .select("email")
+        .eq("is_active", true);
+      if (peopleError) throw new Error(peopleError.message);
+      const activeEmails = new Set(
+        ((people ?? []) as { email: string }[]).map((person) => person.email.trim().toLowerCase()),
+      );
+      const mentionsNow = parseMentions(text).filter((email) => activeEmails.has(email.toLowerCase()));
+      const mentionsBefore = parseMentions(context.currentBody);
+      const newMentions = mentionsNow.filter(
+        (email) => !mentionsBefore.some((previous) => previous.toLowerCase() === email.toLowerCase()),
+      );
+      if (newMentions.length > 0) {
+        await insertEnrollmentNotifications(
+          newMentions.map((recipient) => ({
+            recipient_email: recipient,
+            record_id: id,
+            type: "mentioned" as const,
+            actor_email: context.email,
+            comment_id: cid,
+          })),
+        );
+      }
+    } catch (mentionError) {
+      warnings.push(
+        `Enrollment mention notification failed: ${mentionError instanceof Error ? mentionError.message : "unknown error"}`,
       );
     }
-  } catch (mentionError) {
-    warnings.push(
-      `Enrollment mention notification failed: ${mentionError instanceof Error ? mentionError.message : "unknown error"}`,
-    );
-  }
-  after(async () => {
-    const delivered = await broadcastEnrollmentRoom(id, sourceId);
-    if (!delivered) {
-      console.error("Enrollment comment edit broadcast failed after commit", {
+    if (!(await broadcastEnrollmentRoom(id, sourceId))) {
+      warnings.push("Comment edit broadcast failed.");
+    }
+    if (warnings.length > 0) {
+      console.error("Enrollment comment edit committed with side-effect warnings", {
         recordId: id,
         commentId: cid,
+        warnings,
       });
     }
   });
-  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings });
+  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings: [] });
 }
 
 export async function DELETE(request: Request, { params }: Ctx) {
@@ -132,36 +135,32 @@ export async function DELETE(request: Request, { params }: Ctx) {
     storage_paths?: string[] | null;
     parent_updated_at?: string | null;
   };
-  const cleanup = await Promise.allSettled(
-    (row.storage_paths ?? []).map((path) => removeTaskFile(path)),
-  );
-  const warnings = cleanup
-    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-    .map((result) =>
-      result.reason instanceof Error
-        ? result.reason.message
-        : "Could not remove comment attachment storage object.",
-    );
-  if (warnings.length > 0) {
-    console.error("Enrollment comment attachment cleanup failed", {
-      recordId: id,
-      commentId: cid,
-      warnings,
-    });
-  }
   after(async () => {
-    const delivered = await broadcastEnrollmentRoom(id, sourceId);
-    if (!delivered) {
-      console.error("Enrollment comment delete broadcast failed after commit", {
+    const cleanup = await Promise.allSettled(
+      (row.storage_paths ?? []).map((path) => removeTaskFile(path)),
+    );
+    const warnings = cleanup
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) =>
+        result.reason instanceof Error
+          ? result.reason.message
+          : "Could not remove comment attachment storage object.",
+      );
+    if (!(await broadcastEnrollmentRoom(id, sourceId))) {
+      warnings.push("Comment delete broadcast failed.");
+    }
+    if (warnings.length > 0) {
+      console.error("Enrollment comment delete committed with side-effect warnings", {
         recordId: id,
         commentId: cid,
+        warnings,
       });
     }
   });
   return NextResponse.json({
     ok: true,
     parent_updated_at: row.parent_updated_at ?? undefined,
-    warnings,
+    warnings: [],
   });
 }
 

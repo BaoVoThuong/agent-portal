@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createTaskDataInvalidationSourceId,
   publishTaskDataInvalidation,
   subscribeTaskDataInvalidation,
   TASK_DATA_INVALIDATED_STORAGE_KEY,
@@ -30,6 +31,14 @@ function fakeWindow() {
 }
 
 describe("task data invalidation", () => {
+  it("creates a different mutation source for each loaded tab", () => {
+    const first = createTaskDataInvalidationSourceId("task-drawer");
+    const second = createTaskDataInvalidationSourceId("task-drawer");
+
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^task-drawer:[a-z0-9]+:.+/);
+  });
+
   it("notifies the current document and publishes a cross-tab nonce", () => {
     const browser = fakeWindow();
     vi.stubGlobal("window", browser);

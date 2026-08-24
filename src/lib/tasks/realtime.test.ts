@@ -3,12 +3,16 @@ import {
   buildBroadcastMessages,
   broadcastTaskCategoriesChanged,
   broadcastTaskCommentReaction,
+  broadcastTaskRoom,
   broadcastTasksChanged,
   notifTopic,
   readTaskMutationSourceId,
   sendBroadcastMessages,
 } from "@/lib/tasks/realtime";
-import { taskReactionTopic } from "@/lib/tasks/realtime-topics";
+import {
+  isOwnRealtimeMutation,
+  taskReactionTopic,
+} from "@/lib/tasks/realtime-topics";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -140,6 +144,16 @@ describe("sendBroadcastMessages", () => {
 });
 
 describe("task mutation source correlation", () => {
+  it("does not reproduce the old missing-id realtime bug", () => {
+    const legacyComparison = (local: string | undefined, incoming: unknown) =>
+      incoming === local;
+
+    expect(legacyComparison(undefined, undefined)).toBe(true);
+    expect(isOwnRealtimeMutation(undefined, undefined)).toBe(false);
+    expect(isOwnRealtimeMutation("source-a", "source-a")).toBe(true);
+    expect(isOwnRealtimeMutation("source-a", "source-b")).toBe(false);
+  });
+
   it("accepts a bounded opaque source id", () => {
     const request = new Request("https://example.test", {
       headers: { "x-task-client-source": "task-board:abc:123" },
@@ -170,6 +184,19 @@ describe("task mutation source correlation", () => {
     const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
     expect(body.messages[0].payload).toEqual({ sourceId: "board-a" });
   });
+
+  it("puts the source id in a task room payload", async () => {
+    vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-key");
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(broadcastTaskRoom("task-1", "drawer-a")).resolves.toBe(true);
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(body.messages[0].payload).toEqual({ sourceId: "drawer-a" });
+  });
 });
 
 describe("comment reaction broadcasts", () => {
@@ -190,6 +217,19 @@ describe("comment reaction broadcasts", () => {
         payload: {},
       },
     ]);
+  });
+
+  it("carries a source id when available so the originating tab can skip its echo", async () => {
+    vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-key");
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(broadcastTaskCommentReaction("task-1", "source-a")).resolves.toBe(true);
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(body.messages[0].payload).toEqual({ sourceId: "source-a" });
   });
 });
 

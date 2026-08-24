@@ -578,7 +578,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
   const broadcastResults = await Promise.allSettled([
     broadcastTasksChanged(readTaskMutationSourceId(req)),
-    broadcastTaskRoom(id),
+    broadcastTaskRoom(id, readTaskMutationSourceId(req)),
   ]);
   for (const result of broadcastResults) {
     if (result.status === "rejected" || !result.value) {

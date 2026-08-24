@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
@@ -158,39 +158,45 @@ export async function PATCH(req: Request, { params }: Ctx) {
     comment: Record<string, unknown>;
     parent_updated_at: string;
   };
-  const warnings = await settleSideEffects([
-    {
-      code: "mention_notification_failed",
-      message: "The edit was saved but newly mentioned people may not have been notified.",
-      run: async () => {
-        if (newMentions.length === 0) return true;
-        return insertNotifications(
-          newMentions.map((recipient) => ({
-            recipient_email: recipient,
-            task_id: id,
-            type: "mentioned" as const,
-            actor_email: ctx.email,
-            comment_id: cid,
-          })),
-        );
+  after(async () => {
+    const warnings = await settleSideEffects([
+      {
+        code: "mention_notification_failed",
+        message: "The edit was saved but newly mentioned people may not have been notified.",
+        run: async () => {
+          if (newMentions.length === 0) return true;
+          return insertNotifications(
+            newMentions.map((recipient) => ({
+              recipient_email: recipient,
+              task_id: id,
+              type: "mentioned" as const,
+              actor_email: ctx.email,
+              comment_id: cid,
+            })),
+          );
+        },
       },
-    },
-    {
-      code: "broadcast_failed",
-      message: "Other open tabs may need a refresh to see this edit.",
-      run: async () => {
-        const delivered = await Promise.all([
-          // Pass the caller's source id so the originating tab can skip its own
-          // tasks-only echo. Missing source ids also remain tasks-only;
-          // comments and attachments never change task categories.
-          broadcastTasksChanged(readTaskMutationSourceId(req)),
-          broadcastTaskRoom(id),
-        ]);
-        return delivered.every(Boolean);
+      {
+        code: "broadcast_failed",
+        message: "Other open tabs may need a refresh to see this edit.",
+        run: async () => {
+          const delivered = await Promise.all([
+            broadcastTasksChanged(readTaskMutationSourceId(req)),
+            broadcastTaskRoom(id, readTaskMutationSourceId(req)),
+          ]);
+          return delivered.every(Boolean);
+        },
       },
-    },
-  ]);
-  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings });
+    ]);
+    if (warnings.length > 0) {
+      console.error("Task comment edit committed with side-effect warnings", {
+        taskId: id,
+        commentId: cid,
+        warnings,
+      });
+    }
+  });
+  return NextResponse.json({ comment, parent_updated_at: parentUpdatedAt, warnings: [] });
 }
 
 export async function DELETE(req: Request, { params }: Ctx) {
@@ -217,30 +223,36 @@ export async function DELETE(req: Request, { params }: Ctx) {
   }
 
   const { storage_paths: paths } = removed as { storage_paths: string[] };
-  const warnings = await settleSideEffects([
-    {
-      code: "storage_cleanup_failed",
-      message: "The comment was deleted but some stored files could not be removed.",
-      run: async () => {
-        const results = await Promise.allSettled(paths.map((path) => removeTaskFile(path)));
-        const failed = results.find((result) => result.status === "rejected");
-        if (failed?.status === "rejected") throw failed.reason;
+  after(async () => {
+    const warnings = await settleSideEffects([
+      {
+        code: "storage_cleanup_failed",
+        message: "The comment was deleted but some stored files could not be removed.",
+        run: async () => {
+          const results = await Promise.allSettled(paths.map((path) => removeTaskFile(path)));
+          const failed = results.find((result) => result.status === "rejected");
+          if (failed?.status === "rejected") throw failed.reason;
+        },
       },
-    },
-    {
-      code: "broadcast_failed",
-      message: "Other open tabs may show a stale comment or attachment count until they refresh.",
-      run: async () => {
-        const delivered = await Promise.all([
-          broadcastTaskRoom(id),
-          // Pass the caller's source id so the originating tab can skip its own
-          // tasks-only echo. Missing source ids also remain tasks-only;
-          // comments and attachments never change task categories.
-          broadcastTasksChanged(readTaskMutationSourceId(req)),
-        ]);
-        return delivered.every(Boolean);
+      {
+        code: "broadcast_failed",
+        message: "Other open tabs may show a stale comment or attachment count until they refresh.",
+        run: async () => {
+          const delivered = await Promise.all([
+            broadcastTaskRoom(id, readTaskMutationSourceId(req)),
+            broadcastTasksChanged(readTaskMutationSourceId(req)),
+          ]);
+          return delivered.every(Boolean);
+        },
       },
-    },
-  ]);
-  return NextResponse.json({ ok: true, warnings });
+    ]);
+    if (warnings.length > 0) {
+      console.error("Task comment delete committed with side-effect warnings", {
+        taskId: id,
+        commentId: cid,
+        warnings,
+      });
+    }
+  });
+  return NextResponse.json({ ok: true, warnings: [] });
 }
