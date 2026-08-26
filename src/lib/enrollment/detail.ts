@@ -110,8 +110,9 @@ export async function loadEnrollmentComments(
     }
   }
 
-  const parentIds = [...new Set(commentRows.map((row) => row.parent_id).filter(Boolean))]
-    .filter((id) => !commentRows.some((row) => row.id === id));
+  const parentIds = [
+    ...new Set(commentRows.map((row) => row.parent_id).filter(Boolean)),
+  ].filter((id) => !commentRows.some((row) => row.id === id));
   if (parentIds.length > 0) {
     const { data: parents, error } = await measureTiming(
       opts.timing,
@@ -129,7 +130,8 @@ export async function loadEnrollmentComments(
   }
 
   commentRows.sort(
-    (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
+    (a, b) =>
+      a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
   );
   const displayNamesPromise = measureTiming(
     opts.timing,
@@ -150,41 +152,56 @@ export async function loadEnrollmentComments(
     return {
       comments: commentRows.map((comment) => ({
         ...comment,
-        author_name: displayNames.get(comment.author_email.trim().toLowerCase()),
+        author_name: displayNames.get(
+          comment.author_email.trim().toLowerCase(),
+        ),
         attachments: [],
       })),
       hasMore,
     };
   }
 
-  // Names and attachment rows are independent reads. Start both before
-  // signing so Enrollment follows the same critical path as CS instead of
-  // paying an extra database round-trip before file signing can begin.
-  const [displayNames, { data: attachments, error: attachmentsError }] =
-    await Promise.all([
-      displayNamesPromise,
-      measureTiming(
-        opts.timing,
-        "comment_file_rows",
-        async () =>
-          supabase
-            .from("enrollment_attachments")
-            .select("id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at")
-            .in("comment_id", commentRows.map((comment) => comment.id))
-            .not("comment_id", "is", null)
-            .is("deleted_at", null)
-            .order("created_at", { ascending: true }),
-      ),
-    ]);
+  // Only the attachment ROWS gate signing; display names gate nothing. Await
+  // the rows alone, then overlap name resolution with the signing round-trip:
+  //
+  //   this shape : max(t_names, t_rows + t_sign)
+  //   both-first : max(t_names, t_rows) + t_sign     <- never faster, often slower
+  //
+  // Pairing names with the row fetch instead reads as "more parallel" but only
+  // shortens a leg that was never on the critical path.
+  const { data: attachments, error: attachmentsError } = await measureTiming(
+    opts.timing,
+    "comment_file_rows",
+    async () =>
+      // No deleted_at filter here: enrollment_attachments has no such column.
+      // Enrollment deletes attachment rows outright (see
+      // delete_enrollment_comment_atomic), unlike task_attachments which does
+      // soft-delete. Adding the filter to mirror CS makes PostgREST fail with
+      // 42703 and takes the whole detail response down with it.
+      supabase
+        .from("enrollment_attachments")
+        .select(
+          "id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at",
+        )
+        .in(
+          "comment_id",
+          commentRows.map((comment) => comment.id),
+        )
+        .not("comment_id", "is", null)
+        .order("created_at", { ascending: true }),
+  );
   if (attachmentsError) throw new Error(attachmentsError.message);
 
-  const signedAttachments = await measureTiming(
-    opts.timing,
-    "comment_file_sign",
-    async () =>
-      signAttachmentsSafely((attachments ?? []) as unknown as CommentAttachmentRow[]),
-  );
-  const attachmentRows = (attachments ?? []) as unknown as CommentAttachmentRow[];
+  const [displayNames, signedAttachments] = await Promise.all([
+    displayNamesPromise,
+    measureTiming(opts.timing, "comment_file_sign", async () =>
+      signAttachmentsSafely(
+        (attachments ?? []) as unknown as CommentAttachmentRow[],
+      ),
+    ),
+  ]);
+  const attachmentRows = (attachments ??
+    []) as unknown as CommentAttachmentRow[];
   const byComment = new Map<string, EnrollmentSignedAttachment[]>();
   for (const [index, attachment] of signedAttachments.entries()) {
     const commentId = attachmentRows[index]?.comment_id;
@@ -223,10 +240,8 @@ export async function loadEnrollmentActivity(
   if (error) throw new Error(error.message);
 
   const activity = (data ?? []) as unknown as EnrollmentActivityRow[];
-  const displayNames = await measureTiming(
-    timing,
-    "activity_names",
-    async () => resolveDisplayNames(activity.map((row) => row.actor_email)),
+  const displayNames = await measureTiming(timing, "activity_names", async () =>
+    resolveDisplayNames(activity.map((row) => row.actor_email)),
   );
   return activity.map((row) => ({
     ...row,
@@ -248,7 +263,7 @@ export async function loadEnrollmentAttachments(
         .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
         .eq("record_id", recordId)
         .is("comment_id", null)
-        .is("deleted_at", null)
+        // See the note above: enrollment_attachments has no deleted_at column.
         .order("created_at", { ascending: true }),
   );
   if (error) throw new Error(error.message);
@@ -312,7 +327,9 @@ export async function loadEnrollmentDetail(
         })
       : Promise.resolve(null as ReactionRow[] | null),
   ]);
-  const reactionsByComment = reactionRows ? indexReactionRows(reactionRows) : null;
+  const reactionsByComment = reactionRows
+    ? indexReactionRows(reactionRows)
+    : null;
   const comments = reactionsByComment
     ? commentPage.comments.map((comment) => ({
         ...comment,

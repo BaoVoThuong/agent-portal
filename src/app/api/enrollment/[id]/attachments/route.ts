@@ -48,7 +48,6 @@ export async function GET(_request: Request, { params }: Ctx) {
     .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
     .eq("record_id", id)
     .is("comment_id", null)
-    .is("deleted_at", null)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -277,14 +276,16 @@ export async function POST(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const warnings: string[] = [];
+  const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
+    p_record_id: id,
+    p_actor_email: context.actor.email,
+    p_now: new Date().toISOString(),
+  });
+  if (touchError) warnings.push(`Attachment activity touch failed: ${touchError.message}`);
+
   after(async () => {
-    const warnings: string[] = [];
-    const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
-      p_record_id: id,
-      p_actor_email: context.actor.email,
-      p_now: new Date().toISOString(),
-    });
-    if (touchError) warnings.push(`Attachment activity touch failed: ${touchError.message}`);
+    const sideEffectWarnings = [...warnings];
     if (!commentId) {
       const { error: activityError } = await context.supabase.from("enrollment_activity").insert({
         record_id: id,
@@ -292,7 +293,7 @@ export async function POST(request: Request, { params }: Ctx) {
         type: "attachment_added",
         meta: { file_name: file.name },
       });
-      if (activityError) warnings.push(`Attachment activity failed: ${activityError.message}`);
+      if (activityError) sideEffectWarnings.push(`Attachment activity failed: ${activityError.message}`);
       const recipients = uniqueEnrollmentNotificationRecipients(
         [context.record.caller_email, context.record.responsible_enroll_email],
         [context.actor.email],
@@ -308,7 +309,7 @@ export async function POST(request: Request, { params }: Ctx) {
           })),
         );
       } catch (notificationError) {
-        warnings.push(
+        sideEffectWarnings.push(
           `Attachment notification failed: ${notificationError instanceof Error ? notificationError.message : "unknown error"}`,
         );
       }
@@ -317,11 +318,11 @@ export async function POST(request: Request, { params }: Ctx) {
       broadcastEnrollmentChanged(context.record.program, sourceId),
       broadcastEnrollmentRoom(id, sourceId),
     ]);
-    if (!delivered.every(Boolean)) warnings.push("Attachment broadcast failed.");
-    if (warnings.length > 0) {
+    if (!delivered.every(Boolean)) sideEffectWarnings.push("Attachment broadcast failed.");
+    if (sideEffectWarnings.length > 0) {
       console.error("Enrollment attachment committed with side-effect warnings", {
         recordId: id,
-        warnings,
+        warnings: sideEffectWarnings,
       });
     }
   });
@@ -334,7 +335,7 @@ export async function POST(request: Request, { params }: Ctx) {
     // the room broadcast/cache reload, so do not block this upload on another
     // full record query.
     record: null,
-    warnings: [],
+    warnings,
   });
 }
 

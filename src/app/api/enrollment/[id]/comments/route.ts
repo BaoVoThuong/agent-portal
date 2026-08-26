@@ -102,7 +102,6 @@ export async function POST(request: Request, { params }: Ctx) {
   if (!wasCreated) {
     return NextResponse.json({
       comment: { ...(comment as object), attachments: [] },
-      record: loaded.record,
       parent_updated_at: parentUpdatedAt,
       warnings: [],
     });
@@ -195,7 +194,6 @@ export async function POST(request: Request, { params }: Ctx) {
   });
   return NextResponse.json({
     comment: { ...(comment as object), attachments: [] },
-    record: loaded.record,
     // The comment moved the record's updated_at above, which is the token
     // PATCH sends as expected_updated_at for the 409 concurrency check. Same
     // field name as the CS comments route so the shared CommentThread reads

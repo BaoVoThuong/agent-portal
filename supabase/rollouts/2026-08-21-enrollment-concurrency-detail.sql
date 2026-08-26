@@ -314,6 +314,7 @@ begin
   set body = '', deleted_at = v_now, updated_at = v_now
   where id = p_comment_id;
   delete from enrollment_attachments where comment_id = p_comment_id;
+  delete from enrollment_comment_reactions where comment_id = p_comment_id;
   insert into enrollment_activity (record_id, actor_email, type, meta)
   values (
     p_record_id,
