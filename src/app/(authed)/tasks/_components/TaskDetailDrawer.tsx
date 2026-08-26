@@ -1076,7 +1076,7 @@ export function TaskDetailDrawer({
                 {visibleDetailColumns.map((column) => (
                   <div key={column.id} className="space-y-1.5">
                     <span className={LABEL_CLASS}>
-                      {column.type === "date" ? `${column.label} (month/day/year)` : column.label}
+                      {column.label}
                       {column.required ? REQUIRED_MARK : null}
                     </span>
                     <DetailCustomFieldControl

@@ -546,7 +546,7 @@ export function NewTaskDialog({
                   {visibleDetailColumns.map((column) => (
                     <MetaField
                       key={column.id}
-                      label={column.type === "date" ? `${column.label} (month/day/year)` : column.label}
+                      label={column.label}
                       required={column.required}
                     >
                       <NewTaskCustomField

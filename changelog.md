@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-26 — Enrollment tạo mới không tự gán Caller
+- **Loại**: fix, data-integrity
+- **Cái gì**: Form tạo Enrollment khởi tạo `caller_email` rỗng cho cả ACA và Medicare. Caller chỉ được lưu khi người dùng chủ động chọn; mặc định hiển thị `Unassigned`.
+- **Vì sao**: Trước đây ACA tự lấy tài khoản đang đăng nhập làm Caller, khiến người tạo record bị gán ownership ngoài ý muốn và làm sai các filter/quy tắc scope theo Caller.
+- **Ảnh hưởng**: Không đổi `created_by_email` — hệ thống vẫn ghi nhận đúng người tạo. Không ảnh hưởng record hiện hữu hoặc Medicare vì Medicare vốn đã gửi Caller rỗng.
+
 ## 2026-08-26 — Review nhánh `feat/comment-system-review` trước khi merge
 - **Loại**: fix (blocker, correctness, perf)
 - **Cái gì**:

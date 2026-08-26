@@ -1637,7 +1637,6 @@ export function EnrollmentClient({
           columnByKey={columnByKey}
           customColumns={createCustomColumns}
           tableColumnOptions={tableColumnOptions}
-          currentEmail={currentEmail}
           onClose={() => setCreating(false)}
           onCreate={async (payload, pendingFiles) => {
             await createRecord(payload, pendingFiles);
@@ -3769,7 +3768,7 @@ function EnrollmentDrawer({
               {showDue ? (
                 <FieldBlock
                   className="order-3"
-                  label={`${columnByKey.get("due")?.label ?? "Due date"} (month/day/year)`}
+                  label={columnByKey.get("due")?.label ?? "Due date"}
                   required={requiredColumnKeys.has("due")}
                 >
                   <input
@@ -4113,7 +4112,6 @@ function NewEnrollmentDialog({
   columnByKey,
   customColumns,
   tableColumnOptions,
-  currentEmail,
   onClose,
   onCreate,
 }: {
@@ -4126,7 +4124,6 @@ function NewEnrollmentDialog({
   columnByKey: ReadonlyMap<string, { label: string }>;
   customColumns: readonly TableColumn[];
   tableColumnOptions: readonly TableColumnOption[];
-  currentEmail: string;
   onClose: () => void;
   onCreate: (
     payload: Record<string, unknown>,
@@ -4149,7 +4146,9 @@ function NewEnrollmentDialog({
     pcp_2025: "",
     pcp_2026: "",
     agent_email: "",
-    caller_email: isMedicare ? "" : currentEmail,
+    // Caller is an explicit ownership choice. Do not silently assign the
+    // person creating the enrollment; an empty value renders as Unassigned.
+    caller_email: "",
     responsible_enroll_email: "",
   });
   const [saving, setSaving] = useState(false);
@@ -5182,7 +5181,7 @@ function CreatePropertyInput({
 }) {
   return (
     <CreatePropertyField
-      label={type === "date" ? `${label} (month/day/year)` : label}
+      label={label}
       required={required}
       invalid={invalid}
     >
