@@ -415,6 +415,7 @@ export function CommentThread({
   apiBase = "/api/tasks",
   roomTopic,
   reactionTopic,
+  reactionRefreshKey,
   realtimeManagedExternally = false,
   reactionsEnabled = false,
   reactionCache = "task",
@@ -435,6 +436,8 @@ export function CommentThread({
   roomTopic?: string;
   /** Separate lightweight reaction stream; defaults to the task topic. */
   reactionTopic?: string;
+  /** Incremented by the owning drawer when a reaction arrives off-tab. */
+  reactionRefreshKey?: number;
   realtimeManagedExternally?: boolean;
   /** Optional opaque source id used to suppress a mutation's own broadcast. */
   mutationSourceId?: string;
@@ -450,7 +453,7 @@ export function CommentThread({
   commentsHasMore?: boolean;
   onLoadOlder?: () => Promise<void>;
   highlightCommentId?: string | null;
-  onReload: () => Promise<unknown> | void;
+  onReload: () => Promise<"ok" | "failed"> | void;
   /** Receives the parent task/record's new updated_at after a comment is
    * posted, so the owning list can keep its optimistic-concurrency token
    * current instead of 409-ing on the user's next edit. */
@@ -669,7 +672,7 @@ export function CommentThread({
   // Broadcasts carry only a ping. Canonical rows come from the authenticated,
   // lightweight endpoint instead of trusting public-channel payload data.
   useEffect(() => {
-    if (!reactionsEnabled) return;
+    if (!reactionsEnabled || realtimeManagedExternally) return;
     const sb = getBrowserSupabase();
     if (!sb) return;
     const channel = sb
@@ -695,9 +698,18 @@ export function CommentThread({
     mutationSourceId,
     reactionTopic,
     reactionsEnabled,
+    realtimeManagedExternally,
     scheduleReactionRefresh,
     taskId,
   ]);
+
+  // The drawer owns the reaction channel even while Comments is not mounted.
+  // Once the tab is opened, reconcile the canonical reaction snapshot before
+  // rendering so a reaction made in another account is not missed.
+  useEffect(() => {
+    if (!reactionsEnabled || !reactionRefreshKey) return;
+    scheduleReactionRefresh(0);
+  }, [reactionRefreshKey, reactionsEnabled, scheduleReactionRefresh]);
 
   useEffect(() => {
     return () => {
@@ -961,6 +973,12 @@ export function CommentThread({
   function post(body: string, files: File[], parentId: string | null) {
     if (!canSubmit(submissionRef.current)) return false;
     const intentKey = [body, parentId ?? "", ...files.map((file) => `${file.name}:${file.size}:${file.lastModified}`)].join("\u0000");
+    // This is the ONLY place a failed draft's client_request_id is retired.
+    // Retrying the same draft keeps the id on purpose, so the server replays
+    // idempotently instead of posting twice; a DIFFERENT draft must not inherit
+    // it, or the replay would return the old comment and silently swallow the
+    // new text. Discarding a draft deliberately does not reset anything —
+    // the next submit decides, by comparing intent.
     if (
       failedSubmissionIntentRef.current &&
       failedSubmissionIntentRef.current !== intentKey
@@ -1124,9 +1142,7 @@ export function CommentThread({
       setSubmissionBusy(false);
     }
 
-    let uploadFailed = false;
-    let uploadedAny = false;
-    for (const [index, file] of files.entries()) {
+    const uploadOne = async (index: number, file: File): Promise<boolean> => {
       const fileId = `${tempId}-file-${index}`;
       setOptimisticComments((current) =>
         current.map((item) =>
@@ -1149,7 +1165,6 @@ export function CommentThread({
         if (!upload.ok) {
           throw new Error(await readResponseError(upload, "Failed to upload attachment."));
         }
-        uploadedAny = true;
         setOptimisticComments((current) =>
           current.map((item) =>
             item.id === tempId && item.fileStates
@@ -1157,8 +1172,8 @@ export function CommentThread({
               : item,
           ),
         );
+        return true;
       } catch (error) {
-        uploadFailed = true;
         const message = getErrorMessage(error, "Failed to upload attachment.");
         setOptimisticComments((current) =>
           current.map((item) =>
@@ -1167,8 +1182,29 @@ export function CommentThread({
               : item,
           ),
         );
+        return false;
       }
-    }
+    };
+
+    // Keep a small bounded batch in flight. Functional state updates preserve
+    // the per-file progress indicators while avoiding one network round-trip
+    // blocking every following attachment.
+    let nextFileIndex = 0;
+    const worker = async (): Promise<boolean[]> => {
+      const results: boolean[] = [];
+      while (true) {
+        const index = nextFileIndex++;
+        if (index >= files.length) break;
+        results.push(await uploadOne(index, files[index]));
+      }
+      return results;
+    };
+    const workerCount = Math.min(3, files.length);
+    const outcomes = (
+      await Promise.all(Array.from({ length: workerCount }, () => worker()))
+    ).flat();
+    const uploadFailed = outcomes.some((ok) => !ok);
+    const uploadedAny = outcomes.some(Boolean);
     if (uploadedAny) onCommitted?.();
 
     let reloadDidFail = false;
@@ -1347,7 +1383,10 @@ export function CommentThread({
     } | null;
     if (result?.parent_updated_at) onParentUpdatedAt?.(result.parent_updated_at);
     try {
-      await onReload();
+      const reloadResult = await onReload();
+      if (reloadResult === "failed") {
+        throw new Error("Saved, but the thread could not refresh.");
+      }
     } catch {
       return { ok: false, kind: "error", message: "Saved, but the thread could not refresh." };
     }

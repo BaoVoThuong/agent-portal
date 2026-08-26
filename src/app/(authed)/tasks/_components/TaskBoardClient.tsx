@@ -682,6 +682,11 @@ export function TaskBoardClient({
         invalidation,
         boardInvalidationSourceId,
       );
+      // Do not suppress by sourceId here. A source id names a TAB, not a
+      // mutation, so a per-source window drops a peer's second change instead
+      // of delaying it. Coalescing already happens in scheduleTaskReconcile
+      // (debounced) and canRefreshTaskData (throttled), which delay without
+      // losing anything.
       if (scope) scheduleTaskReconcile(scope);
     });
   }, [boardInvalidationSourceId, scheduleTaskReconcile]);

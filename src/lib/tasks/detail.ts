@@ -209,38 +209,40 @@ export async function loadComments(
     await displayNamesPromise;
     return { comments: [], hasMore };
   }
-  // Both lookups depend only on the finalized comment page. Running them in
-  // parallel removes one full database round-trip from the comment critical
-  // path without changing the response shape or authorization boundary.
-  const [displayNames, { data: attachmentRows, error: attachmentsError }] =
-    await Promise.all([
-      displayNamesPromise,
-      measureTiming(
-        opts.timing,
-        "comment_file_rows",
-        async () =>
-          supabase
-            .from("task_attachments")
-            .select("id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at")
-            .in("comment_id", commentIds)
-            .not("comment_id", "is", null)
-            .is("deleted_at", null)
-            .order("created_at", { ascending: true }),
-      ),
-    ]);
+  // Only the attachment ROWS gate signing; display names gate nothing. Await
+  // the rows alone, then overlap name resolution with the signing round-trip:
+  //
+  //   this shape : max(t_names, t_rows + t_sign)
+  //   both-first : max(t_names, t_rows) + t_sign     <- never faster, often slower
+  //
+  // Pairing names with the row fetch instead reads as "more parallel" but only
+  // shortens a leg that was never on the critical path.
+  const { data: attachmentRows, error: attachmentsError } = await measureTiming(
+    opts.timing,
+    "comment_file_rows",
+    async () =>
+      supabase
+        .from("task_attachments")
+        .select("id,comment_id,file_name,mime_type,size_bytes,storage_path,created_at")
+        .in("comment_id", commentIds)
+        .not("comment_id", "is", null)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: true }),
+  );
   if (attachmentsError) throw new Error(attachmentsError.message);
+
+  const rows = (attachmentRows ?? []) as unknown as CommentAttachmentRow[];
+  const [displayNames, attachments] = await Promise.all([
+    displayNamesPromise,
+    measureTiming(opts.timing, "comment_file_sign", async () =>
+      signAttachmentsSafely(rows),
+    ),
+  ]);
 
   const commentsWithNames = rawComments.map((comment) => ({
     ...comment,
     author_name: displayNames.get(comment.author_email.trim().toLowerCase()),
   }));
-
-  const rows = (attachmentRows ?? []) as unknown as CommentAttachmentRow[];
-  const attachments = await measureTiming(
-    opts.timing,
-    "comment_file_sign",
-    async () => signAttachmentsSafely(rows),
-  );
   const signed = rows.map((row, index) => ({ comment_id: row.comment_id, att: attachments[index] }));
 
   return { comments: groupCommentAttachments(

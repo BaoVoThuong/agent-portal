@@ -201,6 +201,7 @@ export function TaskDetailDrawer({
   const [invalidationSourceId] = useState(() =>
     createTaskDataInvalidationSourceId("task-drawer"),
   );
+  const [reactionRefreshKey, setReactionRefreshKey] = useState(0);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const closeAttachmentPreview = useCallback(() => {
     setAttachmentPreview(null);
@@ -271,6 +272,29 @@ export function TaskDetailDrawer({
       unsubscribe();
     };
   }, [invalidationSourceId, reload, task.id]);
+
+  // Reactions use a separate lightweight topic. Keep this subscription alive
+  // for the whole drawer so switching away from Comments cannot lose a ping.
+  useEffect(() => {
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+    const channel = sb
+      .channel(taskReactionTopic(task.id))
+      .on(
+        "broadcast",
+        { event: "reaction" },
+        (message: { payload?: Record<string, unknown> }) => {
+          if (isOwnRealtimeMutation(invalidationSourceId, message.payload?.sourceId)) {
+            return;
+          }
+          setReactionRefreshKey((current) => current + 1);
+        },
+      )
+      .subscribe();
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [invalidationSourceId, task.id]);
 
   // Keep the task room alive for the entire drawer, not only while the
   // Comments tab is mounted. A room ping can change comments, Files, Activity,
@@ -884,6 +908,7 @@ export function TaskDetailDrawer({
                         taskId={task.id}
                         roomTopic={taskRoomTopic(task.id)}
                         reactionTopic={taskReactionTopic(task.id)}
+                        reactionRefreshKey={reactionRefreshKey}
                         mutationSourceId={invalidationSourceId}
                         mutationSourceHeader={TASK_MUTATION_SOURCE_HEADER}
                         realtimeManagedExternally

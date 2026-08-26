@@ -3235,6 +3235,7 @@ function EnrollmentDrawer({
   );
   const detailRequestSequenceRef = useRef(0);
   const [tab, setTab] = useState<"comments" | "activity">("comments");
+  const [reactionRefreshKey, setReactionRefreshKey] = useState(0);
   const [attachmentPreview, setAttachmentPreview] =
     useState<AttachmentPreview | null>(null);
   const [reloadStatus, setReloadStatus] = useState<"idle" | "failed">("idle");
@@ -3312,7 +3313,7 @@ function EnrollmentDrawer({
   const reload = useCallback(async (
     force = false,
     source: "mutation" | "realtime" = "mutation",
-  ) => {
+  ): Promise<"ok" | "failed"> => {
     const sequence = ++detailRequestSequenceRef.current;
     const cached = getCachedEnrollmentDetail(record.id);
     if (cached) setDetail(cached);
@@ -3324,7 +3325,7 @@ function EnrollmentDrawer({
       age !== null &&
       age <= ENROLLMENT_DETAIL_OPEN_FRESH_MS
     ) {
-      return;
+      return "ok";
     }
     setReloadStatus("idle");
     try {
@@ -3343,18 +3344,20 @@ function EnrollmentDrawer({
             commentLimit,
             source: cached ? "revalidate" : "open",
           });
-      if (sequence !== detailRequestSequenceRef.current) return;
+      if (sequence !== detailRequestSequenceRef.current) return "ok";
       setDetail(loaded);
       loadedCommentLimitRef.current = Math.min(
         COMMENT_REFRESH_MAX,
         Math.max(COMMENT_PAGE_SIZE, loaded.comments.length),
       );
       setReloadStatus("idle");
+      return "ok";
     } catch {
       if (sequence === detailRequestSequenceRef.current) {
         setReloadStatus("failed");
       }
       // Keep a warm cached detail visible when a background revalidation fails.
+      return "failed";
     }
   }, [highlightCommentId, record.id]);
 
@@ -3376,6 +3379,29 @@ function EnrollmentDrawer({
       unsubscribe();
     };
   }, [mutationSourceId, record.id, reload]);
+
+  // Keep reaction invalidation alive for the whole drawer, including while
+  // the Activity tab is selected. CommentThread reconciles when it mounts.
+  useEffect(() => {
+    const sb = getBrowserSupabase();
+    if (!sb) return;
+    const channel = sb
+      .channel(enrollmentReactionTopic(record.id))
+      .on(
+        "broadcast",
+        { event: "reaction" },
+        (message: { payload?: Record<string, unknown> }) => {
+          if (isOwnRealtimeMutation(mutationSourceId, message.payload?.sourceId)) {
+            return;
+          }
+          setReactionRefreshKey((current) => current + 1);
+        },
+      )
+      .subscribe();
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [mutationSourceId, record.id]);
 
   useEffect(() => {
     const sb = getBrowserSupabase();
@@ -3508,9 +3534,16 @@ function EnrollmentDrawer({
     });
   }, [detail, record.id]);
 
-  const reloadDetailAndParent = useCallback(async () => {
-    await reload(true);
-    await onParentRefresh?.();
+  const reloadDetailAndParent = useCallback(async (): Promise<"ok" | "failed"> => {
+    const result = await reload(true);
+    if (result === "failed") return "failed";
+    try {
+      await onParentRefresh?.();
+    } catch {
+      // The detail is already canonical; a parent-list refresh must not make a
+      // successfully saved optimistic comment look like it failed.
+    }
+    return "ok";
   }, [onParentRefresh, reload]);
 
   useEffect(() => {
@@ -3683,6 +3716,7 @@ function EnrollmentDrawer({
                     apiBase="/api/enrollment"
                     roomTopic={enrollmentRoomTopic(record.id)}
                     reactionTopic={enrollmentReactionTopic(record.id)}
+                    reactionRefreshKey={reactionRefreshKey}
                     mutationSourceId={mutationSourceId}
                     mutationSourceHeader={ENROLLMENT_MUTATION_SOURCE_HEADER}
                     realtimeManagedExternally
