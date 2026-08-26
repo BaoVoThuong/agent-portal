@@ -181,6 +181,10 @@ export async function POST(req: Request, { params }: Ctx) {
   // The comment is durable at this point. Notifications and realtime are
   // useful but non-critical, so run them after the response is ready instead
   // of making the composer wait for provider/network latency.
+  // Read the header before after(): the response has already been sent by the
+  // time the callback runs, so nothing there should depend on the Request. The
+  // reactions route already does it this way.
+  const sourceId = readTaskMutationSourceId(req);
   if (wasCreated) {
     after(async () => {
       const warnings = await settleSideEffects([
@@ -192,8 +196,15 @@ export async function POST(req: Request, { params }: Ctx) {
               fetchTaskAssigneeEmails(id, r.supabase),
               fetchTaskParticipantEmails(id, r.supabase),
             ]);
+            // Plain comments skip the members lookup on the response path,
+            // but notifications must still use the same active-member allow
+            // list as the mention path. Otherwise a stale/non-actionable
+            // participant can receive notifications after the optimization.
+            const allowedMemberEmails =
+              actionableEmails ??
+              new Set((await fetchTaskAssignees()).map((member) => member.email));
             const isActionable = (email: string) =>
-              actionableEmails === null || actionableEmails.has(email);
+              allowedMemberEmails.has(email);
             const activeOnly = (email: string | null | undefined) =>
               email && isActionable(email) ? email : null;
             const recipients = resolveCommentRecipients(
@@ -226,8 +237,8 @@ export async function POST(req: Request, { params }: Ctx) {
               // Pass the caller's source id so the originating tab can skip its
               // own tasks-only echo. Missing source ids also remain tasks-only;
               // comments and attachments never change task categories.
-              broadcastTasksChanged(readTaskMutationSourceId(req)),
-              broadcastTaskRoom(id, readTaskMutationSourceId(req)),
+              broadcastTasksChanged(sourceId),
+              broadcastTaskRoom(id, sourceId),
             ]);
             return delivered.every(Boolean);
           },

@@ -6,6 +6,32 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-26 — Review nhánh `feat/comment-system-review` trước khi merge
+- **Loại**: fix (blocker, correctness, perf)
+- **Cái gì**:
+  - **[Blocker] `enrollment_attachments.deleted_at` không tồn tại.** Commit `a1418b7` thêm `.is("deleted_at", null)` vào 3 query enrollment (2 trong `detail.ts`, 1 ở GET `attachments/route.ts`). Bảng này **không có** cột đó — chỉ `task_attachments` có (`schema.sql:2150`). PostgREST trả 42703 → `loadEnrollmentComments` throw → **toàn bộ enrollment detail 500**. Đã revert cả 3, và thêm ghi chú tại chỗ giải thích vì sao Enrollment không có soft-delete file (`delete_enrollment_comment_atomic` xoá cứng) để không ai thêm lại.
+  - **Bỏ `shouldAcceptMutationSource`** (`TaskBoardClient.tsx`): dedupe realtime theo `sourceId` trong cửa sổ 2.5s. Nhưng `sourceId` sinh **một lần mỗi tab** (`useState` initializer), tức nó định danh **tab** chứ không phải **mutation**. Hệ quả: một peer đổi hai thứ cách nhau <2.5s thì tab khác **mất hẳn** thay đổi thứ hai cho tới heartbeat 60s. Coalescing đã có sẵn ở `scheduleTaskReconcile` (debounce 300ms) và `canRefreshTaskData` (throttle 5s) — hai cơ chế đó **hoãn** chứ không **mất**.
+  - **Trả lại critical path tối ưu cho comment** (`lib/tasks/detail.ts` + `lib/enrollment/detail.ts`): gộp display-names vào cùng `Promise.all` với fetch attachment rows nghe có vẻ song song hơn, nhưng chỉ rút ngắn nhánh vốn không nằm trên critical path. `max(t_names, t_rows) + t_sign` **luôn ≥** `max(t_names, t_rows + t_sign)`. Nay await rows trước, rồi cho names chồng lên signing. Áp cho **cả hai** module (trước đó CS cũng đang ở dạng kém hơn).
+  - **Dọn code mồ côi**: xoá `lib/enrollment/comments.ts` (`resolveEnrollmentParentUpdatedAt`) và test của nó — không còn caller sau khi route comment bỏ `fetchEnrollmentRecordById`.
+  - **`readTaskMutationSourceId` gọi 1 lần, hoisted khỏi `after()`** (`tasks comments/route.ts`): trước gọi 2 lần và gọi bên trong callback deferred, tức phụ thuộc `Request` sau khi response đã gửi. Khớp cách `reactions/route.ts` đang làm.
+  - **Ghi lại invariant idempotency** ở đúng nơi thi hành (`CommentThread.tsx` `post()`): comment giải thích bị xoá cùng code trong `discardOptimistic`, nhưng luật vẫn sống nhờ so `intentKey`. Retry cùng draft giữ `client_request_id` để server replay; draft khác phải lấy id mới, nếu không replay sẽ trả comment cũ và **nuốt mất text mới**.
+- **Không sửa (có chủ ý)**: field `warnings` giờ luôn `[]` ở 7 route và **không client nào đọc**. Bỏ hẳn khỏi contract sẽ chạm 7 file route ngay trước lúc merge, mà vẫn phải giữ field ở các route trả warning thật (assignees) → tạo bất nhất giữa các route. Để lại thành việc dọn riêng sau merge.
+- **Kiểm chứng**: `npm run test:run` 108 files / **780 tests** pass (783 trước đó, giảm 3 do xoá `comments.test.ts` của helper mồ côi), `npm run typecheck`, `npm run lint` đều sạch.
+
+## 2026-08-25 — Hardening comment realtime, attachment consistency và refresh dedupe
+- **Loại**: fix, performance, reliability, live-sync
+- **Cái gì**:
+  - Task và Enrollment drawer giữ subscription reaction ở cấp drawer, nên reaction vẫn được nhận dù người dùng đang ở tab Activity/Overdue hoặc chưa mở tab Comments; CommentThread hydrate lại reaction bằng endpoint canonical khi nhận event.
+  - Enrollment reload trả trạng thái thành công/thất bại rõ ràng. Comment optimistic không bị xoá nhầm khi request refresh lỗi; edit comment cũng báo đúng trạng thái thay vì coi lỗi refresh là đã xong.
+  - Enrollment attachment loại bỏ filter `deleted_at` không tồn tại trên bảng attachment; cập nhật activity của record trước khi trả response để lần reload ngay sau upload không đọc snapshot cũ.
+  - Upload nhiều file trong comment chạy tối đa 3 worker song song cho cả CS và Enrollment, thay vì chờ từng file tuần tự.
+  - Task Board dedupe các invalidation cùng `sourceId`, tránh một mutation làm full refetch hai lần khi vừa đi qua DOM event vừa đi qua Supabase broadcast.
+  - Plain comment của CS dùng allow-list thành viên task khi gửi notification, không còn coi mọi participant/reporter/agent là người nhận actionable mặc định.
+  - Xoá mềm Enrollment comment dọn luôn reaction liên quan; thêm forward migration cho database đã chạy production.
+- **Vì sao**: Hai agent review phát hiện reaction realtime bị phụ thuộc vào lifecycle của tab Comments, optimistic comment có thể biến mất sau một lần reload lỗi, upload file chậm vì tuần tự, và attachment Enrollment tham chiếu cột không tồn tại. Các lỗi này ảnh hưởng đồng thời tới CS và Enrollment hoặc làm hai flow hiển thị khác nhau.
+- **Database rollout**: Apply `supabase/rollouts/2026-08-25-comment-review-fixes.sql` trên Supabase production để cập nhật RPC xoá comment hiện hữu; schema source và rollout cũ cũng đã được đồng bộ.
+- **Kiểm chứng**: `npm run test:run` 109 files / 783 tests, `npm run typecheck`, `npm run lint`, `git diff --check` đều pass.
+
 ## 2026-08-23 — Đồng bộ flow tải dữ liệu giữa Enrollment và CS
 - **Loại**: fix, performance, live-sync
 - **Cái gì**: Enroll khởi động truy vấn scope cùng lúc với records, people, options, columns và agents thay vì chờ scope xong mới tải phần còn lại. Client list dùng single-flight refetch: nếu realtime, focus hoặc polling cùng kích hoạt trong lúc request đang chạy thì chỉ giữ một lượt refresh bù ở cuối; snapshot đang hiển thị không bị thay bằng trạng thái loading/rỗng.
