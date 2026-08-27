@@ -315,7 +315,7 @@ git commit -m "feat(leads): add lead management schema"
 **Interfaces:**
 - Produces: `LEAD_PRODUCTS`, `LeadProduct`, `isLeadProduct`, `toLeadProduct`, `STATUS_KINDS`, `StatusKind`, `LeadRow`, `LeadStatus`, `LeadInteractionType`, `LeadInteraction`, `LeadAlertSettings`
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 ```ts
 // src/lib/leads/types.test.ts
@@ -343,12 +343,12 @@ describe("toLeadProduct", () => {
 });
 ```
 
-- [ ] **Step 2: Chạy để chắc nó fail**
+- [x] **Step 2: Chạy để chắc nó fail**
 
 Run: `npx vitest run src/lib/leads/types.test.ts`
 Expected: FAIL — `Cannot find module './types'`
 
-- [ ] **Step 3: Viết `src/lib/leads/types.ts`**
+- [x] **Step 3: Viết `src/lib/leads/types.ts`**
 
 ```ts
 export const LEAD_PRODUCTS = ["pc", "health"] as const;
@@ -440,12 +440,12 @@ export type LeadAlertSettings = {
 };
 ```
 
-- [ ] **Step 4: Test xanh**
+- [x] **Step 4: Test xanh**
 
 Run: `npx vitest run src/lib/leads/types.test.ts`
 Expected: PASS, 3 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/leads/types.ts src/lib/leads/types.test.ts

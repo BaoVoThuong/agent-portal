@@ -34,14 +34,14 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** Task 2 — Kiểu và hằng dùng chung
-**Task kế tiếp:** Task 3 — Engine cờ cảnh báo
-**Commit gần nhất:** `c635655` feat(leads): add lead management schema
+**Task đang làm:** Task 3 — Engine cờ cảnh báo
+**Task kế tiếp:** Task 4 — RPC ghi tương tác
+**Commit gần nhất:** `4997217` feat(leads): add shared lead types
 
 | Task | Trạng thái | Commit |
 |---|---|---|
 | 1. Schema 7 bảng | ✅ xong, review sạch | `c635655` |
-| 2. Kiểu và hằng dùng chung | chưa làm | |
+| 2. Kiểu và hằng dùng chung | ✅ xong, review sạch | `4997217` |
 | 3. Engine cờ cảnh báo | chưa làm | |
 | 4. RPC ghi tương tác | chưa làm | |
 | 5. Quyền | chưa làm | |
