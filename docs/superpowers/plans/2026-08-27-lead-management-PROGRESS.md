@@ -34,10 +34,10 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** Task 14 — Tổng hợp Overview
-**Task kế tiếp:** Task 14 — Tổng hợp Overview
-**Commit gần nhất:** `41ef6db` feat(leads): add the lead import dialog
-**Suite hiện tại:** 818 passed / 114 files
+**Task đang làm:** Task 15 — Màn Overview và cờ trong bảng
+**Task kế tiếp:** Task 15 — Màn Overview và cờ trong bảng
+**Commit gần nhất:** `3705f0e` feat(leads): add bulk lead assignment
+**Suite hiện tại:** 823 passed / 115 files
 **Suite hiện tại:** 805 passed / 112 files
 
 | Task | Trạng thái | Commit |
@@ -55,7 +55,7 @@ không cần biết gì về các cuộc trò chuyện trước.
 | 11. Route import và sự kiện | ✅ xong, typecheck/lint sạch; import tránh partial-index upsert lỗi | chưa commit |
 | 12. Hộp thoại import | ✅ xong, typecheck/lint sạch; cần verify browser upload thực tế | chưa commit |
 | 13. Route giao lead hàng loạt | ✅ xong, 6 validation tests + typecheck/lint sạch | chưa commit |
-| 14. Tổng hợp Overview | chưa làm | |
+| 14. Tổng hợp Overview | ✅ xong, 5 summary tests + typecheck/lint sạch | chưa commit |
 | 15. Màn Overview và cờ trong bảng | chưa làm | |
 | 16. Nav, Settings ngưỡng, changelog | chưa làm | |
 | 17. Màn admin cho từ vựng | chưa làm | |

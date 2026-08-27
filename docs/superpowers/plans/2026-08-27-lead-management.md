@@ -2326,7 +2326,7 @@ git commit -m "feat(leads): add bulk lead assignment"
 - Consumes: `resolveLeadAlerts`, `ALERT_SEVERITY`
 - Produces: `summarizeLeads(leads, statusById, settings, now)` → `{ total, unassigned, byAlert: Record<LeadAlert, number>, byAgent: AgentSummary[], byEvent: EventSummary[] }`
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 ```ts
 // src/lib/leads/overview.test.ts
@@ -2423,12 +2423,12 @@ describe("summarizeLeads", () => {
 });
 ```
 
-- [ ] **Step 2: Chạy để chắc nó fail**
+- [x] **Step 2: Chạy để chắc nó fail**
 
 Run: `npx vitest run src/lib/leads/overview.test.ts`
 Expected: FAIL — `Cannot find module './overview'`
 
-- [ ] **Step 3: Viết `src/lib/leads/overview.ts`**
+- [x] **Step 3: Viết `src/lib/leads/overview.ts`**
 
 ```ts
 import { ALERT_SEVERITY, resolveLeadAlerts, type LeadAlert } from "./alerts";
@@ -2523,7 +2523,7 @@ export function summarizeLeads(
 }
 ```
 
-- [ ] **Step 4: Viết route Overview**
+- [x] **Step 4: Viết route Overview**
 
 ```ts
 // src/app/api/leads/overview/route.ts
@@ -2592,7 +2592,7 @@ export async function GET(request: Request) {
 }
 ```
 
-- [ ] **Step 5: Test xanh, commit**
+- [x] **Step 5: Test xanh, commit**
 
 Run: `npx vitest run src/lib/leads/overview.test.ts && npm run typecheck && npm run lint`
 Expected: PASS 5 tests
