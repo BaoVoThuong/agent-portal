@@ -1572,7 +1572,7 @@ git commit -m "feat(leads): add lead list and interaction routes"
 - Consumes: `GET /api/leads`, `POST /api/leads/:id/interactions`, `fetchTableColumns("lead_pc" | "lead_health")`
 - Produces: route `/leads` render được
 
-- [ ] **Step 1: Viết `page.tsx` (server component)**
+- [x] **Step 1: Viết `page.tsx` (server component)**
 
 ```tsx
 import { requireAnyPermission } from "@/lib/rbac/server";
@@ -1637,7 +1637,7 @@ export default async function LeadsPage({
 }
 ```
 
-- [ ] **Step 2: Viết `LeadsClient.tsx`**
+- [x] **Step 2: Viết `LeadsClient.tsx`**
 
 Bảng dạng List. Yêu cầu bắt buộc:
 - Mỗi dòng: các cột theo `columns`, cộng một chấm màu cờ cảnh báo tính bằng `resolveLeadAlerts`
@@ -1647,7 +1647,7 @@ Bảng dạng List. Yêu cầu bắt buộc:
 - Đăng ký realtime `LEADS_TOPIC`, dùng `isOwnLeadMutation` để bỏ qua tiếng vọng của chính tab mình
 - Nhịp làm tươi định kỳ **phải** kiểm `document.visibilityState === "visible"` trước khi gọi API. Tab nền không được poll — đây là thứ từng chiếm 55% invocation của cả hệ thống.
 
-- [ ] **Step 3: Viết `InteractionLog.tsx`**
+- [x] **Step 3: Viết `InteractionLog.tsx`**
 
 Đây là chỗ thay thế comment tự do. Composer **không phải** ô nhập trống:
 
@@ -1663,7 +1663,7 @@ Quy tắc:
 - Mỗi lần gửi sinh một `crypto.randomUUID()` làm `client_request_id`, giữ nguyên khi bấm lại sau lỗi mạng — bấm hai lần không được đếm thành hai cuộc gọi
 - Danh sách bên dưới hiện các entry đã ghi: `[Call] · Không nghe máy · Bảo Võ · 2 giờ trước` kèm ghi chú
 
-- [ ] **Step 4: Verify bằng tay**
+- [x] **Step 4: Verify bằng tay**
 
 ```bash
 npm run dev
@@ -1676,7 +1676,7 @@ Mở `http://localhost:3000/leads`, kiểm đủ 6 điểm:
 5. Chọn kết quả loại hẹn gọi lại mà bỏ trống ngày giờ → nút Ghi nhận vẫn disabled
 6. Mở hai tab, ghi tương tác ở tab A → tab B tự cập nhật, tab A **không** load lại hai lần
 
-- [ ] **Step 5: Typecheck, lint, commit**
+- [x] **Step 5: Typecheck, lint, commit**
 
 Run: `npm run typecheck && npm run lint && npm run test:run`
 

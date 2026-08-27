@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canLogInteraction } from "@/lib/leads/access";
+import { buildLeadActor, canLogInteraction, canViewLead } from "@/lib/leads/access";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -11,6 +11,36 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function GET(_req: Request, { params }: Ctx) {
+  const { id } = await params;
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const actor = buildLeadActor(session.user.permissions, email);
+  const supabase = getSupabaseAdmin();
+  const { data: lead, error: leadError } = await supabase
+    .from("leads")
+    .select("id,assigned_to_email")
+    .eq("id", id)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (leadError) return NextResponse.json({ error: leadError.message }, { status: 500 });
+  if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!canViewLead(actor, lead as Pick<LeadRow, "assigned_to_email">)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { data, error } = await supabase
+    .from("lead_interactions")
+    .select("id,lead_id,type_id,status_id,note,actor_email,occurred_at,follow_up_at,created_at")
+    .eq("lead_id", id)
+    .order("occurred_at", { ascending: false })
+    .limit(100);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ interactions: data ?? [] });
+}
 
 export async function POST(req: Request, { params }: Ctx) {
   const { id } = await params;
