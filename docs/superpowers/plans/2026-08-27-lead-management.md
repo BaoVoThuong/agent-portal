@@ -1060,7 +1060,7 @@ git commit -m "feat(leads): add lead permissions and access rules"
 **Interfaces:**
 - Produces: `TableScope` mở rộng thành `"cs" | "aca" | "medicare" | "lead_pc" | "lead_health"`
 
-- [ ] **Step 1: Mở rộng scope**
+- [x] **Step 1: Mở rộng scope**
 
 Trong `src/lib/table-config/types.ts` dòng 1, đổi:
 ```ts
@@ -1077,14 +1077,14 @@ export const TABLE_SCOPES = [
 ] as const;
 ```
 
-- [ ] **Step 2: Chạy typecheck để trình biên dịch chỉ ra mọi chỗ cần bổ sung**
+- [x] **Step 2: Chạy typecheck để trình biên dịch chỉ ra mọi chỗ cần bổ sung**
 
 Run: `npm run typecheck`
 Expected: FAIL — `Property 'lead_pc' is missing in type ... but required in type 'Record<TableScope, TableColumn[]>'` tại `src/lib/table-config/queries.ts:11`.
 
 Đây là tác dụng của `Record<TableScope, ...>`: quên một scope là không build được, không phải phát hiện lúc chạy.
 
-- [ ] **Step 3: Thêm cột mặc định**
+- [x] **Step 3: Thêm cột mặc định**
 
 Trong `src/lib/table-config/queries.ts`, thêm hai khoá vào object `DEFAULT_TABLE_COLUMNS` (hàm `col` đã có sẵn trong file, chữ ký `col(scope, key, label, type, position, hiddenDefault?, pinned?)`):
 
@@ -1117,12 +1117,12 @@ Trong `src/lib/table-config/queries.ts`, thêm hai khoá vào object `DEFAULT_TA
   ],
 ```
 
-- [ ] **Step 4: Typecheck + test đầy đủ**
+- [x] **Step 4: Typecheck + test đầy đủ**
 
 Run: `npm run typecheck && npm run test:run`
 Expected: typecheck sạch; test **≥ 780 passed** (một vài test của table-config duyệt qua mọi scope nên số test có thể tăng — không được giảm).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/table-config/types.ts src/lib/table-config/queries.ts

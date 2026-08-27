@@ -88,6 +88,8 @@ const SCOPE_LABEL: Record<TableScope, string> = {
   cs: "Health Customer Service",
   aca: "Health ACA Enrollment",
   medicare: "Health Medicare Enrollment",
+  lead_pc: "P&C Leads",
+  lead_health: "Health Leads",
 };
 
 const SCOPE_OPTIONS: SelectOption<TableScope>[] = TABLE_SCOPES.map((scope) => ({
@@ -132,7 +134,7 @@ type ConfigSectionStatuses = {
   categories: ConfigSectionStatus;
   assistants: ConfigSectionStatus;
   sla: ConfigSectionStatus;
-  enrollmentOptions: Record<"aca" | "medicare", ConfigSectionStatus>;
+  enrollmentOptions: Record<TableScope, ConfigSectionStatus>;
 };
 
 export function ConfigClient({

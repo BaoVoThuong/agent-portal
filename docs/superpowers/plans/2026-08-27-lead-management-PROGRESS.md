@@ -34,9 +34,9 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** Task 6 — Scope cấu hình cột
-**Task kế tiếp:** Task 6 — Scope cấu hình cột
-**Commit gần nhất:** `f6c680e` feat(leads): add the atomic interaction log RPC
+**Task đang làm:** Task 7 — Truy vấn danh sách có phân trang
+**Task kế tiếp:** Task 7 — Truy vấn danh sách có phân trang
+**Commit gần nhất:** `af787c2` feat(leads): add lead permissions and access rules
 **Suite hiện tại:** 805 passed / 112 files
 
 | Task | Trạng thái | Commit |
@@ -46,7 +46,7 @@ không cần biết gì về các cuộc trò chuyện trước.
 | 3. Engine cờ cảnh báo | ✅ xong, review sạch | `c7ba4bd` + `1985c68` |
 | 4. RPC ghi tương tác | ✅ xong, local PostgreSQL + schema reload sạch | chưa commit |
 | 5. Quyền | ✅ xong, 5 test + typecheck/lint/suite sạch | chưa commit |
-| 6. Scope cấu hình cột | chưa làm | |
+| 6. Scope cấu hình cột | ✅ xong, typecheck/lint/suite sạch | chưa commit |
 | 7. Truy vấn danh sách có phân trang | chưa làm | |
 | 8. Route đọc danh sách và ghi tương tác | chưa làm | |
 | 9. Màn hình Leads | chưa làm | |

@@ -11,7 +11,7 @@ import {
   fetchAllTableColumnOptions,
   fetchAllTableColumns,
 } from "@/lib/table-config/queries";
-import type { TableColumnOption } from "@/lib/table-config/types";
+import type { TableColumnOption, TableScope } from "@/lib/table-config/types";
 import {
   emptyEnrollmentOptionsBySet,
   fetchEnrollmentOptionData,
@@ -113,10 +113,12 @@ export default async function ConfigPage() {
   const columnsReady = Object.values(columns).every((rows) =>
     rows.every((column) => !column.id.startsWith("system-"))
   );
-  const emptyOptions: Record<"cs" | "aca" | "medicare", TableColumnOption[]> = {
+  const emptyOptions: Record<TableScope, TableColumnOption[]> = {
     cs: [],
     aca: [],
     medicare: [],
+    lead_pc: [],
+    lead_health: [],
   };
   const options = optionsResult.ok && columnsReady ? optionsResult.data : emptyOptions;
   const emptyPeople: never[] = [];
@@ -180,6 +182,7 @@ export default async function ConfigPage() {
           error: slaRulesResult.ok ? undefined : slaRulesResult.error,
         },
         enrollmentOptions: {
+          cs: { available: true },
           aca: {
             available: acaOptionDataResult.ok,
             error: acaOptionDataResult.ok ? undefined : acaOptionDataResult.error,
@@ -188,6 +191,8 @@ export default async function ConfigPage() {
             available: medicareOptionDataResult.ok,
             error: medicareOptionDataResult.ok ? undefined : medicareOptionDataResult.error,
           },
+          lead_pc: { available: true },
+          lead_health: { available: true },
         },
       }}
     />

@@ -61,6 +61,32 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("medicare", "updated", "Last edited time", "date", 180, true),
     col("medicare", "qc", "QC", "checkbox", 190),
   ],
+  lead_pc: [
+    col("lead_pc", "key", "Key", "text", 10, false, true),
+    col("lead_pc", "name", "Name", "text", 20, false, true),
+    col("lead_pc", "phone", "Phone", "text", 30),
+    col("lead_pc", "email", "Email", "text", 40),
+    col("lead_pc", "assignee", "Assigned to", "person", 50),
+    col("lead_pc", "status", "Status", "dropdown", 60),
+    col("lead_pc", "attempts", "Attempts", "number", 70),
+    col("lead_pc", "lastContact", "Last contact", "date", 80),
+    col("lead_pc", "followUp", "Follow up", "date", 90),
+    col("lead_pc", "event", "Event", "text", 100),
+    col("lead_pc", "createdAt", "Imported", "date", 110, true),
+  ],
+  lead_health: [
+    col("lead_health", "key", "Key", "text", 10, false, true),
+    col("lead_health", "name", "Name", "text", 20, false, true),
+    col("lead_health", "phone", "Phone", "text", 30),
+    col("lead_health", "email", "Email", "text", 40),
+    col("lead_health", "assignee", "Assigned to", "person", 50),
+    col("lead_health", "status", "Status", "dropdown", 60),
+    col("lead_health", "attempts", "Attempts", "number", 70),
+    col("lead_health", "lastContact", "Last contact", "date", 80),
+    col("lead_health", "followUp", "Follow up", "date", 90),
+    col("lead_health", "event", "Event", "text", 100),
+    col("lead_health", "createdAt", "Imported", "date", 110, true),
+  ],
 };
 
 export function defaultTableColumns(scope: TableScope): TableColumn[] {
@@ -189,7 +215,13 @@ function hasDefaultColumns(scope: TableScope, rows: TableColumn[]): boolean {
 export async function fetchAllTableColumns(
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<Record<TableScope, TableColumn[]>> {
-  const scopes: TableScope[] = ["cs", "aca", "medicare"];
+  const scopes: TableScope[] = [
+    "cs",
+    "aca",
+    "medicare",
+    "lead_pc",
+    "lead_health",
+  ];
   const entries = await Promise.all(
     scopes.map(async (scope) => [scope, await fetchTableColumns(scope, supabase)] as const)
   );
