@@ -34,9 +34,9 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** Task 12 — Hộp thoại import
-**Task kế tiếp:** Task 12 — Hộp thoại import
-**Commit gần nhất:** `2f72199` feat(leads): add the lead import parser
+**Task đang làm:** Task 13 — Route giao lead hàng loạt
+**Task kế tiếp:** Task 13 — Route giao lead hàng loạt
+**Commit gần nhất:** `9a47ba1` feat(leads): add lead import and event routes
 **Suite hiện tại:** 812 passed / 113 files
 **Suite hiện tại:** 805 passed / 112 files
 
@@ -53,7 +53,7 @@ không cần biết gì về các cuộc trò chuyện trước.
 | 9. Màn hình Leads | ✅ xong, typecheck/lint sạch; cần verify browser với Supabase thật | chưa commit |
 | 10. Parser Excel | ✅ xong, 7 parser tests + typecheck/lint sạch | chưa commit |
 | 11. Route import và sự kiện | ✅ xong, typecheck/lint sạch; import tránh partial-index upsert lỗi | chưa commit |
-| 12. Hộp thoại import | chưa làm | |
+| 12. Hộp thoại import | ✅ xong, typecheck/lint sạch; cần verify browser upload thực tế | chưa commit |
 | 13. Route giao lead hàng loạt | chưa làm | |
 | 14. Tổng hợp Overview | chưa làm | |
 | 15. Màn Overview và cờ trong bảng | chưa làm | |

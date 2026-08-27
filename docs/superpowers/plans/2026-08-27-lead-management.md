@@ -2083,24 +2083,24 @@ git commit -m "feat(leads): add lead import and event routes"
 
 **Không có test tự động.** Verify tay ở Step 3.
 
-- [ ] **Step 1: Ba bước trong hộp thoại**
+- [x] **Step 1: Ba bước trong hộp thoại**
 
 1. Chọn sự kiện (danh sách có sẵn) hoặc tạo mới ngay tại chỗ
 2. Chọn file → đọc header client-side bằng `XLSX.read`, hiện dropdown map cột cho `full_name` / `phone` / `email`; **đoán sẵn** dựa trên tên header (`/name/i`, `/phone|cell|mobile/i`, `/e-?mail/i`)
 3. Xem trước 5 dòng đầu đã map, rồi bấm Import
 
-- [ ] **Step 2: Hiện kết quả trung thực**
+- [x] **Step 2: Hiện kết quả trung thực**
 
 Sau khi import, hiện đúng ba con số: `inserted`, `duplicates`, và bảng các dòng bị bỏ qua kèm số dòng Excel và lý do. **Không** gộp thành "Import thành công" — người dùng phải biết 12 dòng bị bỏ và bỏ vì sao để về sửa file.
 
-- [ ] **Step 3: Verify tay**
+- [x] **Step 3: Verify tay**
 
 1. Import một file 20 dòng → đủ 20, `duplicates: 0`
 2. Import lại đúng file đó → `inserted: 0`, `duplicates: 20`, không có bản sao nào trong bảng
 3. Import file có 2 dòng thiếu số điện thoại → `skipped` chỉ đúng số dòng Excel
 4. Import file 3 MB → chạy được; file 6 MB → báo lỗi rõ ràng, không treo
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add "src/app/(authed)/leads/_components/LeadImportDialog.tsx" "src/app/(authed)/leads/_components/LeadsClient.tsx"

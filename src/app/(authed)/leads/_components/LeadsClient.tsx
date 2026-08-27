@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, CircleAlert, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, RefreshCw, Upload } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { resolveLeadAlerts, ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
 import { isOwnLeadMutation, LEADS_TOPIC } from "@/lib/leads/realtime-topics";
 import type { LeadAlertSettings, LeadInteractionType, LeadRow, LeadStatus } from "@/lib/leads/types";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { LeadDetailDrawer } from "./LeadDetailDrawer";
+import { LeadImportDialog } from "./LeadImportDialog";
 
 type LeadsClientProps = {
   product: "pc" | "health";
@@ -91,6 +92,7 @@ export function LeadsClient({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedLead, setSelectedLead] = useState<LeadRow | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const sourceId = useState(sourceNonce)[0];
   const requestInFlight = useRef(false);
   const pendingRefresh = useRef(false);
@@ -180,9 +182,12 @@ export function LeadsClient({
             <h1 className="mt-1 text-3xl font-bold">{product === "pc" ? "P&C Leads" : "Health Leads"}</h1>
             <p className="mt-1 text-sm text-[#6b778c]">{total.toLocaleString()} active leads</p>
           </div>
-          <button className="inline-flex items-center gap-2 rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm font-semibold text-[#172b4d] hover:bg-[#f1f3f5] disabled:opacity-50" type="button" onClick={() => void reload()} disabled={refreshing}>
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Refresh
-          </button>
+          <div className="flex gap-2">
+            {isManager && <button className="inline-flex items-center gap-2 rounded-md bg-[#0c66e4] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0958c7]" type="button" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" /> Import</button>}
+            <button className="inline-flex items-center gap-2 rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm font-semibold text-[#172b4d] hover:bg-[#f1f3f5] disabled:opacity-50" type="button" onClick={() => void reload()} disabled={refreshing}>
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+            </button>
+          </div>
         </header>
 
         {isManager && selected.size > 0 && (
@@ -234,6 +239,13 @@ export function LeadsClient({
         interactionTypes={interactionTypes}
         onClose={() => setSelectedLead(null)}
         onLeadUpdated={updateLead}
+      />
+      <LeadImportDialog
+        open={importOpen}
+        product={product}
+        sourceId={sourceId}
+        onClose={() => setImportOpen(false)}
+        onImported={() => reload()}
       />
     </main>
   );
