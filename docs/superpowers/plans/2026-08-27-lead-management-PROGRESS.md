@@ -34,15 +34,16 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** Task 3 — Engine cờ cảnh báo
+**Task đang làm:** — (đã dừng theo yêu cầu sau Task 3)
 **Task kế tiếp:** Task 4 — RPC ghi tương tác
-**Commit gần nhất:** `4997217` feat(leads): add shared lead types
+**Commit gần nhất:** `1985c68` test(leads): cover archived, multi-alert, and lost-status guards
+**Suite hiện tại:** 794 passed / 110 files
 
 | Task | Trạng thái | Commit |
 |---|---|---|
 | 1. Schema 7 bảng | ✅ xong, review sạch | `c635655` |
 | 2. Kiểu và hằng dùng chung | ✅ xong, review sạch | `4997217` |
-| 3. Engine cờ cảnh báo | chưa làm | |
+| 3. Engine cờ cảnh báo | ✅ xong, review sạch | `c7ba4bd` + `1985c68` |
 | 4. RPC ghi tương tác | chưa làm | |
 | 5. Quyền | chưa làm | |
 | 6. Scope cấu hình cột | chưa làm | |
@@ -71,6 +72,9 @@ Ghi lại mọi quyết định lệch khỏi plan, kèm lý do. Trống nghĩa 
 - **Task 1:** công thức verify trong plan thiếu bước tạo 3 role Supabase
   (`anon`, `authenticated`, `service_role`); thiếu chúng thì `schema.sql` luôn
   báo ~67 lỗi không liên quan. Đã sửa trong plan.
+- **Quy trình:** hai lần implementer dán output test BỊA (con số đúng, định dạng
+  không phải của vitest). Người điều phối phải **tự chạy lại** test chứ không tin
+  report. Đừng dùng model rẻ nhất cho implementer ở plan này.
 
 ## Việc còn treo ngoài plan này
 

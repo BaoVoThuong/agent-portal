@@ -464,7 +464,7 @@ git commit -m "feat(leads): add shared lead types"
 - Consumes: `LeadRow`, `LeadStatus`, `LeadAlertSettings` từ `./types`
 - Produces: `type LeadAlert = "never_contacted" | "stale" | "follow_up_overdue" | "exhausted"`; `resolveLeadAlerts(lead, status, settings, now): LeadAlert[]`; `ALERT_SEVERITY: Record<LeadAlert, "red" | "amber">`
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 ```ts
 // src/lib/leads/alerts.test.ts
@@ -578,12 +578,12 @@ describe("resolveLeadAlerts", () => {
 });
 ```
 
-- [ ] **Step 2: Chạy để chắc nó fail**
+- [x] **Step 2: Chạy để chắc nó fail**
 
 Run: `npx vitest run src/lib/leads/alerts.test.ts`
 Expected: FAIL — `Cannot find module './alerts'`
 
-- [ ] **Step 3: Viết `src/lib/leads/alerts.ts`**
+- [x] **Step 3: Viết `src/lib/leads/alerts.ts`**
 
 ```ts
 import type { LeadAlertSettings, LeadRow, LeadStatus } from "./types";
@@ -667,12 +667,12 @@ export function resolveLeadAlerts(
 }
 ```
 
-- [ ] **Step 4: Test xanh**
+- [x] **Step 4: Test xanh**
 
 Run: `npx vitest run src/lib/leads/alerts.test.ts`
 Expected: PASS, 8 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/leads/alerts.ts src/lib/leads/alerts.test.ts
