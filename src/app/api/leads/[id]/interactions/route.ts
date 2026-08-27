@@ -1,0 +1,101 @@
+import { after, NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { buildLeadActor, canLogInteraction } from "@/lib/leads/access";
+import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
+import type { LeadRow } from "@/lib/leads/types";
+import { getSupabaseAdmin } from "@/lib/supabase";
+
+export const dynamic = "force-dynamic";
+
+type Ctx = { params: Promise<{ id: string }> };
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function POST(req: Request, { params }: Ctx) {
+  const { id } = await params;
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const actor = buildLeadActor(session.user.permissions, email);
+  const supabase = getSupabaseAdmin();
+  const { data: lead, error: leadError } = await supabase
+    .from("leads")
+    .select("id,assigned_to_email")
+    .eq("id", id)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (leadError) {
+    return NextResponse.json({ error: leadError.message }, { status: 500 });
+  }
+  if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!canLogInteraction(actor, lead as Pick<LeadRow, "assigned_to_email">)) {
+    return NextResponse.json(
+      { error: "This lead is not assigned to you." },
+      { status: 403 }
+    );
+  }
+
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const typeId = typeof body?.type_id === "string" ? body.type_id : "";
+  if (!UUID_RE.test(typeId)) {
+    return NextResponse.json({ error: "type_id is required." }, { status: 400 });
+  }
+  const statusId =
+    typeof body?.status_id === "string" && UUID_RE.test(body.status_id)
+      ? body.status_id
+      : null;
+  const requestId =
+    typeof body?.client_request_id === "string" && UUID_RE.test(body.client_request_id)
+      ? body.client_request_id
+      : null;
+
+  const { data, error } = await supabase
+    .rpc("log_lead_interaction_atomic", {
+      p_lead_id: id,
+      p_type_id: typeId,
+      p_status_id: statusId,
+      p_note: typeof body?.note === "string" ? body.note : null,
+      p_actor_email: actor.email,
+      p_follow_up_at:
+        typeof body?.follow_up_at === "string" ? body.follow_up_at : null,
+      p_client_request_id: requestId,
+    })
+    .single();
+
+  if (error) {
+    const errors: Record<string, [string, number]> = {
+      LEAD_NOT_FOUND: ["Not found", 404],
+      LEAD_TYPE_NOT_FOUND: ["That interaction type no longer exists.", 400],
+      LEAD_STATUS_NOT_FOUND: ["That status no longer exists.", 400],
+      LEAD_FOLLOW_UP_REQUIRED: [
+        "Pick the date and time you promised to call back.",
+        400,
+      ],
+      LEAD_FOLLOW_UP_REQUIRES_SCHEDULED: [
+        "Only a call-back status can carry a follow-up time.",
+        400,
+      ],
+    };
+    const match = Object.entries(errors).find(([code]) => error.message.includes(code));
+    if (match) {
+      const [message, status] = match[1];
+      return NextResponse.json({ error: message }, { status });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  const sourceId = readLeadMutationSourceId(req);
+  after(async () => {
+    await broadcastLeadsChanged(sourceId);
+  });
+
+  const result = data as { interaction: unknown; lead: unknown };
+  return NextResponse.json({
+    interaction: result.interaction,
+    lead: result.lead,
+  });
+}

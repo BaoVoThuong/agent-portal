@@ -1321,7 +1321,7 @@ git commit -m "feat(leads): add paginated lead queries"
 
 > **Thứ tự bắt buộc:** realtime trước, route sau — route import từ nó.
 
-- [ ] **Step 1: Viết `src/lib/leads/realtime-topics.ts` và `realtime.ts`**
+- [x] **Step 1: Viết `src/lib/leads/realtime-topics.ts` và `realtime.ts`**
 
 ```ts
 // src/lib/leads/realtime-topics.ts
@@ -1388,7 +1388,7 @@ export async function broadcastLeadsChanged(sourceId?: string): Promise<boolean>
 }
 ```
 
-- [ ] **Step 2: Viết `src/app/api/leads/route.ts`**
+- [x] **Step 2: Viết `src/app/api/leads/route.ts`**
 
 ```ts
 import { NextResponse } from "next/server";
@@ -1421,7 +1421,7 @@ export async function GET(request: Request) {
 }
 ```
 
-- [ ] **Step 3: Viết `src/app/api/leads/[id]/interactions/route.ts`**
+- [x] **Step 3: Viết `src/app/api/leads/[id]/interactions/route.ts`**
 
 ```ts
 import { after, NextResponse } from "next/server";
@@ -1526,7 +1526,7 @@ export async function POST(req: Request, { params }: Ctx) {
 }
 ```
 
-- [ ] **Step 4: Viết test cho `isOwnLeadMutation`**
+- [x] **Step 4: Viết test cho `isOwnLeadMutation`**
 
 ```ts
 // src/lib/leads/realtime-topics.test.ts
@@ -1548,7 +1548,7 @@ describe("isOwnLeadMutation", () => {
 });
 ```
 
-- [ ] **Step 5: Typecheck, test, commit**
+- [x] **Step 5: Typecheck, test, commit**
 
 Run: `npm run typecheck && npm run lint && npm run test:run`
 Expected: sạch cả ba; test ≥ 782

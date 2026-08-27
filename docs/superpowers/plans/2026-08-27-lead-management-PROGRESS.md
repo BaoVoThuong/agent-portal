@@ -34,9 +34,9 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** Task 8 — Route đọc danh sách và ghi tương tác
-**Task kế tiếp:** Task 8 — Route đọc danh sách và ghi tương tác
-**Commit gần nhất:** `a30eafc` feat(leads): add lead table-config scopes
+**Task đang làm:** Task 9 — Màn hình Leads
+**Task kế tiếp:** Task 9 — Màn hình Leads
+**Commit gần nhất:** `fceb8c0` feat(leads): add paginated lead queries
 **Suite hiện tại:** 805 passed / 112 files
 
 | Task | Trạng thái | Commit |
@@ -48,7 +48,7 @@ không cần biết gì về các cuộc trò chuyện trước.
 | 5. Quyền | ✅ xong, 5 test + typecheck/lint/suite sạch | chưa commit |
 | 6. Scope cấu hình cột | ✅ xong, typecheck/lint/suite sạch | chưa commit |
 | 7. Truy vấn danh sách có phân trang | ✅ xong, 6 query-filter test pass | chưa commit |
-| 8. Route đọc danh sách và ghi tương tác | chưa làm | |
+| 8. Route đọc danh sách và ghi tương tác | ✅ xong, typecheck/lint + realtime topic tests sạch | chưa commit |
 | 9. Màn hình Leads | chưa làm | |
 | 10. Parser Excel | chưa làm | |
 | 11. Route import và sự kiện | chưa làm | |
