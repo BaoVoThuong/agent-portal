@@ -884,7 +884,7 @@ git commit -m "feat(leads): add the atomic interaction log RPC"
 - Consumes: `can` từ `@/lib/rbac/client`, `PERMISSIONS` từ `@/lib/rbac/permissions`
 - Produces: `LeadActor = { email, isManager, isWorker }`; `buildLeadActor(permissions, email)`; `canManageLeads(actor)`; `canWorkLeads(actor)`; `canViewLead(actor, lead)`; `canLogInteraction(actor, lead)`
 
-- [ ] **Step 1: Thêm permission vào `src/lib/rbac/permissions.ts`**
+- [x] **Step 1: Thêm permission vào `src/lib/rbac/permissions.ts`**
 
 Trong object `PERMISSIONS`, ngay sau `TASK_EXPORT: "task.export",` thêm:
 ```ts
@@ -920,7 +920,7 @@ Và thêm vào cuối mảng `PERMISSION_DEFINITIONS`:
   },
 ```
 
-- [ ] **Step 2: Viết test đỏ**
+- [x] **Step 2: Viết test đỏ**
 
 ```ts
 // src/lib/leads/access.test.ts
@@ -968,12 +968,12 @@ describe("lead access", () => {
 });
 ```
 
-- [ ] **Step 3: Chạy để chắc nó fail**
+- [x] **Step 3: Chạy để chắc nó fail**
 
 Run: `npx vitest run src/lib/leads/access.test.ts`
 Expected: FAIL — `Cannot find module './access'`
 
-- [ ] **Step 4: Viết `src/lib/leads/access.ts`**
+- [x] **Step 4: Viết `src/lib/leads/access.ts`**
 
 ```ts
 import { can } from "@/lib/rbac/client";
@@ -1039,12 +1039,12 @@ export function canLogInteraction(
 }
 ```
 
-- [ ] **Step 5: Test xanh + toàn bộ suite**
+- [x] **Step 5: Test xanh + toàn bộ suite**
 
 Run: `npx vitest run src/lib/leads/access.test.ts && npm run typecheck`
 Expected: PASS 5 tests; typecheck sạch
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/lib/rbac/permissions.ts src/lib/leads/access.ts src/lib/leads/access.test.ts

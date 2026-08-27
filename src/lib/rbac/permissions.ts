@@ -15,6 +15,9 @@ export const PERMISSIONS = {
   TASK_MANAGE: "task.manage",
   TASK_WORK: "task.work",
   TASK_EXPORT: "task.export",
+  LEAD_MANAGE: "lead.manage",
+  LEAD_WORK: "lead.work",
+  LEAD_EXPORT: "lead.export",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -160,6 +163,30 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Tasks",
     description:
       "Export task and enrollment tables to Excel. Required on its own — a manager role alone does not grant export.",
+    sortOrder: 300,
+  },
+  {
+    key: PERMISSIONS.LEAD_MANAGE,
+    label: "Manage Leads",
+    groupKey: "leads",
+    groupLabel: "Lead Management",
+    description: "Import leads, assign them, and see every agent's queue.",
+    sortOrder: 100,
+  },
+  {
+    key: PERMISSIONS.LEAD_WORK,
+    label: "Work Leads",
+    groupKey: "leads",
+    groupLabel: "Lead Management",
+    description: "See and log interactions on leads assigned to you.",
+    sortOrder: 200,
+  },
+  {
+    key: PERMISSIONS.LEAD_EXPORT,
+    label: "Export Leads",
+    groupKey: "leads",
+    groupLabel: "Lead Management",
+    description: "Download the lead table as a spreadsheet.",
     sortOrder: 300,
   },
 ];
