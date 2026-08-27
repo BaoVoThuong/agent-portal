@@ -1903,7 +1903,7 @@ git commit -m "feat(leads): add the lead import parser"
 - Consumes: `parseLeadRows`, `canManageLeads`
 - Produces: `POST /api/leads/events` → `{ event }`; `POST /api/leads/import` (multipart: `file`, `event_id`, `product`, `mapping` JSON) → `{ inserted, skipped, duplicates }`
 
-- [ ] **Step 1: Viết route import**
+- [x] **Step 1: Viết route import**
 
 ```ts
 import { NextResponse } from "next/server";
@@ -2009,7 +2009,7 @@ export async function POST(request: Request) {
 }
 ```
 
-- [ ] **Step 2: Viết route events**
+- [x] **Step 2: Viết route events**
 
 ```ts
 import { NextResponse } from "next/server";
@@ -2066,7 +2066,7 @@ export async function POST(request: Request) {
 }
 ```
 
-- [ ] **Step 3: Typecheck, lint, commit**
+- [x] **Step 3: Typecheck, lint, commit**
 
 Run: `npm run typecheck && npm run lint && npm run test:run`
 
