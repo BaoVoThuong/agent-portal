@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-27 — Sửa lỗi "column reference \"overdue_at\" is ambiguous" khi unlock task overdue
+- **Loại**: fix (bug production)
+- **Cái gì**: `patch_task_atomic` khai báo biến local tên `overdue_at`, trùng tên cột của bảng `task_overdue_events` mà chính nó truy vấn. PL/pgSQL mặc định `variable_conflict = error`, nên câu `select id, overdue_at into open_overdue from task_overdue_events ... order by overdue_at desc` không phân giải được và abort với SQLSTATE 42702. Đổi tên biến thành `overdue_at_value` / `due_at_value` (đúng quy ước `resolved_at_value`, `overdue_seconds_value` vốn đã có trong cùng hàm) và alias bảng thành `event` để tham chiếu cột luôn tường minh.
+- **Vì sao chỉ luồng unlock chết**: nhánh này chỉ chạy khi `p_overdue` khác null — tức chỉ `POST /api/tasks/[id]/overdue-unlock`. Mọi caller khác của `patch_task_atomic` (PATCH task, reopen, assignees) không đi qua đó nên vẫn chạy bình thường, khiến lỗi ẩn rất lâu.
+- **Từ khi nào**: 2026-08-08. Commit `4f59280` tạo hàm với biến bị shadow, cùng ngày `16ad882` chuyển route unlock từ update trực tiếp sang RPC này. Kể từ đó **mọi** lần unlock overdue đều thất bại.
+- **Phạm vi**: quét tĩnh toàn bộ 58 function / 53 bảng trong `schema.sql` — chỉ `patch_task_atomic` dính, 2 biến. Không phải lỗi hệ thống.
+- **Kiểm chứng**: dựng PostgreSQL 16.8 cục bộ, nạp trọn `schema.sql` (0 lỗi), rồi chạy cùng một kịch bản unlock trên hai phiên bản hàm. Bản gốc trả đúng `ERROR: column reference "overdue_at" is ambiguous` và để overdue event ở trạng thái chưa resolve; bản vá đưa task về `todo` và resolve event kèm lý do. Rollout `supabase/rollouts/2026-08-27-fix-patch-task-atomic-ambiguity.sql` là forward-only, có sẵn khối verification trả bảng.
+- **Đối chiếu Supabase thật**: so toàn bộ `.from()` / `.select()` / `.rpc()` trong `src/` với OpenAPI spec của PostgREST — không thiếu bảng, cột hay RPC nào.
+
 ## 2026-08-26 — Enrollment tạo mới không tự gán Caller
 - **Loại**: fix, data-integrity
 - **Cái gì**: Form tạo Enrollment khởi tạo `caller_email` rỗng cho cả ACA và Medicare. Caller chỉ được lưu khi người dùng chủ động chọn; mặc định hiển thị `Unassigned`.

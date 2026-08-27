@@ -3113,8 +3113,12 @@ declare
   next_started_at timestamptz;
   next_sla_minutes integer;
   next_sla_active boolean;
-  overdue_at timestamptz;
-  due_at timestamptz;
+  -- Suffixed to stay out of task_overdue_events' column namespace. A bare
+  -- `overdue_at` here shadowed that table's column and made the SELECT below
+  -- fail with 42702 every time an overdue task was unlocked. resolved_at_value
+  -- and overdue_seconds_value already followed this convention.
+  overdue_at_value timestamptz;
+  due_at_value timestamptz;
   resolved_at_value timestamptz;
   overdue_seconds_value integer;
   moves_last_activity boolean;
@@ -3233,17 +3237,18 @@ begin
   -- Resolve an active overdue event before closing the In Progress stage so
   -- the event can retain its current open stage_cycle_id.
   if p_overdue is not null and jsonb_typeof(p_overdue) = 'object' then
-    due_at := (p_overdue->>'due_at')::timestamptz;
+    due_at_value := (p_overdue->>'due_at')::timestamptz;
     resolved_at_value := (p_overdue->>'resolved_at')::timestamptz;
-    overdue_seconds_value := greatest(0, round(extract(epoch from (resolved_at_value - due_at)))::integer);
-    select id, overdue_at into open_overdue
-    from task_overdue_events
-    where task_id = p_task_id and resolved_at is null
-    order by overdue_at desc
+    overdue_seconds_value := greatest(0, round(extract(epoch from (resolved_at_value - due_at_value)))::integer);
+    select event.id, event.overdue_at into open_overdue
+    from task_overdue_events as event
+    where event.task_id = p_task_id and event.resolved_at is null
+    order by event.overdue_at desc
     limit 1
     for update;
 
-    overdue_at := coalesce(open_overdue.overdue_at, target_task.overdue_flagged_at, due_at);
+    overdue_at_value := coalesce(
+      open_overdue.overdue_at, target_task.overdue_flagged_at, due_at_value);
     if open_overdue.id is not null then
       update task_overdue_events
       set stage_cycle_id = (
@@ -3268,8 +3273,8 @@ begin
           where task_id = p_task_id and stage = 'in_progress' and ended_at is null
           order by started_at desc limit 1
         ),
-        due_at,
-        overdue_at,
+        due_at_value,
+        overdue_at_value,
         resolved_at_value,
         overdue_seconds_value,
         p_actor_email,
