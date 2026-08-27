@@ -94,7 +94,7 @@ Dừng sau Phase 2 vẫn có sản phẩm dùng được (nhập tay + giao + th
 **Interfaces:**
 - Produces: bảng `lead_events`, `leads`, `lead_statuses`, `lead_interaction_types`, `lead_interactions`, `lead_assignment_history`, `lead_alert_settings`; sequence `leads_display_number_seq`
 
-- [ ] **Step 1: Viết file rollout**
+- [x] **Step 1: Viết file rollout**
 
 ```sql
 -- Lead Management: schema nền. Forward-only.
@@ -266,7 +266,7 @@ begin
 end $$;
 ```
 
-- [ ] **Step 2: Chạy thử trên PostgreSQL cục bộ trước khi đụng Supabase**
+- [x] **Step 2: Chạy thử trên PostgreSQL cục bộ trước khi đụng Supabase**
 
 ```bash
 export PATH="/Applications/Postgres.app/Contents/Versions/latest/bin:$PATH"
@@ -280,11 +280,11 @@ psql -h "$SOCK" -p 55443 -U postgres -v ON_ERROR_STOP=1 \
 ```
 Expected: không có dòng nào bắt đầu bằng `ERROR`.
 
-- [ ] **Step 3: Nối cùng nội dung vào `supabase/schema.sql`**
+- [x] **Step 3: Nối cùng nội dung vào `supabase/schema.sql`**
 
 Chèn **ngay trước** dòng `-- SECURITY DEFINER ACL — must remain the LAST executable block in this file.` (tìm bằng `grep -n "must remain the LAST" supabase/schema.sql`). Nội dung y hệt file rollout, bỏ phần `create or replace function lead_norm_email` nếu `schema.sql` đã có hàm cùng tên (kiểm bằng `grep -c "function lead_norm_email" supabase/schema.sql`).
 
-- [ ] **Step 4: Nạp lại toàn bộ `schema.sql` vào DB sạch để chắc không vỡ thứ tự**
+- [x] **Step 4: Nạp lại toàn bộ `schema.sql` vào DB sạch để chắc không vỡ thứ tự**
 
 ```bash
 psql -h "$SOCK" -p 55443 -U postgres -q -c "drop schema public cascade; create schema public;"
@@ -298,7 +298,7 @@ Expected: in ra `0`.
 
 Nếu ra khác 0, so với đường cơ sở trước khi kiểm tội mình: `git stash && <chạy lại> && git stash pop`. Số lỗi bằng nhau nghĩa là lỗi có sẵn, không phải do bạn.
 
-- [ ] **Step 5: Dọn và commit**
+- [x] **Step 5: Dọn và commit**
 
 ```bash
 pg_ctl -D /tmp/leadpg stop >/dev/null; rm -rf /tmp/leadpg "$SOCK"

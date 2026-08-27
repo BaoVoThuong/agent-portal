@@ -34,13 +34,13 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** chưa bắt đầu
-**Task kế tiếp:** Task 1 — Schema 7 bảng
-**Commit gần nhất:** `ccffe1c` docs(leads): add the lead management implementation plan
+**Task đang làm:** Task 2 — Kiểu và hằng dùng chung
+**Task kế tiếp:** Task 3 — Engine cờ cảnh báo
+**Commit gần nhất:** `c635655` feat(leads): add lead management schema
 
 | Task | Trạng thái | Commit |
 |---|---|---|
-| 1. Schema 7 bảng | chưa làm | |
+| 1. Schema 7 bảng | ✅ xong, review sạch | `c635655` |
 | 2. Kiểu và hằng dùng chung | chưa làm | |
 | 3. Engine cờ cảnh báo | chưa làm | |
 | 4. RPC ghi tương tác | chưa làm | |
@@ -65,7 +65,12 @@ dùng thử bảng Leads thật trước khi làm import và Overview.
 
 Ghi lại mọi quyết định lệch khỏi plan, kèm lý do. Trống nghĩa là chưa có gì lệch.
 
-_(chưa có)_
+- **Task 1:** chèn schema vào `supabase/schema.sql` **trước** khối `SECURITY DEFINER ACL`
+  ở cuối file, không phải cuối file. Khối đó tự khai phải đứng cuối cùng và có
+  assertion fail-closed. Plan đã được sửa để ghi rõ (commit `7bae0a8`).
+- **Task 1:** công thức verify trong plan thiếu bước tạo 3 role Supabase
+  (`anon`, `authenticated`, `service_role`); thiếu chúng thì `schema.sql` luôn
+  báo ~67 lỗi không liên quan. Đã sửa trong plan.
 
 ## Việc còn treo ngoài plan này
 
