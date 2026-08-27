@@ -1,0 +1,108 @@
+import { describe, expect, it } from "vitest";
+import { ALERT_SEVERITY, resolveLeadAlerts } from "./alerts";
+import type { LeadAlertSettings, LeadRow, LeadStatus } from "./types";
+
+const settings: LeadAlertSettings = {
+  product: "pc",
+  no_contact_hours: 24,
+  stale_days: 3,
+  max_attempts: 4,
+};
+
+const NOW = new Date("2026-09-01T12:00:00Z");
+const hoursAgo = (n: number) =>
+  new Date(NOW.getTime() - n * 3600_000).toISOString();
+
+function lead(patch: Partial<LeadRow> = {}): LeadRow {
+  return {
+    id: "l1", display_number: 1, product: "pc", event_id: null,
+    full_name: "A", phone: "1", email: null,
+    assigned_to_email: "cs@x.com", assigned_at: hoursAgo(1),
+    assigned_by_email: "mgr@x.com", status_id: "s-open",
+    first_contacted_at: null, last_contacted_at: null,
+    contact_attempt_count: 0, next_follow_up_at: null, closed_at: null,
+    created_by_email: "mgr@x.com", created_at: hoursAgo(1),
+    updated_by_email: null, updated_at: hoursAgo(1),
+    custom_values: {}, archived_at: null,
+    ...patch,
+  };
+}
+
+const openStatus: LeadStatus = {
+  id: "s-open", product: "pc", label: "Đang theo", color: null,
+  position: 0, kind: "open", archived_at: null,
+};
+const wonStatus: LeadStatus = { ...openStatus, id: "s-won", kind: "won" };
+
+describe("resolveLeadAlerts", () => {
+  it("stays quiet while the lead is still inside the window", () => {
+    expect(resolveLeadAlerts(lead(), openStatus, settings, NOW)).toEqual([]);
+  });
+
+  it("flags a lead nobody has called since it was assigned", () => {
+    const row = lead({ assigned_at: hoursAgo(30) });
+    expect(resolveLeadAlerts(row, openStatus, settings, NOW)).toContain(
+      "never_contacted"
+    );
+  });
+
+  // Chưa giao cho ai thì không ai có lỗi. Đây là lead trong kho, không phải
+  // lead bị bỏ bê.
+  it("does not flag an unassigned lead", () => {
+    const row = lead({ assigned_to_email: null, assigned_at: null });
+    expect(resolveLeadAlerts(row, openStatus, settings, NOW)).toEqual([]);
+  });
+
+  it("flags a lead that was contacted once then abandoned", () => {
+    const row = lead({
+      assigned_at: hoursAgo(200),
+      first_contacted_at: hoursAgo(190),
+      last_contacted_at: hoursAgo(100),
+      contact_attempt_count: 1,
+    });
+    const alerts = resolveLeadAlerts(row, openStatus, settings, NOW);
+    expect(alerts).toContain("stale");
+    expect(alerts).not.toContain("never_contacted");
+  });
+
+  it("flags a missed callback promise", () => {
+    const row = lead({
+      last_contacted_at: hoursAgo(2),
+      contact_attempt_count: 1,
+      next_follow_up_at: hoursAgo(1),
+    });
+    expect(resolveLeadAlerts(row, openStatus, settings, NOW)).toContain(
+      "follow_up_overdue"
+    );
+  });
+
+  it("marks a hard-to-reach lead amber, not red", () => {
+    const row = lead({
+      last_contacted_at: hoursAgo(2),
+      first_contacted_at: hoursAgo(50),
+      contact_attempt_count: 4,
+    });
+    const alerts = resolveLeadAlerts(row, openStatus, settings, NOW);
+    expect(alerts).toContain("exhausted");
+    expect(ALERT_SEVERITY.exhausted).toBe("amber");
+    expect(ALERT_SEVERITY.never_contacted).toBe("red");
+  });
+
+  // Lead đã đóng thì không còn là việc của ai nữa.
+  it("goes silent once the status is terminal", () => {
+    const row = lead({
+      assigned_at: hoursAgo(500),
+      next_follow_up_at: hoursAgo(400),
+      contact_attempt_count: 9,
+    });
+    expect(resolveLeadAlerts(row, wonStatus, settings, NOW)).toEqual([]);
+  });
+
+  // Status có thể bị admin xoá khỏi bộ từ vựng trong khi lead vẫn trỏ vào nó.
+  it("treats an unknown status as still open", () => {
+    const row = lead({ assigned_at: hoursAgo(30) });
+    expect(resolveLeadAlerts(row, null, settings, NOW)).toContain(
+      "never_contacted"
+    );
+  });
+});
