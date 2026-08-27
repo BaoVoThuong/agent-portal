@@ -2121,7 +2121,7 @@ git commit -m "feat(leads): add the lead import dialog"
 **Interfaces:**
 - Produces: `validateAssignRequest(body)` → `{ leadIds: string[]; toEmail: string | null; reason: string | null } | { error: string }`; `POST /api/leads/assign` body `{ lead_ids, to_email, reason? }` → `{ assigned: number }`
 
-- [ ] **Step 1: Viết test đỏ cho phần thuần**
+- [x] **Step 1: Viết test đỏ cho phần thuần**
 
 ```ts
 // src/lib/leads/assign.test.ts
@@ -2177,12 +2177,12 @@ describe("validateAssignRequest", () => {
 });
 ```
 
-- [ ] **Step 2: Chạy để chắc nó fail**
+- [x] **Step 2: Chạy để chắc nó fail**
 
 Run: `npx vitest run src/lib/leads/assign.test.ts`
 Expected: FAIL — `Cannot find module './assign'`
 
-- [ ] **Step 3: Viết `src/lib/leads/assign.ts`**
+- [x] **Step 3: Viết `src/lib/leads/assign.ts`**
 
 ```ts
 export const MAX_ASSIGN_BATCH = 500;
@@ -2221,7 +2221,7 @@ export function validateAssignRequest(
 }
 ```
 
-- [ ] **Step 4: Viết route**
+- [x] **Step 4: Viết route**
 
 ```ts
 // src/app/api/leads/assign/route.ts
@@ -2306,7 +2306,7 @@ export async function POST(request: Request) {
 }
 ```
 
-- [ ] **Step 5: Test xanh, typecheck, commit**
+- [x] **Step 5: Test xanh, typecheck, commit**
 
 Run: `npx vitest run src/lib/leads/assign.test.ts && npm run typecheck && npm run lint`
 

@@ -93,6 +93,10 @@ export function LeadsClient({
   const [selectedLead, setSelectedLead] = useState<LeadRow | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [assignmentEmail, setAssignmentEmail] = useState("");
+  const [assignmentReason, setAssignmentReason] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const sourceId = useState(sourceNonce)[0];
   const requestInFlight = useRef(false);
   const pendingRefresh = useRef(false);
@@ -170,6 +174,33 @@ export function LeadsClient({
     });
   }
 
+  async function assignSelected(toEmail: string | null) {
+    if (selected.size === 0 || assigning) return;
+    setAssigning(true);
+    setAssignmentError(null);
+    try {
+      const response = await fetch("/api/leads/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-lead-client-source": sourceId },
+        body: JSON.stringify({
+          lead_ids: [...selected],
+          to_email: toEmail,
+          reason: assignmentReason,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Could not assign leads.");
+      setAssignmentEmail("");
+      setAssignmentReason("");
+      setSelected(new Set());
+      await reload();
+    } catch (assignError) {
+      setAssignmentError(assignError instanceof Error ? assignError.message : "Could not assign leads.");
+    } finally {
+      setAssigning(false);
+    }
+  }
+
   const allVisibleSelected = leads.length > 0 && leads.every((lead) => selected.has(lead.id));
   const pageEnd = Math.min(offset + limit, total);
 
@@ -191,9 +222,15 @@ export function LeadsClient({
         </header>
 
         {isManager && selected.size > 0 && (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#b8d4ff] bg-[#eaf2ff] px-4 py-3 text-sm">
-            <span className="font-semibold text-[#172b4d]">{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
-            <span className="text-[#42526e]">Bulk assignment actions will appear here.</span>
+          <div className="mb-3 rounded-lg border border-[#b8d4ff] bg-[#eaf2ff] px-4 py-3 text-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-semibold text-[#172b4d]">{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
+              <input className="min-w-[220px] flex-1 rounded-md border border-[#b8c4d4] bg-white px-3 py-2 text-sm" placeholder="Agent email to assign" value={assignmentEmail} onChange={(event) => setAssignmentEmail(event.target.value)} disabled={assigning} />
+              <input className="min-w-[180px] flex-1 rounded-md border border-[#b8c4d4] bg-white px-3 py-2 text-sm" placeholder="Reason (optional)" value={assignmentReason} onChange={(event) => setAssignmentReason(event.target.value)} disabled={assigning} />
+              <button className="rounded-md bg-[#0c66e4] px-3 py-2 font-semibold text-white disabled:opacity-50" type="button" disabled={!assignmentEmail.trim() || assigning} onClick={() => void assignSelected(assignmentEmail.trim())}>{assigning ? "Saving..." : "Assign"}</button>
+              <button className="rounded-md border border-[#b8c4d4] bg-white px-3 py-2 font-semibold text-[#172b4d] disabled:opacity-50" type="button" disabled={assigning} onClick={() => void assignSelected(null)}>Unassign</button>
+            </div>
+            {assignmentError && <p className="mt-2 text-xs font-semibold text-red-700">{assignmentError}</p>}
           </div>
         )}
 
