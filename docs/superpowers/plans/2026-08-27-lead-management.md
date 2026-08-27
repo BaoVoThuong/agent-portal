@@ -1311,11 +1311,74 @@ git commit -m "feat(leads): add paginated lead queries"
 - Consumes: `fetchLeadsPage`, `buildLeadActor`, `canViewLead`, `canLogInteraction`
 - Produces: `GET /api/leads?product=&assigned_to=&event_id=&status_id=&limit=&offset=` → `{ leads, total, limit, offset }`; `POST /api/leads/:id/interactions` body `{ type_id, status_id?, note?, follow_up_at?, client_request_id? }` → `{ interaction, lead }`
 
-> **Thứ tự bắt buộc:** làm Step 1 (realtime) trước, vì route ở Step 3 import từ nó. Đảo thứ tự thì typecheck ở Step 5 sẽ đỏ vì thiếu module.
+> **Thứ tự bắt buộc:** realtime trước, route sau — route import từ nó.
 
 - [ ] **Step 1: Viết `src/lib/leads/realtime-topics.ts` và `realtime.ts`**
 
-Nội dung đầy đủ ở Step 3 bên dưới — tạo hai file đó trước, rồi quay lại Step 2.
+```ts
+// src/lib/leads/realtime-topics.ts
+export const LEADS_TOPIC = "leads-stream";
+export const LEAD_MUTATION_SOURCE_HEADER = "x-lead-client-source";
+
+export function leadRoomTopic(leadId: string): string {
+  return `lead-${leadId}`;
+}
+
+/**
+ * Chỉ bỏ qua tiếng vọng khi CẢ HAI bên có source id thật. Coi hai id cùng
+ * thiếu là một sẽ nuốt mất cập nhật của người khác — đúng lỗi đã sửa ở
+ * isOwnRealtimeMutation bên tasks.
+ */
+export function isOwnLeadMutation(
+  localSourceId: string | undefined,
+  messageSourceId: unknown
+): boolean {
+  return Boolean(localSourceId && messageSourceId === localSourceId);
+}
+```
+
+```ts
+// src/lib/leads/realtime.ts
+import { LEADS_TOPIC, LEAD_MUTATION_SOURCE_HEADER, leadRoomTopic } from "./realtime-topics";
+
+export { LEADS_TOPIC, LEAD_MUTATION_SOURCE_HEADER, leadRoomTopic };
+
+export function readLeadMutationSourceId(request: Request): string | undefined {
+  const sourceId = request.headers.get(LEAD_MUTATION_SOURCE_HEADER)?.trim();
+  if (!sourceId || sourceId.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(sourceId)) {
+    return undefined;
+  }
+  return sourceId;
+}
+
+export async function broadcastLeadsChanged(sourceId?: string): Promise<boolean> {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return false;
+  try {
+    const response = await fetch(`${url}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            topic: LEADS_TOPIC,
+            event: "changed",
+            payload: sourceId ? { sourceId } : {},
+          },
+        ],
+      }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+```
 
 - [ ] **Step 2: Viết `src/app/api/leads/route.ts`**
 
@@ -1452,73 +1515,6 @@ export async function POST(req: Request, { params }: Ctx) {
     interaction: result.interaction,
     lead: result.lead,
   });
-}
-```
-
-- [ ] **Step 3 (nội dung cho Step 1): `src/lib/leads/realtime-topics.ts` và `realtime.ts`**
-
-```ts
-// src/lib/leads/realtime-topics.ts
-export const LEADS_TOPIC = "leads-stream";
-export const LEAD_MUTATION_SOURCE_HEADER = "x-lead-client-source";
-
-export function leadRoomTopic(leadId: string): string {
-  return `lead-${leadId}`;
-}
-
-/**
- * Chỉ bỏ qua tiếng vọng khi CẢ HAI bên có source id thật. Coi hai id cùng
- * thiếu là một sẽ nuốt mất cập nhật của người khác — đúng lỗi đã sửa ở
- * isOwnRealtimeMutation bên tasks.
- */
-export function isOwnLeadMutation(
-  localSourceId: string | undefined,
-  messageSourceId: unknown
-): boolean {
-  return Boolean(localSourceId && messageSourceId === localSourceId);
-}
-```
-
-```ts
-// src/lib/leads/realtime.ts
-import { LEADS_TOPIC, LEAD_MUTATION_SOURCE_HEADER, leadRoomTopic } from "./realtime-topics";
-
-export { LEADS_TOPIC, LEAD_MUTATION_SOURCE_HEADER, leadRoomTopic };
-
-export function readLeadMutationSourceId(request: Request): string | undefined {
-  const sourceId = request.headers.get(LEAD_MUTATION_SOURCE_HEADER)?.trim();
-  if (!sourceId || sourceId.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(sourceId)) {
-    return undefined;
-  }
-  return sourceId;
-}
-
-export async function broadcastLeadsChanged(sourceId?: string): Promise<boolean> {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return false;
-  try {
-    const response = await fetch(`${url}/realtime/v1/api/broadcast`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        messages: [
-          {
-            topic: LEADS_TOPIC,
-            event: "changed",
-            payload: sourceId ? { sourceId } : {},
-          },
-        ],
-      }),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
 }
 ```
 
@@ -2632,14 +2628,33 @@ git commit -m "feat(leads): add the manager overview screen"
 ### Task 16: Nav, Settings ngưỡng, changelog
 
 **Files:**
-- Modify: nav trong `src/app/(authed)/_components/` (tìm bằng `grep -rn "enrollment" src/app/\(authed\)/_components/`)
+- Modify: `src/app/(authed)/_components/Sidebar.tsx:100-125`
 - Create: `src/app/api/leads/settings/route.ts`
 - Modify: `src/app/(authed)/settings/` — thêm khối "Lead alerts"
 - Modify: `agent-portal/changelog.md`
 
-- [ ] **Step 1: Thêm mục Leads vào nav**
+- [ ] **Step 1: Thêm mục Leads vào `Sidebar.tsx`**
 
-Hiện với ai có `lead.manage` **hoặc** `lead.work`, dùng đúng cách các mục khác đang kiểm quyền trong file nav đó.
+Trong mảng `children` cùng cấp với các mục Enrollment (quanh dòng 107-120), thêm hai mục theo đúng khuôn đang dùng ở đó:
+
+```tsx
+      {
+        href: "/leads?product=health",
+        label: "Health Leads",
+        activePath: "/leads",
+        activeQuery: { product: "health" },
+        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
+      },
+      {
+        href: "/leads?product=pc",
+        label: "P&C Leads",
+        activePath: "/leads",
+        activeQuery: { product: "pc" },
+        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
+      },
+```
+
+`activePath` + `activeQuery` là cách file này đánh dấu mục đang mở khi href có query string — thiếu chúng thì cả hai mục Leads sẽ cùng sáng.
 
 - [ ] **Step 2: Route settings**
 
