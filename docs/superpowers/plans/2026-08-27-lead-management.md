@@ -2610,23 +2610,23 @@ git commit -m "feat(leads): add the lead overview summary"
 
 **Không có test tự động.** Verify tay ở Step 3.
 
-- [ ] **Step 1: Bốn ô đếm ở đầu Overview**
+- [x] **Step 1: Bốn ô đếm ở đầu Overview**
 
 Chưa ai gọi · Bỏ lâu ngày · Quá hẹn · Gọi mãi không được. Ba ô đầu màu đỏ, ô cuối màu vàng. Bấm vào ô → nhảy sang tab Leads với bộ lọc tương ứng đã áp sẵn.
 
-- [ ] **Step 2: Hai bảng bên dưới**
+- [x] **Step 2: Hai bảng bên dưới**
 
 Bảng agent (sắp theo `redCount` giảm dần): email, tổng lead, số đỏ, số vàng, số chốt.
 Bảng sự kiện: tên sự kiện, tổng, đã đóng, chốt, tỉ lệ. Tỉ lệ hiện `—` khi `winRate === null`, **không** hiện `0%`.
 
-- [ ] **Step 3: Verify tay**
+- [x] **Step 3: Verify tay**
 
 1. Tài khoản chỉ có `lead.work` mở `/leads?view=overview` → bị chặn, không thấy số liệu của người khác
 2. Giao 1 lead rồi lùi đồng hồ máy quá 24 giờ → lead hiện cờ đỏ "Chưa ai gọi", ô đếm tăng 1
 3. Ghi một `[Call]` cho lead đó → cờ đỏ tắt ngay
 4. Sự kiện chưa lead nào đóng → cột tỉ lệ hiện `—`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add "src/app/(authed)/leads/_components"

@@ -34,29 +34,28 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** Task 15 — Màn Overview và cờ trong bảng
-**Task kế tiếp:** Task 15 — Màn Overview và cờ trong bảng
-**Commit gần nhất:** `3705f0e` feat(leads): add bulk lead assignment
+**Task đang làm:** Task 16 — Nav, Settings ngưỡng, changelog
+**Task kế tiếp:** Task 16 — Nav, Settings ngưỡng, changelog
+**Commit gần nhất:** `839ab11` feat(leads): add the lead overview summary
 **Suite hiện tại:** 823 passed / 115 files
-**Suite hiện tại:** 805 passed / 112 files
 
 | Task | Trạng thái | Commit |
 |---|---|---|
 | 1. Schema 7 bảng | ✅ xong, review sạch | `c635655` |
 | 2. Kiểu và hằng dùng chung | ✅ xong, review sạch | `4997217` |
 | 3. Engine cờ cảnh báo | ✅ xong, review sạch | `c7ba4bd` + `1985c68` |
-| 4. RPC ghi tương tác | ✅ xong, local PostgreSQL + schema reload sạch | chưa commit |
-| 5. Quyền | ✅ xong, 5 test + typecheck/lint/suite sạch | chưa commit |
-| 6. Scope cấu hình cột | ✅ xong, typecheck/lint/suite sạch | chưa commit |
-| 7. Truy vấn danh sách có phân trang | ✅ xong, 6 query-filter test pass | chưa commit |
-| 8. Route đọc danh sách và ghi tương tác | ✅ xong, typecheck/lint + realtime topic tests sạch | chưa commit |
-| 9. Màn hình Leads | ✅ xong, typecheck/lint sạch; cần verify browser với Supabase thật | chưa commit |
-| 10. Parser Excel | ✅ xong, 7 parser tests + typecheck/lint sạch | chưa commit |
-| 11. Route import và sự kiện | ✅ xong, typecheck/lint sạch; import tránh partial-index upsert lỗi | chưa commit |
-| 12. Hộp thoại import | ✅ xong, typecheck/lint sạch; cần verify browser upload thực tế | chưa commit |
-| 13. Route giao lead hàng loạt | ✅ xong, 6 validation tests + typecheck/lint sạch | chưa commit |
-| 14. Tổng hợp Overview | ✅ xong, 5 summary tests + typecheck/lint sạch | chưa commit |
-| 15. Màn Overview và cờ trong bảng | chưa làm | |
+| 4. RPC ghi tương tác | ✅ xong, local PostgreSQL + schema reload sạch | `f6c680e` |
+| 5. Quyền | ✅ xong, 5 test + typecheck/lint/suite sạch | `af787c2` |
+| 6. Scope cấu hình cột | ✅ xong, typecheck/lint/suite sạch | `a30eafc` |
+| 7. Truy vấn danh sách có phân trang | ✅ xong, 6 query-filter test pass | `fceb8c0` |
+| 8. Route đọc danh sách và ghi tương tác | ✅ xong, typecheck/lint + realtime topic tests sạch | `f6cdbd7` |
+| 9. Màn hình Leads | ✅ xong, typecheck/lint sạch; cần verify browser với Supabase thật | `03c5dcf` |
+| 10. Parser Excel | ✅ xong, 7 parser tests + typecheck/lint sạch | `2f72199` |
+| 11. Route import và sự kiện | ✅ xong, typecheck/lint sạch; import tránh partial-index upsert lỗi | `9a47ba1` |
+| 12. Hộp thoại import | ✅ xong, typecheck/lint sạch; cần verify browser upload thực tế | `41ef6db` |
+| 13. Route giao lead hàng loạt | ✅ xong, 6 validation tests + typecheck/lint sạch | `3705f0e` |
+| 14. Tổng hợp Overview | ✅ xong, 5 summary tests + typecheck/lint sạch | `839ab11` |
+| 15. Màn Overview và cờ trong bảng | ✅ xong, typecheck/lint sạch; cần verify browser | chưa commit |
 | 16. Nav, Settings ngưỡng, changelog | chưa làm | |
 | 17. Màn admin cho từ vựng | chưa làm | |
 

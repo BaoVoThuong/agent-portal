@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, CircleAlert, RefreshCw, Upload } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { resolveLeadAlerts, ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
@@ -9,6 +10,7 @@ import type { LeadAlertSettings, LeadInteractionType, LeadRow, LeadStatus } from
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { LeadDetailDrawer } from "./LeadDetailDrawer";
 import { LeadImportDialog } from "./LeadImportDialog";
+import { LeadOverview } from "./LeadOverview";
 
 type LeadsClientProps = {
   product: "pc" | "health";
@@ -85,6 +87,8 @@ export function LeadsClient({
   interactionTypes,
   alertSettings,
 }: LeadsClientProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [leads, setLeads] = useState(initialLeads);
   const [total, setTotal] = useState(initialTotal);
   const [limit, setLimit] = useState(initialLimit);
@@ -97,6 +101,11 @@ export function LeadsClient({
   const [assignmentReason, setAssignmentReason] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const view: "list" | "overview" = searchParams.get("view") === "overview" ? "overview" : "list";
+  const rawAlert = searchParams.get("alert");
+  const activeAlert: LeadAlert | null = rawAlert && [
+    "never_contacted", "stale", "follow_up_overdue", "exhausted",
+  ].includes(rawAlert) ? rawAlert as LeadAlert : null;
   const sourceId = useState(sourceNonce)[0];
   const requestInFlight = useRef(false);
   const pendingRefresh = useRef(false);
@@ -203,6 +212,13 @@ export function LeadsClient({
 
   const allVisibleSelected = leads.length > 0 && leads.every((lead) => selected.has(lead.id));
   const pageEnd = Math.min(offset + limit, total);
+  const displayedLeads = activeAlert
+    ? leads.filter((lead) => resolveLeadAlerts(lead, lead.status_id ? statusById.get(lead.status_id) ?? null : null, alertSettings).includes(activeAlert))
+    : leads;
+
+  function selectAlert(alert: LeadAlert) {
+    router.push(`/leads?product=${product}&alert=${alert}`);
+  }
 
   return (
     <main className="min-h-full bg-[#f7f8fa] px-6 py-6 text-[#172b4d]">
@@ -221,7 +237,15 @@ export function LeadsClient({
           </div>
         </header>
 
-        {isManager && selected.size > 0 && (
+        {isManager && (
+          <div className="mb-4 flex gap-2 rounded-md border border-[#d8dee7] bg-white p-1 text-sm shadow-sm">
+            <button type="button" className={`rounded px-3 py-1.5 font-semibold ${view === "list" ? "bg-[#eaf2ff] text-[#0c66e4]" : "text-[#6b778c]"}`} onClick={() => router.push(`/leads?product=${product}`)}>Leads</button>
+            <button type="button" className={`rounded px-3 py-1.5 font-semibold ${view === "overview" ? "bg-[#eaf2ff] text-[#0c66e4]" : "text-[#6b778c]"}`} onClick={() => router.push(`/leads?product=${product}&view=overview`)}>Overview</button>
+          </div>
+        )}
+
+        {view === "overview" && isManager ? <LeadOverview product={product} onAlertClick={selectAlert} /> : null}
+        {view === "list" && isManager && selected.size > 0 && (
           <div className="mb-3 rounded-lg border border-[#b8d4ff] bg-[#eaf2ff] px-4 py-3 text-sm">
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-semibold text-[#172b4d]">{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
@@ -234,7 +258,7 @@ export function LeadsClient({
           </div>
         )}
 
-        <div className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-sm">
+        {view === "list" && <div className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="min-w-[980px] w-full border-collapse text-left text-sm">
               <thead className="bg-[#f7f8fa] text-xs uppercase tracking-[0.06em] text-[#6b778c]">
@@ -245,8 +269,8 @@ export function LeadsClient({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#e6eaf0]">
-                {leads.length === 0 && <tr><td colSpan={columns.length + (isManager ? 2 : 1)} className="px-4 py-12 text-center text-sm text-[#6b778c]">No leads found.</td></tr>}
-                {leads.map((lead) => {
+                {displayedLeads.length === 0 && <tr><td colSpan={columns.length + (isManager ? 2 : 1)} className="px-4 py-12 text-center text-sm text-[#6b778c]">No leads found.</td></tr>}
+                {displayedLeads.map((lead) => {
                   const alerts = resolveLeadAlerts(lead, lead.status_id ? statusById.get(lead.status_id) ?? null : null, alertSettings);
                   return (
                     <tr key={lead.id} className="cursor-pointer bg-white hover:bg-[#f7faff]" onClick={() => setSelectedLead(lead)}>
@@ -266,9 +290,9 @@ export function LeadsClient({
               <button className="inline-flex items-center gap-1 rounded-md border border-[#cfd8e5] bg-white px-3 py-1.5 font-semibold text-[#172b4d] disabled:cursor-not-allowed disabled:opacity-40" type="button" disabled={pageEnd >= total || refreshing} onClick={() => void reload(offset + limit)}>Next <ChevronRight className="h-4 w-4" /></button>
             </div>
           </footer>
-        </div>
+        </div>}
       </div>
-      <LeadDetailDrawer
+        {view === "list" && <LeadDetailDrawer
         lead={selectedLead}
         currentEmail={currentEmail}
         sourceId={sourceId}
@@ -276,7 +300,7 @@ export function LeadsClient({
         interactionTypes={interactionTypes}
         onClose={() => setSelectedLead(null)}
         onLeadUpdated={updateLead}
-      />
+        />}
       <LeadImportDialog
         open={importOpen}
         product={product}

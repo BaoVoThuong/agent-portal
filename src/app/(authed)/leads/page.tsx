@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildLeadActor } from "@/lib/leads/access";
@@ -28,6 +29,8 @@ export default async function LeadsPage({
   ]);
   const email = session.user.email ?? "";
   const actor = buildLeadActor(session.user.permissions, email);
+  const view = Array.isArray(params.view) ? params.view[0] : params.view;
+  if (view === "overview" && !actor.isManager) redirect("/unauthorized");
   const supabase = getSupabaseAdmin();
 
   const [page, config, statusesResult, typesResult, settingsResult] = await Promise.all([
