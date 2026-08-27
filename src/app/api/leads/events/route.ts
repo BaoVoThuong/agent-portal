@@ -35,12 +35,22 @@ export async function POST(request: Request) {
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   if (!name) return NextResponse.json({ error: "The event needs a name." }, { status: 400 });
   if (name.length > 200) return NextResponse.json({ error: "The event name is too long." }, { status: 400 });
+  const rawEventDate = body?.event_date;
+  const parsedEventDate = typeof rawEventDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawEventDate)
+    ? new Date(`${rawEventDate}T00:00:00Z`)
+    : null;
+  if (rawEventDate !== undefined && rawEventDate !== null && rawEventDate !== "" &&
+      (!parsedEventDate || !Number.isFinite(parsedEventDate.getTime()) ||
+        parsedEventDate.toISOString().slice(0, 10) !== rawEventDate)) {
+    return NextResponse.json({ error: "event_date must be a valid date." }, { status: 400 });
+  }
+  const eventDate = typeof rawEventDate === "string" && rawEventDate !== "" ? rawEventDate : null;
 
   const { data, error } = await getSupabaseAdmin()
     .from("lead_events")
     .insert({
       name,
-      event_date: typeof body?.event_date === "string" && body.event_date ? body.event_date : null,
+      event_date: eventDate,
       location: typeof body?.location === "string" ? body.location.trim() || null : null,
       notes: typeof body?.notes === "string" ? body.notes.trim() || null : null,
       created_by_email: actor.email.trim().toLowerCase(),

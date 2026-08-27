@@ -34,7 +34,7 @@ export default async function LeadsPage({
   const supabase = getSupabaseAdmin();
 
   const [page, config, statusesResult, typesResult, settingsResult] = await Promise.all([
-    fetchLeadsPage(actor, { product }, supabase),
+    fetchLeadsPage(actor, { product, alert: params.alert }, supabase),
     fetchTableColumnsWithOptions(product === "pc" ? "lead_pc" : "lead_health", supabase),
     supabase
       .from("lead_statuses")

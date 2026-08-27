@@ -288,7 +288,7 @@ async function fetchTableColumnOptionsForColumns(
 export async function fetchAllTableColumnOptions(
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<Record<TableScope, TableColumnOption[]>> {
-  const scopes: TableScope[] = ["cs", "aca", "medicare"];
+  const scopes: TableScope[] = ["cs", "aca", "medicare", "lead_pc", "lead_health"];
   const entries = await Promise.all(
     scopes.map(async (scope) => [scope, await fetchTableColumnOptions(scope, supabase)] as const)
   );

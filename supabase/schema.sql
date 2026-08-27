@@ -177,7 +177,10 @@ values
   ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100),
   ('task.manage', 'Tasks - Manage', 'Create, assign and manage all tasks, and see the backlog.', 'tasks', 'Tasks', 100),
   ('task.work', 'Tasks - Work', 'Work on tasks assigned to you.', 'tasks', 'Tasks', 200),
-  ('task.export', 'Tasks - Export', 'Export task and enrollment tables to Excel. Required on its own — a manager role alone does not grant export.', 'tasks', 'Tasks', 300)
+  ('task.export', 'Tasks - Export', 'Export task and enrollment tables to Excel. Required on its own — a manager role alone does not grant export.', 'tasks', 'Tasks', 300),
+  ('lead.manage', 'Manage Leads', 'Import leads, assign them, and see every agent''s queue.', 'leads', 'Lead Management', 100),
+  ('lead.work', 'Work Leads', 'See and log interactions on leads assigned to you.', 'leads', 'Lead Management', 200),
+  ('lead.export', 'Export Leads', 'Download the lead table as a spreadsheet.', 'leads', 'Lead Management', 300)
 on conflict (key) do update set
   label = excluded.label,
   description = excluded.description,
@@ -228,7 +231,10 @@ where key not in (
   'settings.access',
   'task.manage',
   'task.work',
-  'task.export'
+  'task.export',
+  'lead.manage',
+  'lead.work',
+  'lead.export'
 );
 
 do $$
@@ -6243,6 +6249,17 @@ begin
   end loop;
 end $$;
 
+-- These tables are created after the repository-wide RLS sweep above, so they
+-- need the same fail-closed protection locally. The app uses service_role only
+-- after Next.js performs its authentication/authorization checks.
+alter table lead_events enable row level security;
+alter table lead_statuses enable row level security;
+alter table lead_interaction_types enable row level security;
+alter table leads enable row level security;
+alter table lead_interactions enable row level security;
+alter table lead_assignment_history enable row level security;
+alter table lead_alert_settings enable row level security;
+
 -- ---------------------------------------------------------------------------
 -- Lead Management: ghi interaction và cập nhật thống kê atomically.
 -- Forward-only. Mọi biến local có hậu tố _value và mọi bảng đều có alias để
@@ -6301,7 +6318,9 @@ begin
 
   if p_status_id is not null then
     select st.kind into status_kind_value from lead_statuses as st
-    where st.id = p_status_id and st.archived_at is null;
+    where st.id = p_status_id
+      and st.product = lead_value.product
+      and st.archived_at is null;
     if status_kind_value is null then
       raise exception 'LEAD_STATUS_NOT_FOUND';
     end if;

@@ -17,6 +17,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
 
   const actor = buildLeadActor(session.user.permissions, email);
   const supabase = getSupabaseAdmin();
@@ -49,6 +50,7 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
 
   const actor = buildLeadActor(session.user.permissions, email);
   const supabase = getSupabaseAdmin();
@@ -74,14 +76,26 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!UUID_RE.test(typeId)) {
     return NextResponse.json({ error: "type_id is required." }, { status: 400 });
   }
-  const statusId =
-    typeof body?.status_id === "string" && UUID_RE.test(body.status_id)
-      ? body.status_id
-      : null;
-  const requestId =
-    typeof body?.client_request_id === "string" && UUID_RE.test(body.client_request_id)
-      ? body.client_request_id
-      : null;
+  const rawStatusId = body?.status_id;
+  if (rawStatusId !== undefined && rawStatusId !== null && rawStatusId !== "" &&
+      (typeof rawStatusId !== "string" || !UUID_RE.test(rawStatusId))) {
+    return NextResponse.json({ error: "status_id must be a valid UUID." }, { status: 400 });
+  }
+  const statusId = typeof rawStatusId === "string" && rawStatusId !== "" ? rawStatusId : null;
+
+  const rawRequestId = body?.client_request_id;
+  if (rawRequestId !== undefined && rawRequestId !== null && rawRequestId !== "" &&
+      (typeof rawRequestId !== "string" || !UUID_RE.test(rawRequestId))) {
+    return NextResponse.json({ error: "client_request_id must be a valid UUID." }, { status: 400 });
+  }
+  const requestId = typeof rawRequestId === "string" && rawRequestId !== "" ? rawRequestId : null;
+
+  const rawFollowUpAt = body?.follow_up_at;
+  if (rawFollowUpAt !== undefined && rawFollowUpAt !== null && rawFollowUpAt !== "" &&
+      (typeof rawFollowUpAt !== "string" || !Number.isFinite(Date.parse(rawFollowUpAt)))) {
+    return NextResponse.json({ error: "follow_up_at must be a valid date." }, { status: 400 });
+  }
+  const followUpAt = typeof rawFollowUpAt === "string" && rawFollowUpAt !== "" ? rawFollowUpAt : null;
 
   const { data, error } = await supabase
     .rpc("log_lead_interaction_atomic", {
@@ -90,8 +104,7 @@ export async function POST(req: Request, { params }: Ctx) {
       p_status_id: statusId,
       p_note: typeof body?.note === "string" ? body.note : null,
       p_actor_email: actor.email,
-      p_follow_up_at:
-        typeof body?.follow_up_at === "string" ? body.follow_up_at : null,
+      p_follow_up_at: followUpAt,
       p_client_request_id: requestId,
     })
     .single();

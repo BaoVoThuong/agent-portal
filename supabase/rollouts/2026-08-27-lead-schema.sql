@@ -165,3 +165,14 @@ begin
     on conflict do nothing;
   end loop;
 end $$;
+
+-- No public policies are defined for lead tables. The application uses the
+-- service-role client after its own auth checks, while RLS keeps a leaked
+-- anon/authenticated key from reading or mutating lead data directly.
+alter table lead_events enable row level security;
+alter table lead_statuses enable row level security;
+alter table lead_interaction_types enable row level security;
+alter table leads enable row level security;
+alter table lead_interactions enable row level security;
+alter table lead_assignment_history enable row level security;
+alter table lead_alert_settings enable row level security;

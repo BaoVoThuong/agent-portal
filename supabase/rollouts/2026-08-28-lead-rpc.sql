@@ -55,7 +55,9 @@ begin
 
   if p_status_id is not null then
     select st.kind into status_kind_value from lead_statuses as st
-    where st.id = p_status_id and st.archived_at is null;
+    where st.id = p_status_id
+      and st.product = lead_value.product
+      and st.archived_at is null;
     if status_kind_value is null then
       raise exception 'LEAD_STATUS_NOT_FOUND';
     end if;

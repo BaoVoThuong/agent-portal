@@ -58,7 +58,6 @@ export function LeadImportDialog({
 
   useEffect(() => {
     if (!open || eventsState !== "idle") return;
-    setEventsState("loading");
     void fetch("/api/leads/events", { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => null);
@@ -192,8 +191,8 @@ export function LeadImportDialog({
           <section>
             <h3 className="text-sm font-bold text-[#172b4d]">1. Choose an event</h3>
             <div className="mt-2 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-              <select className="rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm" value={eventId} onChange={(event) => setEventId(event.target.value)} disabled={eventsState === "loading"}>
-                <option value="">{eventsState === "loading" ? "Loading events..." : "Choose event"}</option>
+              <select className="rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm" value={eventId} onChange={(event) => setEventId(event.target.value)} disabled={eventsState === "loading" || eventsState === "idle"}>
+                <option value="">{eventsState === "loading" || eventsState === "idle" ? "Loading events..." : "Choose event"}</option>
                 {events.map((event) => <option key={event.id} value={event.id}>{formatEvent(event)}</option>)}
               </select>
               <div className="flex gap-2">

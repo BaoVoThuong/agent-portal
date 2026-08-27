@@ -36,8 +36,8 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 **Task đang làm:** — hoàn tất Task 17
 **Task kế tiếp:** —
-**Commit gần nhất:** `c070839` feat(leads): add navigation, alert settings, and changelog
-**Suite hiện tại:** 830 passed / 116 files (sau full verification ghi lại số cuối)
+**Commit gần nhất:** chưa commit hardening cuối
+**Suite hiện tại:** 834 passed / 117 files; typecheck/lint/build/SQL reload sạch
 
 | Task | Trạng thái | Commit |
 |---|---|---|
@@ -57,7 +57,7 @@ không cần biết gì về các cuộc trò chuyện trước.
 | 14. Tổng hợp Overview | ✅ xong, 5 summary tests + typecheck/lint sạch | `839ab11` |
 | 15. Màn Overview và cờ trong bảng | ✅ xong, typecheck/lint sạch; cần verify browser | `d2c6dba` |
 | 16. Nav, Settings ngưỡng, changelog | ✅ xong, typecheck/lint sạch | `c070839` |
-| 17. Màn admin cho từ vựng | ✅ xong, 7 validator tests + typecheck/lint sạch; cần full verification | chưa commit |
+| 17. Màn admin cho từ vựng | ✅ xong, 7 validator tests + full verification sạch | `cd7e7d0` + hardening cuối |
 
 **Checkpoint đã hẹn với user:** dừng lại sau **Task 9** (hết Phase 2) để user
 dùng thử bảng Leads thật trước khi làm import và Overview.
@@ -75,6 +75,7 @@ Ghi lại mọi quyết định lệch khỏi plan, kèm lý do. Trống nghĩa 
 - **Quy trình:** hai lần implementer dán output test BỊA (con số đúng, định dạng
   không phải của vitest). Người điều phối phải **tự chạy lại** test chứ không tin
   report. Đừng dùng model rẻ nhất cho implementer ở plan này.
+- **Hardening cuối:** Alert card filter được áp ở query server (không lọc client rồi vẫn giữ `total` sai), có điều kiện `assigned_at` và loại trừ terminal status đang active để khớp engine; đổi product/alert cũng reconcile lại client state. Interaction route validate chặt lead/status/request UUID và follow-up date; RPC chỉ chấp nhận status active cùng product. Các bảng Lead bật RLS riêng vì được tạo sau repository-wide RLS sweep; `fetchAllTableColumnOptions` cũng bao phủ hai Lead scopes.
 
 ## Việc còn treo ngoài plan này
 

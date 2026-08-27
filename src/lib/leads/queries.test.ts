@@ -42,4 +42,9 @@ describe("buildLeadListFilter", () => {
   it("falls back to pc for an unknown product", () => {
     expect(buildLeadListFilter(manager, { product: "banana" }).product).toBe("pc");
   });
+
+  it("accepts a supported alert filter and ignores an unknown one", () => {
+    expect(buildLeadListFilter(manager, { product: "pc", alert: "stale" }).alert).toBe("stale");
+    expect(buildLeadListFilter(manager, { product: "pc", alert: "not-an-alert" }).alert).toBeNull();
+  });
 });

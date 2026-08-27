@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import type { LeadAlert } from "./alerts";
 import type { LeadActor } from "./access";
-import { toLeadProduct, type LeadProduct, type LeadRow } from "./types";
+import { toLeadProduct, type LeadAlertSettings, type LeadProduct, type LeadRow } from "./types";
 
 export const LEAD_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
@@ -11,6 +12,7 @@ export type LeadListParams = {
   assigned_to?: unknown;
   event_id?: unknown;
   status_id?: unknown;
+  alert?: unknown;
   limit?: unknown;
   offset?: unknown;
 };
@@ -20,6 +22,7 @@ export type LeadListFilter = {
   assignedTo: string | null;
   eventId: string | null;
   statusId: string | null;
+  alert: LeadAlert | null;
   limit: number;
   offset: number;
 };
@@ -34,6 +37,12 @@ function count(value: unknown, fallback: number, max: number): number {
   return parsed;
 }
 
+function toLeadAlert(value: unknown): LeadAlert | null {
+  return typeof value === "string" && [
+    "never_contacted", "stale", "follow_up_overdue", "exhausted",
+  ].includes(value) ? value as LeadAlert : null;
+}
+
 export function buildLeadListFilter(
   actor: LeadActor,
   params: LeadListParams
@@ -46,6 +55,7 @@ export function buildLeadListFilter(
       : actor.email.trim().toLowerCase(),
     eventId: text(params.event_id),
     statusId: text(params.status_id),
+    alert: toLeadAlert(params.alert),
     limit: count(params.limit, LEAD_PAGE_SIZE, MAX_PAGE_SIZE),
     offset: count(params.offset, 0, 1_000_000) || 0,
   };
@@ -64,6 +74,29 @@ export async function fetchLeadsPage(
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<{ rows: LeadRow[]; total: number; filter: LeadListFilter }> {
   const filter = buildLeadListFilter(actor, params);
+  let alertSettings: LeadAlertSettings | null = null;
+  let terminalStatusIds: string[] = [];
+  if (filter.alert) {
+    const [settingsResult, statusesResult] = await Promise.all([
+      supabase
+        .from("lead_alert_settings")
+        .select("product,no_contact_hours,stale_days,max_attempts")
+        .eq("product", filter.product)
+        .maybeSingle(),
+      supabase
+        .from("lead_statuses")
+        .select("id")
+        .eq("product", filter.product)
+        .is("archived_at", null)
+        .in("kind", ["won", "lost"]),
+    ]);
+    if (settingsResult.error) throw new Error(settingsResult.error.message);
+    if (statusesResult.error) throw new Error(statusesResult.error.message);
+    alertSettings = (settingsResult.data ?? {
+      product: filter.product, no_contact_hours: 24, stale_days: 3, max_attempts: 4,
+    }) as LeadAlertSettings;
+    terminalStatusIds = (statusesResult.data ?? []).map((row) => (row as { id: string }).id);
+  }
   let query = supabase
     .from("leads")
     .select(LEAD_COLUMNS, { count: "exact" })
@@ -76,6 +109,30 @@ export async function fetchLeadsPage(
   if (filter.assignedTo) query = query.eq("assigned_to_email", filter.assignedTo);
   if (filter.eventId) query = query.eq("event_id", filter.eventId);
   if (filter.statusId) query = query.eq("status_id", filter.statusId);
+  if (filter.alert) {
+    const now = new Date();
+    query = query
+      .not("assigned_to_email", "is", null)
+      .not("assigned_at", "is", null);
+    if (terminalStatusIds.length > 0) {
+      query = query.or(`status_id.is.null,status_id.not.in.(${terminalStatusIds.join(",")})`);
+    }
+    if (filter.alert === "never_contacted") {
+      query = query.is("first_contacted_at", null).lt(
+        "assigned_at",
+        new Date(now.getTime() - alertSettings!.no_contact_hours * 3_600_000).toISOString()
+      );
+    } else if (filter.alert === "stale") {
+      query = query
+        .not("first_contacted_at", "is", null)
+        .not("last_contacted_at", "is", null)
+        .lt("last_contacted_at", new Date(now.getTime() - alertSettings!.stale_days * 86_400_000).toISOString());
+    } else if (filter.alert === "follow_up_overdue") {
+      query = query.lt("next_follow_up_at", now.toISOString());
+    } else {
+      query = query.gte("contact_attempt_count", alertSettings!.max_attempts);
+    }
+  }
 
   const { data, error, count: total } = await query;
   if (error) throw new Error(error.message);

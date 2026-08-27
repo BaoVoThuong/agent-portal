@@ -110,6 +110,7 @@ export function LeadsClient({
   const requestInFlight = useRef(false);
   const pendingRefresh = useRef(false);
   const sourceIdRef = useRef(sourceId);
+  const loadedQueryRef = useRef(`${product}:${activeAlert ?? ""}`);
   const statusById = useMemo(() => new Map(statuses.map((status) => [status.id, status])), [statuses]);
   const optionsByColumn = useMemo(() => {
     const result = new Map<string, TableColumnOption[]>();
@@ -126,6 +127,7 @@ export function LeadsClient({
     setRefreshing(true);
     try {
       const params = new URLSearchParams({ product, limit: String(limit), offset: String(nextOffset) });
+      if (activeAlert) params.set("alert", activeAlert);
       const response = await fetch(`/api/leads?${params.toString()}`, { cache: "no-store" });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error ?? "Could not refresh leads.");
@@ -151,6 +153,13 @@ export function LeadsClient({
   });
 
   useEffect(() => {
+    const queryKey = `${product}:${activeAlert ?? ""}`;
+    if (loadedQueryRef.current === queryKey) return;
+    loadedQueryRef.current = queryKey;
+    void reloadRef.current(0);
+  }, [activeAlert, product]);
+
+  useEffect(() => {
     const supabase = getBrowserSupabase();
     if (!supabase) return;
     const channel = supabase
@@ -173,6 +182,10 @@ export function LeadsClient({
   function updateLead(nextLead: LeadRow) {
     setLeads((current) => current.map((lead) => lead.id === nextLead.id ? nextLead : lead));
     setSelectedLead((current) => current?.id === nextLead.id ? nextLead : current);
+    // A status change or a new contact can make a row leave the active alert
+    // query. Reconcile the server page so the row and the total do not remain
+    // visible after the mutation that cleared its alert.
+    if (activeAlert) void reloadRef.current();
   }
 
   function toggleLead(id: string) {
@@ -212,9 +225,7 @@ export function LeadsClient({
 
   const allVisibleSelected = leads.length > 0 && leads.every((lead) => selected.has(lead.id));
   const pageEnd = Math.min(offset + limit, total);
-  const displayedLeads = activeAlert
-    ? leads.filter((lead) => resolveLeadAlerts(lead, lead.status_id ? statusById.get(lead.status_id) ?? null : null, alertSettings).includes(activeAlert))
-    : leads;
+  const displayedLeads = leads;
 
   function selectAlert(alert: LeadAlert) {
     router.push(`/leads?product=${product}&alert=${alert}`);
@@ -244,7 +255,7 @@ export function LeadsClient({
           </div>
         )}
 
-        {view === "overview" && isManager ? <LeadOverview product={product} onAlertClick={selectAlert} /> : null}
+        {view === "overview" && isManager ? <LeadOverview key={product} product={product} onAlertClick={selectAlert} /> : null}
         {view === "list" && isManager && selected.size > 0 && (
           <div className="mb-3 rounded-lg border border-[#b8d4ff] bg-[#eaf2ff] px-4 py-3 text-sm">
             <div className="flex flex-wrap items-center gap-3">

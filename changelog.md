@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-28 — Lead management: workflow hardening and complete module
+- **Loại**: feature, security, data-integrity, reliability
+- **Cái gì**: Hoàn thiện module Leads với RPC atomic ghi interaction và cập nhật counters/idempotency, quyền `lead.manage`/`lead.work`/`lead.export`, phân trang ghim ownership ở server, realtime và polling chỉ khi tab visible, import Excel có giới hạn/dedupe, giao lead có lịch sử, Overview/cờ theo ngưỡng product, và admin vocabulary có soft-archive. Bật RLS fail-closed cho cả 7 bảng Lead; RPC chỉ cho `service_role`, status interaction phải cùng product với lead. Alert filter của Overview chạy ở server và validation không còn nuốt UUID/date sai thành `null`.
+- **Vì sao**: Lead là dữ liệu khách hàng và workflow counters phải nhất quán khi retry hoặc nhiều tab; bộ lọc manager phải trả đúng tập dữ liệu lớn mà không phụ thuộc vào lọc client; cấu hình admin không được vô tình phá engine cảnh báo hoặc mở đường truy cập trực tiếp qua Supabase.
+- **Kiểm chứng**: `npm run typecheck`, `npm run lint`, `npm run test:run` (**834 tests / 117 files**), `npm run build`; PostgreSQL sạch reload `supabase/schema.sql`, xác nhận 7 bảng có RLS, `service_role` gọi được RPC, `anon` bị từ chối, idempotency và cross-product status đều pass.
+
 ## 2026-08-28 — Lead management: navigation, alert settings, and manager overview
 - **Loại**: feature, workflow, RBAC
 - **Cái gì**: Thêm mục Health/P&C Leads theo quyền `lead.work`/`lead.manage`; manager có thể chỉnh ngưỡng chưa liên hệ, stale và số lần thử trong Settings. Cờ cảnh báo và Overview dùng các ngưỡng theo product.

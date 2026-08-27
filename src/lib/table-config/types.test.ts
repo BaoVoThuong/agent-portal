@@ -6,6 +6,8 @@ describe("parseTableScope", () => {
     expect(parseTableScope("cs")).toBe("cs");
     expect(parseTableScope("aca")).toBe("aca");
     expect(parseTableScope("medicare")).toBe("medicare");
+    expect(parseTableScope("lead_pc")).toBe("lead_pc");
+    expect(parseTableScope("lead_health")).toBe("lead_health");
   });
 
   it("rejects missing and mistyped scopes instead of defaulting to CS", () => {
