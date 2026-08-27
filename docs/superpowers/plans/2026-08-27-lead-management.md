@@ -89,7 +89,7 @@ Dừng sau Phase 2 vẫn có sản phẩm dùng được (nhập tay + giao + th
 
 **Files:**
 - Create: `supabase/rollouts/2026-08-27-lead-schema.sql`
-- Modify: `supabase/schema.sql` (nối vào cuối, trước phần grant tổng)
+- Modify: `supabase/schema.sql` — chèn **ngay trước** khối `-- SECURITY DEFINER ACL — must remain the LAST executable block in this file.` (khoảng dòng 6247). Khối đó tự khai là phải đứng cuối cùng; nối ra sau nó sẽ phá bất biến bảo mật của repo.
 
 **Interfaces:**
 - Produces: bảng `lead_events`, `leads`, `lead_statuses`, `lead_interaction_types`, `lead_interactions`, `lead_assignment_history`, `lead_alert_settings`; sequence `leads_display_number_seq`
@@ -282,16 +282,21 @@ Expected: không có dòng nào bắt đầu bằng `ERROR`.
 
 - [ ] **Step 3: Nối cùng nội dung vào `supabase/schema.sql`**
 
-Chèn ngay trước dòng cuối cùng của file. Nội dung y hệt file rollout, bỏ phần `create or replace function lead_norm_email` nếu `schema.sql` đã có hàm cùng tên (kiểm bằng `grep -c "function lead_norm_email" supabase/schema.sql`).
+Chèn **ngay trước** dòng `-- SECURITY DEFINER ACL — must remain the LAST executable block in this file.` (tìm bằng `grep -n "must remain the LAST" supabase/schema.sql`). Nội dung y hệt file rollout, bỏ phần `create or replace function lead_norm_email` nếu `schema.sql` đã có hàm cùng tên (kiểm bằng `grep -c "function lead_norm_email" supabase/schema.sql`).
 
 - [ ] **Step 4: Nạp lại toàn bộ `schema.sql` vào DB sạch để chắc không vỡ thứ tự**
 
 ```bash
 psql -h "$SOCK" -p 55443 -U postgres -q -c "drop schema public cascade; create schema public;"
 psql -h "$SOCK" -p 55443 -U postgres -q -c "create extension if not exists pgcrypto;"
+# schema.sql grant cho ba role của Supabase. initdb trắng không có chúng, và
+# thiếu chúng thì file luôn báo ~67 lỗi KHÔNG liên quan gì tới thay đổi của bạn.
+psql -h "$SOCK" -p 55443 -U postgres -q -c "create role anon; create role authenticated; create role service_role;"
 psql -h "$SOCK" -p 55443 -U postgres -f supabase/schema.sql 2>&1 | grep -c ERROR
 ```
 Expected: in ra `0`.
+
+Nếu ra khác 0, so với đường cơ sở trước khi kiểm tội mình: `git stash && <chạy lại> && git stash pop`. Số lỗi bằng nhau nghĩa là lỗi có sẵn, không phải do bạn.
 
 - [ ] **Step 5: Dọn và commit**
 
@@ -678,7 +683,9 @@ git commit -m "feat(leads): add the lead alert engine"
 
 **Files:**
 - Create: `supabase/rollouts/2026-08-28-lead-rpc.sql`
-- Modify: `supabase/schema.sql`
+- Modify: `supabase/schema.sql` — chèn **ngay trước** khối `-- SECURITY DEFINER ACL — must remain the LAST executable block in this file.`
+
+> Hàm này là `security definer`. Bất biến của repo: **cặp `revoke`/`grant` phải nằm ngay tại chỗ định nghĩa hàm** (đã có sẵn ở cuối đoạn SQL bên dưới — đừng bỏ). Khối sweep ở cuối `schema.sql` sẽ làm deploy thất bại nếu quên.
 
 **Interfaces:**
 - Produces: `log_lead_interaction_atomic(p_lead_id uuid, p_type_id uuid, p_status_id uuid, p_note text, p_actor_email text, p_follow_up_at timestamptz, p_client_request_id uuid, p_now timestamptz)` → `returns table (interaction jsonb, lead jsonb, was_created boolean)`
@@ -849,6 +856,7 @@ Expected: `was_created` lần lượt `t`, `f`, `t`; dòng cuối `contact_attem
 
 ```bash
 psql -h "$SOCK" -p 55443 -U postgres -q -c "drop schema public cascade; create schema public; create extension if not exists pgcrypto;"
+psql -h "$SOCK" -p 55443 -U postgres -q -c "create role anon; create role authenticated; create role service_role;" 2>/dev/null
 psql -h "$SOCK" -p 55443 -U postgres -f supabase/schema.sql 2>&1 | grep -c ERROR
 pg_ctl -D /tmp/leadpg stop >/dev/null; rm -rf /tmp/leadpg "$SOCK"
 ```
