@@ -1141,7 +1141,7 @@ git commit -m "feat(leads): add lead table-config scopes"
 
 **Vì sao có task riêng cho việc này:** `/api/tasks` tải toàn bộ danh sách không phân trang và bản review 23/08 ghi nhận là HIGH-03. Với ~3.000 lead tích luỹ, lặp lại sai lầm đó là tự chuốc lấy nợ.
 
-- [ ] **Step 1: Viết test đỏ cho phần thuần**
+- [x] **Step 1: Viết test đỏ cho phần thuần**
 
 ```ts
 // src/lib/leads/queries.test.ts
@@ -1196,12 +1196,12 @@ describe("buildLeadListFilter", () => {
 });
 ```
 
-- [ ] **Step 2: Chạy để chắc nó fail**
+- [x] **Step 2: Chạy để chắc nó fail**
 
 Run: `npx vitest run src/lib/leads/queries.test.ts`
 Expected: FAIL — `Cannot find module './queries'`
 
-- [ ] **Step 3: Viết `src/lib/leads/queries.ts`**
+- [x] **Step 3: Viết `src/lib/leads/queries.ts`**
 
 ```ts
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -1297,12 +1297,12 @@ export async function fetchLeadsPage(
 }
 ```
 
-- [ ] **Step 4: Test xanh**
+- [x] **Step 4: Test xanh**
 
 Run: `npx vitest run src/lib/leads/queries.test.ts`
 Expected: PASS, 6 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/leads/queries.ts src/lib/leads/queries.test.ts
