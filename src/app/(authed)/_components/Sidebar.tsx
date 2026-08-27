@@ -141,6 +141,26 @@ const menuData: MenuItem[] = [
       },
     ],
   },
+  {
+    title: "Lead Management",
+    anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
+    children: [
+      {
+        href: "/leads?product=health",
+        label: "Health Leads",
+        activePath: "/leads",
+        activeQuery: { product: "health" },
+        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
+      },
+      {
+        href: "/leads?product=pc",
+        label: "P&C Leads",
+        activePath: "/leads",
+        activeQuery: { product: "pc" },
+        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
+      },
+    ],
+  },
 ];
 
 function hasItemAccess(item: MenuItem, permissions: string[]) {
@@ -168,6 +188,7 @@ export default function Sidebar({
       pathname.startsWith("/account-manager") ||
       pathname.startsWith("/role-manager") ||
       pathname.startsWith("/management"),
+    "Lead Management": pathname.startsWith("/leads"),
   });
   const menuItems = menuData
     .map((item) => {

@@ -34,9 +34,9 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** Task 16 — Nav, Settings ngưỡng, changelog
-**Task kế tiếp:** Task 16 — Nav, Settings ngưỡng, changelog
-**Commit gần nhất:** `839ab11` feat(leads): add the lead overview summary
+**Task đang làm:** Task 17 — Màn admin cho từ vựng
+**Task kế tiếp:** Task 17 — Màn admin cho từ vựng
+**Commit gần nhất:** `d2c6dba` feat(leads): add the manager overview screen
 **Suite hiện tại:** 823 passed / 115 files
 
 | Task | Trạng thái | Commit |
@@ -56,7 +56,7 @@ không cần biết gì về các cuộc trò chuyện trước.
 | 13. Route giao lead hàng loạt | ✅ xong, 6 validation tests + typecheck/lint sạch | `3705f0e` |
 | 14. Tổng hợp Overview | ✅ xong, 5 summary tests + typecheck/lint sạch | `839ab11` |
 | 15. Màn Overview và cờ trong bảng | ✅ xong, typecheck/lint sạch; cần verify browser | chưa commit |
-| 16. Nav, Settings ngưỡng, changelog | chưa làm | |
+| 16. Nav, Settings ngưỡng, changelog | ✅ xong, typecheck/lint sạch | chưa commit |
 | 17. Màn admin cho từ vựng | chưa làm | |
 
 **Checkpoint đã hẹn với user:** dừng lại sau **Task 9** (hết Phase 2) để user

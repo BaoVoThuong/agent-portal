@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-28 — Lead management: navigation, alert settings, and manager overview
+- **Loại**: feature, workflow, RBAC
+- **Cái gì**: Thêm mục Health/P&C Leads theo quyền `lead.work`/`lead.manage`; manager có thể chỉnh ngưỡng chưa liên hệ, stale và số lần thử trong Settings. Cờ cảnh báo và Overview dùng các ngưỡng theo product.
+- **Vì sao**: Manager cần điều chỉnh nhịp follow-up theo thực tế từng sản phẩm mà không sửa SQL, còn agent chỉ cần thấy đúng queue Leads của mình.
+- **Kiểm chứng**: `npm run typecheck`, `npm run lint`; route chặn PATCH settings nếu không có `lead.manage` và từ chối mọi ngưỡng không phải số nguyên dương.
+
 ## 2026-08-26 — Enrollment tạo mới không tự gán Caller
 - **Loại**: fix, data-integrity
 - **Cái gì**: Form tạo Enrollment khởi tạo `caller_email` rỗng cho cả ACA và Medicare. Caller chỉ được lưu khi người dùng chủ động chọn; mặc định hiển thị `Unassigned`.

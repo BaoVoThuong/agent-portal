@@ -1,7 +1,9 @@
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { can } from "@/lib/rbac/client";
 import { requirePermission } from "@/lib/rbac/server";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import type { LeadAlertSettings } from "@/lib/leads/types";
 import SettingsClient from "./SettingsClient";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +29,13 @@ export default async function SettingsPage() {
     agent_id?: string | null;
     password_hash?: string | null;
   } | null;
+  const canManageLeads = can(session.user.permissions, PERMISSIONS.LEAD_MANAGE);
+  const leadSettingsResult = canManageLeads
+    ? await getSupabaseAdmin()
+        .from("lead_alert_settings")
+        .select("product,no_contact_hours,stale_days,max_attempts")
+        .order("product")
+    : { data: null };
 
   return (
     <SettingsClient
@@ -36,6 +45,8 @@ export default async function SettingsPage() {
         agentId: profile?.agent_id ?? session?.user?.agentId ?? null,
         hasLocalPassword: isLocalPasswordHash(profile?.password_hash),
       }}
+      canManageLeads={canManageLeads}
+      initialLeadSettings={(leadSettingsResult.data ?? []) as LeadAlertSettings[]}
     />
   );
 }

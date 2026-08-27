@@ -2641,7 +2641,7 @@ git commit -m "feat(leads): add the manager overview screen"
 - Modify: `src/app/(authed)/settings/` — thêm khối "Lead alerts"
 - Modify: `agent-portal/changelog.md`
 
-- [ ] **Step 1: Thêm mục Leads vào `Sidebar.tsx`**
+- [x] **Step 1: Thêm mục Leads vào `Sidebar.tsx`**
 
 Trong mảng `children` cùng cấp với các mục Enrollment (quanh dòng 107-120), thêm hai mục theo đúng khuôn đang dùng ở đó:
 
@@ -2664,19 +2664,19 @@ Trong mảng `children` cùng cấp với các mục Enrollment (quanh dòng 107
 
 `activePath` + `activeQuery` là cách file này đánh dấu mục đang mở khi href có query string — thiếu chúng thì cả hai mục Leads sẽ cùng sáng.
 
-- [ ] **Step 2: Route settings**
+- [x] **Step 2: Route settings**
 
 `GET /api/leads/settings` trả cả hai product. `PATCH` nhận `{ product, no_contact_hours, stale_days, max_attempts }`, chỉ cho `lead.manage`. Chặn giá trị `<= 0` bằng cùng thông báo mà check constraint trong DB sẽ đưa ra, để người dùng không phải nhìn lỗi Postgres.
 
-- [ ] **Step 3: Khối Settings**
+- [x] **Step 3: Khối Settings**
 
 Ba ô số cho mỗi product, kèm câu giải thích một dòng mỗi ô. Ví dụ: *"Báo đỏ nếu lead được giao quá __ giờ mà chưa ai gọi."*
 
-- [ ] **Step 4: Ghi changelog**
+- [x] **Step 4: Ghi changelog**
 
 Thêm một entry vào đầu `agent-portal/changelog.md` theo đúng khuôn đang dùng, gồm: Loại, Cái gì, Vì sao, Kiểm chứng.
 
-- [ ] **Step 5: Kiểm chứng toàn bộ và commit**
+- [x] **Step 5: Kiểm chứng toàn bộ và commit**
 
 Run: `npm run typecheck && npm run lint && npm run test:run`
 Expected: cả ba sạch; test ≥ 800 passed
