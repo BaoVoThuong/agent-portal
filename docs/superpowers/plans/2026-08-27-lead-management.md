@@ -1700,7 +1700,7 @@ git commit -m "feat(leads): add the leads table and interaction log"
 
 Tách parser ra khỏi route để test được — route xử lý `File` nên không test được trong môi trường node.
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 ```ts
 // src/lib/leads/import-parse.test.ts
@@ -1785,12 +1785,12 @@ describe("parseLeadRows", () => {
 });
 ```
 
-- [ ] **Step 2: Chạy để chắc nó fail**
+- [x] **Step 2: Chạy để chắc nó fail**
 
 Run: `npx vitest run src/lib/leads/import-parse.test.ts`
 Expected: FAIL — `Cannot find module './import-parse'`
 
-- [ ] **Step 3: Viết `src/lib/leads/import-parse.ts`**
+- [x] **Step 3: Viết `src/lib/leads/import-parse.ts`**
 
 ```ts
 export type ParsedLead = {
@@ -1881,12 +1881,12 @@ export function parseLeadRows(
 }
 ```
 
-- [ ] **Step 4: Test xanh**
+- [x] **Step 4: Test xanh**
 
 Run: `npx vitest run src/lib/leads/import-parse.test.ts`
 Expected: PASS, 8 tests
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/leads/import-parse.ts src/lib/leads/import-parse.test.ts
