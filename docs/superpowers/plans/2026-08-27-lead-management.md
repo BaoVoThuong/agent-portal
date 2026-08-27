@@ -690,7 +690,7 @@ git commit -m "feat(leads): add the lead alert engine"
 **Interfaces:**
 - Produces: `log_lead_interaction_atomic(p_lead_id uuid, p_type_id uuid, p_status_id uuid, p_note text, p_actor_email text, p_follow_up_at timestamptz, p_client_request_id uuid, p_now timestamptz)` → `returns table (interaction jsonb, lead jsonb, was_created boolean)`
 
-- [ ] **Step 1: Viết RPC**
+- [x] **Step 1: Viết RPC**
 
 ```sql
 -- Ghi một lần tương tác VÀ cập nhật bốn cột thống kê trên leads trong cùng một
@@ -812,7 +812,7 @@ grant execute on function log_lead_interaction_atomic(uuid, uuid, uuid, text, te
   to service_role;
 ```
 
-- [ ] **Step 2: Test trên PostgreSQL cục bộ — chứng minh idempotency và đồng hồ**
+- [x] **Step 2: Test trên PostgreSQL cục bộ — chứng minh idempotency và đồng hồ**
 
 ```bash
 export PATH="/Applications/Postgres.app/Contents/Versions/latest/bin:$PATH"
@@ -852,7 +852,7 @@ SQL
 ```
 Expected: `was_created` lần lượt `t`, `f`, `t`; dòng cuối `contact_attempt_count = 1` và `contacted = t`.
 
-- [ ] **Step 3: Nối vào `supabase/schema.sql`, nạp lại toàn bộ để kiểm thứ tự**
+- [x] **Step 3: Nối vào `supabase/schema.sql`, nạp lại toàn bộ để kiểm thứ tự**
 
 ```bash
 psql -h "$SOCK" -p 55443 -U postgres -q -c "drop schema public cascade; create schema public; create extension if not exists pgcrypto;"
@@ -862,7 +862,7 @@ pg_ctl -D /tmp/leadpg stop >/dev/null; rm -rf /tmp/leadpg "$SOCK"
 ```
 Expected: `0`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add supabase/rollouts/2026-08-28-lead-rpc.sql supabase/schema.sql
