@@ -2,8 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { Badge, CheckCircle2, LockKeyhole, Mail, UserRound } from "lucide-react";
-import { useState, type FormEvent } from "react";
-import type { LeadAlertSettings, LeadProduct } from "@/lib/leads/types";
+import { useEffect, useState, type FormEvent } from "react";
+import type { LeadAlertSettings, LeadInteractionType, LeadProduct, LeadStatus, StatusKind } from "@/lib/leads/types";
 
 type SettingsClientProps = {
   profile: {
@@ -40,6 +40,34 @@ export default function SettingsClient({ profile, canManageLeads, initialLeadSet
   const [savingLeadProduct, setSavingLeadProduct] = useState<LeadProduct | null>(null);
   const [leadSettingsMessage, setLeadSettingsMessage] = useState<string | null>(null);
   const [leadSettingsError, setLeadSettingsError] = useState<string | null>(null);
+  const [vocabularyState, setVocabularyState] = useState<"idle" | "ready" | "error">("idle");
+  const [statuses, setStatuses] = useState<LeadStatus[]>([]);
+  const [interactionTypes, setInteractionTypes] = useState<LeadInteractionType[]>([]);
+  const [vocabularyError, setVocabularyError] = useState<string | null>(null);
+  const [savingVocabularyKey, setSavingVocabularyKey] = useState<string | null>(null);
+  const [newStatusProduct, setNewStatusProduct] = useState<LeadProduct>("pc");
+  const [newStatusLabel, setNewStatusLabel] = useState("");
+  const [newStatusKind, setNewStatusKind] = useState<StatusKind>("open");
+  const [newTypeLabel, setNewTypeLabel] = useState("");
+  const [newTypeCountsAsContact, setNewTypeCountsAsContact] = useState(false);
+
+  useEffect(() => {
+    if (!canManageLeads || vocabularyState !== "idle") return;
+    void fetch("/api/leads/vocabulary", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !Array.isArray(payload?.statuses) || !Array.isArray(payload?.types)) {
+          throw new Error(payload?.error ?? "Could not load lead vocabulary.");
+        }
+        setStatuses(payload.statuses as LeadStatus[]);
+        setInteractionTypes(payload.types as LeadInteractionType[]);
+        setVocabularyState("ready");
+      })
+      .catch((error: unknown) => {
+        setVocabularyError(error instanceof Error ? error.message : "Could not load lead vocabulary.");
+        setVocabularyState("error");
+      });
+  }, [canManageLeads, vocabularyState]);
 
   async function handleProfileSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -140,6 +168,75 @@ export default function SettingsClient({ profile, canManageLeads, initialLeadSet
   function updateLeadSetting(product: LeadProduct, key: "no_contact_hours" | "stale_days" | "max_attempts", value: string) {
     const parsed = Number(value);
     setLeadSettings((current) => current.map((row) => row.product === product ? { ...row, [key]: Number.isFinite(parsed) ? parsed : 0 } : row));
+  }
+
+  async function createVocabulary(resource: "status" | "type") {
+    const label = resource === "status" ? newStatusLabel.trim() : newTypeLabel.trim();
+    if (!label || savingVocabularyKey) return;
+    setSavingVocabularyKey(`new:${resource}`);
+    setVocabularyError(null);
+    try {
+      const body = resource === "status"
+        ? { resource, product: newStatusProduct, label, kind: newStatusKind }
+        : { resource, label, counts_as_contact: newTypeCountsAsContact };
+      const response = await fetch("/api/leads/vocabulary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Could not create vocabulary item.");
+      if (resource === "status") {
+        setStatuses((current) => [...current, payload.status as LeadStatus].sort((a, b) => a.product.localeCompare(b.product) || a.position - b.position));
+        setNewStatusLabel("");
+      } else {
+        setInteractionTypes((current) => [...current, payload.type as LeadInteractionType].sort((a, b) => a.position - b.position));
+        setNewTypeLabel("");
+        setNewTypeCountsAsContact(false);
+      }
+    } catch (error) {
+      setVocabularyError(error instanceof Error ? error.message : "Could not create vocabulary item.");
+    } finally {
+      setSavingVocabularyKey(null);
+    }
+  }
+
+  async function saveVocabulary(resource: "status" | "type", item: LeadStatus | LeadInteractionType) {
+    const key = `${resource}:${item.id}`;
+    if (savingVocabularyKey) return;
+    setSavingVocabularyKey(key);
+    setVocabularyError(null);
+    try {
+      const body = resource === "status"
+        ? { resource, id: item.id, product: (item as LeadStatus).product, label: item.label, kind: (item as LeadStatus).kind, color: item.color, position: item.position }
+        : { resource, id: item.id, label: item.label, counts_as_contact: (item as LeadInteractionType).counts_as_contact, color: item.color, position: item.position };
+      const response = await fetch("/api/leads/vocabulary", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Could not save vocabulary item.");
+      if (resource === "status") setStatuses((current) => current.map((row) => row.id === item.id ? payload.status as LeadStatus : row));
+      else setInteractionTypes((current) => current.map((row) => row.id === item.id ? payload.type as LeadInteractionType : row));
+    } catch (error) {
+      setVocabularyError(error instanceof Error ? error.message : "Could not save vocabulary item.");
+    } finally {
+      setSavingVocabularyKey(null);
+    }
+  }
+
+  async function archiveVocabulary(resource: "status" | "type", id: string) {
+    if (savingVocabularyKey) return;
+    setSavingVocabularyKey(`${resource}:${id}`);
+    setVocabularyError(null);
+    try {
+      const response = await fetch("/api/leads/vocabulary", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource, id, archived_at: new Date().toISOString() }) });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Could not archive vocabulary item.");
+      if (resource === "status") setStatuses((current) => current.filter((row) => row.id !== id));
+      else setInteractionTypes((current) => current.filter((row) => row.id !== id));
+    } catch (error) {
+      setVocabularyError(error instanceof Error ? error.message : "Could not archive vocabulary item.");
+    } finally {
+      setSavingVocabularyKey(null);
+    }
   }
 
   return (
@@ -349,6 +446,37 @@ export default function SettingsClient({ profile, canManageLeads, initialLeadSet
             </div>
             {leadSettingsError && <p className="mx-6 mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{leadSettingsError}</p>}
             {leadSettingsMessage && <p className="mx-6 mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">{leadSettingsMessage}</p>}
+          </section>
+        )}
+        {canManageLeads && (
+          <section className="mt-6 rounded-lg border border-[#d8dee7] bg-white">
+            <div className="border-b border-[#e6eaf0] px-6 py-5">
+              <h2 className="text-base font-semibold text-[#172b4d]">Lead vocabulary</h2>
+              <p className="mt-1 text-sm text-[#6b778c]">Statuses and interaction types control how the lead workflow and alerts behave.</p>
+            </div>
+            <div className="space-y-8 px-6 py-6">
+              {vocabularyState === "idle" && <p className="text-sm text-[#6b778c]">Loading lead vocabulary...</p>}
+              {vocabularyState === "error" && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{vocabularyError}</p>}
+              {vocabularyState === "ready" && (
+                <>
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-end gap-2">
+                      <h3 className="mr-auto font-semibold text-[#172b4d]">Statuses</h3>
+                      <select className="rounded-md border border-[#cfd8e5] px-2 py-2 text-sm" value={newStatusProduct} onChange={(event) => setNewStatusProduct(event.target.value as LeadProduct)}><option value="pc">P&C</option><option value="health">Health</option></select>
+                      <input className="rounded-md border border-[#cfd8e5] px-3 py-2 text-sm" placeholder="New status label" value={newStatusLabel} onChange={(event) => setNewStatusLabel(event.target.value)} />
+                      <select className="rounded-md border border-[#cfd8e5] px-2 py-2 text-sm" value={newStatusKind} onChange={(event) => setNewStatusKind(event.target.value as StatusKind)}><option value="open">Open</option><option value="scheduled">Scheduled</option><option value="won">Won</option><option value="lost">Lost</option></select>
+                      <button type="button" className="rounded-md bg-[#0c66e4] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!newStatusLabel.trim() || savingVocabularyKey !== null} onClick={() => void createVocabulary("status")}>Add status</button>
+                    </div>
+                    <div className="overflow-x-auto rounded-md border border-[#e6eaf0]"><table className="min-w-[720px] w-full text-left text-sm"><thead className="bg-[#f7f8fa] text-xs uppercase text-[#6b778c]"><tr><th className="px-3 py-2">Product</th><th className="px-3 py-2">Label</th><th className="px-3 py-2">Meaning</th><th className="px-3 py-2">Color</th><th className="px-3 py-2">Position</th><th className="px-3 py-2">Actions</th></tr></thead><tbody className="divide-y divide-[#e6eaf0]">{statuses.map((status) => <tr key={status.id}><td className="px-3 py-2">{status.product === "pc" ? "P&C" : "Health"}</td><td className="px-3 py-2"><input className="w-full rounded border border-[#cfd8e5] px-2 py-1.5" value={status.label} onChange={(event) => setStatuses((current) => current.map((row) => row.id === status.id ? { ...row, label: event.target.value } : row))} /></td><td className="px-3 py-2"><select className="rounded border border-[#cfd8e5] px-2 py-1.5" value={status.kind} onChange={(event) => setStatuses((current) => current.map((row) => row.id === status.id ? { ...row, kind: event.target.value as StatusKind } : row))}><option value="open">Open</option><option value="scheduled">Scheduled</option><option value="won">Won</option><option value="lost">Lost</option></select><span className="mt-1 block text-[11px] text-[#6b778c]">Won/Lost stop reminders; Call back requires a date.</span></td><td className="px-3 py-2"><input type="color" value={status.color ?? "#0c66e4"} onChange={(event) => setStatuses((current) => current.map((row) => row.id === status.id ? { ...row, color: event.target.value } : row))} /></td><td className="px-3 py-2"><input className="w-20 rounded border border-[#cfd8e5] px-2 py-1.5" type="number" min={0} value={status.position} onChange={(event) => setStatuses((current) => current.map((row) => row.id === status.id ? { ...row, position: Number(event.target.value) } : row))} /></td><td className="whitespace-nowrap px-3 py-2"><button type="button" className="mr-2 rounded bg-[#0c66e4] px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50" disabled={savingVocabularyKey !== null} onClick={() => void saveVocabulary("status", status)}>Save</button><button type="button" className="rounded border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-50" disabled={savingVocabularyKey !== null} onClick={() => void archiveVocabulary("status", status.id)}>Archive</button></td></tr>)}</tbody></table></div>
+                  </div>
+                  <div>
+                    <div className="mb-3 flex flex-wrap items-end gap-2"><h3 className="mr-auto font-semibold text-[#172b4d]">Interaction types</h3><input className="rounded-md border border-[#cfd8e5] px-3 py-2 text-sm" placeholder="New interaction type" value={newTypeLabel} onChange={(event) => setNewTypeLabel(event.target.value)} /><label className="flex items-center gap-2 rounded-md border border-[#cfd8e5] px-3 py-2 text-sm"><input type="checkbox" checked={newTypeCountsAsContact} onChange={(event) => setNewTypeCountsAsContact(event.target.checked)} /> Counts as contact</label><button type="button" className="rounded-md bg-[#0c66e4] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!newTypeLabel.trim() || savingVocabularyKey !== null} onClick={() => void createVocabulary("type")}>Add type</button></div>
+                    <div className="overflow-x-auto rounded-md border border-[#e6eaf0]"><table className="min-w-[680px] w-full text-left text-sm"><thead className="bg-[#f7f8fa] text-xs uppercase text-[#6b778c]"><tr><th className="px-3 py-2">Label</th><th className="px-3 py-2">Counts as contact</th><th className="px-3 py-2">Color</th><th className="px-3 py-2">Position</th><th className="px-3 py-2">Actions</th></tr></thead><tbody className="divide-y divide-[#e6eaf0]">{interactionTypes.map((type) => <tr key={type.id}><td className="px-3 py-2"><input className="w-full rounded border border-[#cfd8e5] px-2 py-1.5" value={type.label} onChange={(event) => setInteractionTypes((current) => current.map((row) => row.id === type.id ? { ...row, label: event.target.value } : row))} /></td><td className="px-3 py-2"><input type="checkbox" checked={type.counts_as_contact} onChange={(event) => setInteractionTypes((current) => current.map((row) => row.id === type.id ? { ...row, counts_as_contact: event.target.checked } : row))} /></td><td className="px-3 py-2"><input type="color" value={type.color ?? "#0c66e4"} onChange={(event) => setInteractionTypes((current) => current.map((row) => row.id === type.id ? { ...row, color: event.target.value } : row))} /></td><td className="px-3 py-2"><input className="w-20 rounded border border-[#cfd8e5] px-2 py-1.5" type="number" min={0} value={type.position} onChange={(event) => setInteractionTypes((current) => current.map((row) => row.id === type.id ? { ...row, position: Number(event.target.value) } : row))} /></td><td className="whitespace-nowrap px-3 py-2"><button type="button" className="mr-2 rounded bg-[#0c66e4] px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50" disabled={savingVocabularyKey !== null} onClick={() => void saveVocabulary("type", type)}>Save</button><button type="button" className="rounded border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-50" disabled={savingVocabularyKey !== null} onClick={() => void archiveVocabulary("type", type.id)}>Archive</button></td></tr>)}</tbody></table></div>
+                  </div>
+                  {vocabularyError && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{vocabularyError}</p>}
+                </>
+              )}
+            </div>
           </section>
         )}
       </div>

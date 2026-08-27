@@ -2702,7 +2702,7 @@ Không có task này thì `kind` và `counts_as_contact` chỉ sửa được b�
 - Consumes: `isStatusKind` từ `./types`, `canManageLeads` từ `./access`
 - Produces: `validateStatusInput(body)` → `{ product, label, kind, color, position } | { error }`; `validateTypeInput(body)` → `{ label, counts_as_contact, color, position } | { error }`
 
-- [ ] **Step 1: Viết test đỏ**
+- [x] **Step 1: Viết test đỏ**
 
 ```ts
 // src/lib/leads/vocabulary.test.ts
@@ -2754,12 +2754,12 @@ describe("validateTypeInput", () => {
 });
 ```
 
-- [ ] **Step 2: Chạy để chắc nó fail**
+- [x] **Step 2: Chạy để chắc nó fail**
 
 Run: `npx vitest run src/lib/leads/vocabulary.test.ts`
 Expected: FAIL — `Cannot find module './vocabulary'`
 
-- [ ] **Step 3: Viết `src/lib/leads/vocabulary.ts`**
+- [x] **Step 3: Viết `src/lib/leads/vocabulary.ts`**
 
 ```ts
 import { isLeadProduct, isStatusKind, type LeadProduct, type StatusKind } from "./types";
@@ -2828,26 +2828,26 @@ export function validateTypeInput(
 }
 ```
 
-- [ ] **Step 4: Test xanh**
+- [x] **Step 4: Test xanh**
 
 Run: `npx vitest run src/lib/leads/vocabulary.test.ts`
 Expected: PASS, 7 tests
 
-- [ ] **Step 5: Viết route**
+- [x] **Step 5: Viết route**
 
 `src/app/api/leads/vocabulary/route.ts`: `GET` trả `{ statuses, types }` cho ai có `lead.work` trở lên; `POST` và `PATCH` chỉ cho `lead.manage`, dùng hai hàm validate ở trên và trả `{ error }` với status 400 khi validate thất bại. Xoá dùng soft-delete: `PATCH` với `{ archived_at: <ISO> }`, **không** `DELETE` cứng — lead cũ vẫn trỏ vào status đó.
 
-- [ ] **Step 6: Khối Settings**
+- [x] **Step 6: Khối Settings**
 
 Hai bảng sửa tại chỗ. Bảng status có cột Nhãn / Ý nghĩa (dropdown 4 giá trị) / Màu / Thứ tự. Bảng loại tương tác có cột Nhãn / Tính là đã liên hệ (checkbox) / Màu / Thứ tự. Bên dưới ô "Ý nghĩa" ghi một dòng giải thích: *"Won và Lost làm lead ngừng bị nhắc. Call back bắt buộc chọn ngày giờ hẹn."*
 
-- [ ] **Step 7: Verify tay**
+- [x] **Step 7: Verify tay**
 
 1. Thêm loại `Zalo` không tích ô → ghi một `Zalo` cho lead chưa gọi bao giờ → cờ đỏ **vẫn** còn
 2. Sửa `Zalo` thành có tích ô → ghi thêm một `Zalo` → cờ đỏ tắt
 3. Archive status `Won` → lead đang mang status đó vẫn hiển thị, không lỗi, và theo Task 3 được coi như còn mở
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/lib/leads/vocabulary.ts src/lib/leads/vocabulary.test.ts src/app/api/leads/vocabulary "src/app/(authed)/settings"

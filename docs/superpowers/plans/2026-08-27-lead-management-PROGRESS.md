@@ -34,10 +34,10 @@ không cần biết gì về các cuộc trò chuyện trước.
 
 ## Trạng thái
 
-**Task đang làm:** Task 17 — Màn admin cho từ vựng
-**Task kế tiếp:** Task 17 — Màn admin cho từ vựng
-**Commit gần nhất:** `d2c6dba` feat(leads): add the manager overview screen
-**Suite hiện tại:** 823 passed / 115 files
+**Task đang làm:** — hoàn tất Task 17
+**Task kế tiếp:** —
+**Commit gần nhất:** `c070839` feat(leads): add navigation, alert settings, and changelog
+**Suite hiện tại:** 830 passed / 116 files (sau full verification ghi lại số cuối)
 
 | Task | Trạng thái | Commit |
 |---|---|---|
@@ -55,9 +55,9 @@ không cần biết gì về các cuộc trò chuyện trước.
 | 12. Hộp thoại import | ✅ xong, typecheck/lint sạch; cần verify browser upload thực tế | `41ef6db` |
 | 13. Route giao lead hàng loạt | ✅ xong, 6 validation tests + typecheck/lint sạch | `3705f0e` |
 | 14. Tổng hợp Overview | ✅ xong, 5 summary tests + typecheck/lint sạch | `839ab11` |
-| 15. Màn Overview và cờ trong bảng | ✅ xong, typecheck/lint sạch; cần verify browser | chưa commit |
-| 16. Nav, Settings ngưỡng, changelog | ✅ xong, typecheck/lint sạch | chưa commit |
-| 17. Màn admin cho từ vựng | chưa làm | |
+| 15. Màn Overview và cờ trong bảng | ✅ xong, typecheck/lint sạch; cần verify browser | `d2c6dba` |
+| 16. Nav, Settings ngưỡng, changelog | ✅ xong, typecheck/lint sạch | `c070839` |
+| 17. Màn admin cho từ vựng | ✅ xong, 7 validator tests + typecheck/lint sạch; cần full verification | chưa commit |
 
 **Checkpoint đã hẹn với user:** dừng lại sau **Task 9** (hết Phase 2) để user
 dùng thử bảng Leads thật trước khi làm import và Overview.
