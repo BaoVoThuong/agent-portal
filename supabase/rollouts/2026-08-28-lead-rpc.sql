@@ -25,8 +25,13 @@ begin
     raise exception 'LEAD_ACTOR_REQUIRED';
   end if;
 
-  select * into lead_value from leads as lead
-  where lead.id = p_lead_id and lead.archived_at is null
+  -- Alias `l`, not `lead`: `lead` is also the name of this function's OUT
+  -- parameter. It happens to resolve today only because that parameter is
+  -- jsonb and therefore not composite, so `lead.id` cannot be field access.
+  -- This repo already lost a day to SQLSTATE 42702 from a local shadowing a
+  -- column (patch_task_atomic, 08/08) — do not leave the same trap set.
+  select * into lead_value from leads as l
+  where l.id = p_lead_id and l.archived_at is null
   for update;
   if not found then
     raise exception 'LEAD_NOT_FOUND';
@@ -79,27 +84,27 @@ begin
     actor_value, p_now, p_follow_up_at, p_client_request_id
   ) returning * into interaction_value;
 
-  update leads as lead set
+  update leads as l set
     first_contacted_at = case
-      when type_value.counts_as_contact and lead.first_contacted_at is null
-      then p_now else lead.first_contacted_at end,
+      when type_value.counts_as_contact and l.first_contacted_at is null
+      then p_now else l.first_contacted_at end,
     last_contacted_at = case
       when type_value.counts_as_contact then p_now
-      else lead.last_contacted_at end,
-    contact_attempt_count = lead.contact_attempt_count
+      else l.last_contacted_at end,
+    contact_attempt_count = l.contact_attempt_count
       + case when type_value.counts_as_contact then 1 else 0 end,
     next_follow_up_at = case
       when p_follow_up_at is not null then p_follow_up_at
       when status_kind_value in ('won', 'lost') then null
-      else lead.next_follow_up_at end,
-    status_id = coalesce(p_status_id, lead.status_id),
+      else l.next_follow_up_at end,
+    status_id = coalesce(p_status_id, l.status_id),
     closed_at = case
       when status_kind_value in ('won', 'lost') then p_now
       when status_kind_value is not null then null
-      else lead.closed_at end,
+      else l.closed_at end,
     updated_at = p_now,
     updated_by_email = actor_value
-  where lead.id = p_lead_id
+  where l.id = p_lead_id
   returning * into lead_value;
 
   interaction := to_jsonb(interaction_value);

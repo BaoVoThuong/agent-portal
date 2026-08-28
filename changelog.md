@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-28 — Sửa 2 lỗi và 1 bẫy trong Lead Management sau code review
+- **Loại**: fix (correctness, reliability)
+- **Cái gì**:
+  - **Cờ "quá hẹn gọi lại" không bao giờ tắt** (`lib/leads/alerts.ts`): cờ chỉ so `next_follow_up_at < now`, trong khi RPC chỉ xoá trường đó khi lead đóng hoặc khi hẹn một giờ mới. Hệ quả: agent hứa gọi 3pm, gọi đúng hẹn, khách không bắt máy → **cờ đỏ sáng vĩnh viễn**, chỉ thoát được nếu hẹn lại hoặc đóng lead. Nay chỉ báo đỏ khi chưa có liên hệ nào **sau** giờ đã hẹn. Kiểm chứng bằng cách dựng PostgreSQL 16 và chạy đúng kịch bản đó.
+  - **Overview tải toàn bộ lead không giới hạn** (`api/leads/overview/route.ts`): không `limit`, không `count`. PostgREST có trần số dòng và cắt bớt **không báo lỗi**, nên dashboard sẽ âm thầm báo thiếu — manager quyết định chuyển lead dựa trên con số đó. Nay đọc theo trang 1.000 dòng tới trần 20.000, trả cờ `truncated`, và UI hiện băng đỏ khi chạm trần. Đồng thời bỏ `custom_values` khỏi truy vấn tổng hợp (jsonb tuỳ ý × mọi lead chỉ để đếm cờ).
+  - **Alias `lead` trùng tên OUT param `lead`** trong `log_lead_interaction_atomic`: chạy được chỉ vì OUT param là `jsonb` nên không phải composite. Đổi alias thành `l`. Repo vừa mất một ngày vì SQLSTATE 42702 do biến trùng tên cột (`patch_task_atomic`, 08/08) — không để lại cùng cái bẫy.
+- **Không phải lỗi**: review ban đầu của em nghi route assign không kiểm email agent. **Sai** — `api/leads/assign/route.ts` đã kiểm bằng `getUserAccessByEmail` + `isActive` + `isWorker`. Chỉ còn điểm về trải nghiệm: ô nhập là chữ tự do thay vì danh sách chọn.
+- **Kiểm chứng**: `npm run test:run` 117 files / **836 tests** (trước đó 834, thêm 2 test hồi quy cho cờ quá hẹn); typecheck + lint sạch. RPC nạp lại trên PostgreSQL 16 và chạy đúng: bộ đếm tăng, idempotency `t` rồi `f`.
+
 ## 2026-08-28 — Lead management: workflow hardening and complete module
 - **Loại**: feature, security, data-integrity, reliability
 - **Cái gì**: Hoàn thiện module Leads với RPC atomic ghi interaction và cập nhật counters/idempotency, quyền `lead.manage`/`lead.work`/`lead.export`, phân trang ghim ownership ở server, realtime và polling chỉ khi tab visible, import Excel có giới hạn/dedupe, giao lead có lịch sử, Overview/cờ theo ngưỡng product, và admin vocabulary có soft-archive. Bật RLS fail-closed cho cả 7 bảng Lead; RPC chỉ cho `service_role`, status interaction phải cùng product với lead. Alert filter của Overview chạy ở server và validation không còn nuốt UUID/date sai thành `null`.

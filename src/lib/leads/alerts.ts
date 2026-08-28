@@ -61,9 +61,19 @@ export function resolveLeadAlerts(
     }
   }
 
+  // Lời hứa chỉ bị coi là thất hứa khi CHƯA có liên hệ nào sau giờ đã hẹn.
+  // Không có vế `contactedAfter` thì agent gọi lại đúng hẹn mà khách không bắt
+  // máy sẽ mang cờ đỏ vĩnh viễn: RPC chỉ xoá next_follow_up_at khi lead đóng
+  // hoặc khi hẹn một giờ mới, nên một cuộc gọi bình thường không gỡ được nó.
+  // Đó là phạt đúng người làm đúng việc — ngược hẳn mục đích của tính năng.
   if (lead.next_follow_up_at) {
     const dueMs = Date.parse(lead.next_follow_up_at);
-    if (Number.isFinite(dueMs) && dueMs < nowMs) {
+    const lastContactMs = lead.last_contacted_at
+      ? Date.parse(lead.last_contacted_at)
+      : Number.NaN;
+    const contactedAfterPromise =
+      Number.isFinite(lastContactMs) && lastContactMs >= dueMs;
+    if (Number.isFinite(dueMs) && dueMs < nowMs && !contactedAfterPromise) {
       alerts.push("follow_up_overdue");
     }
   }

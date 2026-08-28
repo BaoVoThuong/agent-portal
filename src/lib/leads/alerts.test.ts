@@ -77,6 +77,33 @@ describe("resolveLeadAlerts", () => {
     );
   });
 
+  // Agent hứa gọi 3pm thứ Ba, gọi đúng hẹn, khách không bắt máy. RPC không xoá
+  // next_follow_up_at cho một cuộc gọi thường, nên nếu cờ chỉ so hẹn với hiện
+  // tại thì agent làm đúng sẽ đỏ mãi mãi.
+  it("clears the missed-callback flag once the agent calls back", () => {
+    const row = lead({
+      first_contacted_at: hoursAgo(50),
+      next_follow_up_at: hoursAgo(5),
+      last_contacted_at: hoursAgo(2),
+      contact_attempt_count: 2,
+    });
+    expect(resolveLeadAlerts(row, openStatus, settings, NOW)).not.toContain(
+      "follow_up_overdue"
+    );
+  });
+
+  it("still flags a promise the agent never came back to", () => {
+    const row = lead({
+      first_contacted_at: hoursAgo(50),
+      next_follow_up_at: hoursAgo(5),
+      last_contacted_at: hoursAgo(20),
+      contact_attempt_count: 2,
+    });
+    expect(resolveLeadAlerts(row, openStatus, settings, NOW)).toContain(
+      "follow_up_overdue"
+    );
+  });
+
   it("marks a hard-to-reach lead amber, not red", () => {
     const row = lead({
       last_contacted_at: hoursAgo(2),
