@@ -231,79 +231,129 @@ export function LeadsClient({
     router.push(`/leads?product=${product}&alert=${alert}`);
   }
 
+  const visibleColumns = columns.filter((column) => !column.hidden_default);
+  const shellClassName = view === "list"
+    ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
+    : "flex min-h-full min-w-0 flex-col bg-[#f7f9fc] text-[#172b4d]";
+  const alertFilterLabel = activeAlert
+    ? {
+        never_contacted: "Never contacted",
+        stale: "Stale leads",
+        follow_up_overdue: "Overdue follow-ups",
+        exhausted: "Max attempts reached",
+      }[activeAlert]
+    : null;
+
   return (
-    <main className="min-h-full bg-[#f7f8fa] px-6 py-6 text-[#172b4d]">
-      <div className="mx-auto max-w-[1440px]">
-        <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <main className={shellClassName}>
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+        <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
+        <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.1em] text-[#6b778c]">Lead management</p>
-            <h1 className="mt-1 text-3xl font-bold">{product === "pc" ? "P&C Leads" : "Health Leads"}</h1>
-            <p className="mt-1 text-sm text-[#6b778c]">{total.toLocaleString()} active leads</p>
+            <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
+              {product === "pc" ? "P&C Leads" : "Health Leads"}
+            </h1>
+            <p className="mt-1 text-sm font-medium text-[#6b778c]">
+              {total.toLocaleString()} active leads
+            </p>
           </div>
-          <div className="flex gap-2">
-            {isManager && <button className="inline-flex items-center gap-2 rounded-md bg-[#0c66e4] px-3 py-2 text-sm font-semibold text-white hover:bg-[#0958c7]" type="button" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" /> Import</button>}
-            <button className="inline-flex items-center gap-2 rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm font-semibold text-[#172b4d] hover:bg-[#f1f3f5] disabled:opacity-50" type="button" onClick={() => void reload()} disabled={refreshing}>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {isManager && <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]" type="button" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" /> Import</button>}
+            <button className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void reload()} disabled={refreshing}>
               <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Refresh
             </button>
           </div>
         </header>
 
-        {isManager && (
-          <div className="mb-4 flex gap-2 rounded-md border border-[#d8dee7] bg-white p-1 text-sm shadow-sm">
-            <button type="button" className={`rounded px-3 py-1.5 font-semibold ${view === "list" ? "bg-[#eaf2ff] text-[#0c66e4]" : "text-[#6b778c]"}`} onClick={() => router.push(`/leads?product=${product}`)}>Leads</button>
-            <button type="button" className={`rounded px-3 py-1.5 font-semibold ${view === "overview" ? "bg-[#eaf2ff] text-[#0c66e4]" : "text-[#6b778c]"}`} onClick={() => router.push(`/leads?product=${product}&view=overview`)}>Overview</button>
+        <section className="mt-2 min-w-0 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
+              <button type="button" aria-current={view === "list" ? "page" : undefined} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "list" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`} onClick={() => router.push(`/leads?product=${product}`)}>Leads</button>
+              {isManager && <button type="button" aria-current={view === "overview" ? "page" : undefined} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "overview" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`} onClick={() => router.push(`/leads?product=${product}&view=overview`)}>Overview</button>}
+            </div>
+            {alertFilterLabel ? (
+              <button
+                type="button"
+                onClick={() => router.push(`/leads?product=${product}`)}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#ffbdad] bg-[#fff7f5] px-3 text-sm font-semibold text-[#bf2600] transition hover:bg-[#ffebe6]"
+              >
+                <CircleAlert className="h-4 w-4" />
+                {alertFilterLabel}
+                <span aria-hidden="true">×</span>
+              </button>
+            ) : null}
           </div>
-        )}
+        </section>
+        </div>
+      </div>
 
-        {view === "overview" && isManager ? <LeadOverview key={product} product={product} onAlertClick={selectAlert} /> : null}
-        {view === "list" && isManager && selected.size > 0 && (
-          <div className="mb-3 rounded-lg border border-[#b8d4ff] bg-[#eaf2ff] px-4 py-3 text-sm">
+      {view === "overview" && isManager ? (
+        <div className="min-w-0 flex-1 px-6 pb-6">
+          <div className="mx-auto max-w-[1760px]">
+            <LeadOverview key={product} product={product} onAlertClick={selectAlert} />
+          </div>
+        </div>
+      ) : null}
+
+      {view === "list" && isManager && selected.size > 0 && (
+        <div className="min-w-0 shrink-0 px-6 pb-3">
+          <div className="mx-auto max-w-[1760px] rounded border border-[#b8d4ff] bg-[#e9f2ff] px-4 py-3 text-sm shadow-[0_1px_2px_rgba(9,30,66,0.08)]">
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-semibold text-[#172b4d]">{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
-              <input className="min-w-[220px] flex-1 rounded-md border border-[#b8c4d4] bg-white px-3 py-2 text-sm" placeholder="Agent email to assign" value={assignmentEmail} onChange={(event) => setAssignmentEmail(event.target.value)} disabled={assigning} />
-              <input className="min-w-[180px] flex-1 rounded-md border border-[#b8c4d4] bg-white px-3 py-2 text-sm" placeholder="Reason (optional)" value={assignmentReason} onChange={(event) => setAssignmentReason(event.target.value)} disabled={assigning} />
-              <button className="rounded-md bg-[#0c66e4] px-3 py-2 font-semibold text-white disabled:opacity-50" type="button" disabled={!assignmentEmail.trim() || assigning} onClick={() => void assignSelected(assignmentEmail.trim())}>{assigning ? "Saving..." : "Assign"}</button>
-              <button className="rounded-md border border-[#b8c4d4] bg-white px-3 py-2 font-semibold text-[#172b4d] disabled:opacity-50" type="button" disabled={assigning} onClick={() => void assignSelected(null)}>Unassign</button>
+              <input className="h-9 min-w-[220px] flex-1 rounded-lg border border-[#c1c7d0] bg-white px-3 text-sm outline-none transition focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]" placeholder="Agent email to assign" value={assignmentEmail} onChange={(event) => setAssignmentEmail(event.target.value)} disabled={assigning} />
+              <input className="h-9 min-w-[180px] flex-1 rounded-lg border border-[#c1c7d0] bg-white px-3 text-sm outline-none transition focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]" placeholder="Reason (optional)" value={assignmentReason} onChange={(event) => setAssignmentReason(event.target.value)} disabled={assigning} />
+              <button className="inline-flex h-9 items-center rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50" type="button" disabled={!assignmentEmail.trim() || assigning} onClick={() => void assignSelected(assignmentEmail.trim())}>{assigning ? "Saving..." : "Assign"}</button>
+              <button className="inline-flex h-9 items-center rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50" type="button" disabled={assigning} onClick={() => void assignSelected(null)}>Unassign</button>
             </div>
             {assignmentError && <p className="mt-2 text-xs font-semibold text-red-700">{assignmentError}</p>}
           </div>
-        )}
+        </div>
+      )}
 
-        {view === "list" && <div className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-sm">
-          <div className="overflow-x-auto">
+      {view === "list" && <div className="min-h-0 flex flex-1 flex-col px-6 pb-6">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1760px] flex-1 flex-col">
+          {displayedLeads.length === 0 ? (
+            <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
+              No leads match the current filters.
+            </div>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
+          <div className="min-h-0 flex-1 overflow-auto">
             <table className="min-w-[980px] w-full border-collapse text-left text-sm">
-              <thead className="bg-[#f7f8fa] text-xs uppercase tracking-[0.06em] text-[#6b778c]">
+              <thead className="sticky top-0 z-20 border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
                 <tr>
-                  {isManager && <th className="w-12 px-4 py-3"><input type="checkbox" aria-label="Select visible leads" checked={allVisibleSelected} onChange={(event) => setSelected(event.target.checked ? new Set(leads.map((lead) => lead.id)) : new Set())} /></th>}
-                  <th className="w-10 px-2 py-3" aria-label="Alerts" />
-                  {columns.filter((column) => !column.hidden_default).map((column) => <th key={column.id} className="whitespace-nowrap px-4 py-3 font-bold">{column.label}</th>)}
+                  {isManager && <th className="w-12 px-3 py-2"><input className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]" type="checkbox" aria-label="Select visible leads" checked={allVisibleSelected} onChange={(event) => setSelected(event.target.checked ? new Set(leads.map((lead) => lead.id)) : new Set())} /></th>}
+                  <th className="w-10 px-2 py-2" aria-label="Alerts" />
+                  {visibleColumns.map((column) => <th key={column.id} className="whitespace-nowrap px-3 py-2">{column.label}</th>)}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#e6eaf0]">
-                {displayedLeads.length === 0 && <tr><td colSpan={columns.length + (isManager ? 2 : 1)} className="px-4 py-12 text-center text-sm text-[#6b778c]">No leads found.</td></tr>}
+              <tbody className="divide-y divide-[#ebecf0]">
                 {displayedLeads.map((lead) => {
                   const alerts = resolveLeadAlerts(lead, lead.status_id ? statusById.get(lead.status_id) ?? null : null, alertSettings);
                   return (
-                    <tr key={lead.id} className="cursor-pointer bg-white hover:bg-[#f7faff]" onClick={() => setSelectedLead(lead)}>
-                      {isManager && <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}><input type="checkbox" aria-label={`Select lead ${lead.display_number}`} checked={selected.has(lead.id)} onChange={() => toggleLead(lead.id)} /></td>}
-                      <td className="px-2 py-3">{alerts.length > 0 && <span className={`inline-flex h-2.5 w-2.5 rounded-full ${alerts.some((alert) => ALERT_SEVERITY[alert] === "red") ? "bg-red-500" : "bg-amber-400"}`} title={alertTitle(alerts)} aria-label={alertTitle(alerts)}><CircleAlert className="sr-only" /></span>}</td>
-                      {columns.filter((column) => !column.hidden_default).map((column) => <td key={column.id} className="max-w-[240px] truncate px-4 py-3 font-medium text-[#172b4d]">{displayValue(lead, column, statusById, optionsByColumn)}</td>)}
+                    <tr key={lead.id} className="cursor-pointer bg-white transition-colors hover:bg-[#f7faff]" onClick={() => setSelectedLead(lead)}>
+                      {isManager && <td className="px-3 py-2.5" onClick={(event) => event.stopPropagation()}><input className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]" type="checkbox" aria-label={`Select lead ${lead.display_number}`} checked={selected.has(lead.id)} onChange={() => toggleLead(lead.id)} /></td>}
+                      <td className="px-2 py-2.5">{alerts.length > 0 && <span className={`inline-flex h-2 w-2 rounded-full ${alerts.some((alert) => ALERT_SEVERITY[alert] === "red") ? "bg-red-500" : "bg-amber-400"}`} title={alertTitle(alerts)} aria-label={alertTitle(alerts)}><CircleAlert className="sr-only" /></span>}</td>
+                      {visibleColumns.map((column) => <td key={column.id} className="max-w-[240px] truncate px-3 py-2.5 font-medium text-[#172b4d]">{displayValue(lead, column, statusById, optionsByColumn)}</td>)}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e6eaf0] px-4 py-3 text-sm text-[#6b778c]">
+          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[#dfe1e6] px-4 py-3 text-sm text-[#6b778c]">
             <span>{total === 0 ? "0" : `${offset + 1}–${pageEnd}`} of {total.toLocaleString()}</span>
             <div className="flex items-center gap-2">
-              <button className="inline-flex items-center gap-1 rounded-md border border-[#cfd8e5] bg-white px-3 py-1.5 font-semibold text-[#172b4d] disabled:cursor-not-allowed disabled:opacity-40" type="button" disabled={offset === 0 || refreshing} onClick={() => void reload(Math.max(0, offset - limit))}><ChevronLeft className="h-4 w-4" /> Previous</button>
-              <button className="inline-flex items-center gap-1 rounded-md border border-[#cfd8e5] bg-white px-3 py-1.5 font-semibold text-[#172b4d] disabled:cursor-not-allowed disabled:opacity-40" type="button" disabled={pageEnd >= total || refreshing} onClick={() => void reload(offset + limit)}>Next <ChevronRight className="h-4 w-4" /></button>
+              <button className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-40" type="button" disabled={offset === 0 || refreshing} onClick={() => void reload(Math.max(0, offset - limit))}><ChevronLeft className="h-4 w-4" /> Previous</button>
+              <button className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-40" type="button" disabled={pageEnd >= total || refreshing} onClick={() => void reload(offset + limit)}>Next <ChevronRight className="h-4 w-4" /></button>
             </div>
           </footer>
-        </div>}
+            </div>
+          )}
+        </div>
       </div>
-        {view === "list" && <LeadDetailDrawer
+      }
+      {view === "list" && <LeadDetailDrawer
         lead={selectedLead}
         currentEmail={currentEmail}
         sourceId={sourceId}
