@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-28 — Thiếu rollout nới ràng buộc scope cho table-config
+- **Loại**: fix (bug production)
+- **Cái gì**: `TABLE_SCOPES` trong `lib/table-config/types.ts` được thêm `lead_pc` và `lead_health`, nhưng **không rollout nào** nới ràng buộc CHECK tương ứng dưới DB. Lần đầu mở `/leads` là chết ngay ở `ensureTableColumns()`: `new row for relation "table_column" violates check constraint "table_column_scope_check"`.
+- **Ba bảng cùng mang enum đó**: `table_column`, `user_table_layout`, `import_request`. Nới mỗi `table_column` thì lỗi chỉ dời sang màn hình nào ghi layout hoặc import request tiếp theo, nên sửa cả ba cùng lúc.
+- **Kiểm chứng**: dựng PostgreSQL 16, nạp schema **cũ**, chèn `lead_pc` → tái hiện đúng nguyên văn lỗi; chạy rollout → chèn được; chạy rollout lần hai → 0 lỗi (idempotent).
+- **Bài học**: đợt đối chiếu code với Supabase trước đó chỉ kiểm bảng, cột và RPC — **không kiểm ràng buộc CHECK**. Thêm enum ở TypeScript mà quên DB là loại lỗi typecheck không bắt được.
+
 ## 2026-08-28 — Sửa 2 lỗi và 1 bẫy trong Lead Management sau code review
 - **Loại**: fix (correctness, reliability)
 - **Cái gì**:
