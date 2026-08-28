@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, CircleAlert, Plus, RefreshCw, Upload } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, Plus, Upload } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { resolveLeadAlerts, ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
 import { isOwnLeadMutation, LEADS_TOPIC } from "@/lib/leads/realtime-topics";
@@ -262,9 +262,6 @@ export function LeadsClient({
           <div className="flex flex-wrap items-center justify-end gap-2">
             {isManager && <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]" type="button" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" /> Add lead</button>}
             {isManager && <button className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]" type="button" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" /> Import</button>}
-            <button className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void reload()} disabled={refreshing}>
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /> Refresh
-            </button>
           </div>
         </header>
 
