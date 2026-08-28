@@ -66,6 +66,7 @@ export default async function LeadsPage({
 
   return (
     <LeadsClient
+      key={product}
       product={product}
       currentEmail={email}
       isManager={actor.isManager}

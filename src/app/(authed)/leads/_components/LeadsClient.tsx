@@ -103,7 +103,9 @@ export function LeadsClient({
   const [assignmentReason, setAssignmentReason] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
-  const view: "list" | "overview" = searchParams.get("view") === "overview" ? "overview" : "list";
+  const [view, setView] = useState<"list" | "overview">(
+    () => searchParams.get("view") === "overview" ? "overview" : "list"
+  );
   const rawAlert = searchParams.get("alert");
   const activeAlert: LeadAlert | null = rawAlert && [
     "never_contacted", "stale", "follow_up_overdue", "exhausted",
@@ -230,7 +232,21 @@ export function LeadsClient({
   const displayedLeads = leads;
 
   function selectAlert(alert: LeadAlert) {
+    setView("list");
     router.push(`/leads?product=${product}&alert=${alert}`);
+  }
+
+  function changeView(nextView: "list" | "overview") {
+    setView(nextView);
+    const params = new URLSearchParams(window.location.search);
+    params.set("product", product);
+    if (nextView === "overview") {
+      params.set("view", "overview");
+      params.delete("alert");
+    } else {
+      params.delete("view");
+    }
+    router.replace(`/leads?${params.toString()}`, { scroll: false });
   }
 
   const visibleColumns = columns.filter((column) => !column.hidden_default);
@@ -268,8 +284,8 @@ export function LeadsClient({
         <section className="mt-2 min-w-0 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
-              <button type="button" aria-current={view === "list" ? "page" : undefined} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "list" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`} onClick={() => router.push(`/leads?product=${product}`)}>Leads</button>
-              {isManager && <button type="button" aria-current={view === "overview" ? "page" : undefined} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "overview" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`} onClick={() => router.push(`/leads?product=${product}&view=overview`)}>Overview</button>}
+              {isManager && <button type="button" aria-current={view === "overview" ? "page" : undefined} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "overview" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`} onClick={() => changeView("overview")}>Overview</button>}
+              <button type="button" aria-current={view === "list" ? "page" : undefined} className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "list" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`} onClick={() => changeView("list")}>Leads</button>
             </div>
             {alertFilterLabel ? (
               <button
