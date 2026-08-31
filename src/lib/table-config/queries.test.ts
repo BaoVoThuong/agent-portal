@@ -48,7 +48,7 @@ describe("isTableConfigMissingError", () => {
 });
 
 describe("lead interaction-history columns", () => {
-  it.each(["lead_pc", "lead_health"] as const)(
+  it.each(["lead"] as const)(
     "seeds a visible system column for %s",
     (scope) => {
       expect(defaultTableColumns(scope)).toContainEqual(

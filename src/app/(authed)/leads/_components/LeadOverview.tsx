@@ -9,7 +9,7 @@ import type { LeadSummary } from "@/lib/leads/overview";
 type OverviewEvent = { id: string; name: string; event_date: string | null };
 
 type LeadOverviewProps = {
-  product: "pc" | "health";
+  productFilter: "pc" | "health" | null;
   onAlertClick: (alert: LeadAlert) => void;
 };
 
@@ -21,7 +21,7 @@ const ALERTS: Array<{ key: LeadAlert; label: string; tone: "red" | "amber" }> =
     { key: "exhausted", label: "Could not reach", tone: "amber" },
   ];
 
-export function LeadOverview({ product, onAlertClick }: LeadOverviewProps) {
+export function LeadOverview({ productFilter, onAlertClick }: LeadOverviewProps) {
   const [summary, setSummary] = useState<LeadSummary | null>(null);
   const [events, setEvents] = useState<OverviewEvent[]>([]);
   const [state, setState] = useState<"idle" | "loading" | "ready" | "error">(
@@ -31,7 +31,7 @@ export function LeadOverview({ product, onAlertClick }: LeadOverviewProps) {
 
   useEffect(() => {
     if (state !== "idle") return;
-    void fetch(`/api/leads/overview?product=${product}`, { cache: "no-store" })
+    void fetch(`/api/leads/overview${productFilter ? `?product=${productFilter}` : ""}`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => null);
         if (!response.ok)
@@ -47,7 +47,7 @@ export function LeadOverview({ product, onAlertClick }: LeadOverviewProps) {
         setState("ready");
       })
       .catch(() => setState("error"));
-  }, [state, product]);
+  }, [state, productFilter]);
 
   const eventNames = useMemo(
     () => new Map(events.map((event) => [event.id, event.name])),

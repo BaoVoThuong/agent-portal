@@ -23,7 +23,8 @@ import { LeadOverview } from "./LeadOverview";
 import { LeadTable } from "./LeadTable";
 
 type LeadsClientProps = {
-  product: "pc" | "health";
+  /** null = every product. A filter now, not a separate screen. */
+  productFilter: "pc" | "health" | null;
   currentEmail: string;
   isManager: boolean;
   initialLeads: LeadRow[];
@@ -43,7 +44,7 @@ function sourceNonce(): string {
 }
 
 export function LeadsClient({
-  product,
+  productFilter,
   currentEmail,
   isManager,
   initialLeads,
@@ -81,7 +82,7 @@ export function LeadsClient({
   const requestInFlight = useRef(false);
   const pendingRefresh = useRef(false);
   const sourceIdRef = useRef(sourceId);
-  const loadedQueryRef = useRef(`${product}:${activeAlert ?? ""}`);
+  const loadedQueryRef = useRef(`${productFilter ?? "all"}:${activeAlert ?? ""}`);
   const nameByEmail = useMemo(
     () =>
       new Map(
@@ -111,7 +112,8 @@ export function LeadsClient({
     }
     requestInFlight.current = true;
     try {
-      const params = new URLSearchParams({ product });
+      const params = new URLSearchParams();
+      if (productFilter) params.set("product", productFilter);
       if (activeAlert) params.set("alert", activeAlert);
       const response = await fetch(`/api/leads?${params.toString()}`, {
         cache: "no-store",
@@ -142,11 +144,11 @@ export function LeadsClient({
   });
 
   useEffect(() => {
-    const queryKey = `${product}:${activeAlert ?? ""}`;
+    const queryKey = `${productFilter ?? "all"}:${activeAlert ?? ""}`;
     if (loadedQueryRef.current === queryKey) return;
     loadedQueryRef.current = queryKey;
     void reloadRef.current();
-  }, [activeAlert, product]);
+  }, [activeAlert, productFilter]);
 
   useEffect(() => {
     const supabase = getBrowserSupabase();
@@ -251,13 +253,13 @@ export function LeadsClient({
 
   function selectAlert(alert: LeadAlert) {
     setView("list");
-    router.push(`/leads?product=${product}&alert=${alert}`);
+    router.push(productFilter ? `/leads?product=${productFilter}&alert=${alert}` : `/leads?alert=${alert}`);
   }
 
   function changeView(nextView: "list" | "overview") {
     setView(nextView);
     const params = new URLSearchParams(window.location.search);
-    params.set("product", product);
+    if (productFilter) params.set("product", productFilter);
     if (nextView === "overview") {
       params.set("view", "overview");
       params.delete("alert");
@@ -288,7 +290,7 @@ export function LeadsClient({
           <header className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
-                {product === "pc" ? "P&C Leads" : "Health Leads"}
+                Event Leads
               </h1>
               <p className="mt-1 text-sm font-medium text-[#6b778c]">
                 {total.toLocaleString()} active leads
@@ -341,7 +343,7 @@ export function LeadsClient({
               {alertFilterLabel ? (
                 <button
                   type="button"
-                  onClick={() => router.push(`/leads?product=${product}`)}
+                  onClick={() => router.push(productFilter ? `/leads?product=${productFilter}` : "/leads")}
                   className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#ffbdad] bg-[#fff7f5] px-3 text-sm font-semibold text-[#bf2600] transition hover:bg-[#ffebe6]"
                 >
                   <CircleAlert className="h-4 w-4" />
@@ -358,8 +360,8 @@ export function LeadsClient({
         <div className="min-w-0 flex-1 px-6 pb-6">
           <div className="mx-auto max-w-[1760px]">
             <LeadOverview
-              key={product}
-              product={product}
+              key={productFilter ?? "all"}
+              productFilter={productFilter}
               onAlertClick={selectAlert}
             />
           </div>
@@ -458,14 +460,14 @@ export function LeadsClient({
       )}
       <LeadImportDialog
         open={importOpen}
-        product={product}
+        product={productFilter ?? "health"}
         sourceId={sourceId}
         onClose={() => setImportOpen(false)}
         onImported={() => reload()}
       />
       <LeadAddDialog
         open={addOpen}
-        product={product}
+        product={productFilter ?? "health"}
         sourceId={sourceId}
         columns={columns}
         columnOptions={columnOptions}

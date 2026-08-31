@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Gộp Health Leads + P&C Leads thành một màn Event Leads
+- **Loại**: feature
+- **Cái gì**: hai màn hình tách theo sản phẩm nay là **một danh sách Event Leads** với **cột Product** dạng badge. Sidebar còn một mục. `?product=` trở thành **bộ lọc** người dùng bỏ được, không còn là hai màn riêng.
+- **Dữ liệu không phải di trú**: `leads` vốn luôn là một bảng có cột `product` — chỉ giao diện và scope config bị tách. Đúng phương án đề xuất ban đầu ngày 27/08, khi đó chọn tách; nay gộp lại.
+- **Hai scope `lead_pc`/`lead_health` gộp thành `lead`.** Cấu hình cột cũ được **archive chứ không xoá** — đó là dấu vết cách hai màn từng được cấu hình, và không màn nào đọc cột đã archive. `custom_values` độc lập với scope nên giá trị nhập dưới `lead_pc` vẫn đọc lại được dưới scope mới. Ràng buộc CHECK giữ lại giá trị cũ để các dòng đã archive còn hợp lệ; chỉ ứng dụng và `is_table_scope` ngừng chấp nhận chúng.
+- **Status vẫn tách theo product** — luồng P&C và Health khác nhau thật. Client chọn đúng danh sách theo product của từng lead.
+- **Màu Product cố định, không cấu hình được**: product là dữ kiện hệ thống chứ không phải từ vựng do admin soạn, nên hai giá trị phải trông giống nhau ở mọi cài đặt.
+- **Sửa kèm hai chỗ dễ lệch**: hai mảng scope chép tay trong `queries.ts` nay lấy thẳng từ `TABLE_SCOPES` — đó chính là cách `lead_pc`/`lead_health` từng lệch khỏi nguồn gốc. Và khôi phục cột `interactionHistory` mà em vô tình xoá khi gộp.
+- **Kiểm chứng**: rollout chạy trên PostgreSQL 16 — 0 cột hoạt động còn trên scope cũ, `is_table_scope('lead')` đúng, hai scope cũ bị từ chối, **đổi thứ tự cột trên scope `lead` chạy được**, chạy lần hai 0 lỗi, `schema.sql` nạp 0 lỗi. `npm run test:run` 119 files / 848 tests.
+
 ## 2026-08-31 — Lịch sử tương tác: mỗi loại một badge màu
 - **Loại**: fix (UI)
 - **Cái gì**: dòng lịch sử trước đây là chữ thuần `[Call] · No answer · email · 2h ago`. Nay loại tương tác và kết quả đều là **badge chữ nhật có nền màu**, lấy màu qua `taskCategoryBadgePalette` — cùng bảng màu và cùng công thức chọn màu chữ dễ đọc mà category của Task đang dùng. Người thực hiện hiện tên thay vì email thô.

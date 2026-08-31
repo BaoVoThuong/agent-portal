@@ -113,8 +113,7 @@ export default async function ConfigPage() {
     cs: [],
     aca: [],
     medicare: [],
-    lead_pc: [],
-    lead_health: [],
+    lead: [],
   };
   const options = optionsResult.ok && columnsReady ? optionsResult.data : emptyOptions;
   const emptyPeople: never[] = [];
@@ -189,8 +188,7 @@ export default async function ConfigPage() {
             available: medicareOptionDataResult.ok,
             error: medicareOptionDataResult.ok ? undefined : medicareOptionDataResult.error,
           },
-          lead_pc: { available: true },
-          lead_health: { available: true },
+          lead: { available: true },
         },
       }}
     />

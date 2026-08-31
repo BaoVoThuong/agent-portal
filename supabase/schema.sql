@@ -3816,7 +3816,7 @@ create index if not exists enrollment_options_set_position_idx
 
 create table if not exists table_column (
   id uuid primary key default gen_random_uuid(),
-  scope text not null check (scope in ('cs','aca','medicare','lead_pc','lead_health')),
+  scope text not null check (scope in ('cs','aca','medicare','lead_pc','lead_health','lead')),
   key text not null,
   label text not null,
   type text not null
@@ -3859,7 +3859,7 @@ language sql
 immutable
 set search_path = public
 as $$
-  select p_scope in ('cs', 'aca', 'medicare', 'lead_pc', 'lead_health');
+  select p_scope in ('cs', 'aca', 'medicare', 'lead');
 $$;
 
 create or replace function reorder_table_columns_atomic(
@@ -4216,7 +4216,7 @@ alter table table_column
 create table if not exists user_table_layout (
   id uuid primary key default gen_random_uuid(),
   user_email text not null,
-  scope text not null check (scope in ('cs','aca','medicare','lead_pc','lead_health')),
+  scope text not null check (scope in ('cs','aca','medicare','lead_pc','lead_health','lead')),
   layout jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now(),
   unique (user_email, scope)
@@ -4224,7 +4224,7 @@ create table if not exists user_table_layout (
 
 create table if not exists import_request (
   id uuid primary key default gen_random_uuid(),
-  scope text not null check (scope in ('cs','aca','medicare','lead_pc','lead_health')),
+  scope text not null check (scope in ('cs','aca','medicare','lead_pc','lead_health','lead')),
   submitted_by_email text not null,
   status text not null default 'pending'
     check (status in ('pending','processing','approved','rejected','failed')),

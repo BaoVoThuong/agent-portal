@@ -89,8 +89,7 @@ const SCOPE_LABEL: Record<TableScope, string> = {
   cs: "Health Customer Service",
   aca: "Health ACA Enrollment",
   medicare: "Health Medicare Enrollment",
-  lead_pc: "P&C Leads",
-  lead_health: "Health Leads",
+  lead: "Event Leads",
 };
 
 // Each page passes the scopes it owns. Sharing one screen across every scope

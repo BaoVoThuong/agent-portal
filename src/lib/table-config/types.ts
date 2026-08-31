@@ -2,8 +2,7 @@ export const TABLE_SCOPES = [
   "cs",
   "aca",
   "medicare",
-  "lead_pc",
-  "lead_health",
+  "lead",
 ] as const;
 export type TableScope = (typeof TABLE_SCOPES)[number];
 

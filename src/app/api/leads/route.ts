@@ -150,7 +150,7 @@ export async function POST(request: Request) {
   }
 
   const missingRequired = await findMissingRequiredFields(
-    input.product === "pc" ? "lead_pc" : "lead_health",
+    "lead",
     {
       fieldValues: {
         name: input.fullName,

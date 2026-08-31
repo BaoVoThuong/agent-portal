@@ -6,7 +6,7 @@ import { fetchLeadAssignees } from "@/lib/leads/assignees";
 import { fetchAllLeads } from "@/lib/leads/queries";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import {
-  toLeadProduct,
+  isLeadProduct,
   type LeadInteractionType,
   type LeadStatus,
 } from "@/lib/leads/types";
@@ -21,8 +21,10 @@ export default async function LeadsPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = searchParams ? await searchParams : {};
+  // One list for both products now; ?product= is a filter the user can clear,
+  // not two separate screens.
   const rawProduct = Array.isArray(params.product) ? params.product[0] : params.product;
-  const product = toLeadProduct(rawProduct);
+  const productFilter = isLeadProduct(rawProduct) ? rawProduct : null;
   const session = await requireAnyPermission([
     PERMISSIONS.LEAD_MANAGE,
     PERMISSIONS.LEAD_WORK,
@@ -35,12 +37,13 @@ export default async function LeadsPage({
 
   const [page, config, statusesResult, typesResult, assignees] =
     await Promise.all([
-    fetchAllLeads(actor, { product, alert: params.alert }, supabase),
-    fetchTableColumnsWithOptions(product === "pc" ? "lead_pc" : "lead_health", supabase),
+    fetchAllLeads(actor, { product: productFilter, alert: params.alert }, supabase),
+    fetchTableColumnsWithOptions("lead", supabase),
     supabase
       .from("lead_statuses")
+      // Statuses stay per-product: a P&C pipeline and a Health pipeline are
+      // genuinely different. The client picks the right list per lead row.
       .select("id,product,label,color,position,kind,archived_at")
-      .eq("product", product)
       .is("archived_at", null)
       .order("position"),
     supabase
@@ -58,8 +61,7 @@ export default async function LeadsPage({
 
   return (
     <LeadsClient
-      key={product}
-      product={product}
+      productFilter={productFilter}
       currentEmail={email}
       isManager={actor.isManager}
       initialLeads={page.rows}

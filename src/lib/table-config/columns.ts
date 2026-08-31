@@ -76,8 +76,7 @@ export const REQUIRED_CAPABLE_SYSTEM_KEYS: Record<TableScope, ReadonlySet<string
   medicare: new Set([
     "client", "description", "fub", "due", "stage", "carrier", "pcp2025", "agent", "responsible",
   ]),
-  lead_pc: new Set(["name", "phone", "email", "assignee", "status"]),
-  lead_health: new Set(["name", "phone", "email", "assignee", "status"]),
+  lead: new Set(["name", "product", "phone", "email", "assignee", "status"]),
   // "assignee" (cs) is deliberately absent from that set: an unassigned task
   // is a valid, intentional state in this system (unassigning is what sends
   // a task back to Backlog — see StatusPill's comment in TaskRowItem.tsx),

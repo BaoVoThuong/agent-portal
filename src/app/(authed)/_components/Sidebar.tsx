@@ -130,17 +130,9 @@ const menuData: MenuItem[] = [
     anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
     children: [
       {
-        href: "/leads?product=health",
-        label: "Health Leads",
+        href: "/leads",
+        label: "Event Leads",
         activePath: "/leads",
-        activeQuery: { product: "health" },
-        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
-      },
-      {
-        href: "/leads?product=pc",
-        label: "P&C Leads",
-        activePath: "/leads",
-        activeQuery: { product: "pc" },
         anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
       },
       {

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { sortColumns } from "./columns";
-import type { TableColumn, TableColumnOption, TableScope } from "./types";
+import { TABLE_SCOPES, type TableColumn, type TableColumnOption, type TableScope } from "./types";
 
 type SupabaseErrorLike = { code?: string; message?: string } | null | undefined;
 
@@ -61,35 +61,23 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("medicare", "updated", "Last edited time", "date", 180, true),
     col("medicare", "qc", "QC", "checkbox", 190),
   ],
-  lead_pc: [
-    col("lead_pc", "key", "Key", "text", 10, false, true),
-    col("lead_pc", "name", "Name", "text", 20, false, true, true),
-    col("lead_pc", "phone", "Phone", "text", 30, false, false, true),
-    customCol("lead_pc", "secondary_phone", "Secondary Phone", "text", 35),
-    col("lead_pc", "email", "Email", "text", 40, false, false, true),
-    col("lead_pc", "assignee", "Assigned to", "person", 50, false, false, true),
-    col("lead_pc", "status", "Status", "dropdown", 60, false, false, true),
-    col("lead_pc", "interactionHistory", "Interaction history", "text", 65),
-    col("lead_pc", "attempts", "Attempts", "number", 70),
-    col("lead_pc", "lastContact", "Last contact", "date", 80),
-    col("lead_pc", "followUp", "Follow up", "date", 90, false, false, true),
-    col("lead_pc", "event", "Event", "text", 100, false, false, true),
-    col("lead_pc", "createdAt", "Imported", "date", 110, true),
-  ],
-  lead_health: [
-    col("lead_health", "key", "Key", "text", 10, false, true),
-    col("lead_health", "name", "Name", "text", 20, false, true, true),
-    col("lead_health", "phone", "Phone", "text", 30, false, false, true),
-    customCol("lead_health", "secondary_phone", "Secondary Phone", "text", 35),
-    col("lead_health", "email", "Email", "text", 40, false, false, true),
-    col("lead_health", "assignee", "Assigned to", "person", 50, false, false, true),
-    col("lead_health", "status", "Status", "dropdown", 60, false, false, true),
-    col("lead_health", "interactionHistory", "Interaction history", "text", 65),
-    col("lead_health", "attempts", "Attempts", "number", 70),
-    col("lead_health", "lastContact", "Last contact", "date", 80),
-    col("lead_health", "followUp", "Follow up", "date", 90, false, false, true),
-    col("lead_health", "event", "Event", "text", 100, false, false, true),
-    col("lead_health", "createdAt", "Imported", "date", 110, true),
+  // One screen for both products; `product` is a column rather than two
+  // separate tables, so an event's whole intake is worked from one list.
+  lead: [
+    col("lead", "key", "Key", "text", 10, false, true),
+    col("lead", "name", "Name", "text", 20, false, true, true),
+    col("lead", "product", "Product", "dropdown", 25, false, false, true),
+    col("lead", "phone", "Phone", "text", 30, false, false, true),
+    customCol("lead", "secondary_phone", "Secondary Phone", "text", 35),
+    col("lead", "email", "Email", "text", 40, false, false, true),
+    col("lead", "assignee", "Assigned to", "person", 50, false, false, true),
+    col("lead", "status", "Status", "dropdown", 60, false, false, true),
+    col("lead", "interactionHistory", "Interaction history", "text", 65),
+    col("lead", "attempts", "Attempts", "number", 70),
+    col("lead", "lastContact", "Last contact", "date", 80),
+    col("lead", "followUp", "Follow up", "date", 90, false, false, true),
+    col("lead", "event", "Event", "text", 100, false, false, true),
+    col("lead", "createdAt", "Imported", "date", 110, true),
   ],
 };
 
@@ -219,13 +207,9 @@ function hasDefaultColumns(scope: TableScope, rows: TableColumn[]): boolean {
 export async function fetchAllTableColumns(
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<Record<TableScope, TableColumn[]>> {
-  const scopes: TableScope[] = [
-    "cs",
-    "aca",
-    "medicare",
-    "lead_pc",
-    "lead_health",
-  ];
+  // Derived, not copied: a hand-written list is how lead_pc/lead_health once
+  // drifted out of sync with TABLE_SCOPES.
+  const scopes: readonly TableScope[] = TABLE_SCOPES;
   const entries = await Promise.all(
     scopes.map(async (scope) => [scope, await fetchTableColumns(scope, supabase)] as const)
   );
@@ -292,7 +276,7 @@ async function fetchTableColumnOptionsForColumns(
 export async function fetchAllTableColumnOptions(
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<Record<TableScope, TableColumnOption[]>> {
-  const scopes: TableScope[] = ["cs", "aca", "medicare", "lead_pc", "lead_health"];
+  const scopes: readonly TableScope[] = TABLE_SCOPES;
   const entries = await Promise.all(
     scopes.map(async (scope) => [scope, await fetchTableColumnOptions(scope, supabase)] as const)
   );

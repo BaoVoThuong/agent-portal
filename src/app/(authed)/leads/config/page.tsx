@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 // Deliberately separate from /config. That screen owns the Health scopes and
 // carries task-only sections — categories, assistant membership, SLA times —
 // none of which mean anything for a lead.
-const LEAD_SCOPES = ["lead_pc", "lead_health"] as const;
+const LEAD_SCOPES = ["lead"] as const;
 const LEAD_TABS = ["table", "value"] as const;
 
 export default async function LeadConfigPage() {
@@ -43,7 +43,7 @@ export default async function LeadConfigPage() {
       scopes={LEAD_SCOPES}
       tabs={LEAD_TABS}
       initialColumns={columns}
-      initialOptions={columnsReady ? options : { cs: [], aca: [], medicare: [], lead_pc: [], lead_health: [] }}
+      initialOptions={columnsReady ? options : { cs: [], aca: [], medicare: [], lead: [] }}
       initialAgents={[]}
       candidates={[]}
       assignees={[]}
@@ -74,8 +74,7 @@ export default async function LeadConfigPage() {
           cs: { available: true },
           aca: { available: false },
           medicare: { available: false },
-          lead_pc: { available: true },
-          lead_health: { available: true },
+          lead: { available: true },
         },
       }}
     />
