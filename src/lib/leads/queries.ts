@@ -7,8 +7,10 @@ import {
   isLeadProduct,
   type LeadAlertSettings,
   type LeadInteractionPreview,
+  type LeadInteractionType,
   type LeadProduct,
   type LeadRow,
+  type LeadStatus,
 } from "./types";
 
 export const LEAD_PAGE_SIZE = 50;
@@ -212,4 +214,39 @@ export async function fetchAllLeads(
   } while (rows.length < total);
 
   return { rows, total };
+}
+
+const LEAD_STATUS_COLUMNS = "id,product,label,color,position,kind,archived_at";
+const LEAD_INTERACTION_TYPE_COLUMNS =
+  "id,label,color,position,counts_as_contact,archived_at";
+
+/**
+ * The active lead vocabulary. Three screens read it — the list, the config
+ * Values tab and the API route — and each used to carry its own copy of the
+ * column list and ordering, which is how the two lists drifted apart.
+ */
+export async function fetchLeadVocabulary(
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<{ statuses: LeadStatus[]; types: LeadInteractionType[] }> {
+  const [statusesResult, typesResult] = await Promise.all([
+    supabase
+      .from("lead_statuses")
+      // Statuses stay per-product: a P&C pipeline and a Health pipeline are
+      // genuinely different. The client picks the right list per lead row.
+      .select(LEAD_STATUS_COLUMNS)
+      .is("archived_at", null)
+      .order("product")
+      .order("position"),
+    supabase
+      .from("lead_interaction_types")
+      .select(LEAD_INTERACTION_TYPE_COLUMNS)
+      .is("archived_at", null)
+      .order("position"),
+  ]);
+  if (statusesResult.error) throw new Error(statusesResult.error.message);
+  if (typesResult.error) throw new Error(typesResult.error.message);
+  return {
+    statuses: (statusesResult.data ?? []) as LeadStatus[],
+    types: (typesResult.data ?? []) as LeadInteractionType[],
+  };
 }

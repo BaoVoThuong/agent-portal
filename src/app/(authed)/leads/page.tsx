@@ -3,13 +3,9 @@ import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildLeadActor } from "@/lib/leads/access";
 import { fetchLeadAssignees } from "@/lib/leads/assignees";
-import { fetchAllLeads } from "@/lib/leads/queries";
+import { fetchAllLeads, fetchLeadVocabulary } from "@/lib/leads/queries";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
-import {
-  isLeadProduct,
-  type LeadInteractionType,
-  type LeadStatus,
-} from "@/lib/leads/types";
+import { isLeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { LeadsClient } from "./_components/LeadsClient";
 
@@ -35,29 +31,14 @@ export default async function LeadsPage({
   if (view === "overview" && !actor.isManager) redirect("/unauthorized");
   const supabase = getSupabaseAdmin();
 
-  const [page, config, statusesResult, typesResult, assignees] =
-    await Promise.all([
+  const [page, config, vocabulary, assignees] = await Promise.all([
     fetchAllLeads(actor, { product: productFilter, alert: params.alert }, supabase),
     fetchTableColumnsWithOptions("lead", supabase),
-    supabase
-      .from("lead_statuses")
-      // Statuses stay per-product: a P&C pipeline and a Health pipeline are
-      // genuinely different. The client picks the right list per lead row.
-      .select("id,product,label,color,position,kind,archived_at")
-      .is("archived_at", null)
-      .order("position"),
-    supabase
-      .from("lead_interaction_types")
-      .select("id,label,color,position,counts_as_contact,archived_at")
-      .is("archived_at", null)
-      .order("position"),
+    fetchLeadVocabulary(supabase),
     // Only a manager can reassign, so only they need the roster. Loading it for
     // an agent would be one query nothing on their screen can use.
     actor.isManager ? fetchLeadAssignees() : Promise.resolve([]),
   ]);
-
-  if (statusesResult.error) throw new Error(statusesResult.error.message);
-  if (typesResult.error) throw new Error(typesResult.error.message);
 
   return (
     <LeadsClient
@@ -68,8 +49,8 @@ export default async function LeadsPage({
       initialTotal={page.total}
       columns={config.columns}
       columnOptions={config.options}
-      statuses={statusesResult.data as LeadStatus[]}
-      interactionTypes={typesResult.data as LeadInteractionType[]}
+      statuses={vocabulary.statuses}
+      interactionTypes={vocabulary.types}
       assignees={assignees}
     />
   );

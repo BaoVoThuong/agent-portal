@@ -6,6 +6,19 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Mọi dropdown value của Lead về chung một chỗ: Lead Table Config → Values
+
+- **Loại**: feature + chore (dọn chỗ ở của dữ liệu cấu hình)
+- **Vấn đề**: "dropdown value" của Lead nằm ở ba nơi khác nhau. Status và Interaction type có CRUD đầy đủ nhưng ở màn **Settings**, với `<input type="color">` trần. Product là dropdown nhưng **không có giá trị nào cả**. Còn tab Values của Lead Table Config thì rỗng. Một admin muốn đổi màu một badge không có cách nào đoán ra phải mở màn nào.
+- **Cái gì**: tab **Values** của Lead Table Config nay có đủ 4 nhóm — `Status (P&C)`, `Status (Health)`, `Interaction type`, `Product` — dùng đúng bảng, đúng ô chọn màu và đúng luồng archive như CS/Enrollment.
+- **Settings không còn editor thứ hai**: hai UI cùng ghi một bảng chính là cách hai danh sách trôi khỏi nhau. Chỗ cũ giờ là một dòng trỏ sang Lead Table Config.
+- **Status giữ trường `kind`** (Open/Scheduled/Won/Lost) và **Interaction type giữ `counts_as_contact`** ngay trong bảng — chúng không phải trang trí: Won/Lost tắt engine nhắc việc, và `counts_as_contact` quyết định một lần ghi nhật ký có xoá cảnh báo "chưa liên hệ" hay không.
+- **Product: màu sửa được, tập giá trị thì không**. Rollout seed hai `table_column_option` cho cột `product` ("P&C" #4c9aff, "Health" #36b37e) và ô Product trong bảng lead nay là badge lấy màu từ đó. Nhưng tập giá trị bị ghim bởi CHECK `leads.product`, nên màn Config **khoá label và không cho thêm/archive**: label chính là khoá mà ô badge join vào để tìm màu, đổi tên là badge âm thầm rơi về màu băm; thêm giá trị thứ ba thì không lead nào khớp được. Đây đúng cách Enrollment đang bảo vệ Stage/Consent.
+- **Sửa kèm — cột Product hiện "—" ở mọi dòng**: `leadColumnValue` không có nhánh cho key `product` nên rơi vào `default:` đọc `custom_values.product` (không tồn tại). Nay render `P&C` / `Health`.
+- **Một hàm đọc từ vựng duy nhất**: `fetchLeadVocabulary()` trong `src/lib/leads/queries.ts`. Trước đó ba nơi (trang list, route API, giờ thêm trang config) mỗi nơi tự chép danh sách cột và thứ tự sắp — đúng kiểu trôi lệch mà module này đã dính vài lần.
+- **DB**: `2026-08-31-lead-final.sql` thêm mục **8b** seed hai giá trị Product (idempotent, không ghi đè lựa chọn của admin) và một cột kiểm chứng `product_values`. **Cần chạy lại file này** thì badge Product mới có màu từ config; chưa chạy thì badge vẫn hiện, dùng màu băm dự phòng.
+- **Kiểm chứng**: typecheck, lint, `npm run build`, `npm run test:run` 121 files / 868 tests — tất cả sạch.
+
 ## 2026-09-01 — Lead: tìm kiếm, bộ lọc và sắp xếp theo header
 
 - **Loại**: feature

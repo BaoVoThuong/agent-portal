@@ -37,6 +37,13 @@ import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import {
+  STATUS_KINDS,
+  type LeadInteractionType,
+  type LeadProduct,
+  type LeadStatus,
+  type StatusKind,
+} from "@/lib/leads/types";
+import {
   COLUMN_TYPES,
   TABLE_SCOPES,
   type ColumnType,
@@ -130,6 +137,26 @@ export type ConfigSectionStatus = {
   error?: string;
 };
 
+/**
+ * Lead statuses and interaction types are dropdown vocabularies like any other,
+ * but they live in their own tables (they carry rules — a status has a meaning,
+ * a type decides whether it counts as contact) instead of table_column_option.
+ * They are edited on the same Values screen so an admin has one place to look.
+ */
+export type LeadVocabulary = {
+  statuses: LeadStatus[];
+  types: LeadInteractionType[];
+};
+
+export const EMPTY_LEAD_VOCABULARY: LeadVocabulary = { statuses: [], types: [] };
+
+const STATUS_KIND_LABEL: Record<StatusKind, string> = {
+  open: "Open",
+  scheduled: "Scheduled",
+  won: "Won",
+  lost: "Lost",
+};
+
 type ConfigSectionStatuses = {
   columns: ConfigSectionStatus;
   options: ConfigSectionStatus;
@@ -152,6 +179,7 @@ export function ConfigClient({
   initialCategories,
   initialSlaRules,
   initialOptionData,
+  initialLeadVocabulary = EMPTY_LEAD_VOCABULARY,
   sectionStatus,
 }: {
   title: string;
@@ -168,6 +196,8 @@ export function ConfigClient({
   initialCategories: TaskCategory[];
   initialSlaRules: TaskSlaRule[];
   initialOptionData: Record<"aca" | "medicare", EnrollmentOptionData>;
+  /** Only the Lead config page passes this; every other scope ignores it. */
+  initialLeadVocabulary?: LeadVocabulary;
   sectionStatus: ConfigSectionStatuses;
 }) {
   const [tab, setTab] = useState<Tab>("table");
@@ -181,6 +211,7 @@ export function ConfigClient({
   const [categories, setCategories] = useState(initialCategories);
   const [slaRules, setSlaRules] = useState(initialSlaRules);
   const [optionData, setOptionData] = useState(initialOptionData);
+  const [leadVocabulary, setLeadVocabulary] = useState(initialLeadVocabulary);
   const [notice, setNotice] = useState<string | null>(null);
   const [noticeTone, setNoticeTone] = useState<ToastTone>("info");
   const [busy, setBusy] = useState(false);
@@ -225,6 +256,24 @@ export function ConfigClient({
       setRefreshError(optionsKey, message);
       throw error;
     }
+  }
+
+  async function refreshLeadVocabulary() {
+    const response = await fetch("/api/leads/vocabulary", { cache: "no-store" });
+    const payload = await readRefreshResponse<unknown>(
+      response,
+      "Could not refresh lead vocabulary."
+    );
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      !Array.isArray((payload as { statuses?: unknown }).statuses) ||
+      !Array.isArray((payload as { types?: unknown }).types)
+    ) {
+      throw new Error("Could not refresh lead vocabulary.");
+    }
+    const next = payload as { statuses: LeadStatus[]; types: LeadInteractionType[] };
+    setLeadVocabulary({ statuses: next.statuses, types: next.types });
   }
 
   async function refreshOptionData(program: "aca" | "medicare") {
@@ -363,6 +412,8 @@ export function ConfigClient({
               columns={activeColumns}
               options={activeOptions}
               categories={categories}
+              leadVocabulary={leadVocabulary}
+              onLeadVocabularyChange={refreshLeadVocabulary}
               optionSets={scope === "aca" || scope === "medicare" ? optionData[scope].sets : []}
               optionsBySet={
                 scope === "aca" || scope === "medicare"
@@ -1177,6 +1228,10 @@ type DropdownValueRow = {
   color: string | null;
   isTerminal?: boolean;
   triggersQc?: boolean;
+  statusKind?: StatusKind;
+  countsAsContact?: boolean;
+  /** Position is the sort order the lead vocabulary API round-trips on PATCH. */
+  position?: number;
 };
 
 type DropdownValueColorAppearance =
@@ -1291,16 +1346,38 @@ function DropdownValueColorControl({
   );
 }
 
+/**
+ * System dropdown columns whose colours are config data even though their value
+ * list is not. Keyed by scope so a stray key on another table cannot promote a
+ * column nobody meant to expose.
+ */
+const FIXED_VALUE_SET_COLUMN_KEYS: Partial<Record<TableScope, string[]>> = {
+  lead: ["product"],
+};
+
 type DropdownValueGroup =
   | { kind: "category"; key: string; navLabel: string; count: number }
-  | { kind: "custom"; key: string; navLabel: string; count: number; columnId: string }
+  | {
+      kind: "custom";
+      key: string;
+      navLabel: string;
+      count: number;
+      columnId: string;
+      /**
+       * The value list is decided elsewhere (a DB CHECK, an enum) and only the
+       * colour is admin-owned. Adding, renaming or archiving is off.
+       */
+      fixedValueSet?: boolean;
+    }
   | {
       kind: "optionSet";
       key: string;
       navLabel: string;
       count: number;
       setKey: EnrollmentOptionSetKey;
-    };
+    }
+  | { kind: "leadStatus"; key: string; navLabel: string; count: number; product: LeadProduct }
+  | { kind: "leadType"; key: string; navLabel: string; count: number };
 
 // Mọi "dropdown value" của app — custom column, CS Category, Enrollment Option
 // Set — chuẩn hoá về 1 màn hình duy nhất: nav trái chọn nhóm, chi tiết phải
@@ -1311,6 +1388,8 @@ function ConfigDropdownValuesSection({
   columns,
   options,
   categories,
+  leadVocabulary,
+  onLeadVocabularyChange,
   optionSets,
   optionsBySet,
   busy,
@@ -1327,6 +1406,8 @@ function ConfigDropdownValuesSection({
   columns: TableColumn[];
   options: TableColumnOption[];
   categories: TaskCategory[];
+  leadVocabulary: LeadVocabulary;
+  onLeadVocabularyChange: () => Promise<void>;
   optionSets: EnrollmentOptionSet[];
   optionsBySet: EnrollmentOptionsBySet;
   busy: boolean;
@@ -1345,6 +1426,17 @@ function ConfigDropdownValuesSection({
   // KHÔNG nhận Status/Priority (CS) — cũng is_system+dropdown nhưng giá trị
   // hardcode trong TASK_STATUSES/TASK_PRIORITIES (TS enum), không có bảng để sửa.
   const customDropdownColumns = columns.filter((column) => column.type === "dropdown" && !column.is_system);
+  // Lead's Product is a system dropdown, but unlike CS Status/Priority its
+  // values are rows in table_column_option rather than a TS enum — so its
+  // colours belong here with everything else. The value set stays fixed: it is
+  // pinned by the leads.product CHECK, and the label is the key the cell joins
+  // on to find the colour.
+  const fixedValueSetColumns = columns.filter(
+    (column) =>
+      column.type === "dropdown" &&
+      column.is_system &&
+      FIXED_VALUE_SET_COLUMN_KEYS[scope]?.includes(column.key),
+  );
   const hasCategory = scope === "cs" && columns.some((column) => column.is_system && column.key === "category");
 
   const groups: DropdownValueGroup[] = [
@@ -1367,6 +1459,38 @@ function ConfigDropdownValuesSection({
       count: options.filter((o) => o.column_id === column.id && !o.archived_at).length,
       columnId: column.id,
     })),
+    ...(scope === "lead"
+      ? ([
+          {
+            kind: "leadStatus" as const,
+            key: "leadStatus:pc",
+            navLabel: "Status (P&C)",
+            count: leadVocabulary.statuses.filter((row) => row.product === "pc").length,
+            product: "pc" as LeadProduct,
+          },
+          {
+            kind: "leadStatus" as const,
+            key: "leadStatus:health",
+            navLabel: "Status (Health)",
+            count: leadVocabulary.statuses.filter((row) => row.product === "health").length,
+            product: "health" as LeadProduct,
+          },
+          {
+            kind: "leadType" as const,
+            key: "leadType",
+            navLabel: "Interaction type",
+            count: leadVocabulary.types.length,
+          },
+        ] satisfies DropdownValueGroup[])
+      : []),
+    ...fixedValueSetColumns.map((column) => ({
+      kind: "custom" as const,
+      key: `col:${column.id}`,
+      navLabel: column.label,
+      count: options.filter((o) => o.column_id === column.id && !o.archived_at).length,
+      columnId: column.id,
+      fixedValueSet: true,
+    })),
   ];
 
   const [selectedKey, setSelectedKey] = useState(groups[0]?.key ?? "");
@@ -1376,14 +1500,24 @@ function ConfigDropdownValuesSection({
   const sectionError = refreshError ?? (categoryUnavailable ? categoriesError : availabilityError);
   const isStageGroup = selected?.kind === "optionSet" && selected.setKey === "stage";
   const isConsentGroup = selected?.kind === "optionSet" && selected.setKey === "consent";
+  const isLeadStatusGroup = selected?.kind === "leadStatus";
+  const isLeadTypeGroup = selected?.kind === "leadType";
+  const isLeadVocabularyGroup = isLeadStatusGroup || isLeadTypeGroup;
+  const hasFixedValueSet = selected?.kind === "custom" && Boolean(selected.fixedValueSet);
   const protectsLabelIdentity =
-    selected?.kind === "optionSet" && (selected.setKey === "stage" || selected.setKey === "consent");
+    hasFixedValueSet ||
+    (selected?.kind === "optionSet" && (selected.setKey === "stage" || selected.setKey === "consent"));
+  const protectedLabelReason = hasFixedValueSet
+    ? `${selected?.navLabel ?? "This column"} values are fixed by the data model; only their colour is editable here.`
+    : "Stage and Consent labels are protected workflow identities.";
 
   const [label, setLabel] = useState("");
   const [color, setColor] = useState("");
   const [usesRecommendedColor, setUsesRecommendedColor] = useState(true);
   const [isTerminal, setIsTerminal] = useState(false);
   const [triggersQc, setTriggersQc] = useState(false);
+  const [statusKind, setStatusKind] = useState<StatusKind>("open");
+  const [countsAsContact, setCountsAsContact] = useState(false);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const [archiveUsage, setArchiveUsage] = useState<{ id: string; count: number } | null>(null);
   const [pendingStageRuleIds, setPendingStageRuleIds] = useState<Set<string>>(new Set());
@@ -1398,14 +1532,43 @@ function ConfigDropdownValuesSection({
         ? options
             .filter((o) => o.column_id === selected.columnId)
             .map((o) => ({ id: o.id, label: o.label, color: o.color }))
-        : sortEnrollmentOptionsByLabel(optionsBySet[selected.setKey] ?? []).map((o) => ({
-            id: o.id,
-            label: o.label,
-            color: o.color,
-            isTerminal: o.is_terminal,
-            triggersQc: o.triggers_qc,
-          }));
+        : selected.kind === "leadStatus"
+          ? leadVocabulary.statuses
+              .filter((row) => row.product === selected.product)
+              .map((row) => ({
+                id: row.id,
+                label: row.label,
+                color: row.color,
+                statusKind: row.kind,
+                position: row.position,
+              }))
+          : selected.kind === "leadType"
+            ? leadVocabulary.types.map((row) => ({
+                id: row.id,
+                label: row.label,
+                color: row.color,
+                countsAsContact: row.counts_as_contact,
+                position: row.position,
+              }))
+            : sortEnrollmentOptionsByLabel(optionsBySet[selected.setKey] ?? []).map((o) => ({
+                id: o.id,
+                label: o.label,
+                color: o.color,
+                isTerminal: o.is_terminal,
+                triggersQc: o.triggers_qc,
+              }));
   const activeConsentCount = isConsentGroup ? valueRows.length : 0;
+  // Lead vocabulary sorts by position, and nothing renumbers on insert, so a new
+  // value goes after the last one instead of joining a pile of zeroes whose
+  // order then depends on insertion time.
+  const hasRulesColumn = isStageGroup || isLeadVocabularyGroup;
+  const rulesColumnLabel = isLeadStatusGroup
+    ? "Meaning"
+    : isLeadTypeGroup
+      ? "Counts as contact"
+      : "Rules";
+  const nextLeadPosition =
+    valueRows.reduce((highest, row) => Math.max(highest, row.position ?? 0), 0) + 10;
   const recommendedColor = recommendDropdownValueColor(
     valueRows.map((row) => row.color)
   );
@@ -1439,6 +1602,42 @@ function ConfigDropdownValuesSection({
     }
   }
 
+  /**
+   * The vocabulary API validates the whole record on PATCH, not a partial one,
+   * so every edit resends the row it already holds with one field replaced.
+   */
+  async function patchLeadVocabulary(id: string, patch: Record<string, unknown>) {
+    if (!selected) return;
+    const row = valueRows.find((candidate) => candidate.id === id);
+    if (!row) return;
+    const body =
+      selected.kind === "leadStatus"
+        ? {
+            resource: "status",
+            id,
+            product: selected.product,
+            label: row.label,
+            kind: row.statusKind,
+            color: row.color,
+            position: row.position ?? 0,
+            ...patch,
+          }
+        : {
+            resource: "type",
+            id,
+            label: row.label,
+            counts_as_contact: row.countsAsContact ?? false,
+            color: row.color,
+            position: row.position ?? 0,
+            ...patch,
+          };
+    await requestJson("/api/leads/vocabulary", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    await onLeadVocabularyChange();
+  }
+
   async function addValue() {
     if (!selected || controlsDisabled) return;
     if (selected.kind === "category") {
@@ -1453,6 +1652,31 @@ function ConfigDropdownValuesSection({
         body: JSON.stringify({ label, color: draftColor }),
       });
       await refreshScope(scope);
+    } else if (selected.kind === "leadStatus") {
+      await requestJson("/api/leads/vocabulary", {
+        method: "POST",
+        body: JSON.stringify({
+          resource: "status",
+          product: selected.product,
+          label,
+          kind: statusKind,
+          color: draftColor,
+          position: nextLeadPosition,
+        }),
+      });
+      await onLeadVocabularyChange();
+    } else if (selected.kind === "leadType") {
+      await requestJson("/api/leads/vocabulary", {
+        method: "POST",
+        body: JSON.stringify({
+          resource: "type",
+          label,
+          counts_as_contact: countsAsContact,
+          color: draftColor,
+          position: nextLeadPosition,
+        }),
+      });
+      await onLeadVocabularyChange();
     } else {
       await requestJson("/api/enrollment/option-sets", {
         method: "POST",
@@ -1480,6 +1704,8 @@ function ConfigDropdownValuesSection({
         body: JSON.stringify({ label: nextLabel }),
       });
       await refreshScope(scope);
+    } else if (isLeadVocabularyGroup) {
+      await patchLeadVocabulary(id, { label: nextLabel });
     } else {
       await requestJson(`/api/enrollment/option-sets/${id}`, { method: "PATCH", body: JSON.stringify({ label: nextLabel }) });
       await onOptionDataChange();
@@ -1497,6 +1723,8 @@ function ConfigDropdownValuesSection({
         body: JSON.stringify({ color: nextColor }),
       });
       await refreshScope(scope);
+    } else if (isLeadVocabularyGroup) {
+      await patchLeadVocabulary(id, { color: nextColor });
     } else {
       await requestJson(`/api/enrollment/option-sets/${id}`, { method: "PATCH", body: JSON.stringify({ color: nextColor }) });
       await onOptionDataChange();
@@ -1548,6 +1776,8 @@ function ConfigDropdownValuesSection({
     } else if (selected.kind === "custom") {
       await requestJson(`/api/config/columns/${selected.columnId}/options/${id}`, { method: "DELETE" });
       await refreshScope(scope);
+    } else if (isLeadVocabularyGroup) {
+      await patchLeadVocabulary(id, { archived_at: new Date().toISOString() });
     } else {
       await requestJson(`/api/enrollment/option-sets/${id}`, { method: "DELETE" });
       await onOptionDataChange();
@@ -1558,7 +1788,13 @@ function ConfigDropdownValuesSection({
     if (!selected || controlsDisabled) return;
     const selectedSnapshot = selected;
     setArchiveUsage(null);
-    if (selectedSnapshot.kind === "category") {
+    // Category and the lead vocabularies have no usage endpoint: their archive
+    // dialog says what archiving does rather than how many records it touches.
+    if (
+      selectedSnapshot.kind === "category" ||
+      selectedSnapshot.kind === "leadStatus" ||
+      selectedSnapshot.kind === "leadType"
+    ) {
       setConfirmArchiveId(id);
       return;
     }
@@ -1587,6 +1823,8 @@ function ConfigDropdownValuesSection({
     setUsesRecommendedColor(true);
     setIsTerminal(false);
     setTriggersQc(false);
+    setStatusKind("open");
+    setCountsAsContact(false);
     setConfirmArchiveId(null);
     setArchiveUsage(null);
   }
@@ -1622,11 +1860,18 @@ function ConfigDropdownValuesSection({
             ))}
           </nav>
           <div className="flex min-h-0 min-w-0 flex-col p-4">
+            {hasFixedValueSet ? (
+              <p className="shrink-0 border-b border-[#dfe1e6] pb-4 text-sm font-medium text-[#6b778c]">
+                {protectedLabelReason}
+              </p>
+            ) : (
             <form
               className={`grid shrink-0 grid-cols-1 gap-2 border-b border-[#dfe1e6] pb-4 ${
                 isStageGroup
                   ? "md:grid-cols-[minmax(0,1fr)_240px_110px_110px_auto]"
-                  : "md:grid-cols-[minmax(0,1fr)_240px_auto]"
+                  : isLeadVocabularyGroup
+                    ? "md:grid-cols-[minmax(0,1fr)_240px_180px_auto]"
+                    : "md:grid-cols-[minmax(0,1fr)_240px_auto]"
               }`}
               onSubmit={(event) => {
                 event.preventDefault();
@@ -1638,6 +1883,8 @@ function ConfigDropdownValuesSection({
                   setUsesRecommendedColor(true);
                   setIsTerminal(false);
                   setTriggersQc(false);
+                  setStatusKind("open");
+                  setCountsAsContact(false);
                 }, "Option added.");
               }}
             >
@@ -1669,6 +1916,35 @@ function ConfigDropdownValuesSection({
                   setUsesRecommendedColor(false);
                 }}
               />
+              {isLeadStatusGroup ? (
+                <select
+                  value={statusKind}
+                  disabled={controlsDisabled}
+                  onChange={(event) => setStatusKind(event.target.value as StatusKind)}
+                  title="Won and Lost stop the reminder engine; Scheduled expects a call-back date."
+                  className="h-10 rounded border border-[#dfe1e6] px-2 text-sm font-semibold outline-none focus:border-[#0c66e4]"
+                >
+                  {STATUS_KINDS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {STATUS_KIND_LABEL[kind]}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {isLeadTypeGroup ? (
+                <label
+                  className="flex items-center justify-center gap-2 rounded border border-[#dfe1e6] px-2 text-xs font-bold text-[#42526e]"
+                  title="A type that counts as contact clears the never-contacted and stale alerts."
+                >
+                  <input
+                    type="checkbox"
+                    disabled={controlsDisabled}
+                    checked={countsAsContact}
+                    onChange={(event) => setCountsAsContact(event.target.checked)}
+                  />
+                  Counts as contact
+                </label>
+              ) : null}
               {isStageGroup ? (
                 <>
                   <label
@@ -1707,27 +1983,31 @@ function ConfigDropdownValuesSection({
                 <Plus className="h-4 w-4" /> Add
               </button>
             </form>
+            )}
             <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-[#dfe1e6]">
               <table className="w-full table-fixed border-collapse text-sm">
                 <colgroup>
-                  <col className={isStageGroup ? "w-[28%]" : "w-[40%]"} />
-                  <col className={isStageGroup ? "w-[32%]" : "w-[45%]"} />
-                  {isStageGroup ? <col className="w-[28%]" /> : null}
-                  <col className={isStageGroup ? "w-[12%]" : "w-[15%]"} />
+                  <col className={hasRulesColumn ? "w-[28%]" : "w-[40%]"} />
+                  <col className={hasRulesColumn ? "w-[32%]" : "w-[45%]"} />
+                  {hasRulesColumn ? <col className="w-[28%]" /> : null}
+                  <col className={hasRulesColumn ? "w-[12%]" : "w-[15%]"} />
                 </colgroup>
                 <thead className="sticky top-0 z-10 bg-[#f7f8fa] text-xs font-bold uppercase text-[#6b778c]">
                   <tr>
                     <th className="border-b border-r border-[#dfe1e6] px-3 py-2 text-left">Label</th>
                     <th className="border-b border-r border-[#dfe1e6] px-3 py-2 text-left">Color</th>
-                    {isStageGroup ? (
-                      <th className="border-b border-r border-[#dfe1e6] px-3 py-2 text-left">Rules</th>
+                    {hasRulesColumn ? (
+                      <th className="border-b border-r border-[#dfe1e6] px-3 py-2 text-left">
+                        {rulesColumnLabel}
+                      </th>
                     ) : null}
                     <th className="border-b border-[#dfe1e6] px-3 py-2 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {valueRows.map((row) => {
-                    const disableArchive = isConsentGroup && wouldDropConsentBelowTwo;
+                    const disableArchive =
+                      hasFixedValueSet || (isConsentGroup && wouldDropConsentBelowTwo);
                     return (
                       <tr key={row.id}>
                         <td className="border-b border-r border-[#dfe1e6] px-3 py-2">
@@ -1735,9 +2015,7 @@ function ConfigDropdownValuesSection({
                             defaultValue={row.label}
                             disabled={controlsDisabled || protectsLabelIdentity}
                             title={
-                              protectsLabelIdentity
-                                ? "Stage and Consent labels are protected workflow identities."
-                                : undefined
+                              protectsLabelIdentity ? protectedLabelReason : undefined
                             }
                             onBlur={(event) => {
                               if (protectsLabelIdentity) return;
@@ -1764,6 +2042,52 @@ function ConfigDropdownValuesSection({
                             }
                           />
                         </td>
+                        {isLeadStatusGroup ? (
+                          <td className="border-b border-r border-[#dfe1e6] px-3 py-2">
+                            <select
+                              value={row.statusKind ?? "open"}
+                              disabled={controlsDisabled}
+                              title="Won and Lost stop the reminder engine; Scheduled expects a call-back date."
+                              onChange={(event) =>
+                                void run(
+                                  () =>
+                                    patchLeadVocabulary(row.id, {
+                                      kind: event.target.value as StatusKind,
+                                    }),
+                                  "Option updated."
+                                )
+                              }
+                              className="h-8 w-full rounded border border-[#dfe1e6] px-2 text-xs font-semibold outline-none focus:border-[#0c66e4]"
+                            >
+                              {STATUS_KINDS.map((kind) => (
+                                <option key={kind} value={kind}>
+                                  {STATUS_KIND_LABEL[kind]}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        ) : null}
+                        {isLeadTypeGroup ? (
+                          <td className="border-b border-r border-[#dfe1e6] px-3 py-2">
+                            <label className="flex items-center gap-1.5 text-xs font-bold text-[#42526e]">
+                              <input
+                                type="checkbox"
+                                disabled={controlsDisabled}
+                                checked={Boolean(row.countsAsContact)}
+                                onChange={(event) =>
+                                  void run(
+                                    () =>
+                                      patchLeadVocabulary(row.id, {
+                                        counts_as_contact: event.target.checked,
+                                      }),
+                                    "Option updated."
+                                  )
+                                }
+                              />
+                              Counts as contact
+                            </label>
+                          </td>
+                        ) : null}
                         {isStageGroup ? (
                           <td className="border-b border-r border-[#dfe1e6] px-3 py-2 text-xs font-semibold text-[#42526e]">
                             <div className="flex flex-wrap gap-2">
@@ -1802,7 +2126,13 @@ function ConfigDropdownValuesSection({
                           <button
                             type="button"
                             disabled={controlsDisabled || disableArchive}
-                            title={disableArchive ? "Consent needs at least 2 active options." : undefined}
+                            title={
+                              hasFixedValueSet
+                                ? protectedLabelReason
+                                : disableArchive
+                                  ? "Consent needs at least 2 active options."
+                                  : undefined
+                            }
                             onClick={() => void run(
                               () => prepareArchive(row.id),
                               "Archive confirmation ready."

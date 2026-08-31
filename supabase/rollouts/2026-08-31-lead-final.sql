@@ -716,6 +716,30 @@ where scope = 'lead' and key = 'event' and type is distinct from 'text';
 -- key the spreadsheet importer writes and every screen reads back.
 
 
+-- ---------- 8b. Dropdown values for the Product column ----------
+-- Product is rendered as a badge, and a badge needs a colour an admin owns
+-- rather than one hard-coded in a component. These two rows are that config,
+-- and they are what makes Product appear under Lead Table Configuration ->
+-- Values like every other dropdown.
+--
+-- The VALUE SET itself is fixed by the leads.product CHECK (pc/health), so the
+-- Config screen offers the colour and locks the label: the label is the key the
+-- cell joins on to find its colour, and a rename would silently drop the badge
+-- back to a hashed fallback while an added third value could never match a row.
+insert into table_column_option (column_id, label, color, position)
+select column_row.id, seed.label, seed.color, seed.position
+from table_column column_row
+cross join (values ('P&C', '#4c9aff', 10), ('Health', '#36b37e', 20))
+     as seed(label, color, position)
+where column_row.scope = 'lead'
+  and column_row.key = 'product'
+  and not exists (
+    select 1
+    from table_column_option existing
+    where existing.column_id = column_row.id
+      and existing.label = seed.label
+  );
+
 -- ---------- 9. Permissions ----------
 insert into permissions (key, label, description, group_key, group_label, sort_order)
 values
@@ -780,4 +804,10 @@ select
        then 'ok' else 'FAIL: event column type' end                     as event_column,
   case when (select count(*) from permissions
              where key in ('lead.manage','lead.work','lead.export')) = 3
-       then 'ok' else 'FAIL: permissions missing' end                   as permissions;
+       then 'ok' else 'FAIL: permissions missing' end                   as permissions,
+  case when (select count(*) from table_column_option option_row
+             join table_column column_row on column_row.id = option_row.column_id
+             where column_row.scope = 'lead'
+               and column_row.key = 'product'
+               and option_row.archived_at is null) = 2
+       then 'ok' else 'FAIL: product values missing' end                as product_values;

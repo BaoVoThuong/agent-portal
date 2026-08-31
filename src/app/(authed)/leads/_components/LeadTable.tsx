@@ -22,6 +22,7 @@ import type {
 } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
+import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { Initials } from "../../tasks/_components/board-ui";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 
@@ -410,6 +411,10 @@ function renderLeadCell(
     return <StatusBadge status={status} />;
   }
 
+  if (column.key === "product") {
+    return <ProductBadge product={lead.product} options={options} />;
+  }
+
   const value = leadColumnValue(lead, column, statuses, options, nameByEmail);
   if (column.type === "checkbox") {
     return value === "Yes" ? (
@@ -426,6 +431,40 @@ function renderLeadCell(
   return (
     <span className={`min-w-0 truncate ${textClassName}`} title={value}>
       {value}
+    </span>
+  );
+}
+
+/** The two labels the Product column's configured values are seeded with. */
+function productOptionLabel(product: LeadRow["product"]): string {
+  return product === "health" ? "Health" : "P&C";
+}
+
+/**
+ * Product is a dropdown, so its colour is config data like every other dropdown
+ * value — it lives on the column's options and an admin owns it. The join is by
+ * label, which is why Lead Config locks the label on this column. Before the
+ * rollout seeds those rows the badge still renders, on the shared hashed
+ * fallback, rather than showing a bare word where every neighbour is a badge.
+ */
+function ProductBadge({
+  product,
+  options,
+}: {
+  product: LeadRow["product"];
+  options: TableColumnOption[];
+}) {
+  const label = productOptionLabel(product);
+  const option = options.find((candidate) => candidate.label === label);
+  const palette = tableColumnOptionBadgePalette(
+    option ?? { id: label, label, color: null },
+  );
+  return (
+    <span
+      className="inline-flex max-w-full items-center truncate whitespace-nowrap rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
+      style={{ backgroundColor: palette.background, color: palette.foreground }}
+    >
+      {label}
     </span>
   );
 }
@@ -560,7 +599,7 @@ function leadColumnValue(
     case "event":
       return lead.event_id ?? "—";
     case "product":
-      return lead.product === "health" ? "Health" : "P&C";
+      return productOptionLabel(lead.product);
     case "createdAt":
       return displayDate(lead.created_at);
     case "name":

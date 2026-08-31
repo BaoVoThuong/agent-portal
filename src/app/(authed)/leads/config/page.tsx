@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildLeadActor, canManageLeads } from "@/lib/leads/access";
+import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import {
   fetchAllTableColumnOptions,
   fetchAllTableColumns,
@@ -25,9 +26,10 @@ export default async function LeadConfigPage() {
   // page honest if that permission list is ever widened.
   if (!canManageLeads(actor)) redirect("/unauthorized");
 
-  const [columns, options] = await Promise.all([
+  const [columns, options, leadVocabulary] = await Promise.all([
     fetchAllTableColumns(),
     fetchAllTableColumnOptions(),
+    fetchLeadVocabulary(),
   ]);
 
   // Same readiness rule as /config, but over the lead scopes only: a scope that
@@ -50,6 +52,7 @@ export default async function LeadConfigPage() {
       initialMembers={[]}
       initialCategories={[]}
       initialSlaRules={[]}
+      initialLeadVocabulary={leadVocabulary}
       initialOptionData={{
         aca: emptyEnrollmentOptionData(),
         medicare: emptyEnrollmentOptionData(),
