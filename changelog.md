@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Lead: tìm kiếm, bộ lọc và sắp xếp theo header
+
+- **Loại**: feature
+- **Cái gì**: danh sách Event Leads nay có ô tìm kiếm, 4 bộ lọc (Assignee / Status / Product / Event) và bấm header cột để sắp xếp — cùng cách làm với Task Management.
+- **Lọc và sắp xếp chạy ở client**: `fetchAllLeads` vốn đã phân trang cho tới hết, nên trình duyệt đang giữ **toàn bộ** lead. Gọi lại server chỉ để lọc một tập đã nằm trong bộ nhớ là thêm một vòng mạng cho một câu trả lời đã có sẵn. Đây cũng đúng cách `sortTasks` làm bên Task.
+- **Tìm kiếm** (`matchesLeadSearch`): khớp tên, email, và số điện thoại **theo chữ số** — gõ `714-555` tìm được số lưu là `7145550123`, vì số điện thoại là thứ người ta dán vào theo đủ mọi định dạng. Gõ `unassigned` tìm được lead chưa giao. Yêu cầu tối thiểu 3 chữ số để một query chữ không vô tình quét cả bảng số.
+- **`""` là sentinel "chưa giao", không phải "không lọc"**: `filterLeads` so `assignedTo !== null` chứ không dùng truthiness. Một `if (filters.assignedTo)` sẽ im lặng bỏ qua lựa chọn "Unassigned" — lỗi này đã bị test bắt trước khi lên UI. Vì `TaskSelect` là single-value nên UI dùng `"__all__"` cho "không lọc", tránh đụng sentinel đó.
+- **Status có gắn hậu tố sản phẩm khi trùng tên**: status là per-product, hai sản phẩm cùng có "New". Để trần thì chọn một cái sẽ âm thầm giấu hết lead của sản phẩm kia dưới đúng một chữ. Hậu tố chỉ hiện ở chỗ va chạm thật.
+- **Sắp xếp** (`sortLeads`): 12 cột. So sánh theo **chữ hiển thị** (tên người, nhãn status, tên event) chứ không theo id thô — sắp xếp mà không khớp thứ tự mắt đọc thì vô nghĩa. Ô trống luôn **xuống cuối ở cả hai chiều**, giống `sortTasks`: lý do người ta sort theo "Last contact" là để tìm lead *có* liên hệ, không phải để lật một khối trống lên đầu. Hoà thì phá hoà bằng `display_number` nên thứ tự không nhảy giữa các lần render.
+- **Cột tuỳ biến không sort được**: chỉ 12 key mà `sortValue()` biết cách so mới thành nút; cột do admin thêm chứa thứ gì tuỳ họ, không có thứ tự nào để hứa.
+- **Checkbox "chọn tất cả" theo danh sách đang thấy**: trước đây nó chọn `leads` (toàn bộ dữ liệu). Sau khi có lọc, "tất cả" phải là những dòng trên màn hình, nếu không một cú bấm sẽ giao cả những lead người dùng vừa lọc ra ngoài.
+- **Sửa kèm — cột Product hiện "—" ở mọi dòng**: khi gộp hai màn hình, cột `product` được thêm vào cấu hình nhưng `leadColumnValue` không có nhánh nào cho nó, nên rơi vào `default:` đọc `custom_values.product` (không tồn tại). Nay render `P&C` / `Health`.
+- **Kiểm chứng**: 18 test mới (`sorting.test.ts` 7, `filtering.test.ts` 11); `npm run test:run` 121 files / **868 tests**; typecheck, lint, `npm run build` sạch.
+
 ## 2026-08-31 — Gộp toàn bộ rollout Lead thành một file final
 - **Loại**: chore (dọn dẹp), không đổi hành vi
 - **Vì sao**: Lead Management đã tích 9 file rollout rời trong 4 ngày. Khó biết file nào đã chạy, dễ chạy sót, và thứ tự giữa chúng có ràng buộc ngầm (file 8 định nghĩa lại hàm mà file 6 tạo ra). Đó là cách sinh lỗi chứ không phải cách quản lý schema.

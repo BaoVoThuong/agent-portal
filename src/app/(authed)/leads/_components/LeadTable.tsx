@@ -7,8 +7,13 @@ import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,
 } from "react";
-import { Check } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check } from "lucide-react";
 import { leadDisplayKey } from "@/lib/leads/display";
+import {
+  isLeadSortKey,
+  type LeadSortKey,
+  type SortDir,
+} from "@/lib/leads/sorting";
 import type {
   LeadInteractionPreview,
   LeadInteractionType,
@@ -57,9 +62,15 @@ type LeadTableProps = {
   onToggleLead: (id: string) => void;
   onSelectVisible: (selected: boolean) => void;
   onOpenLead: (lead: LeadRow) => void;
+  sortKey: LeadSortKey | null;
+  sortDir: SortDir;
+  onSort?: (key: LeadSortKey) => void;
 };
 
 export function LeadTable({
+  sortKey,
+  sortDir,
+  onSort,
   leads,
   columns,
   statuses,
@@ -127,6 +138,9 @@ export function LeadTable({
             ) : null}
             {columns.map((column) => (
               <LeadHeaderCell
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={onSort}
                 key={column.id}
                 column={column}
                 pinnedOffset={pinnedOffsetByKey.get(column.key)}
@@ -168,21 +182,60 @@ export function LeadTable({
 function LeadHeaderCell({
   column,
   pinnedOffset,
+  sortKey,
+  sortDir,
+  onSort,
 }: {
   column: TableColumn;
   pinnedOffset?: number;
+  sortKey: LeadSortKey | null;
+  sortDir: SortDir;
+  onSort?: (key: LeadSortKey) => void;
 }) {
   const width = leadColumnWidth(column);
+  // Only the columns sortValue() knows how to compare. A custom column holds
+  // whatever an admin put there, so there is no meaningful order to offer.
+  const sortable = onSort && isLeadSortKey(column.key);
+  const active = sortable && sortKey === column.key;
+  const base = `flex shrink-0 items-center px-3 py-2 ${
+    pinnedOffset === undefined
+      ? ""
+      : "sticky z-[30] border-r border-[#dfe1e6] bg-[#fafbfc]"
+  }`;
+
+  if (!sortable) {
+    return (
+      <div style={{ width, left: pinnedOffset }} className={base}>
+        <span className="truncate">{column.label}</span>
+      </div>
+    );
+  }
+
   return (
-    <div
-      style={{ width, left: pinnedOffset }}
-      className={`flex shrink-0 items-center px-3 py-2 ${
-        pinnedOffset === undefined
-          ? ""
-          : "sticky z-[30] border-r border-[#dfe1e6] bg-[#fafbfc]"
-      }`}
-    >
-      <span className="truncate">{column.label}</span>
+    <div style={{ width, left: pinnedOffset }} className={base}>
+      <button
+        type="button"
+        onClick={() => onSort(column.key as LeadSortKey)}
+        aria-label={
+          active
+            ? `${column.label}, sorted ${sortDir === "asc" ? "ascending" : "descending"}`
+            : `Sort by ${column.label}`
+        }
+        className={`group flex min-w-0 items-center gap-1 rounded text-left transition hover:text-[#0c66e4] ${
+          active ? "text-[#0c66e4]" : ""
+        }`}
+      >
+        <span className="truncate">{column.label}</span>
+        {active ? (
+          sortDir === "asc" ? (
+            <ArrowUp className="h-3 w-3 shrink-0" />
+          ) : (
+            <ArrowDown className="h-3 w-3 shrink-0" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-40" />
+        )}
+      </button>
     </div>
   );
 }
@@ -506,6 +559,8 @@ function leadColumnValue(
       return displayDate(lead.next_follow_up_at);
     case "event":
       return lead.event_id ?? "—";
+    case "product":
+      return lead.product === "health" ? "Health" : "P&C";
     case "createdAt":
       return displayDate(lead.created_at);
     case "name":

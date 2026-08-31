@@ -2,9 +2,20 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CircleAlert, Plus, Upload } from "lucide-react";
+import { CircleAlert, Plus, Search, Upload, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import type { LeadAlert } from "@/lib/leads/alerts";
+import {
+  activeLeadFilterCount,
+  EMPTY_LEAD_FILTERS,
+  filterLeads,
+  type LeadFilters,
+} from "@/lib/leads/filtering";
+import {
+  sortLeads,
+  type LeadSortKey,
+  type SortDir,
+} from "@/lib/leads/sorting";
 import { isOwnLeadMutation, LEADS_TOPIC } from "@/lib/leads/realtime-topics";
 import { personLabel } from "@/lib/tasks/people";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
@@ -37,6 +48,22 @@ type LeadsClientProps = {
   assignees: { email: string; name: string | null }[];
 };
 
+/**
+ * TaskSelect is single-value, so "no filter" needs a value of its own. It cannot
+ * be "" — that is the sentinel filterLeads reads as "still in the pool".
+ */
+const ALL_FILTER = "__all__";
+const UNASSIGNED_FILTER = "";
+
+const FILTER_SELECT_BUTTON_CLASS =
+  "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+
+const PRODUCT_FILTER_OPTIONS = [
+  { value: ALL_FILTER, label: "All products" },
+  { value: "pc", label: "P&C" },
+  { value: "health", label: "Health" },
+];
+
 function sourceNonce(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
     return crypto.randomUUID();
@@ -67,6 +94,9 @@ export function LeadsClient({
   const [assignmentReason, setAssignmentReason] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
+  const [sortKey, setSortKey] = useState<LeadSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [view, setView] = useState<"list" | "overview">(() =>
     searchParams.get("view") === "overview" ? "overview" : "list",
   );
@@ -247,9 +277,72 @@ export function LeadsClient({
     }
   }
 
+  // The list is fully loaded client-side (fetchAllLeads pages until complete),
+  // so filtering and sorting stay in the browser — same as the task board.
+  const statusNameById = new Map(statuses.map((status) => [status.id, status.label]));
+  // Event is free text on the row, so the choices are whatever the loaded leads
+  // actually carry rather than a lookup table.
+  const eventNames = [
+    ...new Set(
+      leads
+        .map((lead) => lead.event_id?.trim())
+        .filter((name): name is string => Boolean(name)),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+
+  const assigneeFilterOptions = [
+    { value: ALL_FILTER, label: "All assignees" },
+    { value: UNASSIGNED_FILTER, label: "Unassigned" },
+    ...assigneeOptions,
+  ];
+  // Statuses are per-product, so two products can both own a "New". Left bare,
+  // picking one would silently hide the other product's rows under the same
+  // word; the suffix only appears where that collision is real.
+  const statusLabelCounts = new Map<string, number>();
+  for (const status of statuses) {
+    statusLabelCounts.set(
+      status.label,
+      (statusLabelCounts.get(status.label) ?? 0) + 1,
+    );
+  }
+  const statusFilterOptions = [
+    { value: ALL_FILTER, label: "All statuses" },
+    ...statuses.map((status) => ({
+      value: status.id,
+      label:
+        (statusLabelCounts.get(status.label) ?? 0) > 1
+          ? `${status.label} (${status.product === "health" ? "Health" : "P&C"})`
+          : status.label,
+    })),
+  ];
+  const eventFilterOptions = [
+    { value: ALL_FILTER, label: "All events" },
+    ...eventNames.map((name) => ({ value: name, label: name })),
+  ];
+
+  const displayedLeads = (() => {
+    const matched = filterLeads(leads, filters);
+    if (!sortKey) return matched;
+    return sortLeads(matched, sortKey, sortDir, {
+      statusLabel: (id) => (id ? statusNameById.get(id) ?? null : null),
+      eventName: (id) => id,
+      personLabel: (email) => personLabel(email, nameByEmail),
+    });
+  })();
+  const activeFilterCount = activeLeadFilterCount(filters);
   const allVisibleSelected =
-    leads.length > 0 && leads.every((lead) => selected.has(lead.id));
-  const displayedLeads = leads;
+    displayedLeads.length > 0 &&
+    displayedLeads.every((lead) => selected.has(lead.id));
+
+  /** Click the same header to flip direction; a new header starts ascending. */
+  function toggleSort(key: LeadSortKey) {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+      return;
+    }
+    setSortKey(key);
+    setSortDir("asc");
+  }
 
   function selectAlert(alert: LeadAlert) {
     setView("list");
@@ -320,26 +413,53 @@ export function LeadsClient({
 
           <section className="mt-2 min-w-0 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
-                {isManager && (
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+                <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
+                  {isManager && (
+                    <button
+                      type="button"
+                      aria-current={view === "overview" ? "page" : undefined}
+                      className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "overview" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`}
+                      onClick={() => changeView("overview")}
+                    >
+                      Overview
+                    </button>
+                  )}
                   <button
                     type="button"
-                    aria-current={view === "overview" ? "page" : undefined}
-                    className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "overview" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`}
-                    onClick={() => changeView("overview")}
+                    aria-current={view === "list" ? "page" : undefined}
+                    className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "list" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`}
+                    onClick={() => changeView("list")}
                   >
-                    Overview
+                    Leads
                   </button>
-                )}
-                <button
-                  type="button"
-                  aria-current={view === "list" ? "page" : undefined}
-                  className={`rounded px-3 py-1.5 text-sm font-semibold transition ${view === "list" ? "bg-white text-[#0c66e4] shadow-sm" : "text-[#5e6c84] hover:text-[#172b4d]"}`}
-                  onClick={() => changeView("list")}
-                >
-                  Leads
-                </button>
-              </div>
+                </div>
+
+                {view === "list" ? (
+                  <div className="relative min-w-[16rem] flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7a869a]" />
+                    <input
+                      className="h-9 w-full rounded-lg border border-[#dfe1e6] bg-white pl-9 pr-8 text-sm outline-none transition focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
+                      placeholder="Search name, phone or email"
+                      aria-label="Search leads"
+                      value={filters.search}
+                      onChange={(event) =>
+                        setFilters({ ...filters, search: event.target.value })
+                      }
+                    />
+                    {filters.search ? (
+                      <button
+                        type="button"
+                        aria-label="Clear search"
+                        onClick={() => setFilters({ ...filters, search: "" })}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-[#7a869a] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                </div>
               {alertFilterLabel ? (
                 <button
                   type="button"
@@ -352,6 +472,88 @@ export function LeadsClient({
                 </button>
               ) : null}
             </div>
+
+            {view === "list" ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {isManager ? (
+                  <TaskSelect
+                    value={filters.assignedTo ?? ALL_FILTER}
+                    options={assigneeFilterOptions}
+                    placeholder="All assignees"
+                    searchable
+                    className="w-max min-w-[11rem]"
+                    buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+                    onChange={(value) =>
+                      setFilters({
+                        ...filters,
+                        assignedTo: value === ALL_FILTER ? null : value,
+                      })
+                    }
+                  />
+                ) : null}
+
+                <TaskSelect
+                  value={filters.statusId ?? ALL_FILTER}
+                  options={statusFilterOptions}
+                  placeholder="All statuses"
+                  className="w-max min-w-[10rem]"
+                  buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+                  onChange={(value) =>
+                    setFilters({
+                      ...filters,
+                      statusId: value === ALL_FILTER ? null : value,
+                    })
+                  }
+                />
+
+                {productFilter === null ? (
+                  <TaskSelect
+                    value={filters.product ?? ALL_FILTER}
+                    options={PRODUCT_FILTER_OPTIONS}
+                    placeholder="All products"
+                    className="w-max min-w-[9rem]"
+                    buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+                    onChange={(value) =>
+                      setFilters({
+                        ...filters,
+                        product:
+                          value === "pc" || value === "health" ? value : null,
+                      })
+                    }
+                  />
+                ) : null}
+
+                <TaskSelect
+                  value={filters.eventId ?? ALL_FILTER}
+                  options={eventFilterOptions}
+                  placeholder="All events"
+                  searchable
+                  className="w-max min-w-[11rem]"
+                  buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+                  onChange={(value) =>
+                    setFilters({
+                      ...filters,
+                      eventId: value === ALL_FILTER ? null : value,
+                    })
+                  }
+                />
+
+                {activeFilterCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setFilters(EMPTY_LEAD_FILTERS)}
+                    className="h-9 shrink-0 px-1 text-sm font-medium text-[#0c66e4] transition hover:underline"
+                  >
+                    Clear all
+                  </button>
+                ) : null}
+
+                <span className="ml-auto shrink-0 text-sm font-medium text-[#626f86]">
+                  {displayedLeads.length.toLocaleString()} of{" "}
+                  {leads.length.toLocaleString()} leads
+                </span>
+              </div>
+            ) : null}
           </section>
         </div>
       </div>
@@ -424,6 +626,9 @@ export function LeadsClient({
           <div className="mx-auto flex min-h-0 w-full max-w-[1760px] flex-1 flex-col">
             <LeadTable
               leads={displayedLeads}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={toggleSort}
               columns={visibleColumns}
               statuses={statuses}
               interactionTypes={interactionTypes}
@@ -436,7 +641,7 @@ export function LeadsClient({
               onSelectVisible={(checked) =>
                 setSelected(
                   checked
-                    ? new Set(leads.map((lead) => lead.id))
+                    ? new Set(displayedLeads.map((lead) => lead.id))
                     : new Set(),
                 )
               }
