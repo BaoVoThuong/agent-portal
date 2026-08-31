@@ -72,7 +72,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("lead_pc", "attempts", "Attempts", "number", 70),
     col("lead_pc", "lastContact", "Last contact", "date", 80),
     col("lead_pc", "followUp", "Follow up", "date", 90, false, false, true),
-    col("lead_pc", "event", "Event", "text", 100, false, false, true),
+    col("lead_pc", "event", "Event", "dropdown", 100, false, false, true),
     col("lead_pc", "createdAt", "Imported", "date", 110, true),
   ],
   lead_health: [
@@ -86,7 +86,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("lead_health", "attempts", "Attempts", "number", 70),
     col("lead_health", "lastContact", "Last contact", "date", 80),
     col("lead_health", "followUp", "Follow up", "date", 90, false, false, true),
-    col("lead_health", "event", "Event", "text", 100, false, false, true),
+    col("lead_health", "event", "Event", "dropdown", 100, false, false, true),
     col("lead_health", "createdAt", "Imported", "date", 110, true),
   ],
 };

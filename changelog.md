@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Assign to thành dropdown agent, Event khai đúng kiểu
+- **Loại**: fix
+- **Cái gì**:
+  - **Modal tạo lead: "Assign to" từ ô nhập email tự do thành dropdown danh sách agent**, giống cách Task Management chọn người. Danh sách lấy từ `fetchLeadAssignees()` (tài khoản đang hoạt động có `lead.work`/`lead.manage`) và chỉ nạp cho manager. Trước đó thanh giao lead hàng loạt đã là dropdown, nhưng modal tạo thì vẫn là `<input type="email">` — hai chỗ làm cùng một việc theo hai kiểu.
+  - **Cột Event khai `text` nhưng render `<select>`.** `leads.event_id` là khoá ngoại tới `lead_events` nên bắt buộc chọn từ danh sách, không gõ tay được — khai `text` khiến Config Table nói sai về bản chất trường đó. Đổi thành `dropdown`, đúng tiền lệ của Enrollment: `stage`, `carrier`, `platform` đều khai `dropdown` dù lựa chọn đến từ `enrollment_options` chứ không phải `table_column_option`.
+- **Audit 12 cột lead**: đã soát kiểu khai báo với control thật sự render. `event` là chỗ lệch duy nhất; `assignee` khai `person` và giờ đã là dropdown người, `status` khai `dropdown` render select, các cột `date`/`number` đều chỉ hiển thị.
+- **Rollout `2026-08-31-lead-event-column-type.sql`**: `ensureTableColumns()` không ghi đè cột đã tồn tại, nên sửa mặc định trong code không đổi được cột đang chạy.
+- **Kiểm chứng**: rollout chạy trên PostgreSQL 16 — `UPDATE 2`, cả hai scope thành `dropdown`, chạy lần hai 0 lỗi. `npm run test:run` 118 files / 842 tests; typecheck + lint sạch.
+
 ## 2026-08-31 — Thêm Secondary Phone và bật "In detail" cho cột lead
 - **Loại**: feature, fix
 - **Cái gì**:

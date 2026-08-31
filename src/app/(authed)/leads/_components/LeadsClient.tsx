@@ -436,6 +436,7 @@ export function LeadsClient({
         sourceId={sourceId}
         columns={columns}
         columnOptions={columnOptions}
+        assignees={assignees}
         statuses={statuses}
         onClose={() => setAddOpen(false)}
         onCreated={() => reload(0)}

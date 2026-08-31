@@ -16,6 +16,8 @@ type LeadAddDialogProps = {
   product: LeadProduct;
   sourceId: string;
   columns: TableColumn[];
+  /** Accounts that may hold a lead. Empty for a non-manager, who cannot assign. */
+  assignees: { email: string; name: string | null }[];
   columnOptions: TableColumnOption[];
   statuses: LeadStatus[];
   onClose: () => void;
@@ -97,6 +99,7 @@ export function LeadAddDialog({
   sourceId,
   columns,
   columnOptions,
+  assignees,
   statuses,
   onClose,
   onCreated,
@@ -258,7 +261,24 @@ export function LeadAddDialog({
               <div className="flex items-center justify-between border-b border-[#dfe1e6] pb-3"><span className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">Lead properties</span><span className="rounded bg-[#e9f2ff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]">{product === "pc" ? "P&C" : "Health"}</span></div>
               <label className="block space-y-1"><span className={LABEL_CLASS}>Event</span><select className={INPUT_CLASS} value={eventId} onChange={(event) => setEventId(event.target.value)} disabled={eventsState === "loading" || eventsState === "idle"}><option value="">No event</option>{events.map((event) => <option key={event.id} value={event.id}>{formatEvent(event)}</option>)}</select>{eventsState === "error" ? <span className="text-xs font-semibold text-rose-700">Could not load events.</span> : null}</label>
               <label className="block space-y-1"><span className={LABEL_CLASS}>{fieldLabel(columns, "status", "Status")}</span><select className={INPUT_CLASS} value={selectedStatusId} onChange={(event) => setStatusId(event.target.value)}>{statuses.length === 0 ? <option value="">No status available</option> : null}{statuses.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select></label>
-              <label className="block space-y-1"><span className={LABEL_CLASS}>{fieldLabel(columns, "assignee", "Assign to")}</span><input className={INPUT_CLASS} type="email" value={assignedToEmail} onChange={(event) => setAssignedToEmail(event.target.value)} placeholder="agent@example.com" /></label>
+              <label className="block space-y-1">
+                <span className={LABEL_CLASS}>{fieldLabel(columns, "assignee", "Assign to")}</span>
+                {/* A roster, not a free-text address. The server rejects an
+                    account that cannot hold a lead, but a manager should not
+                    have to recall ~50 exact addresses to find that out. */}
+                <select
+                  className={INPUT_CLASS}
+                  value={assignedToEmail}
+                  onChange={(event) => setAssignedToEmail(event.target.value)}
+                >
+                  <option value="">Unassigned</option>
+                  {assignees.map((person) => (
+                    <option key={person.email} value={person.email}>
+                      {person.name?.trim() || person.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <p className="text-xs leading-5 text-[#667085]">Phone numbers are normalized automatically. Duplicate phone numbers are blocked within the same event.</p>
             </aside>
           </div>
