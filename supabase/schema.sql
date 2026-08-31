@@ -6203,6 +6203,9 @@ on conflict (product) do nothing;
 -- Bắt buộc phải có trước phần seed bên trên: `on conflict do nothing` không có
 -- unique index nào để bấu vào thì nó im lặng không làm gì cả, và chạy lại
 -- rollout lần hai sẽ nhân đôi toàn bộ từ vựng.
+create unique index if not exists lead_events_name_unique_idx
+  on lead_events (lower(btrim(name))) where archived_at is null;
+
 create unique index if not exists lead_interaction_types_label_unique_idx
   on lead_interaction_types (label) where archived_at is null;
 create unique index if not exists lead_statuses_label_unique_idx

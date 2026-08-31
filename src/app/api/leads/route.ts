@@ -40,6 +40,45 @@ const LEAD_COLUMNS =
   "next_follow_up_at,closed_at,created_by_email,created_at," +
   "updated_by_email,updated_at,custom_values,archived_at";
 
+/**
+ * Find the event with this name, or create it. Matching ignores case and
+ * surrounding space; a unique index on lower(btrim(name)) makes two people
+ * typing the same name at the same moment collapse to one row rather than
+ * racing, and the re-select after a conflict picks up whichever row won.
+ */
+async function resolveEventByName(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  name: string,
+  actorEmail: string
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const existing = await supabase
+    .from("lead_events")
+    .select("id")
+    .ilike("name", name)
+    .is("archived_at", null)
+    .limit(1);
+  if (existing.error) return { ok: false, error: existing.error.message };
+  if (existing.data?.[0]) return { ok: true, id: existing.data[0].id as string };
+
+  const created = await supabase
+    .from("lead_events")
+    .insert({ name, created_by_email: actorEmail })
+    .select("id")
+    .maybeSingle();
+  if (created.data?.id) return { ok: true, id: created.data.id as string };
+
+  // Someone else created the same event between the read and the insert.
+  const retry = await supabase
+    .from("lead_events")
+    .select("id")
+    .ilike("name", name)
+    .is("archived_at", null)
+    .limit(1);
+  if (retry.error) return { ok: false, error: retry.error.message };
+  if (retry.data?.[0]) return { ok: true, id: retry.data[0].id as string };
+  return { ok: false, error: created.error?.message ?? "Could not create that event." };
+}
+
 export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
@@ -62,15 +101,29 @@ export async function POST(request: Request) {
     if (existing?.[0]) return NextResponse.json({ lead: existing[0], wasCreated: false });
   }
 
-  if (input.eventId) {
+  // Event is typed, not chosen from a closed list, so that adding a lead never
+  // waits on someone registering the event first. Leads still point at a real
+  // lead_events row, which is what keeps the per-event report meaningful — the
+  // name is matched case- and space-insensitively so "Health Fair" typed twice
+  // does not become two events in that report.
+  let eventId = input.eventId;
+  if (eventId) {
     const { data: event, error: eventError } = await supabase
       .from("lead_events")
       .select("id")
-      .eq("id", input.eventId)
+      .eq("id", eventId)
       .is("archived_at", null)
       .maybeSingle();
     if (eventError) return NextResponse.json({ error: eventError.message }, { status: 500 });
     if (!event) return NextResponse.json({ error: "That event is no longer available." }, { status: 400 });
+  } else if (input.eventName) {
+    const resolved = await resolveEventByName(
+      supabase,
+      input.eventName,
+      actor.email.trim().toLowerCase()
+    );
+    if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 500 });
+    eventId = resolved.id;
   }
 
   let statusId = input.statusId;
@@ -133,8 +186,8 @@ export async function POST(request: Request) {
     .eq("phone", input.phone)
     .is("archived_at", null)
     .limit(1);
-  duplicateQuery = input.eventId
-    ? duplicateQuery.eq("event_id", input.eventId)
+  duplicateQuery = eventId
+    ? duplicateQuery.eq("event_id", eventId)
     : duplicateQuery.is("event_id", null);
   const { data: duplicate, error: duplicateError } = await duplicateQuery;
   if (duplicateError) return NextResponse.json({ error: duplicateError.message }, { status: 500 });
@@ -151,7 +204,7 @@ export async function POST(request: Request) {
     .from("leads")
     .insert({
       product: input.product,
-      event_id: input.eventId,
+      event_id: eventId,
       full_name: input.fullName,
       phone: input.phone,
       email: input.email,

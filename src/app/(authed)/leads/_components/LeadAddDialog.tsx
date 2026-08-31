@@ -109,8 +109,7 @@ export function LeadAddDialog({
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [eventId, setEventId] = useState("");
-  const [statusId, setStatusId] = useState("");
+  const [eventName, setEventName] = useState("");
   const [assignedToEmail, setAssignedToEmail] = useState("");
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
@@ -127,8 +126,18 @@ export function LeadAddDialog({
     }
     return result;
   }, [columnOptions]);
-  const defaultStatusId = statuses.find((status) => status.kind === "open")?.id ?? statuses[0]?.id ?? "";
-  const selectedStatusId = statusId || defaultStatusId;
+  // A lead being created has not been worked yet, so it starts at the first
+  // open status — "New" in the seeded vocabulary. Picked by position and kind
+  // rather than by the label "New", because an admin may rename it.
+  //
+  // Not editable here: status is meant to move when someone logs an
+  // interaction, which is what keeps contact_attempt_count and the alert
+  // clocks honest. Letting the creator set "Won" before anyone has called
+  // would produce a closed lead with no call behind it.
+  const selectedStatusId =
+    statuses.find((status) => status.kind === "open")?.id ?? statuses[0]?.id ?? "";
+  const selectedStatusLabel =
+    statuses.find((status) => status.id === selectedStatusId)?.label ?? "—";
 
   useEffect(() => {
     if (!open || eventsState !== "idle") return;
@@ -150,8 +159,7 @@ export function LeadAddDialog({
     setFullName("");
     setPhone("");
     setEmail("");
-    setEventId("");
-    setStatusId("");
+    setEventName("");
     setAssignedToEmail("");
     setCustomValues({});
     setError(null);
@@ -197,7 +205,7 @@ export function LeadAddDialog({
           full_name: fullName,
           phone,
           email,
-          event_id: eventId || null,
+          event_name: eventName.trim() || null,
           status_id: selectedStatusId || null,
           assigned_to_email: assignedToEmail,
           custom_values: customValues,
@@ -259,8 +267,36 @@ export function LeadAddDialog({
 
             <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f9fc] p-4 lg:border-l lg:border-t-0">
               <div className="flex items-center justify-between border-b border-[#dfe1e6] pb-3"><span className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">Lead properties</span><span className="rounded bg-[#e9f2ff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]">{product === "pc" ? "P&C" : "Health"}</span></div>
-              <label className="block space-y-1"><span className={LABEL_CLASS}>Event</span><select className={INPUT_CLASS} value={eventId} onChange={(event) => setEventId(event.target.value)} disabled={eventsState === "loading" || eventsState === "idle"}><option value="">No event</option>{events.map((event) => <option key={event.id} value={event.id}>{formatEvent(event)}</option>)}</select>{eventsState === "error" ? <span className="text-xs font-semibold text-rose-700">Could not load events.</span> : null}</label>
-              <label className="block space-y-1"><span className={LABEL_CLASS}>{fieldLabel(columns, "status", "Status")}</span><select className={INPUT_CLASS} value={selectedStatusId} onChange={(event) => setStatusId(event.target.value)}>{statuses.length === 0 ? <option value="">No status available</option> : null}{statuses.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}</select></label>
+              <label className="block space-y-1">
+                <span className={LABEL_CLASS}>{fieldLabel(columns, "event", "Event")}</span>
+                {/* Typed, not chosen: a lead should never wait on someone
+                    registering the event first. The route matches the name
+                    case-insensitively and creates the event when it is new, so
+                    the per-event report still groups by a real row. The list
+                    below is a suggestion, not a constraint. */}
+                <input
+                  className={INPUT_CLASS}
+                  list="lead-event-names"
+                  value={eventName}
+                  onChange={(event) => setEventName(event.target.value)}
+                  placeholder="e.g. Health Fair 2026"
+                />
+                <datalist id="lead-event-names">
+                  {events.map((event) => (
+                    <option key={event.id} value={event.name}>{formatEvent(event)}</option>
+                  ))}
+                </datalist>
+                {eventsState === "error" ? (
+                  <span className="text-xs font-semibold text-rose-700">Could not load past events; you can still type a name.</span>
+                ) : null}
+              </label>
+              <div className="block space-y-1">
+                <span className={LABEL_CLASS}>{fieldLabel(columns, "status", "Status")}</span>
+                <p className={`${INPUT_CLASS} flex items-center bg-[#f4f5f7] text-[#42526e]`}>
+                  {selectedStatusLabel}
+                </p>
+                <span className="text-xs text-[#667085]">Set automatically; it moves when an interaction is logged.</span>
+              </div>
               <label className="block space-y-1">
                 <span className={LABEL_CLASS}>{fieldLabel(columns, "assignee", "Assign to")}</span>
                 {/* A roster, not a free-text address. The server rejects an

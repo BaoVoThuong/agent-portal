@@ -25,6 +25,7 @@ describe("parseCreateLeadInput", () => {
         phone: "5551234567",
         email: "jane@example.com",
         eventId: UUID,
+        eventName: null,
         statusId: UUID,
         assignedToEmail: "agent@example.com",
         clientRequestId: UUID,
@@ -72,5 +73,27 @@ describe("parseCreateLeadInput", () => {
       ok: false,
       error: 'Custom field "nested" has an unsupported value.',
     });
+  });
+});
+
+describe("event name", () => {
+  const base = { product: "pc", phone: "7145550123" };
+
+  it("accepts a typed event name and trims it", () => {
+    const result = parseCreateLeadInput({ ...base, event_name: "  Health Fair 2026 " });
+    expect(result.ok ? result.value.eventName : "parse failed").toBe("Health Fair 2026");
+  });
+
+  // A blank box means "no event", not an event named "".
+  it("treats an empty name as no event", () => {
+    const blank = parseCreateLeadInput({ ...base, event_name: "   " });
+    expect(blank.ok ? blank.value.eventName : "parse failed").toBe(null);
+    const absent = parseCreateLeadInput(base);
+    expect(absent.ok ? absent.value.eventName : "parse failed").toBe(null);
+  });
+
+  it("rejects a non-string name rather than coercing it", () => {
+    const result = parseCreateLeadInput({ ...base, event_name: 42 });
+    expect(result).toEqual({ ok: false, error: "Event name must be text." });
   });
 });

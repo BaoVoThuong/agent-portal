@@ -13,6 +13,13 @@ export type CreateLeadInput = {
   phone: string;
   email: string | null;
   eventId: string | null;
+  /**
+   * A typed event name. The dialog lets someone name an event that does not
+   * exist yet, and the route finds or creates it — so a lead never waits on
+   * someone remembering to register the event first, while the per-event
+   * report keeps working because leads still point at a real row.
+   */
+  eventName: string | null;
   statusId: string | null;
   assignedToEmail: string | null;
   customValues: Record<string, unknown>;
@@ -97,6 +104,8 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
   if (email !== null && typeof email === "object") return { ok: false, error: email.error };
   const eventId = optionalUuid(input.event_id, "Event");
   if (eventId !== null && typeof eventId === "object") return { ok: false, error: eventId.error };
+  const eventName = optionalText(input.event_name, "Event name", 200);
+  if (eventName !== null && typeof eventName === "object") return { ok: false, error: eventName.error };
   const statusId = optionalUuid(input.status_id, "Status");
   if (statusId !== null && typeof statusId === "object") return { ok: false, error: statusId.error };
   const assignedToEmail = optionalEmail(input.assigned_to_email, "Assignee");
@@ -114,6 +123,7 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
       phone,
       email,
       eventId,
+      eventName,
       statusId,
       assignedToEmail,
       customValues: customValues.value,

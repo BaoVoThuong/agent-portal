@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Event gõ tự do (tự tạo sự kiện), Status khoá ở New khi tạo lead
+- **Loại**: feature, fix
+- **Cái gì**:
+  - **Event thành ô gõ tự do, hệ thống tự tìm hoặc tạo sự kiện.** Trước đây phải tạo sự kiện trước rồi mới chọn từ danh sách. Nay gõ tên: trùng tên (không phân biệt hoa thường và khoảng trắng thừa) thì khớp vào sự kiện cũ, tên mới thì tự tạo. Ô nhập có `datalist` gợi ý các sự kiện đã có.
+  - **`leads.event_id` vẫn là khoá ngoại.** Đó là thứ giữ cho báo cáo theo sự kiện ở Overview còn đúng: lead nhóm theo *một dòng*, không theo chuỗi chữ đã gõ. Nếu để text thuần thì "Health Fair" và "health fair " thành hai sự kiện khác nhau trong báo cáo.
+  - **Index duy nhất `lead_events (lower(btrim(name)))`** — đây là thứ làm "tìm-hoặc-tạo" an toàn. Thiếu nó, hai người đặt tên cùng lúc sẽ tạo hai dòng và báo cáo tách một sự kiện làm đôi. Rollout gom luôn các bản trùng có sẵn về dòng sớm nhất rồi mới tạo index.
+  - **Cột `event` trả về kiểu `text`**, huỷ bỏ `2026-08-31-lead-event-column-type.sql` (từng đổi sang `dropdown`). Giờ người dùng thật sự gõ vào đó nên `text` mới đúng.
+  - **Status khoá ở "New" khi tạo lead**, không cho chọn. Chọn theo `kind === "open"` đầu tiên theo position chứ không theo nhãn "New", vì admin đổi tên được. Cùng nguyên tắc sếp đã chốt cho Enrollment ("stage cố định khi tạo, đổi thì sau"). Lý do: status phải dịch chuyển khi có người ghi nhận tương tác — cho phép đặt "Won" ngay lúc tạo sẽ sinh ra lead đã đóng mà không có cuộc gọi nào phía sau, làm hỏng cả bộ đếm lẫn đồng hồ cảnh báo.
+- **Kiểm chứng**: rollout chạy trên PostgreSQL 16 — `schema.sql` nạp 0 lỗi, cột về `text`, index tạo được, **lead trỏ vào bản trùng được gom đúng về sự kiện gốc**, chạy lần hai 0 lỗi. `npm run test:run` 118 files / **845 tests**; typecheck + lint sạch.
+
 ## 2026-08-31 — Assign to thành dropdown agent, Event khai đúng kiểu
 - **Loại**: fix
 - **Cái gì**:
