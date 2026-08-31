@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildLeadActor } from "@/lib/leads/access";
+import { fetchLeadAssignees } from "@/lib/leads/assignees";
 import { fetchLeadsPage } from "@/lib/leads/queries";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import {
@@ -33,7 +34,8 @@ export default async function LeadsPage({
   if (view === "overview" && !actor.isManager) redirect("/unauthorized");
   const supabase = getSupabaseAdmin();
 
-  const [page, config, statusesResult, typesResult, settingsResult] = await Promise.all([
+  const [page, config, statusesResult, typesResult, settingsResult, assignees] =
+    await Promise.all([
     fetchLeadsPage(actor, { product, alert: params.alert }, supabase),
     fetchTableColumnsWithOptions(product === "pc" ? "lead_pc" : "lead_health", supabase),
     supabase
@@ -52,6 +54,9 @@ export default async function LeadsPage({
       .select("product,no_contact_hours,stale_days,max_attempts")
       .eq("product", product)
       .maybeSingle(),
+    // Only a manager can reassign, so only they need the roster. Loading it for
+    // an agent would be one query nothing on their screen can use.
+    actor.isManager ? fetchLeadAssignees() : Promise.resolve([]),
   ]);
 
   if (statusesResult.error) throw new Error(statusesResult.error.message);
@@ -79,6 +84,7 @@ export default async function LeadsPage({
       statuses={statusesResult.data as LeadStatus[]}
       interactionTypes={typesResult.data as LeadInteractionType[]}
       alertSettings={settings}
+      assignees={assignees}
     />
   );
 }

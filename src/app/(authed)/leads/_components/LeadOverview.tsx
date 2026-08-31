@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { personLabel } from "@/lib/tasks/people";
 import type { LeadAlert } from "@/lib/leads/alerts";
 import type { LeadSummary } from "@/lib/leads/overview";
 
@@ -121,7 +122,7 @@ export function LeadOverview({ product, onAlertClick }: LeadOverviewProps) {
                 </thead>
               <tbody className="divide-y divide-[#eef1f5]">
                   {summary.byAgent.map((agent) => (
-                    <tr key={agent.email}>
+                    <tr key={personLabel(agent.email)}>
                       <td className="px-4 py-2.5 font-medium text-[#344054]">{agent.email}</td>
                       <td className="px-4 py-2.5">{agent.total}</td>
                       <td className="px-4 py-2.5 font-semibold text-red-600">

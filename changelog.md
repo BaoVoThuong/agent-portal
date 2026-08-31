@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Chọn agent bằng dropdown thay vì gõ email, và hiện tên thay vì email
+- **Loại**: fix (UX, data-integrity)
+- **Cái gì**: thanh giao lead hàng loạt trước đây là ô nhập chữ tự do "Agent email to assign". Nay là dropdown có tìm kiếm (`TaskSelect`), nạp từ `fetchLeadAssignees()` — tài khoản đang hoạt động có `lead.work` hoặc `lead.manage`, đúng cách `fetchTaskAssignees()` bên Task lấy danh sách.
+- **Vì sao**: server vốn đã chặn email không hợp lệ (`getUserAccessByEmail` + `isActive` + `isWorker`), nên gõ sai không mất lead — nhưng manager phải nhớ chính xác địa chỉ của ~50 agent rồi mới biết mình gõ sai. Dropdown làm sai sót đó không xảy ra được ngay từ đầu.
+- **Chỉ manager mới nạp danh sách**: `page.tsx` gọi `fetchLeadAssignees()` có điều kiện `actor.isManager`. Agent không có nút giao lead nên nạp về là một truy vấn không dùng tới.
+- **Không thêm mục "Unassigned" vào dropdown**: thanh công cụ đã có nút Unassign riêng; hai đường cho cùng một hành động khiến người dùng phân vân chúng có khác nhau không.
+- **Hiện tên người, không hiện email thô**: cột Assignee trong bảng Leads và cột Agent trong Overview nay dùng `personLabel`, đúng quy ước đang áp dụng ở task board.
+- **Kiểm chứng**: `npm run test:run` 118 files / 840 tests; typecheck + lint sạch.
+
 ## 2026-08-28 — Thiếu rollout nới ràng buộc scope cho table-config
 - **Loại**: fix (bug production)
 - **Cái gì**: `TABLE_SCOPES` trong `lib/table-config/types.ts` được thêm `lead_pc` và `lead_health`, nhưng **không rollout nào** nới ràng buộc CHECK tương ứng dưới DB. Lần đầu mở `/leads` là chết ngay ở `ensureTableColumns()`: `new row for relation "table_column" violates check constraint "table_column_scope_check"`.

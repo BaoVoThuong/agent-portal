@@ -6,6 +6,8 @@ import { ChevronLeft, ChevronRight, CircleAlert, Plus, Upload } from "lucide-rea
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { resolveLeadAlerts, ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
 import { isOwnLeadMutation, LEADS_TOPIC } from "@/lib/leads/realtime-topics";
+import { personLabel } from "@/lib/tasks/people";
+import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import type { LeadAlertSettings, LeadInteractionType, LeadRow, LeadStatus } from "@/lib/leads/types";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { LeadDetailDrawer } from "./LeadDetailDrawer";
@@ -26,6 +28,8 @@ type LeadsClientProps = {
   statuses: LeadStatus[];
   interactionTypes: LeadInteractionType[];
   alertSettings: LeadAlertSettings;
+  /** Empty for non-managers: only they can reassign, so only they get the roster. */
+  assignees: { email: string; name: string | null }[];
 };
 
 function sourceNonce(): string {
@@ -41,14 +45,20 @@ function displayValue(
   lead: LeadRow,
   column: TableColumn,
   statuses: Map<string, LeadStatus>,
-  options: Map<string, TableColumnOption[]>
+  options: Map<string, TableColumnOption[]>,
+  nameByEmail: Map<string, string>
 ): string {
   switch (column.key) {
     case "key": return `#${lead.display_number}`;
     case "name": return lead.full_name ?? "—";
     case "phone": return lead.phone ?? "—";
     case "email": return lead.email ?? "—";
-    case "assignee": return lead.assigned_to_email ?? "Unassigned";
+    // Show who it is, not their login. personLabel falls back to a readable
+    // form of the address when the roster has no name for them.
+    case "assignee":
+      return lead.assigned_to_email
+        ? personLabel(lead.assigned_to_email, nameByEmail)
+        : "Unassigned";
     case "status": return lead.status_id ? statuses.get(lead.status_id)?.label ?? "Unknown status" : "—";
     case "attempts": return String(lead.contact_attempt_count);
     case "lastContact": return displayDate(lead.last_contacted_at);
@@ -87,6 +97,7 @@ export function LeadsClient({
   statuses,
   interactionTypes,
   alertSettings,
+  assignees,
 }: LeadsClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -115,6 +126,28 @@ export function LeadsClient({
   const pendingRefresh = useRef(false);
   const sourceIdRef = useRef(sourceId);
   const loadedQueryRef = useRef(`${product}:${activeAlert ?? ""}`);
+  const nameByEmail = useMemo(
+    () =>
+      new Map(
+        assignees
+          .filter((person) => person.name)
+          .map((person) => [person.email, person.name as string])
+      ),
+    [assignees]
+  );
+  // No "Unassigned" entry here: the toolbar already has a dedicated Unassign
+  // button, and offering the same action twice invites a manager to wonder
+  // whether the two do different things. Email stays searchable because that is
+  // what a manager reads off a spreadsheet.
+  const assigneeOptions = useMemo(
+    () =>
+      assignees.map((person) => ({
+        value: person.email,
+        label: personLabel(person.email, nameByEmail),
+        keywords: [person.email],
+      })),
+    [assignees, nameByEmail]
+  );
   const statusById = useMemo(() => new Map(statuses.map((status) => [status.id, status])), [statuses]);
   const optionsByColumn = useMemo(() => {
     const result = new Map<string, TableColumnOption[]>();
@@ -316,9 +349,19 @@ export function LeadsClient({
           <div className="mx-auto max-w-[1760px] rounded border border-[#b8d4ff] bg-[#e9f2ff] px-4 py-3 text-sm shadow-[0_1px_2px_rgba(9,30,66,0.08)]">
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-semibold text-[#172b4d]">{selected.size} lead{selected.size === 1 ? "" : "s"} selected</span>
-              <input className="h-9 min-w-[220px] flex-1 rounded-lg border border-[#c1c7d0] bg-white px-3 text-sm outline-none transition focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]" placeholder="Agent email to assign" value={assignmentEmail} onChange={(event) => setAssignmentEmail(event.target.value)} disabled={assigning} />
+              <div className="min-w-[220px] flex-1">
+                <TaskSelect
+                  value={assignmentEmail}
+                  options={assigneeOptions}
+                  placeholder="Choose an agent"
+                  searchable
+                  personValue
+                  disabled={assigning}
+                  onChange={setAssignmentEmail}
+                />
+              </div>
               <input className="h-9 min-w-[180px] flex-1 rounded-lg border border-[#c1c7d0] bg-white px-3 text-sm outline-none transition focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]" placeholder="Reason (optional)" value={assignmentReason} onChange={(event) => setAssignmentReason(event.target.value)} disabled={assigning} />
-              <button className="inline-flex h-9 items-center rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50" type="button" disabled={!assignmentEmail.trim() || assigning} onClick={() => void assignSelected(assignmentEmail.trim())}>{assigning ? "Saving..." : "Assign"}</button>
+              <button className="inline-flex h-9 items-center rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50" type="button" disabled={!assignmentEmail || assigning} onClick={() => void assignSelected(assignmentEmail)}>{assigning ? "Saving..." : "Assign"}</button>
               <button className="inline-flex h-9 items-center rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50" type="button" disabled={assigning} onClick={() => void assignSelected(null)}>Unassign</button>
             </div>
             {assignmentError && <p className="mt-2 text-xs font-semibold text-red-700">{assignmentError}</p>}
@@ -350,7 +393,7 @@ export function LeadsClient({
                     <tr key={lead.id} className="cursor-pointer bg-white transition-colors hover:bg-[#f7faff]" onClick={() => setSelectedLead(lead)}>
                       {isManager && <td className="px-3 py-2.5" onClick={(event) => event.stopPropagation()}><input className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]" type="checkbox" aria-label={`Select lead ${lead.display_number}`} checked={selected.has(lead.id)} onChange={() => toggleLead(lead.id)} /></td>}
                       <td className="px-2 py-2.5">{alerts.length > 0 && <span className={`inline-flex h-2 w-2 rounded-full ${alerts.some((alert) => ALERT_SEVERITY[alert] === "red") ? "bg-red-500" : "bg-amber-400"}`} title={alertTitle(alerts)} aria-label={alertTitle(alerts)}><CircleAlert className="sr-only" /></span>}</td>
-                      {visibleColumns.map((column) => <td key={column.id} className="max-w-[240px] truncate px-3 py-2.5 font-medium text-[#172b4d]">{displayValue(lead, column, statusById, optionsByColumn)}</td>)}
+                      {visibleColumns.map((column) => <td key={column.id} className="max-w-[240px] truncate px-3 py-2.5 font-medium text-[#172b4d]">{displayValue(lead, column, statusById, optionsByColumn, nameByEmail)}</td>)}
                     </tr>
                   );
                 })}
