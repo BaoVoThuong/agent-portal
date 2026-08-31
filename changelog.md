@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Sidebar: vào /leads/config là mất đường quay lại danh sách
+
+- **Loại**: fix (bug điều hướng)
+- **Triệu chứng**: đứng ở `/leads/config` thì không bấm lại được vào Event Leads.
+- **Nguyên nhân**: `isActiveItem` coi một mục là active khi `pathname === activePath` **hoặc** `pathname.startsWith(activePath + "/")`. Ở `/leads/config`, điều kiện thứ hai làm **Event Leads** (`activePath: "/leads"`) cũng thành active. Mà mục active được render bằng `<span>` chứ không phải `<Link>` — nên nó thành chữ chết. Sidebar mất luôn đường về danh sách.
+- **Vì sao chỉ Lead dính**: đây là cặp menu duy nhất có một route **lồng dưới** route của mục khác. `/tasks` và `/config` là hai tiền tố rời; hai mục Enrollment cùng `activePath: "/enrollment"` và phân biệt bằng `activeQuery`.
+- **Sửa**: mục nào khớp **cụ thể hơn** thì thắng. Trước khi coi một mục là active, kiểm xem có mục lá nào khác có `activePath` dài hơn mà cũng khớp `pathname` không; có thì mục hiện tại nhường. Quy tắc chung, không cần bôi riêng cho Lead.
+- **Test hồi quy**: `src/app/(authed)/_components/sidebar-active.test.ts` — 4 test, gồm ca "đứng ở /leads/config thì Event Leads vẫn phải là link". Viết dưới dạng hàm thuần vì suite chạy môi trường node, không có DOM để render `.tsx`.
+- **Kiểm chứng**: `npm run test:run` 122 files / **872 tests**; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Gộp hai bộ status của Lead thành một
 
 - **Loại**: schema + fix (bug hiển thị)

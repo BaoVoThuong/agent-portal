@@ -204,14 +204,33 @@ export default function Sidebar({
     setOpenDropdowns((prev) => ({ ...prev, [title]: !prev[title] }));
   };
 
+  // Every leaf, so a nested route can outrank its parent below.
+  const leafItems = menuItems.flatMap((item) => item.children ?? [item]);
+
+  const matchesPath = (item: MenuItem) => {
+    if (!item.href) return false;
+    const activePath = item.activePath ?? item.href.split("?")[0];
+    return activePath === "/"
+      ? pathname === "/"
+      : pathname === activePath || pathname.startsWith(`${activePath}/`);
+  };
+
   const isActiveItem = (item: MenuItem) => {
     if (!item.href) return false;
     const activePath = item.activePath ?? item.href.split("?")[0];
-    const pathMatches =
-      activePath === "/"
-        ? pathname === "/"
-        : pathname === activePath || pathname.startsWith(`${activePath}/`);
-    if (!pathMatches) return false;
+    if (!matchesPath(item)) return false;
+
+    // An active entry renders as a <span>, not a <Link>. So a parent path that
+    // also matches a deeper route would go unclickable while you are on that
+    // deeper route: standing on /leads/config, "Event Leads" matched
+    // /leads/... too and stopped being a link, leaving no way back to the list.
+    // The most specific match wins.
+    const deeperMatch = leafItems.some((other) => {
+      if (other === item || !other.href) return false;
+      const otherPath = other.activePath ?? other.href.split("?")[0];
+      return otherPath.length > activePath.length && matchesPath(other);
+    });
+    if (deeperMatch) return false;
 
     if (!item.activeQuery) return true;
     return Object.entries(item.activeQuery).every(([key, value]) => {
