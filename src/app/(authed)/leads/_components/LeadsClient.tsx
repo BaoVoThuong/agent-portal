@@ -417,6 +417,8 @@ export function LeadsClient({
         currentEmail={currentEmail}
         sourceId={sourceId}
         statuses={statuses}
+        columns={columns}
+        columnOptions={columnOptions}
         interactionTypes={interactionTypes}
         onClose={() => setSelectedLead(null)}
         onLeadUpdated={updateLead}

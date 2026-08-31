@@ -1,15 +1,32 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LeadInteraction, LeadInteractionType, LeadRow, LeadStatus } from "@/lib/leads/types";
+import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { InteractionLog } from "./InteractionLog";
+
+/** Mirrors the table's default branch so the drawer and the list never disagree. */
+function customValue(
+  lead: LeadRow,
+  column: TableColumn,
+  optionsByColumn: Map<string, TableColumnOption[]>
+): string {
+  const value = lead.custom_values?.[column.key];
+  if (value === null || value === undefined || value === "") return "—";
+  const option = optionsByColumn
+    .get(column.id)
+    ?.find((candidate) => candidate.label === String(value));
+  return option?.label ?? String(value);
+}
 
 type LeadDetailDrawerProps = {
   lead: LeadRow | null;
   currentEmail: string;
   sourceId: string;
   statuses: LeadStatus[];
+  columns: TableColumn[];
+  columnOptions: TableColumnOption[];
   interactionTypes: LeadInteractionType[];
   onClose: () => void;
   onLeadUpdated: (lead: LeadRow) => void;
@@ -20,6 +37,8 @@ export function LeadDetailDrawer({
   currentEmail,
   sourceId,
   statuses,
+  columns,
+  columnOptions,
   interactionTypes,
   onClose,
   onLeadUpdated,
@@ -51,6 +70,24 @@ export function LeadDetailDrawer({
     return () => { cancelled = true; };
   }, [lead]);
 
+  // Only the columns an admin marked "In detail", and only the ones backed by
+  // custom_values — the system columns already have their own rows above.
+  const detailColumns = useMemo(
+    () =>
+      columns.filter(
+        (column) => !column.is_system && !column.archived_at && column.show_in_detail
+      ),
+    [columns]
+  );
+  const optionsByColumn = useMemo(() => {
+    const map = new Map<string, TableColumnOption[]>();
+    for (const option of columnOptions) {
+      const list = map.get(option.column_id) ?? [];
+      list.push(option);
+      map.set(option.column_id, list);
+    }
+    return map;
+  }, [columnOptions]);
   if (!lead) return null;
   const currentLead = lead;
   const loading = loadedLeadId !== currentLead.id;
@@ -100,6 +137,16 @@ export function LeadDetailDrawer({
             <div><dt className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]">Last contact</dt><dd className="mt-1 font-semibold text-[#172b4d]">{lead.last_contacted_at ? new Date(lead.last_contacted_at).toLocaleString() : "Never"}</dd></div>
             <div><dt className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]">Follow-up</dt><dd className="mt-1 font-semibold text-[#172b4d]">{lead.next_follow_up_at ? new Date(lead.next_follow_up_at).toLocaleString() : "—"}</dd></div>
           </dl>
+          {detailColumns.length > 0 ? (
+            <dl className="mb-6 grid grid-cols-2 gap-x-5 gap-y-4 border border-[#dbe2eb] bg-white p-4 text-sm">
+              {detailColumns.map((column) => (
+                <div key={column.id}>
+                  <dt className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]">{column.label}</dt>
+                  <dd className="mt-1 font-semibold text-[#172b4d]">{customValue(currentLead, column, optionsByColumn)}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
           {loading && <p className="mb-3 text-sm text-[#6b778c]">Loading interaction history...</p>}
           {visibleError && <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{visibleError}</p>}
           <InteractionLog

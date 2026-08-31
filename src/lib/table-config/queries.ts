@@ -63,28 +63,30 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
   ],
   lead_pc: [
     col("lead_pc", "key", "Key", "text", 10, false, true),
-    col("lead_pc", "name", "Name", "text", 20, false, true),
-    col("lead_pc", "phone", "Phone", "text", 30),
-    col("lead_pc", "email", "Email", "text", 40),
-    col("lead_pc", "assignee", "Assigned to", "person", 50),
-    col("lead_pc", "status", "Status", "dropdown", 60),
+    col("lead_pc", "name", "Name", "text", 20, false, true, true),
+    col("lead_pc", "phone", "Phone", "text", 30, false, false, true),
+    customCol("lead_pc", "secondary_phone", "Secondary Phone", "text", 35),
+    col("lead_pc", "email", "Email", "text", 40, false, false, true),
+    col("lead_pc", "assignee", "Assigned to", "person", 50, false, false, true),
+    col("lead_pc", "status", "Status", "dropdown", 60, false, false, true),
     col("lead_pc", "attempts", "Attempts", "number", 70),
     col("lead_pc", "lastContact", "Last contact", "date", 80),
-    col("lead_pc", "followUp", "Follow up", "date", 90),
-    col("lead_pc", "event", "Event", "text", 100),
+    col("lead_pc", "followUp", "Follow up", "date", 90, false, false, true),
+    col("lead_pc", "event", "Event", "text", 100, false, false, true),
     col("lead_pc", "createdAt", "Imported", "date", 110, true),
   ],
   lead_health: [
     col("lead_health", "key", "Key", "text", 10, false, true),
-    col("lead_health", "name", "Name", "text", 20, false, true),
-    col("lead_health", "phone", "Phone", "text", 30),
-    col("lead_health", "email", "Email", "text", 40),
-    col("lead_health", "assignee", "Assigned to", "person", 50),
-    col("lead_health", "status", "Status", "dropdown", 60),
+    col("lead_health", "name", "Name", "text", 20, false, true, true),
+    col("lead_health", "phone", "Phone", "text", 30, false, false, true),
+    customCol("lead_health", "secondary_phone", "Secondary Phone", "text", 35),
+    col("lead_health", "email", "Email", "text", 40, false, false, true),
+    col("lead_health", "assignee", "Assigned to", "person", 50, false, false, true),
+    col("lead_health", "status", "Status", "dropdown", 60, false, false, true),
     col("lead_health", "attempts", "Attempts", "number", 70),
     col("lead_health", "lastContact", "Last contact", "date", 80),
-    col("lead_health", "followUp", "Follow up", "date", 90),
-    col("lead_health", "event", "Event", "text", 100),
+    col("lead_health", "followUp", "Follow up", "date", 90, false, false, true),
+    col("lead_health", "event", "Event", "text", 100, false, false, true),
     col("lead_health", "createdAt", "Imported", "date", 110, true),
   ],
 };
@@ -345,6 +347,36 @@ export async function resetTableLayoutsForScope(
   return { ok: true };
 }
 
+/**
+ * A column the product seeds but treats as the admin's own: is_system false, so
+ * it can be renamed or archived, and its value lives in the row's custom_values
+ * like any column an admin adds by hand. The key must equal
+ * slugifyColumnKey(label), because that is the key the importer writes and the
+ * key every screen reads back.
+ */
+function customCol(
+  scope: TableScope,
+  key: string,
+  label: string,
+  type: TableColumn["type"],
+  position: number
+): TableColumn {
+  return {
+    id: `system-${scope}-${key}`,
+    scope,
+    key,
+    label,
+    type,
+    is_system: false,
+    position,
+    pinned: false,
+    hidden_default: false,
+    show_in_detail: true,
+    required: false,
+    archived_at: null,
+  };
+}
+
 function col(
   scope: TableScope,
   key: string,
@@ -352,7 +384,8 @@ function col(
   type: TableColumn["type"],
   position: number,
   hiddenDefault = false,
-  pinned = false
+  pinned = false,
+  showInDetail = false
 ): TableColumn {
   return {
     id: `system-${scope}-${key}`,
@@ -364,7 +397,7 @@ function col(
     position,
     pinned,
     hidden_default: hiddenDefault,
-    show_in_detail: false,
+    show_in_detail: showInDetail,
     required: false,
     archived_at: null,
   };

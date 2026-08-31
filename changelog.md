@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Thêm Secondary Phone và bật "In detail" cho cột lead
+- **Loại**: feature, fix
+- **Cái gì**:
+  - **Secondary Phone** thành cột mặc định của cả `lead_pc` và `lead_health`. Cố ý để `is_system = false`: giá trị nằm trong `leads.custom_values` như mọi cột admin tự thêm, admin đổi tên hay archive được, và **modal tạo lead chỉ hiển thị cột không phải hệ thống** (`LeadAddDialog.tsx:117`). Khoá phải là `secondary_phone` — đúng `slugifyColumnKey("Secondary Phone")` — vì đó là khoá importer ghi và mọi màn hình đọc lại.
+  - **`col()` nhận thêm tham số `showInDetail`.** Trước đó nó chốt cứng `show_in_detail: false` cho mọi cột của mọi scope, nên toàn bộ cột lead ra đời với cờ tắt. Nay 7 cột có ý nghĩa trong ô chi tiết (name, phone, email, assignee, status, followUp, event) mặc định bật.
+  - **Drawer chi tiết lead giờ mới thật sự đọc cờ đó.** Trước đây nó không nhận prop `columns` nên `show_in_detail` là cờ vô nghĩa với lead — bật hay tắt cũng không đổi gì. Nay nhận `columns` + `columnOptions` và render các cột không phải hệ thống có cờ bật, dùng chung cách đọc `custom_values` với bảng danh sách.
+  - **Rollout `2026-08-31-lead-detail-columns.sql`**: `ensureTableColumns()` chỉ **chèn** cột thiếu, không ghi đè cờ của cột đã tồn tại — nên 11 cột lead đã tạo trước đó sẽ mãi ở `false` nếu chỉ sửa mặc định trong code.
+- **Kiểm chứng**: rollout chạy trên PostgreSQL 16 — cập nhật đúng 7 cột, chèn `secondary_phone` cho cả hai scope, chạy lần hai 0 lỗi. `npm run test:run` 118 files / 842 tests; typecheck + lint sạch.
+
 ## 2026-08-31 — Tách màn cấu hình bảng Lead ra riêng, sắp lại sidebar
 - **Loại**: fix, feature
 - **Cái gì**:
