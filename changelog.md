@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Gộp toàn bộ rollout Lead thành một file final
+- **Loại**: chore (dọn dẹp), không đổi hành vi
+- **Vì sao**: Lead Management đã tích 9 file rollout rời trong 4 ngày. Khó biết file nào đã chạy, dễ chạy sót, và thứ tự giữa chúng có ràng buộc ngầm (file 8 định nghĩa lại hàm mà file 6 tạo ra). Đó là cách sinh lỗi chứ không phải cách quản lý schema.
+- **Cái gì**: một file duy nhất `supabase/rollouts/2026-08-31-lead-final.sql` mô tả **trạng thái cuối** của toàn bộ hệ Lead: bảng, index, từ vựng seed, index tên sự kiện, RPC ghi tương tác, `is_table_scope` + hai RPC ghi của table-config, ràng buộc scope, retire hai scope lead cũ, seed 14 cột của scope `lead`, permission, và màu badge. Kèm một khối kiểm chứng 8 cột, tất cả phải đọc `ok`.
+- **Idempotent và hội tụ từ mọi trạng thái**: đã kiểm ba kịch bản trên PostgreSQL 16 — (1) DB chưa từng biết Lead, (2) chạy lại lần hai, (3) DB dở dang giống production: scope cũ chưa archive, từ vựng chưa màu, `event` còn là `dropdown`, hai sự kiện trùng tên. Cả ba đều ra 8 cột `ok`, và sau đó `reorder_table_columns_atomic('lead', ...)` chạy được, hai sự kiện trùng gom còn một.
+- **Không còn phụ thuộc vào việc mở trang**: trước đây 14 cột của scope `lead` do `ensureTableColumns()` tạo khi ai đó vào `/leads`. Nay file SQL tự seed — một database không nên cần người mở màn hình mới trở nên đúng.
+- **Đã xoá 9 file bị thay thế**, liệt kê ngay trong header của file final để còn tra được.
+- **Giữ riêng**: `2026-08-27-fix-patch-task-atomic-ambiguity.sql` (nhánh `fix/...`) vì đó là lỗi của Task, không thuộc hệ Lead.
+- **Kiểm chứng**: `npm run test:run` 119 files / 850 tests; typecheck + lint sạch; `schema.sql` nạp 0 lỗi.
+
 ## 2026-08-31 — "No leads match the current filters" sau khi gộp màn hình
 - **Loại**: fix (bug)
 - **Cái gì**: `buildLeadListFilter` dùng `toLeadProduct(params.product)`. Helper đó **rơi về `"pc"`** cho mọi giá trị không nhận diện được — đúng cho một URL có nêu product, nhưng sai ở đây, nơi "không nêu product" nghĩa là "cho xem hết". Sau khi gộp thành một màn, trang không truyền product nữa → lọc thành P&C → 30 lead pilot đều là Health → danh sách rỗng.
