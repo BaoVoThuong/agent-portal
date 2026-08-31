@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canEditLead, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
+import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { resolveEventByName } from "@/lib/leads/events";
 import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
 import { buildLeadPatch } from "@/lib/leads/patch";
@@ -63,7 +64,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const isOwnerOrAssistant = actor.isManager
     ? false
     : await isLeadOwnerOrAssistant(lead.assigned_to_email, email);
-  if (!canEditLead(actor, lead, { isOwnerOrAssistant })) {
+  if (!resolveLeadCapabilities(actor, lead, { isOwnerOrAssistant }).canEdit) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

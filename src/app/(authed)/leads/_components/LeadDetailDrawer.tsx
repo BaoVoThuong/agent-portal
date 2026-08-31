@@ -11,6 +11,7 @@ import type {
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { InteractionLog } from "./InteractionLog";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { leadIsInScope } from "@/lib/leads/capabilities";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
@@ -177,13 +178,12 @@ export function LeadDetailDrawer({
   const visibleError = loadedLeadId === currentLead.id ? loadError : null;
   // Logging follows the same agent/assistant pairing the API enforces: an
   // Assistant logs calls on their agent's leads. A manager who is not the owner
-  // still cannot log — the contact count belongs to whoever works the lead.
-  const owner = (currentLead.assigned_to_email ?? "").trim().toLowerCase();
-  const canLog =
-    owner !== "" &&
-    (editableOwnerEmails === null
-      ? owner === currentEmail.trim().toLowerCase()
-      : editableOwnerEmails.includes(owner));
+  // still cannot log — the contact count belongs to whoever works the lead,
+  // which is why a manager's null scope is narrowed back to their own email.
+  const canLog = leadIsInScope(
+    currentLead,
+    editableOwnerEmails ?? [currentEmail.trim().toLowerCase()],
+  );
 
   async function saveInteraction(payload: {
     type_id: string;

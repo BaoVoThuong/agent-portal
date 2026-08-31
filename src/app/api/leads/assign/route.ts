@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { canBeAssignedLead } from "@/lib/leads/assign-target";
 import { validateAssignRequest } from "@/lib/leads/assign";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
@@ -24,8 +25,7 @@ export async function POST(request: Request) {
 
   if (parsed.toEmail) {
     const targetAccess = await getUserAccessByEmail(parsed.toEmail);
-    const targetActor = buildLeadActor(targetAccess.permissions, parsed.toEmail);
-    if (!targetAccess.isActive || !targetActor.isWorker) {
+    if (!canBeAssignedLead(targetAccess)) {
       return NextResponse.json({ error: "That person cannot be assigned leads." }, { status: 400 });
     }
   }

@@ -13,6 +13,7 @@ import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { leadIsInScope } from "@/lib/leads/capabilities";
 import {
   isLeadSortKey,
   type LeadSortKey,
@@ -41,8 +42,8 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   email: 240,
   assignee: 190,
   status: 140,
-  // Five 42px labels + four gaps fit inside this cell. More history is
-  // available by dragging the cell without moving the full table.
+  // Five 44px interaction badges + four gaps fit inside this cell. More
+  // history is available by dragging the cell without moving the full table.
   interactionHistory: 272,
   attempts: 100,
   lastContact: 140,
@@ -196,7 +197,7 @@ export function LeadTable({
                     statusChoices={statusChoices}
                     assigneeChoices={assigneeChoices}
                     isManager={isManager}
-                    canEdit={canEditLead(lead, editableOwnerEmails)}
+                    canEdit={leadIsInScope(lead, editableOwnerEmails)}
                     selected={selected.has(lead.id)}
                     pinnedOffsetByKey={pinnedOffsetByKey}
                     onToggle={() => onToggleLead(lead.id)}
@@ -241,7 +242,7 @@ function LeadHeaderCell({
   if (!sortable) {
     return (
       <div style={{ width, left: pinnedOffset }} className={base}>
-        <span className="truncate">{column.label}</span>
+        <span className="truncate uppercase">{column.label}</span>
       </div>
     );
   }
@@ -256,11 +257,11 @@ function LeadHeaderCell({
             ? `${column.label}, sorted ${sortDir === "asc" ? "ascending" : "descending"}`
             : `Sort by ${column.label}`
         }
-        className={`group flex min-w-0 items-center gap-1 rounded text-left transition hover:text-[#0c66e4] ${
+        className={`group flex min-w-0 items-center gap-1 rounded text-left uppercase transition hover:text-[#0c66e4] ${
           active ? "text-[#0c66e4]" : ""
         }`}
       >
-        <span className="truncate">{column.label}</span>
+        <span className="truncate uppercase">{column.label}</span>
         {active ? (
           sortDir === "asc" ? (
             <ArrowUp className="h-3 w-3 shrink-0" />
@@ -698,17 +699,6 @@ function renderLeadCell(
   );
 }
 
-/**
- * Mirrors canEditLead on the server, reading the same resolved owner set.
- * Rendering a cell as editable that the API would refuse is worse than showing
- * it read-only: the save fails after the value already looks changed.
- */
-function canEditLead(lead: LeadRow, editableOwnerEmails: string[] | null): boolean {
-  if (editableOwnerEmails === null) return true;
-  const owner = lead.assigned_to_email?.trim().toLowerCase() ?? "";
-  return owner !== "" && editableOwnerEmails.includes(owner);
-}
-
 const PRODUCT_CHOICES = [
   { value: "pc", label: "P&C" },
   { value: "health", label: "Health" },
@@ -817,7 +807,7 @@ function InteractionHistoryCell({
     <div
       tabIndex={0}
       aria-label={`Interaction history: ${interactions.length} entries, newest first. Drag horizontally to browse.`}
-      className="flex w-full min-w-0 cursor-grab touch-pan-y snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain select-none scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden active:cursor-grabbing"
+      className="flex w-full min-w-0 cursor-grab touch-pan-y snap-x snap-mandatory gap-1 overflow-x-auto overscroll-x-contain select-none scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden active:cursor-grabbing"
       onClick={(event) => event.stopPropagation()}
       onPointerDown={startDrag}
       onPointerMove={moveDrag}
@@ -834,12 +824,17 @@ function InteractionHistoryCell({
       }}
     >
       {interactions.map((interaction) => {
-        const label =
-          interactionTypeById.get(interaction.type_id)?.label ?? "Unknown";
+        const interactionType = interactionTypeById.get(interaction.type_id);
+        const label = interactionType?.label ?? "Unknown";
+        const palette = interactionBadgePalette(interactionType, label);
         return (
           <span
-            className="w-[42px] shrink-0 snap-start truncate text-xs font-semibold text-[#42526e]"
+            className="inline-flex h-5 w-11 shrink-0 snap-start items-center justify-center truncate rounded-[3px] px-1.5 text-[10px] font-bold uppercase leading-none tracking-[0.025em]"
             key={interaction.id}
+            style={{
+              backgroundColor: palette.background,
+              color: palette.foreground,
+            }}
             title={interactionTitle(label, interaction.occurred_at)}
           >
             {label}
@@ -848,6 +843,30 @@ function InteractionHistoryCell({
       })}
     </div>
   );
+}
+
+const INTERACTION_BADGE_FALLBACKS: Record<
+  string,
+  { background: string; foreground: string }
+> = {
+  call: { background: "#deebff", foreground: "#0055cc" },
+  email: { background: "#eae6ff", foreground: "#403294" },
+  text: { background: "#e3fcef", foreground: "#006644" },
+  note: { background: "#f4f5f7", foreground: "#42526e" },
+  unknown: { background: "#dfe1e6", foreground: "#42526e" },
+};
+
+function interactionBadgePalette(
+  interactionType: LeadInteractionType | undefined,
+  label: string,
+): { background: string; foreground: string } {
+  const fallback = INTERACTION_BADGE_FALLBACKS[label.trim().toLowerCase()];
+  if (!interactionType?.color && fallback) return fallback;
+  return taskCategoryBadgePalette({
+    id: interactionType?.id ?? label,
+    name: interactionType?.label ?? label,
+    color: interactionType?.color ?? null,
+  });
 }
 
 function interactionTitle(label: string, occurredAt: string): string {

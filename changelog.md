@@ -6,6 +6,34 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Lead RBAC: fix bug phân quyền + gộp luật về một nơi
+
+- **Loại**: fix (bug phân quyền) + chore (chống trôi lệch)
+- **Plan**: `docs/superpowers/plans/2026-09-01-lead-rbac.md` — ma trận "ai thấy gì, ai sửa gì".
+
+### Bug: account-role admin quản lý được lead nhưng không NHẬN được lead
+- **Nguyên nhân**: hôm nay `buildLeadActor` được thêm cờ `isAdmin`, nhưng route assign kiểm người nhận thì gọi `buildLeadActor(targetAccess.permissions, parsed.toEmail)` — **không truyền cờ đó**. Một admin chưa được cấp `lead.work` thành manager ở mọi màn hình nhưng bị route assign từ chối với "That person cannot be assigned leads."
+- **Sửa**: tách thành `canBeAssignedLead(target)` trong `src/lib/leads/assign-target.ts`, đọc cờ admin y hệt mọi chỗ khác. 5 test, gồm đúng ca gây lỗi.
+- **Lưu ý về hình dạng dữ liệu**: `UserAccess` trả `legacyRole`, không phải `role` — hàm nhận thẳng kiểu đó thay vì bắt route tự map, để không có lớp chuyển đổi nào để làm sai.
+
+### Gộp luật năng lực về một nơi
+- **Vấn đề**: `LeadTable.tsx` tự viết lại luật "lead này sửa được không" — bản chép tay thứ hai của cùng một quy tắc. Module này đã trôi lệch vì copy helper ít nhất ba lần (scope table config, find-or-create event, truy vấn từ vựng).
+- **Sửa**: `src/lib/leads/capabilities.ts` với `resolveLeadCapabilities(actor, lead, flags)` → `{ canView, canEdit, canLog, canAssign }`. Hai route per-lead và cả client cùng gọi. Đúng cách Task làm với `resolveTaskCapabilities`.
+- **Client không dựng được `LeadActor`** (nó chỉ có danh sách owner đã giải sẵn từ server), nên có thêm `leadIsInScope(lead, ownerEmails)` **đặt cạnh** resolver, kèm test khẳng định hai đường cho **cùng kết quả**. Lệch nhau là fail, không phải âm thầm.
+
+### Rollout cấp quyền (CHƯA CHẠY — cần chạy tay)
+- `supabase/rollouts/2026-09-01-lead-role-grants.sql`: chỉ `Admin` giữ `lead.manage`; **mọi role còn lại** nhận `lead.work`. Cấp theo "trừ Admin" chứ không liệt kê tên role, để role thêm sau này không âm thầm bị bỏ sót.
+- Cũng **thu lại** `lead.manage` ở role nào bị cấp nhầm, và cấp thêm `lead.work` cho `Admin` — vì `fetchLeadAssignees()` đọc thẳng `role_permissions`, thiếu dòng đó thì một admin không xuất hiện trong dropdown gán của chính mình.
+- **Đã kiểm trên PostgreSQL 16 thật** với bản sao hiện trạng production (chỉ Admin có quyền) cộng một role bị cấp nhầm `lead.manage`: chạy lần 1 ra 3 cột `ok`, `Sub Admin` bị thu `lead.manage` và nhận `lead.work`, chạy lần 2 là no-op.
+- **Đã kiểm dữ liệu thật**: 11 tài khoản assistant đều có role và đang hoạt động (10 × `Task CS`, 1 × `Admin Health Task`), 6 tài khoản agent cũng vậy. Sau khi chạy rollout **không ai bị kẹt ngoài cổng** vì thiếu role.
+- **Trước khi chạy**: đúng 3 người dùng được module và dropdown gán chỉ có 3 lựa chọn.
+
+### Còn treo
+- `lead.export` vẫn là **quyền chết** — chỉ xuất hiện ở khai báo hằng số và test hằng số, không route nào đọc, module Lead không có tính năng export. Bỏ hay làm thật là hai đường ngược nhau nên chưa tự quyết (Task 3 trong plan).
+- `canLogInteraction` vẫn không cho admin ghi tương tác lên lead không phải của mình — cố ý, vì bộ đếm liên hệ thuộc về agent được gán (QĐ4 trong plan).
+
+- **Kiểm chứng**: `npm run test:run` 125 files / **901 tests** (thêm 5 test assign-target, 9 test capabilities); typecheck, lint, build sạch.
+
 ## 2026-09-01 — Sửa giá trị ngay trên bảng Lead + RBAC theo assistant membership
 
 - **Loại**: feature + fix (RBAC)

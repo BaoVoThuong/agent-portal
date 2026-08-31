@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canLogInteraction, canViewLead, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
+import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
@@ -36,7 +37,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   const canSeeAsAssistant = actor.isManager
     ? false
     : await isLeadOwnerOrAssistant(viewed.assigned_to_email, email);
-  if (!canViewLead(actor, viewed, { isOwnerOrAssistant: canSeeAsAssistant })) {
+  if (!resolveLeadCapabilities(actor, viewed, { isOwnerOrAssistant: canSeeAsAssistant }).canView) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -81,7 +82,7 @@ export async function POST(req: Request, { params }: Ctx) {
     target.assigned_to_email,
     email,
   );
-  if (!canLogInteraction(actor, target, { isOwnerOrAssistant })) {
+  if (!resolveLeadCapabilities(actor, target, { isOwnerOrAssistant }).canLog) {
     return NextResponse.json(
       { error: "This lead is not assigned to you." },
       { status: 403 }
