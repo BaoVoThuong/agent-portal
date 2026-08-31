@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — "No leads match the current filters" sau khi gộp màn hình
+- **Loại**: fix (bug)
+- **Cái gì**: `buildLeadListFilter` dùng `toLeadProduct(params.product)`. Helper đó **rơi về `"pc"`** cho mọi giá trị không nhận diện được — đúng cho một URL có nêu product, nhưng sai ở đây, nơi "không nêu product" nghĩa là "cho xem hết". Sau khi gộp thành một màn, trang không truyền product nữa → lọc thành P&C → 30 lead pilot đều là Health → danh sách rỗng.
+- **Sửa**: `filter.product` thành `LeadProduct | null`, dùng `isLeadProduct` (không có fallback) thay `toLeadProduct`, và `.eq("product", ...)` chỉ áp khi có giá trị. Truy vấn status kết thúc cũng bỏ lọc theo product vì danh sách giờ trộn cả hai.
+- **Test hồi quy**: không truyền product / truyền chuỗi rỗng / truyền giá trị lạ đều phải cho `null`. Test cũ khẳng định ngược lại (`"banana"` → `"pc"`) đã được thay, kèm ghi chú vì sao nó bị thay.
+- **Dữ liệu không mất**: 30 lead vẫn nguyên trong DB, không cái nào archived. Đây thuần là lỗi lọc.
+- **Kiểm chứng**: `npm run test:run` 119 files / **850 tests**; typecheck + lint sạch.
+
 ## 2026-08-31 — Gộp Health Leads + P&C Leads thành một màn Event Leads
 - **Loại**: feature
 - **Cái gì**: hai màn hình tách theo sản phẩm nay là **một danh sách Event Leads** với **cột Product** dạng badge. Sidebar còn một mục. `?product=` trở thành **bộ lọc** người dùng bỏ được, không còn là hai màn riêng.

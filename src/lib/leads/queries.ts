@@ -4,7 +4,7 @@ import type { LeadAlert } from "./alerts";
 import type { LeadActor } from "./access";
 import {
   LEAD_INTERACTION_HISTORY_LIMIT,
-  toLeadProduct,
+  isLeadProduct,
   type LeadAlertSettings,
   type LeadInteractionPreview,
   type LeadProduct,
@@ -25,7 +25,8 @@ export type LeadListParams = {
 };
 
 export type LeadListFilter = {
-  product: LeadProduct;
+  /** null = every product. Event Leads is one list; product is a filter. */
+  product: LeadProduct | null;
   assignedTo: string | null;
   eventId: string | null;
   statusId: string | null;
@@ -56,7 +57,11 @@ export function buildLeadListFilter(
 ): LeadListFilter {
   const requested = text(params.assigned_to);
   return {
-    product: toLeadProduct(params.product),
+    // Deliberately NOT toLeadProduct(): that helper falls back to "pc" for
+    // anything unrecognised, which is right for a URL that names a product but
+    // wrong here, where "no product given" means "show me all of them". Using
+    // it made the merged list silently filter to P&C and show nothing.
+    product: isLeadProduct(params.product) ? params.product : null,
     assignedTo: actor.isManager
       ? requested?.toLowerCase() ?? null
       : actor.email.trim().toLowerCase(),
@@ -90,19 +95,18 @@ export async function fetchLeadsPage(
       supabase
         .from("lead_alert_settings")
         .select("product,no_contact_hours,stale_days,max_attempts")
-        .eq("product", filter.product)
+        .eq("product", filter.product ?? "health")
         .maybeSingle(),
       supabase
         .from("lead_statuses")
         .select("id")
-        .eq("product", filter.product)
         .is("archived_at", null)
         .in("kind", ["won", "lost"]),
     ]);
     if (settingsResult.error) throw new Error(settingsResult.error.message);
     if (statusesResult.error) throw new Error(statusesResult.error.message);
     alertSettings = (settingsResult.data ?? {
-      product: filter.product, no_contact_hours: 24, stale_days: 3, max_attempts: 4,
+      product: filter.product ?? "health", no_contact_hours: 24, stale_days: 3, max_attempts: 4,
     }) as LeadAlertSettings;
     terminalStatusIds = (statusesResult.data ?? []).map((row) => (row as { id: string }).id);
   }
@@ -110,11 +114,11 @@ export async function fetchLeadsPage(
     .from("leads")
     .select(LEAD_LIST_COLUMNS, { count: "exact" })
     .is("archived_at", null)
-    .eq("product", filter.product)
     .order("created_at", { ascending: false })
     .order("id", { ascending: true })
     .range(filter.offset, filter.offset + filter.limit - 1);
 
+  if (filter.product) query = query.eq("product", filter.product);
   if (filter.assignedTo) query = query.eq("assigned_to_email", filter.assignedTo);
   if (filter.eventId) query = query.eq("event_id", filter.eventId);
   if (filter.statusId) query = query.eq("status_id", filter.statusId);

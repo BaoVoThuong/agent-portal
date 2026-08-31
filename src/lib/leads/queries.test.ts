@@ -39,12 +39,32 @@ describe("buildLeadListFilter", () => {
       .toBe(10);
   });
 
-  it("falls back to pc for an unknown product", () => {
-    expect(buildLeadListFilter(manager, { product: "banana" }).product).toBe("pc");
+  // Superseded by the "product filter" block below: Event Leads is one list,
+  // so an unrecognised product means "no filter", not a default product.
+  it("treats an unknown product as no filter", () => {
+    expect(buildLeadListFilter(manager, { product: "banana" }).product).toBeNull();
   });
 
   it("accepts a supported alert filter and ignores an unknown one", () => {
     expect(buildLeadListFilter(manager, { product: "pc", alert: "stale" }).alert).toBe("stale");
     expect(buildLeadListFilter(manager, { product: "pc", alert: "not-an-alert" }).alert).toBeNull();
+  });
+});
+
+describe("product filter", () => {
+  const manager = buildLeadActor(["lead.manage"], "mgr@x.com");
+
+  // Event Leads is one list. A missing product means "all of them", not a
+  // default — reading it as "pc" made the merged screen show nothing at all,
+  // because every lead in the pilot data was Health.
+  it("means every product when none is given", () => {
+    expect(buildLeadListFilter(manager, {}).product).toBeNull();
+    expect(buildLeadListFilter(manager, { product: "" }).product).toBeNull();
+    expect(buildLeadListFilter(manager, { product: "banana" }).product).toBeNull();
+  });
+
+  it("narrows to the named product", () => {
+    expect(buildLeadListFilter(manager, { product: "pc" }).product).toBe("pc");
+    expect(buildLeadListFilter(manager, { product: "health" }).product).toBe("health");
   });
 });
