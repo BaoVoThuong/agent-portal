@@ -2,15 +2,37 @@
 
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { LeadInteraction, LeadInteractionType, LeadRow, LeadStatus } from "@/lib/leads/types";
+import type {
+  LeadInteraction,
+  LeadInteractionType,
+  LeadRow,
+  LeadStatus,
+} from "@/lib/leads/types";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { InteractionLog } from "./InteractionLog";
+import { leadDisplayKey } from "@/lib/leads/display";
+import { personLabel } from "@/lib/tasks/people";
+import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
+import { Initials } from "../../tasks/_components/board-ui";
+
+const LABEL_CLASS =
+  "text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]";
+
+/** The same palette the task board gives its categories, so the two read alike. */
+function statusBadgeStyle(status: LeadStatus) {
+  const palette = taskCategoryBadgePalette({
+    id: status.id,
+    name: status.label,
+    color: status.color,
+  });
+  return { backgroundColor: palette.background, color: palette.foreground };
+}
 
 /** Mirrors the table's default branch so the drawer and the list never disagree. */
 function customValue(
   lead: LeadRow,
   column: TableColumn,
-  optionsByColumn: Map<string, TableColumnOption[]>
+  optionsByColumn: Map<string, TableColumnOption[]>,
 ): string {
   const value = lead.custom_values?.[column.key];
   if (value === null || value === undefined || value === "") return "—";
@@ -53,8 +75,10 @@ export function LeadDetailDrawer({
     void fetch(`/api/leads/${lead.id}/interactions`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(payload?.error ?? "Could not load interactions.");
-        if (!Array.isArray(payload?.interactions)) throw new Error("Could not load interactions.");
+        if (!response.ok)
+          throw new Error(payload?.error ?? "Could not load interactions.");
+        if (!Array.isArray(payload?.interactions))
+          throw new Error("Could not load interactions.");
         if (!cancelled) {
           setInteractions(payload.interactions as LeadInteraction[]);
           setLoadError(null);
@@ -63,11 +87,17 @@ export function LeadDetailDrawer({
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setLoadError(error instanceof Error ? error.message : "Could not load interactions.");
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : "Could not load interactions.",
+          );
           setLoadedLeadId(lead.id);
         }
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [lead]);
 
   // Only the columns an admin marked "In detail", and only the ones backed by
@@ -75,9 +105,17 @@ export function LeadDetailDrawer({
   const detailColumns = useMemo(
     () =>
       columns.filter(
-        (column) => !column.is_system && !column.archived_at && column.show_in_detail
+        (column) =>
+          !column.is_system && !column.archived_at && column.show_in_detail,
       ),
-    [columns]
+    [columns],
+  );
+  const currentLeadStatus = useMemo(
+    () =>
+      lead?.status_id
+        ? statuses.find((s) => s.id === lead.status_id)
+        : undefined,
+    [lead, statuses],
   );
   const optionsByColumn = useMemo(() => {
     const map = new Map<string, TableColumnOption[]>();
@@ -88,12 +126,16 @@ export function LeadDetailDrawer({
     }
     return map;
   }, [columnOptions]);
+  const leadStatus = currentLeadStatus;
   if (!lead) return null;
   const currentLead = lead;
   const loading = loadedLeadId !== currentLead.id;
-  const visibleInteractions = loadedLeadId === currentLead.id ? interactions : [];
+  const visibleInteractions =
+    loadedLeadId === currentLead.id ? interactions : [];
   const visibleError = loadedLeadId === currentLead.id ? loadError : null;
-  const canLog = (currentLead.assigned_to_email ?? "").trim().toLowerCase() === currentEmail.trim().toLowerCase();
+  const canLog =
+    (currentLead.assigned_to_email ?? "").trim().toLowerCase() ===
+    currentEmail.trim().toLowerCase();
 
   async function saveInteraction(payload: {
     type_id: string;
@@ -111,55 +153,156 @@ export function LeadDetailDrawer({
       body: JSON.stringify(payload),
     });
     const result = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(result?.error ?? "Could not save interaction.");
+    if (!response.ok)
+      throw new Error(result?.error ?? "Could not save interaction.");
     if (result?.lead) onLeadUpdated(result.lead as LeadRow);
     return { interaction: result.interaction as LeadInteraction };
   }
 
+  function detailField(label: string, value: React.ReactNode) {
+    return (
+      <div className="space-y-1.5" key={label}>
+        <span className={LABEL_CLASS}>{label}</span>
+        <div className="flex min-h-9 items-center rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-sm font-medium text-[#172b4d]">
+          {value}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-[#091e42]/40" role="dialog" aria-modal="true" aria-label="Lead details">
-      <button className="absolute inset-0 cursor-default" type="button" aria-label="Close lead details" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-[#dfe1e6] bg-white shadow-[0_16px_48px_rgba(9,30,66,0.32)]">
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[#dfe1e6] px-6 py-4">
-          <div>
-            <p className="font-mono text-sm font-bold text-[#97a0af]">Lead #{lead.display_number}</p>
-            <h2 className="mt-1 text-xl font-semibold text-[#172b4d]">{lead.full_name || "Unnamed lead"}</h2>
-            <p className="mt-1 text-sm text-[#626f86]">{lead.phone || "No phone"}{lead.email ? ` · ${lead.email}` : ""}</p>
-          </div>
-          <button className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-[#626f86] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]" type="button" onClick={onClose} aria-label="Close">
-            <X className="h-5 w-5" />
+    // The same shell as TaskDetailDrawer: a centred dialog rather than a side
+    // sheet, work on the left and metadata in a 280px rail. Each column owns
+    // its scrolling on wide screens, which is what keeps the composer docked at
+    // the bottom however long the history gets.
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Lead details"
+        className="flex h-[calc(100vh-2rem)] max-h-[760px] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
+          <span className="font-mono text-sm font-bold text-[#97a0af]">
+            {leadDisplayKey(currentLead.display_number)}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded p-1.5 text-[#42526e] transition hover:bg-[#f4f5f7]"
+          >
+            <X className="h-4 w-4" />
           </button>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <dl className="mb-6 grid grid-cols-2 gap-x-5 gap-y-4 border border-[#dbe2eb] bg-[#f7f9fc] p-4 text-sm">
-            <div><dt className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]">Assigned to</dt><dd className="mt-1 font-semibold text-[#172b4d]">{lead.assigned_to_email || "Unassigned"}</dd></div>
-            <div><dt className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]">Attempts</dt><dd className="mt-1 font-semibold text-[#172b4d]">{lead.contact_attempt_count}</dd></div>
-            <div><dt className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]">Last contact</dt><dd className="mt-1 font-semibold text-[#172b4d]">{lead.last_contacted_at ? new Date(lead.last_contacted_at).toLocaleString() : "Never"}</dd></div>
-            <div><dt className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]">Follow-up</dt><dd className="mt-1 font-semibold text-[#172b4d]">{lead.next_follow_up_at ? new Date(lead.next_follow_up_at).toLocaleString() : "—"}</dd></div>
-          </dl>
-          {detailColumns.length > 0 ? (
-            <dl className="mb-6 grid grid-cols-2 gap-x-5 gap-y-4 border border-[#dbe2eb] bg-white p-4 text-sm">
-              {detailColumns.map((column) => (
-                <div key={column.id}>
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]">{column.label}</dt>
-                  <dd className="mt-1 font-semibold text-[#172b4d]">{customValue(currentLead, column, optionsByColumn)}</dd>
+
+        <div className="flex-1 overflow-y-auto lg:overflow-hidden">
+          <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
+            <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
+              <div className="shrink-0 space-y-1">
+                <h2 className="text-xl font-semibold text-[#172b4d]">
+                  {currentLead.full_name || "Unnamed lead"}
+                </h2>
+                <p className="text-sm text-[#626f86]">
+                  {currentLead.phone || "No phone"}
+                  {currentLead.email ? ` · ${currentLead.email}` : ""}
+                </p>
+              </div>
+
+              {detailColumns.length > 0 ? (
+                <div className="grid shrink-0 grid-cols-2 gap-3">
+                  {detailColumns.map((column) =>
+                    detailField(
+                      column.label,
+                      customValue(currentLead, column, optionsByColumn),
+                    ),
+                  )}
                 </div>
-              ))}
-            </dl>
-          ) : null}
-          {loading && <p className="mb-3 text-sm text-[#6b778c]">Loading interaction history...</p>}
-          {visibleError && <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{visibleError}</p>}
-          <InteractionLog
-            key={currentLead.id}
-            statuses={statuses}
-            interactionTypes={interactionTypes}
-            initialInteractions={visibleInteractions}
-            canLog={canLog}
-            sourceId={sourceId}
-            onSave={saveInteraction}
-          />
+              ) : null}
+
+              <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
+                <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
+                  <span className="-mb-px border-b-2 border-[#0c66e4] pb-2 text-sm font-bold text-[#0c66e4]">
+                    Interactions
+                    <span className="ml-1.5 rounded-full bg-[#e9f2ff] px-1.5 py-0.5 text-[11px] font-bold text-[#0c66e4]">
+                      {visibleInteractions.length}
+                    </span>
+                  </span>
+                </div>
+
+                {loading ? (
+                  <p className="shrink-0 text-sm text-[#6b778c]">
+                    Loading interaction history...
+                  </p>
+                ) : null}
+                {visibleError ? (
+                  <p className="shrink-0 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                    {visibleError}
+                  </p>
+                ) : null}
+                <InteractionLog
+                  key={currentLead.id}
+                  statuses={statuses}
+                  interactionTypes={interactionTypes}
+                  initialInteractions={visibleInteractions}
+                  canLog={canLog}
+                  sourceId={sourceId}
+                  onSave={saveInteraction}
+                />
+              </section>
+            </main>
+
+            <aside className="space-y-3 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
+              {detailField(
+                "Status",
+                leadStatus ? (
+                  <span
+                    className="inline-flex items-center rounded px-2 py-0.5 text-xs font-bold"
+                    style={statusBadgeStyle(leadStatus)}
+                  >
+                    {leadStatus.label}
+                  </span>
+                ) : (
+                  <span className="text-[#8993a4]">—</span>
+                ),
+              )}
+              {detailField(
+                "Assigned to",
+                currentLead.assigned_to_email ? (
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Initials
+                      email={currentLead.assigned_to_email}
+                      label={personLabel(currentLead.assigned_to_email)}
+                    />
+                    <span className="truncate">
+                      {personLabel(currentLead.assigned_to_email)}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-[#8993a4]">Unassigned</span>
+                ),
+              )}
+              {detailField("Attempts", currentLead.contact_attempt_count)}
+              {detailField(
+                "Last contact",
+                currentLead.last_contacted_at
+                  ? new Date(currentLead.last_contacted_at).toLocaleString()
+                  : "Never",
+              )}
+              {detailField(
+                "Follow-up",
+                currentLead.next_follow_up_at
+                  ? new Date(currentLead.next_follow_up_at).toLocaleString()
+                  : "—",
+              )}
+            </aside>
+          </div>
         </div>
-      </aside>
+      </div>
     </div>
   );
 }

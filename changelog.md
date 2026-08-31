@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Đồng bộ giao diện Lead với Task Management
+- **Loại**: fix (UI)
+- **Cái gì**:
+  - **Modal chi tiết lead dùng đúng khung của `TaskDetailDrawer`**: hộp thoại giữa màn hình (`max-w-4xl`, `max-h-[760px]`), hai cột `[minmax(0,1fr)_280px]` — nội dung bên trái, thông tin phụ ở rail phải nền `#f7f8fa` — thay cho panel trượt phải `max-w-2xl` trước đó. Mỗi cột tự cuộn trên màn rộng, đúng lý do Task làm vậy: giữ ô soạn tương tác luôn đứng đáy dù lịch sử dài bao nhiêu. Nhấp nền để đóng, `role="dialog"`, `aria-modal`.
+  - **Người phụ trách hiện avatar chữ cái + tên** (`Initials` dùng chung của board Task, màu nền băm từ email nên mỗi người một màu cố định) thay vì email thô. Áp cho bảng Leads, modal chi tiết và bảng Agent trong Overview.
+  - **Status là badge có màu nền**, lấy màu qua `taskCategoryBadgePalette` — cùng bảng màu và cùng công thức chọn màu chữ dễ đọc mà category của Task đang dùng. Màu do admin đặt trong `lead_statuses.color`.
+  - **Key đổi từ `#1` thành `LD1`**, có helper `leadDisplayKey` riêng, đặt cạnh `taskDisplayKey` (`CS-123`) và `enrollmentDisplayKey` (`ACA-123`). Lưu ý: không có dấu gạch nối, theo đúng dạng đã yêu cầu.
+- **Kiểm chứng**: `npm run test:run` 119 files / **847 tests**; typecheck + lint sạch.
+
 ## 2026-08-31 — Event gõ tự do (tự tạo sự kiện), Status khoá ở New khi tạo lead
 - **Loại**: feature, fix
 - **Cái gì**:
