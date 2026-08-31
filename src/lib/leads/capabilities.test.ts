@@ -11,9 +11,9 @@ const theirs = { assigned_to_email: "someone@x.com" } as LeadRow;
 const unassigned = { assigned_to_email: null } as LeadRow;
 
 describe("resolveLeadCapabilities", () => {
-  it("manager: sees and edits every lead, assigns, but does not log for others", () => {
+  it("manager: everything, on any lead", () => {
     expect(resolveLeadCapabilities(manager, theirs)).toEqual({
-      canView: true, canEdit: true, canLog: false, canAssign: true,
+      canView: true, canEdit: true, canLog: true, canAssign: true,
     });
   });
 
@@ -42,6 +42,17 @@ describe("leadIsInScope agrees with canEdit", () => {
   it("manager: null scope, everything in", () => {
     expect(leadIsInScope(theirs, null)).toBe(true);
     expect(leadIsInScope(unassigned, null)).toBe(true);
+  });
+
+  // canLog and canEdit currently agree by rule, not by coincidence — the client
+  // reads one scope list for both, so a divergence would silently mis-render.
+  it("canLog and canEdit agree for every actor on every lead", () => {
+    for (const actor of [manager, agent]) {
+      for (const lead of [mine, theirs, unassigned]) {
+        const caps = resolveLeadCapabilities(actor, lead);
+        expect(caps.canLog).toBe(caps.canEdit);
+      }
+    }
   });
 
   it("worker: matches canEdit for their own lead and for another's", () => {

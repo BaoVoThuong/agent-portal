@@ -104,16 +104,27 @@ export function canEditLead(
 }
 
 /**
- * Logging an interaction. Restricted to the people actually working the lead —
- * its assigned agent and that agent's Assistants — including a manager only
- * when the lead is assigned to them. A manager logging a call on someone
- * else's lead would credit the wrong person's contact count.
+ * Logging an interaction. Same reach as editing: a manager on any lead, a
+ * worker on their own and on their agent's.
+ *
+ * This used to exclude a manager who was not the assigned agent, on the grounds
+ * that contact_attempt_count and last_contacted_at are read as that agent's
+ * record. The counters are per-LEAD, not per-person — they answer "has anyone
+ * called this person yet", which is what the alert engine needs — and every
+ * interaction row stores actor_email, so who actually made the call is never
+ * lost. A manager covering for an agent on leave is ordinary work, and refusing
+ * it just pushed that call outside the system entirely.
+ *
+ * Kept separate from canEditLead even though the two currently agree: logging a
+ * conversation and correcting a field are different acts, and the RPC enforces
+ * rules on logging that editing does not.
  */
 export function canLogInteraction(
   actor: LeadActor,
   lead: Pick<LeadRow, "assigned_to_email">,
   flags: LeadMembershipFlags = {}
 ): boolean {
+  if (actor.isManager) return true;
   if (!actor.isWorker) return false;
   return isLeadOwner(actor, lead) || Boolean(flags.isOwnerOrAssistant);
 }

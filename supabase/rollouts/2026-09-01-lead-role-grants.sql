@@ -12,6 +12,8 @@
 -- Trước file này chỉ role 'Admin' có quyền lead, nghĩa là đúng 3 tài khoản
 -- dùng được module, và dropdown "gán cho ai" chỉ có 3 lựa chọn.
 --
+-- Cũng xoá luôn quyền chết `lead.export` (không code nào đọc).
+--
 -- Idempotent. Chạy lại lần hai là no-op.
 -- =====================================================================
 
@@ -50,8 +52,18 @@ where rp.role_id = roles.id
   and rp.permission_key = 'lead.manage'
   and roles.name <> 'Admin';
 
+-- ---------- 4. Xoá quyền chết lead.export ----------
+-- Quyền này chưa bao giờ có code đọc: grep chỉ ra đúng hai chỗ, khai báo hằng
+-- số và test của chính hằng số đó. Module Lead không có tính năng export.
+-- Giữ một quyền không làm gì trong Role Manager là mời người ta cấp nó rồi
+-- tưởng đã bật được thứ gì.
+--
+-- Nếu sau này làm export thật thì thêm lại kèm route, đừng cấp trước.
+delete from role_permissions where permission_key = 'lead.export';
+delete from permissions where key = 'lead.export';
+
 -- ---------- Kiểm chứng ----------
--- Một dòng. Cả ba cột phải đọc ok.
+-- Một dòng. Cả bốn cột phải đọc ok.
 select
   case when (select count(*) from role_permissions rp
              join roles r on r.id = rp.role_id
@@ -66,7 +78,9 @@ select
   case when exists (select 1 from role_permissions rp
                     join roles r on r.id = rp.role_id
                     where r.name = 'Admin' and rp.permission_key = 'lead.manage')
-       then 'ok' else 'FAIL: Admin mất lead.manage' end             as admin_manages;
+       then 'ok' else 'FAIL: Admin mất lead.manage' end             as admin_manages,
+  case when not exists (select 1 from permissions where key = 'lead.export')
+       then 'ok' else 'FAIL: lead.export vẫn còn' end               as export_dropped;
 
 -- ---------- Sau khi chạy: hai truy vấn để tự kiểm ----------
 -- (a) Bao nhiêu người có thể nhận lead? Trước khi chạy file này là 3.

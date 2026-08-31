@@ -54,7 +54,6 @@ export default async function LeadsPage({
   return (
     <LeadsClient
       productFilter={productFilter}
-      currentEmail={email}
       editableOwnerEmails={ownerEmails}
       isManager={actor.isManager}
       initialLeads={page.rows}

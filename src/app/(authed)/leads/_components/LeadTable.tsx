@@ -33,21 +33,21 @@ import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 
 const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   key: 100,
-  // A person name needs noticeably less room than a task title. Keep it
-  // compact without truncating ordinary full names, so the table exposes more
-  // useful lead data before horizontal scrolling starts.
-  name: 240,
-  phone: 140,
-  secondary_phone: 180,
-  email: 240,
-  assignee: 190,
+  // Use the same width rhythm as the configured Health Task List. A lead name
+  // has no task-row flags beside it, so it can stay compact at 220px.
+  name: 220,
+  product: 108,
+  phone: 112,
+  secondary_phone: 160,
+  email: 190,
+  assignee: 180,
   status: 140,
-  // Five 44px interaction badges + four gaps fit inside this cell. More
-  // history is available by dragging the cell without moving the full table.
-  interactionHistory: 272,
-  attempts: 100,
-  lastContact: 140,
-  followUp: 140,
+  // This is the Task List's category width. After the shared 12px cell
+  // padding on each side, it fits five 44px badges and their four gaps.
+  interactionHistory: 260,
+  attempts: 80,
+  lastContact: 112,
+  followUp: 112,
   event: 180,
   createdAt: 136,
 };
@@ -545,7 +545,7 @@ function LeadDataCell({
           value={lead.next_follow_up_at ? lead.next_follow_up_at.slice(0, 10) : null}
           canEdit={canEdit}
           onSave={(next) => onPatch({ next_follow_up_at: next })}
-          className="w-full !font-medium !text-[#6b778c]"
+          className="w-full !text-[11px] !font-medium !text-[#6b778c]"
         />
       </div>
     );
@@ -829,7 +829,7 @@ function InteractionHistoryCell({
         const palette = interactionBadgePalette(interactionType, label);
         return (
           <span
-            className="inline-flex h-5 w-11 shrink-0 snap-start items-center justify-center truncate rounded-[3px] px-1.5 text-[10px] font-bold uppercase leading-none tracking-[0.025em]"
+            className="inline-flex h-5 w-11 shrink-0 snap-start items-center justify-center truncate rounded-[3px] px-1 text-[11px] font-semibold uppercase leading-none tracking-[0.025em]"
             key={interaction.id}
             style={{
               backgroundColor: palette.background,

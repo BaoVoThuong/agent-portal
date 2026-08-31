@@ -8,7 +8,7 @@
 --
 -- Superseded (deleted from supabase/rollouts/):
 --   2026-08-27-lead-schema.sql              tables, indexes, seeded vocabulary
---   2026-08-28-lead-permissions.sql        lead.manage / lead.work / lead.export
+--   2026-08-28-lead-permissions.sql        lead.manage / lead.work
 --   2026-08-28-lead-table-scopes.sql       widened the scope CHECK constraints
 --   2026-08-28-lead-rpc.sql                the interaction RPC
 --   2026-08-31-lead-detail-columns.sql     show_in_detail + Secondary Phone
@@ -791,8 +791,7 @@ where column_row.scope = 'lead'
 insert into permissions (key, label, description, group_key, group_label, sort_order)
 values
   ('lead.manage', 'Manage Leads', 'Import leads, assign them, and see every agent''s queue.', 'leads', 'Lead Management', 100),
-  ('lead.work', 'Work Leads', 'See and log interactions on leads assigned to you.', 'leads', 'Lead Management', 200),
-  ('lead.export', 'Export Leads', 'Download the lead table as a spreadsheet.', 'leads', 'Lead Management', 300)
+  ('lead.work', 'Work Leads', 'See and log interactions on leads assigned to you.', 'leads', 'Lead Management', 200)
 on conflict (key) do update set
   label = excluded.label,
   description = excluded.description,
@@ -805,7 +804,7 @@ select roles.id, permissions.key
 from roles
 cross join permissions
 where roles.name = 'Admin'
-  and permissions.key in ('lead.manage', 'lead.work', 'lead.export')
+  and permissions.key in ('lead.manage', 'lead.work')
 on conflict (role_id, permission_key) do nothing;
 
 -- ---------- 10. Badge colours ----------
@@ -856,7 +855,7 @@ select
              where scope = 'lead' and key = 'event' and type = 'text') = 1
        then 'ok' else 'FAIL: event column type' end                     as event_column,
   case when (select count(*) from permissions
-             where key in ('lead.manage','lead.work','lead.export')) = 3
+             where key in ('lead.manage','lead.work')) = 2
        then 'ok' else 'FAIL: permissions missing' end                   as permissions,
   case when (select count(*) from table_column_option option_row
              join table_column column_row on column_row.id = option_row.column_id

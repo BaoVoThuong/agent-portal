@@ -38,10 +38,15 @@ describe("lead access", () => {
     expect(canManageLeads(outsider)).toBe(false);
   });
 
-  it("only the owning agent logs interactions", () => {
+  // Logging reaches as far as editing. It used to exclude a manager who was
+  // not the assigned agent; that just pushed a manager covering for someone on
+  // leave outside the system, and every interaction row records actor_email so
+  // who made the call is never lost.
+  it("agent logs on their own lead, manager logs on any", () => {
     expect(canLogInteraction(agent, mine)).toBe(true);
-    expect(canLogInteraction(manager, theirs)).toBe(false);
-    expect(canLogInteraction(manager, { assigned_to_email: "mgr@x.com" } as LeadRow)).toBe(true);
+    expect(canLogInteraction(agent, theirs)).toBe(false);
+    expect(canLogInteraction(manager, theirs)).toBe(true);
+    expect(canLogInteraction(manager, unassigned)).toBe(true);
   });
 });
 

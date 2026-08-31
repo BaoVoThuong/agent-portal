@@ -36,7 +36,6 @@ import { LeadTable } from "./LeadTable";
 type LeadsClientProps = {
   /** null = every product. A filter now, not a separate screen. */
   productFilter: "pc" | "health" | null;
-  currentEmail: string;
   isManager: boolean;
   /**
    * Emails whose leads this person may edit and log against: their own plus
@@ -79,7 +78,6 @@ function sourceNonce(): string {
 
 export function LeadsClient({
   productFilter,
-  currentEmail,
   isManager,
   editableOwnerEmails,
   initialLeads,
@@ -726,7 +724,6 @@ export function LeadsClient({
       {view === "list" && (
         <LeadDetailDrawer
           lead={selectedLead}
-          currentEmail={currentEmail}
           sourceId={sourceId}
           statuses={statuses}
           columns={columns}

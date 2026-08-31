@@ -70,7 +70,6 @@ function customValue(
 
 type LeadDetailDrawerProps = {
   lead: LeadRow | null;
-  currentEmail: string;
   sourceId: string;
   statuses: LeadStatus[];
   columns: TableColumn[];
@@ -86,7 +85,6 @@ type LeadDetailDrawerProps = {
 
 export function LeadDetailDrawer({
   lead,
-  currentEmail,
   sourceId,
   statuses,
   columns,
@@ -176,14 +174,9 @@ export function LeadDetailDrawer({
   const visibleInteractions =
     loadedLeadId === currentLead.id ? interactions : [];
   const visibleError = loadedLeadId === currentLead.id ? loadError : null;
-  // Logging follows the same agent/assistant pairing the API enforces: an
-  // Assistant logs calls on their agent's leads. A manager who is not the owner
-  // still cannot log — the contact count belongs to whoever works the lead,
-  // which is why a manager's null scope is narrowed back to their own email.
-  const canLog = leadIsInScope(
-    currentLead,
-    editableOwnerEmails ?? [currentEmail.trim().toLowerCase()],
-  );
+  // Same reach as editing: a manager (null scope) on any lead, a worker on
+  // their own and on the leads of agents they assist.
+  const canLog = leadIsInScope(currentLead, editableOwnerEmails);
 
   async function saveInteraction(payload: {
     type_id: string;

@@ -17,7 +17,6 @@ export const PERMISSIONS = {
   TASK_EXPORT: "task.export",
   LEAD_MANAGE: "lead.manage",
   LEAD_WORK: "lead.work",
-  LEAD_EXPORT: "lead.export",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -180,13 +179,5 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Lead Management",
     description: "See and log interactions on leads assigned to you.",
     sortOrder: 200,
-  },
-  {
-    key: PERMISSIONS.LEAD_EXPORT,
-    label: "Export Leads",
-    groupKey: "leads",
-    groupLabel: "Lead Management",
-    description: "Download the lead table as a spreadsheet.",
-    sortOrder: 300,
   },
 ];

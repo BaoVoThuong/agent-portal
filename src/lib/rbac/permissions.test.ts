@@ -20,8 +20,7 @@ describe("lead permissions", () => {
   it("declares all lead permission keys and definitions", () => {
     expect(PERMISSIONS.LEAD_MANAGE).toBe("lead.manage");
     expect(PERMISSIONS.LEAD_WORK).toBe("lead.work");
-    expect(PERMISSIONS.LEAD_EXPORT).toBe("lead.export");
     expect(PERMISSION_DEFINITIONS.filter((d) => d.groupKey === "leads").map((d) => d.key))
-      .toEqual(["lead.manage", "lead.work", "lead.export"]);
+      .toEqual(["lead.manage", "lead.work"]);
   });
 });

@@ -6,6 +6,26 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Xoá quyền chết `lead.export`, cho manager ghi tương tác
+
+- **Loại**: chore (xoá quyền chết) + fix (nới quyền ghi)
+
+### `lead.export` — xoá
+- Quyền này chưa bao giờ có code đọc: `grep` chỉ ra đúng hai chỗ, khai báo hằng số và test của chính hằng số đó. Module Lead không có tính năng export. Giữ nó trong Role Manager là mời người ta cấp rồi tưởng đã bật được thứ gì.
+- **Gỡ khỏi 5 chỗ**: `PERMISSIONS`, `PERMISSION_DEFINITIONS`, `permissions.test.ts`, `supabase/schema.sql` (cả dòng seed lẫn dòng cấp cho Admin), và `2026-08-31-lead-final.sql` (seed + lệnh cấp + cột kiểm chứng `= 3` thành `= 2`).
+- **Gỡ khỏi rollout là bắt buộc chứ không phải dọn dẹp**: file đó **chưa chạy**, để nguyên thì chạy nó sẽ tạo lại đúng cái quyền vừa xoá.
+- Lệnh xoá khỏi DB gộp vào `2026-09-01-lead-role-grants.sql` (mục 4) để số file phải chạy vẫn là 2, kèm cột kiểm chứng `export_dropped`.
+
+### `canLogInteraction` — manager ghi được trên mọi lead
+- **Trước**: kể cả admin cũng không ghi được tương tác lên lead không phải của mình.
+- **Sau**: thêm nhánh `if (actor.isManager) return true`, ngang tầm `canEditLead`.
+- **Lo ngại ban đầu không đứng vững**: `contact_attempt_count` và `last_contacted_at` là của **LEAD**, không phải của người — chúng trả lời "đã có ai gọi người này chưa", đúng thứ engine cảnh báo cần. Và mỗi dòng `lead_interactions` đều lưu `actor_email` nên ai thật sự gọi không bao giờ mất. Manager gọi thay agent đang nghỉ là việc bình thường; cấm nó chỉ đẩy cuộc gọi ra ngoài hệ thống.
+- **Không phải sửa RPC**: `log_lead_interaction_atomic` chưa bao giờ kiểm chủ lead — nó nhận `p_actor_email` rồi ghi thẳng. Cổng duy nhất là hàm TS.
+- **Giữ `canLog` tách khỏi `canEdit`** dù hai cái hiện cho cùng kết quả: ghi lại một cuộc trò chuyện và sửa một ô dữ liệu là hai việc khác nhau, và RPC áp thêm ràng buộc lên việc ghi. Thêm một test quét mọi tổ hợp actor × lead khẳng định hai cái đang bằng nhau — lệch là fail chứ không âm thầm.
+- **Dọn kèm**: `LeadDetailDrawer` không còn cần `currentEmail` (nó chỉ dùng để thu hẹp scope của manager), đã gỡ khỏi cả chuỗi truyền props từ `page.tsx` xuống.
+
+- **Kiểm chứng**: rollout grants chạy lại trên PostgreSQL 16 với bản sao hiện trạng — 4 cột `ok`, chạy lần hai no-op, bảng `permissions` còn đúng `lead.manage` + `lead.work`. `npm run test:run` 125 files / **902 tests**; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Lead RBAC: fix bug phân quyền + gộp luật về một nơi
 
 - **Loại**: fix (bug phân quyền) + chore (chống trôi lệch)
