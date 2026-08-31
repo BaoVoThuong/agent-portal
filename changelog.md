@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Modal chi tiết Lead: bổ sung các trường bị thiếu
+
+- **Loại**: fix (thiếu thông tin) + UI
+- **Vấn đề**: modal chi tiết chỉ hiện Status, Assigned to, Attempts, Last contact, Follow-up. Số điện thoại và email bị nhồi vào một dòng phụ màu xám, và **9 trường có thật trong `LeadRow` không hiện ở đâu cả**.
+- **Đã thêm — cột trái**: Phone và Email thành field có nhãn (bấm được: `tel:` / `mailto:`), và **Event** — modal trước đó không nói lead này đến từ sự kiện nào, trong khi đó là lý do tồn tại của bảng.
+- **Đã thêm — rail phải**: **Product** (badge, lấy màu từ config như ngoài bảng), **Assigned by** + **Assigned at** (ai giao và giao lúc nào — module này sinh ra để quy trách nhiệm giao lead, mà trước đó modal chỉ hiện người nhận), **First contact**, **Closed** (chỉ hiện khi lead đã đóng), **Imported by** + **Imported at**, **Last edited by** + **Last edited at**.
+- **Chia nhóm bằng đường kẻ**: workflow (product/status/người) — tiến trình liên hệ — lịch sử bản ghi. Mười mấy field xếp thẳng một cột thì không ai đọc.
+- **Tên người thay vì email**: modal nhận `nameByEmail` từ danh sách và truyền vào `personLabel(email, nameByEmail)`. Trước đó nó gọi `personLabel(email)` không map nên luôn rơi về bản suy ra từ email, kể cả khi tài khoản đã có tên thật.
+- **Kiểm chứng**: typecheck, lint, `npm run build`, `npm run test:run` 121 files / 868 tests — sạch.
+
 ## 2026-09-01 — Mọi dropdown value của Lead về chung một chỗ: Lead Table Config → Values
 
 - **Loại**: feature + chore (dọn chỗ ở của dữ liệu cấu hình)

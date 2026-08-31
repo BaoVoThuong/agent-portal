@@ -659,6 +659,7 @@ export function LeadsClient({
           columns={columns}
           columnOptions={columnOptions}
           interactionTypes={interactionTypes}
+          nameByEmail={nameByEmail}
           onClose={() => setSelectedLead(null)}
           onLeadUpdated={updateLead}
         />

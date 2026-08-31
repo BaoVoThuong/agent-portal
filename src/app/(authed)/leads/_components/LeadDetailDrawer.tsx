@@ -13,10 +13,24 @@ import { InteractionLog } from "./InteractionLog";
 import { leadDisplayKey } from "@/lib/leads/display";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
+import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { Initials } from "../../tasks/_components/board-ui";
 
 const LABEL_CLASS =
   "text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]";
+
+const EMPTY = "—";
+
+function displayDateTime(value: string | null): string {
+  if (!value) return EMPTY;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? EMPTY : date.toLocaleString();
+}
+
+/** The two labels the Product column's configured values are seeded with. */
+function productOptionLabel(product: LeadRow["product"]): string {
+  return product === "health" ? "Health" : "P&C";
+}
 
 /** The same palette the task board gives its categories, so the two read alike. */
 function statusBadgeStyle(status: LeadStatus) {
@@ -25,6 +39,17 @@ function statusBadgeStyle(status: LeadStatus) {
     name: status.label,
     color: status.color,
   });
+  return { backgroundColor: palette.background, color: palette.foreground };
+}
+
+/** Same colour rules as the list's Product badge: config first, hash fallback. */
+function optionBadgeStyle(
+  option: TableColumnOption | undefined,
+  label: string,
+) {
+  const palette = tableColumnOptionBadgePalette(
+    option ?? { id: label, label, color: null },
+  );
   return { backgroundColor: palette.background, color: palette.foreground };
 }
 
@@ -50,6 +75,8 @@ type LeadDetailDrawerProps = {
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
   interactionTypes: LeadInteractionType[];
+  /** Account names, so the rail shows people the way the board does. */
+  nameByEmail: Map<string, string>;
   onClose: () => void;
   onLeadUpdated: (lead: LeadRow, interaction?: LeadInteraction) => void;
 };
@@ -62,6 +89,7 @@ export function LeadDetailDrawer({
   columns,
   columnOptions,
   interactionTypes,
+  nameByEmail,
   onClose,
   onLeadUpdated,
 }: LeadDetailDrawerProps) {
@@ -126,6 +154,17 @@ export function LeadDetailDrawer({
     }
     return map;
   }, [columnOptions]);
+  const productColumn = columns.find(
+    (column) => column.key === "product" && !column.archived_at,
+  );
+  const productOption = productColumn
+    ? optionsByColumn
+        .get(productColumn.id)
+        ?.find(
+          (candidate) =>
+            candidate.label === productOptionLabel(lead?.product ?? "pc"),
+        )
+    : undefined;
   const leadStatus = currentLeadStatus;
   if (!lead) return null;
   const currentLead = lead;
@@ -208,22 +247,57 @@ export function LeadDetailDrawer({
                 <h2 className="text-xl font-semibold text-[#172b4d]">
                   {currentLead.full_name || "Unnamed lead"}
                 </h2>
-                <p className="text-sm text-[#626f86]">
-                  {currentLead.phone || "No phone"}
-                  {currentLead.email ? ` · ${currentLead.email}` : ""}
-                </p>
               </div>
 
-              {detailColumns.length > 0 ? (
-                <div className="grid shrink-0 grid-cols-2 gap-3">
-                  {detailColumns.map((column) =>
-                    detailField(
-                      column.label,
-                      customValue(currentLead, column, optionsByColumn),
-                    ),
-                  )}
-                </div>
-              ) : null}
+              {/* Phone, email and event were one grey subtitle line. They are
+                  the three things someone opens a lead to read, so they get
+                  labelled fields like every other value — and the event is the
+                  only place the drawer says where this lead came from. */}
+              <div className="grid shrink-0 grid-cols-2 gap-3">
+                {detailField(
+                  "Phone",
+                  currentLead.phone ? (
+                    <a
+                      className="truncate font-semibold text-[#0c66e4] hover:underline"
+                      href={`tel:${currentLead.phone}`}
+                    >
+                      {currentLead.phone}
+                    </a>
+                  ) : (
+                    <span className="text-[#8993a4]">{EMPTY}</span>
+                  ),
+                )}
+                {detailField(
+                  "Email",
+                  currentLead.email ? (
+                    <a
+                      className="truncate font-semibold text-[#0c66e4] hover:underline"
+                      href={`mailto:${currentLead.email}`}
+                      title={currentLead.email}
+                    >
+                      {currentLead.email}
+                    </a>
+                  ) : (
+                    <span className="text-[#8993a4]">{EMPTY}</span>
+                  ),
+                )}
+                {detailField(
+                  "Event",
+                  currentLead.event_id ? (
+                    <span className="truncate" title={currentLead.event_id}>
+                      {currentLead.event_id}
+                    </span>
+                  ) : (
+                    <span className="text-[#8993a4]">{EMPTY}</span>
+                  ),
+                )}
+                {detailColumns.map((column) =>
+                  detailField(
+                    column.label,
+                    customValue(currentLead, column, optionsByColumn),
+                  ),
+                )}
+              </div>
 
               <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
@@ -253,7 +327,7 @@ export function LeadDetailDrawer({
                   canLog={canLog}
                   ownerLabel={
                     currentLead.assigned_to_email
-                      ? personLabel(currentLead.assigned_to_email)
+                      ? personLabel(currentLead.assigned_to_email, nameByEmail)
                       : null
                   }
                   sourceId={sourceId}
@@ -263,6 +337,18 @@ export function LeadDetailDrawer({
             </main>
 
             <aside className="space-y-3 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
+              {detailField(
+                "Product",
+                <span
+                  className="inline-flex items-center rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide"
+                  style={optionBadgeStyle(
+                    productOption,
+                    productOptionLabel(currentLead.product),
+                  )}
+                >
+                  {productOptionLabel(currentLead.product)}
+                </span>,
+              )}
               {detailField(
                 "Status",
                 leadStatus ? (
@@ -282,29 +368,94 @@ export function LeadDetailDrawer({
                   <span className="flex min-w-0 items-center gap-2">
                     <Initials
                       email={currentLead.assigned_to_email}
-                      label={personLabel(currentLead.assigned_to_email)}
+                      label={personLabel(currentLead.assigned_to_email, nameByEmail)}
                     />
                     <span className="truncate">
-                      {personLabel(currentLead.assigned_to_email)}
+                      {personLabel(currentLead.assigned_to_email, nameByEmail)}
                     </span>
                   </span>
                 ) : (
                   <span className="text-[#8993a4]">Unassigned</span>
                 ),
               )}
-              {detailField("Attempts", currentLead.contact_attempt_count)}
+              {/* Who handed this lead over and when. The whole point of the
+                  module is that an assignment is accountable, and until now the
+                  drawer showed the owner without showing who put them there. */}
               {detailField(
-                "Last contact",
-                currentLead.last_contacted_at
-                  ? new Date(currentLead.last_contacted_at).toLocaleString()
-                  : "Never",
+                "Assigned by",
+                currentLead.assigned_by_email ? (
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Initials
+                      email={currentLead.assigned_by_email}
+                      label={personLabel(currentLead.assigned_by_email, nameByEmail)}
+                    />
+                    <span className="truncate">
+                      {personLabel(currentLead.assigned_by_email, nameByEmail)}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-[#8993a4]">{EMPTY}</span>
+                ),
               )}
-              {detailField(
-                "Follow-up",
-                currentLead.next_follow_up_at
-                  ? new Date(currentLead.next_follow_up_at).toLocaleString()
-                  : "—",
-              )}
+              {detailField("Assigned at", displayDateTime(currentLead.assigned_at))}
+
+              <div className="space-y-3 border-t border-[#dfe1e6] pt-3">
+                {detailField("Attempts", currentLead.contact_attempt_count)}
+                {detailField(
+                  "First contact",
+                  currentLead.first_contacted_at
+                    ? displayDateTime(currentLead.first_contacted_at)
+                    : "Never",
+                )}
+                {detailField(
+                  "Last contact",
+                  currentLead.last_contacted_at
+                    ? displayDateTime(currentLead.last_contacted_at)
+                    : "Never",
+                )}
+                {detailField(
+                  "Follow-up",
+                  displayDateTime(currentLead.next_follow_up_at),
+                )}
+                {currentLead.closed_at
+                  ? detailField("Closed", displayDateTime(currentLead.closed_at))
+                  : null}
+              </div>
+
+              {/* Record history. Imported-by answers "where did this row come
+                  from" on a table that is mostly filled by spreadsheet import. */}
+              <div className="space-y-3 border-t border-[#dfe1e6] pt-3">
+                {detailField(
+                  "Imported by",
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Initials
+                      email={currentLead.created_by_email}
+                      label={personLabel(currentLead.created_by_email, nameByEmail)}
+                    />
+                    <span className="truncate">
+                      {personLabel(currentLead.created_by_email, nameByEmail)}
+                    </span>
+                  </span>,
+                )}
+                {detailField("Imported at", displayDateTime(currentLead.created_at))}
+                {detailField(
+                  "Last edited by",
+                  currentLead.updated_by_email ? (
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Initials
+                        email={currentLead.updated_by_email}
+                        label={personLabel(currentLead.updated_by_email, nameByEmail)}
+                      />
+                      <span className="truncate">
+                        {personLabel(currentLead.updated_by_email, nameByEmail)}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-[#8993a4]">{EMPTY}</span>
+                  ),
+                )}
+                {detailField("Last edited at", displayDateTime(currentLead.updated_at))}
+              </div>
             </aside>
           </div>
         </div>
