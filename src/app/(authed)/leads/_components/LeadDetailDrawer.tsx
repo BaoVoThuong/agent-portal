@@ -51,7 +51,7 @@ type LeadDetailDrawerProps = {
   columnOptions: TableColumnOption[];
   interactionTypes: LeadInteractionType[];
   onClose: () => void;
-  onLeadUpdated: (lead: LeadRow) => void;
+  onLeadUpdated: (lead: LeadRow, interaction?: LeadInteraction) => void;
 };
 
 export function LeadDetailDrawer({
@@ -155,8 +155,9 @@ export function LeadDetailDrawer({
     const result = await response.json().catch(() => null);
     if (!response.ok)
       throw new Error(result?.error ?? "Could not save interaction.");
-    if (result?.lead) onLeadUpdated(result.lead as LeadRow);
-    return { interaction: result.interaction as LeadInteraction };
+    const interaction = result.interaction as LeadInteraction;
+    if (result?.lead) onLeadUpdated(result.lead as LeadRow, interaction);
+    return { interaction };
   }
 
   function detailField(label: string, value: React.ReactNode) {

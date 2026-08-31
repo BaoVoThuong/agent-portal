@@ -42,6 +42,16 @@ export type LeadInteractionType = {
   archived_at: string | null;
 };
 
+/** Minimal interaction shape embedded in the Lead List response. */
+export type LeadInteractionPreview = {
+  id: string;
+  type_id: string;
+  occurred_at: string;
+};
+
+/** Bounded list payload; the detail drawer remains the full audit trail. */
+export const LEAD_INTERACTION_HISTORY_LIMIT = 50;
+
 export type LeadRow = {
   id: string;
   display_number: number;
@@ -65,16 +75,15 @@ export type LeadRow = {
   updated_at: string;
   custom_values: Record<string, unknown>;
   archived_at: string | null;
+  /** Newest first; bounded for the list while the drawer exposes full history. */
+  interaction_history?: LeadInteractionPreview[];
 };
 
-export type LeadInteraction = {
-  id: string;
+export type LeadInteraction = LeadInteractionPreview & {
   lead_id: string;
-  type_id: string;
   status_id: string | null;
   note: string | null;
   actor_email: string;
-  occurred_at: string;
   follow_up_at: string | null;
   created_at: string;
 };

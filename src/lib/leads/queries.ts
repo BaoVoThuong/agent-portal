@@ -2,7 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { LeadAlert } from "./alerts";
 import type { LeadActor } from "./access";
-import { toLeadProduct, type LeadAlertSettings, type LeadProduct, type LeadRow } from "./types";
+import {
+  LEAD_INTERACTION_HISTORY_LIMIT,
+  toLeadProduct,
+  type LeadAlertSettings,
+  type LeadInteractionPreview,
+  type LeadProduct,
+  type LeadRow,
+} from "./types";
 
 export const LEAD_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
@@ -67,6 +74,8 @@ const LEAD_COLUMNS =
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
   "updated_by_email,updated_at,custom_values,archived_at";
+const LEAD_LIST_COLUMNS =
+  `${LEAD_COLUMNS},lead_interactions(id,type_id,occurred_at)`;
 
 export async function fetchLeadsPage(
   actor: LeadActor,
@@ -99,7 +108,7 @@ export async function fetchLeadsPage(
   }
   let query = supabase
     .from("leads")
-    .select(LEAD_COLUMNS, { count: "exact" })
+    .select(LEAD_LIST_COLUMNS, { count: "exact" })
     .is("archived_at", null)
     .eq("product", filter.product)
     .order("created_at", { ascending: false })
@@ -134,12 +143,34 @@ export async function fetchLeadsPage(
     }
   }
 
-  const { data, error, count: total } = await query;
+  const { data, error, count: total } = await query
+    // PostgREST applies the embedded ordering/limit for every lead, avoiding
+    // an N+1 history request or an unbounded history payload for the table.
+    .order("occurred_at", {
+      ascending: false,
+      referencedTable: "lead_interactions",
+    })
+    .limit(LEAD_INTERACTION_HISTORY_LIMIT, {
+      referencedTable: "lead_interactions",
+    });
   if (error) throw new Error(error.message);
   return {
-    rows: (data ?? []) as unknown as LeadRow[],
+    rows: (data ?? []).map(toLeadRowWithInteractionHistory),
     total: total ?? 0,
     filter,
+  };
+}
+
+function toLeadRowWithInteractionHistory(row: unknown): LeadRow {
+  const source = row as LeadRow & {
+    lead_interactions?: LeadInteractionPreview[] | null;
+  };
+  const { lead_interactions, ...lead } = source;
+  return {
+    ...lead,
+    interaction_history: Array.isArray(lead_interactions)
+      ? lead_interactions
+      : [],
   };
 }
 

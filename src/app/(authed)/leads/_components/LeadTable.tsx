@@ -1,9 +1,20 @@
 "use client";
 
-import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import { useRef } from "react";
+import type {
+  CSSProperties,
+  MouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import { Check } from "lucide-react";
 import { leadDisplayKey } from "@/lib/leads/display";
-import type { LeadRow, LeadStatus } from "@/lib/leads/types";
+import type {
+  LeadInteractionPreview,
+  LeadInteractionType,
+  LeadRow,
+  LeadStatus,
+} from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { Initials } from "../../tasks/_components/board-ui";
@@ -20,6 +31,9 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   email: 240,
   assignee: 190,
   status: 140,
+  // Five 42px labels + four gaps fit inside this cell. More history is
+  // available by dragging the cell without moving the full table.
+  interactionHistory: 272,
   attempts: 100,
   lastContact: 140,
   followUp: 140,
@@ -34,6 +48,7 @@ type LeadTableProps = {
   leads: LeadRow[];
   columns: TableColumn[];
   statuses: LeadStatus[];
+  interactionTypes: LeadInteractionType[];
   columnOptions: TableColumnOption[];
   nameByEmail: Map<string, string>;
   isManager: boolean;
@@ -48,6 +63,7 @@ export function LeadTable({
   leads,
   columns,
   statuses,
+  interactionTypes,
   columnOptions,
   nameByEmail,
   isManager,
@@ -58,6 +74,9 @@ export function LeadTable({
   onOpenLead,
 }: LeadTableProps) {
   const statusById = new Map(statuses.map((status) => [status.id, status]));
+  const interactionTypeById = new Map(
+    interactionTypes.map((type) => [type.id, type]),
+  );
   const optionsByColumn = new Map<string, TableColumnOption[]>();
   for (const option of columnOptions) {
     optionsByColumn.set(option.column_id, [
@@ -127,6 +146,7 @@ export function LeadTable({
                     columns={columns}
                     status={status}
                     statuses={statusById}
+                    interactionTypeById={interactionTypeById}
                     optionsByColumn={optionsByColumn}
                     nameByEmail={nameByEmail}
                     isManager={isManager}
@@ -172,6 +192,7 @@ function LeadRow({
   columns,
   status,
   statuses,
+  interactionTypeById,
   optionsByColumn,
   nameByEmail,
   isManager,
@@ -184,6 +205,7 @@ function LeadRow({
   columns: TableColumn[];
   status: LeadStatus | undefined;
   statuses: ReadonlyMap<string, LeadStatus>;
+  interactionTypeById: ReadonlyMap<string, LeadInteractionType>;
   optionsByColumn: ReadonlyMap<string, TableColumnOption[]>;
   nameByEmail: Map<string, string>;
   isManager: boolean;
@@ -217,6 +239,7 @@ function LeadRow({
           column={column}
           status={status}
           statuses={statuses}
+          interactionTypeById={interactionTypeById}
           options={optionsByColumn.get(column.id) ?? []}
           nameByEmail={nameByEmail}
           pinnedOffset={pinnedOffsetByKey.get(column.key)}
@@ -232,6 +255,7 @@ function LeadDataCell({
   column,
   status,
   statuses,
+  interactionTypeById,
   options,
   nameByEmail,
   pinnedOffset,
@@ -241,6 +265,7 @@ function LeadDataCell({
   column: TableColumn;
   status: LeadStatus | undefined;
   statuses: ReadonlyMap<string, LeadStatus>;
+  interactionTypeById: ReadonlyMap<string, LeadInteractionType>;
   options: TableColumnOption[];
   nameByEmail: Map<string, string>;
   pinnedOffset?: number;
@@ -281,6 +306,17 @@ function LeadDataCell({
             {lead.full_name ?? "Unnamed lead"}
           </span>
         </button>
+      </div>
+    );
+  }
+
+  if (column.key === "interactionHistory") {
+    return (
+      <div style={style} className={baseClassName}>
+        <InteractionHistoryCell
+          interactions={lead.interaction_history ?? []}
+          interactionTypeById={interactionTypeById}
+        />
       </div>
     );
   }
@@ -358,6 +394,96 @@ function StatusBadge({ status }: { status: LeadStatus | undefined }) {
       {status.label}
     </span>
   );
+}
+
+function InteractionHistoryCell({
+  interactions,
+  interactionTypeById,
+}: {
+  interactions: LeadInteractionPreview[];
+  interactionTypeById: ReadonlyMap<string, LeadInteractionType>;
+}) {
+  const drag = useRef<{
+    pointerId: number;
+    startX: number;
+    startScrollLeft: number;
+  } | null>(null);
+
+  if (interactions.length === 0) {
+    return <span className="text-xs font-semibold text-[#97a0af]">—</span>;
+  }
+
+  function startDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.stopPropagation();
+    drag.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: event.currentTarget.scrollLeft,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const currentDrag = drag.current;
+    if (!currentDrag || currentDrag.pointerId !== event.pointerId) return;
+    event.stopPropagation();
+    const distance = event.clientX - currentDrag.startX;
+    if (Math.abs(distance) > 2) event.preventDefault();
+    event.currentTarget.scrollLeft = currentDrag.startScrollLeft - distance;
+  }
+
+  function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    event.stopPropagation();
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  return (
+    <div
+      tabIndex={0}
+      aria-label={`Interaction history: ${interactions.length} entries, newest first. Drag horizontally to browse.`}
+      className="flex w-full min-w-0 cursor-grab touch-pan-y snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain select-none scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden active:cursor-grabbing"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={startDrag}
+      onPointerMove={moveDrag}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.scrollBy({
+          left: event.key === "ArrowLeft" ? -72 : 72,
+          behavior: "smooth",
+        });
+      }}
+    >
+      {interactions.map((interaction) => {
+        const label =
+          interactionTypeById.get(interaction.type_id)?.label ?? "Unknown";
+        return (
+          <span
+            className="w-[42px] shrink-0 snap-start truncate text-xs font-semibold text-[#42526e]"
+            key={interaction.id}
+            title={interactionTitle(label, interaction.occurred_at)}
+          >
+            {label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function interactionTitle(label: string, occurredAt: string): string {
+  const date = new Date(occurredAt);
+  return Number.isNaN(date.getTime())
+    ? label
+    : `${label} · ${date.toLocaleString()}`;
 }
 
 function leadColumnValue(

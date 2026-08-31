@@ -6,6 +6,8 @@ import type {
   LeadInteractionType,
   LeadStatus,
 } from "@/lib/leads/types";
+import { personLabel } from "@/lib/tasks/people";
+import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 
 type InteractionLogProps = {
   statuses: LeadStatus[];
@@ -42,6 +44,24 @@ function relativeTime(value: string): string {
 function formatDateTimeInput(value: Date): string {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
+}
+
+/**
+ * One rectangle per vocabulary value, coloured by whatever the admin picked in
+ * Lead Table Configuration. Falls back to the shared palette keyed on the id,
+ * so a freshly added type still reads distinctly instead of blending in.
+ */
+function badgeStyle(
+  id: string,
+  label: string,
+  color: string | null | undefined,
+) {
+  const palette = taskCategoryBadgePalette({
+    id,
+    name: label,
+    color: color ?? null,
+  });
+  return { backgroundColor: palette.background, color: palette.foreground };
 }
 
 export function InteractionLog({
@@ -232,14 +252,30 @@ export function InteractionLog({
                 key={interaction.id}
                 className="border border-[#e6eaf0] bg-white px-3 py-3 shadow-[0_1px_1px_rgba(22,35,58,0.03)]"
               >
-                <div className="flex flex-wrap items-center gap-1.5 text-xs text-[#6b778c]">
-                  <span className="font-semibold text-[#172b4d]">
-                    [{interactionType?.label ?? "Interaction"}]
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[#6b778c]">
+                  <span
+                    className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.04em]"
+                    style={badgeStyle(
+                      interactionType?.id ?? interaction.type_id,
+                      interactionType?.label ?? "Interaction",
+                      interactionType?.color,
+                    )}
+                  >
+                    {interactionType?.label ?? "Interaction"}
                   </span>
-                  <span>·</span>
-                  <span>{interactionStatus?.label ?? "—"}</span>
-                  <span>·</span>
-                  <span>{interaction.actor_email}</span>
+                  {interactionStatus ? (
+                    <span
+                      className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold"
+                      style={badgeStyle(
+                        interactionStatus.id,
+                        interactionStatus.label,
+                        interactionStatus.color,
+                      )}
+                    >
+                      {interactionStatus.label}
+                    </span>
+                  ) : null}
+                  <span>{personLabel(interaction.actor_email)}</span>
                   <span>·</span>
                   <time dateTime={interaction.occurred_at}>
                     {relativeTime(interaction.occurred_at)}

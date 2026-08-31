@@ -8,10 +8,12 @@ import type { LeadAlert } from "@/lib/leads/alerts";
 import { isOwnLeadMutation, LEADS_TOPIC } from "@/lib/leads/realtime-topics";
 import { personLabel } from "@/lib/tasks/people";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
-import type {
-  LeadInteractionType,
-  LeadRow,
-  LeadStatus,
+import {
+  LEAD_INTERACTION_HISTORY_LIMIT,
+  type LeadInteraction,
+  type LeadInteractionType,
+  type LeadRow,
+  type LeadStatus,
 } from "@/lib/leads/types";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { LeadDetailDrawer } from "./LeadDetailDrawer";
@@ -171,12 +173,27 @@ export function LeadsClient({
     return () => window.clearInterval(timer);
   }, []);
 
-  function updateLead(nextLead: LeadRow) {
+  function updateLead(nextLead: LeadRow, interaction?: LeadInteraction) {
+    const mergeLead = (currentLead: LeadRow): LeadRow => {
+      const history = interaction
+        ? [
+            {
+              id: interaction.id,
+              type_id: interaction.type_id,
+              occurred_at: interaction.occurred_at,
+            },
+            ...(currentLead.interaction_history ?? []).filter(
+              (item) => item.id !== interaction.id,
+            ),
+          ].slice(0, LEAD_INTERACTION_HISTORY_LIMIT)
+        : currentLead.interaction_history;
+      return { ...nextLead, interaction_history: history };
+    };
     setLeads((current) =>
-      current.map((lead) => (lead.id === nextLead.id ? nextLead : lead)),
+      current.map((lead) => (lead.id === nextLead.id ? mergeLead(lead) : lead)),
     );
     setSelectedLead((current) =>
-      current?.id === nextLead.id ? nextLead : current,
+      current?.id === nextLead.id ? mergeLead(current) : current,
     );
     // A status change or a new contact can make a row leave the active alert
     // query. Reconcile the server page so the row and the total do not remain
@@ -407,6 +424,7 @@ export function LeadsClient({
               leads={displayedLeads}
               columns={visibleColumns}
               statuses={statuses}
+              interactionTypes={interactionTypes}
               columnOptions={columnOptions}
               nameByEmail={nameByEmail}
               isManager={isManager}

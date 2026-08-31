@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isTableConfigMissingError } from "./queries";
+import { defaultTableColumns, isTableConfigMissingError } from "./queries";
 
 describe("isTableConfigMissingError", () => {
   it("treats a missing table (Postgres 42P01) as missing", () => {
@@ -45,4 +45,21 @@ describe("isTableConfigMissingError", () => {
     expect(isTableConfigMissingError(null)).toBe(false);
     expect(isTableConfigMissingError(undefined)).toBe(false);
   });
+});
+
+describe("lead interaction-history columns", () => {
+  it.each(["lead_pc", "lead_health"] as const)(
+    "seeds a visible system column for %s",
+    (scope) => {
+      expect(defaultTableColumns(scope)).toContainEqual(
+        expect.objectContaining({
+          key: "interactionHistory",
+          label: "Interaction history",
+          is_system: true,
+          position: 65,
+          hidden_default: false,
+        }),
+      );
+    },
+  );
 });

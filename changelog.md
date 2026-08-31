@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Lịch sử tương tác: mỗi loại một badge màu
+- **Loại**: fix (UI)
+- **Cái gì**: dòng lịch sử trước đây là chữ thuần `[Call] · No answer · email · 2h ago`. Nay loại tương tác và kết quả đều là **badge chữ nhật có nền màu**, lấy màu qua `taskCategoryBadgePalette` — cùng bảng màu và cùng công thức chọn màu chữ dễ đọc mà category của Task đang dùng. Người thực hiện hiện tên thay vì email thô.
+- **Màu đặt có chủ đích, không để hash ngẫu nhiên**: cả hai bảng từ vựng vốn seed `color = NULL`, khiến badge rơi vào nhánh dự phòng băm từ uuid — ổn định nhưng tuỳ tiện, hai loại có thể trùng màu và `Note` có khi trông gấp gáp hơn `Call`. Rollout gán: Call xanh dương, Text xanh lá, Email tím, **Note xám** — xám có lý do: đây là loại duy nhất không tính là đã liên hệ, nên không nên trông giống việc đã đẩy lead tiến lên.
+- **Không ghi đè lựa chọn của admin**: rollout chỉ điền vào ô còn `NULL`. Đã kiểm bằng cách đặt sẵn `#123456` cho một status rồi chạy — giá trị đó giữ nguyên.
+- **Kiểm chứng**: `npm run test:run` 119 files / **849 tests**; typecheck + lint sạch.
+
 ## 2026-08-31 — "Invalid column order": hai RPC vẫn chốt cứng 3 scope cũ
 - **Loại**: fix (bug)
 - **Cái gì**: đổi vị trí cột ở Lead Table Configuration luôn báo `Invalid column order`. Nguyên nhân: `reorder_table_columns_atomic` mở đầu bằng `if p_scope not in ('cs','aca','medicare') then raise COLUMN_ORDER_INVALID`. Thứ tự cột hoàn toàn hợp lệ — **scope mới bị từ chối**, nhưng thông báo lại nói về thứ tự nên rất khó lần ra.
