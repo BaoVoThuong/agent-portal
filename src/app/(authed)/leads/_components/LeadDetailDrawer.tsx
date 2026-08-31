@@ -250,6 +250,11 @@ export function LeadDetailDrawer({
                   interactionTypes={interactionTypes}
                   initialInteractions={visibleInteractions}
                   canLog={canLog}
+                  ownerLabel={
+                    currentLead.assigned_to_email
+                      ? personLabel(currentLead.assigned_to_email)
+                      : null
+                  }
                   sourceId={sourceId}
                   onSave={saveInteraction}
                 />

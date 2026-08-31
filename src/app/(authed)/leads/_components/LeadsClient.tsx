@@ -10,19 +10,11 @@ import {
   Upload,
 } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
-import {
-  resolveLeadAlerts,
-  ALERT_SEVERITY,
-  type LeadAlert,
-} from "@/lib/leads/alerts";
+import type { LeadAlert } from "@/lib/leads/alerts";
 import { isOwnLeadMutation, LEADS_TOPIC } from "@/lib/leads/realtime-topics";
 import { personLabel } from "@/lib/tasks/people";
-import { leadDisplayKey } from "@/lib/leads/display";
-import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
-import { Initials } from "../../tasks/_components/board-ui";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import type {
-  LeadAlertSettings,
   LeadInteractionType,
   LeadRow,
   LeadStatus,
@@ -32,6 +24,7 @@ import { LeadDetailDrawer } from "./LeadDetailDrawer";
 import { LeadAddDialog } from "./LeadAddDialog";
 import { LeadImportDialog } from "./LeadImportDialog";
 import { LeadOverview } from "./LeadOverview";
+import { LeadTable } from "./LeadTable";
 
 type LeadsClientProps = {
   product: "pc" | "health";
@@ -45,7 +38,6 @@ type LeadsClientProps = {
   columnOptions: TableColumnOption[];
   statuses: LeadStatus[];
   interactionTypes: LeadInteractionType[];
-  alertSettings: LeadAlertSettings;
   /** Empty for non-managers: only they can reassign, so only they get the roster. */
   assignees: { email: string; name: string | null }[];
 };
@@ -54,122 +46,6 @@ function sourceNonce(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
     return crypto.randomUUID();
   return `lead-tab-${Math.random().toString(36).slice(2)}`;
-}
-
-function displayDate(value: string | null): string {
-  return value ? new Date(value).toLocaleDateString() : "—";
-}
-
-function displayValue(
-  lead: LeadRow,
-  column: TableColumn,
-  statuses: Map<string, LeadStatus>,
-  options: Map<string, TableColumnOption[]>,
-  nameByEmail: Map<string, string>,
-): string {
-  switch (column.key) {
-    case "key":
-      return leadDisplayKey(lead.display_number);
-    case "name":
-      return lead.full_name ?? "—";
-    case "phone":
-      return lead.phone ?? "—";
-    case "email":
-      return lead.email ?? "—";
-    // Show who it is, not their login. personLabel falls back to a readable
-    // form of the address when the roster has no name for them.
-    case "assignee":
-      return lead.assigned_to_email
-        ? personLabel(lead.assigned_to_email, nameByEmail)
-        : "Unassigned";
-    case "status":
-      return lead.status_id
-        ? (statuses.get(lead.status_id)?.label ?? "Unknown status")
-        : "—";
-    case "attempts":
-      return String(lead.contact_attempt_count);
-    case "lastContact":
-      return displayDate(lead.last_contacted_at);
-    case "followUp":
-      return displayDate(lead.next_follow_up_at);
-    case "event":
-      return lead.event_id ?? "—";
-    case "createdAt":
-      return displayDate(lead.created_at);
-    default: {
-      const value = lead.custom_values?.[column.key];
-      if (value === null || value === undefined || value === "") return "—";
-      const option = options
-        .get(column.id)
-        ?.find((candidate) => candidate.label === String(value));
-      return option?.label ?? String(value);
-    }
-  }
-}
-
-/** A coloured pill for a lead status, using the same palette the task board
- *  gives its categories so the two boards read as one product. */
-function StatusBadge({ status }: { status: LeadStatus | undefined }) {
-  if (!status) return <span className="text-[#8993a4]">—</span>;
-  const palette = taskCategoryBadgePalette({
-    id: status.id,
-    name: status.label,
-    color: status.color,
-  });
-  return (
-    <span
-      className="inline-flex max-w-full items-center truncate rounded px-2 py-0.5 text-xs font-bold"
-      style={{ backgroundColor: palette.background, color: palette.foreground }}
-    >
-      {status.label}
-    </span>
-  );
-}
-
-/**
- * Cells that are more than text. Everything else falls through to
- * displayValue, so the two never disagree about what a column holds.
- */
-function renderCell(
-  lead: LeadRow,
-  column: TableColumn,
-  statuses: Map<string, LeadStatus>,
-  options: Map<string, TableColumnOption[]>,
-  nameByEmail: Map<string, string>,
-) {
-  if (column.key === "assignee") {
-    if (!lead.assigned_to_email)
-      return <span className="text-[#8993a4]">Unassigned</span>;
-    return (
-      <span className="flex min-w-0 items-center gap-2">
-        <Initials
-          email={lead.assigned_to_email}
-          label={personLabel(lead.assigned_to_email, nameByEmail)}
-        />
-        <span className="truncate">
-          {personLabel(lead.assigned_to_email, nameByEmail)}
-        </span>
-      </span>
-    );
-  }
-  if (column.key === "status") {
-    return (
-      <StatusBadge
-        status={lead.status_id ? statuses.get(lead.status_id) : undefined}
-      />
-    );
-  }
-  return displayValue(lead, column, statuses, options, nameByEmail);
-}
-
-function alertTitle(alerts: LeadAlert[]): string {
-  const labels: Record<LeadAlert, string> = {
-    never_contacted: "No one has contacted this lead",
-    stale: "Contact has gone stale",
-    follow_up_overdue: "Follow-up is overdue",
-    exhausted: "Maximum contact attempts reached",
-  };
-  return alerts.map((alert) => labels[alert]).join("; ");
 }
 
 export function LeadsClient({
@@ -184,7 +60,6 @@ export function LeadsClient({
   columnOptions,
   statuses,
   interactionTypes,
-  alertSettings,
   assignees,
 }: LeadsClientProps) {
   const router = useRouter();
@@ -240,20 +115,6 @@ export function LeadsClient({
       })),
     [assignees, nameByEmail],
   );
-  const statusById = useMemo(
-    () => new Map(statuses.map((status) => [status.id, status])),
-    [statuses],
-  );
-  const optionsByColumn = useMemo(() => {
-    const result = new Map<string, TableColumnOption[]>();
-    for (const option of columnOptions)
-      result.set(option.column_id, [
-        ...(result.get(option.column_id) ?? []),
-        option,
-      ]);
-    return result;
-  }, [columnOptions]);
-
   const reload = async (nextOffset = offset) => {
     if (requestInFlight.current) {
       pendingRefresh.current = true;
@@ -564,105 +425,26 @@ export function LeadsClient({
       {view === "list" && (
         <div className="min-h-0 flex flex-1 flex-col px-6 pb-6">
           <div className="mx-auto flex min-h-0 w-full max-w-[1760px] flex-1 flex-col">
-            {displayedLeads.length === 0 ? (
-              <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
-                No leads match the current filters.
-              </div>
-            ) : (
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
-                <div className="min-h-0 flex-1 overflow-auto">
-                  <table className="min-w-[980px] w-full border-collapse text-left text-sm">
-                    <thead className="sticky top-0 z-20 border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
-                      <tr>
-                        {isManager && (
-                          <th className="w-12 px-3 py-2">
-                            <input
-                              className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]"
-                              type="checkbox"
-                              aria-label="Select visible leads"
-                              checked={allVisibleSelected}
-                              onChange={(event) =>
-                                setSelected(
-                                  event.target.checked
-                                    ? new Set(leads.map((lead) => lead.id))
-                                    : new Set(),
-                                )
-                              }
-                            />
-                          </th>
-                        )}
-                        <th className="w-10 px-2 py-2" aria-label="Alerts" />
-                        {visibleColumns.map((column) => (
-                          <th
-                            key={column.id}
-                            className="whitespace-nowrap px-3 py-2"
-                          >
-                            {column.label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#ebecf0]">
-                      {displayedLeads.map((lead) => {
-                        const alerts = resolveLeadAlerts(
-                          lead,
-                          lead.status_id
-                            ? (statusById.get(lead.status_id) ?? null)
-                            : null,
-                          alertSettings,
-                        );
-                        return (
-                          <tr
-                            key={lead.id}
-                            className="cursor-pointer bg-white transition-colors hover:bg-[#f7faff]"
-                            onClick={() => setSelectedLead(lead)}
-                          >
-                            {isManager && (
-                              <td
-                                className="px-3 py-2.5"
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <input
-                                  className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]"
-                                  type="checkbox"
-                                  aria-label={`Select lead ${lead.display_number}`}
-                                  checked={selected.has(lead.id)}
-                                  onChange={() => toggleLead(lead.id)}
-                                />
-                              </td>
-                            )}
-                            <td className="px-2 py-2.5">
-                              {alerts.length > 0 && (
-                                <span
-                                  className={`inline-flex h-2 w-2 rounded-full ${alerts.some((alert) => ALERT_SEVERITY[alert] === "red") ? "bg-red-500" : "bg-amber-400"}`}
-                                  title={alertTitle(alerts)}
-                                  aria-label={alertTitle(alerts)}
-                                >
-                                  <CircleAlert className="sr-only" />
-                                </span>
-                              )}
-                            </td>
-                            {visibleColumns.map((column) => (
-                              <td
-                                key={column.id}
-                                className="max-w-[240px] truncate px-3 py-2.5 font-medium text-[#172b4d]"
-                              >
-                                {renderCell(
-                                  lead,
-                                  column,
-                                  statusById,
-                                  optionsByColumn,
-                                  nameByEmail,
-                                )}
-                              </td>
-                            ))}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-[#dfe1e6] px-4 py-3 text-sm text-[#6b778c]">
+            <LeadTable
+              leads={displayedLeads}
+              columns={visibleColumns}
+              statuses={statuses}
+              columnOptions={columnOptions}
+              nameByEmail={nameByEmail}
+              isManager={isManager}
+              selected={selected}
+              allVisibleSelected={allVisibleSelected}
+              onToggleLead={toggleLead}
+              onSelectVisible={(checked) =>
+                setSelected(
+                  checked
+                    ? new Set(leads.map((lead) => lead.id))
+                    : new Set(),
+                )
+              }
+              onOpenLead={setSelectedLead}
+              footer={
+                <>
                   <span>
                     {total === 0 ? "0" : `${offset + 1}–${pageEnd}`} of{" "}
                     {total.toLocaleString()}
@@ -685,9 +467,9 @@ export function LeadsClient({
                       Next <ChevronRight className="h-4 w-4" />
                     </button>
                   </div>
-                </footer>
-              </div>
-            )}
+                </>
+              }
+            />
           </div>
         </div>
       )}

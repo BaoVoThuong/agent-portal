@@ -12,6 +12,8 @@ type InteractionLogProps = {
   interactionTypes: LeadInteractionType[];
   initialInteractions: LeadInteraction[];
   canLog: boolean;
+  /** Who owns the lead, so a locked composer can say why rather than just look broken. */
+  ownerLabel: string | null;
   sourceId: string;
   onSave: (payload: {
     type_id: string;
@@ -47,6 +49,7 @@ export function InteractionLog({
   interactionTypes,
   initialInteractions,
   canLog,
+  ownerLabel,
   onSave,
 }: InteractionLogProps) {
   const [interactions, setInteractions] = useState(initialInteractions);
@@ -104,103 +107,113 @@ export function InteractionLog({
         <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
           Interaction log
         </h3>
-        {!canLog && (
-          <span className="text-xs text-[#6b778c]">
-            Only the owner can add entries.
-          </span>
-        )}
       </div>
-      <form
-        className="space-y-3 border border-[#dbe2eb] bg-[#f7f9fc] p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)]"
-        onSubmit={submit}
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
+      {canLog ? (
+        <form
+          className="space-y-3 border border-[#dbe2eb] bg-[#f7f9fc] p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)]"
+          onSubmit={submit}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6b778c]">
+                Type
+              </span>
+              <select
+                className="mt-1 h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
+                value={typeId}
+                onChange={(event) => setTypeId(event.target.value)}
+                disabled={!canLog || saving}
+                required
+              >
+                <option value="">Choose interaction</option>
+                {interactionTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6b778c]">
+                Result
+              </span>
+              <select
+                className="mt-1 h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
+                value={statusId}
+                onChange={(event) => {
+                  setStatusId(event.target.value);
+                  setFollowUpAt("");
+                }}
+                disabled={!canLog || saving}
+                required
+              >
+                <option value="">Choose result</option>
+                {statuses.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {needsFollowUp && (
+            <label className="block">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6b778c]">
+                Call back at
+              </span>
+              <input
+                className="mt-1 h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
+                type="datetime-local"
+                min={formatDateTimeInput(new Date())}
+                value={followUpAt}
+                onChange={(event) => setFollowUpAt(event.target.value)}
+                disabled={!canLog || saving}
+                required
+              />
+            </label>
+          )}
           <label className="block">
             <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6b778c]">
-              Type
+              Notes
             </span>
-            <select
-              className="mt-1 h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
-              value={typeId}
-              onChange={(event) => setTypeId(event.target.value)}
+            <textarea
+              className="mt-1 min-h-20 w-full resize-y rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
               disabled={!canLog || saving}
-              required
-            >
-              <option value="">Choose interaction</option>
-              {interactionTypes.map((type) => (
-                <option key={type.id} value={type.id}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6b778c]">
-              Result
-            </span>
-            <select
-              className="mt-1 h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
-              value={statusId}
-              onChange={(event) => {
-                setStatusId(event.target.value);
-                setFollowUpAt("");
-              }}
-              disabled={!canLog || saving}
-              required
-            >
-              <option value="">Choose result</option>
-              {statuses.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        {needsFollowUp && (
-          <label className="block">
-            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6b778c]">
-              Call back at
-            </span>
-            <input
-              className="mt-1 h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
-              type="datetime-local"
-              min={formatDateTimeInput(new Date())}
-              value={followUpAt}
-              onChange={(event) => setFollowUpAt(event.target.value)}
-              disabled={!canLog || saving}
-              required
+              placeholder="What happened?"
+              maxLength={4000}
             />
           </label>
-        )}
-        <label className="block">
-          <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6b778c]">
-            Notes
-          </span>
-          <textarea
-            className="mt-1 min-h-20 w-full resize-y rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            disabled={!canLog || saving}
-            placeholder="What happened?"
-            maxLength={4000}
-          />
-        </label>
-        {error && (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-            {error}
+          {error && (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+              {error}
+            </p>
+          )}
+          <div className="flex justify-end">
+            <button
+              className="inline-flex h-9 items-center rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
+              type="submit"
+              disabled={!canSubmit || saving}
+            >
+              {saving ? "Saving..." : "Log interaction"}
+            </button>
+          </div>
+        </form>
+      ) : (
+        // A disabled pair of dropdowns reads as a broken screen. Say who holds
+        // the lead and what to do about it instead.
+        <div className="rounded border border-[#dbe2eb] bg-[#f7f9fc] px-4 py-5 text-sm text-[#42526e]">
+          <p className="font-semibold text-[#172b4d]">
+            Only the agent holding this lead can log an interaction.
           </p>
-        )}
-        <div className="flex justify-end">
-          <button
-            className="inline-flex h-9 items-center rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
-            type="submit"
-            disabled={!canSubmit || saving}
-          >
-            {saving ? "Saving..." : "Log interaction"}
-          </button>
+          <p className="mt-1">
+            {ownerLabel
+              ? `It is currently assigned to ${ownerLabel}. A manager can reassign it from the Leads list.`
+              : "Nobody holds it yet. Assign it from the Leads list first."}
+          </p>
         </div>
-      </form>
+      )}
       <div className="space-y-2">
         {interactions.length === 0 ? (
           <p className="border border-dashed border-[#cfd8e5] bg-[#f4f5f7] px-3 py-8 text-center text-sm font-semibold text-[#6b778c]">

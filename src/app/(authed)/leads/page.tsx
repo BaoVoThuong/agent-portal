@@ -7,7 +7,6 @@ import { fetchLeadsPage } from "@/lib/leads/queries";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import {
   toLeadProduct,
-  type LeadAlertSettings,
   type LeadInteractionType,
   type LeadStatus,
 } from "@/lib/leads/types";
@@ -34,7 +33,7 @@ export default async function LeadsPage({
   if (view === "overview" && !actor.isManager) redirect("/unauthorized");
   const supabase = getSupabaseAdmin();
 
-  const [page, config, statusesResult, typesResult, settingsResult, assignees] =
+  const [page, config, statusesResult, typesResult, assignees] =
     await Promise.all([
     fetchLeadsPage(actor, { product, alert: params.alert }, supabase),
     fetchTableColumnsWithOptions(product === "pc" ? "lead_pc" : "lead_health", supabase),
@@ -49,11 +48,6 @@ export default async function LeadsPage({
       .select("id,label,color,position,counts_as_contact,archived_at")
       .is("archived_at", null)
       .order("position"),
-    supabase
-      .from("lead_alert_settings")
-      .select("product,no_contact_hours,stale_days,max_attempts")
-      .eq("product", product)
-      .maybeSingle(),
     // Only a manager can reassign, so only they need the roster. Loading it for
     // an agent would be one query nothing on their screen can use.
     actor.isManager ? fetchLeadAssignees() : Promise.resolve([]),
@@ -61,13 +55,6 @@ export default async function LeadsPage({
 
   if (statusesResult.error) throw new Error(statusesResult.error.message);
   if (typesResult.error) throw new Error(typesResult.error.message);
-
-  const settings = (settingsResult.data ?? {
-    product,
-    no_contact_hours: 24,
-    stale_days: 3,
-    max_attempts: 4,
-  }) as LeadAlertSettings;
 
   return (
     <LeadsClient
@@ -83,7 +70,6 @@ export default async function LeadsPage({
       columnOptions={config.options}
       statuses={statusesResult.data as LeadStatus[]}
       interactionTypes={typesResult.data as LeadInteractionType[]}
-      alertSettings={settings}
       assignees={assignees}
     />
   );

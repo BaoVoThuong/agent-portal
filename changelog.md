@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Ô ghi tương tác bị khoá nói rõ lý do thay vì trông như hỏng
+- **Loại**: fix (UX)
+- **Cái gì**: khi người xem không phải người đang giữ lead, `InteractionLog` trước đây vẫn vẽ đủ form nhưng `disabled` cả hai dropdown, kèm một dòng chữ xám nhỏ ở góc. Nhìn y hệt màn hình hỏng — và đã bị báo là hỏng. Nay thay hẳn form bằng câu giải thích: ai đang giữ lead, và làm gì tiếp (manager chuyển tay từ danh sách Leads; hoặc lead chưa giao thì giao trước).
+- **Luật không đổi**: chỉ người đang giữ lead mới ghi được tương tác. Nhật ký là lời khai của người đã gọi; nó nuôi `contact_attempt_count` và mọi đồng hồ cảnh báo, nên người khác ghi hộ sẽ làm sai căn cứ đánh giá.
+- **Kiểm chứng**: `npm run test:run` 119 files / 847 tests; typecheck + lint sạch.
+
 ## 2026-08-31 — Đồng bộ giao diện Lead với Task Management
 - **Loại**: fix (UI)
 - **Cái gì**:
