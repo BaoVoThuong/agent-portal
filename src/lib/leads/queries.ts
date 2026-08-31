@@ -216,7 +216,7 @@ export async function fetchAllLeads(
   return { rows, total };
 }
 
-const LEAD_STATUS_COLUMNS = "id,product,label,color,position,kind,archived_at";
+const LEAD_STATUS_COLUMNS = "id,label,color,position,kind,archived_at";
 const LEAD_INTERACTION_TYPE_COLUMNS =
   "id,label,color,position,counts_as_contact,archived_at";
 
@@ -231,11 +231,8 @@ export async function fetchLeadVocabulary(
   const [statusesResult, typesResult] = await Promise.all([
     supabase
       .from("lead_statuses")
-      // Statuses stay per-product: a P&C pipeline and a Health pipeline are
-      // genuinely different. The client picks the right list per lead row.
       .select(LEAD_STATUS_COLUMNS)
       .is("archived_at", null)
-      .order("product")
       .order("position"),
     supabase
       .from("lead_interaction_types")

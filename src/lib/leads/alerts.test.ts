@@ -29,7 +29,7 @@ function lead(patch: Partial<LeadRow> = {}): LeadRow {
 }
 
 const openStatus: LeadStatus = {
-  id: "s-open", product: "pc", label: "Đang theo", color: null,
+  id: "s-open", label: "Đang theo", color: null,
   position: 0, kind: "open", archived_at: null,
 };
 const wonStatus: LeadStatus = { ...openStatus, id: "s-won", kind: "won" };

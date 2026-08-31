@@ -75,7 +75,7 @@ export async function GET(request: Request) {
   const supabase = getSupabaseAdmin();
   const [leadsResult, statusesResult, settingsResult, eventsResult] = await Promise.all([
     fetchAllLeadsForSummary(supabase, product),
-    supabase.from("lead_statuses").select("id,product,label,color,position,kind,archived_at").eq("product", product).is("archived_at", null),
+    supabase.from("lead_statuses").select("id,label,color,position,kind,archived_at").is("archived_at", null),
     supabase.from("lead_alert_settings").select("product,no_contact_hours,stale_days,max_attempts").eq("product", product).maybeSingle(),
     supabase.from("lead_events").select("id,name,event_date").is("archived_at", null),
   ]);

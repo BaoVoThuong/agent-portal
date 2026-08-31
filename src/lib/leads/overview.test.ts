@@ -5,7 +5,7 @@ import type { LeadAlertSettings, LeadRow, LeadStatus } from "./types";
 const settings: LeadAlertSettings = { product: "pc", no_contact_hours: 24, stale_days: 3, max_attempts: 4 };
 const NOW = new Date("2026-09-01T12:00:00Z");
 const hoursAgo = (n: number) => new Date(NOW.getTime() - n * 3600_000).toISOString();
-const open: LeadStatus = { id: "s1", product: "pc", label: "Open", color: null, position: 0, kind: "open", archived_at: null };
+const open: LeadStatus = { id: "s1", label: "Open", color: null, position: 0, kind: "open", archived_at: null };
 const won: LeadStatus = { ...open, id: "s2", kind: "won" };
 const statusById = new Map([["s1", open], ["s2", won]]);
 

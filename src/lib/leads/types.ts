@@ -25,7 +25,11 @@ export function isStatusKind(value: unknown): value is StatusKind {
 
 export type LeadStatus = {
   id: string;
-  product: LeadProduct;
+  /**
+   * No product: the P&C and Health sets were seeded with the same seven labels
+   * and never diverged, so one list serves both. A status is a stage of a phone
+   * conversation, not a property of the policy behind it.
+   */
   label: string;
   color: string | null;
   position: number;

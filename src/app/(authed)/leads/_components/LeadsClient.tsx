@@ -295,25 +295,9 @@ export function LeadsClient({
     { value: UNASSIGNED_FILTER, label: "Unassigned" },
     ...assigneeOptions,
   ];
-  // Statuses are per-product, so two products can both own a "New". Left bare,
-  // picking one would silently hide the other product's rows under the same
-  // word; the suffix only appears where that collision is real.
-  const statusLabelCounts = new Map<string, number>();
-  for (const status of statuses) {
-    statusLabelCounts.set(
-      status.label,
-      (statusLabelCounts.get(status.label) ?? 0) + 1,
-    );
-  }
   const statusFilterOptions = [
     { value: ALL_FILTER, label: "All statuses" },
-    ...statuses.map((status) => ({
-      value: status.id,
-      label:
-        (statusLabelCounts.get(status.label) ?? 0) > 1
-          ? `${status.label} (${status.product === "health" ? "Health" : "P&C"})`
-          : status.label,
-    })),
+    ...statuses.map((status) => ({ value: status.id, label: status.label })),
   ];
   const eventFilterOptions = [
     { value: ALL_FILTER, label: "All events" },

@@ -47,7 +47,6 @@ create table if not exists lead_events (
 -- tiếng Anh tuỳ ý, engine cảnh báo chỉ nhìn kind.
 create table if not exists lead_statuses (
   id uuid primary key default gen_random_uuid(),
-  product text not null check (product in ('pc', 'health')),
   label text not null,
   color text,
   position integer not null default 0,
@@ -139,6 +138,60 @@ on conflict (product) do nothing;
 
 
 
+-- ---------- 2b. One status set, not one per product ----------
+-- The two sets were seeded with the same seven labels and nothing ever made
+-- them diverge, so every screen showed each status twice and the interaction
+-- composer offered fourteen choices for a lead that has seven. A status is a
+-- stage of a phone conversation; that does not change because the policy behind
+-- it is Health rather than P&C.
+--
+-- Runs before the new unique index is created: with duplicates still present,
+-- a unique index on (label) cannot be built.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'lead_statuses'
+      and column_name = 'product'
+  ) then
+    return;
+  end if;
+
+  -- Keep the lowest-positioned row per label and point everything at it. Only
+  -- active rows take part: archived statuses sit outside the partial unique
+  -- index, and old leads and interactions still reference them.
+  create temporary table lead_status_merge as
+  select active.id as old_id, keep.keep_id
+  from lead_statuses active
+  join (
+    select label, (array_agg(id order by position, created_at, id))[1] as keep_id
+    from lead_statuses
+    where archived_at is null
+    group by label
+  ) keep on keep.label = active.label
+  where active.archived_at is null and active.id <> keep.keep_id;
+
+  update leads
+  set status_id = merge_row.keep_id, updated_at = now()
+  from lead_status_merge merge_row
+  where leads.status_id = merge_row.old_id;
+
+  update lead_interactions
+  set status_id = merge_row.keep_id
+  from lead_status_merge merge_row
+  where lead_interactions.status_id = merge_row.old_id;
+
+  -- Safe now: everything that referenced a folded row points at the survivor,
+  -- and the FKs are ON DELETE RESTRICT, so a missed reference would raise here
+  -- rather than silently orphan a lead.
+  delete from lead_statuses where id in (select old_id from lead_status_merge);
+  drop table lead_status_merge;
+
+  drop index if exists lead_statuses_label_unique_idx;
+  alter table lead_statuses drop column product;
+end $$;
+
 -- Index bám đúng cách bảng được đọc: luôn lọc archived_at is null, rồi lọc
 -- theo product, rồi sắp theo created_at.
 -- Bắt buộc phải có trước phần seed bên trên: `on conflict do nothing` không có
@@ -147,7 +200,7 @@ on conflict (product) do nothing;
 create unique index if not exists lead_interaction_types_label_unique_idx
   on lead_interaction_types (label) where archived_at is null;
 create unique index if not exists lead_statuses_label_unique_idx
-  on lead_statuses (product, label) where archived_at is null;
+  on lead_statuses (label) where archived_at is null;
 
 create index if not exists leads_product_active_idx
   on leads (product, created_at desc) where archived_at is null;
@@ -173,22 +226,15 @@ insert into lead_interaction_types (label, position, counts_as_contact) values
   ('Note',  40, false)
 on conflict do nothing;
 
-do $$
-declare
-  product_value text;
-begin
-  foreach product_value in array array['pc', 'health'] loop
-    insert into lead_statuses (product, label, position, kind) values
-      (product_value, 'New',             10, 'open'),
-      (product_value, 'Working',         20, 'open'),
-      (product_value, 'No answer',       30, 'open'),
-      (product_value, 'Call back',       40, 'scheduled'),
-      (product_value, 'Won',             50, 'won'),
-      (product_value, 'Not interested',  60, 'lost'),
-      (product_value, 'Wrong number',    70, 'lost')
-    on conflict do nothing;
-  end loop;
-end $$;
+insert into lead_statuses (label, position, kind) values
+  ('New',             10, 'open'),
+  ('Working',         20, 'open'),
+  ('No answer',       30, 'open'),
+  ('Call back',       40, 'scheduled'),
+  ('Won',             50, 'won'),
+  ('Not interested',  60, 'lost'),
+  ('Wrong number',    70, 'lost')
+on conflict do nothing;
 
 -- No public policies are defined for lead tables. The application uses the
 -- service-role client after its own auth checks, while RLS keeps a leaked
@@ -286,9 +332,10 @@ begin
   end if;
 
   if p_status_id is not null then
+    -- One shared status set, so there is no product to match against: any
+    -- active status is valid for any lead.
     select st.kind into status_kind_value from lead_statuses as st
     where st.id = p_status_id
-      and st.product = lead_value.product
       and st.archived_at is null;
     if status_kind_value is null then
       raise exception 'LEAD_STATUS_NOT_FOUND';
@@ -783,8 +830,14 @@ update lead_statuses set color = '#ff7452' where label = 'Wrong number'   and co
 -- ---------- Verification ----------
 -- One row. Every column must read ok.
 select
-  case when (select count(*) from lead_statuses) >= 14
-       then 'ok' else 'FAIL: statuses missing' end                      as statuses,
+  case when (select count(*) from lead_statuses where archived_at is null) >= 7
+        and not exists (
+          select 1 from information_schema.columns
+          where table_schema = 'public'
+            and table_name = 'lead_statuses'
+            and column_name = 'product'
+        )
+       then 'ok' else 'FAIL: statuses not merged' end                   as statuses,
   case when (select count(*) from lead_interaction_types) >= 4
        then 'ok' else 'FAIL: interaction types missing' end             as interaction_types,
   case when (select count(*) from lead_interaction_types where color is null) = 0

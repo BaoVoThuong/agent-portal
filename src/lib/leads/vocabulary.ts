@@ -1,12 +1,6 @@
-import {
-  isLeadProduct,
-  isStatusKind,
-  type LeadProduct,
-  type StatusKind,
-} from "./types";
+import { isStatusKind, type StatusKind } from "./types";
 
 export type StatusInput = {
-  product: LeadProduct;
   label: string;
   kind: StatusKind;
   color: string | null;
@@ -36,12 +30,10 @@ function color(value: unknown): string | null {
 export function validateStatusInput(
   body: Record<string, unknown> | null
 ): StatusInput | { error: string } {
-  if (!isLeadProduct(body?.product)) return { error: "Unknown product." };
   const name = label(body?.label);
   if (!name) return { error: "The status needs a name." };
   if (!isStatusKind(body?.kind)) return { error: "Pick what this status means: open, scheduled, won, or lost." };
   return {
-    product: body.product,
     label: name,
     kind: body.kind,
     color: color(body?.color),

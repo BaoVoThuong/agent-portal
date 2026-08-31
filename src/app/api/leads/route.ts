@@ -130,16 +130,14 @@ export async function POST(request: Request) {
       .from("lead_statuses")
       .select("id")
       .eq("id", statusId)
-      .eq("product", input.product)
       .is("archived_at", null)
       .maybeSingle();
     if (statusError) return NextResponse.json({ error: statusError.message }, { status: 500 });
-    if (!status) return NextResponse.json({ error: "That status is not available for this product." }, { status: 400 });
+    if (!status) return NextResponse.json({ error: "That status no longer exists." }, { status: 400 });
   } else {
     const { data: defaultStatus, error: defaultStatusError } = await supabase
       .from("lead_statuses")
       .select("id")
-      .eq("product", input.product)
       .eq("kind", "open")
       .is("archived_at", null)
       .order("position", { ascending: true })

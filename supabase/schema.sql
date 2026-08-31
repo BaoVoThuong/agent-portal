@@ -6120,7 +6120,8 @@ create table if not exists lead_events (
 -- tiếng Anh tuỳ ý, engine cảnh báo chỉ nhìn kind.
 create table if not exists lead_statuses (
   id uuid primary key default gen_random_uuid(),
-  product text not null check (product in ('pc', 'health')),
+  -- No product column: the P&C and Health sets were seeded with identical
+  -- labels and never diverged, so a status is just a stage of a phone call.
   label text not null,
   color text,
   position integer not null default 0,
@@ -6223,7 +6224,7 @@ create unique index if not exists lead_events_name_unique_idx
 create unique index if not exists lead_interaction_types_label_unique_idx
   on lead_interaction_types (label) where archived_at is null;
 create unique index if not exists lead_statuses_label_unique_idx
-  on lead_statuses (product, label) where archived_at is null;
+  on lead_statuses (label) where archived_at is null;
 
 create index if not exists leads_product_active_idx
   on leads (product, created_at desc) where archived_at is null;
@@ -6249,22 +6250,15 @@ insert into lead_interaction_types (label, position, counts_as_contact) values
   ('Note',  40, false)
 on conflict do nothing;
 
-do $$
-declare
-  product_value text;
-begin
-  foreach product_value in array array['pc', 'health'] loop
-    insert into lead_statuses (product, label, position, kind) values
-      (product_value, 'New',             10, 'open'),
-      (product_value, 'Working',         20, 'open'),
-      (product_value, 'No answer',       30, 'open'),
-      (product_value, 'Call back',       40, 'scheduled'),
-      (product_value, 'Won',             50, 'won'),
-      (product_value, 'Not interested',  60, 'lost'),
-      (product_value, 'Wrong number',    70, 'lost')
-    on conflict do nothing;
-  end loop;
-end $$;
+insert into lead_statuses (label, position, kind) values
+  ('New',             10, 'open'),
+  ('Working',         20, 'open'),
+  ('No answer',       30, 'open'),
+  ('Call back',       40, 'scheduled'),
+  ('Won',             50, 'won'),
+  ('Not interested',  60, 'lost'),
+  ('Wrong number',    70, 'lost')
+on conflict do nothing;
 
 -- These tables are created after the repository-wide RLS sweep above, so they
 -- need the same fail-closed protection locally. The app uses service_role only
@@ -6339,9 +6333,10 @@ begin
   end if;
 
   if p_status_id is not null then
+    -- One shared status set, so there is no product to match against: any
+    -- active status is valid for any lead.
     select st.kind into status_kind_value from lead_statuses as st
     where st.id = p_status_id
-      and st.product = lead_value.product
       and st.archived_at is null;
     if status_kind_value is null then
       raise exception 'LEAD_STATUS_NOT_FOUND';

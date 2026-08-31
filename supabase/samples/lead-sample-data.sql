@@ -48,12 +48,12 @@ begin
   select id into email_type from lead_interaction_types where label = 'Email' and archived_at is null;
   select id into note_type from lead_interaction_types where label = 'Note' and archived_at is null;
 
-  select id into function_status_new      from lead_statuses where product='health' and label='New';
-  select id into function_status_working  from lead_statuses where product='health' and label='Working';
-  select id into function_status_noanswer from lead_statuses where product='health' and label='No answer';
-  select id into function_status_callback from lead_statuses where product='health' and kind='scheduled';
-  select id into function_status_won      from lead_statuses where product='health' and kind='won';
-  select id into function_status_lost     from lead_statuses where product='health' and label='Not interested';
+  select id into function_status_new      from lead_statuses where label='New';
+  select id into function_status_working  from lead_statuses where label='Working';
+  select id into function_status_noanswer from lead_statuses where label='No answer';
+  select id into function_status_callback from lead_statuses where kind='scheduled';
+  select id into function_status_won      from lead_statuses where kind='won';
+  select id into function_status_lost     from lead_statuses where label='Not interested';
 
   ---------------------------------------------------------------- 1. RED: nobody called
   insert into leads (product,event_id,full_name,phone,email,assigned_to_email,assigned_at,assigned_by_email,status_id,custom_values,created_by_email)

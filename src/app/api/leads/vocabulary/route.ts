@@ -7,7 +7,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_COLUMNS = "id,product,label,color,position,kind,archived_at";
+const STATUS_COLUMNS = "id,label,color,position,kind,archived_at";
 const TYPE_COLUMNS = "id,label,color,position,counts_as_contact,archived_at";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -29,7 +29,7 @@ export async function GET() {
 
   const supabase = getSupabaseAdmin();
   const [statusesResult, typesResult] = await Promise.all([
-    supabase.from("lead_statuses").select(STATUS_COLUMNS).is("archived_at", null).order("product").order("position"),
+    supabase.from("lead_statuses").select(STATUS_COLUMNS).is("archived_at", null).order("position"),
     supabase.from("lead_interaction_types").select(TYPE_COLUMNS).is("archived_at", null).order("position"),
   ]);
   if (statusesResult.error) return NextResponse.json({ error: statusesResult.error.message }, { status: 500 });

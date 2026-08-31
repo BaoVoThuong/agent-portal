@@ -39,7 +39,6 @@ import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import {
   STATUS_KINDS,
   type LeadInteractionType,
-  type LeadProduct,
   type LeadStatus,
   type StatusKind,
 } from "@/lib/leads/types";
@@ -1376,7 +1375,7 @@ type DropdownValueGroup =
       count: number;
       setKey: EnrollmentOptionSetKey;
     }
-  | { kind: "leadStatus"; key: string; navLabel: string; count: number; product: LeadProduct }
+  | { kind: "leadStatus"; key: string; navLabel: string; count: number }
   | { kind: "leadType"; key: string; navLabel: string; count: number };
 
 // Mọi "dropdown value" của app — custom column, CS Category, Enrollment Option
@@ -1463,17 +1462,9 @@ function ConfigDropdownValuesSection({
       ? ([
           {
             kind: "leadStatus" as const,
-            key: "leadStatus:pc",
-            navLabel: "Status (P&C)",
-            count: leadVocabulary.statuses.filter((row) => row.product === "pc").length,
-            product: "pc" as LeadProduct,
-          },
-          {
-            kind: "leadStatus" as const,
-            key: "leadStatus:health",
-            navLabel: "Status (Health)",
-            count: leadVocabulary.statuses.filter((row) => row.product === "health").length,
-            product: "health" as LeadProduct,
+            key: "leadStatus",
+            navLabel: "Status",
+            count: leadVocabulary.statuses.length,
           },
           {
             kind: "leadType" as const,
@@ -1533,15 +1524,13 @@ function ConfigDropdownValuesSection({
             .filter((o) => o.column_id === selected.columnId)
             .map((o) => ({ id: o.id, label: o.label, color: o.color }))
         : selected.kind === "leadStatus"
-          ? leadVocabulary.statuses
-              .filter((row) => row.product === selected.product)
-              .map((row) => ({
-                id: row.id,
-                label: row.label,
-                color: row.color,
-                statusKind: row.kind,
-                position: row.position,
-              }))
+          ? leadVocabulary.statuses.map((row) => ({
+              id: row.id,
+              label: row.label,
+              color: row.color,
+              statusKind: row.kind,
+              position: row.position,
+            }))
           : selected.kind === "leadType"
             ? leadVocabulary.types.map((row) => ({
                 id: row.id,
@@ -1615,7 +1604,6 @@ function ConfigDropdownValuesSection({
         ? {
             resource: "status",
             id,
-            product: selected.product,
             label: row.label,
             kind: row.statusKind,
             color: row.color,
@@ -1657,7 +1645,6 @@ function ConfigDropdownValuesSection({
         method: "POST",
         body: JSON.stringify({
           resource: "status",
-          product: selected.product,
           label,
           kind: statusKind,
           color: draftColor,

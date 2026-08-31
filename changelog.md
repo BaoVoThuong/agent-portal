@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Gộp hai bộ status của Lead thành một
+
+- **Loại**: schema + fix (bug hiển thị)
+- **Vì sao**: `lead_statuses` tách theo product, nhưng cả hai bộ được seed **đúng bảy nhãn giống hệt nhau** và chưa bao giờ có gì làm chúng khác đi. Một status là một giai đoạn của cuộc gọi điện — nó không đổi vì hợp đồng phía sau là Health hay P&C.
+- **Bug đi kèm**: ô chọn status trong khung ghi tương tác render **toàn bộ** `statuses` chứ không lọc theo product của lead, nên mỗi lead hiện 14 lựa chọn với hai "New", hai "Working"... Bộ lọc Status ngoài danh sách cũng phải gắn hậu tố `(P&C)` / `(Health)` để phân biệt hai dòng trùng chữ. Gộp lại là hết cả hai.
+- **Migration** (mục **2b** trong `2026-08-31-lead-final.sql`): gom các nhãn trùng về dòng có `position` nhỏ nhất, trỏ lại `leads.status_id` **và** `lead_interactions.status_id`, xoá dòng thừa, rồi `drop column product`. Chỉ gom các dòng đang active — status đã archive nằm ngoài unique index từng phần và vẫn còn lead cũ trỏ vào, nên để nguyên. FK là `ON DELETE RESTRICT` nên nếu sót một tham chiếu thì lỗi nổ ngay chứ không âm thầm mồ côi.
+- **Nếu admin đã đổi tên riêng một bên** (ví dụ đổi "New" của P&C thành "New PC") thì hai nhãn khác nhau, không gom — cả hai cùng tồn tại trong một danh sách. Đúng: lúc đó chúng thật sự là hai status khác nhau.
+- **Đã kiểm trên PostgreSQL 16 thật**, ba kịch bản: (1) DB trắng → 9 cột verify đều `ok`; (2) DB dựng lại từ schema + rollout **cũ** rồi chạy rollout mới → 14 status còn 7, lead Health đang ở "Working" và interaction P&C đang ở "Won" đều trỏ đúng sang dòng còn lại, status đã archive vẫn nguyên; (3) chạy lại lần hai → no-op. Sau đó `lead-sample-data.sql` (có gọi RPC ghi tương tác) chạy sạch, ra 30 lead đúng status.
+- **RPC cũng phải sửa**: `log_lead_interaction_atomic` có `and st.product = lead_value.product` khi kiểm status — bỏ đi, nếu không mọi lần ghi tương tác đều `LEAD_STATUS_NOT_FOUND`. Chỗ này chỉ lộ ra khi chạy sample data trên DB đã gộp, không phải từ đọc code.
+- **Code**: bỏ `product` khỏi type `LeadStatus`, khỏi mọi câu `select`, khỏi `validateStatusInput`, khỏi hai truy vấn status trong route tạo lead và route overview. Config còn **một** nhóm `Status` thay vì `Status (P&C)` + `Status (Health)`.
+- **Tương thích ngược**: `validateStatusInput` giờ **bỏ qua** field `product` thừa thay vì báo lỗi, để client cũ gửi kèm vẫn chạy. Test cũ khẳng định ngược lại đã được thay kèm ghi chú.
+- **Cần chạy lại `supabase/rollouts/2026-08-31-lead-final.sql`**.
+- **Kiểm chứng**: typecheck, lint, `npm run build`, `npm run test:run` 121 files / 868 tests — sạch.
+
 ## 2026-09-01 — Modal chi tiết Lead: bổ sung các trường bị thiếu
 
 - **Loại**: fix (thiếu thông tin) + UI
