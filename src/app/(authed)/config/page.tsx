@@ -12,15 +12,15 @@ import {
   fetchAllTableColumns,
 } from "@/lib/table-config/queries";
 import type { TableColumnOption, TableScope } from "@/lib/table-config/types";
-import {
-  emptyEnrollmentOptionsBySet,
-  fetchEnrollmentOptionData,
-  type EnrollmentOptionData,
-} from "@/lib/enrollment/options";
+import { fetchEnrollmentOptionData } from "@/lib/enrollment/options";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
+import { emptyEnrollmentOptionData } from "./empty-option-data";
 import { ConfigClient } from "./_components/ConfigClient";
 
 export const dynamic = "force-dynamic";
+
+// Leads have their own configuration screen at /leads/config.
+const CONFIG_SCOPES = ["cs", "aca", "medicare"] as const;
 
 export const metadata: Metadata = {
   title: "Health Table Configuration",
@@ -47,14 +47,6 @@ async function loadOptional<T>(label: string, loader: () => Promise<T>): Promise
   }
 }
 
-function emptyEnrollmentOptionData(): EnrollmentOptionData {
-  return {
-    sets: [],
-    options: [],
-    optionsBySet: emptyEnrollmentOptionsBySet(),
-    optionsById: new Map(),
-  };
-}
 
 export default async function ConfigPage() {
   const admin = await loadConfigAdmin();
@@ -110,8 +102,12 @@ export default async function ConfigPage() {
 
   if (!columnsResult.ok) throw new Error(columnsResult.error);
   const columns = columnsResult.data;
-  const columnsReady = Object.values(columns).every((rows) =>
-    rows.every((column) => !column.id.startsWith("system-"))
+  // Only this page's own scopes. Judging readiness across every scope in the
+  // system meant a newly added scope that had not been materialised yet
+  // disabled editing here too — a Lead migration silently locked the Health
+  // CS, ACA and Medicare column editors.
+  const columnsReady = CONFIG_SCOPES.every((scope) =>
+    (columns[scope] ?? []).every((column) => !column.id.startsWith("system-"))
   );
   const emptyOptions: Record<TableScope, TableColumnOption[]> = {
     cs: [],
@@ -137,6 +133,8 @@ export default async function ConfigPage() {
 
   return (
     <ConfigClient
+      title="Health Table Configuration"
+      scopes={CONFIG_SCOPES}
       initialColumns={columns}
       initialOptions={options}
       initialAgents={agents}

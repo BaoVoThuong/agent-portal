@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Tách màn cấu hình bảng Lead ra riêng, sắp lại sidebar
+- **Loại**: fix, feature
+- **Cái gì**:
+  - **Trang riêng `/leads/config`**. `ConfigClient` nhận thêm ba prop: `title`, `scopes`, `tabs`. `/config` giữ `cs`/`aca`/`medicare` và cả bốn tab; `/leads/config` chỉ có `lead_pc`/`lead_health` và hai tab Columns + Dropdown Values — lead không có Category, Assistant Membership hay SLA Times. Yêu cầu quyền `lead.manage`, không phải `task.manage`.
+  - **Sửa luôn lỗi khoá chéo**: `columnsReady` trước đây quét **mọi** scope trong hệ thống, nên một scope mới chưa được tạo dữ liệu sẽ khoá ô soạn cột của **tất cả** scope khác. Đúng cái đã xảy ra: thêm scope Lead làm màn Health Table Configuration hiện "Table columns are using a migration fallback. Editing is disabled". Nay mỗi trang chỉ xét scope của chính nó.
+  - **Sidebar theo thứ tự**: Task Management → Lead Management → Account Management. Nhóm "Management" đổi tên thành "Account Management". Thêm mục "Lead Table Configuration" vào nhóm Lead.
+  - `emptyEnrollmentOptionData()` chuyển từ trong `/config/page.tsx` ra `config/empty-option-data.ts` để hai trang dùng chung thay vì chép lại.
+- **Kiểm chứng**: `npm run test:run` 118 files / 842 tests; typecheck + lint sạch.
+
 ## 2026-08-31 — Import lead lưu cột phụ theo đúng khoá của Config Table
 - **Loại**: fix (correctness)
 - **Cái gì**: `parseLeadRows` lưu các cột Excel không được map vào `custom_values` theo **nguyên văn header** (`"Secondary Phone"`), trong khi cột do Config Table tạo luôn có khoá đã chuẩn hoá (`secondary_phone`) và mọi màn hình đọc `custom_values[column.key]`. Hệ quả: giá trị import vào nằm trong DB nhưng bảng hiện `—`. Nay dùng chung `slugifyColumnKey` với Config Table.

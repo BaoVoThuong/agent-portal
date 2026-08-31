@@ -126,22 +126,6 @@ const menuData: MenuItem[] = [
     ],
   },
   {
-    title: "Management",
-    anyPermission: [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.ROLE_MANAGER],
-    children: [
-      {
-        href: "/account-manager",
-        label: "Account Manager",
-        permission: PERMISSIONS.ACCOUNT_MANAGER,
-      },
-      {
-        href: "/role-manager",
-        label: "Role Manager",
-        permission: PERMISSIONS.ROLE_MANAGER,
-      },
-    ],
-  },
-  {
     title: "Lead Management",
     anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
     children: [
@@ -158,6 +142,27 @@ const menuData: MenuItem[] = [
         activePath: "/leads",
         activeQuery: { product: "pc" },
         anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
+      },
+      {
+        href: "/leads/config",
+        label: "Lead Table Configuration",
+        permission: PERMISSIONS.LEAD_MANAGE,
+      },
+    ],
+  },
+  {
+    title: "Account Management",
+    anyPermission: [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.ROLE_MANAGER],
+    children: [
+      {
+        href: "/account-manager",
+        label: "Account Manager",
+        permission: PERMISSIONS.ACCOUNT_MANAGER,
+      },
+      {
+        href: "/role-manager",
+        label: "Role Manager",
+        permission: PERMISSIONS.ROLE_MANAGER,
       },
     ],
   },

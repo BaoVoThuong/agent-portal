@@ -81,6 +81,7 @@ type AssistantMember = {
 };
 
 type Tab = "table" | "value" | "assistant" | "sla";
+const ALL_TABS: readonly Tab[] = ["table", "value", "assistant", "sla"];
 type AssistantSettingsView = "agents" | "memberships";
 type SelectOption<T extends string> = { value: T; label: string; disabled?: boolean };
 
@@ -92,10 +93,12 @@ const SCOPE_LABEL: Record<TableScope, string> = {
   lead_health: "Health Leads",
 };
 
-const SCOPE_OPTIONS: SelectOption<TableScope>[] = TABLE_SCOPES.map((scope) => ({
-  value: scope,
-  label: SCOPE_LABEL[scope],
-}));
+// Each page passes the scopes it owns. Sharing one screen across every scope
+// was what let a not-yet-materialised Lead scope disable editing for Health CS,
+// ACA and Medicare at once — see columnsReady in the page components.
+function scopeOptions(scopes: readonly TableScope[]): SelectOption<TableScope>[] {
+  return scopes.map((scope) => ({ value: scope, label: SCOPE_LABEL[scope] }));
+}
 
 const ASSISTANT_SETTINGS_OPTIONS: SelectOption<AssistantSettingsView>[] = [
   { value: "agents", label: "Agents" },
@@ -138,6 +141,9 @@ type ConfigSectionStatuses = {
 };
 
 export function ConfigClient({
+  title,
+  scopes = TABLE_SCOPES,
+  tabs = ALL_TABS,
   initialColumns,
   initialOptions,
   initialAgents,
@@ -149,6 +155,11 @@ export function ConfigClient({
   initialOptionData,
   sectionStatus,
 }: {
+  title: string;
+  /** The scopes this page owns; the Table dropdown lists exactly these. */
+  scopes?: readonly TableScope[];
+  /** Which tabs to show. Leads have no categories, assistants or SLA times. */
+  tabs?: readonly Tab[];
   initialColumns: Record<TableScope, TableColumn[]>;
   initialOptions: Record<TableScope, TableColumnOption[]>;
   initialAgents: TaskAgent[];
@@ -163,7 +174,7 @@ export function ConfigClient({
   const [tab, setTab] = useState<Tab>("table");
   const [assistantSettingsView, setAssistantSettingsView] =
     useState<AssistantSettingsView>("agents");
-  const [scope, setScope] = useState<TableScope>("cs");
+  const [scope, setScope] = useState<TableScope>(scopes[0] ?? "cs");
   const [columns, setColumns] = useState(initialColumns);
   const [options, setOptions] = useState(initialOptions);
   const [agents, setAgents] = useState(initialAgents);
@@ -283,14 +294,14 @@ export function ConfigClient({
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
-              Health Table Configuration
+              {title}
             </h1>
           </div>
           {tab === "table" || tab === "value" ? (
             <DropdownSelect
               label="Table"
               value={scope}
-              options={SCOPE_OPTIONS}
+              options={scopeOptions(scopes)}
               onChange={setScope}
               className="w-[330px]"
               buttonClassName="h-11 shadow-sm"
@@ -300,18 +311,26 @@ export function ConfigClient({
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm">
-            <TabButton active={tab === "table"} onClick={() => setTab("table")}>
-              <Settings2 className="h-4 w-4" /> Columns
-            </TabButton>
-            <TabButton active={tab === "value"} onClick={() => setTab("value")}>
-              <SlidersHorizontal className="h-4 w-4" /> Dropdown Values
-            </TabButton>
-            <TabButton active={tab === "assistant"} onClick={() => setTab("assistant")}>
-              <UserRoundCog className="h-4 w-4" /> Assistant Membership
-            </TabButton>
-            <TabButton active={tab === "sla"} onClick={() => setTab("sla")}>
-              <Clock className="h-4 w-4" /> SLA Times
-            </TabButton>
+            {tabs.includes("table") ? (
+              <TabButton active={tab === "table"} onClick={() => setTab("table")}>
+                <Settings2 className="h-4 w-4" /> Columns
+              </TabButton>
+            ) : null}
+            {tabs.includes("value") ? (
+              <TabButton active={tab === "value"} onClick={() => setTab("value")}>
+                <SlidersHorizontal className="h-4 w-4" /> Dropdown Values
+              </TabButton>
+            ) : null}
+            {tabs.includes("assistant") ? (
+              <TabButton active={tab === "assistant"} onClick={() => setTab("assistant")}>
+                <UserRoundCog className="h-4 w-4" /> Assistant Membership
+              </TabButton>
+            ) : null}
+            {tabs.includes("sla") ? (
+              <TabButton active={tab === "sla"} onClick={() => setTab("sla")}>
+                <Clock className="h-4 w-4" /> SLA Times
+              </TabButton>
+            ) : null}
           </div>
           {tab === "assistant" ? (
             <div className="w-[220px]">
