@@ -27,7 +27,6 @@ export function isLeadSortKey(value: unknown): value is LeadSortKey {
 
 export type LeadSortContext = {
   statusLabel: (id: string | null) => string | null;
-  eventName: (id: string | null) => string | null;
   personLabel: (email: string) => string;
 };
 
@@ -58,7 +57,7 @@ function sortValue(
     case "attempts": return lead.contact_attempt_count;
     case "lastContact": return timeValue(lead.last_contacted_at);
     case "followUp": return timeValue(lead.next_follow_up_at);
-    case "event": return context.eventName(lead.event_id)?.toLowerCase() ?? null;
+    case "event": return lead.event_name?.trim().toLowerCase() || null;
     case "createdAt": return timeValue(lead.created_at);
   }
 }

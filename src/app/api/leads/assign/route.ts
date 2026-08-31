@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads } from "@/lib/leads/access";
+import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
 import { validateAssignRequest } from "@/lib/leads/assign";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
@@ -12,7 +12,9 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email);
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
   if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = validateAssignRequest(

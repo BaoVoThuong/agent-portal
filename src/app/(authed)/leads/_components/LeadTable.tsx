@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type {
   CSSProperties,
   MouseEvent,
@@ -8,6 +9,9 @@ import type {
   ReactNode,
 } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Check } from "lucide-react";
+import { EditableCustomCell } from "../../_shared/EditableCustomCell";
+import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
+import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { leadDisplayKey } from "@/lib/leads/display";
 import {
   isLeadSortKey,
@@ -58,11 +62,17 @@ type LeadTableProps = {
   columnOptions: TableColumnOption[];
   nameByEmail: Map<string, string>;
   isManager: boolean;
+  /** Agents the manager can hand a lead to; empty for a non-manager. */
+  assignees: { email: string; name: string | null }[];
+  /** Owner emails this person may edit; null = every lead (a manager). */
+  editableOwnerEmails: string[] | null;
   selected: ReadonlySet<string>;
   allVisibleSelected: boolean;
   onToggleLead: (id: string) => void;
   onSelectVisible: (selected: boolean) => void;
   onOpenLead: (lead: LeadRow) => void;
+  onPatchLead: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  onAssignLead: (id: string, email: string | null) => Promise<void>;
   sortKey: LeadSortKey | null;
   sortDir: SortDir;
   onSort?: (key: LeadSortKey) => void;
@@ -72,6 +82,10 @@ export function LeadTable({
   sortKey,
   sortDir,
   onSort,
+  assignees,
+  editableOwnerEmails,
+  onPatchLead,
+  onAssignLead,
   leads,
   columns,
   statuses,
@@ -96,6 +110,21 @@ export function LeadTable({
       option,
     ]);
   }
+
+  // "No status" is a real choice: a lead can sit in the pool before anyone has
+  // spoken to it, and an agent must be able to put one back there.
+  const statusChoices = [
+    { value: "", label: "No status" },
+    ...statuses.map((status) => ({ value: status.id, label: status.label })),
+  ];
+  const assigneeChoices = [
+    { value: "", label: "Unassigned" },
+    ...assignees.map((person) => ({
+      value: person.email,
+      label: personLabel(person.email, nameByEmail),
+      keywords: [person.email],
+    })),
+  ];
 
   const staticColumnWidth = isManager ? SELECTION_COLUMN_WIDTH : 0;
   const pinnedOffsetByKey = buildPinnedOffsetByKey(
@@ -164,11 +193,16 @@ export function LeadTable({
                     interactionTypeById={interactionTypeById}
                     optionsByColumn={optionsByColumn}
                     nameByEmail={nameByEmail}
+                    statusChoices={statusChoices}
+                    assigneeChoices={assigneeChoices}
                     isManager={isManager}
+                    canEdit={canEditLead(lead, editableOwnerEmails)}
                     selected={selected.has(lead.id)}
                     pinnedOffsetByKey={pinnedOffsetByKey}
                     onToggle={() => onToggleLead(lead.id)}
                     onOpen={() => onOpenLead(lead)}
+                    onPatch={(patch) => onPatchLead(lead.id, patch)}
+                    onAssign={(email) => onAssignLead(lead.id, email)}
                   />
                 </li>
               );
@@ -249,11 +283,16 @@ function LeadRow({
   interactionTypeById,
   optionsByColumn,
   nameByEmail,
+  statusChoices,
+  assigneeChoices,
   isManager,
+  canEdit,
   selected,
   pinnedOffsetByKey,
   onToggle,
   onOpen,
+  onPatch,
+  onAssign,
 }: {
   lead: LeadRow;
   columns: TableColumn[];
@@ -262,11 +301,16 @@ function LeadRow({
   interactionTypeById: ReadonlyMap<string, LeadInteractionType>;
   optionsByColumn: ReadonlyMap<string, TableColumnOption[]>;
   nameByEmail: Map<string, string>;
+  statusChoices: readonly { value: string; label: string }[];
+  assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
   isManager: boolean;
+  canEdit: boolean;
   selected: boolean;
   pinnedOffsetByKey: ReadonlyMap<string, number>;
   onToggle: () => void;
   onOpen: () => void;
+  onPatch: (patch: Record<string, unknown>) => Promise<void>;
+  onAssign: (email: string | null) => Promise<void>;
 }) {
   return (
     <div
@@ -296,11 +340,95 @@ function LeadRow({
           interactionTypeById={interactionTypeById}
           options={optionsByColumn.get(column.id) ?? []}
           nameByEmail={nameByEmail}
+          statusChoices={statusChoices}
+          assigneeChoices={assigneeChoices}
+          canEdit={canEdit}
+          canAssign={isManager}
           pinnedOffset={pinnedOffsetByKey.get(column.key)}
           onOpen={onOpen}
+          onPatch={onPatch}
+          onAssign={onAssign}
         />
       ))}
     </div>
+  );
+}
+
+/**
+ * A dropdown cell. Same shape as EditableCustomCell's choice branch — trigger
+ * button, portal listbox, save on pick — but the values here are lead rows
+ * (a status, a product, an agent), not table_column_option ids, so it cannot
+ * reuse that component directly.
+ */
+function LeadChoiceCell({
+  label,
+  ariaLabel,
+  choices,
+  selectedValue,
+  canEdit,
+  renderValue,
+  onSelect,
+}: {
+  label: string;
+  ariaLabel: string;
+  choices: readonly { value: string; label: string; keywords?: string[] }[];
+  selectedValue: string;
+  canEdit: boolean;
+  renderValue: ReactNode;
+  onSelect: (value: string) => void | Promise<void>;
+}) {
+  const { isOpen, toggle, triggerRef, menuRef, menuStyle, closeMenu, closeMenuForTab } =
+    useAnchoredMenu();
+  const [saveError, setSaveError] = useState(false);
+
+  async function commit(next: string) {
+    closeMenu({ restoreFocus: true });
+    if (next === selectedValue) return;
+    setSaveError(false);
+    try {
+      await onSelect(next);
+    } catch {
+      setSaveError(true);
+    }
+  }
+
+  return (
+    <span className="relative block min-w-0 flex-1">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={!canEdit}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggle();
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        title={saveError ? "Save failed. Try again." : label}
+        className={`flex min-w-0 max-w-full items-center gap-2 truncate rounded px-1.5 py-1 text-left transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${
+          saveError ? "ring-2 ring-[#ff5630] ring-offset-1" : ""
+        }`}
+      >
+        {renderValue}
+      </button>
+      {isOpen
+        ? createPortal(
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              className="min-w-[13rem]"
+              ariaLabel={ariaLabel}
+              queryPlaceholder={`Search ${ariaLabel.toLowerCase()}…`}
+              emptyMessage={`No matching ${ariaLabel.toLowerCase()}.`}
+              choices={choices}
+              selectedValue={selectedValue}
+              onSelect={(value) => void commit(value)}
+              onTabExit={closeMenuForTab}
+            />,
+            document.body,
+          )
+        : null}
+    </span>
   );
 }
 
@@ -312,8 +440,14 @@ function LeadDataCell({
   interactionTypeById,
   options,
   nameByEmail,
+  statusChoices,
+  assigneeChoices,
+  canEdit,
+  canAssign,
   pinnedOffset,
   onOpen,
+  onPatch,
+  onAssign,
 }: {
   lead: LeadRow;
   column: TableColumn;
@@ -322,8 +456,14 @@ function LeadDataCell({
   interactionTypeById: ReadonlyMap<string, LeadInteractionType>;
   options: TableColumnOption[];
   nameByEmail: Map<string, string>;
+  statusChoices: readonly { value: string; label: string }[];
+  assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
+  canEdit: boolean;
+  canAssign: boolean;
   pinnedOffset?: number;
   onOpen: () => void;
+  onPatch: (patch: Record<string, unknown>) => Promise<void>;
+  onAssign: (email: string | null) => Promise<void>;
 }) {
   const width = leadColumnWidth(column);
   const isPinned = pinnedOffset !== undefined;
@@ -360,6 +500,129 @@ function LeadDataCell({
             {lead.full_name ?? "Unnamed lead"}
           </span>
         </button>
+      </div>
+    );
+  }
+
+  // Editable system fields. Name stays a link to the lead, matching how the
+  // task list treats its summary: the row's title is how you open the record.
+  if (column.key === "phone" || column.key === "email") {
+    return (
+      <div style={style} className={baseClassName}>
+        <EditableCustomCell
+          column={{ id: column.id, key: column.key, label: column.label, type: "text" }}
+          value={column.key === "phone" ? lead.phone : lead.email}
+          canEdit={canEdit}
+          onSave={(next) => onPatch({ [column.key]: next })}
+          className="w-full"
+        />
+      </div>
+    );
+  }
+
+  if (column.key === "event") {
+    // Typed, not chosen: the route finds or creates the event by name, so a
+    // lead never waits on someone registering it first.
+    return (
+      <div style={style} className={baseClassName}>
+        <EditableCustomCell
+          column={{ id: column.id, key: "event_name", label: column.label, type: "text" }}
+          value={lead.event_name}
+          canEdit={canEdit}
+          onSave={(next) => onPatch({ event_name: next })}
+          className="w-full"
+        />
+      </div>
+    );
+  }
+
+  if (column.key === "followUp") {
+    return (
+      <div style={style} className={baseClassName}>
+        <EditableCustomCell
+          column={{ id: column.id, key: column.key, label: column.label, type: "date" }}
+          value={lead.next_follow_up_at ? lead.next_follow_up_at.slice(0, 10) : null}
+          canEdit={canEdit}
+          onSave={(next) => onPatch({ next_follow_up_at: next })}
+          className="w-full !font-medium !text-[#6b778c]"
+        />
+      </div>
+    );
+  }
+
+  if (column.key === "product") {
+    return (
+      <div style={style} className={baseClassName}>
+        <LeadChoiceCell
+          label={productOptionLabel(lead.product)}
+          ariaLabel="Product"
+          choices={PRODUCT_CHOICES}
+          selectedValue={lead.product}
+          canEdit={canEdit}
+          onSelect={(value) => onPatch({ product: value })}
+          renderValue={<ProductBadge product={lead.product} options={options} />}
+        />
+      </div>
+    );
+  }
+
+  if (column.key === "status") {
+    return (
+      <div style={style} className={baseClassName}>
+        <LeadChoiceCell
+          label={status?.label ?? "No status"}
+          ariaLabel="Status"
+          choices={statusChoices}
+          selectedValue={lead.status_id ?? ""}
+          canEdit={canEdit}
+          onSelect={(value) => onPatch({ status_id: value })}
+          renderValue={<StatusBadge status={status} />}
+        />
+      </div>
+    );
+  }
+
+  if (column.key === "assignee") {
+    const label = lead.assigned_to_email
+      ? personLabel(lead.assigned_to_email, nameByEmail)
+      : "Unassigned";
+    return (
+      <div style={style} className={baseClassName}>
+        <LeadChoiceCell
+          label={label}
+          ariaLabel="Assignee"
+          choices={assigneeChoices}
+          selectedValue={lead.assigned_to_email ?? ""}
+          canEdit={canAssign}
+          onSelect={(value) => onAssign(value || null)}
+          renderValue={
+            lead.assigned_to_email ? (
+              <span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[#42526e]">
+                <Initials email={lead.assigned_to_email} label={label} />
+                <span className="truncate">{label}</span>
+              </span>
+            ) : (
+              <span className="text-xs font-semibold text-[#97a0af]">Unassigned</span>
+            )
+          }
+        />
+      </div>
+    );
+  }
+
+  if (!column.is_system) {
+    return (
+      <div style={style} className={`${baseClassName} items-center ${
+        column.type === "checkbox" ? "justify-center" : ""
+      }`}>
+        <EditableCustomCell
+          column={column}
+          value={lead.custom_values?.[column.key]}
+          options={options}
+          canEdit={canEdit}
+          onSave={(next) => onPatch({ custom_values: { [column.key]: next } })}
+          className={column.type === "checkbox" ? "" : "w-full"}
+        />
       </div>
     );
   }
@@ -434,6 +697,22 @@ function renderLeadCell(
     </span>
   );
 }
+
+/**
+ * Mirrors canEditLead on the server, reading the same resolved owner set.
+ * Rendering a cell as editable that the API would refuse is worse than showing
+ * it read-only: the save fails after the value already looks changed.
+ */
+function canEditLead(lead: LeadRow, editableOwnerEmails: string[] | null): boolean {
+  if (editableOwnerEmails === null) return true;
+  const owner = lead.assigned_to_email?.trim().toLowerCase() ?? "";
+  return owner !== "" && editableOwnerEmails.includes(owner);
+}
+
+const PRODUCT_CHOICES = [
+  { value: "pc", label: "P&C" },
+  { value: "health", label: "Health" },
+];
 
 /** The two labels the Product column's configured values are seeded with. */
 function productOptionLabel(product: LeadRow["product"]): string {
@@ -597,7 +876,7 @@ function leadColumnValue(
     case "followUp":
       return displayDate(lead.next_follow_up_at);
     case "event":
-      return lead.event_id ?? "—";
+      return lead.event_name ?? "—";
     case "product":
       return productOptionLabel(lead.product);
     case "createdAt":

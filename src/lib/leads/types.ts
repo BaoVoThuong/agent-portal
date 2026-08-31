@@ -61,6 +61,8 @@ export type LeadRow = {
   display_number: number;
   product: LeadProduct;
   event_id: string | null;
+  /** Joined from lead_events. The uuid identifies; the name is what people read. */
+  event_name?: string | null;
   full_name: string | null;
   phone: string | null;
   email: string | null;

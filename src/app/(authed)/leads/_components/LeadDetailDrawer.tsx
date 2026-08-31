@@ -77,6 +77,8 @@ type LeadDetailDrawerProps = {
   interactionTypes: LeadInteractionType[];
   /** Account names, so the rail shows people the way the board does. */
   nameByEmail: Map<string, string>;
+  /** Owner emails this person may log against; null = every lead (a manager). */
+  editableOwnerEmails: string[] | null;
   onClose: () => void;
   onLeadUpdated: (lead: LeadRow, interaction?: LeadInteraction) => void;
 };
@@ -89,6 +91,7 @@ export function LeadDetailDrawer({
   columns,
   columnOptions,
   interactionTypes,
+  editableOwnerEmails,
   nameByEmail,
   onClose,
   onLeadUpdated,
@@ -172,9 +175,15 @@ export function LeadDetailDrawer({
   const visibleInteractions =
     loadedLeadId === currentLead.id ? interactions : [];
   const visibleError = loadedLeadId === currentLead.id ? loadError : null;
+  // Logging follows the same agent/assistant pairing the API enforces: an
+  // Assistant logs calls on their agent's leads. A manager who is not the owner
+  // still cannot log — the contact count belongs to whoever works the lead.
+  const owner = (currentLead.assigned_to_email ?? "").trim().toLowerCase();
   const canLog =
-    (currentLead.assigned_to_email ?? "").trim().toLowerCase() ===
-    currentEmail.trim().toLowerCase();
+    owner !== "" &&
+    (editableOwnerEmails === null
+      ? owner === currentEmail.trim().toLowerCase()
+      : editableOwnerEmails.includes(owner));
 
   async function saveInteraction(payload: {
     type_id: string;

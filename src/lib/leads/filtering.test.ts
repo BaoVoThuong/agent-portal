@@ -56,8 +56,8 @@ describe("matchesLeadSearch", () => {
 
 describe("filterLeads", () => {
   const rows = [
-    lead({ full_name: "Health One", product: "health", status_id: "s1", event_id: "e1" }),
-    lead({ full_name: "PC Two", product: "pc", status_id: "s2", event_id: "e1" }),
+    lead({ full_name: "Health One", product: "health", status_id: "s1", event_name: "Health Fair" }),
+    lead({ full_name: "PC Two", product: "pc", status_id: "s2", event_name: "Health Fair" }),
     lead({ full_name: "Pooled", assigned_to_email: null, product: "health" }),
   ];
 
@@ -68,7 +68,7 @@ describe("filterLeads", () => {
   it("narrows by product, status and event independently", () => {
     expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, product: "pc" })).toHaveLength(1);
     expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, statusId: "s1" })).toHaveLength(1);
-    expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, eventId: "e1" })).toHaveLength(2);
+    expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, eventName: "Health Fair" })).toHaveLength(2);
   });
 
   // "" is not "no filter": it is the pool, which is exactly what a manager

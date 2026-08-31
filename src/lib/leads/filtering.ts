@@ -5,7 +5,11 @@ export type LeadFilters = {
   search: string;
   assignedTo: string | null;
   statusId: string | null;
-  eventId: string | null;
+  /**
+   * The event NAME, not its uuid. The uuid is an implementation detail nobody
+   * types or reads; the dropdown is built from the names the rows carry.
+   */
+  eventName: string | null;
   product: "pc" | "health" | null;
 };
 
@@ -13,7 +17,7 @@ export const EMPTY_LEAD_FILTERS: LeadFilters = {
   search: "",
   assignedTo: null,
   statusId: null,
-  eventId: null,
+  eventName: null,
   product: null,
 };
 
@@ -52,7 +56,10 @@ export function filterLeads(
   return leads.filter((lead) => {
     if (filters.product && lead.product !== filters.product) return false;
     if (filters.statusId && lead.status_id !== filters.statusId) return false;
-    if (filters.eventId && lead.event_id !== filters.eventId) return false;
+    if (filters.eventName) {
+      const name = lead.event_name?.trim().toLowerCase() ?? "";
+      if (name !== filters.eventName.trim().toLowerCase()) return false;
+    }
     // Compare against null, not truthiness: "" is the sentinel for "in the
     // pool", which is a real thing to filter for and cannot be expressed by an
     // email. A truthy check silently drops that choice.
@@ -69,7 +76,7 @@ export function activeLeadFilterCount(filters: LeadFilters): number {
     (filters.search.trim() ? 1 : 0) +
     (filters.assignedTo === null ? 0 : 1) +
     (filters.statusId ? 1 : 0) +
-    (filters.eventId ? 1 : 0) +
+    (filters.eventName ? 1 : 0) +
     (filters.product ? 1 : 0)
   );
 }

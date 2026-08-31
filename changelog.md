@@ -6,6 +6,35 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Sửa giá trị ngay trên bảng Lead + RBAC theo assistant membership
+
+- **Loại**: feature + fix (RBAC)
+
+### Sửa tại chỗ trong bảng
+- **Cái gì**: ô trong bảng Lead nay sửa được trực tiếp như bên Task: Phone, Email, Event, Follow up, Product, Status, Assigned to, và **mọi cột tuỳ biến** (text/number/date/checkbox/dropdown/link/person).
+- **Dùng lại `EditableCustomCell`** ở `_shared/` — đúng component Task đang dùng cho cột tuỳ biến. Không viết bản thứ hai.
+- **Name vẫn là link mở lead**, không sửa tại chỗ — giống cột summary bên Task: tiêu đề dòng là chỗ để mở bản ghi.
+- **Không sửa được**: Key, Attempts, Last contact, Imported, Interaction history. Bốn cột đếm liên hệ chỉ do `log_lead_interaction_atomic` ghi; sửa tay là phá đúng cái mà engine cảnh báo đọc.
+- **Endpoint mới `PATCH /api/leads/[id]`** — trước đây **không hề có** route sửa lead. Nhận đúng 6 cột cộng `event_name` và `custom_values`; **key lạ thì từ chối** chứ không bỏ qua, vì bỏ qua sẽ làm một cái gõ nhầm trông như đã lưu thành công.
+- **Status inline giữ đúng ràng buộc của RPC**: chọn một status `scheduled` mà lead chưa có ngày follow-up thì bị từ chối kèm lời nhắc mở lead ra ghi; chọn status không phải `scheduled` thì **xoá** follow-up đang treo — nếu không, một lead đã Won vẫn nằm trong cảnh báo "quá hạn gọi lại" cho một cuộc gọi không ai còn nợ.
+- **Assign inline đi qua `/api/leads/assign`** để vẫn ghi lịch sử giao việc, không ghi thẳng cột.
+- **Optimistic + rollback**: ô đổi ngay, hỏng thì trả lại giá trị cũ **và** hiện lý do. Revert im lặng trông như app tự ý vứt cái người ta vừa gõ.
+
+### Sửa kèm — cột Event đang hiện UUID
+- `leads.event_id` là uuid trỏ sang `lead_events`, nhưng bảng render thẳng `lead.event_id`. Nghĩa là **cột Event hiện UUID thô**, và bộ lọc Event tao làm hôm qua liệt kê UUID làm lựa chọn, sort Event thì sort theo UUID.
+- Sửa: nhúng `lead_events(name)` vào truy vấn danh sách, thêm `event_name` vào `LeadRow`; bảng, sort và filter đều dùng tên. `LeadFilters.eventId` đổi thành `eventName`.
+
+### RBAC — trả lời thẳng: trước đó **chưa có**
+- **Trạng thái cũ**: manager (`lead.manage`) thấy và sửa tất cả; worker chỉ thấy và sửa lead gán **đúng email mình**. Assistant membership **không được nhắc tới ở đâu** trong module Lead, và account-role admin không có đường nào ngoài việc được cấp `lead.manage`.
+- **Nay**: một lead thuộc về agent được gán, và **assistant của agent đó** làm việc trên lead của họ — đúng cặp agent/assistant mà Task đang dùng, đọc từ **cùng bảng `agent_members`**, qua chính `isAgentOwnerOrAssistant` và `fetchAssistantAgentsForCs` của Task. Không tạo bảng thứ hai, không chép lại truy vấn: một sơ đồ tổ chức, hai module đọc.
+- **Account-role admin** (`role = 'admin'` hoặc role RBAC Admin/Super Admin) nay là lead manager mà không cần cấp riêng `lead.manage`. Cổng route vẫn đòi một trong hai quyền lead, nên đây là mở rộng *làm được gì sau khi vào*, không phải mở rộng *ai được vào*.
+- **Danh sách cũng theo scope đó**: `buildLeadListFilter.assignedTo` (một email, `.eq`) đổi thành `ownerEmails` (danh sách, `.in`) — một assistant thấy hàng của agent mình. `null` = manager, không lọc; mảng rỗng sẽ có nghĩa là "không dòng nào", nên hai thứ không thể dùng chung một biểu diễn.
+- **Fail-closed**: `fetchAssistantAgentsForCs` cố tình *throw* khi query hỏng (Task đã học bài này: nuốt lỗi ở đây từng biến một assistant thành người thấy toàn bộ task công ty). Lead dùng lại nguyên hành vi đó. Và cờ membership **chỉ nới ra**: người không có quyền lead nào thì cờ bật cũng vẫn bị chặn — có test.
+- **Client đọc cùng một kết quả**: server giải `ownerEmails` một lần rồi truyền xuống, bảng và modal dùng nó để quyết ô nào sửa được. Vẽ một ô sửa được mà API sẽ từ chối còn tệ hơn để read-only: lưu hỏng *sau khi* giá trị đã trông như đã đổi.
+- **Ghi tương tác**: assistant ghi được trên lead của agent mình. Quyền sở hữu không đổi, nên bộ đếm liên hệ vẫn thuộc về agent được gán.
+
+- **Kiểm chứng**: `npm run test:run` 123 files / **887 tests** (thêm 7 test `buildLeadPatch`, 6 test RBAC/assistant, 3 test scope danh sách); typecheck, lint, build sạch.
+
 ## 2026-09-01 — Sidebar: vào /leads/config là mất đường quay lại danh sách
 
 - **Loại**: fix (bug điều hướng)

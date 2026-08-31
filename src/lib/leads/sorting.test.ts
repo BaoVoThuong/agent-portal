@@ -4,7 +4,6 @@ import type { LeadRow } from "./types";
 
 const context: LeadSortContext = {
   statusLabel: (id) => (id ? { s1: "New", s2: "Working" }[id] ?? null : null),
-  eventName: (id) => (id ? { e1: "Zebra Fair", e2: "Apple Expo" }[id] ?? null : null),
   personLabel: (email) => email.split("@")[0],
 };
 
@@ -44,8 +43,8 @@ describe("sortLeads", () => {
   });
 
   it("sorts by the resolved label, not the raw id", () => {
-    const rows = [lead({ full_name: "z", event_id: "e1", display_number: 1 }),
-                  lead({ full_name: "a", event_id: "e2", display_number: 2 })];
+    const rows = [lead({ full_name: "z", event_name: "Zebra Fair", display_number: 1 }),
+                  lead({ full_name: "a", event_name: "Apple Expo", display_number: 2 })];
     // e1 is "Zebra Fair", e2 is "Apple Expo" — id order would be the reverse.
     expect(names(sortLeads(rows, "event", "asc", context))).toEqual(["a", "z"]);
   });

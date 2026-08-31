@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { buildLeadActor, canManageLeads } from "@/lib/leads/access";
+import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
 import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import {
   fetchAllTableColumnOptions,
@@ -21,7 +21,9 @@ const LEAD_TABS = ["table", "value"] as const;
 export default async function LeadConfigPage() {
   const session = await requireAnyPermission([PERMISSIONS.LEAD_MANAGE]);
   const email = session.user.email ?? "";
-  const actor = buildLeadActor(session.user.permissions, email);
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
   // requireAnyPermission already gates the route; this second check keeps the
   // page honest if that permission list is ever widened.
   if (!canManageLeads(actor)) redirect("/unauthorized");

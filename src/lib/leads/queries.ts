@@ -29,7 +29,12 @@ export type LeadListParams = {
 export type LeadListFilter = {
   /** null = every product. Event Leads is one list; product is a filter. */
   product: LeadProduct | null;
-  assignedTo: string | null;
+  /**
+   * Emails the rows may be assigned to. null = no owner restriction, which is
+   * a manager. An empty array would mean "no rows", so the two cannot share a
+   * representation.
+   */
+  ownerEmails: string[] | null;
   eventId: string | null;
   statusId: string | null;
   alert: LeadAlert | null;
@@ -55,18 +60,31 @@ function toLeadAlert(value: unknown): LeadAlert | null {
 
 export function buildLeadListFilter(
   actor: LeadActor,
-  params: LeadListParams
+  params: LeadListParams,
+  /**
+   * Emails this worker may see, from resolveLeadOwnerEmails: their own plus the
+   * agents they assist. null for a manager. Defaulting to the actor's own email
+   * keeps the old single-owner behaviour for any caller that has not resolved
+   * membership yet — narrower, never wider.
+   */
+  ownerEmails?: string[] | null
 ): LeadListFilter {
   const requested = text(params.assigned_to);
+  const scoped =
+    ownerEmails !== undefined
+      ? ownerEmails
+      : [actor.email.trim().toLowerCase()];
   return {
     // Deliberately NOT toLeadProduct(): that helper falls back to "pc" for
     // anything unrecognised, which is right for a URL that names a product but
     // wrong here, where "no product given" means "show me all of them". Using
     // it made the merged list silently filter to P&C and show nothing.
     product: isLeadProduct(params.product) ? params.product : null,
-    assignedTo: actor.isManager
-      ? requested?.toLowerCase() ?? null
-      : actor.email.trim().toLowerCase(),
+    ownerEmails: actor.isManager
+      ? requested
+        ? [requested.toLowerCase()]
+        : null
+      : scoped,
     eventId: text(params.event_id),
     statusId: text(params.status_id),
     alert: toLeadAlert(params.alert),
@@ -81,15 +99,19 @@ const LEAD_COLUMNS =
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
   "updated_by_email,updated_at,custom_values,archived_at";
+// event_id is a uuid. Every screen wants the event's NAME, so it is embedded
+// here rather than left to each caller: the list rendered the raw uuid in the
+// Event column, and the filter dropdown offered uuids as its choices.
 const LEAD_LIST_COLUMNS =
-  `${LEAD_COLUMNS},lead_interactions(id,type_id,occurred_at)`;
+  `${LEAD_COLUMNS},lead_events(name),lead_interactions(id,type_id,occurred_at)`;
 
 export async function fetchLeadsPage(
   actor: LeadActor,
   params: LeadListParams,
-  supabase: SupabaseClient = getSupabaseAdmin()
+  supabase: SupabaseClient = getSupabaseAdmin(),
+  ownerEmails?: string[] | null
 ): Promise<{ rows: LeadRow[]; total: number; filter: LeadListFilter }> {
-  const filter = buildLeadListFilter(actor, params);
+  const filter = buildLeadListFilter(actor, params, ownerEmails);
   let alertSettings: LeadAlertSettings | null = null;
   let terminalStatusIds: string[] = [];
   if (filter.alert) {
@@ -121,7 +143,7 @@ export async function fetchLeadsPage(
     .range(filter.offset, filter.offset + filter.limit - 1);
 
   if (filter.product) query = query.eq("product", filter.product);
-  if (filter.assignedTo) query = query.eq("assigned_to_email", filter.assignedTo);
+  if (filter.ownerEmails) query = query.in("assigned_to_email", filter.ownerEmails);
   if (filter.eventId) query = query.eq("event_id", filter.eventId);
   if (filter.statusId) query = query.eq("status_id", filter.statusId);
   if (filter.alert) {
@@ -170,10 +192,12 @@ export async function fetchLeadsPage(
 function toLeadRowWithInteractionHistory(row: unknown): LeadRow {
   const source = row as LeadRow & {
     lead_interactions?: LeadInteractionPreview[] | null;
+    lead_events?: { name?: string | null } | null;
   };
-  const { lead_interactions, ...lead } = source;
+  const { lead_interactions, lead_events, ...lead } = source;
   return {
     ...lead,
+    event_name: lead_events?.name?.trim() || null,
     interaction_history: Array.isArray(lead_interactions)
       ? lead_interactions
       : [],
@@ -188,7 +212,8 @@ function toLeadRowWithInteractionHistory(row: unknown): LeadRow {
 export async function fetchAllLeads(
   actor: LeadActor,
   params: LeadListParams,
-  supabase: SupabaseClient = getSupabaseAdmin()
+  supabase: SupabaseClient = getSupabaseAdmin(),
+  ownerEmails?: string[] | null
 ): Promise<{ rows: LeadRow[]; total: number }> {
   const rows: LeadRow[] = [];
   let offset = 0;
@@ -203,6 +228,7 @@ export async function fetchAllLeads(
         offset: String(offset),
       },
       supabase,
+      ownerEmails,
     );
     total = page.total;
     rows.push(...page.rows);

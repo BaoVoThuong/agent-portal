@@ -1,11 +1,13 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads, canWorkLeads } from "@/lib/leads/access";
+import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@/lib/leads/access";
 import { parseCreateLeadInput } from "@/lib/leads/create";
 import { fetchAllLeads } from "@/lib/leads/queries";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { resolveEventByName } from "@/lib/leads/events";
+import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
 import { findMissingRequiredFields } from "@/lib/table-config/required";
 
 export const dynamic = "force-dynamic";
@@ -17,14 +19,22 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const actor = buildLeadActor(session.user.permissions, email);
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
   if (!canWorkLeads(actor)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const url = new URL(request.url);
   const params = Object.fromEntries(url.searchParams.entries());
-  const { rows, total } = await fetchAllLeads(actor, params);
+  const ownerEmails = await resolveLeadOwnerEmails(actor);
+  const { rows, total } = await fetchAllLeads(
+    actor,
+    params,
+    undefined,
+    ownerEmails,
+  );
   return NextResponse.json({
     leads: rows,
     total,
@@ -38,50 +48,13 @@ const LEAD_COLUMNS =
   "next_follow_up_at,closed_at,created_by_email,created_at," +
   "updated_by_email,updated_at,custom_values,archived_at";
 
-/**
- * Find the event with this name, or create it. Matching ignores case and
- * surrounding space; a unique index on lower(btrim(name)) makes two people
- * typing the same name at the same moment collapse to one row rather than
- * racing, and the re-select after a conflict picks up whichever row won.
- */
-async function resolveEventByName(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-  name: string,
-  actorEmail: string
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  const existing = await supabase
-    .from("lead_events")
-    .select("id")
-    .ilike("name", name)
-    .is("archived_at", null)
-    .limit(1);
-  if (existing.error) return { ok: false, error: existing.error.message };
-  if (existing.data?.[0]) return { ok: true, id: existing.data[0].id as string };
-
-  const created = await supabase
-    .from("lead_events")
-    .insert({ name, created_by_email: actorEmail })
-    .select("id")
-    .maybeSingle();
-  if (created.data?.id) return { ok: true, id: created.data.id as string };
-
-  // Someone else created the same event between the read and the insert.
-  const retry = await supabase
-    .from("lead_events")
-    .select("id")
-    .ilike("name", name)
-    .is("archived_at", null)
-    .limit(1);
-  if (retry.error) return { ok: false, error: retry.error.message };
-  if (retry.data?.[0]) return { ok: true, id: retry.data[0].id as string };
-  return { ok: false, error: created.error?.message ?? "Could not create that event." };
-}
-
 export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email);
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
   if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = parseCreateLeadInput(await request.json().catch(() => null));

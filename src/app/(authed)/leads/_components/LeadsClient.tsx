@@ -38,6 +38,13 @@ type LeadsClientProps = {
   productFilter: "pc" | "health" | null;
   currentEmail: string;
   isManager: boolean;
+  /**
+   * Emails whose leads this person may edit and log against: their own plus
+   * every agent they assist. null = a manager, i.e. all of them. Resolved on
+   * the server from agent_members so the controls the UI offers match what the
+   * API will accept.
+   */
+  editableOwnerEmails: string[] | null;
   initialLeads: LeadRow[];
   initialTotal: number;
   columns: TableColumn[];
@@ -74,6 +81,7 @@ export function LeadsClient({
   productFilter,
   currentEmail,
   isManager,
+  editableOwnerEmails,
   initialLeads,
   initialTotal,
   columns,
@@ -94,6 +102,7 @@ export function LeadsClient({
   const [assignmentReason, setAssignmentReason] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [filters, setFilters] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
   const [sortKey, setSortKey] = useState<LeadSortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -242,6 +251,67 @@ export function LeadsClient({
     });
   }
 
+  /**
+   * One inline edit. The cell has already repainted optimistically, so a
+   * failure must both restore the old row and say why — a silent revert reads
+   * as the app randomly discarding what someone typed.
+   */
+  async function patchLead(id: string, patch: Record<string, unknown>) {
+    const previous = leads.find((lead) => lead.id === id);
+    setLeads((current) =>
+      current.map((lead) =>
+        lead.id === id ? { ...lead, ...(patch as Partial<LeadRow>) } : lead,
+      ),
+    );
+    try {
+      const response = await fetch(`/api/leads/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-lead-client-source": sourceId,
+        },
+        body: JSON.stringify(patch),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Could not save that change.");
+      updateLead(payload.lead as LeadRow);
+      setEditError(null);
+    } catch (error) {
+      if (previous) {
+        setLeads((current) =>
+          current.map((lead) => (lead.id === id ? previous : lead)),
+        );
+      }
+      setEditError(
+        error instanceof Error ? error.message : "Could not save that change.",
+      );
+      throw error;
+    }
+  }
+
+  /** Reassigning one lead from its cell, through the route that keeps history. */
+  async function assignLead(id: string, toEmail: string | null) {
+    try {
+      const response = await fetch("/api/leads/assign", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-lead-client-source": sourceId,
+        },
+        body: JSON.stringify({ lead_ids: [id], to_email: toEmail, reason: "" }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Could not assign that lead.");
+      setEditError(null);
+      await reloadRef.current();
+    } catch (error) {
+      setEditError(
+        error instanceof Error ? error.message : "Could not assign that lead.",
+      );
+      throw error;
+    }
+  }
+
   async function assignSelected(toEmail: string | null) {
     if (selected.size === 0 || assigning) return;
     setAssigning(true);
@@ -285,7 +355,7 @@ export function LeadsClient({
   const eventNames = [
     ...new Set(
       leads
-        .map((lead) => lead.event_id?.trim())
+        .map((lead) => lead.event_name?.trim())
         .filter((name): name is string => Boolean(name)),
     ),
   ].sort((a, b) => a.localeCompare(b));
@@ -309,7 +379,6 @@ export function LeadsClient({
     if (!sortKey) return matched;
     return sortLeads(matched, sortKey, sortDir, {
       statusLabel: (id) => (id ? statusNameById.get(id) ?? null : null),
-      eventName: (id) => id,
       personLabel: (email) => personLabel(email, nameByEmail),
     });
   })();
@@ -508,7 +577,7 @@ export function LeadsClient({
                 ) : null}
 
                 <TaskSelect
-                  value={filters.eventId ?? ALL_FILTER}
+                  value={filters.eventName ?? ALL_FILTER}
                   options={eventFilterOptions}
                   placeholder="All events"
                   searchable
@@ -517,7 +586,7 @@ export function LeadsClient({
                   onChange={(value) =>
                     setFilters({
                       ...filters,
-                      eventId: value === ALL_FILTER ? null : value,
+                      eventName: value === ALL_FILTER ? null : value,
                     })
                   }
                 />
@@ -605,11 +674,31 @@ export function LeadsClient({
         </div>
       )}
 
+      {view === "list" && editError ? (
+        <div className="min-w-0 shrink-0 px-6 pb-3">
+          <div className="mx-auto flex max-w-[1760px] items-start justify-between gap-3 rounded border border-[#ffbdad] bg-[#fff7f5] px-4 py-2.5 text-sm font-semibold text-[#bf2600]">
+            <span>{editError}</span>
+            <button
+              type="button"
+              onClick={() => setEditError(null)}
+              aria-label="Dismiss"
+              className="shrink-0 rounded px-1 transition hover:bg-[#ffebe6]"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {view === "list" && (
         <div className="min-h-0 flex flex-1 flex-col px-6 pb-6">
           <div className="mx-auto flex min-h-0 w-full max-w-[1760px] flex-1 flex-col">
             <LeadTable
               leads={displayedLeads}
+              assignees={assignees}
+              editableOwnerEmails={editableOwnerEmails}
+              onPatchLead={patchLead}
+              onAssignLead={assignLead}
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={toggleSort}
@@ -643,6 +732,7 @@ export function LeadsClient({
           columns={columns}
           columnOptions={columnOptions}
           interactionTypes={interactionTypes}
+          editableOwnerEmails={editableOwnerEmails}
           nameByEmail={nameByEmail}
           onClose={() => setSelectedLead(null)}
           onLeadUpdated={updateLead}

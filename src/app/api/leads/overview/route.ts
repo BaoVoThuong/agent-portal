@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads } from "@/lib/leads/access";
+import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
 import { summarizeLeads } from "@/lib/leads/overview";
 import { toLeadProduct, type LeadAlertSettings, type LeadRow, type LeadStatus } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -68,7 +68,9 @@ export async function GET(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email);
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
   if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const product = toLeadProduct(new URL(request.url).searchParams.get("product"));

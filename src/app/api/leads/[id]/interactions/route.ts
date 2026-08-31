@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canLogInteraction, canViewLead } from "@/lib/leads/access";
+import { buildLeadActor, canLogInteraction, canViewLead, isLeadViewAdmin } from "@/lib/leads/access";
+import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -19,7 +20,9 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
 
-  const actor = buildLeadActor(session.user.permissions, email);
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
   const supabase = getSupabaseAdmin();
   const { data: lead, error: leadError } = await supabase
     .from("leads")
@@ -29,7 +32,11 @@ export async function GET(_req: Request, { params }: Ctx) {
     .maybeSingle();
   if (leadError) return NextResponse.json({ error: leadError.message }, { status: 500 });
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!canViewLead(actor, lead as Pick<LeadRow, "assigned_to_email">)) {
+  const viewed = lead as Pick<LeadRow, "assigned_to_email">;
+  const canSeeAsAssistant = actor.isManager
+    ? false
+    : await isLeadOwnerOrAssistant(viewed.assigned_to_email, email);
+  if (!canViewLead(actor, viewed, { isOwnerOrAssistant: canSeeAsAssistant })) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -52,7 +59,9 @@ export async function POST(req: Request, { params }: Ctx) {
   }
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
 
-  const actor = buildLeadActor(session.user.permissions, email);
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
   const supabase = getSupabaseAdmin();
   const { data: lead, error: leadError } = await supabase
     .from("leads")
@@ -64,7 +73,15 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: leadError.message }, { status: 500 });
   }
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!canLogInteraction(actor, lead as Pick<LeadRow, "assigned_to_email">)) {
+  const target = lead as Pick<LeadRow, "assigned_to_email">;
+  // An Assistant logs calls on their agent's leads; that is the point of the
+  // pairing. Ownership is unchanged, so the contact counters still belong to
+  // the agent the lead is assigned to.
+  const isOwnerOrAssistant = await isLeadOwnerOrAssistant(
+    target.assigned_to_email,
+    email,
+  );
+  if (!canLogInteraction(actor, target, { isOwnerOrAssistant })) {
     return NextResponse.json(
       { error: "This lead is not assigned to you." },
       { status: 403 }
