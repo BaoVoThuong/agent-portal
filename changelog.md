@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — "Invalid column order": hai RPC vẫn chốt cứng 3 scope cũ
+- **Loại**: fix (bug)
+- **Cái gì**: đổi vị trí cột ở Lead Table Configuration luôn báo `Invalid column order`. Nguyên nhân: `reorder_table_columns_atomic` mở đầu bằng `if p_scope not in ('cs','aca','medicare') then raise COLUMN_ORDER_INVALID`. Thứ tự cột hoàn toàn hợp lệ — **scope mới bị từ chối**, nhưng thông báo lại nói về thứ tự nên rất khó lần ra.
+- **Cùng bệnh ở `table_config_write_context`** (`WRITE_CONTEXT_SCOPE_INVALID`). Hàm này gác luồng ghi của tasks và enrollment nên chưa ảnh hưởng lead, nhưng là cùng cái bẫy nên sửa luôn.
+- **Sửa tận gốc**: thêm `is_table_scope(text)` — **một** danh sách scope duy nhất, cả hai RPC gọi vào đó. Thêm scope lần sau chỉ sửa một chỗ, thay vì phải lùng mọi hàm tình cờ có tự kiểm tra scope. Đây là lần thứ hai cùng loại lỗi: lần trước là ba ràng buộc CHECK, lần này là hai RPC.
+- **Kiểm chứng**: dựng PostgreSQL 16, nạp schema **cũ**, đổi thứ tự cột scope `lead_pc` → tái hiện đúng `COLUMN_ORDER_INVALID`; chạy rollout → đổi được, vị trí thật sự hoán đổi; chạy lần hai 0 lỗi; `schema.sql` nạp 0 lỗi. `npm run test:run` 119 files / 847 tests.
+
 ## 2026-08-31 — Ô ghi tương tác bị khoá nói rõ lý do thay vì trông như hỏng
 - **Loại**: fix (UX)
 - **Cái gì**: khi người xem không phải người đang giữ lead, `InteractionLog` trước đây vẫn vẽ đủ form nhưng `disabled` cả hai dropdown, kèm một dòng chữ xám nhỏ ở góc. Nhìn y hệt màn hình hỏng — và đã bị báo là hỏng. Nay thay hẳn form bằng câu giải thích: ai đang giữ lead, và làm gì tiếp (manager chuyển tay từ danh sách Leads; hoặc lead chưa giao thì giao trước).

@@ -42,7 +42,6 @@ type LeadTableProps = {
   onToggleLead: (id: string) => void;
   onSelectVisible: (selected: boolean) => void;
   onOpenLead: (lead: LeadRow) => void;
-  footer?: ReactNode;
 };
 
 export function LeadTable({
@@ -57,7 +56,6 @@ export function LeadTable({
   onToggleLead,
   onSelectVisible,
   onOpenLead,
-  footer,
 }: LeadTableProps) {
   const statusById = new Map(statuses.map((status) => [status.id, status]));
   const optionsByColumn = new Map<string, TableColumnOption[]>();
@@ -143,11 +141,6 @@ export function LeadTable({
           </ul>
         </div>
       </div>
-      {footer ? (
-        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[#dfe1e6] px-4 py-3 text-sm text-[#6b778c]">
-          {footer}
-        </footer>
-      ) : null}
     </div>
   );
 }

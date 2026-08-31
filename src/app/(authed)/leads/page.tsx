@@ -3,7 +3,7 @@ import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildLeadActor } from "@/lib/leads/access";
 import { fetchLeadAssignees } from "@/lib/leads/assignees";
-import { fetchLeadsPage } from "@/lib/leads/queries";
+import { fetchAllLeads } from "@/lib/leads/queries";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import {
   toLeadProduct,
@@ -35,7 +35,7 @@ export default async function LeadsPage({
 
   const [page, config, statusesResult, typesResult, assignees] =
     await Promise.all([
-    fetchLeadsPage(actor, { product, alert: params.alert }, supabase),
+    fetchAllLeads(actor, { product, alert: params.alert }, supabase),
     fetchTableColumnsWithOptions(product === "pc" ? "lead_pc" : "lead_health", supabase),
     supabase
       .from("lead_statuses")
@@ -64,8 +64,6 @@ export default async function LeadsPage({
       isManager={actor.isManager}
       initialLeads={page.rows}
       initialTotal={page.total}
-      initialLimit={page.filter.limit}
-      initialOffset={page.filter.offset}
       columns={config.columns}
       columnOptions={config.options}
       statuses={statusesResult.data as LeadStatus[]}

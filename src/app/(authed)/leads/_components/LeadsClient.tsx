@@ -2,13 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  ChevronLeft,
-  ChevronRight,
-  CircleAlert,
-  Plus,
-  Upload,
-} from "lucide-react";
+import { CircleAlert, Plus, Upload } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import type { LeadAlert } from "@/lib/leads/alerts";
 import { isOwnLeadMutation, LEADS_TOPIC } from "@/lib/leads/realtime-topics";
@@ -32,8 +26,6 @@ type LeadsClientProps = {
   isManager: boolean;
   initialLeads: LeadRow[];
   initialTotal: number;
-  initialLimit: number;
-  initialOffset: number;
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
   statuses: LeadStatus[];
@@ -54,8 +46,6 @@ export function LeadsClient({
   isManager,
   initialLeads,
   initialTotal,
-  initialLimit,
-  initialOffset,
   columns,
   columnOptions,
   statuses,
@@ -66,11 +56,8 @@ export function LeadsClient({
   const searchParams = useSearchParams();
   const [leads, setLeads] = useState(initialLeads);
   const [total, setTotal] = useState(initialTotal);
-  const [limit, setLimit] = useState(initialLimit);
-  const [offset, setOffset] = useState(initialOffset);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedLead, setSelectedLead] = useState<LeadRow | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [assignmentEmail, setAssignmentEmail] = useState("");
@@ -115,19 +102,14 @@ export function LeadsClient({
       })),
     [assignees, nameByEmail],
   );
-  const reload = async (nextOffset = offset) => {
+  const reload = async () => {
     if (requestInFlight.current) {
       pendingRefresh.current = true;
       return;
     }
     requestInFlight.current = true;
-    setRefreshing(true);
     try {
-      const params = new URLSearchParams({
-        product,
-        limit: String(limit),
-        offset: String(nextOffset),
-      });
+      const params = new URLSearchParams({ product });
       if (activeAlert) params.set("alert", activeAlert);
       const response = await fetch(`/api/leads?${params.toString()}`, {
         cache: "no-store",
@@ -137,21 +119,18 @@ export function LeadsClient({
         throw new Error(payload?.error ?? "Could not refresh leads.");
       if (Array.isArray(payload?.leads)) setLeads(payload.leads as LeadRow[]);
       if (typeof payload?.total === "number") setTotal(payload.total);
-      if (typeof payload?.limit === "number") setLimit(payload.limit);
-      if (typeof payload?.offset === "number") setOffset(payload.offset);
       setSelected(new Set());
     } catch (error) {
       console.error("Could not refresh leads", error);
     } finally {
       requestInFlight.current = false;
-      setRefreshing(false);
       if (pendingRefresh.current) {
         pendingRefresh.current = false;
         if (
           typeof document !== "undefined" &&
           document.visibilityState === "visible"
         )
-          void reloadRef.current(nextOffset);
+          void reloadRef.current();
       }
     }
   };
@@ -164,7 +143,7 @@ export function LeadsClient({
     const queryKey = `${product}:${activeAlert ?? ""}`;
     if (loadedQueryRef.current === queryKey) return;
     loadedQueryRef.current = queryKey;
-    void reloadRef.current(0);
+    void reloadRef.current();
   }, [activeAlert, product]);
 
   useEffect(() => {
@@ -251,7 +230,6 @@ export function LeadsClient({
 
   const allVisibleSelected =
     leads.length > 0 && leads.every((lead) => selected.has(lead.id));
-  const pageEnd = Math.min(offset + limit, total);
   const displayedLeads = leads;
 
   function selectAlert(alert: LeadAlert) {
@@ -443,32 +421,6 @@ export function LeadsClient({
                 )
               }
               onOpenLead={setSelectedLead}
-              footer={
-                <>
-                  <span>
-                    {total === 0 ? "0" : `${offset + 1}–${pageEnd}`} of{" "}
-                    {total.toLocaleString()}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-40"
-                      type="button"
-                      disabled={offset === 0 || refreshing}
-                      onClick={() => void reload(Math.max(0, offset - limit))}
-                    >
-                      <ChevronLeft className="h-4 w-4" /> Previous
-                    </button>
-                    <button
-                      className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-40"
-                      type="button"
-                      disabled={pageEnd >= total || refreshing}
-                      onClick={() => void reload(offset + limit)}
-                    >
-                      Next <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </div>
-                </>
-              }
             />
           </div>
         </div>
@@ -502,7 +454,7 @@ export function LeadsClient({
         assignees={assignees}
         statuses={statuses}
         onClose={() => setAddOpen(false)}
-        onCreated={() => reload(0)}
+        onCreated={() => reload()}
       />
     </main>
   );

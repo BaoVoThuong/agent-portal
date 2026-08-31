@@ -2,7 +2,7 @@ import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, canWorkLeads } from "@/lib/leads/access";
 import { parseCreateLeadInput } from "@/lib/leads/create";
-import { fetchLeadsPage } from "@/lib/leads/queries";
+import { fetchAllLeads } from "@/lib/leads/queries";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -24,12 +24,10 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const params = Object.fromEntries(url.searchParams.entries());
-  const { rows, total, filter } = await fetchLeadsPage(actor, params);
+  const { rows, total } = await fetchAllLeads(actor, params);
   return NextResponse.json({
     leads: rows,
     total,
-    limit: filter.limit,
-    offset: filter.offset,
   });
 }
 

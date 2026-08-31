@@ -142,3 +142,39 @@ export async function fetchLeadsPage(
     filter,
   };
 }
+
+/**
+ * The Lead List has the same continuous-scroll interaction as the Task List.
+ * Keep the database request bounded per round trip, but assemble every row
+ * before rendering so the UI never exposes numbered pages or Next/Previous.
+ */
+export async function fetchAllLeads(
+  actor: LeadActor,
+  params: LeadListParams,
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<{ rows: LeadRow[]; total: number }> {
+  const rows: LeadRow[] = [];
+  let offset = 0;
+  let total = 0;
+
+  do {
+    const page = await fetchLeadsPage(
+      actor,
+      {
+        ...params,
+        limit: String(MAX_PAGE_SIZE),
+        offset: String(offset),
+      },
+      supabase,
+    );
+    total = page.total;
+    rows.push(...page.rows);
+    offset += page.rows.length;
+
+    // A zero-row page guards against a concurrent deletion or a backend
+    // cursor anomaly and makes the loop finite even when the count changes.
+    if (page.rows.length === 0) break;
+  } while (rows.length < total);
+
+  return { rows, total };
+}

@@ -3848,6 +3848,20 @@ create table if not exists table_column_option (
 -- Version-aware single-statement column reorder. The expected order is
 -- compared only after deterministic row locks are acquired, so concurrent
 -- Config editors cannot silently overwrite one another.
+-- One list of valid table scopes, so widening it is a single edit. Two RPCs
+-- used to carry their own copy, and adding the Lead scopes updated the CHECK
+-- constraints while leaving both functions rejecting lead_pc/lead_health —
+-- column reordering failed with "Invalid column order" and nobody could tell
+-- why from the message.
+create or replace function is_table_scope(p_scope text)
+returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  select p_scope in ('cs', 'aca', 'medicare', 'lead_pc', 'lead_health');
+$$;
+
 create or replace function reorder_table_columns_atomic(
   p_scope text,
   p_expected_column_keys text[],
@@ -3863,7 +3877,7 @@ declare
   active_count integer := 0;
   duplicate_count integer := 0;
 begin
-  if p_scope not in ('cs', 'aca', 'medicare')
+  if not is_table_scope(p_scope)
     or p_expected_column_keys is null
     or p_column_keys is null then
     raise exception 'COLUMN_ORDER_INVALID';
@@ -3980,7 +3994,7 @@ declare
   matched_people jsonb := '[]'::jsonb;
   person_emails text[] := array[]::text[];
 begin
-  if p_scope not in ('cs', 'aca', 'medicare') then
+  if not is_table_scope(p_scope) then
     raise exception 'WRITE_CONTEXT_SCOPE_INVALID';
   end if;
   if p_mode not in ('create', 'patch') then
