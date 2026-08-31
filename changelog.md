@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-08-31 — Import lead lưu cột phụ theo đúng khoá của Config Table
+- **Loại**: fix (correctness)
+- **Cái gì**: `parseLeadRows` lưu các cột Excel không được map vào `custom_values` theo **nguyên văn header** (`"Secondary Phone"`), trong khi cột do Config Table tạo luôn có khoá đã chuẩn hoá (`secondary_phone`) và mọi màn hình đọc `custom_values[column.key]`. Hệ quả: giá trị import vào nằm trong DB nhưng bảng hiện `—`. Nay dùng chung `slugifyColumnKey` với Config Table.
+- **Vì sao gặp**: cần thêm trường "Secondary Phone". Không cần code cho bản thân trường đó — Config Table đã hỗ trợ scope `lead_pc`/`lead_health` nên admin tự thêm cột được. Nhưng nếu không sửa chỗ này thì cột thêm xong vẫn trống sau khi import.
+- **Kiểm chứng**: `npm run test:run` 118 files / **842 tests** (thêm 2 test: header "Secondary Phone" phải thành `secondary_phone`, và cột đã map không được lọt vào custom_values); typecheck + lint sạch.
+
 ## 2026-08-31 — Chọn agent bằng dropdown thay vì gõ email, và hiện tên thay vì email
 - **Loại**: fix (UX, data-integrity)
 - **Cái gì**: thanh giao lead hàng loạt trước đây là ô nhập chữ tự do "Agent email to assign". Nay là dropdown có tìm kiếm (`TaskSelect`), nạp từ `fetchLeadAssignees()` — tài khoản đang hoạt động có `lead.work` hoặc `lead.manage`, đúng cách `fetchTaskAssignees()` bên Task lấy danh sách.

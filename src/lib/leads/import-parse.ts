@@ -1,3 +1,5 @@
+import { slugifyColumnKey } from "@/lib/table-config/columns";
+
 export type ParsedLead = {
   full_name: string | null;
   phone: string;
@@ -66,11 +68,17 @@ export function parseLeadRows(
     }
     seenPhones.add(phone);
 
+    // Store unmapped columns under the SAME slug Config Table gives a column it
+    // creates from that label, so "Secondary Phone" in the spreadsheet lands in
+    // custom_values.secondary_phone and the configured column can read it.
+    // Keying by the raw header instead meant an imported value existed in the
+    // row but every screen rendered it as "—", because the column looks up
+    // custom_values[column.key] and column.key is always slugified.
     const customValues: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(record)) {
-      if (!mappedKeys.has(key) && value !== null && value !== undefined && value !== "") {
-        customValues[key] = value;
-      }
+    for (const [header, value] of Object.entries(record)) {
+      if (mappedKeys.has(header)) continue;
+      if (value === null || value === undefined || value === "") continue;
+      customValues[slugifyColumnKey(header)] = value;
     }
 
     const email = cell(record, mapping.email);

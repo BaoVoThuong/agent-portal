@@ -32,7 +32,7 @@ describe("parseLeadRows", () => {
       full_name: "An Nguyen",
       phone: "7145550123",
       email: "an@x.com",
-      custom_values: { Language: "VI" },
+      custom_values: { language: "VI" },
     }]);
     expect(result.skipped).toEqual([]);
   });
@@ -65,5 +65,28 @@ describe("parseLeadRows", () => {
       mapping
     );
     expect(result.rows[0].email).toBe("an@x.com");
+  });
+});
+
+describe("custom column keys", () => {
+  // A Config Table column built from the label "Secondary Phone" gets the key
+  // `secondary_phone`, and every screen reads custom_values[column.key]. Keying
+  // the import by the raw header put the value in the row but showed "—".
+  it("slugifies a spreadsheet header the way Config Table slugifies a label", () => {
+    const result = parseLeadRows(
+      [{ Name: "A", Cell: "7145550123", "Secondary Phone": "714-555-9999" }],
+      { full_name: "Name", phone: "Cell" }
+    );
+    expect(result.rows[0].custom_values).toEqual({
+      secondary_phone: "714-555-9999",
+    });
+  });
+
+  it("leaves the mapped columns out of custom values", () => {
+    const result = parseLeadRows(
+      [{ Name: "A", Cell: "7145550123", Email: "a@x.com" }],
+      { full_name: "Name", phone: "Cell", email: "Email" }
+    );
+    expect(result.rows[0].custom_values).toEqual({});
   });
 });
