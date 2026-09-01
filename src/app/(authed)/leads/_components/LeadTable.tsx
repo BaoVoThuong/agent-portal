@@ -45,7 +45,10 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   secondary_phone: 160,
   email: 190,
   assignee: 180,
-  status: 140,
+  // Nhãn dài nhất đang dùng là "NOT INTERESTED" (14 ký tự chữ hoa đậm 11px):
+  // ~105px chữ + 16 badge + 12 nút + 24 ô ≈ 157px. 140 cũ cắt mất đuôi.
+  // Admin đặt nhãn dài hơn thì badge tự truncate chứ không phá layout.
+  status: 168,
   // Three 44px interaction badges plus gaps fit comfortably, while leaving
   // enough header space for the full "INTERACTION HISTORY" label.
   interactionHistory: 200,
