@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Ô Product: chọn nhiều theo đúng kiểu gán nhiều worker cho task
+
+- **Loại**: fix (UI sai hình dạng).
+- **Sai ở đâu**: bản đầu làm hai **nút bật/tắt** cạnh nhau. Logic đúng nhưng không giống thứ gì khác trong app, và không phải cái user hình dung.
+- **Nay**: `ProductMenu` dựng theo đúng `AssigneeMenu` bên Task board — nút hiện các **chip đã chọn**, bấm ra **menu tick nhiều**, có dấu ✓ ở mục đang chọn. Chưa chọn gì thì nút là **viền đứt "Set product"**, giống hệt nút "Assign" của task chưa ai nhận.
+- **Không có ô tìm kiếm**: chỉ có hai lựa chọn; thêm ô tìm là thêm một thứ để bấm nhầm.
+- **Modal chi tiết dùng CHUNG component đó**, thay `LeadChoiceField` chọn-một. Hai màn hình, một cách bấm — trước đó bảng và modal sẽ cho hai trải nghiệm khác nhau cho cùng một trường.
+- Dọn `PRODUCT_CHOICES`, `optionBadgeStyle` và `productOption` đã chết theo.
+
 ## 2026-09-01 — Một lead có thể thuộc nhiều product
 
 - **Loại**: schema + logic. Cần chạy `supabase/rollouts/2026-09-03-lead-multi-product.sql`.

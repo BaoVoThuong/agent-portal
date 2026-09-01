@@ -2,11 +2,12 @@
 
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type {
+import {
   LeadInteraction,
   LeadInteractionType,
   LeadRow,
   LeadStatus,
+  type LeadProduct,
 } from "@/lib/leads/types";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
@@ -16,9 +17,9 @@ import { leadDisplayKey } from "@/lib/leads/display";
 import { leadIsInScope } from "@/lib/leads/capabilities";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
-import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { AvatarStack } from "../../tasks/_components/board-ui";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import { ProductMenu } from "./LeadTable";
 
 // These mirror the compact field primitives in TaskDetailDrawer. Keeping them
 // local lets Lead retain its domain-specific data while sharing the same UI
@@ -41,11 +42,6 @@ const READ_ONLY_METADATA_FIELD_CLASS =
   "flex min-h-9 items-center rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]";
 const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
 
-const PRODUCT_CHOICES = [
-  { value: "", label: "Not specified" },
-  { value: "pc", label: "P&C" },
-  { value: "health", label: "Health" },
-];
 
 function displayDateTime(value: string | null | undefined): string {
   if (!value) return "—";
@@ -53,33 +49,6 @@ function displayDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
-/** The two labels the Product column's configured values are seeded with. */
-function productOptionLabel(product: LeadRow["product"]): string {
-  if (product === "health") return "Health";
-  if (product === "pc") return "P&C";
-  return "Not set";
-}
-
-/** The same palette the task board gives its categories, so the two read alike. */
-function statusBadgeStyle(status: LeadStatus) {
-  const palette = taskCategoryBadgePalette({
-    id: status.id,
-    name: status.label,
-    color: status.color,
-  });
-  return { backgroundColor: palette.background, color: palette.foreground };
-}
-
-/** Same colour rules as the list's Product badge: config first, hash fallback. */
-function optionBadgeStyle(
-  option: TableColumnOption | undefined,
-  label: string,
-) {
-  const palette = tableColumnOptionBadgePalette(
-    option ?? { id: label, label, color: null },
-  );
-  return { backgroundColor: palette.background, color: palette.foreground };
-}
 
 function RailField({
   label,
@@ -115,6 +84,15 @@ function LeadDetailTabButton({
       </span>
     </button>
   );
+}
+
+function statusBadgeStyle(status: LeadStatus) {
+  const palette = taskCategoryBadgePalette({
+    id: status.id,
+    name: status.label,
+    color: status.color,
+  });
+  return { backgroundColor: palette.background, color: palette.foreground };
 }
 
 type LeadDetailDrawerProps = {
@@ -252,16 +230,9 @@ export function LeadDetailDrawer({
     (column) =>
       column.key === "createdAt" && column.is_system && !column.archived_at,
   );
-  const productOption = productColumn
-    ? optionsByColumn
-        .get(productColumn.id)
-        ?.find(
-          (candidate) =>
-            lead?.product !== null &&
-            lead?.product !== undefined &&
-            candidate.label === productOptionLabel(lead.product),
-        )
-    : undefined;
+  const productOptions = productColumn
+    ? optionsByColumn.get(productColumn.id) ?? []
+    : [];
   const leadStatus = currentLeadStatus;
   useBodyScrollLock(Boolean(lead));
   if (!lead) return null;
@@ -545,32 +516,15 @@ export function LeadDetailDrawer({
                 <div className="space-y-3">
                   {showProduct ? (
                     <RailField label="Product">
-                      <LeadChoiceField
-                        label={productOptionLabel(currentLead.product)}
-                        ariaLabel="Product"
-                        choices={PRODUCT_CHOICES}
-                        selectedValue={currentLead.product ?? ""}
+                      {/* Cùng picker với ô Product ngoài bảng: một lead có thể
+                          mang nhiều product, nên đây là chọn-nhiều chứ không
+                          phải chọn-một. Hai màn hình, một cách bấm. */}
+                      <ProductMenu
+                        selected={currentLead.products ?? []}
+                        options={productOptions}
                         canEdit={canEdit}
-                        onSelect={(product) => patchCurrentLead({ product })}
-                        containerClassName="w-full"
-                        buttonClassName={RAIL_SELECT_BUTTON_CLASS}
-                        showChevron
-                        renderValue={
-                          currentLead.product ? (
-                            <span
-                              className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
-                              style={optionBadgeStyle(
-                                productOption,
-                                productOptionLabel(currentLead.product),
-                              )}
-                            >
-                              {productOptionLabel(currentLead.product)}
-                            </span>
-                          ) : (
-                            <span className="text-sm font-semibold text-[#97a0af]">
-                              {productOptionLabel(currentLead.product)}
-                            </span>
-                          )
+                        onToggle={(products: LeadProduct[]) =>
+                          patchCurrentLead({ products })
                         }
                       />
                     </RailField>
