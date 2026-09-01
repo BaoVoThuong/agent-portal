@@ -26,8 +26,9 @@ export type LeadAlertSettingsByProduct = Record<LeadProduct, LeadAlertSettings>;
 
 export function settingsForLead(
   settings: LeadAlertSettings | LeadAlertSettingsByProduct,
-  product: LeadProduct
-): LeadAlertSettings {
+  product: LeadProduct | null
+): LeadAlertSettings | null {
+  if (!product) return null;
   return "product" in settings ? settings : settings[product];
 }
 

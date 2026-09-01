@@ -97,7 +97,7 @@ describe("follow_up_overdue agrees with the alert engine", () => {
     product: "health", no_contact_hours: 24, stale_days: 3, max_attempts: 4,
   } as const;
   const base = {
-    id: "l1", display_number: 1, product: "health", event_id: null, event_name: null,
+    id: "l1", display_number: 1, product: "health", products: ["health"], event_id: null, event_name: null,
     full_name: "A", phone: "1", email: null,
     assigned_to_email: "cs@x.com", assigned_at: "2026-09-01T00:00:00Z",
     assigned_by_email: null, status_id: null,

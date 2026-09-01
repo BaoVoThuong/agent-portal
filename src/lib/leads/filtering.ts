@@ -46,6 +46,14 @@ function digits(value: string): string {
  * Matches name, email and phone. Unassigned rows are matched by the literal
  * word "unassigned" so a manager can find the pool by typing what they see.
  */
+/** Luôn đọc `products`; `product` chỉ là phần tử đầu do DB suy ra. */
+export function leadHasProduct(
+  lead: Pick<LeadRow, "product" | "products">,
+  product: "pc" | "health"
+): boolean {
+  return (lead.products?.length ? lead.products : lead.product ? [lead.product] : []).includes(product);
+}
+
 export function matchesLeadSearch(lead: LeadRow, rawQuery: string): boolean {
   const query = rawQuery.trim().toLowerCase();
   if (!query) return true;
@@ -71,7 +79,9 @@ export function filterLeads(
     if (filters.health && healthByLeadId?.get(lead.id) !== filters.health) {
       return false;
     }
-    if (filters.product && lead.product !== filters.product) return false;
+    // Lead mang cả hai product phải khớp cả hai bộ lọc — so bằng cột `product`
+    // (chỉ là phần tử đầu) sẽ giấu nó khỏi bộ lọc còn lại.
+    if (filters.product && !leadHasProduct(lead, filters.product)) return false;
     if (filters.statusId && lead.status_id !== filters.statusId) return false;
     if (filters.eventName) {
       const name = lead.event_name?.trim().toLowerCase() ?? "";

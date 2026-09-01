@@ -4,7 +4,7 @@ import type { LeadRow } from "./types";
 
 function lead(patch: Partial<LeadRow> = {}): LeadRow {
   return {
-    id: "l1", display_number: 1, product: "health", event_id: null, event_name: null,
+    id: "l1", display_number: 1, product: "health", products: ["health"], event_id: null, event_name: null,
     full_name: "Anh", phone: "7145550123", email: null,
     assigned_to_email: "cs@x.com", assigned_at: null, assigned_by_email: null,
     status_id: null, first_contacted_at: null, last_contacted_at: null,

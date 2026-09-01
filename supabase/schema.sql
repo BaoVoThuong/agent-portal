@@ -6147,7 +6147,11 @@ create sequence if not exists leads_display_number_seq;
 create table if not exists leads (
   id uuid primary key default gen_random_uuid(),
   display_number bigint not null default nextval('leads_display_number_seq'),
-  product text not null check (product in ('pc', 'health')),
+  -- Null means the lead was imported before the customer's product was known.
+  product text check (product in ('pc', 'health')),
+  products text[] not null default '{}'::text[] check (
+    products <@ array['pc', 'health']::text[]
+  ),
   event_id uuid references lead_events(id) on delete set null,
   full_name text,
   phone text,

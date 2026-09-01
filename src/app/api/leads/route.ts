@@ -43,7 +43,7 @@ export async function GET(request: Request) {
 }
 
 const LEAD_COLUMNS =
-  "id,display_number,product,event_id,full_name,phone,email," +
+  "id,display_number,product,products,event_id,full_name,phone,email," +
   "assigned_to_email,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
@@ -173,6 +173,7 @@ export async function POST(request: Request) {
     .from("leads")
     .insert({
       product: input.product,
+      products: [input.product],
       event_id: eventId,
       full_name: input.fullName,
       phone: input.phone,

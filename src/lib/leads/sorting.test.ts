@@ -9,7 +9,7 @@ const context: LeadSortContext = {
 
 function lead(patch: Partial<LeadRow>): LeadRow {
   return {
-    id: Math.random().toString(36), display_number: 1, product: "health",
+    id: Math.random().toString(36), display_number: 1, product: "health", products: ["health"],
     event_id: null, full_name: null, phone: "1", email: null,
     assigned_to_email: null, assigned_at: null, assigned_by_email: null,
     status_id: null, first_contacted_at: null, last_contacted_at: null,

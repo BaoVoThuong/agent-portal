@@ -9,7 +9,7 @@ import {
 } from "@/lib/leads/auto-assign";
 import { parseLeadRows, type LeadColumnMapping } from "@/lib/leads/import-parse";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
-import { isLeadProduct, toLeadProduct } from "@/lib/leads/types";
+import { isLeadProduct, type LeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -65,9 +65,15 @@ export async function POST(request: Request) {
   }
   if (!mapping.phone) return NextResponse.json({ error: "Choose which column holds the phone number." }, { status: 400 });
 
-  const rawProduct = form.get("product");
-  if (!isLeadProduct(rawProduct)) return NextResponse.json({ error: "Unknown product." }, { status: 400 });
-  const product = toLeadProduct(rawProduct);
+  const rawProduct = String(form.get("product") ?? "").trim();
+  const product: LeadProduct | null = rawProduct === ""
+    ? null
+    : isLeadProduct(rawProduct)
+      ? rawProduct
+      : null;
+  if (rawProduct !== "" && !product) {
+    return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+  }
   const rawEventId = String(form.get("event_id") ?? "").trim();
   const eventId = rawEventId || null;
   if (eventId && !UUID_RE.test(eventId)) return NextResponse.json({ error: "The event is not valid." }, { status: 400 });
@@ -105,6 +111,7 @@ export async function POST(request: Request) {
         .from("leads")
         .insert(remaining.map((row) => ({
           product,
+          products: product ? [product] : [],
           event_id: eventId,
           full_name: row.full_name,
           phone: row.phone,
@@ -121,7 +128,7 @@ export async function POST(request: Request) {
         if (retryRows.length === remaining.length) throw new Error(error.message);
         if (retryRows.length > 0) {
           const retry = await supabase.from("leads").insert(retryRows.map((row) => ({
-            product, event_id: eventId, full_name: row.full_name, phone: row.phone,
+            product, products: product ? [product] : [], event_id: eventId, full_name: row.full_name, phone: row.phone,
             email: row.email, custom_values: row.custom_values,
             created_by_email: actor.email.trim().toLowerCase(),
           }))).select("id");
@@ -144,7 +151,15 @@ export async function POST(request: Request) {
   const wantsAutoAssign = String(form.get("auto_assign") ?? "") === "true";
   let autoAssign: AutoAssignOutcome | null = null;
   if (wantsAutoAssign && insertedIds.length > 0) {
-    if (await isAutoAssignEnabled(supabase)) {
+    if (!product) {
+      // Không chọn product thì không có vòng xoay nào để chia. Lead vào pool
+      // và chờ ai đó phân loại — không phải lỗi, chỉ là chưa đủ thông tin.
+      autoAssign = {
+        assigned: 0,
+        unassigned: insertedIds.length,
+        reason: "Pick a product to auto-assign these leads.",
+      };
+    } else if (await isAutoAssignEnabled(supabase)) {
       try {
         autoAssign = await autoAssignLeads(
           insertedIds,

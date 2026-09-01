@@ -36,6 +36,25 @@ describe("buildLeadPatch", () => {
     expect(buildLeadPatch({ status_id: "abc" })).toEqual({ ok: false, error: "Invalid status." });
   });
 
+  it("allows an unknown product to be cleared and products to be classified later", () => {
+    expect(buildLeadPatch({ product: null })).toMatchObject({
+      ok: true,
+      patch: { product: null },
+    });
+    expect(buildLeadPatch({ products: ["pc", "health", "pc"] })).toMatchObject({
+      ok: true,
+      patch: { products: ["pc", "health"] },
+    });
+    expect(buildLeadPatch({ products: [] })).toMatchObject({
+      ok: true,
+      patch: { products: [] },
+    });
+    expect(buildLeadPatch({ products: ["life"] })).toEqual({
+      ok: false,
+      error: "Unknown product.",
+    });
+  });
+
   it("normalises a follow-up date to ISO and rejects nonsense", () => {
     expect(buildLeadPatch({ next_follow_up_at: "2026-09-10" })).toMatchObject({
       ok: true, patch: { next_follow_up_at: "2026-09-10T00:00:00.000Z" },

@@ -23,7 +23,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const LEAD_SELECT =
-  "id,display_number,product,event_id,full_name,phone,email," +
+  "id,display_number,product,products,event_id,full_name,phone,email," +
   "assigned_to_email,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
@@ -146,7 +146,12 @@ export async function PATCH(request: Request, { params }: Ctx) {
   // columns, their options, and the person emails that actually matched, so
   // Create / Import / inline edit cannot end up with three different contracts
   // for the same column.
-  const touchedSystemKeys = Object.keys(parsed.patch);
+  // `products` is the internal multi-product representation, not a configured
+  // table column. Keep it out of table-config validation while still allowing
+  // the DB trigger to derive the legacy primary `product` column from it.
+  const touchedSystemKeys = Object.keys(parsed.patch).filter(
+    (key) => key !== "products",
+  );
   const submittedCustomValues = parsed.customValues ?? {};
   let writeContext;
   try {

@@ -42,6 +42,7 @@ const READ_ONLY_METADATA_FIELD_CLASS =
 const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
 
 const PRODUCT_CHOICES = [
+  { value: "", label: "Not specified" },
   { value: "pc", label: "P&C" },
   { value: "health", label: "Health" },
 ];
@@ -54,7 +55,9 @@ function displayDateTime(value: string | null | undefined): string {
 
 /** The two labels the Product column's configured values are seeded with. */
 function productOptionLabel(product: LeadRow["product"]): string {
-  return product === "health" ? "Health" : "P&C";
+  if (product === "health") return "Health";
+  if (product === "pc") return "P&C";
+  return "Not set";
 }
 
 /** The same palette the task board gives its categories, so the two read alike. */
@@ -254,7 +257,9 @@ export function LeadDetailDrawer({
         .get(productColumn.id)
         ?.find(
           (candidate) =>
-            candidate.label === productOptionLabel(lead?.product ?? "pc"),
+            lead?.product !== null &&
+            lead?.product !== undefined &&
+            candidate.label === productOptionLabel(lead.product),
         )
     : undefined;
   const leadStatus = currentLeadStatus;
@@ -544,22 +549,28 @@ export function LeadDetailDrawer({
                         label={productOptionLabel(currentLead.product)}
                         ariaLabel="Product"
                         choices={PRODUCT_CHOICES}
-                        selectedValue={currentLead.product}
+                        selectedValue={currentLead.product ?? ""}
                         canEdit={canEdit}
                         onSelect={(product) => patchCurrentLead({ product })}
                         containerClassName="w-full"
                         buttonClassName={RAIL_SELECT_BUTTON_CLASS}
                         showChevron
                         renderValue={
-                          <span
-                            className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
-                            style={optionBadgeStyle(
-                              productOption,
-                              productOptionLabel(currentLead.product),
-                            )}
-                          >
-                            {productOptionLabel(currentLead.product)}
-                          </span>
+                          currentLead.product ? (
+                            <span
+                              className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+                              style={optionBadgeStyle(
+                                productOption,
+                                productOptionLabel(currentLead.product),
+                              )}
+                            >
+                              {productOptionLabel(currentLead.product)}
+                            </span>
+                          ) : (
+                            <span className="text-sm font-semibold text-[#97a0af]">
+                              {productOptionLabel(currentLead.product)}
+                            </span>
+                          )
                         }
                       />
                     </RailField>

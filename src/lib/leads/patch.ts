@@ -58,6 +58,20 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
       eventName = text(value);
       continue;
     }
+    // `products` is an internal multi-product write used by the Product cell.
+    // It is intentionally not a table-config column, so it must not be sent
+    // to the metadata validator as if an admin had created a column with that
+    // key. An empty array is the valid "not classified yet" state.
+    if (key === "products") {
+      if (
+        !Array.isArray(value) ||
+        value.some((product) => !isLeadProduct(product))
+      ) {
+        return { ok: false, error: "Unknown product." };
+      }
+      patch.products = [...new Set(value)];
+      continue;
+    }
     if (key === "custom_values") {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         return { ok: false, error: "custom_values must be an object." };
@@ -96,6 +110,10 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
         break;
       }
       case "product":
+        if (value === null || value === undefined || value === "") {
+          patch.product = null;
+          break;
+        }
         if (!isLeadProduct(value)) return { ok: false, error: "Unknown product." };
         patch.product = value;
         break;

@@ -11,7 +11,7 @@ const statusById = new Map([["s1", open], ["s2", won]]);
 
 function lead(patch: Partial<LeadRow>): LeadRow {
   return {
-    id: Math.random().toString(36), display_number: 1, product: "pc", event_id: "e1",
+    id: Math.random().toString(36), display_number: 1, product: "pc", products: ["pc"], event_id: "e1",
     full_name: null, phone: "1", email: null, assigned_to_email: null,
     assigned_at: null, assigned_by_email: null, status_id: "s1",
     first_contacted_at: null, last_contacted_at: null, contact_attempt_count: 0,

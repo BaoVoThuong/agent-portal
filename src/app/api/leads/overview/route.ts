@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 // needs the whole row; this one aggregates, and pulling custom_values (arbitrary
 // jsonb) for every lead in the product just to count flags is pure payload.
 const SUMMARY_COLUMNS =
-  "id,event_id,assigned_to_email,assigned_at,status_id,first_contacted_at," +
+  "id,product,products,event_id,assigned_to_email,assigned_at,status_id,first_contacted_at," +
   "last_contacted_at,contact_attempt_count,next_follow_up_at,archived_at";
 
 // PostgREST caps a single response, so one unbounded select silently returns a
@@ -24,7 +24,7 @@ const SUMMARY_MAX_ROWS = 20_000;
 
 type SummaryRow = Pick<
   LeadRow,
-  | "id" | "event_id" | "assigned_to_email" | "assigned_at" | "status_id"
+  | "id" | "product" | "products" | "event_id" | "assigned_to_email" | "assigned_at" | "status_id"
   | "first_contacted_at" | "last_contacted_at" | "contact_attempt_count"
   | "next_follow_up_at" | "archived_at"
 >;
@@ -42,17 +42,23 @@ async function fetchAllLeadsForSummary(
       .order("id", { ascending: true })
       .range(offset, offset + SUMMARY_PAGE_SIZE - 1);
     // null = mọi product; đừng để một fallback quyết định nghĩa của "không lọc".
-    if (product) query = query.eq("product", product);
+    if (product) query = query.contains("products", [product]);
     const { data, error } = await query;
     if (error) return { rows, truncated: false, error: error.message };
     const page = (data ?? []) as unknown as SummaryRow[];
     for (const row of page) {
       // summarizeLeads takes a LeadRow; the fields it never reads are filled in
       // rather than widening its signature for one caller.
+      const products = Array.isArray(row.products)
+        ? row.products
+        : row.product
+          ? [row.product]
+          : [];
       rows.push({
         ...row,
         display_number: 0,
-        product: product as LeadRow["product"],
+        products,
+        product: row.product ?? products[0] ?? null,
         full_name: null, phone: null, email: null,
         assigned_by_email: null, closed_at: null,
         created_by_email: "", created_at: "",

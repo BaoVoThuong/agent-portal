@@ -17,11 +17,12 @@ import {
   type LeadSortKey,
   type SortDir,
 } from "@/lib/leads/sorting";
-import type {
-  LeadInteractionPreview,
-  LeadInteractionType,
-  LeadRow,
-  LeadStatus,
+import {
+  LEAD_PRODUCTS,
+  type LeadInteractionPreview,
+  type LeadInteractionType,
+  type LeadRow,
+  type LeadStatus,
 } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
@@ -494,17 +495,38 @@ function LeadDataCell({
   }
 
   if (column.key === "product") {
+    const current = lead.products ?? [];
     return (
-      <div style={style} className={baseClassName} onClick={stopPropagation}>
-        <LeadChoiceField
-          label={productOptionLabel(lead.product)}
-          ariaLabel="Product"
-          choices={PRODUCT_CHOICES}
-          selectedValue={lead.product}
-          canEdit={canEdit}
-          onSelect={(value) => onPatch({ product: value })}
-          renderValue={<ProductBadge product={lead.product} options={options} />}
-        />
+      <div style={style} className={`${baseClassName} gap-1`} onClick={stopPropagation}>
+        {/* Một lead có thể mang nhiều product, nên đây là hai nút bật/tắt chứ
+            không phải một dropdown chọn một. Nét đứt = chưa mang product đó. */}
+        {LEAD_PRODUCTS.map((value) => {
+          const on = current.includes(value);
+          return (
+            <button
+              key={value}
+              type="button"
+              disabled={!canEdit}
+              aria-pressed={on}
+              title={`${on ? "Remove" : "Add"} ${productOptionLabel(value)}`}
+              onClick={() =>
+                void onPatch({
+                  products: on
+                    ? current.filter((item) => item !== value)
+                    : [...current, value],
+                })
+              }
+              className={`shrink-0 rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide transition ${
+                on
+                  ? ""
+                  : "border border-dashed border-[#c1c7d0] text-[#97a0af] hover:border-[#0c66e4] hover:text-[#0c66e4]"
+              } disabled:cursor-default disabled:opacity-70`}
+              style={on ? productBadgeStyle(productOptionLabel(value), options) : undefined}
+            >
+              {productOptionLabel(value)}
+            </button>
+          );
+        })}
       </div>
     );
   }
@@ -719,14 +741,12 @@ function LeadAlertBadges({ alerts }: { alerts: readonly LeadAlert[] }) {
   );
 }
 
-const PRODUCT_CHOICES = [
-  { value: "pc", label: "P&C" },
-  { value: "health", label: "Health" },
-];
 
 /** The two labels the Product column's configured values are seeded with. */
 function productOptionLabel(product: LeadRow["product"]): string {
-  return product === "health" ? "Health" : "P&C";
+  if (product === "health") return "Health";
+  if (product === "pc") return "P&C";
+  return "Not set";
 }
 
 /**
@@ -736,6 +756,14 @@ function productOptionLabel(product: LeadRow["product"]): string {
  * rollout seeds those rows the badge still renders, on the shared hashed
  * fallback, rather than showing a bare word where every neighbour is a badge.
  */
+function productBadgeStyle(label: string, options: TableColumnOption[]) {
+  const option = options.find((candidate) => candidate.label === label);
+  const palette = tableColumnOptionBadgePalette(
+    option ?? { id: label, label, color: null },
+  );
+  return { backgroundColor: palette.background, color: palette.foreground };
+}
+
 function ProductBadge({
   product,
   options,
@@ -744,6 +772,9 @@ function ProductBadge({
   options: TableColumnOption[];
 }) {
   const label = productOptionLabel(product);
+  if (!product) {
+    return <span className="text-[11px] font-semibold text-[#97a0af]">{label}</span>;
+  }
   const option = options.find((candidate) => candidate.label === label);
   const palette = tableColumnOptionBadgePalette(
     option ?? { id: label, label, color: null },

@@ -50,7 +50,7 @@ export function isLeadHealth(value: unknown): value is LeadHealth {
 export function classifyLeadHealth(
   lead: LeadRow,
   status: LeadStatus | null,
-  settings: LeadAlertSettings,
+  settings: LeadAlertSettings | null,
   now: Date = new Date()
 ): LeadHealth {
   if (status && (status.kind === "won" || status.kind === "lost")) {

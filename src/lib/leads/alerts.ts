@@ -32,10 +32,12 @@ const DAY_MS = 86_400_000;
 export function resolveLeadAlerts(
   lead: LeadRow,
   status: LeadStatus | null,
-  settings: LeadAlertSettings,
+  settings: LeadAlertSettings | null,
   now: Date = new Date()
 ): LeadAlert[] {
   if (lead.archived_at) return [];
+  // A lead with no known product has no product-specific thresholds yet.
+  if (!settings) return [];
   if (status && (status.kind === "won" || status.kind === "lost")) return [];
   // Chưa giao thì không ai có lỗi.
   if (!lead.assigned_to_email || !lead.assigned_at) return [];

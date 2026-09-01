@@ -95,7 +95,7 @@ export function buildLeadListFilter(
 }
 
 const LEAD_COLUMNS =
-  "id,display_number,product,event_id,full_name,phone,email," +
+  "id,display_number,product,products,event_id,full_name,phone,email," +
   "assigned_to_email,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
@@ -176,7 +176,9 @@ export async function fetchLeadsPage(
     .order("id", { ascending: true })
     .range(filter.offset, filter.offset + filter.limit - 1);
 
-  if (filter.product) query = query.eq("product", filter.product);
+  // `contains` = `products @> array[...]`, dùng index GIN. Lead mang cả hai
+  // product phải hiện ở CẢ HAI bộ lọc, nên không thể so bằng cột `product`.
+  if (filter.product) query = query.contains("products", [filter.product]);
   if (filter.ownerEmails) query = query.in("assigned_to_email", filter.ownerEmails);
   if (filter.eventId) query = query.eq("event_id", filter.eventId);
   if (filter.statusId) query = query.eq("status_id", filter.statusId);
@@ -230,8 +232,15 @@ function toLeadRowWithInteractionHistory(row: unknown): LeadRow {
     lead_events?: { name?: string | null } | null;
   };
   const { lead_interactions, lead_events, ...lead } = source;
+  const products = Array.isArray(source.products)
+    ? source.products.filter(isLeadProduct)
+    : isLeadProduct(source.product)
+      ? [source.product]
+      : [];
   return {
     ...lead,
+    product: isLeadProduct(source.product) ? source.product : products[0] ?? null,
+    products,
     event_name: lead_events?.name?.trim() || null,
     interaction_history: Array.isArray(lead_interactions)
       ? lead_interactions

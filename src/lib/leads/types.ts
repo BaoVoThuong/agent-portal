@@ -59,7 +59,13 @@ export const LEAD_INTERACTION_HISTORY_LIMIT = 3;
 export type LeadRow = {
   id: string;
   display_number: number;
-  product: LeadProduct;
+  /**
+   * Product "chính" — phần tử đầu của `products`, do trigger trong DB suy ra.
+   * Null means the customer has not been classified yet.
+   */
+  product: LeadProduct | null;
+  /** Một lead có thể mang nhiều product; rỗng khi chưa biết product. */
+  products: LeadProduct[];
   event_id: string | null;
   /** Joined from lead_events. The uuid identifies; the name is what people read. */
   event_name?: string | null;

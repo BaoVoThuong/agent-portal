@@ -15,7 +15,7 @@ const hoursAgo = (n: number) =>
 
 function lead(patch: Partial<LeadRow> = {}): LeadRow {
   return {
-    id: "l1", display_number: 1, product: "pc", event_id: null,
+    id: "l1", display_number: 1, product: "pc", products: ["pc"], event_id: null,
     full_name: "A", phone: "1", email: null,
     assigned_to_email: "cs@x.com", assigned_at: hoursAgo(1),
     assigned_by_email: "mgr@x.com", status_id: "s-open",

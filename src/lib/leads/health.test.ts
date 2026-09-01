@@ -14,7 +14,7 @@ const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOStr
 
 function lead(patch: Partial<LeadRow> = {}): LeadRow {
   return {
-    id: "l1", display_number: 1, product: "health", event_id: null, event_name: null,
+    id: "l1", display_number: 1, product: "health", products: ["health"], event_id: null, event_name: null,
     full_name: "A", phone: "1", email: null,
     assigned_to_email: "cs@x.com", assigned_at: daysAgo(10), assigned_by_email: null,
     status_id: null, first_contacted_at: daysAgo(1), last_contacted_at: daysAgo(1),

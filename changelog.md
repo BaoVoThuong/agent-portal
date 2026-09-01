@@ -6,6 +6,36 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Một lead có thể thuộc nhiều product
+
+- **Loại**: schema + logic. Cần chạy `supabase/rollouts/2026-09-03-lead-multi-product.sql`.
+
+### Luật (do user chốt)
+> "nó là 1 lead nếu có ai nhận thì cho cả 2 product và chỉ tính cho bên bấm distribute, bên còn lại kh ảnh hưởng queue"
+
+- Vẫn là **một lead, một người nhận**; người đó nhận cho cả hai product.
+- Lead nằm trong pool của **mọi** product nó mang.
+- Bấm Distribute ở product nào thì **chỉ vòng xoay của product đó** nhúc nhích; con trỏ product còn lại **không bị đụng**.
+- Gán xong lead rời khỏi pool của cả hai — vì nó chỉ có một chủ.
+
+### Di trú không đập vỡ 33 chỗ đang đọc `lead.product`
+`products text[]` là nguồn sự thật; cột `product` cũ được **trigger** giữ đồng bộ bằng phần tử đầu (thứ tự chuẩn hoá `pc` trước `health`, nên nó không đổi chỉ vì mảng được ghi khác thứ tự). Đổi schema **cùng lúc** với đổi toàn bộ đường đọc là hai rủi ro cộng vào nhau; trigger tách chúng ra. Ghi kiểu cũ (chỉ set `product`) vẫn hợp lệ — trigger suy ngược ra mảng.
+
+### Hoà với thay đổi song song của phiên khác
+Giữa lúc làm, một phiên khác đổi `product` thành **nullable** ("chưa phân loại"). Hai mô hình chồng nhau, nên `CHECK` **cho phép mảng rỗng** thay vì bắt buộc ≥1 product: lead chưa phân loại không khớp pool nào nên không bị chia — đúng nghĩa "chưa biết", không phải trạng thái lỗi cần chặn. Import không chọn product thì báo rõ *"Pick a product to auto-assign these leads"* thay vì tự đoán.
+
+### Đã sửa
+- `leads.products text[]` + `CHECK` + **index GIN** (đường đọc nóng nhất là "pool của product X").
+- RPC đổi đúng một mệnh đề: `l.product = p_product` → `p_product = any(l.products)`. Phần con trỏ **không đụng gì** — nó vốn chỉ ghi `lead_assignment_weights` của `p_product`.
+- Truy vấn danh sách lọc bằng `contains("products", [...])` để dùng index; `filterLeads` lọc theo **thành viên mảng**. So bằng cột `product` sẽ **giấu lead đa product khỏi bộ lọc còn lại** — nó có `product = "pc"` nên biến mất khỏi lọc Health.
+- Ô Product trong bảng: từ dropdown chọn-một thành **hai nút bật/tắt**, hiện mọi product của lead, nét đứt = chưa mang.
+- Overview nạp thêm `products` để tính đúng theo từng lead.
+
+### Kiểm chứng trên PostgreSQL 16 thật
+Lead mang `{pc,health}`: hiện trong pool P&C **và** Health · chia từ P&C thì nó **biến khỏi pool Health luôn** · và sau khi chia 3 lead P&C, con trỏ Health vẫn **nguyên 25/-25** — đúng "bên còn lại không ảnh hưởng queue". Rollout chạy lại là no-op, 4 cột `ok`.
+
+- `npm run test:run` 131 files / **962 tests**; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Chia pool: tick agent phản hồi tức thì, đổi tab không chờ, có cache
 
 - **Loại**: fix (hiệu năng cảm nhận).

@@ -1,16 +1,11 @@
 import type { LeadHealth } from "./health";
 import { describe, expect, it } from "vitest";
-import {
-  activeLeadFilterCount,
-  EMPTY_LEAD_FILTERS,
-  filterLeads,
-  matchesLeadSearch,
-} from "./filtering";
+import { EMPTY_LEAD_FILTERS, activeLeadFilterCount, filterLeads, leadHasProduct, matchesLeadSearch } from "./filtering";
 import type { LeadRow } from "./types";
 
 function lead(patch: Partial<LeadRow>): LeadRow {
   return {
-    id: Math.random().toString(36), display_number: 1, product: "health",
+    id: Math.random().toString(36), display_number: 1, product: "health", products: ["health"],
     event_id: null, full_name: "Anh Nguyen", phone: "7145550123",
     email: "anh@example.com", assigned_to_email: "cs@x.com", assigned_at: null,
     assigned_by_email: null, status_id: null, first_contacted_at: null,
@@ -57,8 +52,8 @@ describe("matchesLeadSearch", () => {
 
 describe("filterLeads", () => {
   const rows = [
-    lead({ full_name: "Health One", product: "health", status_id: "s1", event_name: "Health Fair" }),
-    lead({ full_name: "PC Two", product: "pc", status_id: "s2", event_name: "Health Fair" }),
+    lead({ full_name: "Health One", product: "health", products: ["health"], status_id: "s1", event_name: "Health Fair" }),
+    lead({ full_name: "PC Two", product: "pc", products: ["pc"], status_id: "s2", event_name: "Health Fair" }),
     lead({ full_name: "Pooled", assigned_to_email: null, product: "health" }),
   ];
 
@@ -129,5 +124,34 @@ describe("filtering by health bucket", () => {
   // is safer than silently ignoring the filter and showing everything.
   it("matches nothing when no health map is supplied", () => {
     expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, health: "stale" })).toEqual([]);
+  });
+});
+
+describe("multi-product leads", () => {
+  const both = lead({ id: "both", product: "pc", products: ["pc", "health"] });
+  const healthOnly = lead({ id: "h", product: "health", products: ["health"] });
+  const unclassified = lead({ id: "u", product: null, products: [] });
+  const rows = [both, healthOnly, unclassified];
+
+  // Cái bẫy: so bằng cột `product` (chỉ là phần tử đầu) sẽ giấu lead đa product
+  // khỏi bộ lọc còn lại — nó có product = "pc" nên biến mất khỏi lọc Health.
+  it("a lead carrying both products matches both filters", () => {
+    expect(leadHasProduct(both, "pc")).toBe(true);
+    expect(leadHasProduct(both, "health")).toBe(true);
+    expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, product: "health" }).map((r) => r.id))
+      .toEqual(["both", "h"]);
+    expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, product: "pc" }).map((r) => r.id))
+      .toEqual(["both"]);
+  });
+
+  // Chưa phân loại thì không thuộc pool nào — nó không bị chia, đúng nghĩa
+  // "chưa biết" chứ không phải một trạng thái lỗi.
+  it("an unclassified lead matches no product filter", () => {
+    expect(leadHasProduct(unclassified, "pc")).toBe(false);
+    expect(leadHasProduct(unclassified, "health")).toBe(false);
+  });
+
+  it("shows every lead when no product filter is set", () => {
+    expect(filterLeads(rows, EMPTY_LEAD_FILTERS)).toHaveLength(3);
   });
 });
