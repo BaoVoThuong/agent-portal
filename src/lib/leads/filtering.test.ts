@@ -1,4 +1,4 @@
-import type { LeadAlert } from "./alerts";
+import type { LeadHealth } from "./health";
 import { describe, expect, it } from "vitest";
 import {
   activeLeadFilterCount,
@@ -94,28 +94,40 @@ describe("activeLeadFilterCount", () => {
   });
 });
 
-describe("filtering by alert", () => {
+describe("filtering by health bucket", () => {
   const rows = [
     lead({ id: "a", full_name: "Never called" }),
     lead({ id: "b", full_name: "Fine" }),
+    lead({ id: "c", full_name: "Closed" }),
   ];
-  const alerts = new Map<string, readonly LeadAlert[]>([
-    ["a", ["never_contacted"]],
-    ["b", []],
+  const health = new Map<string, LeadHealth>([
+    ["a", "never_contacted"],
+    ["b", "on_track"],
+    ["c", "closed"],
   ]);
 
-  it("keeps only the leads carrying that alert", () => {
-    const filtered = filterLeads(rows, { ...EMPTY_LEAD_FILTERS, alert: "never_contacted" }, alerts);
-    expect(filtered.map((row) => row.id)).toEqual(["a"]);
+  it("keeps only the leads in that bucket", () => {
+    expect(
+      filterLeads(rows, { ...EMPTY_LEAD_FILTERS, health: "never_contacted" }, health)
+        .map((row) => row.id)
+    ).toEqual(["a"]);
+  });
+
+  // Every lead has a bucket, so the options together cover the whole list.
+  it("covers every row across the buckets", () => {
+    const seen = (["never_contacted", "on_track", "closed"] as const).flatMap((bucket) =>
+      filterLeads(rows, { ...EMPTY_LEAD_FILTERS, health: bucket }, health).map((row) => row.id)
+    );
+    expect(seen.sort()).toEqual(["a", "b", "c"]);
   });
 
   it("counts as an active filter", () => {
-    expect(activeLeadFilterCount({ ...EMPTY_LEAD_FILTERS, alert: "stale" })).toBe(1);
+    expect(activeLeadFilterCount({ ...EMPTY_LEAD_FILTERS, health: "stale" })).toBe(1);
   });
 
-  // Fail closed: without the map nothing can be shown to carry an alert, which
-  // is safer than silently ignoring the filter and showing every row.
-  it("matches nothing when no alert map is supplied", () => {
-    expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, alert: "stale" })).toEqual([]);
+  // Fail closed: without the map no row can be shown to be in a bucket, which
+  // is safer than silently ignoring the filter and showing everything.
+  it("matches nothing when no health map is supplied", () => {
+    expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, health: "stale" })).toEqual([]);
   });
 });

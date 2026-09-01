@@ -53,8 +53,8 @@ export type LeadInteractionPreview = {
   occurred_at: string;
 };
 
-/** Bounded list payload; the detail drawer remains the full audit trail. */
-export const LEAD_INTERACTION_HISTORY_LIMIT = 50;
+/** The table shows only the three newest interactions; the drawer owns history. */
+export const LEAD_INTERACTION_HISTORY_LIMIT = 3;
 
 export type LeadRow = {
   id: string;

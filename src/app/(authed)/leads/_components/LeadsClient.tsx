@@ -4,11 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CircleAlert, Plus, Search, Upload, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
+import { resolveLeadAlerts, type LeadAlert } from "@/lib/leads/alerts";
 import {
-  ALERT_SEVERITY,
-  resolveLeadAlerts,
-  type LeadAlert,
-} from "@/lib/leads/alerts";
+  classifyLeadHealth,
+  emptyLeadHealthCounts,
+  isLeadHealth,
+  LEAD_HEALTH_BUCKETS,
+  type LeadHealth,
+} from "@/lib/leads/health";
 import {
   settingsForLead,
   type LeadAlertSettingsByProduct,
@@ -44,7 +47,7 @@ import { LeadDetailDrawer } from "./LeadDetailDrawer";
 import { LeadAddDialog } from "./LeadAddDialog";
 import { LeadImportDialog } from "./LeadImportDialog";
 import { LeadOverview } from "./LeadOverview";
-import { ALERT_LABEL, LeadTable } from "./LeadTable";
+import { LeadTable } from "./LeadTable";
 
 type LeadsClientProps = {
   /** null = every product. A filter now, not a separate screen. */
@@ -75,13 +78,19 @@ type LeadsClientProps = {
  */
 const ALL_FILTER = "__all__";
 
-/** Red first: those are the ones where somebody still has to pick up a phone. */
-const LEAD_ALERT_ORDER: LeadAlert[] = [
-  "never_contacted",
-  "follow_up_overdue",
-  "stale",
-  "exhausted",
-];
+/**
+ * Nhãn cho từng nhóm. Bốn nhóm đầu là "có người phải nhấc máy", ba nhóm sau là
+ * "không ai có lỗi" — và bảy nhóm này phủ hết danh sách.
+ */
+const LEAD_HEALTH_LABEL: Record<LeadHealth, string> = {
+  never_contacted: "Never called",
+  follow_up_overdue: "Overdue follow-up",
+  stale: "Stale",
+  exhausted: "Max attempts",
+  on_track: "On track",
+  unassigned: "In the pool",
+  closed: "Closed (won/lost)",
+};
 const UNASSIGNED_FILTER = "";
 
 const FILTER_SELECT_BUTTON_CLASS =
@@ -411,6 +420,18 @@ export function LeadsClient({
     { value: ALL_FILTER, label: "All statuses" },
     ...statuses.map((status) => ({ value: status.id, label: status.label })),
   ];
+  const healthFilterOptions = [
+    { value: ALL_FILTER, label: `All leads (${leads.length})` },
+    // Nhóm rỗng thì ẩn cho đỡ rối — trừ nhóm đang được chọn: nếu ẩn nó đi,
+    // ô select rơi về "All leads" trong khi bộ lọc vẫn đang chạy và danh sách
+    // vẫn rỗng, tức màn hình nói dối về trạng thái của chính nó.
+    ...LEAD_HEALTH_BUCKETS.filter(
+      (bucket) => healthCounts[bucket] > 0 || filters.health === bucket,
+    ).map((bucket) => ({
+      value: bucket,
+      label: `${LEAD_HEALTH_LABEL[bucket]} (${healthCounts[bucket]})`,
+    })),
+  ];
   const eventFilterOptions = [
     { value: ALL_FILTER, label: "All events" },
     ...eventNames.map((name) => ({ value: name, label: name })),
@@ -429,13 +450,23 @@ export function LeadsClient({
       ),
     ]),
   );
-  const alertCounts = { never_contacted: 0, stale: 0, follow_up_overdue: 0, exhausted: 0 };
-  for (const list of alertsByLeadId.values()) {
-    for (const alert of list) alertCounts[alert] += 1;
-  }
+  // Một nhóm cho mỗi lead, rời nhau — nên số ở các lựa chọn cộng lại đúng bằng
+  // tổng danh sách. Badge vẫn hiện MỌI cờ của dòng đó; nhóm chỉ để lọc.
+  const healthByLeadId = new Map(
+    leads.map((lead) => [
+      lead.id,
+      classifyLeadHealth(
+        lead,
+        lead.status_id ? statusById.get(lead.status_id) ?? null : null,
+        settingsForLead(alertSettings, lead.product),
+      ),
+    ]),
+  );
+  const healthCounts = emptyLeadHealthCounts();
+  for (const bucket of healthByLeadId.values()) healthCounts[bucket] += 1;
 
   const displayedLeads = (() => {
-    const matched = filterLeads(leads, filters, alertsByLeadId);
+    const matched = filterLeads(leads, filters, healthByLeadId);
     if (!sortKey) return matched;
     return sortLeads(matched, sortKey, sortDir, {
       statusLabel: (id) => (id ? statusNameById.get(id) ?? null : null),
@@ -589,36 +620,22 @@ export function LeadsClient({
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 {/* Cảnh báo là lý do module này tồn tại, nhưng trước đây chỉ
                     Overview (manager-only) hiện chúng — agent không có cách nào
-                    biết lead nào của mình quá hạn. Chip đếm trên chính các dòng
-                    người đó đã được phép thấy, nên không cần quyền gì thêm. */}
-                {LEAD_ALERT_ORDER.map((alert) => {
-                  const count = alertCounts[alert];
-                  if (count === 0) return null;
-                  const active = filters.alert === alert;
-                  const red = ALERT_SEVERITY[alert] === "red";
-                  return (
-                    <button
-                      key={alert}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() =>
-                        setFilters({ ...filters, alert: active ? null : alert })
-                      }
-                      className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition ${
-                        active
-                          ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
-                          : red
-                            ? "border-[#ffbdad] bg-[#fff7f5] text-[#bf2600] hover:border-[#ff8f73]"
-                            : "border-[#ffe380] bg-[#fffae6] text-[#974f0c] hover:border-[#ffc400]"
-                      }`}
-                    >
-                      {ALERT_LABEL[alert]}
-                      <span className="rounded-full bg-white/70 px-1.5 text-xs font-bold">
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
+                    biết lead nào của mình quá hạn. Một dropdown duy nhất, các
+                    nhóm rời nhau nên cộng lại đúng 100% danh sách: không lead
+                    nào lọt khe giữa hai lựa chọn. */}
+                <TaskSelect
+                  value={filters.health ?? ALL_FILTER}
+                  options={healthFilterOptions}
+                  placeholder="All leads"
+                  className="w-max min-w-[13rem]"
+                  buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+                  onChange={(value) =>
+                    setFilters({
+                      ...filters,
+                      health: isLeadHealth(value) ? value : null,
+                    })
+                  }
+                />
 
                 {isManager ? (
                   <TaskSelect

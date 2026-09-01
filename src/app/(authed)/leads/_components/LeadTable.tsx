@@ -41,9 +41,9 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   email: 190,
   assignee: 180,
   status: 140,
-  // This is the Task List's category width. After the shared 12px cell
-  // padding on each side, it fits five 44px badges and their four gaps.
-  interactionHistory: 260,
+  // Three 44px interaction badges plus gaps fit comfortably, while leaving
+  // enough header space for the full "INTERACTION HISTORY" label.
+  interactionHistory: 200,
   attempts: 80,
   // "LAST CONTACT" needs 112px of content width once the shared 12px cell
   // padding is accounted for; 136px keeps the complete header visible.
@@ -640,7 +640,7 @@ function renderLeadCell(
 const EMPTY_ALERTS: readonly LeadAlert[] = [];
 
 /** Short enough to sit beside a name without pushing it out of the cell. */
-export const ALERT_LABEL: Record<LeadAlert, string> = {
+const ALERT_LABEL: Record<LeadAlert, string> = {
   never_contacted: "Never called",
   stale: "Stale",
   follow_up_overdue: "Overdue",

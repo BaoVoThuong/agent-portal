@@ -6,6 +6,21 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Gộp 4 chip cảnh báo thành một bộ lọc phủ 100% lead
+
+- **Loại**: feature (thay UI lọc) — theo yêu cầu: một filter thôi, và filter đó phải có đủ 100% lead.
+- **Trước**: 4 chip rời (Never called / Overdue / Stale / Max tries). Chúng chỉ đếm lead **có vấn đề**, nên cộng lại không ra tổng: lead đang ổn, lead chưa giao, lead đã đóng không nằm ở đâu cả.
+- **Nay**: một dropdown **Lead health**, 7 nhóm **rời nhau**, mỗi lead thuộc **đúng một** nhóm nên các con số cộng lại bằng đúng tổng danh sách:
+  - cần nhấc máy: `Never called` · `Overdue follow-up` · `Stale` · `Max attempts`
+  - không ai có lỗi: `On track` · `In the pool` (chưa giao) · `Closed (won/lost)`
+- **Vì sao phải có quy tắc ưu tiên**: một lead có thể trip nhiều cờ cùng lúc (vừa `stale` vừa `exhausted`). Cờ là câu trả lời cho "đang sai cái gì" và có thể nhiều; nhóm trả lời "lead này đang đứng ở đâu" và bắt buộc **đơn trị**, nếu không thì đếm sẽ trùng và tổng vượt quá 100%. Ưu tiên lấy cờ **hành động được nhất**: never_contacted → follow_up_overdue → stale → exhausted.
+- **`classifyLeadHealth` lặp lại đúng thứ tự thoát sớm của `resolveLeadAlerts`** (closed → unassigned → cờ → on_track), nên một lead không bao giờ bị xếp nhóm "cần gọi" trong khi badge của chính nó nói ngược lại.
+- **Badge trên bảng giữ nguyên**: vẫn hiện **mọi** cờ của dòng đó. Chỉ bộ lọc là đơn trị.
+- **Nhóm rỗng thì ẩn — trừ nhóm đang được chọn**: nếu ẩn nó đi thì ô select rơi về "All leads" trong khi bộ lọc vẫn đang chạy và danh sách vẫn rỗng, tức màn hình nói dối về trạng thái của chính nó.
+- **Test phủ đúng điều đang hứa**: một test duyệt mọi lead qua `classifyLeadHealth` rồi khẳng định **tổng các nhóm bằng số dòng**. `filterLeads` cũng fail closed như trước: không có map nhóm thì không dòng nào khớp.
+
+- **Kiểm chứng**: `npm run test:run` 127 files / **942 tests**; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Cảnh báo lead lên bảng (O1 + O2)
 
 - **Loại**: feature — khoảng trống lớn nhất trong audit, và không đụng DB.
