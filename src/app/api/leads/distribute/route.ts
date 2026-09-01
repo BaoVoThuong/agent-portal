@@ -25,7 +25,11 @@ export const dynamic = "force-dynamic";
  */
 const MAX_PER_RUN = 500;
 
-type PoolRow = { id: string; product: LeadProduct };
+type PoolRow = {
+  id: string;
+  product: LeadProduct | null;
+  products: LeadProduct[] | null;
+};
 
 async function fetchPool(
   supabase: ReturnType<typeof getSupabaseAdmin>,
@@ -36,14 +40,18 @@ async function fetchPool(
 ): Promise<{ rows: PoolRow[]; remaining: number }> {
   let query = supabase
     .from("leads")
-    .select("id,product", { count: "exact" })
+    .select("id,product,products", { count: "exact" })
     .is("assigned_to_email", null)
     .is("archived_at", null)
     // Oldest first: a lead nobody has touched for a week deserves an agent
     // before one that arrived this morning.
     .order("created_at", { ascending: true })
     .limit(MAX_PER_RUN);
-  if (product) query = query.eq("product", product);
+  // `@>` trên mảng, không phải `=` trên cột scalar: một lead mang cả hai product
+  // có `product = "pc"` (trigger lấy phần tử đầu), nên lọc bằng cột cũ là tab
+  // Health không bao giờ thấy nó — trong khi luật là lead nằm trong pool của MỌI
+  // product nó mang.
+  if (product) query = query.contains("products", [product]);
   const { data, error, count } = await query;
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as PoolRow[];
@@ -67,7 +75,7 @@ export async function GET(request: Request) {
   const raw = new URL(request.url).searchParams.get("product");
   const product = isLeadProduct(raw) ? raw : null;
   const { rows, remaining } = await fetchPool(getSupabaseAdmin(), product);
-  const grouped = groupLeadIdsByProduct(rows);
+  const grouped = groupLeadIdsByProduct(rows, product);
   return NextResponse.json({
     product,
     pending: rows.length,
@@ -98,7 +106,7 @@ export async function POST(request: Request) {
 
   // Each product carries its own ratio AND its own rotation cursor, so a mixed
   // batch has to be split before either is touched.
-  const grouped = groupLeadIdsByProduct(rows);
+  const grouped = groupLeadIdsByProduct(rows, product);
   const results: Record<string, { assigned: number; unassigned: number; reason?: string }> = {};
   let assigned = 0;
   let unassigned = 0;

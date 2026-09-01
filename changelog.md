@@ -6,6 +6,18 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Pool chia lead đọc theo `products`, không còn theo cột scalar
+
+- **Loại**: fix (business rule) — nối tiếp `2026-09-03-lead-multi-product.sql` (đã chạy trên production).
+- **Lỗi**: `fetchPool` trong `/api/leads/distribute` vẫn lọc `.eq("product", product)`. Trigger đặt `product = products[0]`, nên một lead `[pc, health]` có `product = "pc"` và **tab Health không bao giờ thấy nó** — ngược đúng luật đã chốt: *lead nằm trong pool của MỌI product nó mang*. Danh sách lead và overview đã chuyển sang `.contains("products", …)` từ trước; chỉ riêng đường chia lead bị bỏ lại.
+- Đổi sang `.contains("products", [product])` (dùng index GIN `leads_products_idx`).
+- **`groupLeadIdsByProduct` nhận thêm `scopedTo`.** Đổi mỗi bộ lọc là chưa đủ: lead lọt vào pool Health nhưng gom theo `lead.product = "pc"` thì bấm Distribute ở **Health** lại tiêu **cursor của P&C** — bấm một bên, bên kia bị trừ.
+  - Lượt chia có product cụ thể → mọi lead vào đúng nhóm **tab đó**.
+  - Chia tất cả → gom theo product **đầu tiên** nó mang (thứ tự `LEAD_PRODUCTS`, không theo thứ tự mảng trong DB, để hai lần chạy cho cùng kết quả). Lead multi-product chỉ được tính **một** lần: RPC dời cursor **trước** khi update, nên một lead đã có chủ vẫn đốt mất một lượt của người khác nếu bị đếm hai lần.
+  - Lead chưa phân loại product (`products = {}`) không thuộc pool nào — bỏ qua, không đoán.
+- **Hệ quả cố ý**: tổng `pending` của hai tab có thể lớn hơn số lead đang chờ, vì lead multi-product thật sự nằm ở cả hai pool và ai bấm trước thì lấy. Dòng tóm tắt đầu dialog vẫn đếm mỗi lead một lần nên vẫn cộng đúng.
+- Kiểm trên DB thật: 30 lead, backfill đủ, `product` khớp `products[0]` 30/30, 1 lead `pc+health`. 5 test mới cho `groupLeadIdsByProduct`.
+
 ## 2026-09-01 — Comment rỗng không còn ở lại khi mọi tệp upload đều hỏng
 
 - **Loại**: fix (business rule).

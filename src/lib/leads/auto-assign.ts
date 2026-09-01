@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { LeadProduct } from "./types";
+import { LEAD_PRODUCTS, type LeadProduct } from "./types";
 
 export type AssignmentWeightRow = {
   product: LeadProduct;
@@ -91,10 +91,44 @@ export async function autoAssignLeads(
 }
 
 /** Split a mixed batch so each product uses its own ratio and its own cursor. */
+/**
+ * Chia danh sách lead thành từng nhóm product để chạy vòng xoay riêng.
+ *
+ * `scopedTo` là product của lượt bấm Distribute, hoặc null khi chia tất cả.
+ *
+ * Một lead có thể mang CẢ HAI product, nên "lead này thuộc nhóm nào" không còn
+ * đọc được từ dữ liệu của riêng nó:
+ *
+ *  - Bấm Distribute ở một tab → mọi lead trong pool đó vào đúng nhóm ĐÓ. Lead
+ *    `[pc, health]` bấm ở tab Health thì phải tiêu cursor của Health; gom theo
+ *    dữ liệu của lead sẽ đẩy nó sang P&C, tức bấm một bên mà bên kia bị trừ.
+ *  - Chia tất cả → gom theo product ĐẦU TIÊN nó mang, để lead multi-product chỉ
+ *    được tính MỘT lần. Đếm hai lần thì lượt thứ hai vẫn cộng/trừ cursor rồi mới
+ *    phát hiện lead đã có chủ (RPC dời cursor TRƯỚC khi update), nên một lead bị
+ *    bỏ qua vẫn đốt mất một lượt của người khác.
+ */
 export function groupLeadIdsByProduct(
-  leads: readonly { id: string; product: LeadProduct }[]
+  leads: readonly {
+    id: string;
+    product?: LeadProduct | null;
+    products?: readonly LeadProduct[] | null;
+  }[],
+  scopedTo: LeadProduct | null = null
 ): Record<LeadProduct, string[]> {
   const grouped: Record<LeadProduct, string[]> = { pc: [], health: [] };
-  for (const lead of leads) grouped[lead.product].push(lead.id);
+  for (const lead of leads) {
+    if (scopedTo) {
+      grouped[scopedTo].push(lead.id);
+      continue;
+    }
+    // Thứ tự cố định theo LEAD_PRODUCTS, không theo thứ tự mảng trong DB: cùng
+    // một lead phải luôn rơi vào cùng một nhóm giữa hai lần chạy.
+    const first =
+      LEAD_PRODUCTS.find((product) => lead.products?.includes(product)) ??
+      lead.product ??
+      null;
+    // Lead chưa phân loại product không thuộc pool nào — bỏ qua, không đoán.
+    if (first) grouped[first].push(lead.id);
+  }
   return grouped;
 }
