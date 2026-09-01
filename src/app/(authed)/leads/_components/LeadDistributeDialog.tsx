@@ -96,6 +96,8 @@ export function LeadDistributeDialog({
   const [tab, setTab] = useState<LeadProduct | "agents">("health");
   const product: LeadProduct = tab === "agents" ? "health" : tab;
   const [pool, setPool] = useState<PoolPayload | null>(null);
+  /** Riêng cho tab product đang xem — nút Distribute chỉ chia đúng product đó. */
+  const [tabPool, setTabPool] = useState<PoolPayload | null>(null);
   const [weights, setWeights] = useState<WeightsPayload | null>(null);
   const [draft, setDraft] = useState<WeightRow[]>([]);
   const [enabled, setEnabled] = useState(false);
@@ -179,6 +181,24 @@ export function LeadDistributeDialog({
   // Compiler chặn việc gọi một hàm có setState thẳng trong thân effect, kể cả
   // khi setState đó nằm sau await. loadWeights vẫn dùng cho lần nạp lại sau khi
   // lưu — chỗ đó là event handler nên không vướng.
+  // Pool của riêng product đang xem. Trước đây nút dùng con số TỔNG, nên đứng ở
+  // tab P&C mà nó vẫn ghi "Distribute 4" cho 4 lead Health — và bấm vào là chia
+  // thật số lead của tab kia.
+  useEffect(() => {
+    if (!open || tab === "agents") return;
+    let cancelled = false;
+    void fetch(`/api/leads/distribute?product=${product}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (cancelled || !response.ok) return;
+        setTabPool(payload as PoolPayload);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, tab, product, result]);
+
   useEffect(() => {
     if (!open) return;
     const seq = weightsRequest.current + 1;
@@ -205,7 +225,10 @@ export function LeadDistributeDialog({
   // set đồng bộ trong effect, và nó cũng là thứ nữa có thể lệch khỏi sự thật.
   const loadingWeights = error === null && weights?.product !== product;
 
-  const active = draft.filter((row) => row.is_active && row.weight > 0);
+  // Đang nhận = đã bật ở Agent config. Trọng số 0 nghĩa là "tạm không chia
+  // phần nào", vẫn thuộc product.
+  const receiving = draft.filter((row) => row.is_active);
+  const active = receiving.filter((row) => row.weight > 0);
   const totalWeight = active.reduce((sum, row) => sum + row.weight, 0);
   // Recomputed from the draft so the percentages move as someone types, instead
   // of showing the numbers that were true when the dialog opened.
@@ -236,6 +259,18 @@ export function LeadDistributeDialog({
   const upcomingCounts = [...new Set(upcoming)]
     .map((email) => ({ email, count: upcoming.filter((item) => item === email).length }))
     .sort((a, b) => b.count - a.count || a.email.localeCompare(b.email));
+
+  const blockedReason = busy
+    ? "Working…"
+    : loadingWeights
+      ? "Still loading."
+      : dirty
+        ? "Save your changes before distributing."
+        : active.length === 0
+          ? `Nobody is receiving ${PRODUCT_LABEL[product]} leads.`
+          : !tabPool || tabPool.pending === 0
+            ? `No ${PRODUCT_LABEL[product]} leads are waiting.`
+            : null;
 
   function update(email: string, patch: Partial<WeightRow>) {
     setDraft((current) =>
@@ -277,9 +312,15 @@ export function LeadDistributeDialog({
   /**
    * Bật/tắt một agent cho một product.
    *
-   * Đi thẳng qua PUT của product đó thay vì gom vào nút Lưu chung: đây là một
-   * việc dứt khoát ("người này có làm Health không"), không phải một con số cần
-   * cân đi cân lại, nên bắt người ta bấm Lưu sau mỗi cú tick là bước thừa.
+   * `is_active` là DUY NHẤT một cờ nói "người này có nhận lead của product này
+   * không", và tick ở đây là DUY NHẤT chỗ đặt nó. Trước đó có ba thứ cùng nói
+   * điều đó — dòng có tồn tại không, `is_active`, và `weight > 0` — nên tab
+   * Agent config bảo 13 người phụ trách Health trong khi tab Health bảo không
+   * ai nhận.
+   *
+   * Dòng KHÔNG bị xoá khi bỏ tick: trọng số và vị trí trong vòng xoay được giữ
+   * nguyên, nên người nghỉ hai tuần quay lại đúng chỗ cũ với đúng tỉ lệ cũ.
+   * Bản trước xoá dòng rồi tạo lại với weight 1 — tức nghỉ phép là mất tỉ lệ.
    */
   async function toggleAgentProduct(
     agentEmail: string,
@@ -292,15 +333,14 @@ export function LeadDistributeDialog({
     setNotice(null);
     try {
       const current = await fetchWeights(forProduct);
-      const rows = current.weights
-        .filter((row) => row.agent_email !== agentEmail)
-        .map((row) => ({
-          agent_email: row.agent_email,
-          weight: row.weight,
-          position: row.position,
-          is_active: row.is_active,
-        }));
-      if (next) {
+      const existing = current.weights.find((row) => row.agent_email === agentEmail);
+      const rows = current.weights.map((row) => ({
+        agent_email: row.agent_email,
+        weight: row.weight,
+        position: row.position,
+        is_active: row.agent_email === agentEmail ? next : row.is_active,
+      }));
+      if (!existing && next) {
         rows.push({
           agent_email: agentEmail,
           weight: 1,
@@ -329,7 +369,6 @@ export function LeadDistributeDialog({
             : agent
         )
       );
-      // Tab tỉ lệ đang mở phải thấy ngay người vừa được thêm/bỏ.
       if (forProduct === product) await loadWeights(product);
     } catch (toggleError) {
       setError(toggleError instanceof Error ? toggleError.message : "Could not save.");
@@ -371,20 +410,25 @@ export function LeadDistributeDialog({
   }
 
   async function distribute() {
-    if (busy || !pool || pool.pending === 0) return;
+    if (busy || !tabPool || tabPool.pending === 0) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       const response = await fetch("/api/leads/distribute", {
         method: "POST",
-        headers: { "x-lead-client-source": sourceId },
+        headers: {
+          "Content-Type": "application/json",
+          "x-lead-client-source": sourceId,
+        },
+        body: JSON.stringify({ product }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error ?? "Could not distribute.");
       setResult(payload as DistributeResult);
       const poolResponse = await fetch("/api/leads/distribute", { cache: "no-store" });
       if (poolResponse.ok) setPool((await poolResponse.json()) as PoolPayload);
+      await loadWeights(product);
       onDistributed();
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : "Could not distribute.");
@@ -553,31 +597,30 @@ export function LeadDistributeDialog({
           {/* flex-1 nên nó ăn hết chỗ trống còn lại của modal — modal đã cố
               định chiều cao, nên bảng cũng ổn định theo. */}
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6]">
-            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_5rem_7rem_5rem] gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_6rem_1fr] gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
               <span>Agent</span>
               <span>Weight</span>
               <span>Share</span>
-              <span className="text-center">Receiving</span>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {loadingWeights && draft.length === 0 ? (
+              {loadingWeights && receiving.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
                   Loading agents…
                 </p>
-              ) : draft.length === 0 ? (
+              ) : receiving.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
                   No agents cover {PRODUCT_LABEL[product]} yet — set that up in
                   Agent config.
                 </p>
               ) : (
-                draft.map((row) => {
+                receiving.map((row) => {
                   const label = personLabel(row.agent_email, nameByEmail);
                   const share = shareOf(row);
                   const paused = !row.is_active || row.weight === 0;
                   return (
                     <div
                       key={row.agent_email}
-                      className={`grid grid-cols-[minmax(0,1fr)_5rem_7rem_5rem] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition last:border-b-0 hover:bg-[#f7f8f9] ${
+                      className={`grid grid-cols-[minmax(0,1fr)_6rem_1fr] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition last:border-b-0 hover:bg-[#f7f8f9] ${
                         paused ? "opacity-55" : ""
                       }`}
                     >
@@ -619,19 +662,6 @@ export function LeadDistributeDialog({
                           {share}%
                         </span>
                       </span>
-
-                      <span className="flex justify-center">
-                        <input
-                          type="checkbox"
-                          aria-label={`${label} is receiving leads`}
-                          className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]"
-                          checked={row.is_active}
-                          onChange={(event) =>
-                            update(row.agent_email, { is_active: event.target.checked })
-                          }
-                        />
-                      </span>
-
                     </div>
                   );
                 })
@@ -682,8 +712,8 @@ export function LeadDistributeDialog({
             </div>
           ) : (
             <p className="shrink-0 rounded-lg border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
-              Nobody is receiving {PRODUCT_LABEL[product]} — those leads stay in
-              the pool.
+              Nobody is receiving {PRODUCT_LABEL[product]} — turn someone on in
+              Agent config, or give them a weight above 0.
             </p>
           )}
 
@@ -746,12 +776,17 @@ export function LeadDistributeDialog({
               onClick={() => void distribute()}
               // Distributing with unsaved edits would use the stored ratio, not
               // the one on screen — which is the one the admin is reading.
-              disabled={busy || loadingWeights || dirty || !pool || pool.pending === 0}
-              title={dirty ? "Save your changes before distributing." : undefined}
+              // Nói trước vì sao không bấm được, thay vì để bấm rồi trả về
+              // "assigned 0". Một nút bấm được mà chắc chắn không làm gì là
+              // một cái bẫy.
+              disabled={Boolean(blockedReason)}
+              title={blockedReason ?? undefined}
               className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Shuffle className="h-4 w-4" />
-              {busy ? "Distributing…" : `Distribute ${pool?.pending ?? 0}`}
+              {busy
+                ? "Distributing…"
+                : `Distribute ${tabPool?.pending ?? 0} ${PRODUCT_LABEL[product]}`}
             </button>
           </div>
         </footer>

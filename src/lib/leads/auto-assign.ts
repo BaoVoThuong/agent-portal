@@ -75,7 +75,7 @@ export async function autoAssignLeads(
     return {
       assigned: 0,
       unassigned: leadIds.length,
-      reason: `Chưa có agent nào đang nhận lead ${product === "pc" ? "P&C" : "Health"}.`,
+      reason: `Nobody is set to receive ${product === "pc" ? "P&C" : "Health"} leads.`,
     };
   }
 

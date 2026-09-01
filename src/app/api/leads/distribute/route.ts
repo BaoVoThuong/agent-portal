@@ -13,7 +13,7 @@ import {
   broadcastLeadsChanged,
   readLeadMutationSourceId,
 } from "@/lib/leads/realtime";
-import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
+import { isLeadProduct, LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -28,9 +28,13 @@ const MAX_PER_RUN = 500;
 type PoolRow = { id: string; product: LeadProduct };
 
 async function fetchPool(
-  supabase: ReturnType<typeof getSupabaseAdmin>
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  /** null = mọi product. Nút Distribute đứng dưới một tab product thì chỉ chia
+   *  product đó — nó nói "Distribute 4" trong khi cả 4 lead là của product kia
+   *  là dối, và bấm vào thì chia mất lead của tab khác. */
+  product: LeadProduct | null = null
 ): Promise<{ rows: PoolRow[]; remaining: number }> {
-  const { data, error, count } = await supabase
+  let query = supabase
     .from("leads")
     .select("id,product", { count: "exact" })
     .is("assigned_to_email", null)
@@ -39,13 +43,15 @@ async function fetchPool(
     // before one that arrived this morning.
     .order("created_at", { ascending: true })
     .limit(MAX_PER_RUN);
+  if (product) query = query.eq("product", product);
+  const { data, error, count } = await query;
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as PoolRow[];
   return { rows, remaining: Math.max((count ?? rows.length) - rows.length, 0) };
 }
 
 /** GET previews what a run would do, so the confirmation can state real numbers. */
-export async function GET() {
+export async function GET(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -56,9 +62,14 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { rows, remaining } = await fetchPool(getSupabaseAdmin());
+  // Không truyền product thì trả cả pool — phần tóm tắt đầu dialog cần con số
+  // tổng, còn nút Distribute hỏi riêng theo tab của nó.
+  const raw = new URL(request.url).searchParams.get("product");
+  const product = isLeadProduct(raw) ? raw : null;
+  const { rows, remaining } = await fetchPool(getSupabaseAdmin(), product);
   const grouped = groupLeadIdsByProduct(rows);
   return NextResponse.json({
+    product,
     pending: rows.length,
     remaining,
     byProduct: { pc: grouped.pc.length, health: grouped.health.length },
@@ -78,7 +89,9 @@ export async function POST(request: Request) {
 
   const supabase = getSupabaseAdmin();
   const actorEmail = actor.email.trim().toLowerCase();
-  const { rows, remaining } = await fetchPool(supabase);
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  const product = isLeadProduct(body?.product) ? body.product : null;
+  const { rows, remaining } = await fetchPool(supabase, product);
   if (rows.length === 0) {
     return NextResponse.json({ assigned: 0, unassigned: 0, remaining: 0, results: {} });
   }

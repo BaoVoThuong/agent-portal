@@ -6,6 +6,38 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Chia pool: dọn lại mô hình, một điều khiển một ý nghĩa
+
+- **Loại**: fix (mô hình sai, sinh ra ba lỗi người dùng gặp).
+
+### Gốc của cả ba lỗi: **ba thứ cùng nói "người này không nhận lead"**
+Dòng có tồn tại không · `is_active` · `weight > 0`. Ba cờ, hai màn hình đọc theo hai kiểu khác nhau — nên chúng nói ngược nhau.
+
+### Lỗi 1 — Tab P&C mà nút ghi "Distribute 4" cho 4 lead Health
+Nút dùng con số **tổng** của cả pool, và `POST /api/leads/distribute` chia **mọi product** bất kể đang đứng ở tab nào. Bấm ở tab P&C là chia thật số lead Health.
+**Sửa**: `fetchPool` nhận product; GET và POST đều nhận `product`; nút lấy số của **đúng tab** và chỉ chia product đó. Phần tóm tắt đầu dialog vẫn hiện tổng cả pool.
+
+### Lỗi 2 — Agent config bảo 13 người phụ trách Health, tab Health bảo không ai nhận
+Roster đếm theo "**có dòng**", còn tab Health tính theo "**đang nhận**". 13 dòng seed của Health có `is_active = false` nên hiện thành **đã tick** mà thực tế không ai nhận.
+**Sửa**: roster chỉ đếm dòng `is_active` và `weight > 0`. Hai màn hình đọc cùng một định nghĩa.
+
+### Lỗi 3 (tự tìm ra) — nghỉ phép là mất tỉ lệ
+Bỏ tick ở Agent config **xoá hẳn dòng**; tick lại tạo dòng mới `weight = 1`. Người nghỉ hai tuần quay lại mất cả trọng số lẫn vị trí trong vòng xoay.
+**Sửa**: bỏ tick chỉ đặt `is_active = false`, **không xoá dòng** — trọng số và con trỏ giữ nguyên, bật lại là về đúng chỗ cũ.
+
+### Mô hình sau khi dọn
+| Thứ cần quyết | Điều khiển duy nhất | Lưu ở |
+|---|---|---|
+| Ai nhận lead của product này | Tick trong **Agent config** | `is_active` |
+| Nhận bao nhiêu | Ô trọng số trong **tab product** | `weight` |
+
+- **Bỏ hẳn cột "Receiving"** khỏi tab product: nó là cờ thứ hai cho cùng một câu hỏi mà tick ở Agent config đã trả lời.
+- **Tab product chỉ liệt kê người đang bật.** Trọng số 0 nghĩa là "tạm không chia phần nào", vẫn thuộc product.
+- **Nút Distribute nói trước vì sao không bấm được** (chưa lưu / không ai nhận / không còn lead), thay vì cho bấm rồi trả về `assigned 0`. Một nút bấm được mà chắc chắn không làm gì là một cái bẫy.
+- Dịch nốt chuỗi `"Chưa có agent nào đang nhận lead Health."` bị lọt tiếng Việt trong `auto-assign.ts`.
+
+- **Kiểm chứng**: `npm run test:run` 131 files / 958 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Mở modal thì trang nền không cuộn theo nữa (toàn app)
 
 - **Loại**: fix (UX), áp cho **tất cả** modal của app.

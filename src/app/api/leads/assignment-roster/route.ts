@@ -42,7 +42,14 @@ export async function GET() {
   const [agents, weightsResult] = await Promise.all([
     // Already filtered to active accounts and enriched with names.
     fetchTaskAgents(),
-    supabase.from("lead_assignment_weights").select("product,agent_email"),
+    // Chỉ những dòng ĐANG NHẬN. Đếm theo "có dòng" thì 13 dòng seed của Health
+    // (is_active = false) hiện thành đã tick, trong khi tab Health nói không ai
+    // nhận — hai màn hình cùng một dữ liệu mà nói ngược nhau.
+    supabase
+      .from("lead_assignment_weights")
+      .select("product,agent_email")
+      .eq("is_active", true)
+      .gt("weight", 0),
   ]);
   if (weightsResult.error) {
     return NextResponse.json({ error: weightsResult.error.message }, { status: 500 });
