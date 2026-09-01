@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Chia pool: ô "Add agent" dùng picker chung, chọn là thêm
+
+- **Loại**: fix (UI).
+- **Vấn đề**: nó là `<select>` thuần liệt kê **toàn bộ 43 tài khoản** đang hoạt động — không gõ tìm được, phải cuộn; chỉ hiện tên nên hai người trùng tên không phân biệt được; và nó là picker duy nhất trong app không giống những cái còn lại.
+- **Sửa**: dùng `TaskSelect` như mọi chỗ khác — có ô tìm kiếm, và **email nằm trong `keywords`** nên gõ email cũng ra.
+- **Bỏ nút "Add" đi kèm**: chọn **là** thêm. Một select đã chọn xong mà vẫn phải bấm thêm một nút nữa là bước thừa, và là đúng chỗ người ta quên bấm rồi tưởng đã thêm rồi.
+- Chặn thêm trùng một người hai lần.
+
 ## 2026-09-01 — Modal Chia pool: to hơn, bảng agent gọn hơn, và hiện thứ tự nhận
 
 - **Loại**: UI + một chút API.

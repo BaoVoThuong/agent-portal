@@ -5,6 +5,7 @@ import { RotateCcw, Shuffle, Trash2, X } from "lucide-react";
 import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
 import { Initials } from "../../tasks/_components/board-ui";
+import { TaskSelect } from "../../tasks/_components/TaskSelect";
 
 type WeightRow = {
   agent_email: string;
@@ -81,7 +82,6 @@ export function LeadDistributeDialog({
   const [weights, setWeights] = useState<WeightsPayload | null>(null);
   const [draft, setDraft] = useState<WeightRow[]>([]);
   const [enabled, setEnabled] = useState(false);
-  const [addEmail, setAddEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -495,93 +495,43 @@ export function LeadDistributeDialog({
             </p>
           ) : null}
           {notListed.length > 0 ? (
-            <div className="flex items-center gap-2">
-              <select
-                className={`${INPUT_CLASS} max-w-xs`}
-                value={addEmail}
-                onChange={(event) => setAddEmail(event.target.value)}
-              >
-                <option value="">Add agent…</option>
-                {notListed.map((person) => (
-                  <option key={person.email} value={person.email}>
-                    {personLabel(person.email, nameByEmail)}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={!addEmail}
-                onClick={() => {
-                  setDraft((current) => [
-                    ...current,
-                    {
-                      agent_email: addEmail.toLowerCase(),
-                      weight: 1,
-                      position: current.length + 1,
-                      is_active: true,
-                      share: 0,
-                    },
-                  ]);
-                  setAddEmail("");
-                }}
-                className="h-9 rounded border border-[#dfe1e6] px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:opacity-40"
-              >
-                Add
-              </button>
-            </div>
+            // TaskSelect chứ không phải <select> thuần: danh sách là toàn bộ
+            // tài khoản đang hoạt động (43 người), nên phải gõ tìm được. Nó
+            // cũng là picker mà mọi chỗ khác trong app dùng.
+            //
+            // Chọn LÀ thêm — không có nút "Add" thứ hai. Một select đã chọn
+            // xong mà vẫn phải bấm thêm một nút nữa là bước thừa, và là chỗ
+            // người ta hay quên rồi tưởng đã thêm rồi.
+            <TaskSelect
+              value=""
+              options={notListed.map((person) => ({
+                value: person.email,
+                label: personLabel(person.email, nameByEmail),
+                keywords: [person.email],
+              }))}
+              placeholder="Add agent…"
+              searchable
+              className="w-max min-w-[16rem]"
+              buttonClassName="!h-9 !rounded-lg !border !border-dashed !border-[#c1c7d0] !px-3 !text-sm !font-semibold !shadow-none"
+              onChange={(value) => {
+                if (!value) return;
+                setDraft((current) =>
+                  current.some((row) => row.agent_email === value.toLowerCase())
+                    ? current
+                    : [
+                        ...current,
+                        {
+                          agent_email: value.toLowerCase(),
+                          weight: 1,
+                          position: current.length + 1,
+                          is_active: true,
+                          share: 0,
+                        },
+                      ]
+                );
+              }}
+            />
           ) : null}
-
-          {active.length > 0 ? (
-            <div className="shrink-0 rounded-lg border border-[#b8d4ff] bg-[#e9f2ff] px-3 py-2.5">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-[#0c3d91]">
-                  Next {PRODUCT_LABEL[product]} leads go to
-                </span>
-                {!dirty && weights?.preview.length ? (
-                  <span className="text-xs font-semibold text-[#42526e]">
-                    {weights.preview
-                      .map((row) => `${personLabel(row.email, nameByEmail)} ${row.count}`)
-                      .join(" · ")}
-                  </span>
-                ) : null}
-              </div>
-              {dirty ? (
-                // Dãy đang hiện là của tỉ lệ ĐÃ LƯU. Nói ra, chứ vẽ một dãy
-                // không khớp với con số người ta vừa gõ là nói dối.
-                <p className="mt-1 text-xs font-semibold text-[#974f0c]">
-                  Save to see the order for the ratios you just changed.
-                </p>
-              ) : (
-                <ol className="mt-2 flex items-center gap-1 overflow-x-auto pb-1">
-                  {(weights?.sequence ?? []).map((email, index) => {
-                    const label = personLabel(email, nameByEmail);
-                    return (
-                      <li
-                        key={`${email}-${index}`}
-                        title={`#${index + 1} — ${label}`}
-                        className={`flex shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 ${
-                          index === 0
-                            ? "border-[#0c66e4] bg-white shadow-sm"
-                            : "border-transparent bg-white/70"
-                        }`}
-                      >
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#dfe1e6] text-[10px] font-bold text-[#42526e]">
-                          {index + 1}
-                        </span>
-                        <span className="max-w-[7rem] truncate text-xs font-semibold text-[#172b4d]">
-                          {label}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ol>
-              )}
-            </div>
-          ) : (
-            <p className="shrink-0 rounded-lg border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
-              Nobody is receiving {PRODUCT_LABEL[product]} — those leads stay in the pool.
-            </p>
-          )}
 
           {result ? (
             <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
