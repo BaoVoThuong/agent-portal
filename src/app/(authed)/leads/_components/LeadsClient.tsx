@@ -420,18 +420,6 @@ export function LeadsClient({
     { value: ALL_FILTER, label: "All statuses" },
     ...statuses.map((status) => ({ value: status.id, label: status.label })),
   ];
-  const healthFilterOptions = [
-    { value: ALL_FILTER, label: `All leads (${leads.length})` },
-    // Nhóm rỗng thì ẩn cho đỡ rối — trừ nhóm đang được chọn: nếu ẩn nó đi,
-    // ô select rơi về "All leads" trong khi bộ lọc vẫn đang chạy và danh sách
-    // vẫn rỗng, tức màn hình nói dối về trạng thái của chính nó.
-    ...LEAD_HEALTH_BUCKETS.filter(
-      (bucket) => healthCounts[bucket] > 0 || filters.health === bucket,
-    ).map((bucket) => ({
-      value: bucket,
-      label: `${LEAD_HEALTH_LABEL[bucket]} (${healthCounts[bucket]})`,
-    })),
-  ];
   const eventFilterOptions = [
     { value: ALL_FILTER, label: "All events" },
     ...eventNames.map((name) => ({ value: name, label: name })),
@@ -464,6 +452,19 @@ export function LeadsClient({
   );
   const healthCounts = emptyLeadHealthCounts();
   for (const bucket of healthByLeadId.values()) healthCounts[bucket] += 1;
+
+  const healthFilterOptions = [
+    { value: ALL_FILTER, label: `All leads (${leads.length})` },
+    // Nhóm rỗng thì ẩn cho đỡ rối — trừ nhóm đang được chọn: nếu ẩn nó đi,
+    // ô select rơi về "All leads" trong khi bộ lọc vẫn đang chạy và danh sách
+    // vẫn rỗng, tức màn hình nói dối về trạng thái của chính nó.
+    ...LEAD_HEALTH_BUCKETS.filter(
+      (bucket) => healthCounts[bucket] > 0 || filters.health === bucket,
+    ).map((bucket) => ({
+      value: bucket,
+      label: `${LEAD_HEALTH_LABEL[bucket]} (${healthCounts[bucket]})`,
+    })),
+  ];
 
   const displayedLeads = (() => {
     const matched = filterLeads(leads, filters, healthByLeadId);
