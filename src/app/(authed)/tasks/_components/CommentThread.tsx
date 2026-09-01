@@ -366,7 +366,7 @@ function MentionPicker({
         maxHeight: position.maxHeight,
         width: "min(288px, calc(100vw - 16px))",
       }}
-      className="z-[120] overflow-y-auto overscroll-contain rounded-lg border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+      className="z-[120] overflow-y-auto rounded-lg border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
     >
       {noResults ? (
         <div className="px-3 py-3 text-sm font-medium text-[#6b778c]">
@@ -1487,7 +1487,7 @@ export function CommentThread({
             nearBottomRef.current = isNearBottom(event.currentTarget);
             if (nearBottomRef.current) setNewRowsCount(0);
           }}
-          className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain pr-1"
+          className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1"
         >
         {commentsHasMore && onLoadOlder ? (
           <button

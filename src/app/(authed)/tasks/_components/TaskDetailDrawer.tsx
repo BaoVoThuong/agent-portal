@@ -699,7 +699,7 @@ export function TaskDetailDrawer({
         {/* On wide screens each column owns its scrolling, which is what keeps
             the comment composer docked at the bottom no matter how long the
             thread gets. Narrow screens keep the simpler single-scroll layout. */}
-        <div className="flex-1 overflow-y-auto overscroll-contain lg:overflow-hidden">
+        <div className="flex-1 overflow-y-auto lg:overflow-hidden">
           <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
             <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
               {showTitle || showFub ? (

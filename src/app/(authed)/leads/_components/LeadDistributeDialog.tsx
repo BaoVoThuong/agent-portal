@@ -464,8 +464,13 @@ export function LeadDistributeDialog({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
-          <div className="rounded border border-[#dfe1e6] bg-[#f7f8fa] px-4 py-3 text-sm">
+        {/* flex column, KHÔNG tự cuộn: vùng cuộn duy nhất là danh sách agent
+            bên trong. Trước đây đây là một khối block có overflow-y-auto, nên
+            `flex-1` trên danh sách vô tác dụng — nó cao bằng nội dung nên
+            không bao giờ cuộn, mà overscroll-contain lại chặn cuộn lan ra
+            thân modal. Kết quả: không gì cuộn được. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-5">
+          <div className="shrink-0 rounded border border-[#dfe1e6] bg-[#f7f8fa] px-4 py-3 text-sm">
             {pool ? (
               pool.pending === 0 ? (
                 <span className="font-semibold text-[#42526e]">
@@ -583,7 +588,7 @@ export function LeadDistributeDialog({
             </>
           ) : (
             <>
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex shrink-0 items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={enabled}
@@ -718,7 +723,7 @@ export function LeadDistributeDialog({
           )}
 
           {rosterError ? (
-            <p className="rounded border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
+            <p className="shrink-0 rounded border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
               Could not load the account list. Close and reopen this dialog to
               try again.
             </p>
@@ -727,7 +732,7 @@ export function LeadDistributeDialog({
           )}
 
           {result ? (
-            <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            <p className="shrink-0 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
               Assigned <strong>{result.assigned}</strong>
               {result.unassigned > 0 ? (
                 <>
@@ -743,10 +748,10 @@ export function LeadDistributeDialog({
             </p>
           ) : null}
           {notice ? (
-            <p className="text-sm font-semibold text-emerald-700">{notice}</p>
+            <p className="shrink-0 text-sm font-semibold text-emerald-700">{notice}</p>
           ) : null}
           {error ? (
-            <p className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
+            <p className="shrink-0 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
               {error}
             </p>
           ) : null}

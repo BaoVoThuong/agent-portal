@@ -386,7 +386,7 @@ export function LeadDetailDrawer({
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto overscroll-contain lg:overflow-hidden">
+        <div className="flex-1 overflow-y-auto lg:overflow-hidden">
           <div
             className={`grid min-h-full grid-cols-1 lg:h-full ${
               hasRailFields ? "lg:grid-cols-[minmax(0,1fr)_280px]" : ""

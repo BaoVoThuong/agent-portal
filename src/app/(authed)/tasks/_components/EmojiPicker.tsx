@@ -103,7 +103,7 @@ export function EmojiPicker({
         </button>
       </div>
 
-      <div className="mt-2 max-h-72 overflow-y-auto overscroll-contain pr-0.5">
+      <div className="mt-2 max-h-72 overflow-y-auto pr-0.5">
         <div className="sticky top-0 z-10 bg-white pb-1 text-[10px] font-bold uppercase tracking-wide text-[#6b778c]">
           Frequently used
         </div>

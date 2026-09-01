@@ -987,7 +987,7 @@ function RoleDropdownList({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-20 mt-2 max-h-[160px] overscroll-contain overflow-y-scroll rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg">
+        <div className="absolute left-0 right-0 top-full z-20 mt-2 max-h-[160px] overflow-y-scroll rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg">
           {activeRoles.map((role) => {
             const selected = value[0] === role.id;
 

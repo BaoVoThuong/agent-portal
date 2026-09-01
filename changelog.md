@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Danh sách agent trong Agent config không cuộn được
+
+- **Loại**: fix (do chính đợt sửa scroll hôm nay gây ra).
+- **Nguyên nhân, hai tầng cộng lại:**
+  1. Thân modal là một khối **block** có `overflow-y-auto`, không phải flex column. Nên `flex-1 min-h-0` trên khung danh sách **vô tác dụng** — nó cao đúng bằng nội dung, và `overflow-y-auto` của nó **không bao giờ kích hoạt**.
+  2. Một phần tử `overflow-y-auto` **không hề tràn** vẫn là một scroll container. Cái `overscroll-contain` tao vừa quét vào nó **chặn cuộn lan** sang thân modal. Kết quả: cuộn trên danh sách thì nó không cuộn được, mà thân cũng không được phép cuộn thay.
+- **Sửa**: thân modal thành `flex flex-col` + `overflow-hidden`, mọi con trực tiếp đặt `shrink-0` trừ khung danh sách. Giờ khung danh sách mới thật sự bị chặn chiều cao và **nó** là vùng cuộn duy nhất — header bảng đứng yên, footer đứng yên.
+- **Gỡ `overscroll-contain` khỏi 10 file đã quét mù.** Khoá cuộn nền (`useBodyScrollLock`) **đã đủ** cho vấn đề gốc; `overscroll-contain` chỉ là lớp phòng thủ thêm, mà thêm mù thì đúng một cái bẫy này đang nằm ở 7 file khác có `overflow-y-auto` lồng nhau — và repo không test được `.tsx` để biết chỗ nào dính. Chỉ giữ lại ở hai vùng danh sách của dialog Chia pool, nơi đã chắc chắn bị chặn chiều cao thật.
+
+- **Kiểm chứng**: 131 files / 958 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Chia pool: dọn lại mô hình, một điều khiển một ý nghĩa
 
 - **Loại**: fix (mô hình sai, sinh ra ba lỗi người dùng gặp).
