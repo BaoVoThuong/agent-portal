@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Chia pool: ba tab, tách "ai" khỏi "bao nhiêu"
+
+- **Loại**: feature (cấu trúc lại màn Chia pool).
+- **Ba tab**: `P&C` · `Health` · **`Agent config`**.
+  - Hai tab product chỉ còn trả lời **"mỗi người nhận bao nhiêu"** — trọng số, tỉ lệ, tạm dừng.
+  - Tab **Agent config** trả lời **"ai phụ trách product nào"** — mỗi agent một dòng, hai ô tick P&C / Health.
+- **Vì sao tách**: trước đó cả hai câu hỏi nằm chung một bảng, nên phải có nút "Add agent" trong từng tab và cùng một người phải thêm hai lần cho hai product. Tách ra thì phân công làm một lần, tỉ lệ chỉnh riêng.
+- **Danh sách agent lấy từ phía AGENT của Assistant membership** (`agent_members.agent_email`), **không lấy assistant**: assistant hỗ trợ công việc của agent nhưng không phải người mà một lead thuộc về. Sáu agent, đọc từ chính bảng mà `/config` ghi — không có bảng thứ hai.
+- **Lọc bỏ agent không còn tài khoản**: một dòng sót lại của người đã đi sẽ nằm mãi trong picker mà không có cách nào biết.
+- **Tick là lưu ngay**, không phải bấm Lưu sau: "người này có làm Health không" là một việc dứt khoát, không phải một con số cần cân đi cân lại. Tick xong tab tỉ lệ tương ứng nạp lại luôn để thấy người mới.
+- Bỏ nút "Add agent" và nút thùng rác khỏi hai tab product — việc đó giờ thuộc Agent config.
+
+- **Kiểm chứng**: `npm run test:run` 130 files / 957 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Chia pool: ô "Add agent" dùng picker chung, chọn là thêm
 
 - **Loại**: fix (UI).

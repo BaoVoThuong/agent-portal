@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RotateCcw, Shuffle, Trash2, X } from "lucide-react";
+import { RotateCcw, Shuffle, X } from "lucide-react";
 import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
 import { Initials } from "../../tasks/_components/board-ui";
-import { TaskSelect } from "../../tasks/_components/TaskSelect";
 
 type WeightRow = {
   agent_email: string;
@@ -32,6 +31,13 @@ type PoolPayload = {
   byProduct: Record<LeadProduct, number>;
 };
 
+type RosterAgent = {
+  email: string;
+  name: string | null;
+  /** Product nào agent này đang phụ trách. */
+  products: LeadProduct[];
+};
+
 type DistributeResult = {
   assigned: number;
   unassigned: number;
@@ -39,6 +45,7 @@ type DistributeResult = {
 };
 
 const PRODUCT_LABEL: Record<LeadProduct, string> = { pc: "P&C", health: "Health" };
+const TABS: (LeadProduct | "agents")[] = [...LEAD_PRODUCTS, "agents"];
 
 /**
  * Ngoài component có chủ đích: nó không đụng state nào, nên effect gọi được mà
@@ -77,7 +84,11 @@ export function LeadDistributeDialog({
   onClose: () => void;
   onDistributed: () => void;
 }) {
-  const [product, setProduct] = useState<LeadProduct>("health");
+  // Ba tab: hai product để đặt tỉ lệ, một tab để quyết AI thuộc product nào.
+  // Tách ra vì đó là hai câu hỏi khác nhau — "ai" và "bao nhiêu" — và trộn
+  // chúng vào một bảng là lý do trước đây phải có nút Add agent trong từng tab.
+  const [tab, setTab] = useState<LeadProduct | "agents">("health");
+  const product: LeadProduct = tab === "agents" ? "health" : tab;
   const [pool, setPool] = useState<PoolPayload | null>(null);
   const [weights, setWeights] = useState<WeightsPayload | null>(null);
   const [draft, setDraft] = useState<WeightRow[]>([]);
@@ -89,7 +100,8 @@ export function LeadDistributeDialog({
   // Ai nhận lead do DANH SÁCH NÀY quyết, không do quyền RBAC. Nên ô "Thêm
   // agent" phải mở ra mọi tài khoản đang hoạt động, chứ không chỉ những người
   // đã có quyền lead — nếu không thì cái quyết định lại nằm ở Role Manager.
-  const [roster, setRoster] = useState<{ email: string; name: string | null }[]>([]);
+  const [roster, setRoster] = useState<RosterAgent[]>([]);
+  const [savingAgents, setSavingAgents] = useState(false);
 
   const [rosterError, setRosterError] = useState(false);
   // Mỗi lần đổi product là một request mới. Response của product cũ về sau
@@ -140,10 +152,10 @@ export function LeadDistributeDialog({
         const response = await fetch("/api/leads/assignment-roster", { cache: "no-store" });
         const payload = await response.json().catch(() => null);
         if (cancelled) return;
-        if (!response.ok || !Array.isArray(payload?.accounts)) {
+        if (!response.ok || !Array.isArray(payload?.agents)) {
           throw new Error("roster");
         }
-        setRoster(payload.accounts);
+        setRoster(payload.agents as RosterAgent[]);
         setRosterError(false);
       } catch {
         // Hỏng im lặng thì ô "Thêm agent" biến mất không dấu vết và trông y hệt
@@ -177,7 +189,7 @@ export function LeadDistributeDialog({
         if (seq !== weightsRequest.current) return;
         setError(loadError instanceof Error ? loadError.message : "Could not load the ratios.");
       });
-  }, [open, product]);
+  }, [open, tab, product]);
 
   if (!open) return null;
 
@@ -200,9 +212,6 @@ export function LeadDistributeDialog({
       JSON.stringify(draft.map((r) => [r.agent_email, r.weight, r.is_active, r.position])) !==
         JSON.stringify(weights.weights.map((r) => [r.agent_email, r.weight, r.is_active, r.position])));
 
-  const notListed = roster.filter(
-    (person) => !draft.some((row) => row.agent_email === person.email.toLowerCase())
-  );
 
   function update(email: string, patch: Partial<WeightRow>) {
     setDraft((current) =>
@@ -238,6 +247,70 @@ export function LeadDistributeDialog({
       setError(saveError instanceof Error ? saveError.message : "Could not save.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Bật/tắt một agent cho một product.
+   *
+   * Đi thẳng qua PUT của product đó thay vì gom vào nút Lưu chung: đây là một
+   * việc dứt khoát ("người này có làm Health không"), không phải một con số cần
+   * cân đi cân lại, nên bắt người ta bấm Lưu sau mỗi cú tick là bước thừa.
+   */
+  async function toggleAgentProduct(
+    agentEmail: string,
+    forProduct: LeadProduct,
+    next: boolean
+  ) {
+    if (savingAgents) return;
+    setSavingAgents(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const current = await fetchWeights(forProduct);
+      const rows = current.weights
+        .filter((row) => row.agent_email !== agentEmail)
+        .map((row) => ({
+          agent_email: row.agent_email,
+          weight: row.weight,
+          position: row.position,
+          is_active: row.is_active,
+        }));
+      if (next) {
+        rows.push({
+          agent_email: agentEmail,
+          weight: 1,
+          position: rows.length + 1,
+          is_active: true,
+        });
+      }
+      const response = await fetch("/api/leads/assignment-weights", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product: forProduct, weights: rows }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error ?? "Could not save.");
+      }
+      setRoster((agents) =>
+        agents.map((agent) =>
+          agent.email === agentEmail
+            ? {
+                ...agent,
+                products: next
+                  ? [...new Set([...agent.products, forProduct])]
+                  : agent.products.filter((value) => value !== forProduct),
+              }
+            : agent
+        )
+      );
+      // Tab tỉ lệ đang mở phải thấy ngay người vừa được thêm/bỏ.
+      if (forProduct === product) await loadWeights(product);
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "Could not save.");
+    } finally {
+      setSavingAgents(false);
     }
   }
 
@@ -353,28 +426,94 @@ export function LeadDistributeDialog({
             )}
           </div>
 
-          <div className="inline-flex rounded bg-[#f4f5f7] p-0.5">
-            {LEAD_PRODUCTS.map((key) => (
+          <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
+            {TABS.map((key) => (
               <button
                 key={key}
                 type="button"
-                aria-current={product === key ? "page" : undefined}
+                aria-current={tab === key ? "page" : undefined}
                 onClick={() => {
-                  setProduct(key);
+                  setTab(key);
                   setResult(null);
                   setNotice(null);
                 }}
                 className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  product === key
+                  tab === key
                     ? "bg-white text-[#0c66e4] shadow-sm"
                     : "text-[#5e6c84] hover:text-[#172b4d]"
                 }`}
               >
-                {PRODUCT_LABEL[key]}
+                {key === "agents" ? "Agent config" : PRODUCT_LABEL[key]}
               </button>
             ))}
           </div>
 
+          {tab === "agents" ? (
+            <>
+          {/* Ai thuộc product nào. Danh sách là phía AGENT của Assistant
+              membership ở /config — assistant hỗ trợ công việc của agent nhưng
+              không phải người mà một lead thuộc về. */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6]">
+            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_5rem_5rem] gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+              <span>Agent</span>
+              <span className="text-center">{PRODUCT_LABEL.pc}</span>
+              <span className="text-center">{PRODUCT_LABEL.health}</span>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {roster.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
+                  {rosterError
+                    ? "Could not load the agent list."
+                    : "No agents found. Add them under Config → Assistant membership."}
+                </p>
+              ) : (
+                roster.map((agent) => {
+                  const label = personLabel(agent.email, nameByEmail);
+                  return (
+                    <div
+                      key={agent.email}
+                      className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition last:border-b-0 hover:bg-[#f7f8f9]"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Initials email={agent.email} label={label} />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-[#172b4d]">
+                            {label}
+                          </span>
+                          <span className="block truncate text-xs text-[#8993a4]">
+                            {agent.email}
+                          </span>
+                        </span>
+                      </span>
+                      {LEAD_PRODUCTS.map((key) => (
+                        <span key={key} className="flex justify-center">
+                          <input
+                            type="checkbox"
+                            aria-label={`${label} covers ${PRODUCT_LABEL[key]}`}
+                            disabled={savingAgents}
+                            className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4] disabled:opacity-50"
+                            checked={agent.products.includes(key)}
+                            onChange={(event) =>
+                              void toggleAgentProduct(agent.email, key, event.target.checked)
+                            }
+                          />
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <p className="shrink-0 text-xs text-[#6b778c]">
+            Agents come from Config → Assistant membership. Tick a product to put
+            someone into that rotation; set how much they get on the{" "}
+            {PRODUCT_LABEL.pc} and {PRODUCT_LABEL.health} tabs.
+          </p>
+            </>
+          ) : (
+            <>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -389,12 +528,11 @@ export function LeadDistributeDialog({
           {/* flex-1 nên nó ăn hết chỗ trống còn lại của modal — modal đã cố
               định chiều cao, nên bảng cũng ổn định theo. */}
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6]">
-            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_5rem_7rem_5rem_2.5rem] gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_5rem_7rem_5rem] gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
               <span>Agent</span>
               <span>Weight</span>
               <span>Share</span>
               <span className="text-center">Receiving</span>
-              <span />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
               {loadingWeights && draft.length === 0 ? (
@@ -403,7 +541,8 @@ export function LeadDistributeDialog({
                 </p>
               ) : draft.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
-                  No agents for {PRODUCT_LABEL[product]} yet. Add one below.
+                  No agents cover {PRODUCT_LABEL[product]} yet — set that up in
+                  Agent config.
                 </p>
               ) : (
                 draft.map((row) => {
@@ -413,7 +552,7 @@ export function LeadDistributeDialog({
                   return (
                     <div
                       key={row.agent_email}
-                      className={`grid grid-cols-[minmax(0,1fr)_5rem_7rem_5rem_2.5rem] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition last:border-b-0 hover:bg-[#f7f8f9] ${
+                      className={`grid grid-cols-[minmax(0,1fr)_5rem_7rem_5rem] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition last:border-b-0 hover:bg-[#f7f8f9] ${
                         paused ? "opacity-55" : ""
                       }`}
                     >
@@ -468,19 +607,6 @@ export function LeadDistributeDialog({
                         />
                       </span>
 
-                      <button
-                        type="button"
-                        aria-label={`Remove ${label} from the list`}
-                        title="Remove from the distribution list"
-                        onClick={() =>
-                          setDraft((current) =>
-                            current.filter((item) => item.agent_email !== row.agent_email)
-                          )
-                        }
-                        className="justify-self-center rounded p-1.5 text-[#97a0af] transition hover:bg-[#ffebe6] hover:text-[#bf2600]"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
                     </div>
                   );
                 })
@@ -494,44 +620,8 @@ export function LeadDistributeDialog({
               try again.
             </p>
           ) : null}
-          {notListed.length > 0 ? (
-            // TaskSelect chứ không phải <select> thuần: danh sách là toàn bộ
-            // tài khoản đang hoạt động (43 người), nên phải gõ tìm được. Nó
-            // cũng là picker mà mọi chỗ khác trong app dùng.
-            //
-            // Chọn LÀ thêm — không có nút "Add" thứ hai. Một select đã chọn
-            // xong mà vẫn phải bấm thêm một nút nữa là bước thừa, và là chỗ
-            // người ta hay quên rồi tưởng đã thêm rồi.
-            <TaskSelect
-              value=""
-              options={notListed.map((person) => ({
-                value: person.email,
-                label: personLabel(person.email, nameByEmail),
-                keywords: [person.email],
-              }))}
-              placeholder="Add agent…"
-              searchable
-              className="w-max min-w-[16rem]"
-              buttonClassName="!h-9 !rounded-lg !border !border-dashed !border-[#c1c7d0] !px-3 !text-sm !font-semibold !shadow-none"
-              onChange={(value) => {
-                if (!value) return;
-                setDraft((current) =>
-                  current.some((row) => row.agent_email === value.toLowerCase())
-                    ? current
-                    : [
-                        ...current,
-                        {
-                          agent_email: value.toLowerCase(),
-                          weight: 1,
-                          position: current.length + 1,
-                          is_active: true,
-                          share: 0,
-                        },
-                      ]
-                );
-              }}
-            />
-          ) : null}
+            </>
+          )}
 
           {result ? (
             <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
