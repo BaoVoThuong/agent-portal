@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Ai nhận lead do danh sách Chia pool quyết, không do RBAC
+
+- **Loại**: fix (sai mô hình).
+- **Sai ở đâu**: bản đầu tao đối chiếu danh sách chia với `canBeAssignedLead()` (tài khoản còn hoạt động + có `lead.work`/`lead.manage`). Nghĩa là admin bật một người trong Chia pool nhưng **Role Manager mới là nơi quyết định thật** — người đó vẫn bị loại, kèm một dòng đỏ bảo đi chỗ khác mà sửa. Đúng ra chỉ được có một nơi quyết.
+- **Nay**: danh sách trong **Chia pool là nguồn duy nhất**. Ai nhận lead = dòng nào đang tick **"Đang nhận"** và có trọng số > 0. Không có phiếu thứ hai từ bảng quyền.
+- **Bỏ hẳn**: hàm `resolveEligibleAssignees`, cột `eligible` trong API, và dòng cảnh báo đỏ trong dialog.
+- **Ô "Thêm agent" mở ra mọi tài khoản đang hoạt động** qua route mới `/api/leads/assignment-roster`, thay vì `fetchLeadAssignees()` (vốn lọc theo quyền lead). Lấy danh sách từ bảng quyền là lại đẩy quyết định về Role Manager — đúng cái vừa bỏ.
+- **Hệ quả cần biết**: gán lead cho một tài khoản không có quyền lead thì họ **không mở được `/leads`** để làm việc trên lead đó. Cơ chế chia không còn chặn việc này nữa — đó là lựa chọn có chủ đích, và người cấu hình chịu trách nhiệm.
+
+- **Kiểm chứng**: `npm run test:run` 130 files / 957 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Chia pool: xoá được agent khỏi danh sách
 
 - **Loại**: fix (thiếu chức năng).

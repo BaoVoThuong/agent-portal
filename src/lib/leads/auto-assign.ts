@@ -1,7 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { canBeAssignedLead } from "./assign-target";
-import { getUserAccessByEmail } from "@/lib/rbac/access";
 import type { LeadProduct } from "./types";
 
 export type AssignmentWeightRow = {
@@ -19,28 +17,6 @@ export type AutoAssignOutcome = {
   /** Why leads were left in the pool, when any were. */
   reason?: string;
 };
-
-/**
- * Which of the configured agents may actually receive a lead right now.
- *
- * The weight table is admin-curated data and drifts: it keeps a row for someone
- * who has since left, lost their role, or been deactivated. The rule for "can
- * this person take a lead" already exists in exactly one place, and this module
- * asks it rather than growing a fifth copy — the lead module has drifted four
- * times already from exactly that habit.
- */
-export async function resolveEligibleAssignees(
-  emails: readonly string[]
-): Promise<string[]> {
-  const unique = [...new Set(emails.map((email) => email.trim().toLowerCase()))].filter(Boolean);
-  const checks = await Promise.all(
-    unique.map(async (email) => {
-      const access = await getUserAccessByEmail(email);
-      return canBeAssignedLead(access) ? email : null;
-    })
-  );
-  return checks.filter((email): email is string => email !== null);
-}
 
 export async function fetchAssignmentWeights(
   product: LeadProduct,
@@ -87,25 +63,19 @@ export async function autoAssignLeads(
 ): Promise<AutoAssignOutcome> {
   if (leadIds.length === 0) return { assigned: 0, unassigned: 0 };
 
+  // The distribution list IS the answer to "who receives leads". It is not
+  // cross-checked against RBAC: an admin curates this list on the Distribute
+  // screen, and a second opinion from the permission table would silently
+  // override what they set there.
   const weights = await fetchAssignmentWeights(product, supabase);
-  const candidates = weights
+  const eligible = weights
     .filter((row) => row.is_active && row.weight > 0)
     .map((row) => row.agent_email);
-  if (candidates.length === 0) {
-    return {
-      assigned: 0,
-      unassigned: leadIds.length,
-      reason: `No agent is set up to receive ${product === "pc" ? "P&C" : "Health"} leads.`,
-    };
-  }
-
-  const eligible = await resolveEligibleAssignees(candidates);
   if (eligible.length === 0) {
     return {
       assigned: 0,
       unassigned: leadIds.length,
-      reason:
-        "Every agent in the distribution list has been deactivated or lost the lead permission.",
+      reason: `Chưa có agent nào đang nhận lead ${product === "pc" ? "P&C" : "Health"}.`,
     };
   }
 

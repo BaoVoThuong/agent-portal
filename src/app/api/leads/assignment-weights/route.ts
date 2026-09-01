@@ -9,7 +9,6 @@ import {
 import {
   fetchAssignmentWeights,
   isAutoAssignEnabled,
-  resolveEligibleAssignees,
 } from "@/lib/leads/auto-assign";
 import { previewDistribution } from "@/lib/leads/round-robin";
 import { isLeadProduct, type LeadProduct } from "@/lib/leads/types";
@@ -48,13 +47,9 @@ export async function GET(request: Request) {
     isAutoAssignEnabled(supabase),
   ]);
 
-  // The preview shows who would REALLY receive leads, so it filters by the same
-  // rule the assignment does. A row for someone who has left the company must
-  // not appear in a promise about the next ten leads.
-  const active = rows.filter((row) => row.is_active && row.weight > 0);
-  const eligible = new Set(await resolveEligibleAssignees(active.map((row) => row.agent_email)));
-  const usable = active.filter((row) => eligible.has(row.agent_email.trim().toLowerCase()));
-
+  // Rows the admin has switched on. That list alone decides who receives
+  // leads — see autoAssignLeads for why RBAC does not get a second vote.
+  const usable = rows.filter((row) => row.is_active && row.weight > 0);
   const totalWeight = usable.reduce((sum, row) => sum + row.weight, 0);
   return NextResponse.json({
     product,
@@ -68,7 +63,6 @@ export async function GET(request: Request) {
       share: totalWeight > 0 && row.is_active && row.weight > 0
         ? Math.round((row.weight / totalWeight) * 1000) / 10
         : 0,
-      eligible: eligible.has(row.agent_email.trim().toLowerCase()),
     })),
     preview: previewDistribution(
       usable.map((row) => ({

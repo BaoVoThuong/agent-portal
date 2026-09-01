@@ -12,8 +12,6 @@ type WeightRow = {
   is_active: boolean;
   /** Computed by the API from the live totals — never stored. */
   share: number;
-  /** False when the account can no longer take leads at all. */
-  eligible: boolean;
 };
 
 type WeightsPayload = {
@@ -46,14 +44,12 @@ const INPUT_CLASS =
  */
 export function LeadDistributeDialog({
   open,
-  assignees,
   nameByEmail,
   sourceId,
   onClose,
   onDistributed,
 }: {
   open: boolean;
-  assignees: { email: string; name: string | null }[];
   nameByEmail: Map<string, string>;
   sourceId: string;
   onClose: () => void;
@@ -69,6 +65,10 @@ export function LeadDistributeDialog({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [result, setResult] = useState<DistributeResult | null>(null);
+  // Ai nhận lead do DANH SÁCH NÀY quyết, không do quyền RBAC. Nên ô "Thêm
+  // agent" phải mở ra mọi tài khoản đang hoạt động, chứ không chỉ những người
+  // đã có quyền lead — nếu không thì cái quyết định lại nằm ở Role Manager.
+  const [roster, setRoster] = useState<{ email: string; name: string | null }[]>([]);
 
   const loadWeights = useCallback(async (forProduct: LeadProduct) => {
     const response = await fetch(
@@ -94,6 +94,11 @@ export function LeadDistributeDialog({
         if (cancelled) return;
         if (!poolResponse.ok) throw new Error(poolPayload?.error ?? "Không đọc được pool.");
         setPool(poolPayload as PoolPayload);
+        const rosterResponse = await fetch("/api/leads/assignment-roster", { cache: "no-store" });
+        if (!cancelled && rosterResponse.ok) {
+          const rosterPayload = await rosterResponse.json().catch(() => null);
+          if (Array.isArray(rosterPayload?.accounts)) setRoster(rosterPayload.accounts);
+        }
         await loadWeights(product);
       } catch (loadError) {
         if (!cancelled) {
@@ -108,12 +113,12 @@ export function LeadDistributeDialog({
 
   if (!open) return null;
 
-  const active = draft.filter((row) => row.is_active && row.weight > 0 && row.eligible);
+  const active = draft.filter((row) => row.is_active && row.weight > 0);
   const totalWeight = active.reduce((sum, row) => sum + row.weight, 0);
   // Recomputed from the draft so the percentages move as someone types, instead
   // of showing the numbers that were true when the dialog opened.
   const shareOf = (row: WeightRow) =>
-    row.is_active && row.weight > 0 && row.eligible && totalWeight > 0
+    row.is_active && row.weight > 0 && totalWeight > 0
       ? Math.round((row.weight / totalWeight) * 1000) / 10
       : 0;
   const dirty =
@@ -122,7 +127,7 @@ export function LeadDistributeDialog({
       JSON.stringify(draft.map((r) => [r.agent_email, r.weight, r.is_active, r.position])) !==
         JSON.stringify(weights.weights.map((r) => [r.agent_email, r.weight, r.is_active, r.position])));
 
-  const notListed = assignees.filter(
+  const notListed = roster.filter(
     (person) => !draft.some((row) => row.agent_email === person.email.toLowerCase())
   );
 
@@ -342,14 +347,6 @@ export function LeadDistributeDialog({
                         <span className="font-medium text-[#172b4d]">
                           {personLabel(row.agent_email, nameByEmail)}
                         </span>
-                        {!row.eligible ? (
-                          // The row survives in the table but can never be
-                          // picked; saying so beats a ratio that quietly does
-                          // not add up to what the admin typed.
-                          <span className="mt-0.5 block text-xs font-semibold text-[#bf2600]">
-                            Tài khoản này không nhận được lead (đã tắt hoặc mất quyền).
-                          </span>
-                        ) : null}
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -429,7 +426,6 @@ export function LeadDistributeDialog({
                       position: current.length + 1,
                       is_active: true,
                       share: 0,
-                      eligible: true,
                     },
                   ]);
                   setAddEmail("");

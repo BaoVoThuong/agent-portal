@@ -901,7 +901,6 @@ export function LeadsClient({
       )}
       <LeadDistributeDialog
         open={distributeOpen}
-        assignees={assignees}
         nameByEmail={nameByEmail}
         sourceId={sourceId}
         onClose={() => setDistributeOpen(false)}
