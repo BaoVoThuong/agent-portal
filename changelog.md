@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Bấm header cột custom để sắp xếp (Due Date là cột đầu tiên cần)
+
+- **Loại**: feature.
+- Cột custom trước đây luôn render header tĩnh vì không có `sortKey`. Nay `taskListColumnsFromConfig` cấp `sortKey` cho chúng; header vốn đã tự chọn `SortTh` khi cột có khoá sắp xếp nên không phải sửa gì thêm ở lớp giao diện.
+- **Khoá có tiền tố `custom:`** (`custom:due_date`). Tiền tố là thứ ngăn một cột custom tên `status`/`title` cướp phép so sánh của cột hệ thống trùng tên — admin đặt tên cột thì không biết gì về danh sách khoá hệ thống. Có test cho đúng tình huống này.
+- **Chỉ những kiểu mà giá trị THÔ sắp ra đúng thứ tự người ta nhìn thấy** mới bấm được: `date`, `number`, `text`, `link`, `checkbox`. **`dropdown` và `person` cố ý đứng ngoài** — giá trị lưu là option id / email trong khi màn hình hiện nhãn và tên người, sắp theo id ra một thứ tự không ai giải thích được. Thà không cho bấm còn hơn cho bấm rồi sai.
+- Ngày lưu `YYYY-MM-DD` nên so chuỗi đã đúng thứ tự thời gian; không dựng `Date`, tránh kéo múi giờ vào một phép so sánh không cần biết đến nó. Số so theo số, không theo chuỗi ("10" < "9").
+- Ô trống xuống cuối ở **cả hai chiều**, theo đúng quy ước nulls-last sẵn có của `sortTasks`: đảo chiều mà lôi ô trống lên đầu thì lần bấm thứ hai biến cột thành danh sách ô trống.
+
 ## 2026-09-01 — Due Date: cột hẹp ở List, dòng hạn chót trên card Board, chỉ agent/assistant/admin sửa được
 
 - **Loại**: feature (UI) + business rule.

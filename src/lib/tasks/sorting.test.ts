@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  customColumnSortKey,
+  customSortKey,
   rankTasksForManager,
   rankTasks,
   RECENT_ACTIVITY_WINDOW_MS,
@@ -336,5 +338,73 @@ describe("rankTasksForManager", () => {
     expect(
       rankTasksForManager([closed, recent, qc], rules, now).map((row) => row.id)
     ).toEqual(["qc", "recent", "closed"]);
+  });
+});
+
+describe("sắp xếp theo cột custom", () => {
+  const due = (id: string, value: unknown) =>
+    task({ id, custom_values: value === undefined ? {} : { due_date: value } });
+
+  it("sắp theo ngày trong custom_values", () => {
+    const rows = [
+      due("muon", "2026-10-09"),
+      due("som", "2026-08-28"),
+      due("giua", "2026-09-15"),
+    ];
+    expect(sortTasks(rows, customSortKey("due_date"), "asc").map((t) => t.id)).toEqual([
+      "som",
+      "giua",
+      "muon",
+    ]);
+    expect(sortTasks(rows, customSortKey("due_date"), "desc").map((t) => t.id)).toEqual([
+      "muon",
+      "giua",
+      "som",
+    ]);
+  });
+
+  it("task chưa đặt hạn xuống cuối ở CẢ HAI chiều", () => {
+    // Cùng quy ước nulls-last của sortTasks: đảo chiều để lôi ô trống lên đầu
+    // thì lần bấm thứ hai biến cột thành danh sách ô trống, vô dụng.
+    const rows = [due("trong", ""), due("co", "2026-09-15"), due("khong", undefined)];
+    expect(sortTasks(rows, customSortKey("due_date"), "asc")[0].id).toBe("co");
+    expect(sortTasks(rows, customSortKey("due_date"), "desc")[0].id).toBe("co");
+  });
+
+  it("khoá custom không đụng vào cột hệ thống trùng tên", () => {
+    const rows = [
+      task({ id: "a", title: "zzz", custom_values: { title: "aaa" } }),
+      task({ id: "b", title: "aaa", custom_values: { title: "zzz" } }),
+    ];
+    // "title" là cột hệ thống; "custom:title" là cột custom cùng tên.
+    expect(sortTasks(rows, "title", "asc").map((t) => t.id)).toEqual(["b", "a"]);
+    expect(sortTasks(rows, customSortKey("title"), "asc").map((t) => t.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("số so theo giá trị số, không so theo chuỗi", () => {
+    const rows = [
+      task({ id: "muoi", custom_values: { amount: 10 } }),
+      task({ id: "chin", custom_values: { amount: 9 } }),
+    ];
+    expect(sortTasks(rows, customSortKey("amount"), "asc").map((t) => t.id)).toEqual([
+      "chin",
+      "muoi",
+    ]);
+  });
+});
+
+describe("customColumnSortKey", () => {
+  it("cho phép sắp xếp các kiểu mà giá trị thô đúng thứ tự hiển thị", () => {
+    for (const type of ["date", "number", "text", "link", "checkbox"]) {
+      expect(customColumnSortKey({ key: "x", type })).toBe("custom:x");
+    }
+  });
+
+  it("KHÔNG cho sắp xếp dropdown/person: giá trị lưu là id/email, không phải nhãn", () => {
+    expect(customColumnSortKey({ key: "x", type: "dropdown" })).toBeUndefined();
+    expect(customColumnSortKey({ key: "x", type: "person" })).toBeUndefined();
   });
 });

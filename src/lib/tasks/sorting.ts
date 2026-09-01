@@ -7,7 +7,7 @@ import {
   type TaskStatus,
 } from "./types";
 
-export type SortKey =
+export type KnownSortKey =
   | "title"
   | "description"
   | "status"
@@ -48,7 +48,61 @@ export type SortKey =
   | "position"
   | "id"
   | "key";
+
+/**
+ * Cột custom sắp xếp qua khoá có tiền tố, ví dụ `custom:due_date`.
+ *
+ * Tiền tố là thứ ngăn một cột custom tên "status" cướp mất phép so sánh của cột
+ * hệ thống cùng tên — hai không gian tên khác nhau, và admin đặt tên cột custom
+ * thì không biết gì về danh sách khoá hệ thống.
+ */
+export const CUSTOM_SORT_PREFIX = "custom:";
+export type SortKey = KnownSortKey | `${typeof CUSTOM_SORT_PREFIX}${string}`;
 export type SortDir = "asc" | "desc";
+
+/**
+ * Kiểu cột custom mà giá trị THÔ sắp xếp ra đúng thứ tự người ta nhìn thấy.
+ *
+ * `dropdown` và `person` cố ý đứng ngoài: giá trị lưu là option id / email,
+ * trong khi màn hình hiện nhãn và tên người. Sắp theo id là ra một thứ tự
+ * không ai giải thích được, nên thà không cho bấm còn hơn cho bấm rồi sai.
+ */
+const SORTABLE_CUSTOM_TYPES = new Set(["date", "number", "text", "link", "checkbox"]);
+
+export function customSortKey(columnKey: string): SortKey {
+  return `${CUSTOM_SORT_PREFIX}${columnKey}`;
+}
+
+export function isCustomSortKey(key: SortKey): boolean {
+  return key.startsWith(CUSTOM_SORT_PREFIX);
+}
+
+/** `sortKey` cho một cột custom, hoặc undefined nếu kiểu đó không nên sắp xếp. */
+export function customColumnSortKey(column: {
+  key: string;
+  type?: string | null;
+}): SortKey | undefined {
+  if (!column.type || !SORTABLE_CUSTOM_TYPES.has(column.type)) return undefined;
+  return customSortKey(column.key);
+}
+
+/**
+ * Giá trị so sánh của một ô custom.
+ *
+ * Ngày lưu dạng `YYYY-MM-DD` nên so chuỗi đã ra đúng thứ tự thời gian; không
+ * cần dựng Date, và dựng Date còn kéo theo múi giờ vào một phép so sánh vốn
+ * không cần biết đến nó.
+ */
+function customSortValue(
+  task: TaskRow,
+  key: SortKey
+): string | number | null {
+  const raw = task.custom_values?.[key.slice(CUSTOM_SORT_PREFIX.length)];
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "boolean") return raw ? 1 : 0;
+  return String(raw).toLowerCase();
+}
 
 const PRIORITY_RANK: Record<TaskPriority, number> = {
   low: 0,
@@ -90,6 +144,15 @@ export function taskDisplayKey(displayNumber: number | null | undefined): string
 function sortValue(
   task: TaskRow,
   key: SortKey,
+  categoryName: (id: string | null) => string | null
+): string | number | null {
+  if (isCustomSortKey(key)) return customSortValue(task, key);
+  return knownSortValue(task, key as KnownSortKey, categoryName);
+}
+
+function knownSortValue(
+  task: TaskRow,
+  key: KnownSortKey,
   categoryName: (id: string | null) => string | null
 ): string | number | null {
   switch (key) {

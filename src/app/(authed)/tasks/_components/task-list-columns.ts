@@ -1,4 +1,4 @@
-import type { SortKey } from "@/lib/tasks/sorting";
+import { customColumnSortKey, type SortKey } from "@/lib/tasks/sorting";
 import type { TableColumn } from "@/lib/table-config/types";
 
 export type KnownTaskListColumnKey =
@@ -141,6 +141,10 @@ export function taskListColumnsFromConfig(
         label: configured.label,
         pinned: configured.pinned,
         align: configured.type === "checkbox" ? "center" : undefined,
+        // Cột custom cũng bấm header để sắp xếp được — Due Date là cột đầu tiên
+        // cần đến. Trả undefined cho kiểu không sắp xếp có nghĩa (dropdown,
+        // person) thì header tự render lại thành nhãn tĩnh.
+        sortKey: customColumnSortKey(configured),
         configColumn: configured,
       });
     }
