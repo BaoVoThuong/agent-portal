@@ -450,9 +450,9 @@ export function LeadDistributeDialog({
 
           {tab === "agents" ? (
             <>
-          {/* Ai thuộc product nào. Danh sách là phía AGENT của Assistant
-              membership ở /config — assistant hỗ trợ công việc của agent nhưng
-              không phải người mà một lead thuộc về. */}
+          {/* Ai thuộc product nào. Danh sách là roster agent đã đăng ký —
+              chính bảng task_agents mà Config → Assistant membership → Agents
+              hiển thị, đọc qua cùng một hàm fetchTaskAgents(). */}
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6]">
             <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_5rem_5rem] gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
               <span>Agent</span>
@@ -464,7 +464,7 @@ export function LeadDistributeDialog({
                 <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
                   {rosterError
                     ? "Could not load the agent list."
-                    : "No agents found. Add them under Config → Assistant membership."}
+                    : "No agents found. Add them under Config → Assistant membership → Agents."}
                 </p>
               ) : (
                 roster.map((agent) => {
@@ -507,8 +507,9 @@ export function LeadDistributeDialog({
           </div>
 
           <p className="shrink-0 text-xs text-[#6b778c]">
-            Agents come from Config → Assistant membership. Tick a product to put
-            someone into that rotation; set how much they get on the{" "}
+            Agents come from Config → Assistant membership → Agents. Tick a
+            product to put someone into that rotation; set how much they get on
+            the{" "}
             {PRODUCT_LABEL.pc} and {PRODUCT_LABEL.health} tabs.
           </p>
             </>

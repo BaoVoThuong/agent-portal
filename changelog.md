@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Agent config lấy nhầm bảng: 6 thay vì 17 agent
+
+- **Loại**: fix (chọn sai nguồn dữ liệu).
+- **Sai ở đâu**: màn Config → Assistant membership có **hai view**. View **"Agents"** đọc bảng **`task_agents`**; view **"Assistant membership"** đọc `agent_members` (các **cặp** agent↔assistant). Tao lấy phía `agent_email` của `agent_members`, tức chỉ ra những agent **tình cờ có assistant** — **6 trên 17** trên production. Một agent chưa có assistant vẫn là agent.
+- **Sửa**: đọc `task_agents` qua **chính hàm `fetchTaskAgents()`** mà màn Config dùng, thay vì tự viết truy vấn. Một roster, hai màn hình, không có bản sao thứ hai — và nó vốn đã lọc sẵn tài khoản còn hoạt động cùng tên hiển thị.
+- **Kiểm trên dữ liệu thật**: `task_agents` **17 dòng, cả 17 đang hoạt động**; `agent_members` phía agent chỉ 6. Không có agent nào có assistant mà lại nằm ngoài `task_agents`, nên đổi sang `task_agents` là tập cha, không mất ai.
+
+- **Kiểm chứng**: `npm run test:run` 130 files / 957 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Chia pool: ba tab, tách "ai" khỏi "bao nhiêu"
 
 - **Loại**: feature (cấu trúc lại màn Chia pool).
