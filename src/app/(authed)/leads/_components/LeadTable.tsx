@@ -37,7 +37,10 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   // Use the same width rhythm as the configured Health Task List. A lead name
   // has no task-row flags beside it, so it can stay compact at 220px.
   name: 220,
-  product: 108,
+  // Đủ cho CẢ HAI badge cùng một hàng: "P&C" (~40px) + "HEALTH" (~64px) + khe
+  // 4px + padding của nút 12px + padding ô 24px. 108px cũ chỉ vừa một badge,
+  // nên lead mang hai product bị cắt mất cái thứ hai.
+  product: 156,
   phone: 112,
   secondary_phone: 160,
   email: 190,
@@ -738,12 +741,19 @@ export function ProductMenu({
   options,
   canEdit,
   onToggle,
+  // Trong BẢNG: badge trần, không viền không mũi tên — giống hệt cột Status
+  // ngay bên cạnh. Mỗi dòng đã chật, thêm một khung và một mũi tên cho mỗi
+  // dòng là thêm nhiễu.
+  // Trong MODAL: hai cái đó bật lên, cũng để khớp với trường Status ở đó.
+  showChevron = false,
+  buttonClassName = "",
 }: {
   selected: readonly LeadProduct[];
   options: TableColumnOption[];
   canEdit: boolean;
   onToggle: (next: LeadProduct[]) => void;
   showChevron?: boolean;
+  buttonClassName?: string;
 }) {
   const current = [...selected];
   const label =
@@ -770,13 +780,12 @@ export function ProductMenu({
             : [...current, product],
         );
       }}
-      showChevron
-      // Trông như một ô nhập: nền trắng, có viền. Cả hai badge nằm TRONG cùng
-      // một ô, cùng một hàng — flex-nowrap để badge thứ hai không rơi xuống
-      // dòng dưới và đội cao cả dòng của bảng.
-      buttonClassName="!h-8 w-full !justify-between !rounded !border !border-[#dfe1e6] !bg-white !px-2"
+      showChevron={showChevron}
+      buttonClassName={buttonClassName}
       renderValue={
         current.length > 0 ? (
+          // flex-nowrap: hai badge nằm cùng MỘT hàng, không để cái thứ hai
+          // rơi xuống dòng dưới và đội cao cả dòng của bảng.
           <span className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden">
             {current.map((value) => (
               <span

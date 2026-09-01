@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Ô Product khớp với cột Status, và đủ rộng cho hai badge
+
+- **Loại**: fix (UI).
+- **Trong bảng**: badge trần, **không khung viền, không mũi tên** — giống hệt cột Status ngay bên cạnh. Mỗi dòng đã chật; thêm một khung và một mũi tên cho mỗi dòng là thêm nhiễu.
+- **Trong modal chi tiết**: bật cả hai lên, dùng đúng `RAIL_SELECT_BUTTON_CLASS` mà trường Status ở đó dùng.
+- Hai badge nằm cùng **một hàng** (`flex-nowrap`) để cái thứ hai không rơi xuống dòng dưới và đội cao cả dòng bảng.
+- **Nới cột Product 108 → 156px**: 108 chỉ vừa một badge, nên lead mang hai product bị cắt mất cái thứ hai. 156 = "P&C" (~40) + "HEALTH" (~64) + khe 4 + padding nút 12 + padding ô 24.
+
 ## 2026-09-01 — Ô Product trở lại dáng dropdown, nhưng chọn được cả hai
 
 - **Loại**: fix (UI).

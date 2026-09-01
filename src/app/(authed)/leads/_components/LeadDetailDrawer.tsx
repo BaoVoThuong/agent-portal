@@ -526,6 +526,8 @@ export function LeadDetailDrawer({
                         onToggle={(products: LeadProduct[]) =>
                           patchCurrentLead({ products })
                         }
+                        showChevron
+                        buttonClassName={RAIL_SELECT_BUTTON_CLASS}
                       />
                     </RailField>
                   ) : null}
