@@ -6,6 +6,19 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — UI chia pool: đặt tỉ lệ ngay tại chỗ chia
+
+- **Loại**: feature (UI cho cơ chế tự chia đã có).
+- **Đặt ở đâu và vì sao**: không làm tab riêng trong Lead Config mà gộp vào đúng nút **"Chia pool"**. Con số tỉ lệ chỉ có nghĩa khi đứng cạnh đám lead nó sắp điều đi: mở dialog là thấy còn bao nhiêu lead chưa gán, chỉnh tỉ lệ, xem phân bổ đổi theo, rồi mới chia.
+- **Thay `window.confirm` bằng dialog thật.** Trước đó nút này chỉ hỏi một câu rồi chạy — không sửa được gì, không thấy gì.
+- **Có gì trong dialog**: số lead đang ở pool tách theo product · chuyển P&C ↔ Health · bật/tắt "tự chia khi import" · bảng agent với trọng số, **tỉ lệ % tính lại theo từng ký tự gõ vào** · thêm agent từ roster · xem trước "trong 10 lead kế tiếp" · nút đặt lại vòng xoay · nút chia.
+- **Agent không nhận được lead vẫn hiện, kèm cảnh báo đỏ** thay vì bị ẩn: một dòng biến mất im lặng làm tỉ lệ trên màn hình không cộng lại thành cái admin vừa gõ.
+- **Chưa lưu thì không cho chia.** Chia khi đang có sửa dở sẽ dùng tỉ lệ *đã lưu*, không phải tỉ lệ đang hiện trên màn hình — tức là làm ngược lại điều người ta vừa đọc.
+- **Đặt lại vòng xoay hỏi trước**: nó bỏ phần dư của chu kỳ hiện tại và đổi người kế tiếp, không lùi được.
+- **Thêm agent lấy từ roster** (`assignees`), nên P&C — vốn không có ai do role `P&C Agent` rỗng — cấu hình được mà không cần chạy SQL tay.
+
+- **Kiểm chứng**: `npm run test:run` 130 files / 957 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Tự chia lead theo tỉ lệ (weighted round-robin)
 
 - **Loại**: feature. Plan: `docs/superpowers/plans/2026-09-01-lead-auto-assign.md`.
