@@ -388,9 +388,13 @@ export function LeadDistributeDialog({
             </span>
           </label>
 
+          {/* Bản đầu giải thích rằng bỏ tick giữ lại con trỏ xoay vòng còn xoá
+              thì không. Đúng về kỹ thuật nhưng vô nghĩa với người dùng, và họ
+              đọc không hiểu. Nói bằng việc họ sẽ làm, không bằng cái code làm. */}
           <p className="text-xs text-[#6b778c]">
-            Bỏ tick <strong>Đang nhận</strong> để tạm dừng một người mà vẫn giữ
-            chỗ của họ trong vòng xoay. Dùng thùng rác để bỏ hẳn khỏi danh sách.
+            <strong>Bỏ tick</strong> = tạm dừng, tick lại là nhận tiếp (ví dụ:
+            nghỉ phép). <strong>Thùng rác</strong> = xoá khỏi danh sách, muốn
+            nhận lại phải thêm vào và đặt trọng số lại từ đầu.
           </p>
           <div className="overflow-hidden rounded border border-[#dfe1e6]">
             <table className="w-full text-left text-sm">
@@ -451,10 +455,9 @@ export function LeadDistributeDialog({
                         />
                       </td>
                       <td className="px-3 py-2 text-right">
-                        {/* Bỏ tick "Đang nhận" là tạm dừng — dòng còn đó, con trỏ
-                            xoay vòng của người này còn nguyên, bật lại là chạy
-                            tiếp. Xoá là bỏ hẳn khỏi danh sách. Hai việc khác
-                            nhau nên là hai nút khác nhau. */}
+                        {/* Tạm dừng và xoá là hai việc khác nhau nên là hai
+                            nút khác nhau: một cái để người ta quay lại được
+                            bằng một cú tick, một cái để dọn hẳn. */}
                         <button
                           type="button"
                           aria-label={`Xoá ${row.agent_email} khỏi danh sách`}
