@@ -35,6 +35,22 @@ type DistributeResult = {
 };
 
 const PRODUCT_LABEL: Record<LeadProduct, string> = { pc: "P&C", health: "Health" };
+
+/**
+ * Ngoài component có chủ đích: nó không đụng state nào, nên effect gọi được mà
+ * không vướng luật "đừng setState thẳng trong effect" của React Compiler — và
+ * nhờ vậy phần fetch chỉ có MỘT bản, thay vì một bản trong effect và một bản
+ * trong loadWeights như trước.
+ */
+async function fetchWeights(product: LeadProduct): Promise<WeightsPayload> {
+  const response = await fetch(
+    `/api/leads/assignment-weights?product=${product}`,
+    { cache: "no-store" }
+  );
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error ?? "Không tải được tỉ lệ.");
+  return payload as WeightsPayload;
+}
 const INPUT_CLASS =
   "h-9 w-full rounded border border-[#dfe1e6] bg-white px-2 text-sm outline-none focus:border-[#0c66e4]";
 
@@ -82,14 +98,8 @@ export function LeadDistributeDialog({
     const seq = weightsRequest.current + 1;
     weightsRequest.current = seq;
     try {
-      const response = await fetch(
-        `/api/leads/assignment-weights?product=${forProduct}`,
-        { cache: "no-store" }
-      );
-      const payload = await response.json().catch(() => null);
+      const next = await fetchWeights(forProduct);
       if (seq !== weightsRequest.current) return;
-      if (!response.ok) throw new Error(payload?.error ?? "Không tải được tỉ lệ.");
-      const next = payload as WeightsPayload;
       setWeights(next);
       setDraft(next.weights.map((row) => ({ ...row })));
       setEnabled(next.enabled);
@@ -152,12 +162,9 @@ export function LeadDistributeDialog({
     if (!open) return;
     const seq = weightsRequest.current + 1;
     weightsRequest.current = seq;
-    void fetch(`/api/leads/assignment-weights?product=${product}`, { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
+    void fetchWeights(product)
+      .then((next) => {
         if (seq !== weightsRequest.current) return;
-        if (!response.ok) throw new Error(payload?.error ?? "Không tải được tỉ lệ.");
-        const next = payload as WeightsPayload;
         setWeights(next);
         setDraft(next.weights.map((row) => ({ ...row })));
         setEnabled(next.enabled);
