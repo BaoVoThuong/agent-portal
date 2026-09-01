@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Dãy round-robin cập nhật theo tỉ lệ đang gõ
+
+- **Loại**: fix (UI nói dối / thiếu phản hồi).
+- **Trước**: sửa trọng số thì dãy biến mất, thay bằng dòng "Save to see the order". Người ta gõ 70/30 rồi phải lưu mới biết nó ra dãy gì — mà lưu là đã ghi vào DB rồi.
+- **Nay**: dãy dựng **ngay tại client** từ trọng số đang gõ, dùng **chính hàm `pickWeighted`** mà RPC bên DB làm theo. Gõ tới đâu thấy tới đó.
+- **Con trỏ lấy từ bản đã lưu, không reset về 0.** Đây là phần dễ làm sai nhất: lượt chia trước **chưa bao giờ dừng đúng ranh giới một chu kỳ** — lead không chia đều tuyệt đối bao giờ — nên bắt đầu lại từ 0 sẽ vẽ một dãy **khác** với dãy mà việc chia thật sẽ chạy. API trả thêm `current_weight` để màn hình dựng đúng từ tình trạng hiện tại.
+- **Chưa lưu thì ghi rõ "Preview only — save to make this the real order."** thay vì giấu dãy đi: người ta cần thấy hệ quả *trước* khi quyết định lưu.
+- **Test hồi quy** `rr-cursor.test.ts`: cùng tỉ lệ 70/30, con trỏ giữa chu kỳ cho dãy khác con trỏ 0 — và người kế tiếp là người đang bị nợ, không phải người có trọng số cao nhất.
+
 ## 2026-09-01 — Agent config lấy nhầm bảng: 6 thay vì 17 agent
 
 - **Loại**: fix (chọn sai nguồn dữ liệu).

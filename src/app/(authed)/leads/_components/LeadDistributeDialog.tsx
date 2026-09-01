@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcw, Shuffle, X } from "lucide-react";
 import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
+import { pickWeighted } from "@/lib/leads/round-robin";
 import { personLabel } from "@/lib/tasks/people";
 import { Initials } from "../../tasks/_components/board-ui";
 
@@ -13,6 +14,8 @@ type WeightRow = {
   is_active: boolean;
   /** Computed by the API from the live totals — never stored. */
   share: number;
+  /** Vị trí hiện tại trong vòng xoay; dãy xem trước phải bắt đầu từ đây. */
+  current_weight: number;
 };
 
 type WeightsPayload = {
@@ -46,6 +49,8 @@ type DistributeResult = {
 
 const PRODUCT_LABEL: Record<LeadProduct, string> = { pc: "P&C", health: "Health" };
 const TABS: (LeadProduct | "agents")[] = [...LEAD_PRODUCTS, "agents"];
+/** Bao nhiêu lượt kế tiếp thì vẽ ra. Mười là số người ta giữ được trong đầu. */
+const PREVIEW_SIZE = 10;
 
 /**
  * Ngoài component có chủ đích: nó không đụng state nào, nên effect gọi được mà
@@ -212,6 +217,23 @@ export function LeadDistributeDialog({
       JSON.stringify(draft.map((r) => [r.agent_email, r.weight, r.is_active, r.position])) !==
         JSON.stringify(weights.weights.map((r) => [r.agent_email, r.weight, r.is_active, r.position])));
 
+
+  // Dãy dựng NGAY TẠI ĐÂY từ trọng số đang gõ, nhưng con trỏ (current_weight)
+  // lấy nguyên từ bản đã lưu: lượt chia trước chưa bao giờ dừng đúng ranh giới
+  // một chu kỳ, nên bắt đầu lại từ 0 sẽ vẽ một dãy không phải dãy mà việc chia
+  // thật sẽ chạy. Dùng chính pickWeighted mà RPC bên DB làm theo.
+  const upcoming = pickWeighted(
+    active.map((row) => ({
+      email: row.agent_email,
+      weight: row.weight,
+      currentWeight: row.current_weight,
+      position: row.position,
+    })),
+    PREVIEW_SIZE
+  ).picks;
+  const upcomingCounts = [...new Set(upcoming)]
+    .map((email) => ({ email, count: upcoming.filter((item) => item === email).length }))
+    .sort((a, b) => b.count - a.count || a.email.localeCompare(b.email));
 
   function update(email: string, patch: Partial<WeightRow>) {
     setDraft((current) =>
@@ -614,6 +636,54 @@ export function LeadDistributeDialog({
               )}
             </div>
           </div>
+
+          {active.length > 0 ? (
+            <div className="shrink-0 rounded-lg border border-[#b8d4ff] bg-[#e9f2ff] px-3 py-2.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-[#0c3d91]">
+                  Next {PRODUCT_LABEL[product]} leads go to
+                </span>
+                <span className="text-xs font-semibold text-[#42526e]">
+                  {upcomingCounts
+                    .map((row) => `${personLabel(row.email, nameByEmail)} ${row.count}`)
+                    .join(" · ")}
+                </span>
+              </div>
+              <ol className="mt-2 flex items-center gap-1 overflow-x-auto pb-1">
+                {upcoming.map((email, index) => {
+                  const label = personLabel(email, nameByEmail);
+                  return (
+                    <li
+                      key={`${email}-${index}`}
+                      title={`#${index + 1} — ${label}`}
+                      className={`flex shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 ${
+                        index === 0
+                          ? "border-[#0c66e4] bg-white shadow-sm"
+                          : "border-transparent bg-white/70"
+                      }`}
+                    >
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#dfe1e6] text-[10px] font-bold text-[#42526e]">
+                        {index + 1}
+                      </span>
+                      <span className="max-w-[7rem] truncate text-xs font-semibold text-[#172b4d]">
+                        {label}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+              {dirty ? (
+                <p className="mt-1 text-[11px] font-semibold text-[#974f0c]">
+                  Preview only — save to make this the real order.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="shrink-0 rounded-lg border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
+              Nobody is receiving {PRODUCT_LABEL[product]} — those leads stay in
+              the pool.
+            </p>
+          )}
 
           {rosterError ? (
             <p className="rounded border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">

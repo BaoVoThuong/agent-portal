@@ -65,6 +65,10 @@ export async function GET(request: Request) {
       weight: row.weight,
       position: row.position,
       is_active: row.is_active,
+      // Con trỏ xoay vòng đi kèm để màn hình dựng lại được dãy kế tiếp ngay khi
+      // người ta gõ trọng số mới, mà vẫn xuất phát từ tình trạng chia hiện tại
+      // — lead trước đó chưa bao giờ chia đều tuyệt đối.
+      current_weight: row.current_weight,
       /** Computed, never stored: storing percentages forces them to sum to 100. */
       share: totalWeight > 0 && row.is_active && row.weight > 0
         ? Math.round((row.weight / totalWeight) * 1000) / 10
