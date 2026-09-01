@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcw, Shuffle, Trash2, X } from "lucide-react";
 import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
@@ -15,6 +15,8 @@ type WeightRow = {
 };
 
 type WeightsPayload = {
+  /** API trả kèm; dùng để biết payload đang giữ là của product nào. */
+  product: LeadProduct;
   enabled: boolean;
   weights: WeightRow[];
   preview: { email: string; count: number }[];
@@ -70,48 +72,109 @@ export function LeadDistributeDialog({
   // đã có quyền lead — nếu không thì cái quyết định lại nằm ở Role Manager.
   const [roster, setRoster] = useState<{ email: string; name: string | null }[]>([]);
 
+  const [rosterError, setRosterError] = useState(false);
+  // Mỗi lần đổi product là một request mới. Response của product cũ về sau
+  // response của product mới thì phải bị bỏ, nếu không bảng hiện tỉ lệ của
+  // product mày vừa rời khỏi.
+  const weightsRequest = useRef(0);
+
   const loadWeights = useCallback(async (forProduct: LeadProduct) => {
-    const response = await fetch(
-      `/api/leads/assignment-weights?product=${forProduct}`,
-      { cache: "no-store" }
-    );
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(payload?.error ?? "Không tải được tỉ lệ.");
-    const next = payload as WeightsPayload;
-    setWeights(next);
-    setDraft(next.weights.map((row) => ({ ...row })));
-    setEnabled(next.enabled);
+    const seq = weightsRequest.current + 1;
+    weightsRequest.current = seq;
+    try {
+      const response = await fetch(
+        `/api/leads/assignment-weights?product=${forProduct}`,
+        { cache: "no-store" }
+      );
+      const payload = await response.json().catch(() => null);
+      if (seq !== weightsRequest.current) return;
+      if (!response.ok) throw new Error(payload?.error ?? "Không tải được tỉ lệ.");
+      const next = payload as WeightsPayload;
+      setWeights(next);
+      setDraft(next.weights.map((row) => ({ ...row })));
+      setEnabled(next.enabled);
+      setError(null);
+    } catch (loadError) {
+      if (seq !== weightsRequest.current) return;
+      setError(loadError instanceof Error ? loadError.message : "Không tải được tỉ lệ.");
+    }
   }, []);
 
+  // Pool và roster không phụ thuộc product, nên chúng nạp MỘT LẦN khi mở và
+  // không chạy lại mỗi lần bấm đổi product. Trước đây cả ba chạy tuần tự trong
+  // một effect: bảng agent phải đợi cả pool lẫn roster xong mới hiện, dù nó
+  // không cần cái nào trong hai.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+
     void (async () => {
       try {
-        setError(null);
-        const poolResponse = await fetch("/api/leads/distribute", { cache: "no-store" });
-        const poolPayload = await poolResponse.json().catch(() => null);
+        const response = await fetch("/api/leads/distribute", { cache: "no-store" });
+        const payload = await response.json().catch(() => null);
         if (cancelled) return;
-        if (!poolResponse.ok) throw new Error(poolPayload?.error ?? "Không đọc được pool.");
-        setPool(poolPayload as PoolPayload);
-        const rosterResponse = await fetch("/api/leads/assignment-roster", { cache: "no-store" });
-        if (!cancelled && rosterResponse.ok) {
-          const rosterPayload = await rosterResponse.json().catch(() => null);
-          if (Array.isArray(rosterPayload?.accounts)) setRoster(rosterPayload.accounts);
-        }
-        await loadWeights(product);
-      } catch (loadError) {
+        if (!response.ok) throw new Error(payload?.error ?? "Không đọc được pool.");
+        setPool(payload as PoolPayload);
+      } catch (poolError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Không tải được dữ liệu.");
+          setError(poolError instanceof Error ? poolError.message : "Không đọc được pool.");
         }
       }
     })();
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/leads/assignment-roster", { cache: "no-store" });
+        const payload = await response.json().catch(() => null);
+        if (cancelled) return;
+        if (!response.ok || !Array.isArray(payload?.accounts)) {
+          throw new Error("roster");
+        }
+        setRoster(payload.accounts);
+        setRosterError(false);
+      } catch {
+        // Hỏng im lặng thì ô "Thêm agent" biến mất không dấu vết và trông y hệt
+        // "đã thêm hết mọi người rồi". Nói ra để còn biết mà thử lại.
+        if (!cancelled) setRosterError(true);
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, [open, product, loadWeights]);
+  }, [open]);
+
+  // Fetch inline với .then(), giống LeadAddDialog/LeadImportDialog: React
+  // Compiler chặn việc gọi một hàm có setState thẳng trong thân effect, kể cả
+  // khi setState đó nằm sau await. loadWeights vẫn dùng cho lần nạp lại sau khi
+  // lưu — chỗ đó là event handler nên không vướng.
+  useEffect(() => {
+    if (!open) return;
+    const seq = weightsRequest.current + 1;
+    weightsRequest.current = seq;
+    void fetch(`/api/leads/assignment-weights?product=${product}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (seq !== weightsRequest.current) return;
+        if (!response.ok) throw new Error(payload?.error ?? "Không tải được tỉ lệ.");
+        const next = payload as WeightsPayload;
+        setWeights(next);
+        setDraft(next.weights.map((row) => ({ ...row })));
+        setEnabled(next.enabled);
+        setError(null);
+      })
+      .catch((loadError: unknown) => {
+        if (seq !== weightsRequest.current) return;
+        setError(loadError instanceof Error ? loadError.message : "Không tải được tỉ lệ.");
+      });
+  }, [open, product]);
 
   if (!open) return null;
+
+  // Suy ra thay vì lưu: payload mang theo product của chính nó, nên "chưa có
+  // payload của product đang xem" CHÍNH LÀ đang tải. Một cờ loading riêng phải
+  // set đồng bộ trong effect, và nó cũng là thứ nữa có thể lệch khỏi sự thật.
+  const loadingWeights = error === null && weights?.product !== product;
 
   const active = draft.filter((row) => row.is_active && row.weight > 0);
   const totalWeight = active.reduce((sum, row) => sum + row.weight, 0);
@@ -334,7 +397,13 @@ export function LeadDistributeDialog({
                 </tr>
               </thead>
               <tbody>
-                {draft.length === 0 ? (
+                {loadingWeights && draft.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-6 text-center text-[#6b778c]">
+                      Đang tải danh sách agent…
+                    </td>
+                  </tr>
+                ) : draft.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-3 py-6 text-center text-[#6b778c]">
                       Chưa có agent nào cho {PRODUCT_LABEL[product]}. Thêm bên dưới.
@@ -400,6 +469,12 @@ export function LeadDistributeDialog({
             </table>
           </div>
 
+          {rosterError ? (
+            <p className="rounded border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
+              Không tải được danh sách tài khoản để thêm agent. Đóng và mở lại
+              dialog để thử lại.
+            </p>
+          ) : null}
           {notListed.length > 0 ? (
             <div className="flex items-center gap-2">
               <select
@@ -494,7 +569,7 @@ export function LeadDistributeDialog({
             <button
               type="button"
               onClick={() => void save()}
-              disabled={busy || !dirty}
+              disabled={busy || loadingWeights || !dirty}
               className="inline-flex h-9 items-center rounded border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:opacity-40"
             >
               Lưu tỉ lệ
@@ -504,7 +579,7 @@ export function LeadDistributeDialog({
               onClick={() => void distribute()}
               // Distributing with unsaved edits would use the stored ratio, not
               // the one on screen — which is the one the admin is reading.
-              disabled={busy || dirty || !pool || pool.pending === 0}
+              disabled={busy || loadingWeights || dirty || !pool || pool.pending === 0}
               title={dirty ? "Lưu tỉ lệ trước khi chia." : undefined}
               className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
             >

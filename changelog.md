@@ -6,6 +6,21 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Chia pool: danh sách agent lúc hiện lúc không
+
+- **Loại**: fix (bug tải dữ liệu). Bốn lỗi cùng nằm trong một effect.
+
+1. **Không có trạng thái loading.** Trong lúc fetch, `draft` là `[]` nên bảng render "Chưa có agent nào cho X" — **trông y hệt dữ liệu rỗng thật**. Đây chính là triệu chứng "lúc hiện lúc không": mạng nhanh thì kịp thấy, mạng chậm thì đọc thành "không có ai".
+2. **Ba fetch chạy tuần tự trong một effect** (pool → roster → weights). Bảng agent phải đợi **cả pool lẫn roster** xong mới hiện, dù nó không cần cái nào trong hai. Tách thành hai effect: pool + roster nạp **một lần khi mở**, weights nạp theo product.
+3. **Không có hàng rào chống response về trễ.** Đổi product khi request cũ còn bay thì response cũ về sau ghi đè response mới — bảng hiện tỉ lệ của product vừa rời khỏi. Thêm số thứ tự request.
+4. **Roster hỏng im lặng.** `if (rosterResponse.ok)` — hỏng thì `roster` rỗng, `notListed` rỗng, và **cả ô "Thêm agent" biến mất không dấu vết**, trông y hệt "đã thêm hết mọi người rồi". Nay báo rõ.
+
+- **Trạng thái loading là suy ra, không lưu**: payload từ API vốn mang theo `product` của chính nó, nên "chưa có payload của product đang xem" **chính là** đang tải. Một cờ `loading` riêng vừa phải set đồng bộ trong effect (React Compiler chặn), vừa là thêm một thứ nữa có thể lệch khỏi sự thật.
+- **Fetch inline với `.then()`** theo đúng pattern `LeadAddDialog`/`LeadImportDialog`: React Compiler chặn việc gọi một hàm có `setState` thẳng trong thân effect, kể cả khi `setState` nằm sau `await`.
+- Khoá nút **Lưu** và **Chia** khi đang tải, để không thao tác trên dữ liệu chưa về.
+
+- **Kiểm chứng**: `npm run test:run` 130 files / 957 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Ai nhận lead do danh sách Chia pool quyết, không do RBAC
 
 - **Loại**: fix (sai mô hình).
