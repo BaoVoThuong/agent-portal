@@ -86,6 +86,7 @@ import {
   fileUploaded,
   fileUploading,
   failSubmission,
+  shouldDiscardEmptyComment,
   finishSubmission,
   reloadFailed,
   type FileState,
@@ -1208,6 +1209,41 @@ export function CommentThread({
     ).flat();
     const uploadFailed = outcomes.some((ok) => !ok);
     const uploadedAny = outcomes.some(Boolean);
+
+    // Không tệp nào lên được và người dùng cũng không gõ chữ nào: thứ vừa ghi
+    // vào DB là một dòng rỗng, không phải điều họ định gửi. Xoá nó đi — xem
+    // shouldDiscardEmptyComment để biết vì sao comment chỉ-đính-kèm được giữ.
+    if (shouldDiscardEmptyComment({ body, uploadedAny })) {
+      const discarded = await fetch(
+        `${apiBase}/${taskId}/comments/${comment.id}`,
+        { method: "DELETE", headers: mutationHeaders() },
+      )
+        .then((response) => response.ok)
+        .catch(() => false);
+      if (discarded) {
+        // Số đếm comment đã tăng lúc tạo; báo cho các view khác trả nó về.
+        onCommitted?.();
+        // Bỏ realId cùng với dòng vừa xoá: retryFile dừng sớm khi thiếu nó, nên
+        // không còn đường nào trỏ vào một comment không còn tồn tại.
+        setOptimisticComments((current) =>
+          current.map((item) =>
+            item.id === tempId
+              ? {
+                  ...item,
+                  realId: undefined,
+                  failed: true,
+                  error:
+                    "No attachment could be uploaded. The empty comment was discarded — send it again.",
+                }
+              : item,
+          ),
+        );
+        return;
+      }
+      // Xoá không được thì dòng kia vẫn còn thật: đi tiếp luồng lỗi upload sẵn
+      // có, để người dùng còn nút retry cho từng tệp.
+    }
+
     if (uploadedAny) onCommitted?.();
 
     let reloadDidFail = false;

@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Comment rỗng không còn ở lại khi mọi tệp upload đều hỏng
+
+- **Loại**: fix (business rule).
+- **Triệu chứng**: task CS-119 có những comment chỉ hiện avatar + tên + giờ, không nội dung, không đính kèm. Người dùng tưởng hệ thống nhân bản comment; thật ra là **6 dòng khác nhau**, mỗi dòng một `client_request_id` riêng — 3 dòng hợp lệ (chỉ-đính-kèm) và **3 dòng mồ côi**.
+- **Nguyên nhân**: luồng gửi cố ý tạo comment **trước** rồi mới upload từng tệp (để comment chỉ-đính-kèm hoạt động được). API cho `body` rỗng đi qua chỉ dựa vào cờ `hasAttachments` do client gửi, lúc đó **chưa có đính kèm nào tồn tại**. Khi mọi tệp đều hỏng, `uploadedAny === false` được tính ra nhưng **không có nhánh nào xoá comment** — dòng rỗng ở lại vĩnh viễn, và sau khi reload thì dấu vết upload-hỏng cũng biến mất.
+- **Sửa**: sau khi cả lượt upload kết thúc, nếu **không tệp nào** thành công **và** body không có chữ nào → `DELETE /api/tasks/[id]/comments/[cid]` (soft-delete có sẵn, giữ audit trail), báo `onCommitted` để số đếm ở các view khác trả về, và đánh dấu dòng optimistic là `failed` kèm lý do.
+  - **Chỉ dọn khi KHÔNG tệp nào thành công.** Một comment giữ được dù chỉ một tệp là lịch sử hợp lệ, kể cả khi tệp khác trong cùng lượt hỏng.
+  - **Bỏ `realId`** khỏi dòng optimistic: `retryFile` dừng sớm khi thiếu nó, nên không còn đường nào trỏ vào một comment không còn tồn tại.
+  - **Xoá không được thì đi tiếp luồng cũ** — dòng kia vẫn còn thật, người dùng cần giữ nút retry từng tệp.
+- **Quyết định được kiểm chứng, không suy đoán**: `client_request_id` **không** cần thu hồi. Replay ở `create_task_comment_atomic` tìm theo `(task, author, client_request_id)` mà không lọc `deleted_at`, nên thoạt nhìn retry sẽ resurrect dòng vừa xoá — nhưng `finishSubmission()` (đặt `requestId: null`) đã chạy **trước** khi upload bắt đầu, nên lần gửi sau đã mint id mới.
+- **Logic tách thành `shouldDiscardEmptyComment`** trong `src/lib/tasks/comment-submission.ts` + 5 test. Vitest ở repo này chỉ chạy `src/**/*.test.ts`, `.tsx` không test được — nên phần quyết định phải nằm ngoài component mới có lưới an toàn.
+- **Dữ liệu cũ**: `supabase/rollouts/2026-09-01-empty-comment-audit.sql` **chỉ báo cáo**, không xoá. Comment chỉ-đính-kèm không nằm trong danh sách.
+- **Chưa làm** (ngoài phạm vi lần này): guard phía server cho bất biến "có chữ HOẶC có ít nhất một đính kèm đang hoạt động". Nó là ràng buộc liên bảng nên phải làm bằng RPC/transaction, không phải `CHECK`.
+
 ## 2026-09-01 — Sửa một lead không còn kéo lại cả danh sách
 
 - **Loại**: tối ưu (luồng dữ liệu).

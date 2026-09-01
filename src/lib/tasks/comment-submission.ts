@@ -88,3 +88,21 @@ export function finishSubmission(): SubmissionState {
 export function failSubmission(state: SubmissionState): SubmissionState {
   return { inFlight: false, requestId: state.requestId };
 }
+
+/**
+ * Comment vừa tạo có phải một dòng rỗng cần dọn không?
+ *
+ * Luồng gửi cố ý tạo comment TRƯỚC rồi mới upload từng tệp, nên comment chỉ có
+ * đính kèm là hợp lệ. Nhưng khi không tệp nào lên được và người dùng cũng không
+ * gõ chữ nào, thứ còn lại trong DB là một dòng trống hiện trong timeline y hệt
+ * một comment chỉ-đính-kèm hợp lệ — người đọc sau này không phân biệt được.
+ *
+ * Chỉ dọn khi KHÔNG tệp nào thành công: một comment giữ được dù chỉ một tệp là
+ * lịch sử hợp lệ, kể cả khi tệp khác trong cùng lượt gửi hỏng.
+ */
+export function shouldDiscardEmptyComment(input: {
+  body: string;
+  uploadedAny: boolean;
+}): boolean {
+  return !input.uploadedAny && input.body.trim() === "";
+}
