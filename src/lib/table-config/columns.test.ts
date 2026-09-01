@@ -6,6 +6,7 @@ import {
   nextPosition,
   slugifyColumnKey,
   sortColumns,
+  supportsOptionalSystemDetail,
 } from "./columns";
 import type { TableColumn } from "./types";
 
@@ -116,6 +117,32 @@ describe("canEditColumnField", () => {
   it("never locks 'required' for a custom column, even if its key coincidentally matches an auto-generated system key", () => {
     const customNamedKey = { is_system: false, scope: "cs" as const, key: "key" };
     expect(canEditColumnField(customNamedKey, "required")).toBe(true);
+  });
+});
+
+describe("supportsOptionalSystemDetail", () => {
+  it("allows only the Lead imported-date metadata field", () => {
+    expect(
+      supportsOptionalSystemDetail({
+        is_system: true,
+        scope: "lead",
+        key: "createdAt",
+      })
+    ).toBe(true);
+    expect(
+      supportsOptionalSystemDetail({
+        is_system: true,
+        scope: "lead",
+        key: "attempts",
+      })
+    ).toBe(false);
+    expect(
+      supportsOptionalSystemDetail({
+        is_system: false,
+        scope: "lead",
+        key: "createdAt",
+      })
+    ).toBe(false);
   });
 });
 

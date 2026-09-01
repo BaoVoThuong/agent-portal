@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { Plus, X } from "lucide-react";
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   LeadInteraction,
   LeadInteractionType,
@@ -16,6 +17,10 @@ const INTERACTION_SELECT_BUTTON_CLASS =
   "!h-10 !rounded !border-2 !border-[#dfe1e6] !bg-white !px-3 !text-sm !font-medium !shadow-none hover:!border-[#cfd8e5] hover:!shadow-none focus-visible:!border-[#0c66e4] focus-visible:!shadow-none";
 
 type InteractionLogProps = {
+  /** The Lead detail tab, so its action lives in the same toolbar. */
+  toolbar: ReactNode;
+  /** Loading/error feedback that belongs directly below the toolbar. */
+  notice?: ReactNode;
   statuses: LeadStatus[];
   interactionTypes: LeadInteractionType[];
   initialInteractions: LeadInteraction[];
@@ -30,6 +35,8 @@ type InteractionLogProps = {
     follow_up_at: string | null;
     client_request_id: string;
   }) => Promise<{ interaction: LeadInteraction }>;
+  /** Keeps the parent tab counter in sync after this composer saves. */
+  onInteractionSaved?: (interaction: LeadInteraction) => void;
 };
 
 function relativeTime(value: string): string {
@@ -71,14 +78,18 @@ function badgeStyle(
 }
 
 export function InteractionLog({
+  toolbar,
+  notice,
   statuses,
   interactionTypes,
   initialInteractions,
   canLog,
   ownerLabel,
   onSave,
+  onInteractionSaved,
 }: InteractionLogProps) {
   const [interactions, setInteractions] = useState(initialInteractions);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [typeId, setTypeId] = useState("");
   const [statusId, setStatusId] = useState("");
   const [followUpAt, setFollowUpAt] = useState("");
@@ -96,6 +107,26 @@ export function InteractionLog({
     typeId && statusId && (!needsFollowUp || followUpAt) && canLog,
   );
 
+  function resetComposer() {
+    setTypeId("");
+    setStatusId("");
+    setFollowUpAt("");
+    setNote("");
+    setError(null);
+    requestIdRef.current = null;
+  }
+
+  function openComposer() {
+    resetComposer();
+    setComposerOpen(true);
+  }
+
+  function closeComposer() {
+    if (saving) return;
+    resetComposer();
+    setComposerOpen(false);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit || saving) return;
@@ -111,10 +142,14 @@ export function InteractionLog({
         follow_up_at: followUpAt ? new Date(followUpAt).toISOString() : null,
         client_request_id: requestId,
       });
-      setInteractions((current) => [result.interaction, ...current]);
-      requestIdRef.current = null;
-      setNote("");
-      setFollowUpAt("");
+      setInteractions((current) =>
+        current.some((interaction) => interaction.id === result.interaction.id)
+          ? current
+          : [result.interaction, ...current],
+      );
+      onInteractionSaved?.(result.interaction);
+      resetComposer();
+      setComposerOpen(false);
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -129,14 +164,61 @@ export function InteractionLog({
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between border-b border-[#dfe1e6] pb-3">
-        <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
-          Interaction log
-        </h3>
+      <div className="flex items-center justify-between gap-3 border-b border-[#dfe1e6] pb-3">
+        {toolbar}
+        {canLog ? (
+          <button
+            type="button"
+            onClick={openComposer}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded bg-[#0c66e4] px-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            Add interaction
+          </button>
+        ) : null}
       </div>
-      {canLog ? (
-        <form
-          className="space-y-3 border border-[#dbe2eb] bg-[#f7f9fc] p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)]"
+      {notice}
+      {composerOpen ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-[#091e42]/35 p-4"
+          onClick={closeComposer}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="log-interaction-title"
+            className="w-full max-w-lg overflow-hidden rounded-lg bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="flex items-center justify-between gap-4 border-b border-[#dfe1e6] px-5 py-4">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded bg-[#e9f2ff] text-[#0c66e4]">
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div>
+                  <h2
+                    id="log-interaction-title"
+                    className="text-base font-semibold text-[#172b4d]"
+                  >
+                    Log interaction
+                  </h2>
+                  <p className="mt-0.5 text-xs text-[#6b778c]">
+                    Record the latest contact and outcome.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeComposer}
+                disabled={saving}
+                aria-label="Close interaction composer"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#626f86] transition hover:bg-[#f4f5f7] hover:text-[#172b4d] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </header>
+            <form
+          className="space-y-4 p-5"
           onSubmit={submit}
         >
           <div className="grid gap-3 sm:grid-cols-2">
@@ -218,7 +300,15 @@ export function InteractionLog({
               {error}
             </p>
           )}
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2 border-t border-[#ebecf0] pt-4">
+            <button
+              type="button"
+              onClick={closeComposer}
+              disabled={saving}
+              className="inline-flex h-9 items-center rounded px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel
+            </button>
             <button
               className="inline-flex h-9 items-center rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
               type="submit"
@@ -227,8 +317,10 @@ export function InteractionLog({
               {saving ? "Saving..." : "Log interaction"}
             </button>
           </div>
-        </form>
-      ) : (
+            </form>
+          </div>
+        </div>
+      ) : !canLog ? (
         // A disabled pair of dropdowns reads as a broken screen. Say who holds
         // the lead and what to do about it instead.
         <div className="rounded border border-[#dbe2eb] bg-[#f7f9fc] px-4 py-5 text-sm text-[#42526e]">
@@ -241,7 +333,7 @@ export function InteractionLog({
               : "Nobody holds it yet. Assign it from the Leads list first."}
           </p>
         </div>
-      )}
+      ) : null}
       <div className="space-y-2">
         {interactions.length === 0 ? (
           <p className="border border-dashed border-[#cfd8e5] bg-[#f4f5f7] px-3 py-8 text-center text-sm font-semibold text-[#6b778c]">

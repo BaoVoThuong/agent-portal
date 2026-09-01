@@ -17,35 +17,38 @@ import { leadIsInScope } from "@/lib/leads/capabilities";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
-import { Initials } from "../../tasks/_components/board-ui";
+import { AvatarStack } from "../../tasks/_components/board-ui";
 
 // These mirror the compact field primitives in TaskDetailDrawer. Keeping them
 // local lets Lead retain its domain-specific data while sharing the same UI
-// rhythm: labels, 36px controls, and disabled/audit states.
+// rhythm: labels and compact editable controls.
 const LABEL_CLASS = "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
 const COMPACT_DETAIL_FIELD_CLASS = "block shrink-0 space-y-1";
 const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
-const RAIL_FIELD_CLASS =
-  "flex min-h-9 items-center rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-sm font-semibold text-[#172b4d]";
-const RAIL_READ_ONLY_FIELD_CLASS =
-  "flex min-h-9 items-center rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]";
 const RAIL_SELECT_BUTTON_CLASS =
   "!h-9 !w-full !justify-between !rounded-lg !border-2 !border-[#dfe1e6] !bg-white !px-2 !text-sm !font-semibold !text-[#172b4d] !shadow-none hover:!border-[#c1c7d0] hover:!bg-white disabled:!cursor-not-allowed disabled:!bg-[#f4f5f7] disabled:!text-[#6b778c]";
+// Same control chrome as TaskAssigneeDropdown. Lead remains single-assignee,
+// but its empty state should use the task's dashed user-plus avatar rather
+// than looking like an ordinary empty select.
+const ASSIGNEE_SELECT_BUTTON_CLASS =
+  "!min-h-10 !h-auto !w-full !justify-start !gap-2 !rounded-lg !border-2 !border-[#dfe1e6] !bg-white !px-2 !py-1.5 !text-left !text-sm !font-semibold !text-[#172b4d] !shadow-none hover:!border-[#c1c7d0] hover:!bg-white focus:!border-[#0c66e4] disabled:!cursor-not-allowed disabled:!border-[#dfe1e6] disabled:!bg-[#f4f5f7] disabled:!text-[#6b778c]";
+const READ_ONLY_ASSIGNEE_FIELD_CLASS =
+  "flex min-h-10 items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-sm font-medium text-[#172b4d]";
+const READ_ONLY_METADATA_FIELD_CLASS =
+  "flex min-h-9 items-center rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]";
 const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
-
-const EMPTY = "—";
 
 const PRODUCT_CHOICES = [
   { value: "pc", label: "P&C" },
   { value: "health", label: "Health" },
 ];
 
-function displayDateTime(value: string | null): string {
-  if (!value) return EMPTY;
+function displayDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? EMPTY : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
 /** The two labels the Product column's configured values are seeded with. */
@@ -77,26 +80,14 @@ function optionBadgeStyle(
 function RailField({
   label,
   children,
-  control = false,
-  muted = false,
 }: {
   label: string;
   children: ReactNode;
-  /** The child already owns the input/dropdown chrome. */
-  control?: boolean;
-  /** Audit-only facts use the disabled treatment from Task details. */
-  muted?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
       <span className={LABEL_CLASS}>{label}</span>
-      {control ? (
-        children
-      ) : (
-        <div className={muted ? RAIL_READ_ONLY_FIELD_CLASS : RAIL_FIELD_CLASS}>
-          {children}
-        </div>
-      )}
+      {children}
     </div>
   );
 }
@@ -197,13 +188,40 @@ export function LeadDetailDrawer({
     };
   }, [lead]);
 
-  // Only the columns an admin marked "In detail", and only the ones backed by
-  // custom_values — the system columns already have their own rows above.
+  // Follow the same configuration contract as TaskDetailDrawer for editable
+  // fields: system fields are available unless an admin hid them globally,
+  // while custom fields must additionally opt into "Show in detail".
+  // Optional audit metadata is deliberately separate: it is visible only
+  // through its Details switch, so the rail does not regress to every audit
+  // field being shown at once.
+  // Personal table preferences never reach this component, so they cannot
+  // accidentally hide an edit field in the modal.
+  const configuredColumnKeys = useMemo(
+    () =>
+      new Set(
+        columns
+          .filter((column) => !column.archived_at)
+          .map((column) => column.key),
+      ),
+    [columns],
+  );
+  const visibleColumnKeys = useMemo(
+    () =>
+      new Set(
+        columns
+          .filter((column) => !column.archived_at && !column.hidden_default)
+          .map((column) => column.key),
+      ),
+    [columns],
+  );
   const detailColumns = useMemo(
     () =>
       columns.filter(
         (column) =>
-          !column.is_system && !column.archived_at && column.show_in_detail,
+          column.show_in_detail &&
+          !column.is_system &&
+          !column.archived_at &&
+          !column.hidden_default,
       ),
     [columns],
   );
@@ -225,6 +243,10 @@ export function LeadDetailDrawer({
   }, [columnOptions]);
   const productColumn = columns.find(
     (column) => column.key === "product" && !column.archived_at,
+  );
+  const createdAtColumn = columns.find(
+    (column) =>
+      column.key === "createdAt" && column.is_system && !column.archived_at,
   );
   const productOption = productColumn
     ? optionsByColumn
@@ -258,6 +280,31 @@ export function LeadDetailDrawer({
       keywords: [person.email],
     })),
   ];
+  const isUnassigned = !currentLead.assigned_to_email;
+  const assigneeLabel = currentLead.assigned_to_email
+    ? personLabel(currentLead.assigned_to_email, nameByEmail)
+    : "Unassigned";
+  const assigneeEmails = currentLead.assigned_to_email
+    ? [currentLead.assigned_to_email]
+    : [];
+  const canAssign = isManager && canEdit;
+  // A missing config row is kept visible for backwards-compatible database
+  // rollouts, exactly as Task detail does. Once configured, Hidden controls it.
+  const showField = (key: string) =>
+    !configuredColumnKeys.has(key) || visibleColumnKeys.has(key);
+  const showName = showField("name");
+  const showPhone = showField("phone");
+  const showEmail = showField("email");
+  const showEvent = showField("event");
+  const showProduct = showField("product");
+  const showStatus = showField("status");
+  const showAssignee = showField("assignee");
+  const showFollowUp = showField("followUp");
+  const showCreatedAt = Boolean(createdAtColumn?.show_in_detail);
+  const hasRecordFields =
+    showPhone || showEmail || showEvent || detailColumns.length > 0;
+  const hasRailFields =
+    showProduct || showStatus || showAssignee || showFollowUp || showCreatedAt;
 
   async function patchCurrentLead(patch: Record<string, unknown>) {
     setEditError(null);
@@ -338,25 +385,31 @@ export function LeadDetailDrawer({
         </header>
 
         <div className="flex-1 overflow-y-auto lg:overflow-hidden">
-          <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div
+            className={`grid min-h-full grid-cols-1 lg:h-full ${
+              hasRailFields ? "lg:grid-cols-[minmax(0,1fr)_280px]" : ""
+            }`}
+          >
             <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
-              <div className={COMPACT_DETAIL_FIELD_CLASS}>
-                <span className={LABEL_CLASS}>Client name{REQUIRED_MARK}</span>
-                <EditableCustomCell
-                  column={{
-                    id: "full_name",
-                    key: "full_name",
-                    label: "Client name",
-                    type: "text",
-                  }}
-                  value={currentLead.full_name}
-                  canEdit={canEdit}
-                  onSave={(next) => patchCurrentLead({ full_name: next })}
-                  className={COMPACT_DETAIL_INPUT_CLASS}
-                  inputClassName={COMPACT_DETAIL_INPUT_CLASS}
-                  emptyLabel="Unnamed lead"
-                />
-              </div>
+              {showName ? (
+                <div className={COMPACT_DETAIL_FIELD_CLASS}>
+                  <span className={LABEL_CLASS}>Client name{REQUIRED_MARK}</span>
+                  <EditableCustomCell
+                    column={{
+                      id: "full_name",
+                      key: "full_name",
+                      label: "Client name",
+                      type: "text",
+                    }}
+                    value={currentLead.full_name}
+                    canEdit={canEdit}
+                    onSave={(next) => patchCurrentLead({ full_name: next })}
+                    className={COMPACT_DETAIL_INPUT_CLASS}
+                    inputClassName={COMPACT_DETAIL_INPUT_CLASS}
+                    emptyLabel="Unnamed lead"
+                  />
+                </div>
+              ) : null}
 
               {editError?.leadId === currentLead.id ? (
                 <p className="shrink-0 rounded-md border border-[#ffbdad] bg-[#fff7f5] px-3 py-2 text-xs font-semibold text-[#bf2600]">
@@ -364,92 +417,100 @@ export function LeadDetailDrawer({
                 </p>
               ) : null}
 
-              {/* The record fields use the same labelled input treatment as
-                  Client Name/FUB in Task details. Audit facts remain in the
-                  rail so nobody confuses contact counters for editable data. */}
-              <div className="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>Phone</span>
-                  <EditableCustomCell
-                    column={{ id: "phone", key: "phone", label: "Phone", type: "text" }}
-                    value={currentLead.phone}
-                    canEdit={canEdit}
-                    onSave={(next) => patchCurrentLead({ phone: next })}
-                    className={COMPACT_DETAIL_INPUT_CLASS}
-                    inputClassName={COMPACT_DETAIL_INPUT_CLASS}
-                    emptyLabel="No phone"
-                  />
+              {hasRecordFields ? (
+                <div className="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2">
+                  {showPhone ? (
+                    <div className={COMPACT_DETAIL_FIELD_CLASS}>
+                      <span className={LABEL_CLASS}>Phone</span>
+                      <EditableCustomCell
+                        column={{ id: "phone", key: "phone", label: "Phone", type: "text" }}
+                        value={currentLead.phone}
+                        canEdit={canEdit}
+                        onSave={(next) => patchCurrentLead({ phone: next })}
+                        className={COMPACT_DETAIL_INPUT_CLASS}
+                        inputClassName={COMPACT_DETAIL_INPUT_CLASS}
+                        emptyLabel="No phone"
+                      />
+                    </div>
+                  ) : null}
+                  {showEmail ? (
+                    <div className={COMPACT_DETAIL_FIELD_CLASS}>
+                      <span className={LABEL_CLASS}>Email</span>
+                      <EditableCustomCell
+                        column={{ id: "email", key: "email", label: "Email", type: "text" }}
+                        value={currentLead.email}
+                        canEdit={canEdit}
+                        onSave={(next) => patchCurrentLead({ email: next })}
+                        className={COMPACT_DETAIL_INPUT_CLASS}
+                        inputClassName={COMPACT_DETAIL_INPUT_CLASS}
+                        emptyLabel="No email"
+                      />
+                    </div>
+                  ) : null}
+                  {showEvent ? (
+                    <div className={COMPACT_DETAIL_FIELD_CLASS}>
+                      <span className={LABEL_CLASS}>Event</span>
+                      <EditableCustomCell
+                        column={{ id: "event_name", key: "event_name", label: "Event", type: "text" }}
+                        value={currentLead.event_name}
+                        canEdit={canEdit}
+                        onSave={(next) => patchCurrentLead({ event_name: next })}
+                        className={COMPACT_DETAIL_INPUT_CLASS}
+                        inputClassName={COMPACT_DETAIL_INPUT_CLASS}
+                        emptyLabel="No event"
+                      />
+                    </div>
+                  ) : null}
+                  {detailColumns.map((column) => (
+                    <div key={column.id} className={COMPACT_DETAIL_FIELD_CLASS}>
+                      <span className={LABEL_CLASS}>
+                        {column.label}
+                        {column.required ? REQUIRED_MARK : null}
+                      </span>
+                      <EditableCustomCell
+                        column={column}
+                        value={currentLead.custom_values?.[column.key]}
+                        options={optionsByColumn.get(column.id) ?? []}
+                        people={assignees}
+                        personLabelByEmail={nameByEmail}
+                        canEdit={canEdit}
+                        onSave={(next) =>
+                          patchCurrentLead({
+                            custom_values: { [column.key]: next },
+                          })
+                        }
+                        className={COMPACT_DETAIL_INPUT_CLASS}
+                        inputClassName={COMPACT_DETAIL_INPUT_CLASS}
+                        emptyLabel={`No ${column.label}`}
+                      />
+                    </div>
+                  ))}
                 </div>
-                <div className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>Email</span>
-                  <EditableCustomCell
-                    column={{ id: "email", key: "email", label: "Email", type: "text" }}
-                    value={currentLead.email}
-                    canEdit={canEdit}
-                    onSave={(next) => patchCurrentLead({ email: next })}
-                    className={COMPACT_DETAIL_INPUT_CLASS}
-                    inputClassName={COMPACT_DETAIL_INPUT_CLASS}
-                    emptyLabel="No email"
-                  />
-                </div>
-                <div className={COMPACT_DETAIL_FIELD_CLASS}>
-                  <span className={LABEL_CLASS}>Event</span>
-                  <EditableCustomCell
-                    column={{ id: "event_name", key: "event_name", label: "Event", type: "text" }}
-                    value={currentLead.event_name}
-                    canEdit={canEdit}
-                    onSave={(next) => patchCurrentLead({ event_name: next })}
-                    className={COMPACT_DETAIL_INPUT_CLASS}
-                    inputClassName={COMPACT_DETAIL_INPUT_CLASS}
-                    emptyLabel="No event"
-                  />
-                </div>
-                {detailColumns.map((column) => (
-                  <div key={column.id} className={COMPACT_DETAIL_FIELD_CLASS}>
-                    <span className={LABEL_CLASS}>
-                      {column.label}
-                      {column.required ? REQUIRED_MARK : null}
-                    </span>
-                    <EditableCustomCell
-                      column={column}
-                      value={currentLead.custom_values?.[column.key]}
-                      options={optionsByColumn.get(column.id) ?? []}
-                      people={assignees}
-                      personLabelByEmail={nameByEmail}
-                      canEdit={canEdit}
-                      onSave={(next) =>
-                        patchCurrentLead({
-                          custom_values: { [column.key]: next },
-                        })
-                      }
-                      className={COMPACT_DETAIL_INPUT_CLASS}
-                      inputClassName={COMPACT_DETAIL_INPUT_CLASS}
-                      emptyLabel={`No ${column.label}`}
-                    />
-                  </div>
-                ))}
-              </div>
+              ) : null}
 
               <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
-                <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
-                  <LeadDetailTabButton
-                    label="Interactions"
-                    count={visibleInteractions.length}
-                  />
-                </div>
-
-                {loading ? (
-                  <p className="shrink-0 text-sm text-[#6b778c]">
-                    Loading interaction history...
-                  </p>
-                ) : null}
-                {visibleError ? (
-                  <p className="shrink-0 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-                    {visibleError}
-                  </p>
-                ) : null}
                 <InteractionLog
                   key={currentLead.id}
+                  toolbar={
+                    <LeadDetailTabButton
+                      label="Interactions"
+                      count={visibleInteractions.length}
+                    />
+                  }
+                  notice={
+                    <>
+                      {loading ? (
+                        <p className="shrink-0 text-sm text-[#6b778c]">
+                          Loading interaction history...
+                        </p>
+                      ) : null}
+                      {visibleError ? (
+                        <p className="shrink-0 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                          {visibleError}
+                        </p>
+                      ) : null}
+                    </>
+                  }
                   statuses={statuses}
                   interactionTypes={interactionTypes}
                   initialInteractions={visibleInteractions}
@@ -461,200 +522,160 @@ export function LeadDetailDrawer({
                   }
                   sourceId={sourceId}
                   onSave={saveInteraction}
+                  onInteractionSaved={(interaction) =>
+                    setInteractions((current) =>
+                      current.some((item) => item.id === interaction.id)
+                        ? current
+                        : [interaction, ...current],
+                    )
+                  }
                 />
               </section>
             </main>
 
-            <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
-              <div className="space-y-3">
-                <RailField label="Product" control>
-                  <LeadChoiceField
-                    label={productOptionLabel(currentLead.product)}
-                    ariaLabel="Product"
-                    choices={PRODUCT_CHOICES}
-                    selectedValue={currentLead.product}
-                    canEdit={canEdit}
-                    onSelect={(product) => patchCurrentLead({ product })}
-                    containerClassName="w-full"
-                    buttonClassName={RAIL_SELECT_BUTTON_CLASS}
-                    showChevron
-                    renderValue={
-                      <span
-                        className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
-                        style={optionBadgeStyle(
-                          productOption,
-                          productOptionLabel(currentLead.product),
-                        )}
-                      >
-                        {productOptionLabel(currentLead.product)}
-                      </span>
-                    }
-                  />
-                </RailField>
-
-                <RailField label="Status" control>
-                  <LeadChoiceField
-                    label={leadStatus?.label ?? "No status"}
-                    ariaLabel="Status"
-                    choices={statusChoices}
-                    selectedValue={currentLead.status_id ?? ""}
-                    canEdit={canEdit}
-                    onSelect={(statusId) =>
-                      patchCurrentLead({ status_id: statusId || null })
-                    }
-                    containerClassName="w-full"
-                    buttonClassName={RAIL_SELECT_BUTTON_CLASS}
-                    showChevron
-                    renderValue={
-                      leadStatus ? (
-                        <span
-                          className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
-                          style={statusBadgeStyle(leadStatus)}
-                        >
-                          {leadStatus.label}
-                        </span>
-                      ) : (
-                        <span className="min-w-0 flex-1 truncate text-[#97a0af]">
-                          No status
-                        </span>
-                      )
-                    }
-                  />
-                </RailField>
-
-                <RailField label="Assigned to" control>
-                  <LeadChoiceField
-                    label={
-                      currentLead.assigned_to_email
-                        ? personLabel(currentLead.assigned_to_email, nameByEmail)
-                        : "Unassigned"
-                    }
-                    ariaLabel="Assignee"
-                    choices={assigneeChoices}
-                    selectedValue={currentLead.assigned_to_email ?? ""}
-                    canEdit={isManager && canEdit}
-                    onSelect={(email) => assignCurrentLead(email || null)}
-                    containerClassName="w-full"
-                    buttonClassName={RAIL_SELECT_BUTTON_CLASS}
-                    showChevron
-                    renderValue={
-                      currentLead.assigned_to_email ? (
-                        <span className="flex min-w-0 flex-1 items-center gap-2">
-                          <Initials
-                            email={currentLead.assigned_to_email}
-                            label={personLabel(currentLead.assigned_to_email, nameByEmail)}
-                          />
-                          <span className="truncate">
-                            {personLabel(currentLead.assigned_to_email, nameByEmail)}
+            {hasRailFields ? (
+              <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
+                <div className="space-y-3">
+                  {showProduct ? (
+                    <RailField label="Product">
+                      <LeadChoiceField
+                        label={productOptionLabel(currentLead.product)}
+                        ariaLabel="Product"
+                        choices={PRODUCT_CHOICES}
+                        selectedValue={currentLead.product}
+                        canEdit={canEdit}
+                        onSelect={(product) => patchCurrentLead({ product })}
+                        containerClassName="w-full"
+                        buttonClassName={RAIL_SELECT_BUTTON_CLASS}
+                        showChevron
+                        renderValue={
+                          <span
+                            className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+                            style={optionBadgeStyle(
+                              productOption,
+                              productOptionLabel(currentLead.product),
+                            )}
+                          >
+                            {productOptionLabel(currentLead.product)}
                           </span>
-                        </span>
+                        }
+                      />
+                    </RailField>
+                  ) : null}
+
+                  {showStatus ? (
+                    <RailField label="Status">
+                      <LeadChoiceField
+                        label={leadStatus?.label ?? "No status"}
+                        ariaLabel="Status"
+                        choices={statusChoices}
+                        selectedValue={currentLead.status_id ?? ""}
+                        canEdit={canEdit}
+                        onSelect={(statusId) =>
+                          patchCurrentLead({ status_id: statusId || null })
+                        }
+                        containerClassName="w-full"
+                        buttonClassName={RAIL_SELECT_BUTTON_CLASS}
+                        showChevron
+                        renderValue={
+                          leadStatus ? (
+                            <span
+                              className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+                              style={statusBadgeStyle(leadStatus)}
+                            >
+                              {leadStatus.label}
+                            </span>
+                          ) : (
+                            <span className="min-w-0 flex-1 truncate text-[#97a0af]">
+                              No status
+                            </span>
+                          )
+                        }
+                      />
+                    </RailField>
+                  ) : null}
+
+                  {showAssignee ? (
+                    <RailField label="Assigned to">
+                      {canAssign ? (
+                        <LeadChoiceField
+                          label={assigneeLabel}
+                          ariaLabel="Assignee"
+                          choices={assigneeChoices}
+                          selectedValue={currentLead.assigned_to_email ?? ""}
+                          canEdit
+                          onSelect={(email) => assignCurrentLead(email || null)}
+                          containerClassName="w-full"
+                          buttonClassName={ASSIGNEE_SELECT_BUTTON_CLASS}
+                          renderValue={
+                            <>
+                              <AvatarStack
+                                emails={assigneeEmails}
+                                labelByEmail={nameByEmail}
+                                max={1}
+                              />
+                              <span
+                                className={`min-w-0 flex-1 truncate ${
+                                  isUnassigned
+                                    ? "font-normal text-[#97a0af]"
+                                    : "text-[#172b4d]"
+                                }`}
+                              >
+                                {assigneeLabel}
+                              </span>
+                            </>
+                          }
+                        />
                       ) : (
-                        <span className="min-w-0 flex-1 truncate font-normal text-[#97a0af]">
-                          Unassigned
-                        </span>
-                      )
-                    }
-                  />
-                </RailField>
+                        <div className={READ_ONLY_ASSIGNEE_FIELD_CLASS}>
+                          <AvatarStack
+                            emails={assigneeEmails}
+                            labelByEmail={nameByEmail}
+                            max={1}
+                          />
+                          <span className="min-w-0 truncate">
+                            {assigneeLabel}
+                          </span>
+                        </div>
+                      )}
+                    </RailField>
+                  ) : null}
 
-                <RailField label="Assigned by" muted>
-                  {currentLead.assigned_by_email ? (
-                    <span className="flex min-w-0 items-center gap-2">
-                      <Initials
-                        email={currentLead.assigned_by_email}
-                        label={personLabel(currentLead.assigned_by_email, nameByEmail)}
+                  {showFollowUp ? (
+                    <RailField label="Follow-up">
+                      <EditableCustomCell
+                        column={{
+                          id: "next_follow_up_at",
+                          key: "next_follow_up_at",
+                          label: "Follow-up",
+                          type: "date",
+                        }}
+                        value={
+                          currentLead.next_follow_up_at
+                            ? currentLead.next_follow_up_at.slice(0, 10)
+                            : null
+                        }
+                        canEdit={canEdit}
+                        onSave={(next) =>
+                          patchCurrentLead({ next_follow_up_at: next })
+                        }
+                        className={`${COMPACT_DETAIL_INPUT_CLASS} !text-[#42526e]`}
+                        inputClassName={`${COMPACT_DETAIL_INPUT_CLASS} !text-[#42526e]`}
+                        emptyLabel="No follow-up"
                       />
-                      <span className="truncate">
-                        {personLabel(currentLead.assigned_by_email, nameByEmail)}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="text-[#8993a4]">{EMPTY}</span>
-                  )}
-                </RailField>
-                <RailField label="Assigned at" muted>
-                  {displayDateTime(currentLead.assigned_at)}
-                </RailField>
-              </div>
+                    </RailField>
+                  ) : null}
 
-              <div className="space-y-3 border-t border-[#dfe1e6] pt-3">
-                <RailField label="Attempts" muted>
-                  {currentLead.contact_attempt_count}
-                </RailField>
-                <RailField label="First contact" muted>
-                  {currentLead.first_contacted_at
-                    ? displayDateTime(currentLead.first_contacted_at)
-                    : "Never"}
-                </RailField>
-                <RailField label="Last contact" muted>
-                  {currentLead.last_contacted_at
-                    ? displayDateTime(currentLead.last_contacted_at)
-                    : "Never"}
-                </RailField>
-                <RailField label="Follow-up" control>
-                  <EditableCustomCell
-                    column={{
-                      id: "next_follow_up_at",
-                      key: "next_follow_up_at",
-                      label: "Follow-up",
-                      type: "date",
-                    }}
-                    value={
-                      currentLead.next_follow_up_at
-                        ? currentLead.next_follow_up_at.slice(0, 10)
-                        : null
-                    }
-                    canEdit={canEdit}
-                    onSave={(next) =>
-                      patchCurrentLead({ next_follow_up_at: next })
-                    }
-                    className={`${COMPACT_DETAIL_INPUT_CLASS} !text-[#42526e]`}
-                    inputClassName={`${COMPACT_DETAIL_INPUT_CLASS} !text-[#42526e]`}
-                    emptyLabel="No follow-up"
-                  />
-                </RailField>
-                {currentLead.closed_at ? (
-                  <RailField label="Closed" muted>
-                    {displayDateTime(currentLead.closed_at)}
-                  </RailField>
-                ) : null}
-              </div>
-
-              <div className="space-y-3 border-t border-[#dfe1e6] pt-3">
-                <RailField label="Imported by" muted>
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Initials
-                      email={currentLead.created_by_email}
-                      label={personLabel(currentLead.created_by_email, nameByEmail)}
-                    />
-                    <span className="truncate">
-                      {personLabel(currentLead.created_by_email, nameByEmail)}
-                    </span>
-                  </span>
-                </RailField>
-                <RailField label="Imported at" muted>
-                  {displayDateTime(currentLead.created_at)}
-                </RailField>
-                <RailField label="Last edited by" muted>
-                  {currentLead.updated_by_email ? (
-                    <span className="flex min-w-0 items-center gap-2">
-                      <Initials
-                        email={currentLead.updated_by_email}
-                        label={personLabel(currentLead.updated_by_email, nameByEmail)}
-                      />
-                      <span className="truncate">
-                        {personLabel(currentLead.updated_by_email, nameByEmail)}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="text-[#8993a4]">{EMPTY}</span>
-                  )}
-                </RailField>
-                <RailField label="Last edited at" muted>
-                  {displayDateTime(currentLead.updated_at)}
-                </RailField>
-              </div>
-            </aside>
+                  {showCreatedAt ? (
+                    <RailField label={createdAtColumn?.label ?? "Imported date"}>
+                      <div className={READ_ONLY_METADATA_FIELD_CLASS}>
+                        {displayDateTime(currentLead.created_at)}
+                      </div>
+                    </RailField>
+                  ) : null}
+                </div>
+              </aside>
+            ) : null}
           </div>
         </div>
       </div>

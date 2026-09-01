@@ -7,7 +7,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,
 } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Check } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, UserPlus } from "lucide-react";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 import { leadDisplayKey } from "@/lib/leads/display";
 import { ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
@@ -55,6 +55,14 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
 
 const SELECTION_COLUMN_WIDTH = 48;
 const DEFAULT_COLUMN_WIDTH = 180;
+
+// Match the Task List's explicit empty-assignee affordance. The generic lead
+// select keeps the same assignment logic, while this class makes its closed
+// state read as the familiar dashed "Assign" action.
+const TABLE_ASSIGN_BUTTON_CLASS =
+  "!inline-flex !w-auto !max-w-full !items-center !gap-1 !rounded !border !border-dashed !border-[#0c66e4] !bg-white !px-2 !py-1 !text-left !text-[11px] !font-bold !text-[#0c66e4] hover:!bg-[#e9f2ff] focus-visible:!outline-none focus-visible:!ring-2 focus-visible:!ring-[#deebff]";
+const TABLE_ASSIGNEE_BUTTON_CLASS =
+  "!w-full !max-w-none !items-start !gap-0.5 !rounded !px-0 !py-0 !text-left !text-xs !font-semibold !leading-tight !text-[#42526e] hover:!bg-transparent hover:!text-[#0c66e4]";
 
 type LeadTableProps = {
   leads: LeadRow[];
@@ -518,9 +526,31 @@ function LeadDataCell({
   }
 
   if (column.key === "assignee") {
+    const isUnassigned = !lead.assigned_to_email;
     const label = lead.assigned_to_email
       ? personLabel(lead.assigned_to_email, nameByEmail)
       : "Unassigned";
+
+    // Task rows render a non-editable assignee as text rather than a disabled
+    // button. Keep Leads identical for workers while managers retain the
+    // searchable single-assignee dropdown below.
+    if (!canAssign) {
+      return (
+        <div style={style} className={baseClassName} onClick={stopPropagation}>
+          {isUnassigned ? (
+            <span className="text-xs font-semibold text-[#97a0af]">
+              Unassigned
+            </span>
+          ) : (
+            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-[#42526e]">
+              <Initials email={lead.assigned_to_email} label={label} />
+              <span className="truncate">{label}</span>
+            </span>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div style={style} className={baseClassName} onClick={stopPropagation}>
         <LeadChoiceField
@@ -528,16 +558,24 @@ function LeadDataCell({
           ariaLabel="Assignee"
           choices={assigneeChoices}
           selectedValue={lead.assigned_to_email ?? ""}
-          canEdit={canAssign}
+          canEdit
           onSelect={(value) => onAssign(value || null)}
+          buttonClassName={
+            isUnassigned
+              ? TABLE_ASSIGN_BUTTON_CLASS
+              : TABLE_ASSIGNEE_BUTTON_CLASS
+          }
           renderValue={
-            lead.assigned_to_email ? (
-              <span className="flex min-w-0 items-center gap-2 text-xs font-semibold text-[#42526e]">
-                <Initials email={lead.assigned_to_email} label={label} />
-                <span className="truncate">{label}</span>
-              </span>
+            isUnassigned ? (
+              <>
+                <UserPlus className="h-3 w-3 shrink-0" />
+                <span>Assign</span>
+              </>
             ) : (
-              <span className="text-xs font-semibold text-[#97a0af]">Unassigned</span>
+              <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+                <Initials email={lead.assigned_to_email} label={label} />
+                <span>{label}</span>
+              </span>
             )
           }
         />
