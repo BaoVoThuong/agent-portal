@@ -54,6 +54,26 @@ const TABS: (LeadProduct | "agents")[] = [...LEAD_PRODUCTS, "agents"];
 const PREVIEW_SIZE = 10;
 
 /**
+ * Cache ở tầng module, sống suốt phiên làm việc.
+ *
+ * Dialog luôn được mount (nó trả null khi đóng) nên state đã sống qua đóng/mở.
+ * Cache này lo phần state không lo được: điều hướng sang trang khác rồi quay
+ * lại, hay bất kỳ lần remount nào — mở ra là thấy ngay số cũ thay vì bảng
+ * trắng, rồi dữ liệu mới đè lên khi request về.
+ *
+ * Cố tình KHÔNG có thời hạn: mọi đường ghi trong màn này đều cập nhật cache
+ * ngay sau khi ghi, và mỗi lần mở đều làm mới nền. Một cache tự hết hạn sẽ chỉ
+ * thêm một trạng thái nữa để sai.
+ */
+const weightsCache: Partial<Record<LeadProduct, WeightsPayload>> = {};
+const poolCache: Partial<Record<LeadProduct, PoolPayload>> = {};
+let rosterCache: RosterAgent[] = [];
+
+function cacheWeights(product: LeadProduct, payload: WeightsPayload) {
+  weightsCache[product] = payload;
+}
+
+/**
  * Ngoài component có chủ đích: nó không đụng state nào, nên effect gọi được mà
  * không vướng luật "đừng setState thẳng trong effect" của React Compiler — và
  * nhờ vậy phần fetch chỉ có MỘT bản, thay vì một bản trong effect và một bản
@@ -97,10 +117,26 @@ export function LeadDistributeDialog({
   const product: LeadProduct = tab === "agents" ? "health" : tab;
   const [pool, setPool] = useState<PoolPayload | null>(null);
   /** Riêng cho tab product đang xem — nút Distribute chỉ chia đúng product đó. */
-  const [tabPool, setTabPool] = useState<PoolPayload | null>(null);
-  const [weights, setWeights] = useState<WeightsPayload | null>(null);
-  const [draft, setDraft] = useState<WeightRow[]>([]);
-  const [enabled, setEnabled] = useState(false);
+  const [poolByProduct, setPoolByProduct] = useState<
+    Record<LeadProduct, PoolPayload | null>
+  >(() => ({ pc: poolCache.pc ?? null, health: poolCache.health ?? null }));
+  const tabPool = poolByProduct[product];
+  // Giữ CẢ HAI product. Chỉ có hai, nạp một lượt lúc mở là đổi tab tức thì —
+  // trước đây mỗi lần bấm tab là một vòng mạng nữa và bảng trắng trong lúc chờ.
+  // Giữ draft riêng từng product cũng có nghĩa là sửa dở bên này, xem bên kia,
+  // quay lại vẫn còn nguyên.
+  const [weightsByProduct, setWeightsByProduct] = useState<
+    Record<LeadProduct, WeightsPayload | null>
+  >(() => ({ pc: weightsCache.pc ?? null, health: weightsCache.health ?? null }));
+  const [draftByProduct, setDraftByProduct] = useState<Record<LeadProduct, WeightRow[]>>(
+    () => ({
+      pc: (weightsCache.pc?.weights ?? []).map((row) => ({ ...row })),
+      health: (weightsCache.health?.weights ?? []).map((row) => ({ ...row })),
+    })
+  );
+  const weights = weightsByProduct[product];
+  const draft = draftByProduct[product];
+  const [enabled, setEnabled] = useState(() => weightsCache.health?.enabled ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -108,8 +144,9 @@ export function LeadDistributeDialog({
   // Ai nhận lead do DANH SÁCH NÀY quyết, không do quyền RBAC. Nên ô "Thêm
   // agent" phải mở ra mọi tài khoản đang hoạt động, chứ không chỉ những người
   // đã có quyền lead — nếu không thì cái quyết định lại nằm ở Role Manager.
-  const [roster, setRoster] = useState<RosterAgent[]>([]);
-  const [savingAgents, setSavingAgents] = useState(false);
+  const [roster, setRoster] = useState<RosterAgent[]>(() => rosterCache);
+  /** Khoá theo TỪNG dòng, không khoá cả bảng. */
+  const [pendingAgents, setPendingAgents] = useState<ReadonlySet<string>>(new Set());
 
   const [rosterError, setRosterError] = useState(false);
   // Mỗi lần đổi product là một request mới. Response của product cũ về sau
@@ -123,8 +160,12 @@ export function LeadDistributeDialog({
     try {
       const next = await fetchWeights(forProduct);
       if (seq !== weightsRequest.current) return;
-      setWeights(next);
-      setDraft(next.weights.map((row) => ({ ...row })));
+      cacheWeights(forProduct, next);
+      setWeightsByProduct((current) => ({ ...current, [forProduct]: next }));
+      setDraftByProduct((current) => ({
+        ...current,
+        [forProduct]: next.weights.map((row) => ({ ...row })),
+      }));
       setEnabled(next.enabled);
       setError(null);
     } catch (loadError) {
@@ -163,7 +204,8 @@ export function LeadDistributeDialog({
         if (!response.ok || !Array.isArray(payload?.agents)) {
           throw new Error("roster");
         }
-        setRoster(payload.agents as RosterAgent[]);
+        rosterCache = payload.agents as RosterAgent[];
+        setRoster(rosterCache);
         setRosterError(false);
       } catch {
         // Hỏng im lặng thì ô "Thêm agent" biến mất không dấu vết và trông y hệt
@@ -181,41 +223,47 @@ export function LeadDistributeDialog({
   // Compiler chặn việc gọi một hàm có setState thẳng trong thân effect, kể cả
   // khi setState đó nằm sau await. loadWeights vẫn dùng cho lần nạp lại sau khi
   // lưu — chỗ đó là event handler nên không vướng.
-  // Pool của riêng product đang xem. Trước đây nút dùng con số TỔNG, nên đứng ở
-  // tab P&C mà nó vẫn ghi "Distribute 4" cho 4 lead Health — và bấm vào là chia
-  // thật số lead của tab kia.
+  // Một lượt duy nhất lúc mở: trọng số và pool của CẢ HAI product, song song.
+  // Sau đó đổi tab không tốn request nào.
   useEffect(() => {
-    if (!open || tab === "agents") return;
+    if (!open) return;
     let cancelled = false;
-    void fetch(`/api/leads/distribute?product=${product}`, { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (cancelled || !response.ok) return;
-        setTabPool(payload as PoolPayload);
-      })
-      .catch(() => undefined);
+    const seq = weightsRequest.current + 1;
+    weightsRequest.current = seq;
+
+    for (const key of LEAD_PRODUCTS) {
+      void fetchWeights(key)
+        .then((next) => {
+          if (cancelled || seq !== weightsRequest.current) return;
+          cacheWeights(key, next);
+          setWeightsByProduct((current) => ({ ...current, [key]: next }));
+          setDraftByProduct((current) => ({
+            ...current,
+            [key]: next.weights.map((row) => ({ ...row })),
+          }));
+          if (key === "health") setEnabled(next.enabled);
+        })
+        .catch((loadError: unknown) => {
+          if (cancelled || seq !== weightsRequest.current) return;
+          setError(
+            loadError instanceof Error ? loadError.message : "Could not load the ratios."
+          );
+        });
+
+      void fetch(`/api/leads/distribute?product=${key}`, { cache: "no-store" })
+        .then(async (response) => {
+          const payload = await response.json().catch(() => null);
+          if (cancelled || !response.ok) return;
+          poolCache[key] = payload as PoolPayload;
+          setPoolByProduct((current) => ({ ...current, [key]: payload as PoolPayload }));
+        })
+        .catch(() => undefined);
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [open, tab, product, result]);
-
-  useEffect(() => {
-    if (!open) return;
-    const seq = weightsRequest.current + 1;
-    weightsRequest.current = seq;
-    void fetchWeights(product)
-      .then((next) => {
-        if (seq !== weightsRequest.current) return;
-        setWeights(next);
-        setDraft(next.weights.map((row) => ({ ...row })));
-        setEnabled(next.enabled);
-        setError(null);
-      })
-      .catch((loadError: unknown) => {
-        if (seq !== weightsRequest.current) return;
-        setError(loadError instanceof Error ? loadError.message : "Could not load the ratios.");
-      });
-  }, [open, tab, product]);
+  }, [open]);
 
   useBodyScrollLock(open);
   if (!open) return null;
@@ -256,9 +304,6 @@ export function LeadDistributeDialog({
     })),
     PREVIEW_SIZE
   ).picks;
-  const upcomingCounts = [...new Set(upcoming)]
-    .map((email) => ({ email, count: upcoming.filter((item) => item === email).length }))
-    .sort((a, b) => b.count - a.count || a.email.localeCompare(b.email));
 
   const blockedReason = busy
     ? "Working…"
@@ -273,9 +318,12 @@ export function LeadDistributeDialog({
             : null;
 
   function update(email: string, patch: Partial<WeightRow>) {
-    setDraft((current) =>
-      current.map((row) => (row.agent_email === email ? { ...row, ...patch } : row))
-    );
+    setDraftByProduct((current) => ({
+      ...current,
+      [product]: current[product].map((row) =>
+        row.agent_email === email ? { ...row, ...patch } : row
+      ),
+    }));
   }
 
   async function save() {
@@ -312,68 +360,65 @@ export function LeadDistributeDialog({
   /**
    * Bật/tắt một agent cho một product.
    *
-   * `is_active` là DUY NHẤT một cờ nói "người này có nhận lead của product này
-   * không", và tick ở đây là DUY NHẤT chỗ đặt nó. Trước đó có ba thứ cùng nói
-   * điều đó — dòng có tồn tại không, `is_active`, và `weight > 0` — nên tab
-   * Agent config bảo 13 người phụ trách Health trong khi tab Health bảo không
-   * ai nhận.
+   * Optimistic: ô tick đổi ngay, request chạy nền, hỏng thì trả lại. Bản trước
+   * làm ba vòng mạng cho một cú tick (GET cả danh sách → PUT cả danh sách → GET
+   * lại) và khoá TOÀN BỘ bảng suốt thời gian đó — bật năm agent là ngồi chờ năm
+   * lần. Giờ là một request, và chỉ đúng dòng đang lưu bị khoá.
    *
-   * Dòng KHÔNG bị xoá khi bỏ tick: trọng số và vị trí trong vòng xoay được giữ
-   * nguyên, nên người nghỉ hai tuần quay lại đúng chỗ cũ với đúng tỉ lệ cũ.
-   * Bản trước xoá dòng rồi tạo lại với weight 1 — tức nghỉ phép là mất tỉ lệ.
+   * `is_active` là cờ duy nhất; dòng không bị xoá khi tắt nên trọng số và vị
+   * trí trong vòng xoay được giữ nguyên.
    */
   async function toggleAgentProduct(
     agentEmail: string,
     forProduct: LeadProduct,
     next: boolean
   ) {
-    if (savingAgents) return;
-    setSavingAgents(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const current = await fetchWeights(forProduct);
-      const existing = current.weights.find((row) => row.agent_email === agentEmail);
-      const rows = current.weights.map((row) => ({
-        agent_email: row.agent_email,
-        weight: row.weight,
-        position: row.position,
-        is_active: row.agent_email === agentEmail ? next : row.is_active,
-      }));
-      if (!existing && next) {
-        rows.push({
-          agent_email: agentEmail,
-          weight: 1,
-          position: rows.length + 1,
-          is_active: true,
-        });
-      }
-      const response = await fetch("/api/leads/assignment-weights", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ product: forProduct, weights: rows }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error ?? "Could not save.");
-      }
+    const key = `${forProduct}:${agentEmail}`;
+    if (pendingAgents.has(key)) return;
+
+    const apply = (on: boolean) =>
       setRoster((agents) =>
         agents.map((agent) =>
           agent.email === agentEmail
             ? {
                 ...agent,
-                products: next
+                products: on
                   ? [...new Set([...agent.products, forProduct])]
                   : agent.products.filter((value) => value !== forProduct),
               }
             : agent
         )
       );
-      if (forProduct === product) await loadWeights(product);
+
+    apply(next);
+    setPendingAgents((current) => new Set(current).add(key));
+    setError(null);
+    try {
+      const response = await fetch("/api/leads/assignment-weights", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product: forProduct,
+          agent_email: agentEmail,
+          is_active: next,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error ?? "Could not save.");
+      }
+      // Tab tỉ lệ đang mở phải thấy người vừa bật/tắt, nhưng không chặn cú tick
+      // tiếp theo trong lúc chờ.
+      if (forProduct === product) void loadWeights(product);
     } catch (toggleError) {
+      apply(!next);
       setError(toggleError instanceof Error ? toggleError.message : "Could not save.");
     } finally {
-      setSavingAgents(false);
+      setPendingAgents((current) => {
+        const nextSet = new Set(current);
+        nextSet.delete(key);
+        return nextSet;
+      });
     }
   }
 
@@ -545,7 +590,7 @@ export function LeadDistributeDialog({
                   return (
                     <div
                       key={agent.email}
-                      className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition last:border-b-0 hover:bg-[#f7f8f9]"
+                      className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition hover:bg-[#f7f8f9]"
                     >
                       <span className="flex min-w-0 items-center gap-2">
                         <Initials email={agent.email} label={label} />
@@ -563,7 +608,7 @@ export function LeadDistributeDialog({
                           <input
                             type="checkbox"
                             aria-label={`${label} covers ${PRODUCT_LABEL[key]}`}
-                            disabled={savingAgents}
+                            disabled={pendingAgents.has(`${key}:${agent.email}`)}
                             className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4] disabled:opacity-50"
                             checked={agent.products.includes(key)}
                             onChange={(event) =>
@@ -625,7 +670,7 @@ export function LeadDistributeDialog({
                   return (
                     <div
                       key={row.agent_email}
-                      className={`grid grid-cols-[minmax(0,1fr)_6rem_1fr] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition last:border-b-0 hover:bg-[#f7f8f9] ${
+                      className={`grid grid-cols-[minmax(0,1fr)_6rem_1fr] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition hover:bg-[#f7f8f9] ${
                         paused ? "opacity-55" : ""
                       }`}
                     >
@@ -676,16 +721,9 @@ export function LeadDistributeDialog({
 
           {active.length > 0 ? (
             <div className="shrink-0 rounded-lg border border-[#b8d4ff] bg-[#e9f2ff] px-3 py-2.5">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-[#0c3d91]">
-                  Next {PRODUCT_LABEL[product]} leads go to
-                </span>
-                <span className="text-xs font-semibold text-[#42526e]">
-                  {upcomingCounts
-                    .map((row) => `${personLabel(row.email, nameByEmail)} ${row.count}`)
-                    .join(" · ")}
-                </span>
-              </div>
+              <span className="text-[11px] font-bold uppercase tracking-wide text-[#0c3d91]">
+                Lead waiting queue
+              </span>
               <ol className="mt-2 flex items-center gap-1 overflow-x-auto pb-1">
                 {upcoming.map((email, index) => {
                   const label = personLabel(email, nameByEmail);

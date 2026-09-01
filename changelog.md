@@ -6,6 +6,29 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Chia pool: tick agent phản hồi tức thì, đổi tab không chờ, có cache
+
+- **Loại**: fix (hiệu năng cảm nhận).
+
+### Tick một agent: 3 vòng mạng và khoá cả bảng → 1 vòng, không khoá
+- **Trước**: mỗi cú tick chạy `GET cả danh sách` → `PUT cả danh sách` → `GET lại`, và `savingAgents` **khoá toàn bộ bảng** suốt thời gian đó. Bật năm agent là ngồi chờ năm lượt.
+- **Nay**: endpoint mới `PATCH /api/leads/assignment-weights` sửa **đúng một dòng**. Ô tick đổi **ngay** (optimistic), request chạy nền, hỏng thì trả lại kèm lý do. Chỉ **đúng dòng đang lưu** bị khoá, các dòng khác tick tiếp được.
+- PATCH **không xoá dòng** khi tắt và không đụng `weight`/`current_weight` — nghỉ phép quay lại vẫn đúng tỉ lệ, đúng vị trí vòng xoay.
+
+### Đổi tab: hết chờ
+- Chỉ có hai product, nên nạp **cả hai** (trọng số + pool) **song song ngay lúc mở**. Đổi tab sau đó không tốn request nào. Trước đây mỗi lần bấm tab là một vòng mạng nữa và bảng trắng trong lúc chờ.
+- **Draft giữ riêng từng product**: sửa dở bên P&C, sang xem Health, quay lại vẫn còn nguyên.
+
+### Cache
+- Cache ở tầng module, sống suốt phiên. Dialog vốn luôn mounted nên state đã sống qua đóng/mở; cache lo phần state không lo được — điều hướng sang trang khác rồi quay lại, hay bất kỳ lần remount nào: mở ra thấy ngay số cũ thay vì bảng trắng, rồi dữ liệu mới đè lên khi request về.
+- **Không đặt thời hạn**: mọi đường ghi trong màn này đều cập nhật cache ngay sau khi ghi, và mỗi lần mở đều làm mới nền. Cache tự hết hạn chỉ thêm một trạng thái nữa để sai.
+
+### Sửa kèm
+- **Khoá cuộn nền bị rơi mất** khi dựng lại effect ở bước trước — modal này đang không khoá nữa. Đã khôi phục (lint bắt được: `useBodyScrollLock` khai báo mà không dùng).
+- Dãy xem trước đổi tên thành **"Lead waiting queue"** và **bỏ dòng đếm** ("Ann 2 · Jennifer 2 · …") — thứ tự đã nói đủ, dòng đếm chỉ lặp lại cùng thông tin.
+
+- **Kiểm chứng**: 131 files / 958 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Danh sách agent trong Agent config không cuộn được
 
 - **Loại**: fix (do chính đợt sửa scroll hôm nay gây ra).

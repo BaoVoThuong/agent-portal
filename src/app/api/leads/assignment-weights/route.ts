@@ -191,6 +191,83 @@ export async function PUT(request: Request) {
 }
 
 /**
+ * Bật/tắt MỘT agent cho MỘT product.
+ *
+ * Riêng ra khỏi PUT vì đây là thao tác một dòng: màn Agent config trước đây
+ * phải GET cả danh sách, PUT lại cả danh sách, rồi GET lần nữa — ba vòng mạng
+ * cho một cú tick, và cả bảng bị khoá suốt thời gian đó.
+ *
+ * KHÔNG xoá dòng khi tắt và không đụng `weight`/`current_weight`: người nghỉ
+ * phép quay lại phải về đúng chỗ cũ với đúng tỉ lệ cũ.
+ */
+export async function PATCH(request: Request) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
+  if (!canManageLeads(actor)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!isLeadProduct(body?.product)) {
+    return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+  }
+  const agentEmail =
+    typeof body?.agent_email === "string" ? body.agent_email.trim().toLowerCase() : "";
+  if (!agentEmail) {
+    return NextResponse.json({ error: "An agent is required." }, { status: 400 });
+  }
+  if (typeof body?.is_active !== "boolean") {
+    return NextResponse.json({ error: "is_active must be true or false." }, { status: 400 });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const actorEmail = actor.email.trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+
+  const { data: existing, error: readError } = await supabase
+    .from("lead_assignment_weights")
+    .select("agent_email")
+    .eq("product", body.product)
+    .eq("agent_email", agentEmail)
+    .maybeSingle();
+  if (readError) {
+    return NextResponse.json({ error: readError.message }, { status: 500 });
+  }
+
+  if (existing) {
+    const { error } = await supabase
+      .from("lead_assignment_weights")
+      .update({ is_active: body.is_active, updated_by_email: actorEmail, updated_at: nowIso })
+      .eq("product", body.product)
+      .eq("agent_email", agentEmail);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  } else if (body.is_active) {
+    // Người mới: trọng số 1 để họ có mặt trong vòng xoay ngay, admin chỉnh sau
+    // ở tab product.
+    const { count } = await supabase
+      .from("lead_assignment_weights")
+      .select("agent_email", { count: "exact", head: true })
+      .eq("product", body.product);
+    const { error } = await supabase.from("lead_assignment_weights").insert({
+      product: body.product,
+      agent_email: agentEmail,
+      weight: 1,
+      position: (count ?? 0) + 1,
+      is_active: true,
+      updated_by_email: actorEmail,
+      updated_at: nowIso,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+/**
  * Zero the rotation cursor for one product.
  *
  * Its own endpoint rather than a field on PUT: it throws away the part-finished
