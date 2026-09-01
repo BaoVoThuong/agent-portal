@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileText, RotateCcw, X, ZoomIn, ZoomOut } from "lucide-react";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 export type AttachmentPreview = {
   url: string;
@@ -54,11 +55,14 @@ export function AttachmentPreviewDialog({
   const previewDialogRef = useRef<HTMLDivElement | null>(null);
   const previewTriggerRef = useRef<HTMLElement | null>(null);
 
+  // Khoá nền qua hook chung: bản tự viết ở đây lưu overflow cũ rồi khôi
+  // phục khi đóng, nên đóng modal trong lúc một modal khác còn mở là mở
+  // khoá cả nền. Hook đếm số modal đang mở nên lồng nhau vẫn đúng.
+  useBodyScrollLock(Boolean(preview));
+
   useEffect(() => {
     if (!preview) return;
     previewTriggerRef.current = preview.trigger ?? (document.activeElement as HTMLElement | null);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const focusFrame = window.requestAnimationFrame(() => previewCloseRef.current?.focus());
 
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -113,7 +117,6 @@ export function AttachmentPreviewDialog({
     return () => {
       window.cancelAnimationFrame(focusFrame);
       document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
       window.requestAnimationFrame(() => previewTriggerRef.current?.focus());
     };
   }, [onClose, preview]);

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, X } from "lucide-react";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 // Generic "type a reason to proceed" dialog — used both for reopening an
 // overdue task and for reopening a Done/Cancel task. Both actions are audited
@@ -28,6 +29,7 @@ export function ReasonModal({
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  useBodyScrollLock(open);
   if (!open) return null;
 
   function handleClose() {

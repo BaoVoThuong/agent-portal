@@ -42,6 +42,7 @@ import {
   type LeadStatus,
   type StatusKind,
 } from "@/lib/leads/types";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 import {
   COLUMN_TYPES,
   TABLE_SCOPES,
@@ -835,7 +836,7 @@ function ConfigTableSection({
       </form>
       <div className="min-h-0 min-w-0 flex-1 overflow-x-auto">
         <div className="flex h-full min-h-0 min-w-[1016px] flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <div className="sticky top-0 z-10 grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_104px_112px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
               <ColumnHeader label="Order" help="Drag a row to change its position in the table." />
               <ColumnHeader label="Column name" help="The name users see for this column." />
@@ -1841,7 +1842,7 @@ function ConfigDropdownValuesSection({
         <div className="px-6 py-10 text-sm font-semibold text-[#6b778c]">No dropdown values yet.</div>
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)]">
-          <nav className="min-h-0 overflow-y-auto border-b border-[#dfe1e6] bg-[#f7f8fa] p-3 md:border-b-0 md:border-r">
+          <nav className="min-h-0 overflow-y-auto overscroll-contain border-b border-[#dfe1e6] bg-[#f7f8fa] p-3 md:border-b-0 md:border-r">
             {groups.map((group) => (
               <button
                 key={group.key}
@@ -1984,7 +1985,7 @@ function ConfigDropdownValuesSection({
               </button>
             </form>
             )}
-            <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-[#dfe1e6]">
+            <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain rounded-lg border border-[#dfe1e6]">
               <table className="w-full table-fixed border-collapse text-sm">
                 <colgroup>
                   <col className={hasRulesColumn ? "w-[28%]" : "w-[40%]"} />
@@ -2196,6 +2197,9 @@ function ConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 }) {
+  // ConfirmDialog chỉ được mount khi đang mở, nên khoá vô điều kiện.
+  useBodyScrollLock(true);
+
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const cancelHandlerRef = useRef(onCancel);
@@ -2470,7 +2474,7 @@ function ConfigAssistantSection({
         {!available || agentsRefreshError ? (
           <ConfigSectionUnavailable message={agentsRefreshError ?? availabilityError} />
         ) : null}
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {agents.map((agent) => (
           <div
             key={agent.email}
@@ -2553,7 +2557,7 @@ function ConfigAssistantSection({
             message={agentsRefreshError ?? membersRefreshError ?? availabilityError}
           />
         ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       {memberRows.map((member) => (
         <div
           key={`${member.agent_email}:${member.cs_email}`}

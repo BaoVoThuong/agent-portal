@@ -26,6 +26,7 @@ import {
 import { formatAttachmentSize } from "@/lib/tasks/attachments";
 import { publishTaskDataInvalidation } from "@/lib/tasks/client-events";
 import { TASK_MUTATION_SOURCE_HEADER } from "@/lib/tasks/realtime-topics";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 const SIDE_INPUT_CLASS =
   "h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none transition placeholder:font-normal placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
@@ -212,6 +213,7 @@ export function NewTaskDialog({
     setCustomValues((current) => ({ ...current, [key]: value }));
   }
 
+  useBodyScrollLock(open);
   if (!open) return null;
 
   async function submit() {

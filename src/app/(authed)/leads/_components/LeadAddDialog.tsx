@@ -5,6 +5,7 @@ import { Plus, X } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveDialogProduct } from "@/lib/leads/create";
 import type { LeadProduct, LeadStatus } from "@/lib/leads/types";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 type LeadEvent = {
   id: string;
@@ -287,6 +288,7 @@ export function LeadAddDialog({
     }
   }
 
+  useBodyScrollLock(open);
   if (!open) return null;
 
   return (
@@ -322,7 +324,7 @@ export function LeadAddDialog({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
             <section className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">

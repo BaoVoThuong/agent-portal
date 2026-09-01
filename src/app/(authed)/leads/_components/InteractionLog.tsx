@@ -10,6 +10,7 @@ import type {
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 // Keep the compact form controls visually aligned with the editable Lead
 // fields, while reusing the same custom picker behaviour as Task List.
@@ -162,6 +163,8 @@ export function InteractionLog({
     }
   }
 
+
+  useBodyScrollLock(composerOpen);
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3 border-b border-[#dfe1e6] pb-3">

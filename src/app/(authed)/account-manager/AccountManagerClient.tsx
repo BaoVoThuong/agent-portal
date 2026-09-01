@@ -12,6 +12,7 @@ import {
   getDefaultSystemRoleName,
   SYSTEM_ROLE_NAMES,
 } from "@/lib/rbac/system-roles";
+import { useBodyScrollLock } from "./../_shared/useBodyScrollLock";
 
 type AccountManagerClientProps = {
   currentUserEmail: string;
@@ -48,6 +49,7 @@ const emptyForm: FormState = {
 };
 
 function isAdminRole(role: Pick<RoleOption, "name">) {
+
   return (
     role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
     role.name === LEGACY_SUPER_ADMIN_ROLE_NAME
@@ -75,6 +77,10 @@ export default function AccountManagerClient({
   const [roleUser, setRoleUser] = useState<ManagedAccountUser | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [resetUser, setResetUser] = useState<ManagedAccountUser | null>(null);
+  // Năm modal nội tuyến trong một component: khoá nền khi BẤT KỲ cái nào mở.
+  useBodyScrollLock(
+    Boolean(showCreateForm || editUser || roleUser || resetUser || deleteUser)
+  );
   const [resetPassword, setResetPassword] = useState("");
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);

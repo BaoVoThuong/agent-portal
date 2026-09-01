@@ -34,6 +34,7 @@ import {
   type ReactionGroup,
   type ReactionRow,
 } from "@/lib/tasks/reactions";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 import {
   decodeMentions,
   diffMentionEmails,
@@ -365,7 +366,7 @@ function MentionPicker({
         maxHeight: position.maxHeight,
         width: "min(288px, calc(100vw - 16px))",
       }}
-      className="z-[120] overflow-y-auto rounded-lg border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+      className="z-[120] overflow-y-auto overscroll-contain rounded-lg border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
     >
       {noResults ? (
         <div className="px-3 py-3 text-sm font-medium text-[#6b778c]">
@@ -872,13 +873,16 @@ export function CommentThread({
     };
   }, []);
 
+  // Khoá nền qua hook chung: bản tự viết ở đây lưu overflow cũ rồi khôi
+  // phục khi đóng, nên đóng modal trong lúc một modal khác còn mở là mở
+  // khoá cả nền. Hook đếm số modal đang mở nên lồng nhau vẫn đúng.
+  useBodyScrollLock(Boolean(imagePreview));
+
   useEffect(() => {
     if (!imagePreview) return;
     setPreviewStatus("loading");
     setPreviewZoom(1);
     previewTriggerRef.current = imagePreview.trigger ?? (document.activeElement as HTMLElement | null);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const focusFrame = window.requestAnimationFrame(() => previewCloseRef.current?.focus());
 
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -932,7 +936,6 @@ export function CommentThread({
     return () => {
       window.cancelAnimationFrame(focusFrame);
       document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
       window.requestAnimationFrame(() => previewTriggerRef.current?.focus());
     };
   }, [imagePreview]);
@@ -1484,7 +1487,7 @@ export function CommentThread({
             nearBottomRef.current = isNearBottom(event.currentTarget);
             if (nearBottomRef.current) setNewRowsCount(0);
           }}
-          className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1"
+          className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain pr-1"
         >
         {commentsHasMore && onLoadOlder ? (
           <button

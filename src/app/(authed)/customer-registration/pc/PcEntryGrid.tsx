@@ -21,6 +21,7 @@ import {
   parseCsvLine,
   rowNumberCellStyle,
 } from "../_shared/grid";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -544,6 +545,9 @@ export default function PcEntryGrid({
       setSubmitting(false);
     }
   };
+
+
+  useBodyScrollLock(Boolean(editingEntry));
 
   return (
     <div className="space-y-6">

@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Mở modal thì trang nền không cuộn theo nữa (toàn app)
+
+- **Loại**: fix (UX), áp cho **tất cả** modal của app.
+- **Triệu chứng**: cuộn hết nội dung trong modal thì trang phía sau ăn tiếp phần cuộn còn lại (scroll chaining). Đóng modal ra là thấy mình đang ở một chỗ khác trên trang.
+- **Hook dùng chung** `src/app/(authed)/_shared/useBodyScrollLock.ts`, áp cho **17 file có overlay** — tính cả những modal không thuộc Lead: Task, Enrollment, Config, Account Manager, Role Manager, Customer Registration, Provider Finder.
+- **Đếm số modal đang mở, không chỉ set/restore**: modal lồng nhau là chuyện bình thường ở đây (hộp xác nhận trong Config, xem trước ảnh trong TaskDetailDrawer). Hai bản **tự viết sẵn có** trong `AttachmentPreviewDialog` và `CommentThread` lưu `overflow` cũ rồi khôi phục khi đóng — nên **đóng cái bên trong là mở khoá nền trong khi cái bên ngoài còn mở**. Đã thay bằng hook.
+- **Bù bề rộng thanh cuộn**: không bù thì cả trang nhích ngang một nhịp đúng lúc modal mở, rồi nhích lại khi đóng.
+- **Thêm `overscroll-contain`** cho mọi vùng cuộn bên trong modal (10 file): khoá nền đã đủ cho trường hợp thường, nhưng cái này chặn cả việc cuộn lan sang vùng cuộn cha khi có nhiều lớp lồng nhau.
+
+- **Kiểm chứng**: 17/17 file có overlay đều đã khoá. `npm run test:run` 131 files / 958 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Dãy round-robin cập nhật theo tỉ lệ đang gõ
 
 - **Loại**: fix (UI nói dối / thiếu phản hồi).

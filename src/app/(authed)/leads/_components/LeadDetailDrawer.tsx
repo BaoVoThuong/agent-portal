@@ -18,6 +18,7 @@ import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { AvatarStack } from "../../tasks/_components/board-ui";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 // These mirror the compact field primitives in TaskDetailDrawer. Keeping them
 // local lets Lead retain its domain-specific data while sharing the same UI
@@ -257,6 +258,7 @@ export function LeadDetailDrawer({
         )
     : undefined;
   const leadStatus = currentLeadStatus;
+  useBodyScrollLock(Boolean(lead));
   if (!lead) return null;
   const currentLead = lead;
   const loading = loadedLeadId !== currentLead.id;
@@ -384,7 +386,7 @@ export function LeadDetailDrawer({
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto lg:overflow-hidden">
+        <div className="flex-1 overflow-y-auto overscroll-contain lg:overflow-hidden">
           <div
             className={`grid min-h-full grid-cols-1 lg:h-full ${
               hasRailFields ? "lg:grid-cols-[minmax(0,1fr)_280px]" : ""

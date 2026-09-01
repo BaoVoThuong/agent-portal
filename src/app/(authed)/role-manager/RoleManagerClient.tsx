@@ -16,6 +16,7 @@ import {
   LEGACY_SUPER_ADMIN_ROLE_NAME,
   SYSTEM_ROLE_NAMES,
 } from "@/lib/rbac/system-roles";
+import { useBodyScrollLock } from "../_shared/useBodyScrollLock";
 
 type RoleManagerClientProps = {
   initialRoles: RoleRecord[];
@@ -89,6 +90,8 @@ export default function RoleManagerClient({
   const router = useRouter();
   const [roles, setRoles] = useState(initialRoles);
   const [form, setForm] = useState<RoleFormState | null>(null);
+
+  useBodyScrollLock(Boolean(form));
   const [permissionSearch, setPermissionSearch] = useState("");
   const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
   const [roleToDelete, setRoleToDelete] = useState<RoleRecord | null>(null);

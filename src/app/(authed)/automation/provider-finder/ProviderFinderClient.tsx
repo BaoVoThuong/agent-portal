@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ProviderFinderMap } from "./ProviderFinderMap";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 const carrierOptions = [
   "AMBETTER",
@@ -231,6 +232,8 @@ export default function ProviderFinderClient() {
     }
   };
 
+
+  useBodyScrollLock(mapSelection !== null);
   return (
     <div className="space-y-6">
       <form
@@ -705,7 +708,7 @@ function SuggestionInput({
         <div
           id={listboxId}
           role="listbox"
-          className="absolute left-0 top-[calc(100%+6px)] z-50 max-h-64 w-full min-w-[190px] overflow-y-auto rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg"
+          className="absolute left-0 top-[calc(100%+6px)] z-50 max-h-64 w-full min-w-[190px] overflow-y-auto overscroll-contain rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg"
         >
           {filteredOptions.length === 0 ? (
             <div className="px-3 py-2 text-sm text-[#667085]">

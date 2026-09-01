@@ -6,6 +6,7 @@ import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { pickWeighted } from "@/lib/leads/round-robin";
 import { personLabel } from "@/lib/tasks/people";
 import { Initials } from "../../tasks/_components/board-ui";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 type WeightRow = {
   agent_email: string;
@@ -196,6 +197,7 @@ export function LeadDistributeDialog({
       });
   }, [open, tab, product]);
 
+  useBodyScrollLock(open);
   if (!open) return null;
 
   // Suy ra thay vì lưu: payload mang theo product của chính nó, nên "chưa có
@@ -418,7 +420,7 @@ export function LeadDistributeDialog({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-5">
           <div className="rounded border border-[#dfe1e6] bg-[#f7f8fa] px-4 py-3 text-sm">
             {pool ? (
               pool.pending === 0 ? (
@@ -481,7 +483,7 @@ export function LeadDistributeDialog({
               <span className="text-center">{PRODUCT_LABEL.pc}</span>
               <span className="text-center">{PRODUCT_LABEL.health}</span>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {roster.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
                   {rosterError
@@ -557,7 +559,7 @@ export function LeadDistributeDialog({
               <span>Share</span>
               <span className="text-center">Receiving</span>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {loadingWeights && draft.length === 0 ? (
                 <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
                   Loading agents…

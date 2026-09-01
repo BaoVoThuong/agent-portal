@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { FileSpreadsheet, Upload, X } from "lucide-react";
 import { resolveDialogProduct } from "@/lib/leads/create";
+import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 import {
   parseLeadRows,
   type LeadColumnMapping,
@@ -262,6 +263,7 @@ export function LeadImportDialog({
     }
   }
 
+  useBodyScrollLock(open);
   if (!open) return null;
   const canImport = Boolean(
     product && eventId && file && mapping.phone && preview.rows.length > 0 && !importing,
@@ -298,7 +300,7 @@ export function LeadImportDialog({
             <X className="h-5 w-5" />
           </button>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
           <div className="space-y-5">
             <section className="border border-[#dbe2eb] bg-white p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
               {productFilter ? null : (
