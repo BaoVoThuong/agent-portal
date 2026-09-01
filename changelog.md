@@ -6,6 +6,26 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Modal Chia pool: to hơn, bảng agent gọn hơn, và hiện thứ tự nhận
+
+- **Loại**: UI + một chút API.
+
+### Hiện thứ tự nhận, không chỉ con số
+- Trước đó chỉ có `"A 7 · B 3"`. Nó nói được **tỉ lệ** nhưng không nói được **ai nhận lead ngay sau đây** — mà đó mới là câu người đang đứng trước nút Distribute hỏi.
+- API trả thêm `sequence`: dãy 10 lượt kế tiếp **theo đúng thứ tự** (`pickWeighted(...).picks`, chính hàm mà việc chia thật dùng). UI vẽ thành dải chip đánh số 1→10, chip đầu viền đậm là người nhận kế tiếp.
+- **Đang sửa dở thì không vẽ dãy.** Dãy hiện có là của tỉ lệ **đã lưu**; vẽ nó cạnh mấy con số vừa gõ mà chưa lưu là nói dối. Lúc đó hiện một dòng nhắc lưu.
+
+### Bảng agent
+- Mỗi dòng: **avatar + tên + email** (dùng `Initials` chung với bảng lead), ô trọng số, **thanh tỉ lệ + số %**, ô tick, nút xoá. Thanh cho thấy chênh lệch giữa các dòng nhanh hơn con số.
+- Người đang tạm dừng (bỏ tick hoặc trọng số 0) làm mờ cả dòng, nên nhìn lướt là biết ai đang không nhận.
+- Đổi từ `<table>` sang grid: các cột thẳng hàng giữa header và các dòng mà không cần `table-fixed`, và dòng cao thoáng hơn.
+- Vùng danh sách dùng `flex-1` nên **ăn hết chỗ trống còn lại** của modal thay vì cố định 256px.
+
+### Kích thước
+- Modal `h-[calc(100vh-4rem)] max-h-[860px] max-w-3xl` — cao hơn và rộng hơn trước (`680px` / `max-w-2xl`), vẫn **cố định** nên footer không nhảy khi thêm/xoá agent hay khi hiện lỗi.
+
+- **Kiểm chứng**: `npm run test:run` 130 files / 957 tests; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Modal Chia pool: tiếng Anh và kích thước cố định
 
 - **Loại**: fix (UI).

@@ -10,7 +10,7 @@ import {
   fetchAssignmentWeights,
   isAutoAssignEnabled,
 } from "@/lib/leads/auto-assign";
-import { previewDistribution } from "@/lib/leads/round-robin";
+import { pickWeighted, previewDistribution } from "@/lib/leads/round-robin";
 import { isLeadProduct, type LeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -51,6 +51,12 @@ export async function GET(request: Request) {
   // leads — see autoAssignLeads for why RBAC does not get a second vote.
   const usable = rows.filter((row) => row.is_active && row.weight > 0);
   const totalWeight = usable.reduce((sum, row) => sum + row.weight, 0);
+  const entries = usable.map((row) => ({
+    email: row.agent_email,
+    weight: row.weight,
+    currentWeight: row.current_weight,
+    position: row.position,
+  }));
   return NextResponse.json({
     product,
     enabled,
@@ -64,15 +70,11 @@ export async function GET(request: Request) {
         ? Math.round((row.weight / totalWeight) * 1000) / 10
         : 0,
     })),
-    preview: previewDistribution(
-      usable.map((row) => ({
-        email: row.agent_email,
-        weight: row.weight,
-        currentWeight: row.current_weight,
-        position: row.position,
-      })),
-      PREVIEW_SIZE
-    ),
+    preview: previewDistribution(entries, PREVIEW_SIZE),
+    // Thứ tự thật của N lượt kế tiếp, không phải chỉ số đếm. "A 7 · B 3" nói
+    // được tỉ lệ nhưng không nói được ai nhận lead ngay sau đây — mà đó mới là
+    // câu người đứng trước nút Distribute đang hỏi.
+    sequence: pickWeighted(entries, PREVIEW_SIZE).picks,
   });
 }
 

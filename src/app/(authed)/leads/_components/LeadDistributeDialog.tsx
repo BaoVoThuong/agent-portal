@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcw, Shuffle, Trash2, X } from "lucide-react";
 import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
+import { Initials } from "../../tasks/_components/board-ui";
 
 type WeightRow = {
   agent_email: string;
@@ -20,6 +21,8 @@ type WeightsPayload = {
   enabled: boolean;
   weights: WeightRow[];
   preview: { email: string; count: number }[];
+  /** Thứ tự thật của N lượt kế tiếp. */
+  sequence: string[];
 };
 
 type PoolPayload = {
@@ -298,14 +301,14 @@ export function LeadDistributeDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6"
       onClick={onClose}
     >
-      {/* Cao cố định: thêm/xoá agent, hiện lỗi, hay đổi product đều không được
-          làm modal co giãn dưới tay người đang bấm. max-h vẫn giữ để màn hình
-          thấp không bị tràn. */}
+      {/* Kích thước cố định theo viewport: thêm/xoá agent, hiện lỗi hay đổi
+          product đều không được làm modal co giãn dưới tay người đang bấm —
+          nút Distribute ở footer mà nhảy chỗ là cách làm người ta bấm nhầm. */}
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Distribute pool"
-        className="flex h-[680px] max-h-[calc(100vh-3rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+        className="flex h-[calc(100vh-4rem)] max-h-[860px] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
@@ -383,89 +386,106 @@ export function LeadDistributeDialog({
             </span>
           </label>
 
-          {/* Cao cố định và tự cuộn: danh sách 2 người hay 13 người thì phần
-              còn lại của modal vẫn nằm nguyên chỗ cũ. Header dính lại khi cuộn. */}
-          <div className="h-64 overflow-y-auto rounded border border-[#dfe1e6]">
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 z-10 bg-[#f7f8fa] text-xs font-bold uppercase text-[#6b778c]">
-                <tr>
-                  <th className="px-3 py-2">Agent</th>
-                  <th className="w-24 px-3 py-2">Weight</th>
-                  <th className="w-20 px-3 py-2">Share</th>
-                  <th className="w-24 px-3 py-2 text-center">Receiving</th>
-                  <th className="w-16 px-3 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {loadingWeights && draft.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-[#6b778c]">
-                      Loading agents…
-                    </td>
-                  </tr>
-                ) : draft.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-[#6b778c]">
-                      No agents for {PRODUCT_LABEL[product]} yet. Add one below.
-                    </td>
-                  </tr>
-                ) : (
-                  draft.map((row) => (
-                    <tr key={row.agent_email} className="border-t border-[#ebecf0]">
-                      <td className="px-3 py-2">
-                        <span className="font-medium text-[#172b4d]">
-                          {personLabel(row.agent_email, nameByEmail)}
+          {/* flex-1 nên nó ăn hết chỗ trống còn lại của modal — modal đã cố
+              định chiều cao, nên bảng cũng ổn định theo. */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6]">
+            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_5rem_7rem_5rem_2.5rem] gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+              <span>Agent</span>
+              <span>Weight</span>
+              <span>Share</span>
+              <span className="text-center">Receiving</span>
+              <span />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {loadingWeights && draft.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
+                  Loading agents…
+                </p>
+              ) : draft.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
+                  No agents for {PRODUCT_LABEL[product]} yet. Add one below.
+                </p>
+              ) : (
+                draft.map((row) => {
+                  const label = personLabel(row.agent_email, nameByEmail);
+                  const share = shareOf(row);
+                  const paused = !row.is_active || row.weight === 0;
+                  return (
+                    <div
+                      key={row.agent_email}
+                      className={`grid grid-cols-[minmax(0,1fr)_5rem_7rem_5rem_2.5rem] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition last:border-b-0 hover:bg-[#f7f8f9] ${
+                        paused ? "opacity-55" : ""
+                      }`}
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Initials email={row.agent_email} label={label} />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-[#172b4d]">
+                            {label}
+                          </span>
+                          <span className="block truncate text-xs text-[#8993a4]">
+                            {row.agent_email}
+                          </span>
                         </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          className={INPUT_CLASS}
-                          value={row.weight}
-                          onChange={(event) =>
-                            update(row.agent_email, {
-                              weight: Math.max(0, Math.trunc(Number(event.target.value) || 0)),
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="px-3 py-2 font-semibold text-[#42526e]">
-                        {shareOf(row)}%
-                      </td>
-                      <td className="px-3 py-2 text-center">
+                      </span>
+
+                      <input
+                        type="number"
+                        min={0}
+                        aria-label={`Weight for ${label}`}
+                        className={INPUT_CLASS}
+                        value={row.weight}
+                        onChange={(event) =>
+                          update(row.agent_email, {
+                            weight: Math.max(0, Math.trunc(Number(event.target.value) || 0)),
+                          })
+                        }
+                      />
+
+                      {/* Thanh + số: cùng một thông tin, nhưng thanh cho thấy
+                          chênh lệch giữa các dòng nhanh hơn con số. */}
+                      <span className="flex items-center gap-2">
+                        <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#ebecf0]">
+                          <span
+                            className="block h-full rounded-full bg-[#0c66e4]"
+                            style={{ width: `${share}%` }}
+                          />
+                        </span>
+                        <span className="w-10 shrink-0 text-right text-xs font-bold tabular-nums text-[#42526e]">
+                          {share}%
+                        </span>
+                      </span>
+
+                      <span className="flex justify-center">
                         <input
                           type="checkbox"
-                          aria-label={`${row.agent_email} is receiving leads`}
+                          aria-label={`${label} is receiving leads`}
+                          className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]"
                           checked={row.is_active}
                           onChange={(event) =>
                             update(row.agent_email, { is_active: event.target.checked })
                           }
                         />
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {/* Tạm dừng và xoá là hai việc khác nhau nên là hai
-                            nút khác nhau: một cái để người ta quay lại được
-                            bằng một cú tick, một cái để dọn hẳn. */}
-                        <button
-                          type="button"
-                          aria-label={`Remove ${row.agent_email} from the list`}
-                          title="Remove from the distribution list"
-                          onClick={() =>
-                            setDraft((current) =>
-                              current.filter((item) => item.agent_email !== row.agent_email)
-                            )
-                          }
-                          className="rounded p-1 text-[#97a0af] transition hover:bg-[#ffebe6] hover:text-[#bf2600]"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                      </span>
+
+                      <button
+                        type="button"
+                        aria-label={`Remove ${label} from the list`}
+                        title="Remove from the distribution list"
+                        onClick={() =>
+                          setDraft((current) =>
+                            current.filter((item) => item.agent_email !== row.agent_email)
+                          )
+                        }
+                        className="justify-self-center rounded p-1.5 text-[#97a0af] transition hover:bg-[#ffebe6] hover:text-[#bf2600]"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
 
           {rosterError ? (
@@ -512,18 +532,53 @@ export function LeadDistributeDialog({
           ) : null}
 
           {active.length > 0 ? (
-            <p className="rounded border border-[#b8d4ff] bg-[#e9f2ff] px-3 py-2 text-sm text-[#0c3d91]">
-              Next 10 {PRODUCT_LABEL[product]} leads:{" "}
-              <strong>
-                {(dirty ? null : weights?.preview)
-                  ? weights!.preview
+            <div className="shrink-0 rounded-lg border border-[#b8d4ff] bg-[#e9f2ff] px-3 py-2.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-[#0c3d91]">
+                  Next {PRODUCT_LABEL[product]} leads go to
+                </span>
+                {!dirty && weights?.preview.length ? (
+                  <span className="text-xs font-semibold text-[#42526e]">
+                    {weights.preview
                       .map((row) => `${personLabel(row.email, nameByEmail)} ${row.count}`)
-                      .join(" · ")
-                  : "save to refresh the preview"}
-              </strong>
-            </p>
+                      .join(" · ")}
+                  </span>
+                ) : null}
+              </div>
+              {dirty ? (
+                // Dãy đang hiện là của tỉ lệ ĐÃ LƯU. Nói ra, chứ vẽ một dãy
+                // không khớp với con số người ta vừa gõ là nói dối.
+                <p className="mt-1 text-xs font-semibold text-[#974f0c]">
+                  Save to see the order for the ratios you just changed.
+                </p>
+              ) : (
+                <ol className="mt-2 flex items-center gap-1 overflow-x-auto pb-1">
+                  {(weights?.sequence ?? []).map((email, index) => {
+                    const label = personLabel(email, nameByEmail);
+                    return (
+                      <li
+                        key={`${email}-${index}`}
+                        title={`#${index + 1} — ${label}`}
+                        className={`flex shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 ${
+                          index === 0
+                            ? "border-[#0c66e4] bg-white shadow-sm"
+                            : "border-transparent bg-white/70"
+                        }`}
+                      >
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#dfe1e6] text-[10px] font-bold text-[#42526e]">
+                          {index + 1}
+                        </span>
+                        <span className="max-w-[7rem] truncate text-xs font-semibold text-[#172b4d]">
+                          {label}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </div>
           ) : (
-            <p className="rounded border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
+            <p className="shrink-0 rounded-lg border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
               Nobody is receiving {PRODUCT_LABEL[product]} — those leads stay in the pool.
             </p>
           )}
