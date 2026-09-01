@@ -16,7 +16,12 @@ import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { applyFrozenOrder } from "@/lib/tasks/frozen-order";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TableColumnOption } from "@/lib/table-config/types";
-import { LIST_COL, TaskRowItem, listColumnWidthPx } from "./TaskRowItem";
+import {
+  LIST_COL,
+  TaskRowItem,
+  customColumnWidth,
+  taskListColumnWidthPx,
+} from "./TaskRowItem";
 import type {
   TaskListColumn,
   TaskListColumnKey,
@@ -214,6 +219,7 @@ export function TaskListView({
                         canChangeStatus={capabilities.canChangeStatus}
                         canAssign={capabilities.canAssign}
                         canEditContent={capabilities.canEditContent}
+                        canEditDueDate={capabilities.canEditDueDate}
                         onOpen={onOpen}
                         onPatch={onPatch}
                         canReviewDone={
@@ -340,7 +346,8 @@ function headerBaseWidthClass(column: TaskListColumn): string {
     case "review":
       return `flex ${LIST_COL.review} shrink-0 justify-center`;
     default:
-      return `flex ${LIST_COL.custom} shrink-0 ${
+      // Cột custom: bề rộng theo kiểu, để header khớp đúng ô bên dưới.
+      return `flex ${customColumnWidth(column.configColumn).className} shrink-0 ${
         column.align === "center" ? "justify-center" : ""
       }`;
   }
@@ -354,7 +361,7 @@ function buildPinnedOffsetByKey(
   for (const column of columns) {
     if (!column.pinned) continue;
     offsets.set(column.key, left);
-    left += listColumnWidthPx(column.key);
+    left += taskListColumnWidthPx(column);
   }
   return offsets;
 }

@@ -1887,6 +1887,7 @@ export function TaskBoardClient({
   const openTaskCapabilities = openTask ? capabilitiesFor(openTask) : null;
   const canAssignOpen = Boolean(openTaskCapabilities?.canAssign);
   const canEditOpen = Boolean(openTaskCapabilities?.canEditContent);
+  const canEditDueDateOpen = Boolean(openTaskCapabilities?.canEditDueDate);
   const canDeleteOpen = Boolean(openTaskCapabilities?.canDelete);
   const canViewOpenNonCommentDetail = Boolean(
     openTask && (isManager || isAgentOwnerOrAssistantOf(openTask.agent_email))
@@ -2117,6 +2118,7 @@ export function TaskBoardClient({
           key={openTask.id}
           task={openTask}
           canEdit={canEditOpen}
+          canEditDueDate={canEditDueDateOpen}
           canAssign={canAssignOpen}
           canDelete={canDeleteOpen}
           canChangeStatus={Boolean(openTaskCapabilities?.canChangeStatus)}

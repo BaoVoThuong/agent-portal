@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { TASK_DUE_DATE_KEY } from "@/lib/tasks/due-date";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
@@ -90,6 +91,16 @@ function patchCapabilityError(
 ): string | null {
   if (hasAnyPatchKey(body, CONTENT_PATCH_KEYS) && !capabilities.canEditContent) {
     return "You cannot edit this task.";
+  }
+  // Due Date hẹp hơn phần còn lại của custom_values: người mở task sửa được nội
+  // dung task nhưng không được dời hạn chót của agent. Kiểm ở đây chứ không chỉ
+  // ẩn nút trên giao diện — ẩn nút không phải là quyền.
+  if (
+    isRecord(body.custom_values) &&
+    TASK_DUE_DATE_KEY in body.custom_values &&
+    !capabilities.canEditDueDate
+  ) {
+    return "Only the agent, their assistant, or an admin can change the due date.";
   }
   if (body.assignee_email !== undefined && !capabilities.canAssign) {
     return "You cannot assign this task.";

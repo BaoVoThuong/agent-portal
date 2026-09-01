@@ -6,6 +6,23 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Due Date: cột hẹp ở List, dòng hạn chót trên card Board, chỉ agent/assistant/admin sửa được
+
+- **Loại**: feature (UI) + business rule.
+- **Bối cảnh**: Due Date là **custom column** của scope `cs` (`key: due_date`, type `date`, `pinned`, `required`), nằm trong `tasks.custom_values.due_date` — không phải cột trên bảng `tasks`.
+- **List — cột hẹp lại 180 → 120px.** Quy tắc gắn vào **KIỂU `date`**, không vào riêng `due_date`: cột ngày hiển thị "Oct 9", 180px là gần một nửa để trống, và chỗ trống đó lấy đi từ Client Name / Assignee / Category. Cột ngày tiếp theo ai tạo ra cũng được hưởng mà không phải sửa lại chỗ này.
+  - Thêm `taskListColumnWidthPx(column)` và dùng nó trong phép tính offset của cột ghim. Due Date **đang được ghim**, nên lấy sai bề rộng của nó là mọi cột ghim đứng sau bị lệch — header và ô bên dưới rời nhau.
+  - Ô trống hiện **"—"** thay vì "-": cột hẹp nên gạch ngắn dễ bị đọc nhầm thành một phần của giá trị.
+  - Định dạng "Oct 9" vốn đã đúng sẵn từ `formatCustomValue`; không viết bản thứ hai.
+- **Board — dòng "Due Oct 9" ngay dưới Client Name**, icon lịch nhỏ. Quá hạn màu đỏ `#bf2600`, sắp tới màu chữ phụ `#6b778c` — cùng thang màu với các dấu cảnh báo sẵn có nên không lấn át tên khách và trạng thái.
+  - **Chưa đặt hạn thì không render dòng nào.** Một dòng "Due —" trên mỗi card là nhiễu đúng bằng số card mà không nói thêm gì.
+  - Theo `visibleColumnKeys` như priority/category: admin ẩn cột Due Date thì Board cũng im.
+- **Quá hạn = hạn TRƯỚC hôm nay**, so theo ngày lịch địa phương. "Đến hạn hôm nay" cố ý **không** tính là quá hạn — còn cả ngày để làm, tô đỏ lúc đó là báo động sai. Cắt theo ngày chứ không theo mốc giờ để card không đổi màu vào giữa trưa.
+- **Quyền `canEditDueDate` = admin | agent của task | assistant của agent đó.** Hẹp hơn `canEditContent` đúng **một** người: **người mở task**. Ai cũng mở được task cho CS, nhưng hạn chót là cam kết vận hành, người mở task không được tự dời deadline của người khác. `isAgentOwner` đã gộp sẵn assistant (`isAgentOwnerOrAssistant`) nên không cần cờ mới.
+  - Chặn ở **server** (`PATCH /api/tasks/[id]`, kiểm `custom_values.due_date`), không chỉ ẩn nút — ẩn nút không phải là quyền. Giao diện List và modal chi tiết cùng đọc một capability.
+  - **Lúc TẠO task thì không chặn**: cột đang `required`, chặn ở đó là người không phải agent không tạo nổi task. Người mở task đề xuất hạn khi mở; từ đó về sau chỉ agent/assistant/admin đổi được.
+- Logic ngày tách ra `src/lib/tasks/due-date.ts` + 11 test; 3 test mới cho quyền. `.tsx` ở repo này không test được nên phần quyết định phải nằm ngoài component.
+
 ## 2026-09-01 — Pool chia lead đọc theo `products`, không còn theo cột scalar
 
 - **Loại**: fix (business rule) — nối tiếp `2026-09-03-lead-multi-product.sql` (đã chạy trên production).

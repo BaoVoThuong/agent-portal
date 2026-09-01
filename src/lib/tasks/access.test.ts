@@ -312,6 +312,7 @@ describe("resolveTaskCapabilities", () => {
       canDelete: true,
       canReviewQC: true,
       canReopen: true,
+      canEditDueDate: true,
     });
   });
 
@@ -325,7 +326,29 @@ describe("resolveTaskCapabilities", () => {
       canDelete: true,
       canReviewQC: true,
       canReopen: true,
+      canEditDueDate: true,
     });
+  });
+
+  // Due Date hẹp hơn canEditContent đúng một người: NGƯỜI MỞ TASK. Ai cũng mở
+  // được task cho CS, nhưng hạn chót là cam kết vận hành của agent.
+  it("người mở task sửa được nội dung nhưng KHÔNG dời được hạn chót", () => {
+    const c = resolveTaskCapabilities(cs, task, { isReporter: true });
+    expect(c.canEditContent).toBe(true);
+    expect(c.canEditDueDate).toBe(false);
+  });
+
+  it("assistant của agent dời được hạn chót", () => {
+    // isAgentOwner đã gộp cả assistant — xem isAgentOwnerOrAssistant.
+    expect(
+      resolveTaskCapabilities(cs, task, { isAgentOwner: true }).canEditDueDate
+    ).toBe(true);
+  });
+
+  it("CS chỉ là người được giao thì không dời được hạn chót", () => {
+    expect(
+      resolveTaskCapabilities(cs, task, { isAssignee: true }).canEditDueDate
+    ).toBe(false);
   });
 
   it("CS assignee: view + status + reopen only", () => {

@@ -145,6 +145,23 @@ export function canMutateTask(
   return Boolean(flags.isAgentOwner) || Boolean(flags.isReporter);
 }
 
+/**
+ * Sửa Due Date: CHỈ agent của task, assistant của agent đó, và admin.
+ *
+ * Hẹp hơn `canMutateTask` đúng một người: NGƯỜI MỞ TASK. Ai cũng mở được task
+ * cho CS, nhưng hạn chót là cam kết vận hành — người mở task không được tự dời
+ * deadline của người khác. `isAgentOwner` đã bao gồm assistant (xem
+ * isAgentOwnerOrAssistant), nên không cần cờ riêng cho assistant.
+ */
+export function canEditTaskDueDate(
+  actor: TaskActor,
+  flags: { isAgentOwner?: boolean } = {}
+): boolean {
+  if (actor.isManager) return true;
+  if (!actor.isWorker) return false;
+  return Boolean(flags.isAgentOwner);
+}
+
 // Status transitions (kanban move, position), overdue-unlock, and reopening
 // a Done/Cancel task: manager, the agent owner/Assistant, or whoever is
 // actually assigned the work.
@@ -185,6 +202,7 @@ export type TaskCapabilities = {
   canDelete: boolean;
   canReviewQC: boolean;
   canReopen: boolean;
+  canEditDueDate: boolean;
 };
 
 // Single source of truth: server routes and the client both call this with the
@@ -213,6 +231,9 @@ export function resolveTaskCapabilities(
       isAgentOwner: flags.isAgentOwner,
     }),
     canReopen: changeStatus,
+    canEditDueDate: canEditTaskDueDate(actor, {
+      isAgentOwner: flags.isAgentOwner,
+    }),
   };
 }
 

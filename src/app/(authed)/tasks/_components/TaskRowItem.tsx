@@ -48,6 +48,7 @@ import { Initials, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board
 import { TaskAssigneePicker } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
 import type { TaskListColumn, TaskListColumnKey } from "./task-list-columns";
+import { TASK_DUE_DATE_KEY } from "@/lib/tasks/due-date";
 
 // Shared column widths so the List header and the rows line up exactly.
 export const LIST_COL = {
@@ -146,6 +147,39 @@ export function listColumnWidthPx(key: TaskListColumnKey): number {
   return LIST_COL_WIDTH_PX[String(key)] ?? LIST_COL_WIDTH_PX.custom;
 }
 
+/**
+ * Bề rộng cột custom theo KIỂU, không theo tên cột.
+ *
+ * Một cột ngày hiển thị "Oct 9" — 180px mặc định là gần một nửa để trống, và
+ * chỗ trống đó lấy đi từ Client Name / Assignee / Category. Gắn quy tắc vào kiểu
+ * `date` chứ không vào riêng `due_date`: cột ngày tiếp theo ai đó tạo ra cũng
+ * đáng được như vậy mà không phải sửa lại chỗ này.
+ */
+const CUSTOM_COL_WIDTH_BY_TYPE: Record<string, { className: string; px: number }> = {
+  date: { className: "w-[120px]", px: 120 },
+};
+
+export function customColumnWidth(column?: { type?: string } | null): {
+  className: string;
+  px: number;
+} {
+  const byType = column?.type ? CUSTOM_COL_WIDTH_BY_TYPE[column.type] : undefined;
+  return byType ?? { className: LIST_COL.custom, px: LIST_COL_WIDTH_PX.custom };
+}
+
+/**
+ * Bề rộng thật của một cột, cột hệ thống lẫn cột custom.
+ *
+ * Bắt buộc dùng bản này ở phép tính offset của cột ghim: Due Date đang được ghim
+ * (`pinned`), nên lấy sai bề rộng của nó là mọi cột ghim đứng sau bị lệch.
+ */
+export function taskListColumnWidthPx(column: TaskListColumn): number {
+  if (column.configColumn && !column.configColumn.is_system) {
+    return customColumnWidth(column.configColumn).px;
+  }
+  return listColumnWidthPx(column.key);
+}
+
 function buildPinnedTaskOffsetByKey(
   columns: readonly TaskListColumn[]
 ): Map<TaskListColumnKey, number> {
@@ -154,7 +188,7 @@ function buildPinnedTaskOffsetByKey(
   for (const column of columns) {
     if (!column.pinned) continue;
     offsets.set(column.key, left);
-    left += listColumnWidthPx(column.key);
+    left += taskListColumnWidthPx(column);
   }
   return offsets;
 }
@@ -190,6 +224,7 @@ export function TaskRowItem({
   canChangeStatus,
   canAssign,
   canEditContent,
+  canEditDueDate,
   canReviewDone,
   onOpen,
   onPatch,
@@ -217,6 +252,8 @@ export function TaskRowItem({
   canChangeStatus: boolean;
   canAssign: boolean;
   canEditContent: boolean;
+  /** Hẹp hơn canEditContent: chỉ agent/assistant/admin được dời hạn chót. */
+  canEditDueDate: boolean;
   canReviewDone: boolean;
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => void;
@@ -844,7 +881,7 @@ export function TaskRowItem({
           <span
             key={column.key}
             style={columnStyle(column.key)}
-            className={`${LIST_COL.custom} flex min-w-0 shrink-0 items-center ${
+            className={`${customColumnWidth(configColumn).className} flex min-w-0 shrink-0 items-center ${
               configColumn.type === "checkbox" ? "justify-center" : ""
             } ${pinnedCellClass(column.key)}`}
           >
@@ -855,7 +892,14 @@ export function TaskRowItem({
               people={assignees}
               optionLabelById={customOptionLabelById}
               personLabelByEmail={personLabelByEmail}
-              canEdit={canEditContent}
+              canEdit={
+                configColumn.key === TASK_DUE_DATE_KEY
+                  ? canEditDueDate
+                  : canEditContent
+              }
+              // Ô trống hiện "—" chứ không phải "-": cột ngày hẹp nên dấu gạch
+              // ngắn dễ bị đọc nhầm thành một phần của giá trị.
+              emptyLabel={configColumn.type === "date" ? "—" : undefined}
               onSave={(next) =>
                 onPatch(task.id, { custom_values: { [configColumn.key]: next } })
               }

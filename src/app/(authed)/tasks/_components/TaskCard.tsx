@@ -1,10 +1,16 @@
 import type { TaskCategory, TaskRow } from "@/lib/tasks/types";
-import { AlertTriangle, CheckCircle2, Circle, RotateCcw } from "lucide-react";
+import { AlertTriangle, CalendarDays, CheckCircle2, Circle, RotateCcw } from "lucide-react";
 import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,
   SyntheticEvent,
 } from "react";
+import {
+  formatTaskDueDate,
+  isTaskDueDateOverdue,
+  readTaskDueDate,
+  TASK_DUE_DATE_KEY,
+} from "@/lib/tasks/due-date";
 import { stageElapsedSeconds } from "@/lib/tasks/sla";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
@@ -102,6 +108,7 @@ export function TaskCard({
           <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-[#172b4d]">
             {task.title}
           </h3>
+          <DueDateLine task={task} now={now} visibleColumnKeys={visibleColumnKeys} />
           {isNewAssigned ? <NewAssignedBadge className="mt-1" /> : null}
         </div>
 
@@ -188,6 +195,45 @@ export function TaskCard({
         </button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Hạn chót, ngay dưới tên khách.
+ *
+ * Không render gì khi task chưa đặt hạn: một dòng "Due —" trên mỗi card là
+ * nhiễu đúng bằng số card, mà không nói thêm được gì.
+ *
+ * Quá hạn tô đỏ, sắp tới dùng màu chữ phụ — cùng thang màu với các dấu hiệu
+ * cảnh báo sẵn có trên card, để nó không tranh chỗ với tên khách và trạng thái.
+ */
+function DueDateLine({
+  task,
+  now,
+  visibleColumnKeys,
+}: {
+  task: TaskRow;
+  now: Date;
+  visibleColumnKeys: ReadonlySet<string>;
+}) {
+  // Theo đúng cấu hình cột như priority/category: admin ẩn cột Due Date đi thì
+  // Board cũng phải im, nếu không hai màn hình nói khác nhau.
+  if (!visibleColumnKeys.has(TASK_DUE_DATE_KEY)) return null;
+  const dueDate = readTaskDueDate(task.custom_values);
+  const label = formatTaskDueDate(dueDate);
+  if (!label) return null;
+  const overdue = isTaskDueDateOverdue(dueDate, now);
+
+  return (
+    <span
+      className={`mt-1 inline-flex items-center gap-1 text-[11px] font-semibold ${
+        overdue ? "text-[#bf2600]" : "text-[#6b778c]"
+      }`}
+      title={overdue ? `Overdue since ${label}` : `Due ${label}`}
+    >
+      <CalendarDays className="h-3 w-3 shrink-0" />
+      Due {label}
+    </span>
   );
 }
 

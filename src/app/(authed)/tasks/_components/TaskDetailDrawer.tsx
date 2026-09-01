@@ -13,6 +13,7 @@ import {
   subscribeTaskDataInvalidation,
 } from "@/lib/tasks/client-events";
 import type { TaskDetail, TaskDetailMetadata } from "@/lib/tasks/detail";
+import { TASK_DUE_DATE_KEY } from "@/lib/tasks/due-date";
 import {
   DETAIL_OPEN_FRESH_MS,
   fetchTaskDetail,
@@ -115,6 +116,7 @@ type DraftKey = "summary" | "description" | "fub";
 export function TaskDetailDrawer({
   task,
   canEdit,
+  canEditDueDate,
   canAssign,
   canDelete,
   canChangeStatus,
@@ -146,6 +148,8 @@ export function TaskDetailDrawer({
 }: {
   task: TaskRow;
   canEdit: boolean;
+  /** Hẹp hơn canEdit: chỉ agent/assistant/admin được dời hạn chót. */
+  canEditDueDate: boolean;
   canAssign: boolean;
   canDelete: boolean;
   canChangeStatus: boolean;
@@ -1090,7 +1094,9 @@ export function TaskDetailDrawer({
                       people={assignees}
                       optionLabelById={optionLabelById}
                       personLabelByEmail={personLabelByEmail}
-                      canEdit={canEdit}
+                      canEdit={
+                        column.key === TASK_DUE_DATE_KEY ? canEditDueDate : canEdit
+                      }
                       onSave={(next) =>
                         onPatch({ custom_values: { [column.key]: next } })
                       }
