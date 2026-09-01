@@ -225,7 +225,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   const sourceId = readLeadMutationSourceId(request);
   after(async () => {
-    await broadcastLeadsChanged(sourceId);
+    await broadcastLeadsChanged(sourceId, [id]);
   });
   return NextResponse.json({ lead: withEventName(data) });
 }

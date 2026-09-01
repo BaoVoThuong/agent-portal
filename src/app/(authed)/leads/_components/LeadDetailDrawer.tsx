@@ -115,6 +115,28 @@ type LeadDetailDrawerProps = {
   onLeadUpdated: (lead: LeadRow, interaction?: LeadInteraction) => void;
 };
 
+/**
+ * Lịch sử tương tác đã tải, giữ theo lead id ở phạm vi module.
+ *
+ * Người dùng mở một lead, đóng, mở lại lead bên cạnh rồi quay lại — ba lần gọi
+ * mạng cho cùng một dữ liệu. Giữ ở đây chứ không trong state vì drawer bị gỡ
+ * khỏi cây mỗi lần đóng.
+ *
+ * Giới hạn 50 lead gần nhất: đủ cho một phiên làm việc, và không giữ mãi một
+ * mảng lịch sử nào sau khi người ta đã đi qua nó từ lâu.
+ */
+const interactionCache = new Map<string, LeadInteraction[]>();
+const INTERACTION_CACHE_LIMIT = 50;
+
+function rememberInteractions(leadId: string, rows: LeadInteraction[]) {
+  interactionCache.delete(leadId);
+  interactionCache.set(leadId, rows);
+  if (interactionCache.size > INTERACTION_CACHE_LIMIT) {
+    const oldest = interactionCache.keys().next().value;
+    if (oldest !== undefined) interactionCache.delete(oldest);
+  }
+}
+
 export function LeadDetailDrawer({
   lead,
   sourceId,
@@ -132,6 +154,7 @@ export function LeadDetailDrawer({
   onLeadUpdated,
 }: LeadDetailDrawerProps) {
   const [interactions, setInteractions] = useState<LeadInteraction[]>([]);
+  const cachedInteractions = lead ? interactionCache.get(lead.id) : undefined;
   const [loadedLeadId, setLoadedLeadId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editError, setEditError] = useState<{
@@ -139,20 +162,25 @@ export function LeadDetailDrawer({
     message: string;
   } | null>(null);
 
+  // Phụ thuộc theo ID chứ không theo cả object lead: sửa status ngay trong
+  // drawer tạo ra một object lead mới, và bản cũ tải lại toàn bộ lịch sử chỉ vì
+  // một trường không liên quan vừa đổi.
+  const leadId = lead?.id ?? null;
   useEffect(() => {
-    if (!lead) return;
+    if (!leadId) return;
     let cancelled = false;
-    void fetch(`/api/leads/${lead.id}/interactions`, { cache: "no-store" })
+    void fetch(`/api/leads/${leadId}/interactions`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => null);
         if (!response.ok)
           throw new Error(payload?.error ?? "Could not load interactions.");
         if (!Array.isArray(payload?.interactions))
           throw new Error("Could not load interactions.");
+        rememberInteractions(leadId, payload.interactions as LeadInteraction[]);
         if (!cancelled) {
           setInteractions(payload.interactions as LeadInteraction[]);
           setLoadError(null);
-          setLoadedLeadId(lead.id);
+          setLoadedLeadId(leadId);
         }
       })
       .catch((error: unknown) => {
@@ -162,13 +190,13 @@ export function LeadDetailDrawer({
               ? error.message
               : "Could not load interactions.",
           );
-          setLoadedLeadId(lead.id);
+          setLoadedLeadId(leadId);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [lead]);
+  }, [leadId]);
 
   // Follow the same configuration contract as TaskDetailDrawer for editable
   // fields: system fields are available unless an admin hid them globally,
@@ -237,9 +265,12 @@ export function LeadDetailDrawer({
   useBodyScrollLock(Boolean(lead));
   if (!lead) return null;
   const currentLead = lead;
-  const loading = loadedLeadId !== currentLead.id;
+  // Có bản đã tải lần trước thì hiện luôn và tải lại ở nền. Mở lại đúng lead
+  // vừa xem mà vẫn thấy khung "Loading" là một bước lùi không cần thiết — lịch
+  // sử tương tác gần như không đổi giữa hai lần mở cách nhau vài giây.
+  const loading = loadedLeadId !== currentLead.id && !cachedInteractions;
   const visibleInteractions =
-    loadedLeadId === currentLead.id ? interactions : [];
+    loadedLeadId === currentLead.id ? interactions : (cachedInteractions ?? []);
   const visibleError = loadedLeadId === currentLead.id ? loadError : null;
   // Same reach as editing: a manager (null scope) on any lead, a worker on
   // their own and on the leads of agents they assist. Assignment stays a
@@ -327,6 +358,14 @@ export function LeadDetailDrawer({
     if (!response.ok)
       throw new Error(result?.error ?? "Could not save interaction.");
     const interaction = result.interaction as LeadInteraction;
+    // Cùng một phép chống trùng như onInteractionSaved bên dưới: hai nơi ghi
+    // cùng một danh sách thì phải ghi ra cùng một kết quả.
+    rememberInteractions(
+      currentLead.id,
+      visibleInteractions.some((item) => item.id === interaction.id)
+        ? visibleInteractions
+        : [interaction, ...visibleInteractions],
+    );
     if (result?.lead) onLeadUpdated(result.lead as LeadRow, interaction);
     return { interaction };
   }

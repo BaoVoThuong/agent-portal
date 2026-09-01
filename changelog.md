@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Sửa một lead không còn kéo lại cả danh sách
+
+- **Loại**: tối ưu (luồng dữ liệu).
+- **Vấn đề đo được**: một dòng lead nặng ~1065 B, nên danh sách 5.000 lead là **~5,1 MB mỗi lần tải lại** — và có **9 chỗ** gọi `reload()`, phần lớn là sau khi sửa **một** trường của **một** lead. Đổi status một lead làm cả bảng của mọi người đang mở màn hình đó tải lại từ đầu.
+- **Realtime mang theo id**: `broadcastLeadsChanged(sourceId, leadIds?)` gửi kèm danh sách id vừa đổi (`PATCH /api/leads/[id]`, POST interactions, `/api/leads/assign`). Máy nhận chỉ hỏi lại đúng những dòng đó.
+  - **Chặn ở 25 id**: quá số đó thì vá từng dòng không còn rẻ hơn tải lại. Import cố ý **không** gửi id — nó là thao tác hàng loạt.
+  - Thiếu id (bản cũ, hoặc import) → `pendingIds = null` → tải lại đầy đủ. Mất kết nối rồi quay lại tab cũng tải lại đầy đủ.
+- **`GET /api/leads?ids=a,b,c`**: lọc **trong truy vấn** (`.in("id", ids)`), không phải lọc lại ở Node sau khi đã tải hết — bản nháp đầu làm vậy và mất sạch ý nghĩa của việc tối ưu.
+- **`patchLeadsById(ids)`** ở `LeadsClient`: cập nhật dòng khớp, **gỡ** dòng server không trả về nữa (lead vừa rời tầm nhìn của người này), và **chèn lên đầu** lead mới được gán vào. Truy vấn mang theo `product` + `alert` đang bật, vì **server** mới là nơi quyết một lead còn thuộc màn hình này hay không — thiếu nó thì lead vừa chuyển sang Won vẫn nằm lại trong danh sách "quá hạn".
+- **`/api/leads/assign` trả về dòng đã cập nhật**, nên gán xong là vá tại chỗ thay vì tải lại.
+- **Còn giữ tải lại đầy đủ** ở: import, distribute, gán hàng loạt — đúng những chỗ số dòng thay đổi lớn và không đoán trước được.
+- **Cache lịch sử tương tác theo lead id** (50 lead gần nhất, phạm vi module vì drawer bị gỡ khỏi cây mỗi lần đóng): mở lại lead vừa xem hiện ngay, tải lại ở nền. Effect nay phụ thuộc **`lead.id`** thay vì cả object `lead` — trước đó sửa status ngay trong drawer là tải lại toàn bộ lịch sử chỉ vì một trường không liên quan vừa đổi.
+- **Danh sách sự kiện dùng chung** (`src/lib/leads/events-cache.ts`) cho dialog Add và Import: một request thay vì hai, hai dialog mở gần nhau chờ chung một promise, và sự kiện vừa tạo trong Import **hiện ngay** bên Add — trước đó phải tải lại trang mới thấy.
+
 ## 2026-09-01 — Ô Product khớp với cột Status, và đủ rộng cho hai badge
 
 - **Loại**: fix (UI).

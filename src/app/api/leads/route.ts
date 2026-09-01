@@ -30,6 +30,10 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const params = Object.fromEntries(url.searchParams.entries());
   const ownerEmails = await resolveLeadOwnerEmails(actor);
+
+  // ?ids=a,b,c đi qua ĐÚNG bộ lọc phạm vi như mọi truy vấn khác — nó chỉ thêm
+  // một mệnh đề `in (id)`, không phải một đường tắt. Realtime dùng nó để vá vài
+  // dòng thay vì kéo lại cả danh sách.
   const { rows, total } = await fetchAllLeads(
     actor,
     params,

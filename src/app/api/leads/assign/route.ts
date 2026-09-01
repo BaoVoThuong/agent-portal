@@ -5,9 +5,17 @@ import { canBeAssignedLead } from "@/lib/leads/assign-target";
 import { validateAssignRequest } from "@/lib/leads/assign";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
+import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
+
+const LEAD_AFTER_SELECT =
+  "id,display_number,product,products,event_id,full_name,phone,email," +
+  "assigned_to_email,assigned_at,assigned_by_email,status_id," +
+  "first_contacted_at,last_contacted_at,contact_attempt_count," +
+  "next_follow_up_at,closed_at,created_by_email,created_at," +
+  "updated_by_email,updated_at,custom_values,archived_at,lead_events(name)";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -68,6 +76,22 @@ export async function POST(request: Request) {
   }
 
   const sourceId = readLeadMutationSourceId(request);
-  after(async () => { await broadcastLeadsChanged(sourceId); });
-  return NextResponse.json({ assigned: rows.length });
+  after(async () => { await broadcastLeadsChanged(sourceId, rows.map((row) => row.id)); });
+  // Trả về chính những dòng vừa đổi để màn hình vá tại chỗ. Trước đây chỉ trả
+  // số lượng, nên gán MỘT lead cũng buộc client kéo lại toàn bộ danh sách.
+  const { data: updated, error: afterError } = await supabase
+    .from("leads")
+    .select(LEAD_AFTER_SELECT)
+    .in("id", rows.map((row) => row.id));
+  if (afterError) return NextResponse.json({ error: afterError.message }, { status: 500 });
+  return NextResponse.json({
+    assigned: rows.length,
+    leads: (updated ?? []).map((row) => {
+      const lead = row as unknown as LeadRow & {
+        lead_events?: { name?: string | null } | null;
+      };
+      const { lead_events, ...rest } = lead;
+      return { ...rest, event_name: lead_events?.name?.trim() || null };
+    }),
+  });
 }

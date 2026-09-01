@@ -5,6 +5,12 @@ import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { FileSpreadsheet, Upload, X } from "lucide-react";
 import { resolveDialogProduct } from "@/lib/leads/create";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import {
+  fetchLeadEvents,
+  peekLeadEvents,
+  primeLeadEvent,
+  type LeadEventOption as LeadEvent,
+} from "@/lib/leads/events-cache";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import {
   parseLeadRows,
@@ -16,12 +22,6 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 const IMPORT_SELECT_BUTTON_CLASS =
   "!h-10 !rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
-
-type LeadEvent = {
-  id: string;
-  name: string;
-  event_date: string | null;
-};
 
 type ImportResult = {
   inserted: number;
@@ -65,7 +65,9 @@ export function LeadImportDialog({
   onClose,
   onImported,
 }: LeadImportDialogProps) {
-  const [events, setEvents] = useState<LeadEvent[]>([]);
+  const [events, setEvents] = useState<LeadEvent[]>(
+    () => peekLeadEvents()?.events ?? [],
+  );
   const [eventsState, setEventsState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
@@ -73,7 +75,9 @@ export function LeadImportDialog({
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
-  const [eventsTruncated, setEventsTruncated] = useState(false);
+  const [eventsTruncated, setEventsTruncated] = useState(
+    () => peekLeadEvents()?.truncated ?? false,
+  );
   const [chosenProduct, setChosenProduct] = useState<"pc" | "health" | null>(null);
   const product = resolveDialogProduct(productFilter, chosenProduct);
   const [file, setFile] = useState<File | null>(null);
@@ -88,15 +92,10 @@ export function LeadImportDialog({
 
   useEffect(() => {
     if (!open || eventsState !== "idle") return;
-    void fetch("/api/leads/events", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok)
-          throw new Error(payload?.error ?? "Could not load events.");
-        setEvents(
-          Array.isArray(payload?.events) ? (payload.events as LeadEvent[]) : [],
-        );
-        setEventsTruncated(payload?.truncated === true);
+    void fetchLeadEvents()
+      .then((payload) => {
+        setEvents(payload.events);
+        setEventsTruncated(payload.truncated);
         setEventsState("ready");
       })
       .catch(() => setEventsState("error"));
@@ -161,6 +160,9 @@ export function LeadImportDialog({
       if (!response.ok)
         throw new Error(payload?.error ?? "Could not create event.");
       const created = payload.event as LeadEvent;
+      // Đẩy vào cache dùng chung, nếu không sự kiện vừa tạo ở đây sẽ không có
+      // trong dialog Add cho tới khi tải lại trang.
+      primeLeadEvent(created);
       setEvents((current) => [created, ...current]);
       setEventId(created.id);
       setNewEventName("");

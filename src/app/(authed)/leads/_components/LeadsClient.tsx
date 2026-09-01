@@ -33,7 +33,17 @@ import {
   retainSelection,
   syncSelectedLead,
 } from "@/lib/leads/list-state";
+import {
+  LEAD_LIST_LOCKED_COLUMN_KEYS,
+  toggleHiddenLeadListColumn,
+  visibleLeadListColumns,
+} from "@/lib/leads/list-column-visibility";
 import { personLabel } from "@/lib/tasks/people";
+import {
+  resolveLayout,
+  serializeLayout,
+  type LayoutEntry,
+} from "@/lib/table-config/layout";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import {
   LEAD_INTERACTION_HISTORY_LIMIT,
@@ -49,6 +59,7 @@ import { LeadDistributeDialog } from "./LeadDistributeDialog";
 import { LeadImportDialog } from "./LeadImportDialog";
 import { LeadOverview } from "./LeadOverview";
 import { LeadTable } from "./LeadTable";
+import { LeadTableSettingsButton } from "./LeadTableSettingsButton";
 
 type LeadsClientProps = {
   /** null = every product. A filter now, not a separate screen. */
@@ -144,6 +155,12 @@ export function LeadsClient({
   const [filters, setFilters] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
   const [sortKey, setSortKey] = useState<LeadSortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [leadLayoutColumns, setLeadLayoutColumns] = useState<TableColumn[]>(
+    columns,
+  );
+  const [hiddenLeadColumnKeys, setHiddenLeadColumnKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   // Derived, not stored: reading the URL once meant browser Back/Forward moved
   // the address bar while the tab stayed where it was. Only a manager has an
   // Overview, so ?view=overview from anyone else falls back to the list.
@@ -162,6 +179,10 @@ export function LeadsClient({
   const pendingRefresh = useRef(false);
   const sourceIdRef = useRef(sourceId);
   const loadedQueryRef = useRef(`${productFilter ?? "all"}:${activeAlert ?? ""}`);
+  const leadLayoutHydratedRef = useRef(false);
+  const leadLayoutUpdatedAtRef = useRef<string | null>(null);
+  const leadLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const leadLayoutSaveSequenceRef = useRef(0);
   const nameByEmail = useMemo(
     () =>
       new Map(
@@ -229,10 +250,117 @@ export function LeadsClient({
       }
     }
   };
+  /**
+   * Vá đúng những dòng vừa đổi thay vì kéo lại cả danh sách.
+   *
+   * Ở 5.000 lead một lần kéo lại là ~5 MB cho MỖI tab đang mở, mà nguyên nhân
+   * thường chỉ là một người vừa ghi một cuộc gọi. Endpoint đi qua nguyên bộ lọc
+   * phạm vi, nên nếu một id không trả về thì nó đã ra khỏi tầm nhìn của người
+   * này — bỏ luôn khỏi danh sách; và nếu trả về một lead chưa có thì nó vừa
+   * được gán vào, thêm vào đầu.
+   */
+  const patchLeadsById = async (ids: readonly string[]) => {
+    if (ids.length === 0) return;
+    // Mang theo bộ lọc đang bật: server mới là nơi quyết một lead còn thuộc
+    // màn hình này hay không. Thiếu nó thì lead vừa chuyển sang Won vẫn nằm
+    // lại trong danh sách "quá hạn" vì nó vẫn được trả về.
+    const params = new URLSearchParams({ ids: ids.join(",") });
+    if (productFilter) params.set("product", productFilter);
+    if (activeAlert) params.set("alert", activeAlert);
+    const response = await fetch(`/api/leads?${params.toString()}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("patch failed");
+    const payload = await response.json().catch(() => null);
+    if (!Array.isArray(payload?.leads)) throw new Error("patch failed");
+    const fresh = payload.leads as LeadRow[];
+    const byId = new Map(fresh.map((lead) => [lead.id, lead]));
+    const wanted = new Set(ids);
+
+    setLeads((current) => {
+      const seen = new Set<string>();
+      const next = current
+        .map((lead) => {
+          if (!wanted.has(lead.id)) return lead;
+          const updated = byId.get(lead.id);
+          if (!updated) return null; // đã ra khỏi phạm vi
+          seen.add(lead.id);
+          return { ...updated, interaction_history: lead.interaction_history };
+        })
+        .filter((lead): lead is LeadRow => lead !== null);
+      const added = fresh.filter((lead) => !seen.has(lead.id));
+      return added.length > 0 ? [...added, ...next] : next;
+    });
+    setSelectedLead((current) =>
+      current && byId.has(current.id)
+        ? { ...byId.get(current.id)!, interaction_history: current.interaction_history }
+        : current,
+    );
+  };
+  const patchLeadsByIdRef = useRef(patchLeadsById);
+  useEffect(() => {
+    patchLeadsByIdRef.current = patchLeadsById;
+  });
+
   const reloadRef = useRef(reload);
   useEffect(() => {
     reloadRef.current = reload;
   });
+
+  // Personal table settings reuse the generic user_table_layout API that Task
+  // List uses. Admin `hidden_default` still wins; this is only each person's
+  // choice about the remaining columns.
+  useEffect(() => {
+    if (leadLayoutHydratedRef.current) return;
+    leadLayoutHydratedRef.current = true;
+    let alive = true;
+
+    void fetch("/api/config/layout?scope=lead")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { layout?: unknown; updated_at?: unknown } | null) => {
+        if (!alive) return;
+        leadLayoutUpdatedAtRef.current =
+          typeof payload?.updated_at === "string" ? payload.updated_at : null;
+        if (!Array.isArray(payload?.layout)) {
+          setLeadLayoutColumns(columns);
+          setHiddenLeadColumnKeys(new Set());
+          return;
+        }
+
+        const resolved = resolveLayout(
+          columns,
+          payload.layout as LayoutEntry[],
+        );
+        setLeadLayoutColumns(
+          resolved.map((column, index) => ({
+            ...column,
+            position: (index + 1) * 10,
+          })),
+        );
+        setHiddenLeadColumnKeys(
+          new Set(
+            resolved
+              .filter(
+                (column) =>
+                  column.hidden &&
+                  !column.hidden_default &&
+                  !column.pinned &&
+                  !LEAD_LIST_LOCKED_COLUMN_KEYS.has(column.key),
+              )
+              .map((column) => column.key),
+          ),
+        );
+      })
+      .catch(() => {
+        if (!alive) return;
+        setLeadLayoutColumns(columns);
+        setHiddenLeadColumnKeys(new Set());
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [columns]);
 
   useEffect(() => {
     const queryKey = `${productFilter ?? "all"}:${activeAlert ?? ""}`;
@@ -252,19 +380,36 @@ export function LeadsClient({
     let timer: number | undefined;
     let missedWhileHidden = false;
 
-    const requestReload = () => {
+    let pendingIds: string[] | null = [];
+
+    const requestReload = (ids?: string[]) => {
+      // Một tin không kèm id nghĩa là thay đổi không quy về vài dòng cụ thể
+      // (import hàng loạt) — lúc đó phải tải lại cả danh sách, và nó "nuốt"
+      // mọi id đang chờ trong cùng chùm.
+      if (!ids) pendingIds = null;
+      else if (pendingIds) pendingIds = [...new Set([...pendingIds, ...ids])];
+
       if (document.visibilityState !== "visible") {
         missedWhileHidden = true;
         return;
       }
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => void reloadRef.current(), REALTIME_COALESCE_MS);
+      timer = window.setTimeout(() => {
+        const ready = pendingIds;
+        pendingIds = [];
+        if (ready && ready.length > 0 && ready.length <= 25) {
+          void patchLeadsByIdRef.current(ready).catch(() => void reloadRef.current());
+        } else {
+          void reloadRef.current();
+        }
+      }, REALTIME_COALESCE_MS);
     };
 
     const onVisible = () => {
       if (document.visibilityState === "visible" && missedWhileHidden) {
         missedWhileHidden = false;
-        requestReload();
+        // Không biết đã lỡ những gì trong lúc ẩn, nên tải lại cho chắc.
+        requestReload(undefined);
       }
     };
 
@@ -274,7 +419,13 @@ export function LeadsClient({
         const messageSourceId = (
           message as { payload?: { sourceId?: unknown } }
         ).payload?.sourceId;
-        if (!isOwnLeadMutation(sourceIdRef.current, messageSourceId)) requestReload();
+        if (isOwnLeadMutation(sourceIdRef.current, messageSourceId)) return;
+        const raw = (message as { payload?: { leadIds?: unknown } }).payload?.leadIds;
+        const ids =
+          typeof raw === "string"
+            ? raw.split(",").map((value) => value.trim()).filter(Boolean)
+            : undefined;
+        requestReload(ids);
       })
       .subscribe();
     document.addEventListener("visibilitychange", onVisible);
@@ -320,7 +471,12 @@ export function LeadsClient({
     );
     // A status/contact change can move a row out of an alert query. Reconcile
     // the server page so the row and total never keep showing a stale match.
-    if (activeAlert) void reloadRef.current();
+    // Đổi status/liên hệ có thể đẩy dòng ra khỏi truy vấn cảnh báo đang bật.
+    // Hỏi lại đúng dòng đó thay vì kéo cả danh sách — nếu server không trả về
+    // nữa thì patchLeadsById gỡ nó khỏi màn hình.
+    if (activeAlert) {
+      void patchLeadsByIdRef.current([nextLead.id]).catch(() => void reloadRef.current());
+    }
   }
 
   function toggleLead(id: string) {
@@ -356,7 +512,10 @@ export function LeadsClient({
       updateLead(payload.lead as LeadRow);
       // Changing Product can move a row out of a product-filtered list. The
       // alert case already reloads in updateLead(), so do not issue two fetches.
-      if (!activeAlert && patch.product !== undefined) void reloadRef.current();
+      // Đổi product có thể đẩy dòng ra khỏi bộ lọc product đang bật.
+      if (!activeAlert && (patch.product !== undefined || patch.products !== undefined)) {
+        void patchLeadsByIdRef.current([id]).catch(() => void reloadRef.current());
+      }
       setEditError(null);
     } catch (error) {
       if (previous) {
@@ -543,7 +702,75 @@ export function LeadsClient({
     router.replace(`/leads?${params.toString()}`, { scroll: false });
   }
 
-  const visibleColumns = columns.filter((column) => !column.hidden_default);
+  function saveLeadTableLayout(hiddenKeys: ReadonlySet<string>) {
+    const sequence = ++leadLayoutSaveSequenceRef.current;
+    const save = async () => {
+      // Keep only the latest checkbox state when someone toggles several
+      // columns quickly; an old response must never overwrite a newer intent.
+      if (sequence !== leadLayoutSaveSequenceRef.current) return;
+
+      const layout = serializeLayout(
+        leadLayoutColumns.map((column) => ({
+          ...column,
+          width: null,
+          hidden:
+            !column.hidden_default &&
+            !column.pinned &&
+            !LEAD_LIST_LOCKED_COLUMN_KEYS.has(column.key) &&
+            hiddenKeys.has(column.key),
+        })),
+      );
+      const response = await fetch("/api/config/layout", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: "lead",
+          layout,
+          expected_updated_at: leadLayoutUpdatedAtRef.current,
+        }),
+      }).catch(() => null);
+
+      if (response?.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { updated_at?: unknown }
+          | null;
+        if (typeof payload?.updated_at === "string") {
+          leadLayoutUpdatedAtRef.current = payload.updated_at;
+        }
+        return;
+      }
+
+      const payload = (await response?.json().catch(() => null)) as
+        | { error?: unknown }
+        | null
+        | undefined;
+      setEditError(
+        typeof payload?.error === "string"
+          ? payload.error
+          : "Could not save the table layout.",
+      );
+    };
+
+    const queued = leadLayoutSaveQueueRef.current.then(save, save);
+    leadLayoutSaveQueueRef.current = queued.catch(() => undefined);
+    void queued;
+  }
+
+  function toggleLeadListColumn(key: string) {
+    setHiddenLeadColumnKeys((current) => {
+      const next = toggleHiddenLeadListColumn(current, key);
+      if (next.size === current.size && [...next].every((item) => current.has(item))) {
+        return current;
+      }
+      void saveLeadTableLayout(next);
+      return next;
+    });
+  }
+
+  const visibleColumns = useMemo(
+    () => visibleLeadListColumns(leadLayoutColumns, hiddenLeadColumnKeys),
+    [hiddenLeadColumnKeys, leadLayoutColumns],
+  );
   const shellClassName =
     view === "list"
       ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
@@ -746,6 +973,12 @@ export function LeadsClient({
                       eventName: value === ALL_FILTER ? null : value,
                     })
                   }
+                />
+
+                <LeadTableSettingsButton
+                  columns={leadLayoutColumns}
+                  hiddenColumnKeys={hiddenLeadColumnKeys}
+                  onToggleColumn={toggleLeadListColumn}
                 />
 
                 {activeFilterCount > 0 ? (

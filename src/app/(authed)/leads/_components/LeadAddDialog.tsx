@@ -6,12 +6,11 @@ import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveDialogProduct } from "@/lib/leads/create";
 import type { LeadProduct, LeadStatus } from "@/lib/leads/types";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
-
-type LeadEvent = {
-  id: string;
-  name: string;
-  event_date: string | null;
-};
+import {
+  fetchLeadEvents,
+  peekLeadEvents,
+  type LeadEventOption as LeadEvent,
+} from "@/lib/leads/events-cache";
 
 type LeadAddDialogProps = {
   open: boolean;
@@ -139,7 +138,11 @@ export function LeadAddDialog({
   onClose,
   onCreated,
 }: LeadAddDialogProps) {
-  const [events, setEvents] = useState<LeadEvent[]>([]);
+  // Mở lại dialog lần thứ hai không phải chờ danh sách sự kiện nữa: bản đã tải
+  // hiện ra ngay, lần tải nền bên dưới chỉ để bắt sự kiện mới.
+  const [events, setEvents] = useState<LeadEvent[]>(
+    () => peekLeadEvents()?.events ?? [],
+  );
   const [eventsState, setEventsState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
@@ -190,14 +193,9 @@ export function LeadAddDialog({
 
   useEffect(() => {
     if (!open || eventsState !== "idle") return;
-    void fetch("/api/leads/events", { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok)
-          throw new Error(payload?.error ?? "Could not load events.");
-        setEvents(
-          Array.isArray(payload?.events) ? (payload.events as LeadEvent[]) : [],
-        );
+    void fetchLeadEvents()
+      .then((payload) => {
+        setEvents(payload.events);
         setEventsState("ready");
       })
       .catch(() => setEventsState("error"));

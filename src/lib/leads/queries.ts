@@ -18,6 +18,8 @@ export const LEAD_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 
 export type LeadListParams = {
+  /** Danh sách id cụ thể; realtime dùng để vá vài dòng thay vì kéo cả danh sách. */
+  ids?: unknown;
   product?: unknown;
   assigned_to?: unknown;
   event_id?: unknown;
@@ -38,6 +40,8 @@ export type LeadListFilter = {
   ownerEmails: string[] | null;
   eventId: string | null;
   statusId: string | null;
+  /** null = không giới hạn theo id. */
+  ids: string[] | null;
   alert: LeadAlert | null;
   limit: number;
   offset: number;
@@ -88,6 +92,15 @@ export function buildLeadListFilter(
       : scoped,
     eventId: text(params.event_id),
     statusId: text(params.status_id),
+    ids: (() => {
+      const raw = String(params.ids ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      // Trần 25 khớp với trần bên broadcast: quá số đó thì vá từng dòng không
+      // còn rẻ hơn tải lại cả danh sách.
+      return raw.length > 0 ? raw.slice(0, 25) : null;
+    })(),
     alert: toLeadAlert(params.alert),
     limit: count(params.limit, LEAD_PAGE_SIZE, MAX_PAGE_SIZE),
     offset: count(params.offset, 0, 1_000_000) || 0,
@@ -180,6 +193,7 @@ export async function fetchLeadsPage(
   // product phải hiện ở CẢ HAI bộ lọc, nên không thể so bằng cột `product`.
   if (filter.product) query = query.contains("products", [filter.product]);
   if (filter.ownerEmails) query = query.in("assigned_to_email", filter.ownerEmails);
+  if (filter.ids) query = query.in("id", filter.ids);
   if (filter.eventId) query = query.eq("event_id", filter.eventId);
   if (filter.statusId) query = query.eq("status_id", filter.statusId);
   if (filter.alert) {

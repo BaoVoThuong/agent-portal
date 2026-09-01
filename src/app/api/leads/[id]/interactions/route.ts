@@ -151,7 +151,7 @@ export async function POST(req: Request, { params }: Ctx) {
 
   const sourceId = readLeadMutationSourceId(req);
   after(async () => {
-    await broadcastLeadsChanged(sourceId);
+    await broadcastLeadsChanged(sourceId, [id]);
   });
 
   const result = data as { interaction: unknown; lead: unknown };
