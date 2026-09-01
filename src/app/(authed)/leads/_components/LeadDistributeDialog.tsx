@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { RotateCcw, Shuffle, X } from "lucide-react";
+import { RotateCcw, Shuffle, Trash2, X } from "lucide-react";
 import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
 
@@ -313,6 +313,10 @@ export function LeadDistributeDialog({
             </span>
           </label>
 
+          <p className="text-xs text-[#6b778c]">
+            Bỏ tick <strong>Đang nhận</strong> để tạm dừng một người mà vẫn giữ
+            chỗ của họ trong vòng xoay. Dùng thùng rác để bỏ hẳn khỏi danh sách.
+          </p>
           <div className="overflow-hidden rounded border border-[#dfe1e6]">
             <table className="w-full text-left text-sm">
               <thead className="bg-[#f7f8fa] text-xs font-bold uppercase text-[#6b778c]">
@@ -320,13 +324,14 @@ export function LeadDistributeDialog({
                   <th className="px-3 py-2">Agent</th>
                   <th className="w-24 px-3 py-2">Trọng số</th>
                   <th className="w-20 px-3 py-2">Tỉ lệ</th>
-                  <th className="w-20 px-3 py-2 text-center">Nhận</th>
+                  <th className="w-24 px-3 py-2 text-center">Đang nhận</th>
+                  <th className="w-16 px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
                 {draft.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-3 py-6 text-center text-[#6b778c]">
+                    <td colSpan={5} className="px-3 py-6 text-center text-[#6b778c]">
                       Chưa có agent nào cho {PRODUCT_LABEL[product]}. Thêm bên dưới.
                     </td>
                   </tr>
@@ -365,11 +370,31 @@ export function LeadDistributeDialog({
                       <td className="px-3 py-2 text-center">
                         <input
                           type="checkbox"
+                          aria-label={`${row.agent_email} đang nhận lead`}
                           checked={row.is_active}
                           onChange={(event) =>
                             update(row.agent_email, { is_active: event.target.checked })
                           }
                         />
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {/* Bỏ tick "Đang nhận" là tạm dừng — dòng còn đó, con trỏ
+                            xoay vòng của người này còn nguyên, bật lại là chạy
+                            tiếp. Xoá là bỏ hẳn khỏi danh sách. Hai việc khác
+                            nhau nên là hai nút khác nhau. */}
+                        <button
+                          type="button"
+                          aria-label={`Xoá ${row.agent_email} khỏi danh sách`}
+                          title="Xoá khỏi danh sách chia"
+                          onClick={() =>
+                            setDraft((current) =>
+                              current.filter((item) => item.agent_email !== row.agent_email)
+                            )
+                          }
+                          className="rounded p-1 text-[#97a0af] transition hover:bg-[#ffebe6] hover:text-[#bf2600]"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </td>
                     </tr>
                   ))

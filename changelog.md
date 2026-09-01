@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Chia pool: xoá được agent khỏi danh sách
+
+- **Loại**: fix (thiếu chức năng).
+- Dialog cho **thêm** agent nhưng không cho **xoá** — API `PUT` vốn đã hiểu "dòng nào không có trong danh sách gửi lên thì bỏ", nhưng UI không có cách nào diễn đạt điều đó. Thêm nút thùng rác mỗi dòng.
+- **Tách rõ hai việc dễ lẫn**, có ghi ngay trên bảng: bỏ tick **Đang nhận** là *tạm dừng* — dòng còn đó, con trỏ vòng xoay của người đó giữ nguyên, bật lại là chạy tiếp; **thùng rác** là bỏ hẳn khỏi danh sách. Đổi tên cột `Nhận` thành `Đang nhận` cho khớp nghĩa.
+
 ## 2026-09-01 — UI chia pool: đặt tỉ lệ ngay tại chỗ chia
 
 - **Loại**: feature (UI cho cơ chế tự chia đã có).
