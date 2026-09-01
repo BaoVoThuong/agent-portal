@@ -372,32 +372,17 @@ export function LeadDistributeDialog({
             ))}
           </div>
 
-          <label className="flex items-start gap-2 text-sm">
+          <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
-              className="mt-0.5"
               checked={enabled}
               onChange={(event) => setEnabled(event.target.checked)}
             />
-            <span>
-              <span className="font-semibold text-[#172b4d]">
-                Auto-assign on import ({PRODUCT_LABEL[product]})
-              </span>
-              <span className="mt-0.5 block text-xs text-[#6b778c]">
-                Off: imported leads stay in the pool until someone distributes
-                them here.
-              </span>
+            <span className="font-semibold text-[#172b4d]">
+              Auto-assign on import ({PRODUCT_LABEL[product]})
             </span>
           </label>
 
-          {/* Bản đầu giải thích rằng bỏ tick giữ lại con trỏ xoay vòng còn xoá
-              thì không. Đúng về kỹ thuật nhưng vô nghĩa với người dùng, và họ
-              đọc không hiểu. Nói bằng việc họ sẽ làm, không bằng cái code làm. */}
-          <p className="text-xs text-[#6b778c]">
-            <strong>Untick</strong> to pause someone — tick again and they carry
-            on (a week off, say). <strong>Delete</strong> removes them from the
-            list; adding them back means setting a weight again.
-          </p>
           {/* Cao cố định và tự cuộn: danh sách 2 người hay 13 người thì phần
               còn lại của modal vẫn nằm nguyên chỗ cũ. Header dính lại khi cuộn. */}
           <div className="h-64 overflow-y-auto rounded border border-[#dfe1e6]">
