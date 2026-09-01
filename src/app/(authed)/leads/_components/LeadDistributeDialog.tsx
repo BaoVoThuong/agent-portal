@@ -48,7 +48,7 @@ async function fetchWeights(product: LeadProduct): Promise<WeightsPayload> {
     { cache: "no-store" }
   );
   const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(payload?.error ?? "Không tải được tỉ lệ.");
+  if (!response.ok) throw new Error(payload?.error ?? "Could not load the ratios.");
   return payload as WeightsPayload;
 }
 const INPUT_CLASS =
@@ -106,7 +106,7 @@ export function LeadDistributeDialog({
       setError(null);
     } catch (loadError) {
       if (seq !== weightsRequest.current) return;
-      setError(loadError instanceof Error ? loadError.message : "Không tải được tỉ lệ.");
+      setError(loadError instanceof Error ? loadError.message : "Could not load the ratios.");
     }
   }, []);
 
@@ -123,11 +123,11 @@ export function LeadDistributeDialog({
         const response = await fetch("/api/leads/distribute", { cache: "no-store" });
         const payload = await response.json().catch(() => null);
         if (cancelled) return;
-        if (!response.ok) throw new Error(payload?.error ?? "Không đọc được pool.");
+        if (!response.ok) throw new Error(payload?.error ?? "Could not read the pool.");
         setPool(payload as PoolPayload);
       } catch (poolError) {
         if (!cancelled) {
-          setError(poolError instanceof Error ? poolError.message : "Không đọc được pool.");
+          setError(poolError instanceof Error ? poolError.message : "Could not read the pool.");
         }
       }
     })();
@@ -172,7 +172,7 @@ export function LeadDistributeDialog({
       })
       .catch((loadError: unknown) => {
         if (seq !== weightsRequest.current) return;
-        setError(loadError instanceof Error ? loadError.message : "Không tải được tỉ lệ.");
+        setError(loadError instanceof Error ? loadError.message : "Could not load the ratios.");
       });
   }, [open, product]);
 
@@ -228,11 +228,11 @@ export function LeadDistributeDialog({
         }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error ?? "Không lưu được.");
+      if (!response.ok) throw new Error(payload?.error ?? "Could not save.");
       await loadWeights(product);
-      setNotice("Đã lưu tỉ lệ.");
+      setNotice("Ratios saved.");
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Không lưu được.");
+      setError(saveError instanceof Error ? saveError.message : "Could not save.");
     } finally {
       setBusy(false);
     }
@@ -244,9 +244,7 @@ export function LeadDistributeDialog({
     // not undoable and shifts who is next, so it asks first.
     if (
       !window.confirm(
-        "Đặt lại vòng xoay cho " +
-          PRODUCT_LABEL[product] +
-          "?\n\nPhần dư của chu kỳ hiện tại bị bỏ, và lượt chia kế tiếp bắt đầu lại từ đầu."
+        `Reset the ${PRODUCT_LABEL[product]} rotation?\n\nThe part-finished cycle is discarded and the next run starts from the top.`
       )
     ) {
       return;
@@ -261,12 +259,12 @@ export function LeadDistributeDialog({
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error ?? "Không đặt lại được.");
+        throw new Error(payload?.error ?? "Could not reset.");
       }
       await loadWeights(product);
-      setNotice("Đã đặt lại vòng xoay.");
+      setNotice("Rotation reset.");
     } catch (resetError) {
-      setError(resetError instanceof Error ? resetError.message : "Không đặt lại được.");
+      setError(resetError instanceof Error ? resetError.message : "Could not reset.");
     } finally {
       setBusy(false);
     }
@@ -283,13 +281,13 @@ export function LeadDistributeDialog({
         headers: { "x-lead-client-source": sourceId },
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error ?? "Không chia được.");
+      if (!response.ok) throw new Error(payload?.error ?? "Could not distribute.");
       setResult(payload as DistributeResult);
       const poolResponse = await fetch("/api/leads/distribute", { cache: "no-store" });
       if (poolResponse.ok) setPool((await poolResponse.json()) as PoolPayload);
       onDistributed();
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "Không chia được.");
+      setError(runError instanceof Error ? runError.message : "Could not distribute.");
     } finally {
       setBusy(false);
     }
@@ -300,19 +298,22 @@ export function LeadDistributeDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6"
       onClick={onClose}
     >
+      {/* Cao cố định: thêm/xoá agent, hiện lỗi, hay đổi product đều không được
+          làm modal co giãn dưới tay người đang bấm. max-h vẫn giữ để màn hình
+          thấp không bị tràn. */}
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Chia pool"
-        className="flex max-h-[calc(100vh-3rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+        aria-label="Distribute pool"
+        className="flex h-[680px] max-h-[calc(100vh-3rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
-          <h2 className="text-base font-bold text-[#172b4d]">Chia pool theo tỉ lệ</h2>
+          <h2 className="text-base font-bold text-[#172b4d]">Distribute pool by ratio</h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Đóng"
+            aria-label="Close"
             className="rounded p-1.5 text-[#42526e] transition hover:bg-[#f4f5f7]"
           >
             <X className="h-4 w-4" />
@@ -324,12 +325,12 @@ export function LeadDistributeDialog({
             {pool ? (
               pool.pending === 0 ? (
                 <span className="font-semibold text-[#42526e]">
-                  Không còn lead nào ở pool.
+                  No leads are waiting in the pool.
                 </span>
               ) : (
                 <>
                   <span className="font-semibold text-[#172b4d]">
-                    {pool.pending} lead chưa gán
+                    {pool.pending} unassigned lead{pool.pending === 1 ? "" : "s"}
                   </span>
                   <span className="text-[#6b778c]">
                     {" — "}
@@ -339,13 +340,13 @@ export function LeadDistributeDialog({
                   </span>
                   {pool.remaining > 0 ? (
                     <span className="mt-1 block text-xs text-[#974f0c]">
-                      Còn {pool.remaining} lead nữa sẽ cần bấm thêm lượt.
+                      {pool.remaining} more will need another run.
                     </span>
                   ) : null}
                 </>
               )
             ) : (
-              <span className="text-[#6b778c]">Đang đọc pool…</span>
+              <span className="text-[#6b778c]">Reading the pool…</span>
             )}
           </div>
 
@@ -380,10 +381,11 @@ export function LeadDistributeDialog({
             />
             <span>
               <span className="font-semibold text-[#172b4d]">
-                Tự chia khi import {PRODUCT_LABEL[product]}
+                Auto-assign on import ({PRODUCT_LABEL[product]})
               </span>
               <span className="mt-0.5 block text-xs text-[#6b778c]">
-                Tắt thì lead import vào vẫn ở pool và chỉ được chia khi bấm nút bên dưới.
+                Off: imported leads stay in the pool until someone distributes
+                them here.
               </span>
             </span>
           </label>
@@ -392,18 +394,20 @@ export function LeadDistributeDialog({
               thì không. Đúng về kỹ thuật nhưng vô nghĩa với người dùng, và họ
               đọc không hiểu. Nói bằng việc họ sẽ làm, không bằng cái code làm. */}
           <p className="text-xs text-[#6b778c]">
-            <strong>Bỏ tick</strong> = tạm dừng, tick lại là nhận tiếp (ví dụ:
-            nghỉ phép). <strong>Thùng rác</strong> = xoá khỏi danh sách, muốn
-            nhận lại phải thêm vào và đặt trọng số lại từ đầu.
+            <strong>Untick</strong> to pause someone — tick again and they carry
+            on (a week off, say). <strong>Delete</strong> removes them from the
+            list; adding them back means setting a weight again.
           </p>
-          <div className="overflow-hidden rounded border border-[#dfe1e6]">
+          {/* Cao cố định và tự cuộn: danh sách 2 người hay 13 người thì phần
+              còn lại của modal vẫn nằm nguyên chỗ cũ. Header dính lại khi cuộn. */}
+          <div className="h-64 overflow-y-auto rounded border border-[#dfe1e6]">
             <table className="w-full text-left text-sm">
-              <thead className="bg-[#f7f8fa] text-xs font-bold uppercase text-[#6b778c]">
+              <thead className="sticky top-0 z-10 bg-[#f7f8fa] text-xs font-bold uppercase text-[#6b778c]">
                 <tr>
                   <th className="px-3 py-2">Agent</th>
-                  <th className="w-24 px-3 py-2">Trọng số</th>
-                  <th className="w-20 px-3 py-2">Tỉ lệ</th>
-                  <th className="w-24 px-3 py-2 text-center">Đang nhận</th>
+                  <th className="w-24 px-3 py-2">Weight</th>
+                  <th className="w-20 px-3 py-2">Share</th>
+                  <th className="w-24 px-3 py-2 text-center">Receiving</th>
                   <th className="w-16 px-3 py-2" />
                 </tr>
               </thead>
@@ -411,13 +415,13 @@ export function LeadDistributeDialog({
                 {loadingWeights && draft.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-3 py-6 text-center text-[#6b778c]">
-                      Đang tải danh sách agent…
+                      Loading agents…
                     </td>
                   </tr>
                 ) : draft.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-3 py-6 text-center text-[#6b778c]">
-                      Chưa có agent nào cho {PRODUCT_LABEL[product]}. Thêm bên dưới.
+                      No agents for {PRODUCT_LABEL[product]} yet. Add one below.
                     </td>
                   </tr>
                 ) : (
@@ -447,7 +451,7 @@ export function LeadDistributeDialog({
                       <td className="px-3 py-2 text-center">
                         <input
                           type="checkbox"
-                          aria-label={`${row.agent_email} đang nhận lead`}
+                          aria-label={`${row.agent_email} is receiving leads`}
                           checked={row.is_active}
                           onChange={(event) =>
                             update(row.agent_email, { is_active: event.target.checked })
@@ -460,8 +464,8 @@ export function LeadDistributeDialog({
                             bằng một cú tick, một cái để dọn hẳn. */}
                         <button
                           type="button"
-                          aria-label={`Xoá ${row.agent_email} khỏi danh sách`}
-                          title="Xoá khỏi danh sách chia"
+                          aria-label={`Remove ${row.agent_email} from the list`}
+                          title="Remove from the distribution list"
                           onClick={() =>
                             setDraft((current) =>
                               current.filter((item) => item.agent_email !== row.agent_email)
@@ -481,8 +485,8 @@ export function LeadDistributeDialog({
 
           {rosterError ? (
             <p className="rounded border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
-              Không tải được danh sách tài khoản để thêm agent. Đóng và mở lại
-              dialog để thử lại.
+              Could not load the account list. Close and reopen this dialog to
+              try again.
             </p>
           ) : null}
           {notListed.length > 0 ? (
@@ -492,7 +496,7 @@ export function LeadDistributeDialog({
                 value={addEmail}
                 onChange={(event) => setAddEmail(event.target.value)}
               >
-                <option value="">Thêm agent…</option>
+                <option value="">Add agent…</option>
                 {notListed.map((person) => (
                   <option key={person.email} value={person.email}>
                     {personLabel(person.email, nameByEmail)}
@@ -517,34 +521,34 @@ export function LeadDistributeDialog({
                 }}
                 className="h-9 rounded border border-[#dfe1e6] px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:opacity-40"
               >
-                Thêm
+                Add
               </button>
             </div>
           ) : null}
 
           {active.length > 0 ? (
             <p className="rounded border border-[#b8d4ff] bg-[#e9f2ff] px-3 py-2 text-sm text-[#0c3d91]">
-              Trong 10 lead {PRODUCT_LABEL[product]} kế tiếp:{" "}
+              Next 10 {PRODUCT_LABEL[product]} leads:{" "}
               <strong>
                 {(dirty ? null : weights?.preview)
                   ? weights!.preview
                       .map((row) => `${personLabel(row.email, nameByEmail)} ${row.count}`)
                       .join(" · ")
-                  : "lưu tỉ lệ để xem lại phân bổ"}
+                  : "save to refresh the preview"}
               </strong>
             </p>
           ) : (
             <p className="rounded border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
-              Chưa có ai nhận {PRODUCT_LABEL[product]} — lead sẽ ở lại pool.
+              Nobody is receiving {PRODUCT_LABEL[product]} — those leads stay in the pool.
             </p>
           )}
 
           {result ? (
             <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-              Đã chia <strong>{result.assigned}</strong>
+              Assigned <strong>{result.assigned}</strong>
               {result.unassigned > 0 ? (
                 <>
-                  {" · còn ở pool "}
+                  {" · left in the pool "}
                   <strong>{result.unassigned}</strong>
                   {Object.values(result.results)
                     .map((entry) => entry.reason)
@@ -570,10 +574,10 @@ export function LeadDistributeDialog({
             type="button"
             onClick={() => void resetCursor()}
             disabled={busy}
-            title="Bỏ phần dư của chu kỳ hiện tại"
+            title="Discard the part-finished cycle"
             className="inline-flex h-9 items-center gap-1.5 rounded px-2 text-sm font-semibold text-[#6b778c] transition hover:text-[#172b4d] disabled:opacity-40"
           >
-            <RotateCcw className="h-3.5 w-3.5" /> Đặt lại vòng xoay
+            <RotateCcw className="h-3.5 w-3.5" /> Reset rotation
           </button>
           <div className="flex items-center gap-2">
             <button
@@ -582,7 +586,7 @@ export function LeadDistributeDialog({
               disabled={busy || loadingWeights || !dirty}
               className="inline-flex h-9 items-center rounded border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:opacity-40"
             >
-              Lưu tỉ lệ
+              Save ratios
             </button>
             <button
               type="button"
@@ -590,11 +594,11 @@ export function LeadDistributeDialog({
               // Distributing with unsaved edits would use the stored ratio, not
               // the one on screen — which is the one the admin is reading.
               disabled={busy || loadingWeights || dirty || !pool || pool.pending === 0}
-              title={dirty ? "Lưu tỉ lệ trước khi chia." : undefined}
+              title={dirty ? "Save your changes before distributing." : undefined}
               className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Shuffle className="h-4 w-4" />
-              {busy ? "Đang chia…" : `Chia ${pool?.pending ?? 0} lead`}
+              {busy ? "Distributing…" : `Distribute ${pool?.pending ?? 0}`}
             </button>
           </div>
         </footer>

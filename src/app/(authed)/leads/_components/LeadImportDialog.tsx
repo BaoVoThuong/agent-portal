@@ -349,9 +349,10 @@ export function LeadImportDialog({
                   // Danh sách bị cắt ở 200. Không nói ra thì người dùng tưởng
                   // sự kiện của mình chưa được tạo và đi tạo trùng một cái nữa.
                   <p className="mt-1 text-xs font-semibold text-[#974f0c]">
-                    Chỉ hiện 200 sự kiện gần nhất. Không thấy sự kiện cần tìm thì
-                    tạo mới bên dưới bằng đúng tên của nó — hệ thống sẽ nối vào
-                    sự kiện đã có thay vì tạo trùng.
+                    Showing the 200 most recent events. If yours is not here,
+                    create it below using its exact name — matching is
+                    case-insensitive, so it joins the existing event rather than
+                    making a duplicate.
                   </p>
                 ) : null}
                 <div className="flex gap-2">
@@ -482,18 +483,18 @@ export function LeadImportDialog({
                     />
                     <span>
                       <span className="font-semibold text-[#172b4d]">
-                        Tự chia cho agent theo tỉ lệ
+                        Auto-assign these leads by ratio
                       </span>
                       {weightPreview.preview.length > 0 ? (
                         <span className="mt-0.5 block text-xs text-[#6b778c]">
-                          Trong 10 lead kế tiếp:{" "}
+                          Next 10 leads:{" "}
                           {weightPreview.preview
                             .map((row) => `${row.email.split("@")[0]} ${row.count}`)
                             .join(" · ")}
                         </span>
                       ) : (
                         <span className="mt-0.5 block text-xs text-[#974f0c]">
-                          Chưa có agent nào nhận product này — lead sẽ ở lại pool.
+                          Nobody is set to receive this product — these leads will stay in the pool.
                         </span>
                       )}
                     </span>
@@ -536,10 +537,10 @@ export function LeadImportDialog({
                 </div>
                 {result.autoAssign ? (
                   <p className="mt-2 text-sm text-emerald-900">
-                    Đã chia: <strong>{result.autoAssign.assigned}</strong>
+                    Assigned: <strong>{result.autoAssign.assigned}</strong>
                     {result.autoAssign.unassigned > 0 ? (
                       <>
-                        {" · còn ở pool: "}
+                        {" · left in the pool: "}
                         <strong>{result.autoAssign.unassigned}</strong>
                         {result.autoAssign.reason ? ` — ${result.autoAssign.reason}` : null}
                       </>

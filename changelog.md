@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Modal Chia pool: tiếng Anh và kích thước cố định
+
+- **Loại**: fix (UI).
+- **Tiếng Anh**: toàn bộ chữ trên màn hình của modal Chia pool, cộng những đoạn tao thêm vào dialog Import (ô tự chia, dòng xem trước, kết quả, cảnh báo cắt danh sách sự kiện). Phần còn lại của app vốn là tiếng Anh; chỗ tao viết bị lệch. Comment trong code vẫn giữ tiếng Việt, đồng bộ với các file khác của module.
+- **Modal cao cố định** `h-[680px]`: thêm/xoá agent, hiện lỗi, hay đổi product đều không được làm modal co giãn dưới tay người đang bấm — nút "Chia" nhảy chỗ ngay lúc sắp bấm là cách làm người ta bấm nhầm. Vẫn giữ `max-h` để màn hình thấp không tràn.
+- **Vùng danh sách agent cao cố định** `h-64`, tự cuộn, header dính: danh sách 2 người hay 13 người thì phần còn lại của modal vẫn nằm nguyên chỗ cũ.
+
 ## 2026-09-01 — Chia pool: danh sách agent lúc hiện lúc không
 
 - **Loại**: fix (bug tải dữ liệu). Bốn lỗi cùng nằm trong một effect.
