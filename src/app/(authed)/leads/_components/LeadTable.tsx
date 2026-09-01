@@ -1,16 +1,14 @@
 "use client";
 
 import { useRef } from "react";
-import { createPortal } from "react-dom";
 import type {
   CSSProperties,
   MouseEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
 } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, Plus, UserPlus } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, UserPlus } from "lucide-react";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
-import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { leadDisplayKey } from "@/lib/leads/display";
 import { ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
 import { leadIsInScope } from "@/lib/leads/capabilities";
@@ -729,12 +727,11 @@ function productOptionLabel(product: LeadRow["product"]): string {
 }
 
 /**
- * Chọn nhiều product cho một lead — cùng hình dạng với ô gán nhiều worker cho
- * một task bên Task board: nút hiện các chip đã chọn, bấm ra menu tick nhiều.
+ * Ô Product: vẫn là dropdown như ban đầu — cùng nút, cùng chevron, cùng panel
+ * của LeadChoiceField — chỉ khác là tick được cả hai lựa chọn.
  *
- * Không có ô tìm kiếm: chỉ có hai lựa chọn, thêm ô tìm là thêm một thứ để bấm
- * nhầm. Chưa chọn gì thì nút là viền đứt "Set product", giống hệt nút "Assign"
- * của một task chưa ai nhận.
+ * Không tự dựng menu riêng: một trường chọn giá trị mà trông khác mọi trường
+ * chọn giá trị khác trong màn này là thứ người dùng phải học lại từ đầu.
  */
 export function ProductMenu({
   selected,
@@ -746,92 +743,56 @@ export function ProductMenu({
   options: TableColumnOption[];
   canEdit: boolean;
   onToggle: (next: LeadProduct[]) => void;
+  showChevron?: boolean;
 }) {
-  const { isOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
   const current = [...selected];
-
-  const chips = (
-    <span className="flex min-w-0 flex-wrap items-center gap-1">
-      {current.map((value) => (
-        <span
-          key={value}
-          className="inline-flex shrink-0 items-center rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
-          style={productBadgeStyle(productOptionLabel(value), options)}
-        >
-          {productOptionLabel(value)}
-        </span>
-      ))}
-    </span>
-  );
-
-  if (!canEdit) {
-    return current.length > 0 ? (
-      chips
-    ) : (
-      <span className="text-xs font-semibold text-[#97a0af]">No product</span>
-    );
-  }
+  const label =
+    current.length > 0 ? current.map(productOptionLabel).join(", ") : "No product";
 
   return (
-    <span className="block min-w-0">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          toggle();
-        }}
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        title={current.length > 0 ? current.map(productOptionLabel).join(", ") : "Set product"}
-        className={
-          current.length === 0
-            ? "inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] bg-white px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]"
-            : "flex min-w-0 items-center rounded text-left transition hover:opacity-80"
-        }
-      >
-        {current.length === 0 ? (
-          <>
-            <Plus className="h-3 w-3 shrink-0" /> Set product
-          </>
+    <LeadChoiceField
+      label={label}
+      ariaLabel="Product"
+      multi
+      choices={LEAD_PRODUCTS.map((value) => ({
+        value,
+        label: productOptionLabel(value),
+      }))}
+      selectedValue=""
+      selectedValues={current}
+      canEdit={canEdit}
+      onSelect={() => undefined}
+      onToggle={(value) => {
+        const product = value as LeadProduct;
+        onToggle(
+          current.includes(product)
+            ? current.filter((item) => item !== product)
+            : [...current, product],
+        );
+      }}
+      showChevron
+      // Trông như một ô nhập: nền trắng, có viền. Cả hai badge nằm TRONG cùng
+      // một ô, cùng một hàng — flex-nowrap để badge thứ hai không rơi xuống
+      // dòng dưới và đội cao cả dòng của bảng.
+      buttonClassName="!h-8 w-full !justify-between !rounded !border !border-[#dfe1e6] !bg-white !px-2"
+      renderValue={
+        current.length > 0 ? (
+          <span className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden">
+            {current.map((value) => (
+              <span
+                key={value}
+                className="inline-flex shrink-0 items-center rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
+                style={productBadgeStyle(productOptionLabel(value), options)}
+              >
+                {productOptionLabel(value)}
+              </span>
+            ))}
+          </span>
         ) : (
-          chips
-        )}
-      </button>
-      {isOpen
-        ? createPortal(
-            <div
-              ref={menuRef}
-              style={menuStyle}
-              className="z-[100] min-w-[12rem] rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
-            >
-              {LEAD_PRODUCTS.map((value) => {
-                const on = current.includes(value);
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggle(on ? current.filter((item) => item !== value) : [...current, value]);
-                    }}
-                    className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm font-medium text-[#172b4d] transition hover:bg-[#f4f5f7]"
-                  >
-                    <span
-                      className="inline-flex items-center rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
-                      style={productBadgeStyle(productOptionLabel(value), options)}
-                    >
-                      {productOptionLabel(value)}
-                    </span>
-                    {on ? <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" /> : null}
-                  </button>
-                );
-              })}
-            </div>,
-            document.body,
-          )
-        : null}
-    </span>
+          <span className="text-xs font-semibold text-[#97a0af]">No product</span>
+        )
+      }
+    />
   );
 }
 

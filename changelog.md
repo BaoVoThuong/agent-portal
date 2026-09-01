@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Ô Product trở lại dáng dropdown, nhưng chọn được cả hai
+
+- **Loại**: fix (UI).
+- Bỏ menu tự dựng riêng ở bản trước. Ô Product dùng lại **`LeadChoiceField`** — cùng nút, cùng chevron, cùng panel với Status và Assignee — chỉ thêm **chế độ multi**. Một trường chọn giá trị mà trông khác mọi trường chọn giá trị khác trong cùng màn hình là thứ người dùng phải học lại từ đầu.
+- **`LeadChoiceField` thêm `multi`** thay vì đẻ component thứ hai: cùng một hình dáng thì phải là cùng một component, nếu không hai bên sẽ trôi khỏi nhau.
+- **Menu không đóng sau mỗi lần tick** khi ở chế độ multi — chọn nhiều thì người ta bấm liên tiếp, đóng lại sau mỗi lần là bắt mở lại đúng chỗ vừa bấm.
+- **Trông như một ô nhập**: nền trắng, có viền. Chọn cả hai product thì **hai badge nằm trong cùng một ô, cùng một hàng** (`flex-nowrap`) — để badge thứ hai không rơi xuống dòng dưới và đội cao cả dòng của bảng.
+- Modal chi tiết dùng đúng component đó, không đè style riêng.
+
 ## 2026-09-01 — Ô Product: chọn nhiều theo đúng kiểu gán nhiều worker cho task
 
 - **Loại**: fix (UI sai hình dạng).

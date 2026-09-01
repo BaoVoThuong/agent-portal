@@ -20,6 +20,14 @@ type LeadChoiceFieldProps = {
   canEdit: boolean;
   renderValue: ReactNode;
   onSelect: (value: string) => void | Promise<void>;
+  /**
+   * Chế độ chọn nhiều. Vẫn đúng một component vì hình dáng phải giống hệt:
+   * cùng nút, cùng chevron, cùng panel — chỉ khác là panel tick nhiều và menu
+   * không đóng sau mỗi lần bấm.
+   */
+  multi?: boolean;
+  selectedValues?: readonly string[];
+  onToggle?: (value: string) => void | Promise<void>;
   containerClassName?: string;
   buttonClassName?: string;
   /** Detail rails use the same chevron affordance as Task selects. */
@@ -39,6 +47,9 @@ export function LeadChoiceField({
   canEdit,
   renderValue,
   onSelect,
+  multi = false,
+  selectedValues,
+  onToggle,
   containerClassName = "flex-1",
   buttonClassName = "",
   showChevron = false,
@@ -46,6 +57,17 @@ export function LeadChoiceField({
   const { isOpen, toggle, triggerRef, menuRef, menuStyle, closeMenu, closeMenuForTab } =
     useAnchoredMenu();
   const [saveError, setSaveError] = useState(false);
+
+  async function commitToggle(next: string) {
+    // Không đóng menu: chọn nhiều thì người ta thường bấm liên tiếp, đóng lại
+    // sau mỗi lần là bắt mở lại đúng chỗ vừa bấm.
+    setSaveError(false);
+    try {
+      await onToggle?.(next);
+    } catch {
+      setSaveError(true);
+    }
+  }
 
   async function commit(next: string) {
     closeMenu({ restoreFocus: true });
@@ -95,8 +117,12 @@ export function LeadChoiceField({
               queryPlaceholder={`Search ${ariaLabel.toLowerCase()}…`}
               emptyMessage={`No matching ${ariaLabel.toLowerCase()}.`}
               choices={choices}
-              selectedValue={selectedValue}
-              onSelect={(value) => void commit(value)}
+              multi={multi}
+              selectedValue={multi ? null : selectedValue}
+              selectedValues={multi ? selectedValues ?? [] : []}
+              onSelect={(value) =>
+                multi ? void commitToggle(value) : void commit(value)
+              }
               onTabExit={closeMenuForTab}
             />,
             document.body,
