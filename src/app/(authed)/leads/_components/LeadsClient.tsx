@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CircleAlert, Plus, Search, Upload, X } from "lucide-react";
+import { CircleAlert, Plus, Search, Shuffle, Upload, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { resolveLeadAlerts, type LeadAlert } from "@/lib/leads/alerts";
 import {
@@ -139,6 +139,7 @@ export function LeadsClient({
   const [assigning, setAssigning] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [distributing, setDistributing] = useState(false);
   const [filters, setFilters] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
   const [sortKey, setSortKey] = useState<LeadSortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -397,6 +398,56 @@ export function LeadsClient({
     }
   }
 
+  /**
+   * Xem trước trước rồi mới hỏi: "chia 137 lead (P&C 40, Health 97)?" là câu
+   * người ta trả lời được, "chia pool?" thì không. Đây là hành động khó lùi.
+   */
+  async function openDistribute() {
+    if (distributing) return;
+    setDistributing(true);
+    setEditError(null);
+    try {
+      const response = await fetch("/api/leads/distribute", { cache: "no-store" });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Không xem trước được.");
+      if (payload.pending === 0) {
+        setEditError("Không còn lead nào ở pool.");
+        return;
+      }
+      const parts = [
+        payload.byProduct.pc > 0 ? `P&C ${payload.byProduct.pc}` : null,
+        payload.byProduct.health > 0 ? `Health ${payload.byProduct.health}` : null,
+      ].filter(Boolean);
+      const more = payload.remaining > 0 ? `\n\nCòn ${payload.remaining} lead nữa sẽ cần bấm thêm lượt.` : "";
+      if (!window.confirm(`Chia ${payload.pending} lead (${parts.join(", ")}) cho agent theo tỉ lệ đã cấu hình?${more}`)) {
+        return;
+      }
+      const run = await fetch("/api/leads/distribute", {
+        method: "POST",
+        headers: { "x-lead-client-source": sourceId },
+      });
+      const result = await run.json().catch(() => null);
+      if (!run.ok) throw new Error(result?.error ?? "Không chia được.");
+      const reasons = Object.values(
+        (result.results ?? {}) as Record<string, { reason?: string }>
+      )
+        .map((entry) => entry.reason)
+        .filter(Boolean);
+      if (result.unassigned > 0) {
+        setEditError(
+          `Đã chia ${result.assigned}, còn ${result.unassigned} ở pool${
+            reasons.length > 0 ? ` — ${reasons.join(" ")}` : ""
+          }`
+        );
+      }
+      await reloadRef.current();
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : "Không chia được.");
+    } finally {
+      setDistributing(false);
+    }
+  }
+
   async function assignSelected(toEmail: string | null) {
     if (selected.size === 0 || assigning) return;
     setAssigning(true);
@@ -576,6 +627,18 @@ export function LeadsClient({
                   onClick={() => setAddOpen(true)}
                 >
                   <Plus className="h-4 w-4" /> Add lead
+                </button>
+              )}
+              {isManager && (
+                <button
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  disabled={distributing}
+                  onClick={() => void openDistribute()}
+                  title="Chia lead đang ở pool cho agent theo tỉ lệ đã cấu hình"
+                >
+                  <Shuffle className="h-4 w-4" />
+                  {distributing ? "Đang chia..." : "Chia pool"}
                 </button>
               )}
               {isManager && (

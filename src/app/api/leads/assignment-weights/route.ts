@@ -1,0 +1,222 @@
+import { NextResponse } from "next/server";
+import { auth } from "@/auth";
+import {
+  buildLeadActor,
+  canManageLeads,
+  canWorkLeads,
+  isLeadViewAdmin,
+} from "@/lib/leads/access";
+import {
+  fetchAssignmentWeights,
+  isAutoAssignEnabled,
+  resolveEligibleAssignees,
+} from "@/lib/leads/auto-assign";
+import { previewDistribution } from "@/lib/leads/round-robin";
+import { isLeadProduct, type LeadProduct } from "@/lib/leads/types";
+import { getSupabaseAdmin } from "@/lib/supabase";
+
+export const dynamic = "force-dynamic";
+
+/** How far ahead the preview looks. Ten is what people can hold in their head. */
+const PREVIEW_SIZE = 10;
+
+/**
+ * GET is deliberately open to any lead worker, not just a manager: the import
+ * dialog shows the split before someone commits 2,000 rows to it, and the
+ * person importing is not always the person who set the ratio.
+ */
+export async function GET(request: Request) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
+  if (!canWorkLeads(actor)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const rawProduct = new URL(request.url).searchParams.get("product");
+  if (!isLeadProduct(rawProduct)) {
+    return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+  }
+  const product: LeadProduct = rawProduct;
+
+  const supabase = getSupabaseAdmin();
+  const [rows, enabled] = await Promise.all([
+    fetchAssignmentWeights(product, supabase),
+    isAutoAssignEnabled(supabase),
+  ]);
+
+  // The preview shows who would REALLY receive leads, so it filters by the same
+  // rule the assignment does. A row for someone who has left the company must
+  // not appear in a promise about the next ten leads.
+  const active = rows.filter((row) => row.is_active && row.weight > 0);
+  const eligible = new Set(await resolveEligibleAssignees(active.map((row) => row.agent_email)));
+  const usable = active.filter((row) => eligible.has(row.agent_email.trim().toLowerCase()));
+
+  const totalWeight = usable.reduce((sum, row) => sum + row.weight, 0);
+  return NextResponse.json({
+    product,
+    enabled,
+    weights: rows.map((row) => ({
+      agent_email: row.agent_email,
+      weight: row.weight,
+      position: row.position,
+      is_active: row.is_active,
+      /** Computed, never stored: storing percentages forces them to sum to 100. */
+      share: totalWeight > 0 && row.is_active && row.weight > 0
+        ? Math.round((row.weight / totalWeight) * 1000) / 10
+        : 0,
+      eligible: eligible.has(row.agent_email.trim().toLowerCase()),
+    })),
+    preview: previewDistribution(
+      usable.map((row) => ({
+        email: row.agent_email,
+        weight: row.weight,
+        currentWeight: row.current_weight,
+        position: row.position,
+      })),
+      PREVIEW_SIZE
+    ),
+  });
+}
+
+type WeightInput = {
+  agent_email: string;
+  weight: number;
+  position: number;
+  is_active: boolean;
+};
+
+function parseWeights(value: unknown): WeightInput[] | { error: string } {
+  if (!Array.isArray(value)) return { error: "weights must be a list." };
+  const parsed: WeightInput[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") return { error: "Each weight must be an object." };
+    const row = raw as Record<string, unknown>;
+    const agentEmail = typeof row.agent_email === "string" ? row.agent_email.trim().toLowerCase() : "";
+    if (!agentEmail) return { error: "Each weight needs an agent." };
+    if (seen.has(agentEmail)) return { error: `${agentEmail} is listed twice.` };
+    seen.add(agentEmail);
+    const weight = Number(row.weight);
+    if (!Number.isInteger(weight) || weight < 0) {
+      return { error: `Weight for ${agentEmail} must be a whole number of 0 or more.` };
+    }
+    const position = Number.isInteger(Number(row.position)) ? Number(row.position) : 0;
+    parsed.push({
+      agent_email: agentEmail,
+      weight,
+      position,
+      is_active: row.is_active !== false,
+    });
+  }
+  return parsed;
+}
+
+/**
+ * Replaces the whole list for one product in one call.
+ *
+ * Not a per-row PATCH on purpose: a ratio is a relationship BETWEEN rows, so
+ * editing one row alone is never what the admin means. Sending the list whole
+ * also makes a removal expressible, which a per-row endpoint cannot do.
+ */
+export async function PUT(request: Request) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
+  if (!canManageLeads(actor)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!isLeadProduct(body?.product)) {
+    return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+  }
+  const product: LeadProduct = body.product;
+  const parsed = parseWeights(body?.weights);
+  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+
+  const supabase = getSupabaseAdmin();
+  const actorEmail = actor.email.trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+
+  const existing = await fetchAssignmentWeights(product, supabase);
+  const keep = new Set(parsed.map((row) => row.agent_email));
+  const removed = existing
+    .map((row) => row.agent_email)
+    .filter((agentEmail) => !keep.has(agentEmail.trim().toLowerCase()));
+
+  if (removed.length > 0) {
+    const { error } = await supabase
+      .from("lead_assignment_weights")
+      .delete()
+      .eq("product", product)
+      .in("agent_email", removed);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (parsed.length > 0) {
+    // current_weight is deliberately absent: an upsert must not reset the
+    // rotation cursor. Renaming a weight would otherwise hand the next several
+    // leads to whoever happened to be furthest behind.
+    const { error } = await supabase.from("lead_assignment_weights").upsert(
+      parsed.map((row) => ({
+        product,
+        agent_email: row.agent_email,
+        weight: row.weight,
+        position: row.position,
+        is_active: row.is_active,
+        updated_by_email: actorEmail,
+        updated_at: nowIso,
+      })),
+      { onConflict: "product,agent_email" }
+    );
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (typeof body?.enabled === "boolean") {
+    const { error } = await supabase
+      .from("lead_alert_settings")
+      .update({ auto_assign_enabled: body.enabled })
+      .eq("product", product);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+/**
+ * Zero the rotation cursor for one product.
+ *
+ * Its own endpoint rather than a field on PUT: it throws away the part-finished
+ * cycle, which is a different act from changing the ratio and deserves its own
+ * confirmation.
+ */
+export async function POST(request: Request) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
+  if (!canManageLeads(actor)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  if (body?.action !== "reset_cursor" || !isLeadProduct(body?.product)) {
+    return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+  }
+
+  const { error } = await getSupabaseAdmin()
+    .from("lead_assignment_weights")
+    .update({ current_weight: 0, updated_at: new Date().toISOString() })
+    .eq("product", body.product);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}

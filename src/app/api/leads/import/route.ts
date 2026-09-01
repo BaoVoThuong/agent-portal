@@ -2,6 +2,11 @@ import { after, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import {
+  autoAssignLeads,
+  isAutoAssignEnabled,
+  type AutoAssignOutcome,
+} from "@/lib/leads/auto-assign";
 import { parseLeadRows, type LeadColumnMapping } from "@/lib/leads/import-parse";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { isLeadProduct, toLeadProduct } from "@/lib/leads/types";
@@ -67,6 +72,9 @@ export async function POST(request: Request) {
   const eventId = rawEventId || null;
   if (eventId && !UUID_RE.test(eventId)) return NextResponse.json({ error: "The event is not valid." }, { status: 400 });
 
+  // Dùng chính id vừa chèn, KHÔNG truy vấn lại "lead chưa gán của event này":
+  // truy vấn như thế sẽ nuốt cả lead cũ mà lượt import trước cố ý để lại pool.
+  const insertedIds: string[] = [];
   let records: Record<string, unknown>[];
   try {
     const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
@@ -119,13 +127,47 @@ export async function POST(request: Request) {
           }))).select("id");
           if (retry.error) throw new Error(retry.error.message);
           inserted += retry.data?.length ?? 0;
+          for (const row of retry.data ?? []) insertedIds.push((row as { id: string }).id);
         }
       } else {
         inserted += data?.length ?? 0;
+        for (const row of data ?? []) insertedIds.push((row as { id: string }).id);
       }
     }
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not import leads." }, { status: 500 });
+  }
+
+  // Chia tự động chỉ chạy khi admin đã bật toàn cục VÀ người bấm import tick ô
+  // trong dialog. Hai lớp vì đây là hành động khó lùi: gán nhầm 2.000 lead phải
+  // gỡ bằng tay.
+  const wantsAutoAssign = String(form.get("auto_assign") ?? "") === "true";
+  let autoAssign: AutoAssignOutcome | null = null;
+  if (wantsAutoAssign && insertedIds.length > 0) {
+    if (await isAutoAssignEnabled(supabase)) {
+      try {
+        autoAssign = await autoAssignLeads(
+          insertedIds,
+          product,
+          actor.email.trim().toLowerCase(),
+          supabase
+        );
+      } catch (error) {
+        // Import đã thành công rồi; lead nằm ở pool là hoàn toàn dùng được.
+        // Làm hỏng cả lượt import vì bước chia là mất việc lớn vì việc nhỏ.
+        autoAssign = {
+          assigned: 0,
+          unassigned: insertedIds.length,
+          reason: error instanceof Error ? error.message : "Could not distribute the new leads.",
+        };
+      }
+    } else {
+      autoAssign = {
+        assigned: 0,
+        unassigned: insertedIds.length,
+        reason: "Auto-assign is switched off in Lead Table Configuration.",
+      };
+    }
   }
 
   const sourceId = readLeadMutationSourceId(request);
@@ -134,5 +176,6 @@ export async function POST(request: Request) {
     inserted,
     duplicates: parsed.rows.length - inserted,
     skipped: parsed.skipped,
+    autoAssign,
   });
 }

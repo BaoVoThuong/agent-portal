@@ -6,6 +6,41 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Tự chia lead theo tỉ lệ (weighted round-robin)
+
+- **Loại**: feature. Plan: `docs/superpowers/plans/2026-09-01-lead-auto-assign.md`.
+- **Cái gì**: lead import vào để trống người nhận, rồi được chia cho agent **theo tỉ lệ cấu hình được**, **xen kẽ**, và **tách theo product**.
+
+### Thuật toán: vì sao là smooth weighted round-robin
+Yêu cầu "xen kẽ" loại bỏ hai cách hiển nhiên hơn:
+- **Chia khối** (70 lead đầu cho A, 30 sau cho B): A nhận hết lead buổi sáng, B nhận hết buổi chiều — hai loại đó không cùng chất lượng.
+- **Random theo trọng số**: đúng tỉ lệ về lâu dài, nhưng một lượt import 10 lead vẫn có thể ra 10 A. "Về lâu dài" không an ủi được người tháng này không nhận được gì.
+
+Smooth WRR (thuật toán nginx dùng cho upstream) cho cả hai. A=70/B=30 ra `A B A A A B A A B A` — đúng 7/3 và rải đều; sau đúng một chu kỳ trạng thái về 0 nên tỉ lệ không trôi.
+
+### Hai thứ bắt buộc phải nằm trong DB
+- **Con trỏ `current_weight`**: nếu mỗi lượt import khởi tạo lại từ 0 thì **mười lần import mỗi lần một lead sẽ cùng rơi vào người đầu tiên**. Lưu lại thì import 3 rồi 7 cho ra đúng phân bố như một lần import 10. Có test riêng cho đúng điều này.
+- **Khoá hàng (`for update`)**: không khoá thì hai lượt import song song cùng đọc một `current_weight` và **tỉ lệ hỏng im lặng** — không có lỗi nào để nhìn thấy, chỉ có phân bổ sai.
+
+### Quyết định thiết kế đáng nói
+- **Trọng số là số nguyên, không phải phần trăm.** Lưu phần trăm thì tổng phải luôn bằng 100, nên thêm agent thứ ba là buộc phải sửa hai dòng kia. Phần trăm là **tính ra**.
+- **Danh sách và tỉ lệ là dữ liệu admin khai, không suy từ role.** Đã kiểm production: `Health Agent` 13 người nhưng **`P&C Agent` RỖNG** — suy từ role là chia lead P&C cho không ai. Rollout chỉ seed Health làm gợi ý, và seed với `is_active = false`.
+- **Điều kiện được nhận vẫn ở TS.** RPC nhận danh sách đã lọc bằng `canBeAssignedLead()`. Module này đã trôi lệch bốn lần vì chép luật sang chỗ khác; không chép lần thứ năm sang SQL.
+- **Không ai hợp lệ thì lead ở lại pool, không làm hỏng import.** Làm fail cả lượt 2.000 dòng vì thiếu cấu hình tỉ lệ là hỏng việc lớn vì việc nhỏ. Kết quả import nói rõ **vì sao** còn lead ở pool.
+- **Gán và ghi lịch sử trong cùng một transaction** — khác `/api/leads/assign` hiện tại (update trước, insert history sau, hỏng thì chỉ `console.error`). Đây cũng là chỗ sửa **C5** cho đường tự chia.
+- **Mặc định TẮT, và cần hai lớp bật**: cờ toàn cục cộng ô tick trong dialog import, kèm **xem trước** ("trong 10 lead kế tiếp: A 7, B 3") ngay cạnh ô tick.
+- **Import dùng chính id vừa chèn**, không truy vấn lại "lead chưa gán của event này" — truy vấn như thế sẽ nuốt cả lead cũ mà lượt trước cố ý để lại pool.
+- **Sửa tỉ lệ không reset con trỏ**: upsert cố tình không đụng `current_weight`, nếu không đổi một trọng số sẽ trao mấy lead kế tiếp cho người đang lùi xa nhất. Reset là endpoint riêng.
+- **Nút "Chia pool"** cho lead đang tồn: tối đa 500 mỗi lượt, cũ trước, hỏi xác nhận kèm số thật ("chia 137 lead: P&C 40, Health 97?").
+
+### Kiểm chứng
+- `round-robin.test.ts` 9 test, gồm dãy `abaaabaaba` và ca "con trỏ nhớ qua nhiều lượt".
+- **Kiểm RPC trên PostgreSQL 16 thật**: cùng cấu hình 70/30 ra **đúng dãy `abaaabaaba`** như bên Node — SQL và TS khớp nhau; hai lượt 10 lead cho tổng 14/6; danh sách hợp lệ rỗng trả 0 dòng và lead ở lại pool không lỗi; chạy lại rollout là no-op.
+- `npm run test:run` 130 files / **957 tests**; typecheck, lint, build sạch.
+
+### Cần chạy
+`supabase/rollouts/2026-09-02-lead-auto-assign.sql` — 4 cột `ok`.
+
 ## 2026-09-01 — Audit Event Leads: sự kiện, tải dữ liệu, và cơ chế refresh
 
 - **Loại**: fix (bug) + hiệu năng tải dữ liệu.

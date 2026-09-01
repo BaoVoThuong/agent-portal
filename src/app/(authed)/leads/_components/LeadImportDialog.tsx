@@ -22,6 +22,18 @@ type ImportResult = {
   inserted: number;
   duplicates: number;
   skipped: { row: number; reason: string }[];
+  autoAssign: {
+    assigned: number;
+    unassigned: number;
+    reason?: string;
+  } | null;
+};
+
+type WeightPreview = {
+  /** Kèm product để một response về trễ của product cũ không hiện nhầm. */
+  product: "pc" | "health";
+  enabled: boolean;
+  preview: { email: string; count: number }[];
 };
 
 type LeadImportDialogProps = {
@@ -66,6 +78,8 @@ export function LeadImportDialog({
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [autoAssign, setAutoAssign] = useState(false);
+  const [weightPreview, setWeightPreview] = useState<WeightPreview | null>(null);
 
   useEffect(() => {
     if (!open || eventsState !== "idle") return;
@@ -82,6 +96,27 @@ export function LeadImportDialog({
       })
       .catch(() => setEventsState("error"));
   }, [eventsState, open]);
+
+  // Xem trước tỉ lệ ngay trong dialog: người bấm import phải thấy điều sắp xảy
+  // ra trước khi nó xảy ra với 2.000 dòng.
+  useEffect(() => {
+    if (!open || !product) return;
+    let cancelled = false;
+    void fetch(`/api/leads/assignment-weights?product=${product}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (cancelled || !response.ok) return;
+        setWeightPreview({
+          product,
+          enabled: payload?.enabled === true,
+          preview: Array.isArray(payload?.preview) ? payload.preview : [],
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, product]);
 
   const preview = useMemo<ParseResult>(
     () => parseLeadRows(records.slice(0, 5), mapping),
@@ -204,6 +239,7 @@ export function LeadImportDialog({
       form.set("file", file);
       form.set("event_id", eventId);
       form.set("product", product);
+      form.set("auto_assign", autoAssign ? "true" : "false");
       form.set("mapping", JSON.stringify(mapping));
       const response = await fetch("/api/leads/import", {
         method: "POST",
@@ -436,6 +472,33 @@ export function LeadImportDialog({
                     </tbody>
                   </table>
                 </div>
+                {weightPreview?.enabled && weightPreview.product === product ? (
+                  <label className="mt-3 flex items-start gap-2 rounded border border-[#dfe1e6] bg-white p-3 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={autoAssign}
+                      onChange={(event) => setAutoAssign(event.target.checked)}
+                    />
+                    <span>
+                      <span className="font-semibold text-[#172b4d]">
+                        Tự chia cho agent theo tỉ lệ
+                      </span>
+                      {weightPreview.preview.length > 0 ? (
+                        <span className="mt-0.5 block text-xs text-[#6b778c]">
+                          Trong 10 lead kế tiếp:{" "}
+                          {weightPreview.preview
+                            .map((row) => `${row.email.split("@")[0]} ${row.count}`)
+                            .join(" · ")}
+                        </span>
+                      ) : (
+                        <span className="mt-0.5 block text-xs text-[#974f0c]">
+                          Chưa có agent nào nhận product này — lead sẽ ở lại pool.
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                ) : null}
                 <div className="mt-3 flex justify-end">
                   <button
                     type="button"
@@ -471,6 +534,18 @@ export function LeadImportDialog({
                     Skipped: <strong>{result.skipped.length}</strong>
                   </span>
                 </div>
+                {result.autoAssign ? (
+                  <p className="mt-2 text-sm text-emerald-900">
+                    Đã chia: <strong>{result.autoAssign.assigned}</strong>
+                    {result.autoAssign.unassigned > 0 ? (
+                      <>
+                        {" · còn ở pool: "}
+                        <strong>{result.autoAssign.unassigned}</strong>
+                        {result.autoAssign.reason ? ` — ${result.autoAssign.reason}` : null}
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
                 {result.skipped.length > 0 && (
                   <div className="mt-3 overflow-x-auto border border-emerald-200 bg-white">
                     <table className="min-w-full text-left text-xs">
