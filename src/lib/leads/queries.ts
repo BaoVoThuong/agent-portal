@@ -135,11 +135,11 @@ export async function fetchLeadsPage(
     ]);
     if (settingsResult.error) throw new Error(settingsResult.error.message);
     if (statusesResult.error) throw new Error(statusesResult.error.message);
-    const DEFAULTS = { no_contact_hours: 24, stale_days: 3, max_attempts: 4 } as const;
     const rows = (settingsResult.data ?? []) as LeadAlertSettings[];
     alertSettingsByProduct = {
-      pc: rows.find((row) => row.product === "pc") ?? { product: "pc", ...DEFAULTS },
-      health: rows.find((row) => row.product === "health") ?? { product: "health", ...DEFAULTS },
+      pc: rows.find((row) => row.product === "pc") ?? { product: "pc", ...ALERT_SETTINGS_DEFAULTS },
+      health:
+        rows.find((row) => row.product === "health") ?? { product: "health", ...ALERT_SETTINGS_DEFAULTS },
     };
     const inScope = filter.product
       ? [alertSettingsByProduct[filter.product]]
@@ -298,6 +298,32 @@ async function fetchLeadStatusMap(
   return new Map(
     ((data ?? []) as LeadStatus[]).map((status) => [status.id, status]),
   );
+}
+
+const ALERT_SETTINGS_DEFAULTS = {
+  no_contact_hours: 24,
+  stale_days: 3,
+  max_attempts: 4,
+} as const;
+
+/**
+ * Both threshold rows, with defaults filled in for a product whose row is
+ * missing. Three callers needed this — the list, the Overview, and now the
+ * table badges — and each was growing its own copy of the defaults.
+ */
+export async function fetchLeadAlertSettings(
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<LeadAlertSettingsByProduct> {
+  const { data, error } = await supabase
+    .from("lead_alert_settings")
+    .select("product,no_contact_hours,stale_days,max_attempts");
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as LeadAlertSettings[];
+  return {
+    pc: rows.find((row) => row.product === "pc") ?? { product: "pc", ...ALERT_SETTINGS_DEFAULTS },
+    health:
+      rows.find((row) => row.product === "health") ?? { product: "health", ...ALERT_SETTINGS_DEFAULTS },
+  };
 }
 
 const LEAD_STATUS_COLUMNS = "id,label,color,position,kind,archived_at";

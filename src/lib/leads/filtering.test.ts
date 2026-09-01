@@ -1,3 +1,4 @@
+import type { LeadAlert } from "./alerts";
 import { describe, expect, it } from "vitest";
 import {
   activeLeadFilterCount,
@@ -90,5 +91,31 @@ describe("activeLeadFilterCount", () => {
     expect(activeLeadFilterCount({ ...EMPTY_LEAD_FILTERS, assignedTo: "" })).toBe(1);
     expect(activeLeadFilterCount({ ...EMPTY_LEAD_FILTERS, search: "  " })).toBe(0);
     expect(activeLeadFilterCount({ ...EMPTY_LEAD_FILTERS, search: "a", product: "pc" })).toBe(2);
+  });
+});
+
+describe("filtering by alert", () => {
+  const rows = [
+    lead({ id: "a", full_name: "Never called" }),
+    lead({ id: "b", full_name: "Fine" }),
+  ];
+  const alerts = new Map<string, readonly LeadAlert[]>([
+    ["a", ["never_contacted"]],
+    ["b", []],
+  ]);
+
+  it("keeps only the leads carrying that alert", () => {
+    const filtered = filterLeads(rows, { ...EMPTY_LEAD_FILTERS, alert: "never_contacted" }, alerts);
+    expect(filtered.map((row) => row.id)).toEqual(["a"]);
+  });
+
+  it("counts as an active filter", () => {
+    expect(activeLeadFilterCount({ ...EMPTY_LEAD_FILTERS, alert: "stale" })).toBe(1);
+  });
+
+  // Fail closed: without the map nothing can be shown to carry an alert, which
+  // is safer than silently ignoring the filter and showing every row.
+  it("matches nothing when no alert map is supplied", () => {
+    expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, alert: "stale" })).toEqual([]);
   });
 });

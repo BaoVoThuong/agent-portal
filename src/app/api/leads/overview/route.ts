@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
 import { parseOverviewProduct, summarizeLeads } from "@/lib/leads/overview";
-import type { LeadAlertSettings, LeadProduct, LeadRow, LeadStatus } from "@/lib/leads/types";
+import { fetchLeadAlertSettings } from "@/lib/leads/queries";
+import type { LeadProduct, LeadRow, LeadStatus } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -81,23 +82,17 @@ export async function GET(request: Request) {
     fetchAllLeadsForSummary(supabase, product),
     supabase.from("lead_statuses").select("id,label,color,position,kind,archived_at").is("archived_at", null),
     // Cả hai dòng khi xem mọi product: summarizeLeads chọn theo product từng lead.
-    supabase.from("lead_alert_settings").select("product,no_contact_hours,stale_days,max_attempts"),
+    fetchLeadAlertSettings(supabase),
     supabase.from("lead_events").select("id,name,event_date").is("archived_at", null),
   ]);
   if (leadsResult.error) return NextResponse.json({ error: leadsResult.error }, { status: 500 });
   if (statusesResult.error) return NextResponse.json({ error: statusesResult.error.message }, { status: 500 });
-  if (settingsResult.error) return NextResponse.json({ error: settingsResult.error.message }, { status: 500 });
   if (eventsResult.error) return NextResponse.json({ error: eventsResult.error.message }, { status: 500 });
 
   const statusById = new Map(
     ((statusesResult.data ?? []) as LeadStatus[]).map((status) => [status.id, status])
   );
-  const DEFAULTS = { no_contact_hours: 24, stale_days: 3, max_attempts: 4 } as const;
-  const rows = (settingsResult.data ?? []) as LeadAlertSettings[];
-  const byProduct = {
-    pc: rows.find((row) => row.product === "pc") ?? { product: "pc" as const, ...DEFAULTS },
-    health: rows.find((row) => row.product === "health") ?? { product: "health" as const, ...DEFAULTS },
-  };
+  const byProduct = settingsResult;
   const settings = product ? byProduct[product] : byProduct;
   return NextResponse.json({
     summary: summarizeLeads(leadsResult.rows, statusById, settings),

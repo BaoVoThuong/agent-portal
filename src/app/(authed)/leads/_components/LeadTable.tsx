@@ -10,6 +10,7 @@ import type {
 import { ArrowDown, ArrowUp, ArrowUpDown, Check } from "lucide-react";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
 import { leadIsInScope } from "@/lib/leads/capabilities";
 import {
   isLeadSortKey,
@@ -67,6 +68,8 @@ type LeadTableProps = {
   assignees: { email: string; name: string | null }[];
   /** Owner emails this person may edit; null = every lead (a manager). */
   editableOwnerEmails: string[] | null;
+  /** Alerts per lead id, computed by the client from the stored counters. */
+  alertsByLeadId: ReadonlyMap<string, readonly LeadAlert[]>;
   selected: ReadonlySet<string>;
   allVisibleSelected: boolean;
   onToggleLead: (id: string) => void;
@@ -85,6 +88,7 @@ export function LeadTable({
   onSort,
   assignees,
   editableOwnerEmails,
+  alertsByLeadId,
   onPatchLead,
   onAssignLead,
   leads,
@@ -198,6 +202,7 @@ export function LeadTable({
                     assigneeChoices={assigneeChoices}
                     isManager={isManager}
                     canEdit={leadIsInScope(lead, editableOwnerEmails)}
+                    alerts={alertsByLeadId.get(lead.id) ?? EMPTY_ALERTS}
                     selected={selected.has(lead.id)}
                     pinnedOffsetByKey={pinnedOffsetByKey}
                     onToggle={() => onToggleLead(lead.id)}
@@ -288,6 +293,7 @@ function LeadRow({
   assigneeChoices,
   isManager,
   canEdit,
+  alerts,
   selected,
   pinnedOffsetByKey,
   onToggle,
@@ -306,6 +312,7 @@ function LeadRow({
   assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
   isManager: boolean;
   canEdit: boolean;
+  alerts: readonly LeadAlert[];
   selected: boolean;
   pinnedOffsetByKey: ReadonlyMap<string, number>;
   onToggle: () => void;
@@ -345,6 +352,7 @@ function LeadRow({
           assigneeChoices={assigneeChoices}
           canEdit={canEdit}
           canAssign={isManager}
+          alerts={alerts}
           pinnedOffset={pinnedOffsetByKey.get(column.key)}
           onOpen={onOpen}
           onPatch={onPatch}
@@ -367,6 +375,7 @@ function LeadDataCell({
   assigneeChoices,
   canEdit,
   canAssign,
+  alerts,
   pinnedOffset,
   onOpen,
   onPatch,
@@ -383,6 +392,7 @@ function LeadDataCell({
   assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
   canEdit: boolean;
   canAssign: boolean;
+  alerts: readonly LeadAlert[];
   pinnedOffset?: number;
   onOpen: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
@@ -423,6 +433,7 @@ function LeadDataCell({
             {lead.full_name ?? "Unnamed lead"}
           </span>
         </button>
+        <LeadAlertBadges alerts={alerts} />
       </div>
     );
   }
@@ -622,6 +633,50 @@ function renderLeadCell(
   return (
     <span className={`min-w-0 truncate ${textClassName}`} title={value}>
       {value}
+    </span>
+  );
+}
+
+const EMPTY_ALERTS: readonly LeadAlert[] = [];
+
+/** Short enough to sit beside a name without pushing it out of the cell. */
+export const ALERT_LABEL: Record<LeadAlert, string> = {
+  never_contacted: "Never called",
+  stale: "Stale",
+  follow_up_overdue: "Overdue",
+  exhausted: "Max tries",
+};
+
+const ALERT_TITLE: Record<LeadAlert, string> = {
+  never_contacted: "Assigned but never contacted.",
+  stale: "No contact for longer than the stale threshold.",
+  follow_up_overdue: "A promised call-back time has passed with no contact since.",
+  exhausted: "Reached the maximum number of contact attempts.",
+};
+
+/**
+ * Red = the agent has not done their part. Amber = they did, and the lead is
+ * hard. Collapsing the two into one colour blames the person who called four
+ * times and got no answer exactly as much as the one who never dialled — which
+ * is the distinction this whole module exists to make.
+ */
+function LeadAlertBadges({ alerts }: { alerts: readonly LeadAlert[] }) {
+  if (alerts.length === 0) return null;
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {alerts.map((alert) => (
+        <span
+          key={alert}
+          title={ALERT_TITLE[alert]}
+          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide ${
+            ALERT_SEVERITY[alert] === "red"
+              ? "bg-[#ffebe6] text-[#bf2600]"
+              : "bg-[#fffae6] text-[#974f0c]"
+          }`}
+        >
+          {ALERT_LABEL[alert]}
+        </span>
+      ))}
     </span>
   );
 }

@@ -3,7 +3,11 @@ import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { fetchLeadAssignees } from "@/lib/leads/assignees";
-import { fetchAllLeads, fetchLeadVocabulary } from "@/lib/leads/queries";
+import {
+  fetchAllLeads,
+  fetchLeadAlertSettings,
+  fetchLeadVocabulary,
+} from "@/lib/leads/queries";
 import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import { isLeadProduct } from "@/lib/leads/types";
@@ -37,7 +41,7 @@ export default async function LeadsPage({
   // Resolved once: a worker's queue is their own leads plus every agent they
   // are an Assistant for. null means a manager, i.e. no owner filter at all.
   const ownerEmails = await resolveLeadOwnerEmails(actor);
-  const [page, config, vocabulary, assignees] = await Promise.all([
+  const [page, config, vocabulary, alertSettings, assignees] = await Promise.all([
     fetchAllLeads(
       actor,
       { product: productFilter, alert: params.alert },
@@ -46,6 +50,10 @@ export default async function LeadsPage({
     ),
     fetchTableColumnsWithOptions("lead", supabase),
     fetchLeadVocabulary(supabase),
+    // The alert engine is a pure function of these thresholds plus four stored
+    // columns, so the badges can be computed in the browser — no extra request,
+    // and they stay correct as the clock moves without a refresh.
+    fetchLeadAlertSettings(supabase),
     // Only a manager can reassign, so only they need the roster. Loading it for
     // an agent would be one query nothing on their screen can use.
     actor.isManager ? fetchLeadAssignees() : Promise.resolve([]),
@@ -55,6 +63,7 @@ export default async function LeadsPage({
     <LeadsClient
       productFilter={productFilter}
       editableOwnerEmails={ownerEmails}
+      alertSettings={alertSettings}
       isManager={actor.isManager}
       initialLeads={page.rows}
       initialTotal={page.total}

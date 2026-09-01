@@ -6,6 +6,18 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Cảnh báo lead lên bảng (O1 + O2)
+
+- **Loại**: feature — khoảng trống lớn nhất trong audit, và không đụng DB.
+- **Vấn đề**: `resolveLeadAlerts` viết xong, test xong, nhưng **chỉ được gọi từ Overview** — mà Overview là manager-only. Agent mở `/leads` không thấy lead nào của mình quá hạn, chưa gọi bao giờ, hay đã thử đủ số lần. Module này sinh ra vì "có agent nhận leads nhưng có agent lại không call": cơ chế phát hiện đã có, nhưng **người duy nhất hành động được thì không nhìn thấy nó**.
+- **Badge cạnh tên lead**: mỗi dòng hiện cờ của nó — `Never called` / `Overdue` / `Stale` / `Max tries`. Giữ nguyên hai bậc màu của `ALERT_SEVERITY`: đỏ = agent chưa làm phần việc của mình, vàng = đã làm và lead khó. Gộp một màu là đổ lỗi cho người gọi bốn lần không ai nghe máy giống hệt người chưa bấm số bao giờ.
+- **Chip đếm trên toolbar**, bấm để lọc: agent thấy ngay "3 lead chưa gọi" của **chính mình**. Đây là câu trả lời cho O2 mà không cần mở Overview cho agent — chip đếm trên đúng những dòng người đó đã được phép thấy, nên không cần thêm quyền nào.
+- **Tính ở client, không thêm request nào**: `resolveLeadAlerts` là hàm thuần đọc bốn cột đã lưu sẵn cộng ngưỡng cộng thời điểm hiện tại. Trang server nạp sẵn hai dòng ngưỡng; badge tự đúng khi đồng hồ chạy mà không cần refresh. Đây cũng chính là lý do module này không cần cron quét lead quá hạn.
+- **Lọc theo cảnh báo là lọc cục bộ**, khác `?alert=` trên URL (đó là hỏi server một trang khác, và là đường Overview link sang). `filterLeads` nhận thêm map alert và **fail closed**: không có map thì không dòng nào khớp, thay vì âm thầm bỏ qua bộ lọc và hiện tất cả.
+- **Dọn kèm**: gom `fetchLeadAlertSettings()` về `queries.ts`. Ba nơi cần "nạp hai dòng ngưỡng, điền mặc định khi thiếu" và mỗi nơi đang mọc một bản sao của bộ mặc định.
+
+- **Kiểm chứng**: `npm run test:run` 126 files / **935 tests**; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Sửa đợt 2 theo audit Lead (B5, B6, C10)
 
 - **Loại**: fix (state phía client). Ba lỗi người dùng gặp hằng ngày, cùng nằm trong `LeadsClient`.

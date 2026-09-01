@@ -1,3 +1,4 @@
+import type { LeadAlert } from "./alerts";
 import type { LeadRow } from "./types";
 
 export type LeadFilters = {
@@ -11,6 +12,12 @@ export type LeadFilters = {
    */
   eventName: string | null;
   product: "pc" | "health" | null;
+  /**
+   * Alerts are computed client-side from rows already loaded, so filtering by
+   * one is a local narrowing — not the `?alert=` URL, which asks the server for
+   * a different page and is how the Overview links in.
+   */
+  alert: LeadAlert | null;
 };
 
 export const EMPTY_LEAD_FILTERS: LeadFilters = {
@@ -19,6 +26,7 @@ export const EMPTY_LEAD_FILTERS: LeadFilters = {
   statusId: null,
   eventName: null,
   product: null,
+  alert: null,
 };
 
 /**
@@ -51,9 +59,15 @@ export function matchesLeadSearch(lead: LeadRow, rawQuery: string): boolean {
 
 export function filterLeads(
   leads: readonly LeadRow[],
-  filters: LeadFilters
+  filters: LeadFilters,
+  /** Alerts per lead id; only needed when filters.alert is set. */
+  alertsByLeadId?: ReadonlyMap<string, readonly LeadAlert[]>
 ): LeadRow[] {
   return leads.filter((lead) => {
+    if (filters.alert) {
+      const alerts = alertsByLeadId?.get(lead.id) ?? [];
+      if (!alerts.includes(filters.alert)) return false;
+    }
     if (filters.product && lead.product !== filters.product) return false;
     if (filters.statusId && lead.status_id !== filters.statusId) return false;
     if (filters.eventName) {
@@ -77,6 +91,7 @@ export function activeLeadFilterCount(filters: LeadFilters): number {
     (filters.assignedTo === null ? 0 : 1) +
     (filters.statusId ? 1 : 0) +
     (filters.eventName ? 1 : 0) +
-    (filters.product ? 1 : 0)
+    (filters.product ? 1 : 0) +
+    (filters.alert ? 1 : 0)
   );
 }

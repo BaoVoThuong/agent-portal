@@ -4,7 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CircleAlert, Plus, Search, Upload, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
-import type { LeadAlert } from "@/lib/leads/alerts";
+import {
+  ALERT_SEVERITY,
+  resolveLeadAlerts,
+  type LeadAlert,
+} from "@/lib/leads/alerts";
+import {
+  settingsForLead,
+  type LeadAlertSettingsByProduct,
+} from "@/lib/leads/overview";
 import {
   activeLeadFilterCount,
   EMPTY_LEAD_FILTERS,
@@ -36,7 +44,7 @@ import { LeadDetailDrawer } from "./LeadDetailDrawer";
 import { LeadAddDialog } from "./LeadAddDialog";
 import { LeadImportDialog } from "./LeadImportDialog";
 import { LeadOverview } from "./LeadOverview";
-import { LeadTable } from "./LeadTable";
+import { ALERT_LABEL, LeadTable } from "./LeadTable";
 
 type LeadsClientProps = {
   /** null = every product. A filter now, not a separate screen. */
@@ -49,6 +57,8 @@ type LeadsClientProps = {
    * API will accept.
    */
   editableOwnerEmails: string[] | null;
+  /** Both threshold rows; alerts are computed per lead from its own product. */
+  alertSettings: LeadAlertSettingsByProduct;
   initialLeads: LeadRow[];
   initialTotal: number;
   columns: TableColumn[];
@@ -64,6 +74,14 @@ type LeadsClientProps = {
  * be "" — that is the sentinel filterLeads reads as "still in the pool".
  */
 const ALL_FILTER = "__all__";
+
+/** Red first: those are the ones where somebody still has to pick up a phone. */
+const LEAD_ALERT_ORDER: LeadAlert[] = [
+  "never_contacted",
+  "follow_up_overdue",
+  "stale",
+  "exhausted",
+];
 const UNASSIGNED_FILTER = "";
 
 const FILTER_SELECT_BUTTON_CLASS =
@@ -85,6 +103,7 @@ export function LeadsClient({
   productFilter,
   isManager,
   editableOwnerEmails,
+  alertSettings,
   initialLeads,
   initialTotal,
   columns,
@@ -371,6 +390,7 @@ export function LeadsClient({
 
   // The list is fully loaded client-side (fetchAllLeads pages until complete),
   // so filtering and sorting stay in the browser — same as the task board.
+  const statusById = new Map(statuses.map((status) => [status.id, status]));
   const statusNameById = new Map(statuses.map((status) => [status.id, status.label]));
   // Event is free text on the row, so the choices are whatever the loaded leads
   // actually carry rather than a lookup table.
@@ -396,8 +416,26 @@ export function LeadsClient({
     ...eventNames.map((name) => ({ value: name, label: name })),
   ];
 
+  // resolveLeadAlerts is pure and reads four stored columns, so recomputing it
+  // for every row on every render costs nothing and is always current — that is
+  // why this module has no cron sweeping for overdue leads.
+  const alertsByLeadId = new Map(
+    leads.map((lead) => [
+      lead.id,
+      resolveLeadAlerts(
+        lead,
+        lead.status_id ? statusById.get(lead.status_id) ?? null : null,
+        settingsForLead(alertSettings, lead.product),
+      ),
+    ]),
+  );
+  const alertCounts = { never_contacted: 0, stale: 0, follow_up_overdue: 0, exhausted: 0 };
+  for (const list of alertsByLeadId.values()) {
+    for (const alert of list) alertCounts[alert] += 1;
+  }
+
   const displayedLeads = (() => {
-    const matched = filterLeads(leads, filters);
+    const matched = filterLeads(leads, filters, alertsByLeadId);
     if (!sortKey) return matched;
     return sortLeads(matched, sortKey, sortDir, {
       statusLabel: (id) => (id ? statusNameById.get(id) ?? null : null),
@@ -549,6 +587,39 @@ export function LeadsClient({
 
             {view === "list" ? (
               <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {/* Cảnh báo là lý do module này tồn tại, nhưng trước đây chỉ
+                    Overview (manager-only) hiện chúng — agent không có cách nào
+                    biết lead nào của mình quá hạn. Chip đếm trên chính các dòng
+                    người đó đã được phép thấy, nên không cần quyền gì thêm. */}
+                {LEAD_ALERT_ORDER.map((alert) => {
+                  const count = alertCounts[alert];
+                  if (count === 0) return null;
+                  const active = filters.alert === alert;
+                  const red = ALERT_SEVERITY[alert] === "red";
+                  return (
+                    <button
+                      key={alert}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() =>
+                        setFilters({ ...filters, alert: active ? null : alert })
+                      }
+                      className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition ${
+                        active
+                          ? "border-[#0c66e4] bg-[#deebff] text-[#0c66e4]"
+                          : red
+                            ? "border-[#ffbdad] bg-[#fff7f5] text-[#bf2600] hover:border-[#ff8f73]"
+                            : "border-[#ffe380] bg-[#fffae6] text-[#974f0c] hover:border-[#ffc400]"
+                      }`}
+                    >
+                      {ALERT_LABEL[alert]}
+                      <span className="rounded-full bg-white/70 px-1.5 text-xs font-bold">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+
                 {isManager ? (
                   <TaskSelect
                     value={filters.assignedTo ?? ALL_FILTER}
@@ -718,6 +789,7 @@ export function LeadsClient({
               leads={displayedLeads}
               assignees={assignees}
               editableOwnerEmails={editableOwnerEmails}
+              alertsByLeadId={alertsByLeadId}
               onPatchLead={patchLead}
               onAssignLead={assignLead}
               sortKey={sortKey}
