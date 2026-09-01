@@ -17,6 +17,11 @@ import {
   type SortDir,
 } from "@/lib/leads/sorting";
 import { isOwnLeadMutation, LEADS_TOPIC } from "@/lib/leads/realtime-topics";
+import {
+  mergeLeadPatch,
+  retainSelection,
+  syncSelectedLead,
+} from "@/lib/leads/list-state";
 import { personLabel } from "@/lib/tasks/people";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import {
@@ -104,9 +109,11 @@ export function LeadsClient({
   const [filters, setFilters] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
   const [sortKey, setSortKey] = useState<LeadSortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [view, setView] = useState<"list" | "overview">(() =>
-    searchParams.get("view") === "overview" ? "overview" : "list",
-  );
+  // Derived, not stored: reading the URL once meant browser Back/Forward moved
+  // the address bar while the tab stayed where it was. Only a manager has an
+  // Overview, so ?view=overview from anyone else falls back to the list.
+  const view: "list" | "overview" =
+    searchParams.get("view") === "overview" && isManager ? "overview" : "list";
   const rawAlert = searchParams.get("alert");
   const activeAlert: LeadAlert | null =
     rawAlert &&
@@ -163,15 +170,16 @@ export function LeadsClient({
         setLeads(refreshedLeads);
         // The detail modal owns a copy of the selected row. Keep it in sync
         // after a manager reassigns from that modal, otherwise the list refresh
-        // succeeds while its Assignee field continues showing the old owner.
-        setSelectedLead((current) =>
-          current
-            ? refreshedLeads.find((lead) => lead.id === current.id) ?? current
-            : current,
-        );
+        // succeeds while its Assignee field continues showing the old owner —
+        // and close it outright when the row is gone rather than leaving an
+        // editable-looking modal that 403s on the next save.
+        setSelectedLead((current) => syncSelectedLead(current, refreshedLeads));
+        // A background refresh must not throw away a bulk selection: this runs
+        // on a 60-second timer and on every realtime echo of someone else's
+        // edit. Clearing belongs after your own assign, which does it there.
+        setSelected((current) => retainSelection(current, refreshedLeads));
       }
       if (typeof payload?.total === "number") setTotal(payload.total);
-      setSelected(new Set());
     } catch (error) {
       console.error("Could not refresh leads", error);
     } finally {
@@ -267,9 +275,7 @@ export function LeadsClient({
   async function patchLead(id: string, patch: Record<string, unknown>) {
     const previous = leads.find((lead) => lead.id === id);
     setLeads((current) =>
-      current.map((lead) =>
-        lead.id === id ? { ...lead, ...(patch as Partial<LeadRow>) } : lead,
-      ),
+      current.map((lead) => (lead.id === id ? mergeLeadPatch(lead, patch) : lead)),
     );
     try {
       const response = await fetch(`/api/leads/${id}`, {
@@ -414,12 +420,11 @@ export function LeadsClient({
   }
 
   function selectAlert(alert: LeadAlert) {
-    setView("list");
+    // No setView: the URL drops ?view=overview, and view now reads the URL.
     router.push(productFilter ? `/leads?product=${productFilter}&alert=${alert}` : `/leads?alert=${alert}`);
   }
 
   function changeView(nextView: "list" | "overview") {
-    setView(nextView);
     const params = new URLSearchParams(window.location.search);
     if (productFilter) params.set("product", productFilter);
     if (nextView === "overview") {

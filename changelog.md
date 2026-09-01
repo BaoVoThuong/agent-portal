@@ -6,6 +6,26 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Sửa đợt 2 theo audit Lead (B5, B6, C10)
+
+- **Loại**: fix (state phía client). Ba lỗi người dùng gặp hằng ngày, cùng nằm trong `LeadsClient`.
+- **Ba quy tắc tách thành hàm thuần** ở `src/lib/leads/list-state.ts` kèm 9 test. Vitest ở repo này chạy `environment: "node"` và chỉ nhận `src/**/*.test.ts`, nên logic đáng ghim **phải** nằm ngoài `.tsx` mới test được — để trong component là không có lưới nào cả.
+
+### B5 — Đang chọn nhiều lead thì cứ 60 giây bị bỏ chọn
+- `reload()` gọi `setSelected(new Set())`, mà `reload()` chạy theo **đồng hồ 60 giây** và theo **mọi tín hiệu realtime của người khác**. Manager tick 20 lead, dừng đọc một dòng, quay ra mất sạch. Tái hiện 100%.
+- **Sửa**: bỏ khỏi `reload()`. Xoá lựa chọn là việc của `assignSelected()` sau khi **chính mình** gán xong — chỗ đó vốn đã gọi sẵn, nên hành vi đúng không mất.
+- **Vẫn phải bỏ những dòng đã biến mất** (`retainSelection`): lead bị archive hoặc gán ra ngoài phạm vi mà còn nằm trong `selected` thì lần bấm Assign sau thất bại một phần, không có gì trên màn hình giải thích vì sao.
+
+### B6 — Sửa một cột tuỳ biến làm các cột tuỳ biến khác nháy về "—"
+- `custom_values` gửi lên là **một phần** (đúng một khoá đang sửa), nhưng optimistic update spread thẳng nên **thay nguyên** object. Mọi cột tuỳ biến khác của dòng đó về `—` cho tới khi server trả lời.
+- **Sửa**: `mergeLeadPatch()` merge `custom_values` thay vì thay thế. Tự lành sau response nên không mất dữ liệu, nhưng trên mạng chậm thì nhìn thấy rõ và đọc như mất dữ liệu.
+
+### C10 — State URL và drawer bị cũ
+- **Drawer giữ bản sao cũ**: `find(...) ?? current` làm modal tiếp tục mở trên một lead đã archive hoặc đã ra ngoài phạm vi của người xem. Nó trông vẫn sửa được, và chỉ đến lần lưu sau mới lòi ra 403/404. `syncSelectedLead()` trả `null` khi dòng biến mất → drawer tự đóng.
+- **Tab không theo Back/Forward**: `view` đọc search params **đúng một lần lúc khởi tạo**, nên nút Back đổi thanh địa chỉ mà tab đứng yên. Nay `view` **suy ra** từ `searchParams` mỗi lần render, `changeView`/`selectAlert` chỉ đẩy URL. Kèm luôn: `?view=overview` của người không phải manager rơi về list thay vì render một tab họ không có quyền.
+
+- **Kiểm chứng**: `npm run test:run` 126 files / **932 tests**; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Sửa đợt 1 theo audit Lead (P0 + B1/B3/B4)
 
 - **Loại**: fix (integrity + phân loại dữ liệu) — theo `docs/superpowers/plans/2026-09-01-lead-audit.md`, gồm cả phần review bổ sung của Codex.
