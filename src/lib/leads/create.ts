@@ -131,3 +131,19 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
     },
   };
 }
+
+/**
+ * Which product a create/import dialog will actually write.
+ *
+ * Returns null when the answer is not known yet and the dialog must ask. The
+ * screen merged P&C and Health into one list, so "no product filter" is the
+ * normal state — and both dialogs used to fall back to `"health"` there,
+ * silently filing a P&C campaign as Health with nothing on screen saying so.
+ * A misfiled lead is worse than one extra click.
+ */
+export function resolveDialogProduct(
+  productFilter: LeadProduct | null,
+  chosen: LeadProduct | null
+): LeadProduct | null {
+  return productFilter ?? chosen;
+}

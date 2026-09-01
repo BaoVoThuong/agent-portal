@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
-import { summarizeLeads } from "@/lib/leads/overview";
-import { toLeadProduct, type LeadAlertSettings, type LeadRow, type LeadStatus } from "@/lib/leads/types";
+import { parseOverviewProduct, summarizeLeads } from "@/lib/leads/overview";
+import type { LeadAlertSettings, LeadProduct, LeadRow, LeadStatus } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -30,17 +30,19 @@ type SummaryRow = Pick<
 
 async function fetchAllLeadsForSummary(
   supabase: ReturnType<typeof getSupabaseAdmin>,
-  product: string
+  product: LeadProduct | null
 ): Promise<{ rows: LeadRow[]; truncated: boolean; error: string | null }> {
   const rows: LeadRow[] = [];
   for (let offset = 0; offset < SUMMARY_MAX_ROWS; offset += SUMMARY_PAGE_SIZE) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("leads")
       .select(SUMMARY_COLUMNS)
-      .eq("product", product)
       .is("archived_at", null)
       .order("id", { ascending: true })
       .range(offset, offset + SUMMARY_PAGE_SIZE - 1);
+    // null = mọi product; đừng để một fallback quyết định nghĩa của "không lọc".
+    if (product) query = query.eq("product", product);
+    const { data, error } = await query;
     if (error) return { rows, truncated: false, error: error.message };
     const page = (data ?? []) as unknown as SummaryRow[];
     for (const row of page) {
@@ -73,12 +75,13 @@ export async function GET(request: Request) {
   });
   if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const product = toLeadProduct(new URL(request.url).searchParams.get("product"));
+  const product = parseOverviewProduct(new URL(request.url).searchParams.get("product"));
   const supabase = getSupabaseAdmin();
   const [leadsResult, statusesResult, settingsResult, eventsResult] = await Promise.all([
     fetchAllLeadsForSummary(supabase, product),
     supabase.from("lead_statuses").select("id,label,color,position,kind,archived_at").is("archived_at", null),
-    supabase.from("lead_alert_settings").select("product,no_contact_hours,stale_days,max_attempts").eq("product", product).maybeSingle(),
+    // Cả hai dòng khi xem mọi product: summarizeLeads chọn theo product từng lead.
+    supabase.from("lead_alert_settings").select("product,no_contact_hours,stale_days,max_attempts"),
     supabase.from("lead_events").select("id,name,event_date").is("archived_at", null),
   ]);
   if (leadsResult.error) return NextResponse.json({ error: leadsResult.error }, { status: 500 });
@@ -89,9 +92,13 @@ export async function GET(request: Request) {
   const statusById = new Map(
     ((statusesResult.data ?? []) as LeadStatus[]).map((status) => [status.id, status])
   );
-  const settings = (settingsResult.data ?? {
-    product, no_contact_hours: 24, stale_days: 3, max_attempts: 4,
-  }) as LeadAlertSettings;
+  const DEFAULTS = { no_contact_hours: 24, stale_days: 3, max_attempts: 4 } as const;
+  const rows = (settingsResult.data ?? []) as LeadAlertSettings[];
+  const byProduct = {
+    pc: rows.find((row) => row.product === "pc") ?? { product: "pc" as const, ...DEFAULTS },
+    health: rows.find((row) => row.product === "health") ?? { product: "health" as const, ...DEFAULTS },
+  };
+  const settings = product ? byProduct[product] : byProduct;
   return NextResponse.json({
     summary: summarizeLeads(leadsResult.rows, statusById, settings),
     events: eventsResult.data ?? [],

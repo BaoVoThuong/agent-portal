@@ -8,6 +8,12 @@ import type {
 } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
+import { TaskSelect } from "../../tasks/_components/TaskSelect";
+
+// Keep the compact form controls visually aligned with the editable Lead
+// fields, while reusing the same custom picker behaviour as Task List.
+const INTERACTION_SELECT_BUTTON_CLASS =
+  "!h-10 !rounded !border-2 !border-[#dfe1e6] !bg-white !px-3 !text-sm !font-medium !shadow-none hover:!border-[#cfd8e5] hover:!shadow-none focus-visible:!border-[#0c66e4] focus-visible:!shadow-none";
 
 type InteractionLogProps = {
   statuses: LeadStatus[];
@@ -134,47 +140,49 @@ export function InteractionLog({
           onSubmit={submit}
         >
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
+            <div className="block">
               <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6b778c]">
                 Type
               </span>
-              <select
-                className="mt-1 h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
+              <TaskSelect
+                label="interaction type"
                 value={typeId}
-                onChange={(event) => setTypeId(event.target.value)}
+                options={interactionTypes.map((type) => ({
+                  value: type.id,
+                  label: type.label,
+                }))}
+                placeholder="Choose interaction"
                 disabled={!canLog || saving}
-                required
-              >
-                <option value="">Choose interaction</option>
-                {interactionTypes.map((type) => (
-                  <option key={type.id} value={type.id}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
+                searchable
+                className="mt-1 w-full"
+                buttonClassName={INTERACTION_SELECT_BUTTON_CLASS}
+                menuClassName="max-h-[17rem]"
+                onChange={setTypeId}
+              />
+            </div>
+            <div className="block">
               <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6b778c]">
                 Result
               </span>
-              <select
-                className="mt-1 h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
+              <TaskSelect
+                label="interaction result"
                 value={statusId}
-                onChange={(event) => {
-                  setStatusId(event.target.value);
+                options={statuses.map((candidate) => ({
+                  value: candidate.id,
+                  label: candidate.label,
+                }))}
+                placeholder="Choose result"
+                disabled={!canLog || saving}
+                searchable
+                className="mt-1 w-full"
+                buttonClassName={INTERACTION_SELECT_BUTTON_CLASS}
+                menuClassName="max-h-[17rem]"
+                onChange={(value) => {
+                  setStatusId(value);
                   setFollowUpAt("");
                 }}
-                disabled={!canLog || saving}
-                required
-              >
-                <option value="">Choose result</option>
-                {statuses.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              />
+            </div>
           </div>
           {needsFollowUp && (
             <label className="block">

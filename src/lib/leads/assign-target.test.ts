@@ -29,3 +29,33 @@ describe("canBeAssignedLead", () => {
     expect(canBeAssignedLead({ ...base, permissions: ["task.work"], roles: ["Task CS"] })).toBe(false);
   });
 });
+
+// A guard against the failure that produced this file: buildLeadActor gained an
+// isAdmin flag, two routes resolved an assign target with it, and only one was
+// updated. The rule must live in exactly one place.
+describe("no lead route rebuilds the assign-target rule", () => {
+  it("never calls buildLeadActor on a resolved target account", async () => {
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+
+    const root = "src/app/api/leads";
+    const routes: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name === "route.ts") routes.push(full);
+      }
+    };
+    walk(root);
+    expect(routes.length).toBeGreaterThan(0);
+
+    for (const route of routes) {
+      const source = readFileSync(route, "utf8");
+      expect(
+        source.includes("buildLeadActor(targetAccess.permissions"),
+        `${route} builds its own assign-target actor; use canBeAssignedLead()`
+      ).toBe(false);
+    }
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLeadPatch } from "./patch";
+import { buildLeadPatch, checkFollowUpInvariant } from "./patch";
 
 describe("buildLeadPatch", () => {
   it("trims text and turns an emptied field into null", () => {
@@ -54,5 +54,65 @@ describe("buildLeadPatch", () => {
 
   it("treats an empty body as nothing to do", () => {
     expect(buildLeadPatch({})).toEqual({ ok: false, error: "Nothing to update." });
+  });
+});
+
+describe("checkFollowUpInvariant", () => {
+  const at = "2026-09-10T00:00:00.000Z";
+
+  it("refuses a call-back status with no date", () => {
+    expect(
+      checkFollowUpInvariant({ nextStatusKind: "scheduled", nextFollowUpAt: null, followUpTouched: false })
+    ).toEqual({ ok: false, error: "That status needs a follow-up date. Open the lead to log it." });
+  });
+
+  it("accepts a call-back status that has a date", () => {
+    expect(
+      checkFollowUpInvariant({ nextStatusKind: "scheduled", nextFollowUpAt: at, followUpTouched: true })
+    ).toEqual({ ok: true, clearFollowUp: false });
+  });
+
+  // The hole C4 found: the old route only checked when status_id was sent, so a
+  // request carrying only next_follow_up_at could hang a date on an Open lead —
+  // and resolveLeadAlerts reads the date whatever the status, so that lead would
+  // start showing overdue for a call nobody promised.
+  it("refuses a date being set on a status that cannot carry one", () => {
+    expect(
+      checkFollowUpInvariant({ nextStatusKind: "open", nextFollowUpAt: at, followUpTouched: true })
+    ).toEqual({ ok: false, error: "Only a call-back status can carry a follow-up date." });
+    expect(
+      checkFollowUpInvariant({ nextStatusKind: null, nextFollowUpAt: at, followUpTouched: true })
+    ).toEqual({ ok: false, error: "Only a call-back status can carry a follow-up date." });
+  });
+
+  // Marking a lead Won while a call-back is outstanding is normal work.
+  it("clears a leftover date when moving off a call-back status", () => {
+    expect(
+      checkFollowUpInvariant({ nextStatusKind: "won", nextFollowUpAt: at, followUpTouched: false })
+    ).toEqual({ ok: true, clearFollowUp: true });
+  });
+
+  it("leaves an ordinary edit alone", () => {
+    expect(
+      checkFollowUpInvariant({ nextStatusKind: "open", nextFollowUpAt: null, followUpTouched: false })
+    ).toEqual({ ok: true, clearFollowUp: false });
+  });
+});
+
+describe("buildLeadPatch phone parity with create", () => {
+  it("normalises a formatted number the way Create does", () => {
+    expect(buildLeadPatch({ phone: "(714) 555-0123" })).toMatchObject({
+      ok: true, patch: { phone: "7145550123" },
+    });
+  });
+
+  it("refuses something that is not a phone number", () => {
+    expect(buildLeadPatch({ phone: "abc" })).toEqual({
+      ok: false, error: "Enter a valid phone number.",
+    });
+  });
+
+  it("still allows clearing the field", () => {
+    expect(buildLeadPatch({ phone: "  " })).toMatchObject({ ok: true, patch: { phone: null } });
   });
 });

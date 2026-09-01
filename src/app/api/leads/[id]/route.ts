@@ -4,12 +4,16 @@ import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { resolveEventByName } from "@/lib/leads/events";
 import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
-import { buildLeadPatch } from "@/lib/leads/patch";
+import { buildLeadPatch, checkFollowUpInvariant } from "@/lib/leads/patch";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
-import { coerceCustomValue } from "@/lib/table-config/values";
+import { validateCustomValues } from "@/lib/table-config/custom-values";
+import { findMissingRequiredFieldsFromContext } from "@/lib/table-config/required";
+import {
+  fetchWriteValidationContext,
+  TableConfigUnavailableError,
+} from "@/lib/table-config/write-context";
 
 export const dynamic = "force-dynamic";
 
@@ -73,34 +77,57 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const patch: Record<string, unknown> = { ...parsed.patch };
 
-  // A status change carries the same rule log_lead_interaction_atomic enforces:
-  // a "Call back" without a date would sit in the alert engine as a follow-up
-  // that can never come due, and a lead moved to Won while a follow-up is still
-  // pending keeps showing as overdue for a call nobody owes.
-  if (patch.status_id !== undefined && patch.status_id !== null) {
-    const { data: status, error: statusError } = await supabase
-      .from("lead_statuses")
-      .select("kind")
-      .eq("id", patch.status_id as string)
-      .is("archived_at", null)
-      .maybeSingle();
-    if (statusError) {
-      return NextResponse.json({ error: statusError.message }, { status: 500 });
+  // The status/follow-up invariant runs whenever EITHER side of it can change,
+  // not only when a status is sent: a request carrying just next_follow_up_at
+  // used to slip through and hang a date on a lead whose status cannot carry
+  // one. See checkFollowUpInvariant for what each direction costs.
+  const currentRow = current as {
+    next_follow_up_at: string | null;
+    status_id: string | null;
+    custom_values?: Record<string, unknown>;
+  };
+  const statusTouched = patch.status_id !== undefined;
+  const followUpTouched = patch.next_follow_up_at !== undefined;
+  if (statusTouched || followUpTouched) {
+    const nextStatusId = (
+      statusTouched ? patch.status_id : currentRow.status_id
+    ) as string | null;
+
+    let nextStatusKind: "open" | "scheduled" | "won" | "lost" | null = null;
+    if (nextStatusId) {
+      const { data: status, error: statusError } = await supabase
+        .from("lead_statuses")
+        .select("kind")
+        .eq("id", nextStatusId)
+        .is("archived_at", null)
+        .maybeSingle();
+      if (statusError) {
+        return NextResponse.json({ error: statusError.message }, { status: 500 });
+      }
+      // Only a status the caller is SETTING has to still exist. A lead already
+      // pointing at an archived status must stay editable, or archiving one
+      // status would freeze every lead that ever used it.
+      if (!status) {
+        if (statusTouched) {
+          return NextResponse.json({ error: "That status no longer exists." }, { status: 400 });
+        }
+      } else {
+        nextStatusKind = status.kind as typeof nextStatusKind;
+      }
     }
-    if (!status) {
-      return NextResponse.json({ error: "That status no longer exists." }, { status: 400 });
+
+    const nextFollowUpAt = (
+      followUpTouched ? patch.next_follow_up_at : currentRow.next_follow_up_at
+    ) as string | null;
+    const invariant = checkFollowUpInvariant({
+      nextStatusKind,
+      nextFollowUpAt,
+      followUpTouched,
+    });
+    if (!invariant.ok) {
+      return NextResponse.json({ error: invariant.error }, { status: 400 });
     }
-    const nextFollowUp =
-      patch.next_follow_up_at !== undefined
-        ? patch.next_follow_up_at
-        : (current as { next_follow_up_at: string | null }).next_follow_up_at;
-    if (status.kind === "scheduled" && !nextFollowUp) {
-      return NextResponse.json(
-        { error: "That status needs a follow-up date. Open the lead to log it." },
-        { status: 400 }
-      );
-    }
-    if (status.kind !== "scheduled") patch.next_follow_up_at = null;
+    if (invariant.clearFollowUp) patch.next_follow_up_at = null;
   }
 
   if (parsed.eventName !== undefined) {
@@ -115,30 +142,67 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
   }
 
-  if (parsed.customValues) {
-    const config = await fetchTableColumnsWithOptions("lead", supabase);
-    const merged: Record<string, unknown> = {
-      ...((current as { custom_values?: Record<string, unknown> }).custom_values ?? {}),
-    };
-    for (const [key, raw] of Object.entries(parsed.customValues)) {
-      const column = config.columns.find(
-        (candidate) => candidate.key === key && !candidate.archived_at
-      );
-      if (!column) {
-        return NextResponse.json({ error: `Unknown column ${key}.` }, { status: 400 });
-      }
-      const optionIds = new Set(
-        config.options
-          .filter((option) => option.column_id === column.id && !option.archived_at)
-          .map((option) => option.id)
-      );
-      const coerced = coerceCustomValue(column.type, raw, { optionIds });
-      if (!coerced.ok) {
-        return NextResponse.json({ error: coerced.error }, { status: 400 });
-      }
-      merged[key] = coerced.value;
+  // Same validation context Task and Enrollment use: one RPC returns the active
+  // columns, their options, and the person emails that actually matched, so
+  // Create / Import / inline edit cannot end up with three different contracts
+  // for the same column.
+  const touchedSystemKeys = Object.keys(parsed.patch);
+  const submittedCustomValues = parsed.customValues ?? {};
+  let writeContext;
+  try {
+    writeContext = await fetchWriteValidationContext(
+      {
+        scope: "lead",
+        mode: "patch",
+        touchedSystemKeys,
+        touchedCustomKeys: Object.keys(submittedCustomValues),
+        submittedCustomValues,
+      },
+      supabase
+    );
+  } catch (error) {
+    if (error instanceof TableConfigUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
     }
-    patch.custom_values = merged;
+    throw error;
+  }
+
+  if (parsed.customValues) {
+    const validated = validateCustomValues(parsed.customValues, writeContext);
+    if (!validated.ok) {
+      const first = validated.issues[0];
+      return NextResponse.json(
+        { error: `${first.key}: ${first.reason.replace(/-/g, " ")}.` },
+        { status: 400 }
+      );
+    }
+    patch.custom_values = {
+      ...(currentRow.custom_values ?? {}),
+      ...validated.values,
+    };
+  }
+
+  // partial: true — only required fields this request actually touches are
+  // checked, so an edit that never mentions them is not blocked. Without this
+  // an inline edit could empty a column an admin marked Required, something
+  // Create has always refused.
+  const missingRequired = findMissingRequiredFieldsFromContext(writeContext, {
+    fieldValues: {
+      name: parsed.patch.full_name,
+      phone: parsed.patch.phone,
+      email: parsed.patch.email,
+      product: parsed.patch.product,
+      status: parsed.patch.status_id,
+      ...(parsed.eventName !== undefined ? { event: parsed.eventName } : {}),
+    },
+    customValues: parsed.customValues ?? null,
+    partial: true,
+  });
+  if (missingRequired.length > 0) {
+    return NextResponse.json(
+      { error: `${missingRequired.map((field) => field.label).join(", ")} required.` },
+      { status: 400 }
+    );
   }
 
   patch.updated_by_email = email;

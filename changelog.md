@@ -6,6 +6,44 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Sửa đợt 1 theo audit Lead (P0 + B1/B3/B4)
+
+- **Loại**: fix (integrity + phân loại dữ liệu) — theo `docs/superpowers/plans/2026-09-01-lead-audit.md`, gồm cả phần review bổ sung của Codex.
+- **Lưu ý**: đợt này xây tiếp trên WIP chưa commit của phiên khác (`LeadChoiceField.tsx` tách từ `LeadChoiceCell`, modal sửa được tại chỗ). Không đè, chỉ bổ sung.
+
+### C2 ⛔ Add/Import từ màn "All products" âm thầm ghi thành Health
+- Hai dialog nhận `productFilter ?? "health"`. Trên màn gộp thì `productFilter` luôn null → mọi lead tạo/import từ đó bị xếp vào Health, kể cả khi chiến dịch là P&C. **Lỗi phân loại dữ liệu**, không phải lỗi UI.
+- **Sửa**: `resolveDialogProduct(productFilter, chosen)` trả `null` khi chưa biết; dialog **bắt buộc chọn** product, chặn cả ở nút lẫn trong hàm submit. Khi URL đã lọc product thì giữ nguyên badge như cũ.
+
+### C1 ⛔ `flattenAccess` vứt bỏ `portal_account.role`
+- Hàm tính `legacyRole` từ cột `role` rồi **chỉ dùng cho nhánh inactive**; account active luôn lấy `getLegacyRoleFromRoleNames(roleNames)`. Một dòng sửa thẳng trong DB sẽ âm thầm không được coi là admin ở đâu cả.
+- **Đo blast radius trước khi sửa**: 3 tài khoản `role='admin'`, **cả 3 đều có role RBAC Admin** → hai nguồn đang khớp 100%, và `/api/admin/users` vốn ghi cột đó **từ** role RBAC. Nên đây là bẫy tiềm ẩn, **không phải nguyên nhân** của bất kỳ lỗi "admin không sửa được" nào. Sửa thành OR: không đổi hành vi hôm nay, bỏ được bẫy.
+
+### C3 ⛔ Dropdown tuỳ biến có hai hợp đồng
+- Add dialog gửi `option.label`; inline edit và `EditableCustomCell` nói `option.id`. Lead tạo bằng dialog sẽ hiện ô dropdown rỗng.
+- **Kiểm dữ liệu thật: chưa hỏng** — scope lead hiện chưa có cột dropdown tuỳ biến nào (chỉ `secondary_phone` dạng text). Nhưng chỉ cách một thao tác "thêm cột" ở Lead Config.
+- **Sửa**: dialog gửi `option.id` (chuẩn chung với Task/Enrollment); PATCH truyền thêm `optionIdByLabel` để giá trị cũ dạng label **tự chuyển sang id** thay vì bị từ chối; bảng đọc theo id trước, label sau.
+
+### C4 ⛔ PATCH yếu hơn Create
+- **Phone**: PATCH lưu thô, Create dùng `normalizePhone`. Một inline edit ghi `(714) 555-0123` cạnh một bản tạo `7145550123` — mà cả bộ chống trùng lẫn tìm kiếm theo chữ số đều so chuỗi thô. Nay PATCH dùng chung `normalizePhone`.
+- **Required**: PATCH không chạy kiểm bắt buộc, nên inline edit xoá trắng được một cột admin đánh dấu Required. Nay dùng `findMissingRequiredFieldsFromContext(..., { partial: true })` — chế độ này vốn được viết sẵn cho PATCH.
+- **custom_values**: chuyển sang `fetchWriteValidationContext` + `validateCustomValues` — đúng RPC mà Task và Enrollment dùng, nên Create / Import / inline edit không còn ba hợp đồng khác nhau cho cùng một cột. Bỏ luôn khả năng ghi một **system key** vào `custom_values` (dữ liệu bóng).
+- **status/follow-up**: trước đây chỉ kiểm khi request có gửi `status_id`, nên một request chỉ chứa `next_follow_up_at` treo được ngày hẹn lên lead status Open — mà `resolveLeadAlerts` đọc ngày đó bất kể status, tức lead sẽ báo quá hạn cho một cuộc gọi không ai hứa. Nay tách thành `checkFollowUpInvariant()` chạy khi **một trong hai** phía đổi, và vẫn xoá ngày còn treo khi rời khỏi status "call back".
+
+### B2 + O5 — một luật người nhận duy nhất
+- `POST /api/leads` vẫn tự dựng `targetActor` thiếu cờ `isAdmin` (bản sao thứ hai của lỗi đã sửa ở assign route sáng nay). Nay dùng `canBeAssignedLead()`.
+- **Test chặn tái diễn**: quét mọi `src/app/api/leads/**/route.ts`, fail nếu file nào gọi `buildLeadActor(targetAccess.permissions...)`. Test này **đã fail đúng chỗ** trước khi sửa.
+
+### B1 + B4 — Overview trắng, và ngưỡng cảnh báo sai product
+- `toLeadProduct(null)` → `"pc"`, mà **30/30 lead đang hoạt động đều là health** → tab Overview trả 0 dòng cho mọi manager. Thêm `parseOverviewProduct()` (không fallback) và cho truy vấn chỉ lọc product khi có giá trị.
+- Ngưỡng cảnh báo nay là **map theo product**; `summarizeLeads` chọn theo `lead.product` của từng dòng qua `settingsForLead()`. Trước đó một danh sách trộn product bị đo bằng đúng một bộ ngưỡng.
+
+### B3 — một định nghĩa "quá hạn follow-up"
+- SQL không diễn đạt được vế "đã liên hệ sau giờ đã hẹn", nên danh sách `?alert=follow_up_overdue` hiện cả lead mà engine coi là ổn.
+- **Sửa**: SQL còn là bộ lọc **thô và là tập cha** (dùng ngưỡng lỏng nhất trong các product đang xem — lấy ngưỡng chặt hơn sẽ âm thầm giấu mất lead), rồi `resolveLeadAlerts` chốt lại ở Node. `total` tính lại theo kết quả đã lọc, vì con số PostgREST trả về thuộc về truy vấn lỏng hơn và "X of Y" không được nói dối.
+
+- **Kiểm chứng**: `npm run test:run` 125 files / **921 tests**; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Xoá quyền chết `lead.export`, cho manager ghi tương tác
 
 - **Loại**: chore (xoá quyền chết) + fix (nới quyền ghi)

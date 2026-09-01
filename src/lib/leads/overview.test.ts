@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeLeads } from "./overview";
+import { parseOverviewProduct, settingsForLead, summarizeLeads } from "./overview";
 import type { LeadAlertSettings, LeadRow, LeadStatus } from "./types";
 
 const settings: LeadAlertSettings = { product: "pc", no_contact_hours: 24, stale_days: 3, max_attempts: 4 };
@@ -64,5 +64,38 @@ describe("summarizeLeads", () => {
       lead({ assigned_to_email: "bad@x.com", assigned_at: hoursAgo(30) }),
     ], statusById, settings, NOW);
     expect(result.byAgent[0].email).toBe("bad@x.com");
+  });
+});
+
+describe("parseOverviewProduct", () => {
+  // The Overview fetched with no product param, toLeadProduct turned that into
+  // "pc", and every one of the 30 live leads is Health — so the tab rendered an
+  // empty summary for every manager.
+  it("treats a missing or unknown product as every product", () => {
+    expect(parseOverviewProduct(null)).toBeNull();
+    expect(parseOverviewProduct("")).toBeNull();
+    expect(parseOverviewProduct("banana")).toBeNull();
+  });
+
+  it("keeps a real product", () => {
+    expect(parseOverviewProduct("pc")).toBe("pc");
+    expect(parseOverviewProduct("health")).toBe("health");
+  });
+});
+
+describe("settingsForLead", () => {
+  const pc = { product: "pc", no_contact_hours: 1, stale_days: 1, max_attempts: 1 } as const;
+  const health = { product: "health", no_contact_hours: 99, stale_days: 99, max_attempts: 99 } as const;
+
+  it("returns the single row unchanged when the list is scoped to one product", () => {
+    expect(settingsForLead(pc, "health")).toBe(pc);
+  });
+
+  // Mixing products under one threshold set is how a P&C lead ends up measured
+  // against Health's numbers.
+  it("picks per product when both rows are supplied", () => {
+    const byProduct = { pc, health };
+    expect(settingsForLead(byProduct, "pc")).toBe(pc);
+    expect(settingsForLead(byProduct, "health")).toBe(health);
   });
 });

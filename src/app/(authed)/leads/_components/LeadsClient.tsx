@@ -158,7 +158,18 @@ export function LeadsClient({
       const payload = await response.json().catch(() => null);
       if (!response.ok)
         throw new Error(payload?.error ?? "Could not refresh leads.");
-      if (Array.isArray(payload?.leads)) setLeads(payload.leads as LeadRow[]);
+      if (Array.isArray(payload?.leads)) {
+        const refreshedLeads = payload.leads as LeadRow[];
+        setLeads(refreshedLeads);
+        // The detail modal owns a copy of the selected row. Keep it in sync
+        // after a manager reassigns from that modal, otherwise the list refresh
+        // succeeds while its Assignee field continues showing the old owner.
+        setSelectedLead((current) =>
+          current
+            ? refreshedLeads.find((lead) => lead.id === current.id) ?? current
+            : current,
+        );
+      }
       if (typeof payload?.total === "number") setTotal(payload.total);
       setSelected(new Set());
     } catch (error) {
@@ -234,9 +245,8 @@ export function LeadsClient({
     setSelectedLead((current) =>
       current?.id === nextLead.id ? mergeLead(current) : current,
     );
-    // A status change or a new contact can make a row leave the active alert
-    // query. Reconcile the server page so the row and the total do not remain
-    // visible after the mutation that cleared its alert.
+    // A status/contact change can move a row out of an alert query. Reconcile
+    // the server page so the row and total never keep showing a stale match.
     if (activeAlert) void reloadRef.current();
   }
 
@@ -273,6 +283,9 @@ export function LeadsClient({
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error ?? "Could not save that change.");
       updateLead(payload.lead as LeadRow);
+      // Changing Product can move a row out of a product-filtered list. The
+      // alert case already reloads in updateLead(), so do not issue two fetches.
+      if (!activeAlert && patch.product !== undefined) void reloadRef.current();
       setEditError(null);
     } catch (error) {
       if (previous) {
@@ -300,6 +313,11 @@ export function LeadsClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error ?? "Could not assign that lead.");
+      setSelectedLead((current) =>
+        current?.id === id
+          ? { ...current, assigned_to_email: toEmail }
+          : current,
+      );
       setEditError(null);
       await reloadRef.current();
     } catch (error) {
@@ -730,21 +748,25 @@ export function LeadsClient({
           columnOptions={columnOptions}
           interactionTypes={interactionTypes}
           editableOwnerEmails={editableOwnerEmails}
+          isManager={isManager}
+          assignees={assignees}
           nameByEmail={nameByEmail}
           onClose={() => setSelectedLead(null)}
+          onPatchLead={patchLead}
+          onAssignLead={assignLead}
           onLeadUpdated={updateLead}
         />
       )}
       <LeadImportDialog
         open={importOpen}
-        product={productFilter ?? "health"}
+        productFilter={productFilter}
         sourceId={sourceId}
         onClose={() => setImportOpen(false)}
         onImported={() => reload()}
       />
       <LeadAddDialog
         open={addOpen}
-        product={productFilter ?? "health"}
+        productFilter={productFilter}
         sourceId={sourceId}
         columns={columns}
         columnOptions={columnOptions}

@@ -6,6 +6,7 @@ import { fetchAllLeads } from "@/lib/leads/queries";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { canBeAssignedLead } from "@/lib/leads/assign-target";
 import { resolveEventByName } from "@/lib/leads/events";
 import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
 import { findMissingRequiredFields } from "@/lib/table-config/required";
@@ -143,8 +144,7 @@ export async function POST(request: Request) {
 
   if (input.assignedToEmail) {
     const targetAccess = await getUserAccessByEmail(input.assignedToEmail);
-    const targetActor = buildLeadActor(targetAccess.permissions, input.assignedToEmail);
-    if (!targetAccess.isActive || !targetActor.isWorker) {
+    if (!canBeAssignedLead(targetAccess)) {
       return NextResponse.json({ error: "That person cannot be assigned leads." }, { status: 400 });
     }
   }

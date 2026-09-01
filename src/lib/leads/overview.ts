@@ -1,5 +1,35 @@
 import { ALERT_SEVERITY, resolveLeadAlerts, type LeadAlert } from "./alerts";
-import type { LeadAlertSettings, LeadRow, LeadStatus } from "./types";
+import {
+  isLeadProduct,
+  type LeadAlertSettings,
+  type LeadProduct,
+  type LeadRow,
+  type LeadStatus,
+} from "./types";
+
+/**
+ * null = every product. Deliberately NOT toLeadProduct(), which falls back to
+ * "pc": that fallback is right for a URL that names a product and wrong here,
+ * where "no product given" means "show me all of them". The same trap emptied
+ * the merged lead list on 31/08 — this is the copy in the Overview.
+ */
+export function parseOverviewProduct(value: unknown): LeadProduct | null {
+  return isLeadProduct(value) ? value : null;
+}
+
+/**
+ * Alert thresholds are per product, so a list that mixes products needs both
+ * rows and picks per lead. Passing one row for a mixed list measures P&C leads
+ * against Health's thresholds.
+ */
+export type LeadAlertSettingsByProduct = Record<LeadProduct, LeadAlertSettings>;
+
+export function settingsForLead(
+  settings: LeadAlertSettings | LeadAlertSettingsByProduct,
+  product: LeadProduct
+): LeadAlertSettings {
+  return "product" in settings ? settings : settings[product];
+}
 
 export type AgentSummary = {
   email: string;
@@ -28,7 +58,7 @@ export type LeadSummary = {
 export function summarizeLeads(
   leads: readonly LeadRow[],
   statusById: ReadonlyMap<string, LeadStatus>,
-  settings: LeadAlertSettings,
+  settings: LeadAlertSettings | LeadAlertSettingsByProduct,
   now: Date = new Date()
 ): LeadSummary {
   const byAlert: Record<LeadAlert, number> = {
@@ -43,7 +73,12 @@ export function summarizeLeads(
 
   for (const lead of leads) {
     const status = lead.status_id ? statusById.get(lead.status_id) ?? null : null;
-    const alerts = resolveLeadAlerts(lead, status, settings, now);
+    const alerts = resolveLeadAlerts(
+      lead,
+      status,
+      settingsForLead(settings, lead.product),
+      now,
+    );
     for (const alert of alerts) byAlert[alert] += 1;
 
     const isWon = status?.kind === "won";

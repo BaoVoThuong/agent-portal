@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
+import { resolveDialogProduct } from "@/lib/leads/create";
 import type { LeadProduct, LeadStatus } from "@/lib/leads/types";
 
 type LeadEvent = {
@@ -13,7 +14,8 @@ type LeadEvent = {
 
 type LeadAddDialogProps = {
   open: boolean;
-  product: LeadProduct;
+  /** null = màn hình đang xem mọi product, dialog phải hỏi. */
+  productFilter: LeadProduct | null;
   sourceId: string;
   columns: TableColumn[];
   /** Accounts that may hold a lead. Empty for a non-manager, who cannot assign. */
@@ -90,7 +92,9 @@ function CustomLeadField({
         {options
           .filter((option) => !option.archived_at)
           .map((option) => (
-            <option key={option.id} value={option.label}>
+            // Giá trị là option.id, giống Task và Enrollment. Gửi label thì
+            // ô inline edit (khớp theo id) sẽ hiện rỗng ngay sau khi tạo.
+            <option key={option.id} value={option.id}>
               {option.label}
             </option>
           ))}
@@ -125,7 +129,7 @@ function CustomLeadField({
 
 export function LeadAddDialog({
   open,
-  product,
+  productFilter,
   sourceId,
   columns,
   columnOptions,
@@ -146,6 +150,9 @@ export function LeadAddDialog({
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Only asked for when the screen is not already scoped to one product.
+  const [chosenProduct, setChosenProduct] = useState<LeadProduct | null>(null);
+  const product = resolveDialogProduct(productFilter, chosenProduct);
 
   const customColumns = useMemo(
     () =>
@@ -213,6 +220,12 @@ export function LeadAddDialog({
 
   async function submit() {
     if (saving) return;
+    // The button is disabled without one, but the guard belongs here too: a
+    // lead filed under the wrong product is invisible to the team that owns it.
+    if (!product) {
+      setError("Choose a product for this lead.");
+      return;
+    }
     const fieldValues: Record<string, unknown> = {
       name: fullName,
       phone,
@@ -291,7 +304,7 @@ export function LeadAddDialog({
             </span>
             <div>
               <h2 className="text-xl font-semibold text-[#172b4d]">
-                Add {product === "pc" ? "P&C" : "Health"} lead
+                Add {product ? (product === "pc" ? "P&C" : "Health") : ""} lead
               </h2>
               <p className="mt-1 text-sm text-[#626f86]">
                 Create one lead and optionally assign it immediately.
@@ -386,9 +399,29 @@ export function LeadAddDialog({
                 <span className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
                   Lead properties
                 </span>
-                <span className="rounded bg-[#e9f2ff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]">
-                  {product === "pc" ? "P&C" : "Health"}
-                </span>
+                {productFilter ? (
+                  <span className="rounded bg-[#e9f2ff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]">
+                    {productFilter === "pc" ? "P&C" : "Health"}
+                  </span>
+                ) : (
+                  // Bắt buộc chọn: đoán ở đây là xếp nhầm lead vào sổ khác.
+                  <select
+                    className="rounded border border-[#c1c7d0] bg-white px-2 py-1 text-xs font-bold text-[#172b4d] outline-none focus:border-[#0c66e4]"
+                    aria-label="Product"
+                    value={chosenProduct ?? ""}
+                    onChange={(event) =>
+                      setChosenProduct(
+                        event.target.value === "pc" || event.target.value === "health"
+                          ? event.target.value
+                          : null,
+                      )
+                    }
+                  >
+                    <option value="">Choose product…</option>
+                    <option value="pc">P&C</option>
+                    <option value="health">Health</option>
+                  </select>
+                )}
               </div>
               <label className="block space-y-1">
                 <span className={LABEL_CLASS}>
@@ -480,7 +513,8 @@ export function LeadAddDialog({
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={saving}
+            disabled={saving || !product}
+            title={product ? undefined : "Choose a product first."}
             className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus className="h-4 w-4" />

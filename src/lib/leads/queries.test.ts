@@ -1,3 +1,5 @@
+import { resolveLeadAlerts } from "./alerts";
+import type { LeadRow } from "./types";
 import { describe, expect, it } from "vitest";
 import { buildLeadActor } from "./access";
 import { buildLeadListFilter, LEAD_PAGE_SIZE } from "./queries";
@@ -83,5 +85,45 @@ describe("product filter", () => {
   it("narrows to the named product", () => {
     expect(buildLeadListFilter(manager, { product: "pc" }).product).toBe("pc");
     expect(buildLeadListFilter(manager, { product: "health" }).product).toBe("health");
+  });
+});
+
+// B3: the SQL predicate could not express "already contacted after the promised
+// time", so the ?alert=follow_up_overdue list showed rows the badge engine calls
+// fine. fetchAllLeads now settles the answer with resolveLeadAlerts; this pins
+// the rule the two layers must share.
+describe("follow_up_overdue agrees with the alert engine", () => {
+  const settings = {
+    product: "health", no_contact_hours: 24, stale_days: 3, max_attempts: 4,
+  } as const;
+  const base = {
+    id: "l1", display_number: 1, product: "health", event_id: null, event_name: null,
+    full_name: "A", phone: "1", email: null,
+    assigned_to_email: "cs@x.com", assigned_at: "2026-09-01T00:00:00Z",
+    assigned_by_email: null, status_id: null,
+    first_contacted_at: "2026-09-01T08:00:00Z", last_contacted_at: null,
+    contact_attempt_count: 1, next_follow_up_at: null, closed_at: null,
+    created_by_email: "m@x.com", created_at: "2026-09-01T00:00:00Z",
+    updated_by_email: null, updated_at: "2026-09-01T00:00:00Z",
+    custom_values: {}, archived_at: null,
+  };
+  const now = new Date("2026-09-01T12:00:00Z");
+
+  it("does not flag a promise that was already kept", () => {
+    const lead = {
+      ...base,
+      next_follow_up_at: "2026-09-01T09:00:00Z",
+      last_contacted_at: "2026-09-01T10:00:00Z",
+    } as unknown as LeadRow;
+    expect(resolveLeadAlerts(lead, null, settings, now)).not.toContain("follow_up_overdue");
+  });
+
+  it("still flags a promise nobody acted on", () => {
+    const lead = {
+      ...base,
+      next_follow_up_at: "2026-09-01T09:00:00Z",
+      last_contacted_at: "2026-09-01T08:00:00Z",
+    } as unknown as LeadRow;
+    expect(resolveLeadAlerts(lead, null, settings, now)).toContain("follow_up_overdue");
   });
 });

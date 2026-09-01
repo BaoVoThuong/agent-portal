@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCreateLeadInput } from "./create";
+import { parseCreateLeadInput, resolveDialogProduct } from "./create";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 
@@ -95,5 +95,24 @@ describe("event name", () => {
   it("rejects a non-string name rather than coercing it", () => {
     const result = parseCreateLeadInput({ ...base, event_name: 42 });
     expect(result).toEqual({ ok: false, error: "Event name must be text." });
+  });
+});
+
+describe("resolveDialogProduct", () => {
+  it("uses the filtered product when the screen is already scoped", () => {
+    expect(resolveDialogProduct("pc", null)).toBe("pc");
+    // A filter wins over a stale choice: the badge on screen is what people read.
+    expect(resolveDialogProduct("pc", "health")).toBe("pc");
+  });
+
+  // The bug: on the merged All-products screen both dialogs fell back to
+  // "health", filing a P&C campaign as Health with nothing on screen saying so.
+  it("asks instead of guessing when no product is filtered", () => {
+    expect(resolveDialogProduct(null, null)).toBeNull();
+  });
+
+  it("takes the explicit choice once one is made", () => {
+    expect(resolveDialogProduct(null, "pc")).toBe("pc");
+    expect(resolveDialogProduct(null, "health")).toBe("health");
   });
 });

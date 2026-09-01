@@ -1,7 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useRef } from "react";
 import type {
   CSSProperties,
   MouseEvent,
@@ -10,8 +9,6 @@ import type {
 } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Check } from "lucide-react";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
-import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
-import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { leadDisplayKey } from "@/lib/leads/display";
 import { leadIsInScope } from "@/lib/leads/capabilities";
 import {
@@ -30,6 +27,7 @@ import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { Initials } from "../../tasks/_components/board-ui";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
+import { LeadChoiceField } from "./LeadChoiceField";
 
 const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   key: 100,
@@ -46,7 +44,9 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   // padding on each side, it fits five 44px badges and their four gaps.
   interactionHistory: 260,
   attempts: 80,
-  lastContact: 112,
+  // "LAST CONTACT" needs 112px of content width once the shared 12px cell
+  // padding is accounted for; 136px keeps the complete header visible.
+  lastContact: 136,
   followUp: 112,
   event: 180,
   createdAt: 136,
@@ -355,84 +355,6 @@ function LeadRow({
   );
 }
 
-/**
- * A dropdown cell. Same shape as EditableCustomCell's choice branch — trigger
- * button, portal listbox, save on pick — but the values here are lead rows
- * (a status, a product, an agent), not table_column_option ids, so it cannot
- * reuse that component directly.
- */
-function LeadChoiceCell({
-  label,
-  ariaLabel,
-  choices,
-  selectedValue,
-  canEdit,
-  renderValue,
-  onSelect,
-}: {
-  label: string;
-  ariaLabel: string;
-  choices: readonly { value: string; label: string; keywords?: string[] }[];
-  selectedValue: string;
-  canEdit: boolean;
-  renderValue: ReactNode;
-  onSelect: (value: string) => void | Promise<void>;
-}) {
-  const { isOpen, toggle, triggerRef, menuRef, menuStyle, closeMenu, closeMenuForTab } =
-    useAnchoredMenu();
-  const [saveError, setSaveError] = useState(false);
-
-  async function commit(next: string) {
-    closeMenu({ restoreFocus: true });
-    if (next === selectedValue) return;
-    setSaveError(false);
-    try {
-      await onSelect(next);
-    } catch {
-      setSaveError(true);
-    }
-  }
-
-  return (
-    <span className="relative block min-w-0 flex-1">
-      <button
-        ref={triggerRef}
-        type="button"
-        disabled={!canEdit}
-        onClick={(event) => {
-          event.stopPropagation();
-          toggle();
-        }}
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
-        title={saveError ? "Save failed. Try again." : label}
-        className={`flex min-w-0 max-w-full items-center gap-2 truncate rounded px-1.5 py-1 text-left transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${
-          saveError ? "ring-2 ring-[#ff5630] ring-offset-1" : ""
-        }`}
-      >
-        {renderValue}
-      </button>
-      {isOpen
-        ? createPortal(
-            <SearchableListboxPanel
-              menuRef={menuRef}
-              menuStyle={menuStyle}
-              className="min-w-[13rem]"
-              ariaLabel={ariaLabel}
-              queryPlaceholder={`Search ${ariaLabel.toLowerCase()}…`}
-              emptyMessage={`No matching ${ariaLabel.toLowerCase()}.`}
-              choices={choices}
-              selectedValue={selectedValue}
-              onSelect={(value) => void commit(value)}
-              onTabExit={closeMenuForTab}
-            />,
-            document.body,
-          )
-        : null}
-    </span>
-  );
-}
-
 function LeadDataCell({
   lead,
   column,
@@ -505,11 +427,12 @@ function LeadDataCell({
     );
   }
 
-  // Editable system fields. Name stays a link to the lead, matching how the
-  // task list treats its summary: the row's title is how you open the record.
+  // Editable system fields mirror the Task/Enrollment table: click the cell
+  // to edit it in place. Contact counters and timestamps still fall through
+  // to the read-only branch because interaction logging owns those values.
   if (column.key === "phone" || column.key === "email") {
     return (
-      <div style={style} className={baseClassName}>
+      <div style={style} className={baseClassName} onClick={stopPropagation}>
         <EditableCustomCell
           column={{ id: column.id, key: column.key, label: column.label, type: "text" }}
           value={column.key === "phone" ? lead.phone : lead.email}
@@ -525,7 +448,7 @@ function LeadDataCell({
     // Typed, not chosen: the route finds or creates the event by name, so a
     // lead never waits on someone registering it first.
     return (
-      <div style={style} className={baseClassName}>
+      <div style={style} className={baseClassName} onClick={stopPropagation}>
         <EditableCustomCell
           column={{ id: column.id, key: "event_name", label: column.label, type: "text" }}
           value={lead.event_name}
@@ -539,13 +462,13 @@ function LeadDataCell({
 
   if (column.key === "followUp") {
     return (
-      <div style={style} className={baseClassName}>
+      <div style={style} className={baseClassName} onClick={stopPropagation}>
         <EditableCustomCell
           column={{ id: column.id, key: column.key, label: column.label, type: "date" }}
           value={lead.next_follow_up_at ? lead.next_follow_up_at.slice(0, 10) : null}
           canEdit={canEdit}
           onSave={(next) => onPatch({ next_follow_up_at: next })}
-          className="w-full !text-[11px] !font-medium !text-[#6b778c]"
+          className="w-full !text-sm !font-medium !text-[#6b778c]"
         />
       </div>
     );
@@ -553,8 +476,8 @@ function LeadDataCell({
 
   if (column.key === "product") {
     return (
-      <div style={style} className={baseClassName}>
-        <LeadChoiceCell
+      <div style={style} className={baseClassName} onClick={stopPropagation}>
+        <LeadChoiceField
           label={productOptionLabel(lead.product)}
           ariaLabel="Product"
           choices={PRODUCT_CHOICES}
@@ -569,8 +492,8 @@ function LeadDataCell({
 
   if (column.key === "status") {
     return (
-      <div style={style} className={baseClassName}>
-        <LeadChoiceCell
+      <div style={style} className={baseClassName} onClick={stopPropagation}>
+        <LeadChoiceField
           label={status?.label ?? "No status"}
           ariaLabel="Status"
           choices={statusChoices}
@@ -588,8 +511,8 @@ function LeadDataCell({
       ? personLabel(lead.assigned_to_email, nameByEmail)
       : "Unassigned";
     return (
-      <div style={style} className={baseClassName}>
-        <LeadChoiceCell
+      <div style={style} className={baseClassName} onClick={stopPropagation}>
+        <LeadChoiceField
           label={label}
           ariaLabel="Assignee"
           choices={assigneeChoices}
@@ -613,9 +536,13 @@ function LeadDataCell({
 
   if (!column.is_system) {
     return (
-      <div style={style} className={`${baseClassName} items-center ${
-        column.type === "checkbox" ? "justify-center" : ""
-      }`}>
+      <div
+        style={style}
+        className={`${baseClassName} items-center ${
+          column.type === "checkbox" ? "justify-center" : ""
+        }`}
+        onClick={stopPropagation}
+      >
         <EditableCustomCell
           column={column}
           value={lead.custom_values?.[column.key]}
@@ -916,10 +843,13 @@ function leadColumnValue(
       if (rawValue === null || rawValue === undefined || rawValue === "") {
         return "—";
       }
-      const option = options.find(
-        (candidate) => candidate.label === String(rawValue),
-      );
-      return option?.label ?? String(rawValue);
+      // Khớp theo id trước — đó là dạng chuẩn của app. Vế label là để đọc
+      // được những giá trị cũ do Add dialog ghi trước khi nó được sửa.
+      const value = String(rawValue);
+      const option =
+        options.find((candidate) => candidate.id === value) ??
+        options.find((candidate) => candidate.label === value);
+      return option?.label ?? value;
     }
   }
 }
@@ -943,7 +873,7 @@ function leadValueClassName(
     column.key === "followUp" ||
     column.key === "createdAt"
   ) {
-    return `text-[11px] font-medium ${
+    return `text-sm font-medium ${
       isPlaceholder ? "text-[#97a0af]" : "text-[#6b778c]"
     }`;
   }
@@ -995,6 +925,6 @@ function StaticCell({
   );
 }
 
-function stopPropagation(event: MouseEvent<HTMLInputElement>) {
+function stopPropagation(event: MouseEvent<HTMLElement>) {
   event.stopPropagation();
 }

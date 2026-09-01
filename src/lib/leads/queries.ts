@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { LeadAlert } from "./alerts";
+import { resolveLeadAlerts, type LeadAlert } from "./alerts";
+import { settingsForLead, type LeadAlertSettingsByProduct } from "./overview";
 import type { LeadActor } from "./access";
 import {
   LEAD_INTERACTION_HISTORY_LIMIT,
@@ -110,17 +111,22 @@ export async function fetchLeadsPage(
   params: LeadListParams,
   supabase: SupabaseClient = getSupabaseAdmin(),
   ownerEmails?: string[] | null
-): Promise<{ rows: LeadRow[]; total: number; filter: LeadListFilter }> {
+): Promise<{
+  rows: LeadRow[];
+  total: number;
+  filter: LeadListFilter;
+  alertSettingsByProduct: LeadAlertSettingsByProduct | null;
+}> {
   const filter = buildLeadListFilter(actor, params, ownerEmails);
   let alertSettings: LeadAlertSettings | null = null;
+  let alertSettingsByProduct: LeadAlertSettingsByProduct | null = null;
   let terminalStatusIds: string[] = [];
   if (filter.alert) {
     const [settingsResult, statusesResult] = await Promise.all([
+      // Cả hai dòng: một danh sách trộn product không thể đo bằng một bộ ngưỡng.
       supabase
         .from("lead_alert_settings")
-        .select("product,no_contact_hours,stale_days,max_attempts")
-        .eq("product", filter.product ?? "health")
-        .maybeSingle(),
+        .select("product,no_contact_hours,stale_days,max_attempts"),
       supabase
         .from("lead_statuses")
         .select("id")
@@ -129,9 +135,24 @@ export async function fetchLeadsPage(
     ]);
     if (settingsResult.error) throw new Error(settingsResult.error.message);
     if (statusesResult.error) throw new Error(statusesResult.error.message);
-    alertSettings = (settingsResult.data ?? {
-      product: filter.product ?? "health", no_contact_hours: 24, stale_days: 3, max_attempts: 4,
-    }) as LeadAlertSettings;
+    const DEFAULTS = { no_contact_hours: 24, stale_days: 3, max_attempts: 4 } as const;
+    const rows = (settingsResult.data ?? []) as LeadAlertSettings[];
+    alertSettingsByProduct = {
+      pc: rows.find((row) => row.product === "pc") ?? { product: "pc", ...DEFAULTS },
+      health: rows.find((row) => row.product === "health") ?? { product: "health", ...DEFAULTS },
+    };
+    const inScope = filter.product
+      ? [alertSettingsByProduct[filter.product]]
+      : [alertSettingsByProduct.pc, alertSettingsByProduct.health];
+    // SQL chỉ là bộ lọc thô và phải là TẬP CHA của câu trả lời thật: lấy ngưỡng
+    // lỏng nhất trong các product đang xem, rồi resolveLeadAlerts chốt lại ở
+    // Node. Lấy ngưỡng chặt hơn là âm thầm giấu mất lead đáng lẽ phải hiện.
+    alertSettings = {
+      product: filter.product ?? "health",
+      no_contact_hours: Math.min(...inScope.map((row) => row.no_contact_hours)),
+      stale_days: Math.min(...inScope.map((row) => row.stale_days)),
+      max_attempts: Math.min(...inScope.map((row) => row.max_attempts)),
+    };
     terminalStatusIds = (statusesResult.data ?? []).map((row) => (row as { id: string }).id);
   }
   let query = supabase
@@ -186,6 +207,7 @@ export async function fetchLeadsPage(
     rows: (data ?? []).map(toLeadRowWithInteractionHistory),
     total: total ?? 0,
     filter,
+    alertSettingsByProduct,
   };
 }
 
@@ -218,6 +240,7 @@ export async function fetchAllLeads(
   const rows: LeadRow[] = [];
   let offset = 0;
   let total = 0;
+  let settingsByProduct: LeadAlertSettingsByProduct | null = null;
 
   do {
     const page = await fetchLeadsPage(
@@ -231,6 +254,7 @@ export async function fetchAllLeads(
       ownerEmails,
     );
     total = page.total;
+    settingsByProduct = page.alertSettingsByProduct;
     rows.push(...page.rows);
     offset += page.rows.length;
 
@@ -239,7 +263,41 @@ export async function fetchAllLeads(
     if (page.rows.length === 0) break;
   } while (rows.length < total);
 
+  // The SQL predicate is a superset filter (loosest thresholds, and no way to
+  // express "contacted after the promised time" in PostgREST). resolveLeadAlerts
+  // is the single definition of what an alert IS, so it settles the answer here
+  // — which also keeps the list and the row badges from ever disagreeing.
+  //
+  // total is recomputed from the filtered rows: the count PostgREST returned
+  // belongs to the looser query, and "X of Y" must not quote a number nothing
+  // on screen adds up to.
+  const alert = toLeadAlert(params.alert);
+  if (alert && settingsByProduct) {
+    const statuses = await fetchLeadStatusMap(supabase);
+    const matched = rows.filter((lead) =>
+      resolveLeadAlerts(
+        lead,
+        lead.status_id ? statuses.get(lead.status_id) ?? null : null,
+        settingsForLead(settingsByProduct, lead.product),
+      ).includes(alert),
+    );
+    return { rows: matched, total: matched.length };
+  }
+
   return { rows, total };
+}
+
+/** Every status, archived included: an archived one still labels old rows. */
+async function fetchLeadStatusMap(
+  supabase: SupabaseClient
+): Promise<Map<string, LeadStatus>> {
+  const { data, error } = await supabase
+    .from("lead_statuses")
+    .select(LEAD_STATUS_COLUMNS);
+  if (error) throw new Error(error.message);
+  return new Map(
+    ((data ?? []) as LeadStatus[]).map((status) => [status.id, status]),
+  );
 }
 
 const LEAD_STATUS_COLUMNS = "id,label,color,position,kind,archived_at";

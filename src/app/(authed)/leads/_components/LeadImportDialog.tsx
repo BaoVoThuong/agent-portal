@@ -3,6 +3,7 @@
 import * as XLSX from "xlsx";
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { FileSpreadsheet, Upload, X } from "lucide-react";
+import { resolveDialogProduct } from "@/lib/leads/create";
 import {
   parseLeadRows,
   type LeadColumnMapping,
@@ -26,7 +27,8 @@ type ImportResult = {
 
 type LeadImportDialogProps = {
   open: boolean;
-  product: "pc" | "health";
+  /** null = màn hình đang xem mọi product, dialog phải hỏi. */
+  productFilter: "pc" | "health" | null;
   sourceId: string;
   onClose: () => void;
   onImported: () => Promise<void>;
@@ -42,7 +44,7 @@ function formatEvent(event: LeadEvent): string {
 
 export function LeadImportDialog({
   open,
-  product,
+  productFilter,
   sourceId,
   onClose,
   onImported,
@@ -55,6 +57,8 @@ export function LeadImportDialog({
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
+  const [chosenProduct, setChosenProduct] = useState<"pc" | "health" | null>(null);
+  const product = resolveDialogProduct(productFilter, chosenProduct);
   const [file, setFile] = useState<File | null>(null);
   const [records, setRecords] = useState<Record<string, unknown>[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -186,6 +190,12 @@ export function LeadImportDialog({
 
   async function importFile() {
     if (!file || !eventId || !mapping.phone || importing) return;
+    // A whole spreadsheet filed under the wrong product is a much bigger mess
+    // than a single lead, so this guard matters more here than in Add.
+    if (!product) {
+      setError("Choose a product for this import.");
+      return;
+    }
     setImporting(true);
     setError(null);
     try {
@@ -217,7 +227,7 @@ export function LeadImportDialog({
 
   if (!open) return null;
   const canImport = Boolean(
-    eventId && file && mapping.phone && preview.rows.length > 0 && !importing,
+    product && eventId && file && mapping.phone && preview.rows.length > 0 && !importing,
   );
 
   return (
@@ -254,6 +264,29 @@ export function LeadImportDialog({
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <div className="space-y-5">
             <section className="border border-[#dbe2eb] bg-white p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
+              {productFilter ? null : (
+                <div className="mb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
+                    Product
+                  </h3>
+                  <select
+                    className="mt-2 h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
+                    aria-label="Product"
+                    value={chosenProduct ?? ""}
+                    onChange={(event) =>
+                      setChosenProduct(
+                        event.target.value === "pc" || event.target.value === "health"
+                          ? event.target.value
+                          : null,
+                      )
+                    }
+                  >
+                    <option value="">Choose product…</option>
+                    <option value="pc">P&C</option>
+                    <option value="health">Health</option>
+                  </select>
+                </div>
+              )}
               <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
                 1. Choose an event
               </h3>

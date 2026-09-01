@@ -1,3 +1,4 @@
+import { normalizePhone } from "./import-parse";
 import { isLeadProduct } from "./types";
 
 /**
@@ -70,9 +71,22 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
 
     switch (key) {
       case "full_name":
-      case "phone":
-        patch[key] = text(value);
+        patch.full_name = text(value);
         break;
+      case "phone": {
+        // Same normaliser Create uses. Without it an inline edit could store
+        // "(714) 555-0123" beside a created "7145550123", and the duplicate
+        // check plus the digits-only search both compare raw strings.
+        const raw = text(value);
+        if (raw === null) {
+          patch.phone = null;
+          break;
+        }
+        const phone = normalizePhone(raw);
+        if (!phone) return { ok: false, error: "Enter a valid phone number." };
+        patch.phone = phone;
+        break;
+      }
       case "email": {
         const email = text(value)?.toLowerCase() ?? null;
         if (email && !email.includes("@")) {
@@ -117,4 +131,55 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
     return { ok: false, error: "Nothing to update." };
   }
   return { ok: true, patch, eventName, customValues };
+}
+
+export type FollowUpCheckInput = {
+  /** Status kind the lead ends up with; null = no status, or status cleared. */
+  nextStatusKind: "open" | "scheduled" | "won" | "lost" | null;
+  /** Follow-up the lead ends up with, before any clearing rule is applied. */
+  nextFollowUpAt: string | null;
+  /** True when this request explicitly sent a follow-up value. */
+  followUpTouched: boolean;
+};
+
+export type FollowUpCheckResult =
+  | { ok: true; clearFollowUp: boolean }
+  | { ok: false; error: string };
+
+/**
+ * The status/follow-up invariant log_lead_interaction_atomic enforces, applied
+ * to a partial edit. Both directions matter:
+ *
+ * - a `scheduled` status with no date is a promise the alert engine can never
+ *   see come due, so it sits as a permanent red flag;
+ * - a date on any other status is a promise nobody made — resolveLeadAlerts
+ *   reads next_follow_up_at regardless of status, so it would raise an overdue
+ *   alert for a call no one owes.
+ *
+ * Moving OFF a scheduled status clears the pending date rather than refusing:
+ * marking a lead Won while a call-back is outstanding is normal, and keeping
+ * the date would leave a Won lead flagged overdue.
+ */
+export function checkFollowUpInvariant(
+  input: FollowUpCheckInput
+): FollowUpCheckResult {
+  const scheduled = input.nextStatusKind === "scheduled";
+  if (scheduled && !input.nextFollowUpAt) {
+    return {
+      ok: false,
+      error: "That status needs a follow-up date. Open the lead to log it.",
+    };
+  }
+  if (!scheduled && input.nextFollowUpAt) {
+    // Someone is setting a date right now on a status that cannot carry one.
+    if (input.followUpTouched) {
+      return {
+        ok: false,
+        error: "Only a call-back status can carry a follow-up date.",
+      };
+    }
+    // The date is left over from a previous scheduled status; drop it.
+    return { ok: true, clearFollowUp: true };
+  }
+  return { ok: true, clearFollowUp: false };
 }

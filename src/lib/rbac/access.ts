@@ -39,7 +39,13 @@ export function flattenAccess(row: AccessRow): UserAccess {
   ];
   return {
     userId: row.id,
-    legacyRole: getLegacyRoleFromRoleNames(roleNames),
+    // Either source may say admin. portal_account.role is normally a mirror of
+    // the RBAC roles — /api/admin/users writes it from getLegacyRoleFromRoleNames
+    // — so today the two always agree. Computing legacyRole from row.role on the
+    // line above and then discarding it here was a trap: a row edited straight
+    // in the database would silently not count as admin anywhere.
+    legacyRole:
+      legacyRole === "admin" ? "admin" : getLegacyRoleFromRoleNames(roleNames),
     roles: roleNames,
     permissions,
     isActive: true,
