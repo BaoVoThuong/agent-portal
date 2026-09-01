@@ -24,7 +24,13 @@ type InteractionLogProps = {
   notice?: ReactNode;
   statuses: LeadStatus[];
   interactionTypes: LeadInteractionType[];
-  initialInteractions: LeadInteraction[];
+  /**
+   * Danh sách HIỆN TẠI, không phải giá trị khởi tạo. Trước đây tên là
+   * `initialInteractions` và component giữ một bản sao qua `useState`, nên dữ
+   * liệu về sau lúc mount không bao giờ vào được danh sách — badge đếm một
+   * nguồn, danh sách đọc nguồn khác. Cái tên là thứ đã mời gọi lỗi đó.
+   */
+  interactions: LeadInteraction[];
   canLog: boolean;
   /** Who owns the lead, so a locked composer can say why rather than just look broken. */
   ownerLabel: string | null;
@@ -83,13 +89,12 @@ export function InteractionLog({
   notice,
   statuses,
   interactionTypes,
-  initialInteractions,
+  interactions,
   canLog,
   ownerLabel,
   onSave,
   onInteractionSaved,
 }: InteractionLogProps) {
-  const [interactions, setInteractions] = useState(initialInteractions);
   const [composerOpen, setComposerOpen] = useState(false);
   const [typeId, setTypeId] = useState("");
   const [statusId, setStatusId] = useState("");
@@ -143,11 +148,8 @@ export function InteractionLog({
         follow_up_at: followUpAt ? new Date(followUpAt).toISOString() : null,
         client_request_id: requestId,
       });
-      setInteractions((current) =>
-        current.some((interaction) => interaction.id === result.interaction.id)
-          ? current
-          : [result.interaction, ...current],
-      );
+      // Không tự giữ danh sách nữa: cha thêm dòng rồi truyền xuống. Một nguồn
+      // sự thật thì badge và danh sách không thể lệch nhau.
       onInteractionSaved?.(result.interaction);
       resetComposer();
       setComposerOpen(false);

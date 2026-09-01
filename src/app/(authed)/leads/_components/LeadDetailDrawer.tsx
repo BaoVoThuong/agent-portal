@@ -13,6 +13,10 @@ import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 import { InteractionLog } from "./InteractionLog";
 import { LeadChoiceField } from "./LeadChoiceField";
+import {
+  appendInteraction,
+  resolveVisibleInteractions,
+} from "@/lib/leads/interaction-log-state";
 import { leadDisplayKey } from "@/lib/leads/display";
 import { leadIsInScope } from "@/lib/leads/capabilities";
 import { personLabel } from "@/lib/tasks/people";
@@ -269,8 +273,12 @@ export function LeadDetailDrawer({
   // vừa xem mà vẫn thấy khung "Loading" là một bước lùi không cần thiết — lịch
   // sử tương tác gần như không đổi giữa hai lần mở cách nhau vài giây.
   const loading = loadedLeadId !== currentLead.id && !cachedInteractions;
-  const visibleInteractions =
-    loadedLeadId === currentLead.id ? interactions : (cachedInteractions ?? []);
+  const visibleInteractions = resolveVisibleInteractions({
+    currentLeadId: currentLead.id,
+    loadedLeadId,
+    fetched: interactions,
+    cached: cachedInteractions,
+  }) as LeadInteraction[];
   const visibleError = loadedLeadId === currentLead.id ? loadError : null;
   // Same reach as editing: a manager (null scope) on any lead, a worker on
   // their own and on the leads of agents they assist. Assignment stays a
@@ -358,14 +366,6 @@ export function LeadDetailDrawer({
     if (!response.ok)
       throw new Error(result?.error ?? "Could not save interaction.");
     const interaction = result.interaction as LeadInteraction;
-    // Cùng một phép chống trùng như onInteractionSaved bên dưới: hai nơi ghi
-    // cùng một danh sách thì phải ghi ra cùng một kết quả.
-    rememberInteractions(
-      currentLead.id,
-      visibleInteractions.some((item) => item.id === interaction.id)
-        ? visibleInteractions
-        : [interaction, ...visibleInteractions],
-    );
     if (result?.lead) onLeadUpdated(result.lead as LeadRow, interaction);
     return { interaction };
   }
@@ -530,7 +530,7 @@ export function LeadDetailDrawer({
                   }
                   statuses={statuses}
                   interactionTypes={interactionTypes}
-                  initialInteractions={visibleInteractions}
+                  interactions={visibleInteractions}
                   canLog={canLog}
                   ownerLabel={
                     currentLead.assigned_to_email
@@ -539,13 +539,17 @@ export function LeadDetailDrawer({
                   }
                   sourceId={sourceId}
                   onSave={saveInteraction}
-                  onInteractionSaved={(interaction) =>
-                    setInteractions((current) =>
-                      current.some((item) => item.id === interaction.id)
-                        ? current
-                        : [interaction, ...current],
-                    )
-                  }
+                  onInteractionSaved={(interaction) => {
+                    // Dựng từ visibleInteractions, KHÔNG từ state `interactions`:
+                    // khi lượt tải đầu chưa về, state còn đang giữ lịch sử của
+                    // lead trước, và ghép dòng mới vào đó là trộn hai lead.
+                    const next = appendInteraction(visibleInteractions, interaction);
+                    setInteractions(next as LeadInteraction[]);
+                    // Chốt luôn là danh sách này thuộc lead đang mở, nếu không
+                    // dòng vừa ghi sẽ biến mất cho tới khi lượt tải đầu về.
+                    setLoadedLeadId(currentLead.id);
+                    rememberInteractions(currentLead.id, next as LeadInteraction[]);
+                  }}
                 />
               </section>
             </main>

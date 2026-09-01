@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Badge "Interactions 3" mà danh sách nói "No interactions yet"
+
+- **Loại**: fix (bug hiển thị).
+- **Triệu chứng** (LD36 — Benjamin Truong): tab ghi `Interactions 3`, ngay dưới lại ghi `No interactions yet.` Dữ liệu trong DB đủ 3 dòng, API trả đúng — hai phần của cùng một drawer đọc **hai nguồn khác nhau**.
+- **Nguyên nhân**: `LeadDetailDrawer` giữ danh sách, còn `InteractionLog` tạo **bản sao thứ hai** bằng `useState(initialInteractions)`. React chỉ dùng đối số đó ở lần mount đầu; lúc ấy prop còn là `[]`. Fetch xong, cha cập nhật → badge đọc nguồn cha nên hiện 3, còn danh sách vẫn đọc bản sao rỗng. `key={lead.id}` không cứu được vì nó chỉ remount khi ĐỔI lead, mà đây là dữ liệu về muộn của **cùng** một lead.
+- **Có từ trước**, không phải do cache interaction thêm hôm qua — cache chỉ làm nó thưa đi (cache hit thì mount đã có dữ liệu). Cũng vì vậy mà đóng/mở lại lead trông như "tự hết".
+- **Sửa: một nguồn sự thật.** `InteractionLog` không giữ danh sách nữa, render thẳng từ prop; prop đổi tên `initialInteractions` → **`interactions`**, vì chính cái tên đã mời gọi việc "chỉ lấy lúc đầu". Ghi xong thì báo lên cha qua `onInteractionSaved`, cha thêm dòng rồi truyền xuống.
+- **`onInteractionSaved` dựng từ `visibleInteractions`, không phải từ state `interactions`**: khi lượt tải đầu chưa về, state còn giữ lịch sử của lead TRƯỚC, ghép dòng mới vào đó là trộn hai lead. Đồng thời chốt `loadedLeadId` sang lead đang mở, nếu không dòng vừa ghi sẽ biến mất cho tới khi lượt tải đầu về.
+- Gộp luôn hai chỗ ghi cache về một: trước đó `saveInteraction` và `onInteractionSaved` cùng ghi một danh sách, hai nơi thì sớm muộn cũng lệch.
+- Phần quyết định tách ra `src/lib/leads/interaction-log-state.ts` + 6 test (gồm đúng kịch bản LD36 và kịch bản lịch sử lead A lọt sang lead B). `.tsx` ở repo này không test được nên để trong component là không có lưới an toàn — đây là bug thứ tư trong tuần rơi vào đúng khoảng trống đó.
+
 ## 2026-09-02 — Bấm header cột custom để sắp xếp (Due Date là cột đầu tiên cần)
 
 - **Loại**: feature.
