@@ -6,6 +6,32 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-01 — Audit Event Leads: sự kiện, tải dữ liệu, và cơ chế refresh
+
+- **Loại**: fix (bug) + hiệu năng tải dữ liệu.
+
+### Bug trong xử lý sự kiện
+
+- **E1 — Tạo sự kiện trùng tên nổ 500.** `POST /api/leads/events` insert thẳng, mà unique index nằm trên `lower(btrim(name))`, nên trùng tên trả về lỗi 23505 thô dưới dạng 500. Trong khi đó ở màn **tạo lead**, đúng cái tên ấy lại resolve về sự kiện đã có. Một khái niệm, hai hành vi. Nay route dùng chung `resolveEventByName()`; trùng tên trả về sự kiện đang có kèm `wasCreated: false`.
+- **E2 — `%` và `_` trong tên sự kiện thành ký tự đại diện.** `resolveEventByName` dùng `ilike(name)` không escape, nên một sự kiện tên `"50% Off Fair"` khớp nửa bảng và lead có thể bị nối vào **sai sự kiện**. Thêm `escapeLikePattern()` + trim đầu đuôi cho khớp với biểu thức của unique index — không trim thì một tên có dấu cách thừa **không bao giờ** tạo được: tìm thì trượt, insert thì đụng index, retry lại trượt.
+- **E3 — Sự kiện thứ 201 trở đi biến mất im lặng.** GET cắt cứng ở 200 mà không báo. Nay lấy dư một dòng để biết còn nữa, trả về cờ `truncated`, và dialog Import nói rõ — kèm hướng dẫn gõ đúng tên để nối vào sự kiện cũ thay vì tạo trùng.
+- **Tạo sự kiện không còn bắt mọi tab tải lại danh sách lead.** Một sự kiện mới không đổi dòng lead nào; chỉ phát tín hiệu khi thật sự tạo mới.
+
+### Tải dữ liệu
+
+- **L1 — Hai truy vấn lặp lại mỗi trang.** Ngưỡng cảnh báo và danh sách status kết thúc được đọc **bên trong** `fetchLeadsPage`, mà `fetchAllLeads` gọi hàm đó một lần cho mỗi trang. Danh sách 1.000 lead lọc theo cảnh báo tốn **5 lần đọc ngưỡng + 5 lần đọc status** cho cùng một câu trả lời. Gom về `fetchLeadAlertContext()`, đọc một lần cho cả lượt phân trang.
+- **L2 — `count: "exact"` chạy lại mỗi trang.** Nó là một `COUNT(*)` trên toàn bộ tập đã lọc; 5 trang là trả lời cùng một câu hỏi 5 lần. Nay chỉ trang đầu xin đếm.
+- **L5 — Nạp cột không dùng.** GET sự kiện trả `location`, `notes`, `created_at` trong khi hai dialog chỉ dùng `id`, `name`, `event_date`.
+
+### Cơ chế chưa hợp lý
+
+- **L3 — Một người sửa lead, cả công ty tải lại.** `LEADS_TOPIC` là **một kênh toàn cục**: một agent ghi một cuộc gọi → mọi tab đang mở của cả 43 người cùng gọi lại `/api/leads` và kéo **toàn bộ** danh sách của họ. Một lần gán hàng loạt 20 lead phát 20 tín hiệu, tức 20 lần tải cho mỗi tab.
+  - Gộp cả chùm thành **một** lần refresh (400 ms).
+  - **Bỏ qua hẳn khi tab đang ẩn** — tab nền vẽ lại thứ không ai nhìn vẫn phải trả tiền truy vấn; nó ghi nhận là đã lỡ và bắt kịp khi được focus lại.
+- **L4 — Poll 60 giây tải lại tất cả, mãi mãi.** Realtime mới là tín hiệu chính, poll chỉ là lưới cho trường hợp rớt socket. Giãn về **5 phút**.
+
+- **Kiểm chứng**: `npm run test:run` 128 files / **945 tests**; typecheck, lint, build sạch.
+
 ## 2026-09-01 — Gộp 4 chip cảnh báo thành một bộ lọc phủ 100% lead
 
 - **Loại**: feature (thay UI lọc) — theo yêu cầu: một filter thôi, và filter đó phải có đủ 100% lead.

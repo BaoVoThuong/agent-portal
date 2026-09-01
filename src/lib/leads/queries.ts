@@ -106,11 +106,38 @@ const LEAD_COLUMNS =
 const LEAD_LIST_COLUMNS =
   `${LEAD_COLUMNS},lead_events(name),lead_interactions(id,type_id,occurred_at)`;
 
+export type LeadAlertContext = {
+  settingsByProduct: LeadAlertSettingsByProduct;
+  /** Won/lost status ids: a finished lead raises no alert. */
+  terminalStatusIds: string[];
+};
+
+/** The two lookups the alert filter needs, fetched once for a whole listing. */
+export async function fetchLeadAlertContext(
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<LeadAlertContext> {
+  const [settings, statuses] = await Promise.all([
+    fetchLeadAlertSettings(supabase),
+    supabase.from("lead_statuses").select("id").is("archived_at", null).in("kind", ["won", "lost"]),
+  ]);
+  if (statuses.error) throw new Error(statuses.error.message);
+  return {
+    settingsByProduct: settings,
+    terminalStatusIds: (statuses.data ?? []).map((row) => (row as { id: string }).id),
+  };
+}
+
 export async function fetchLeadsPage(
   actor: LeadActor,
   params: LeadListParams,
   supabase: SupabaseClient = getSupabaseAdmin(),
-  ownerEmails?: string[] | null
+  ownerEmails?: string[] | null,
+  /**
+   * Nạp sẵn từ fetchAllLeads. Trước đây hai truy vấn này chạy BÊN TRONG mỗi
+   * trang, nên một danh sách 1.000 lead lọc theo cảnh báo tốn 5 lần đọc ngưỡng
+   * và 5 lần đọc status kết thúc — cùng một câu trả lời, lấy đi lấy lại.
+   */
+  alertContext?: LeadAlertContext
 ): Promise<{
   rows: LeadRow[];
   total: number;
@@ -122,25 +149,9 @@ export async function fetchLeadsPage(
   let alertSettingsByProduct: LeadAlertSettingsByProduct | null = null;
   let terminalStatusIds: string[] = [];
   if (filter.alert) {
-    const [settingsResult, statusesResult] = await Promise.all([
-      // Cả hai dòng: một danh sách trộn product không thể đo bằng một bộ ngưỡng.
-      supabase
-        .from("lead_alert_settings")
-        .select("product,no_contact_hours,stale_days,max_attempts"),
-      supabase
-        .from("lead_statuses")
-        .select("id")
-        .is("archived_at", null)
-        .in("kind", ["won", "lost"]),
-    ]);
-    if (settingsResult.error) throw new Error(settingsResult.error.message);
-    if (statusesResult.error) throw new Error(statusesResult.error.message);
-    const rows = (settingsResult.data ?? []) as LeadAlertSettings[];
-    alertSettingsByProduct = {
-      pc: rows.find((row) => row.product === "pc") ?? { product: "pc", ...ALERT_SETTINGS_DEFAULTS },
-      health:
-        rows.find((row) => row.product === "health") ?? { product: "health", ...ALERT_SETTINGS_DEFAULTS },
-    };
+    const context = alertContext ?? (await fetchLeadAlertContext(supabase));
+    alertSettingsByProduct = context.settingsByProduct;
+    terminalStatusIds = context.terminalStatusIds;
     const inScope = filter.product
       ? [alertSettingsByProduct[filter.product]]
       : [alertSettingsByProduct.pc, alertSettingsByProduct.health];
@@ -153,11 +164,13 @@ export async function fetchLeadsPage(
       stale_days: Math.min(...inScope.map((row) => row.stale_days)),
       max_attempts: Math.min(...inScope.map((row) => row.max_attempts)),
     };
-    terminalStatusIds = (statusesResult.data ?? []).map((row) => (row as { id: string }).id);
   }
+  // `count: "exact"` chạy một COUNT(*) trên toàn bộ tập đã lọc. Trước đây mỗi
+  // trang đều xin nó, nên một danh sách 5 trang trả lời cùng một câu hỏi năm
+  // lần. Chỉ trang đầu cần, các trang sau mang theo con số đó.
   let query = supabase
     .from("leads")
-    .select(LEAD_LIST_COLUMNS, { count: "exact" })
+    .select(LEAD_LIST_COLUMNS, filter.offset === 0 ? { count: "exact" } : {})
     .is("archived_at", null)
     .order("created_at", { ascending: false })
     .order("id", { ascending: true })
@@ -241,6 +254,9 @@ export async function fetchAllLeads(
   let offset = 0;
   let total = 0;
   let settingsByProduct: LeadAlertSettingsByProduct | null = null;
+  const alert = toLeadAlert(params.alert);
+  // Đọc một lần cho cả lượt phân trang, không phải một lần mỗi trang.
+  const alertContext = alert ? await fetchLeadAlertContext(supabase) : undefined;
 
   do {
     const page = await fetchLeadsPage(
@@ -252,8 +268,9 @@ export async function fetchAllLeads(
       },
       supabase,
       ownerEmails,
+      alertContext,
     );
-    total = page.total;
+    if (offset === 0) total = page.total;
     settingsByProduct = page.alertSettingsByProduct;
     rows.push(...page.rows);
     offset += page.rows.length;
@@ -271,7 +288,6 @@ export async function fetchAllLeads(
   // total is recomputed from the filtered rows: the count PostgREST returned
   // belongs to the looser query, and "X of Y" must not quote a number nothing
   // on screen adds up to.
-  const alert = toLeadAlert(params.alert);
   if (alert && settingsByProduct) {
     const statuses = await fetchLeadStatusMap(supabase);
     const matched = rows.filter((lead) =>

@@ -76,6 +76,11 @@ type LeadsClientProps = {
  * TaskSelect is single-value, so "no filter" needs a value of its own. It cannot
  * be "" — that is the sentinel filterLeads reads as "still in the pool".
  */
+/** One refresh per burst: a bulk assign fires one broadcast per lead. */
+const REALTIME_COALESCE_MS = 400;
+/** Fallback only — realtime does the real work. */
+const FALLBACK_POLL_MS = 300_000;
+
 const ALL_FILTER = "__all__";
 
 /**
@@ -234,28 +239,58 @@ export function LeadsClient({
     void reloadRef.current();
   }, [activeAlert, productFilter]);
 
+  // One global channel carries every lead mutation in the company, so a single
+  // agent logging a call used to make all 43 people's tabs refetch their whole
+  // list at once. Coalesce the burst into one refresh, and skip it entirely
+  // while the tab is hidden — a background tab redrawing nothing still pays for
+  // the query. A hidden tab that missed messages catches up on focus.
   useEffect(() => {
     const supabase = getBrowserSupabase();
     if (!supabase) return;
+    let timer: number | undefined;
+    let missedWhileHidden = false;
+
+    const requestReload = () => {
+      if (document.visibilityState !== "visible") {
+        missedWhileHidden = true;
+        return;
+      }
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void reloadRef.current(), REALTIME_COALESCE_MS);
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && missedWhileHidden) {
+        missedWhileHidden = false;
+        requestReload();
+      }
+    };
+
     const channel = supabase
       .channel(LEADS_TOPIC)
       .on("broadcast", { event: "changed" }, (message) => {
         const messageSourceId = (
           message as { payload?: { sourceId?: unknown } }
         ).payload?.sourceId;
-        if (!isOwnLeadMutation(sourceIdRef.current, messageSourceId))
-          void reloadRef.current();
+        if (!isOwnLeadMutation(sourceIdRef.current, messageSourceId)) requestReload();
       })
       .subscribe();
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
       void supabase.removeChannel(channel);
     };
   }, []);
 
+  // Realtime is the primary signal; this is only the net for a dropped socket.
+  // At 60s every open tab refetched the entire list every minute forever, which
+  // is a standing cost for an event that usually did not happen.
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void reloadRef.current();
-    }, 60_000);
+    }, FALLBACK_POLL_MS);
     return () => window.clearInterval(timer);
   }, []);
 

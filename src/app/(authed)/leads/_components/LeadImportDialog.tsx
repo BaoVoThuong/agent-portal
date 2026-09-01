@@ -16,7 +16,6 @@ type LeadEvent = {
   id: string;
   name: string;
   event_date: string | null;
-  location?: string | null;
 };
 
 type ImportResult = {
@@ -57,6 +56,7 @@ export function LeadImportDialog({
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
+  const [eventsTruncated, setEventsTruncated] = useState(false);
   const [chosenProduct, setChosenProduct] = useState<"pc" | "health" | null>(null);
   const product = resolveDialogProduct(productFilter, chosenProduct);
   const [file, setFile] = useState<File | null>(null);
@@ -77,6 +77,7 @@ export function LeadImportDialog({
         setEvents(
           Array.isArray(payload?.events) ? (payload.events as LeadEvent[]) : [],
         );
+        setEventsTruncated(payload?.truncated === true);
         setEventsState("ready");
       })
       .catch(() => setEventsState("error"));
@@ -308,6 +309,15 @@ export function LeadImportDialog({
                     </option>
                   ))}
                 </select>
+                {eventsTruncated ? (
+                  // Danh sách bị cắt ở 200. Không nói ra thì người dùng tưởng
+                  // sự kiện của mình chưa được tạo và đi tạo trùng một cái nữa.
+                  <p className="mt-1 text-xs font-semibold text-[#974f0c]">
+                    Chỉ hiện 200 sự kiện gần nhất. Không thấy sự kiện cần tìm thì
+                    tạo mới bên dưới bằng đúng tên của nó — hệ thống sẽ nối vào
+                    sự kiện đã có thay vì tạo trùng.
+                  </p>
+                ) : null}
                 <div className="flex gap-2">
                   <input
                     className="h-10 min-w-0 rounded border-2 border-[#dfe1e6] px-3 text-sm outline-none focus:border-[#0c66e4]"
