@@ -220,16 +220,19 @@ export function AttachmentPreviewDialog({
                   style={{
                     transform: `rotate(${previewRotation}deg) scale(${previewZoom})`,
                     transformOrigin: "center center",
-                    // CSS transform KHÔNG đổi ô chiếm chỗ của ảnh, nên xoay 90°
-                    // xong thì cạnh dài đâm ra ngoài khung và bị cắt. Đổi chỗ
-                    // hai giới hạn khi ảnh nằm ngang: giới hạn chiều RỘNG bằng
-                    // chiều cao khả dụng, để sau khi xoay nó vừa đúng khung.
-                    ...(previewRotation % 180 === 0
-                      ? { maxHeight: "calc(100vh - 10rem)", maxWidth: "100%" }
-                      : {
-                          maxWidth: "calc(100vh - 10rem)",
-                          maxHeight: "min(calc(100vw - 8rem), 52rem)",
-                        }),
+                    // Khung vuông, GIỮ NGUYÊN ở cả bốn góc xoay.
+                    //
+                    // CSS transform không đổi ô chiếm chỗ của ảnh, nên nếu để
+                    // giới hạn khác nhau theo góc thì mỗi lần bấm xoay ảnh lại
+                    // nhảy to nhỏ — vừa giật mắt vừa làm mất chỗ đang nhìn.
+                    // Chặn cả hai chiều bằng CÙNG một số thì cạnh dài sau khi
+                    // xoay vẫn nằm trong khung, nên kích thước bất động.
+                    //
+                    // Đánh đổi: ảnh nằm ngang hiển thị nhỏ hơn mức tối đa nó có
+                    // thể. Đó là cái giá của việc xoay không nhảy — và đã có
+                    // nút phóng to cho ai cần nhìn kỹ.
+                    maxWidth: "min(100%, calc(100vh - 12rem))",
+                    maxHeight: "calc(100vh - 12rem)",
                   }}
                 />
               </button>

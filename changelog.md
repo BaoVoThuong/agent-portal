@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Xoay ảnh không còn làm ảnh nhảy to nhỏ
+
+- **Loại**: fix (UI).
+- Bản trước đổi chỗ hai giới hạn kích thước theo góc xoay, nên mỗi lần bấm xoay là ảnh nhảy to nhỏ — vừa giật mắt vừa làm mất chỗ đang nhìn.
+- Nay chặn **cả hai chiều bằng cùng một số** (`min(100%, calc(100vh - 12rem))`), tức một khung vuông giữ nguyên ở cả bốn góc xoay. Cạnh dài sau khi xoay vẫn nằm trong khung nên kích thước bất động.
+- **Đánh đổi, nói rõ**: ảnh nằm ngang hiển thị nhỏ hơn mức tối đa nó có thể đạt. Đó là cái giá của việc xoay không nhảy — và đã có nút phóng to cho ai cần nhìn kỹ.
+
 ## 2026-09-02 — Ảnh trong comment dùng chung khung xem trước (nên mới xoay được)
 
 - **Loại**: fix + dọn trùng lặp.
