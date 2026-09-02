@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Lead nhiều product chấm theo ngưỡng chặt nhất
+
+- **Loại**: fix (business rule).
+- `settingsForLead` nhận cột **scalar** `lead.product`, mà trigger đặt `product = products[0]` theo thứ tự cố định `['pc','health']`. Lead mang cả hai product **vĩnh viễn** là "pc" và **vĩnh viễn** bị chấm theo ngưỡng P&C — kể cả khi đang xem trong bộ lọc Health.
+- Nay nhận cả đối tượng lead và lấy ngưỡng **chặt nhất** trong các product nó mang: lead nằm trong pool của mọi product nó mang nên phải đạt tiêu chuẩn của bên khắt khe nhất. Chọn bên lỏng hơn là để một nửa số người theo dõi nó không bao giờ thấy cờ đỏ.
+- Lead cũ chưa có mảng `products` vẫn rơi về cột scalar — im lặng bỏ cảnh báo tệ hơn hẳn cảnh báo hơi rộng.
+- Chưa cắn vì hai bộ ngưỡng đang giống hệt nhau (24 giờ / 3 ngày / 4 lần).
+
 ## 2026-09-02 — Vá theo id giữ đúng lịch sử; gán xong không kéo lại cả danh sách
 
 - **Loại**: fix (hồi quy + hiệu năng) + **đính chính changelog**.

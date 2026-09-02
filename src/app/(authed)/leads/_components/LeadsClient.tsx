@@ -697,7 +697,7 @@ export function LeadsClient({
       resolveLeadAlerts(
         lead,
         lead.status_id ? statusById.get(lead.status_id) ?? null : null,
-        settingsForLead(alertSettings, lead.product),
+        settingsForLead(alertSettings, lead),
       ),
     ]),
   );
@@ -709,7 +709,7 @@ export function LeadsClient({
       classifyLeadHealth(
         lead,
         lead.status_id ? statusById.get(lead.status_id) ?? null : null,
-        settingsForLead(alertSettings, lead.product),
+        settingsForLead(alertSettings, lead),
       ),
     ]),
   );

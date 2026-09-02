@@ -24,12 +24,38 @@ export function parseOverviewProduct(value: unknown): LeadProduct | null {
  */
 export type LeadAlertSettingsByProduct = Record<LeadProduct, LeadAlertSettings>;
 
+/**
+ * Ngưỡng cảnh báo áp cho MỘT lead.
+ *
+ * Lead mang nhiều product lấy ngưỡng **chặt nhất** trong các product nó mang:
+ * lead nằm trong pool của mọi product nó mang, nên phải đạt tiêu chuẩn của bên
+ * khắt khe nhất. Chọn bên lỏng hơn là để một nửa số người theo dõi nó không bao
+ * giờ thấy cờ đỏ.
+ *
+ * Nhận cả đối tượng lead chứ không nhận riêng `product`: cột scalar `product` do
+ * trigger đặt bằng `products[0]` theo thứ tự cố định, nên lead `[pc, health]`
+ * VĨNH VIỄN là "pc" và vĩnh viễn bị chấm theo ngưỡng P&C.
+ */
 export function settingsForLead(
   settings: LeadAlertSettings | LeadAlertSettingsByProduct,
-  product: LeadProduct | null
+  lead: { product: LeadProduct | null; products?: readonly LeadProduct[] | null }
 ): LeadAlertSettings | null {
-  if (!product) return null;
-  return "product" in settings ? settings : settings[product];
+  if ("product" in settings) return settings;
+  const carried: LeadProduct[] =
+    lead.products && lead.products.length > 0
+      ? [...lead.products]
+      : lead.product
+        ? [lead.product]
+        : [];
+  if (carried.length === 0) return null;
+  const rows = carried.map((product) => settings[product]);
+  // Chặt hơn = số nhỏ hơn ở cả ba: ít giờ, ít ngày, ít lần gọi thì cờ bật sớm hơn.
+  return {
+    product: carried[0],
+    no_contact_hours: Math.min(...rows.map((row) => row.no_contact_hours)),
+    stale_days: Math.min(...rows.map((row) => row.stale_days)),
+    max_attempts: Math.min(...rows.map((row) => row.max_attempts)),
+  };
 }
 
 export type AgentSummary = {
@@ -77,7 +103,7 @@ export function summarizeLeads(
     const alerts = resolveLeadAlerts(
       lead,
       status,
-      settingsForLead(settings, lead.product),
+      settingsForLead(settings, lead),
       now,
     );
     for (const alert of alerts) byAlert[alert] += 1;

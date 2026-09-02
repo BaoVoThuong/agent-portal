@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseOverviewProduct, settingsForLead, summarizeLeads } from "./overview";
-import type { LeadAlertSettings, LeadRow, LeadStatus } from "./types";
+import type { LeadAlertSettings, LeadProduct, LeadRow, LeadStatus } from "./types";
 
 const settings: LeadAlertSettings = { product: "pc", no_contact_hours: 24, stale_days: 3, max_attempts: 4 };
 const NOW = new Date("2026-09-01T12:00:00Z");
@@ -88,14 +88,56 @@ describe("settingsForLead", () => {
   const health = { product: "health", no_contact_hours: 99, stale_days: 99, max_attempts: 99 } as const;
 
   it("returns the single row unchanged when the list is scoped to one product", () => {
-    expect(settingsForLead(pc, "health")).toBe(pc);
+    expect(settingsForLead(pc, { product: "health", products: ["health"] })).toBe(pc);
   });
 
   // Mixing products under one threshold set is how a P&C lead ends up measured
   // against Health's numbers.
   it("picks per product when both rows are supplied", () => {
     const byProduct = { pc, health };
-    expect(settingsForLead(byProduct, "pc")).toBe(pc);
-    expect(settingsForLead(byProduct, "health")).toBe(health);
+    // Một product thì trả nguyên bộ của product đó — không dựng bản mới, nên
+    // toEqual chứ không toBe: hàm nay gộp ngưỡng nên luôn trả object mới.
+    expect(settingsForLead(byProduct, { product: "pc", products: ["pc"] })).toEqual(pc);
+    expect(settingsForLead(byProduct, { product: "health", products: ["health"] })).toEqual(
+      health,
+    );
+  });
+});
+
+describe("settingsForLead — lead mang nhiều product", () => {
+  const byProduct: Record<LeadProduct, LeadAlertSettings> = {
+    pc: { product: "pc", no_contact_hours: 48, stale_days: 7, max_attempts: 6 },
+    health: { product: "health", no_contact_hours: 12, stale_days: 2, max_attempts: 3 },
+  };
+
+  it("lead mang cả hai product bị chấm theo ngưỡng CHẶT nhất", () => {
+    // Lấy theo products[0] là chấm nó theo P&C mãi mãi, vì trigger luôn đặt
+    // product = products[0] theo thứ tự cố định.
+    expect(settingsForLead(byProduct, { product: "pc", products: ["pc", "health"] })).toEqual({
+      product: "pc",
+      no_contact_hours: 12,
+      stale_days: 2,
+      max_attempts: 3,
+    });
+  });
+
+  it("lead một product dùng đúng ngưỡng của product đó", () => {
+    expect(settingsForLead(byProduct, { product: "pc", products: ["pc"] })).toEqual(byProduct.pc);
+  });
+
+  it("lead chưa phân loại product không có ngưỡng nào", () => {
+    expect(settingsForLead(byProduct, { product: null, products: [] })).toBeNull();
+  });
+
+  it("lead cũ chưa có mảng products vẫn dùng cột scalar", () => {
+    // Đường đọc nào chưa kịp select `products` thì không được vì thế mà mất
+    // cảnh báo — im lặng bỏ cảnh báo tệ hơn hẳn cảnh báo hơi rộng.
+    expect(settingsForLead(byProduct, { product: "health" })).toEqual(byProduct.health);
+  });
+
+  it("truyền thẳng một bộ ngưỡng đơn thì trả nguyên bộ đó", () => {
+    expect(settingsForLead(byProduct.health, { product: "pc", products: ["pc"] })).toEqual(
+      byProduct.health
+    );
   });
 });

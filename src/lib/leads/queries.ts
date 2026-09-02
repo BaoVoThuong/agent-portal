@@ -317,7 +317,7 @@ export async function fetchAllLeads(
       resolveLeadAlerts(
         lead,
         lead.status_id ? statuses.get(lead.status_id) ?? null : null,
-        settingsForLead(settingsByProduct, lead.product),
+        settingsForLead(settingsByProduct, lead),
       ).includes(alert),
     );
     return { rows: matched, total: matched.length };
