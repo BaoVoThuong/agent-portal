@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Dán ảnh thẳng vào comment (Ctrl+V)
+
+- **Loại**: feature.
+- Trước đây không dùng được vì **chưa từng có** handler nào: tìm khắp `src/` không có một chỗ nào đọc `clipboardData`. Trình duyệt chỉ đính kèm ảnh khi trang tự bắt sự kiện `paste`; không có handler thì Ctrl+V vào `<textarea>` chỉ dán được chữ.
+- **Ảnh dán phải được ĐẶT TÊN LẠI**, và đây là chỗ dễ làm hỏng nhất: cổng client nhận file theo `file.type`, nhưng `validateAttachmentFile` phía **server tra MIME theo ĐUÔI FILE**. Ảnh chụp màn hình tuỳ trình duyệt có tên `"image.png"`, `""`, hoặc không đuôi — trường hợp không đuôi thì qua cổng client rồi **chết ở server**, và người dùng chỉ biết sau khi đã bấm gửi.
+- Tên có mốc thời gian còn giải quyết chuyện chống trùng: `addFiles` so `name + size + lastModified`, mà mọi ảnh dán đều tên `"image.png"` — hai ảnh chụp cùng kích thước sẽ bị từ chối oan.
+- **File copy từ máy thì giữ nguyên tên** — tên đó có ý nghĩa với người dùng. Chỉ đặt tên hộ khi trình duyệt không cho cái tên nào dùng được.
+- **Dán chữ hoạt động y như cũ**: chỉ chặn sự kiện khi clipboard thật sự có file.
+- Kiểu file không cho phép thì **im lặng bỏ qua**, không báo lỗi đỏ — người ta thường chỉ định dán chữ, và một hộp lỗi cho thao tác không cố ý là phiền vô cớ.
+- Đọc qua `clipboardData.files`, lùi về `items` cho trình duyệt cũ.
+- Placeholder đổi thành "Add a comment… or paste a screenshot": một tính năng không ai biết là có thì cũng như không có.
+- Phần quyết định ở `src/lib/tasks/clipboard-files.ts` + 8 test; `.tsx` ở repo này không test được nên để trong component là không có lưới an toàn.
+- Khung soạn comment dùng chung nên **Enrollment được luôn**.
+
 ## 2026-09-02 — Xoay ảnh không còn làm ảnh nhảy to nhỏ
 
 - **Loại**: fix (UI).

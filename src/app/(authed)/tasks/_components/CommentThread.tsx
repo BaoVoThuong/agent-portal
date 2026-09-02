@@ -52,6 +52,7 @@ import {
 } from "@/lib/tasks/thread-view";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
+import { filesFromClipboard } from "@/lib/tasks/clipboard-files";
 import {
   AttachmentPreviewDialog,
   isInlinePreview,
@@ -1515,7 +1516,7 @@ export function CommentThread({
                       onCancel={() => setReplyTo(null)}
               onSubmit={(body, files) => post(body, files, c.id)}
               submitting={submissionBusy}
-              placeholder="Reply..."
+              placeholder="Reply… or paste a screenshot"
                     />
                   )}
                 </div>
@@ -1553,7 +1554,7 @@ export function CommentThread({
             nameOf={nameOf}
             onSubmit={(body, files) => post(body, files, null)}
             submitting={submissionBusy}
-            placeholder="Add a comment..."
+            placeholder="Add a comment… or paste a screenshot"
           />
         </div>
       </section>
@@ -2510,7 +2511,8 @@ function Composer({
     setEmojiOpen(false);
   }
 
-  function addFiles(list: FileList | null) {
+  // Nhận cả FileList (từ <input type="file">) lẫn File[] (từ clipboard).
+  function addFiles(list: FileList | readonly File[] | null) {
     if (!list || list.length === 0) return;
     const selected = Array.from(list);
     const unsupported = selected.find((file) => !isAllowedClientAttachment(file));
@@ -2663,6 +2665,14 @@ function Composer({
             onChange(e.target.value, e.target.selectionStart, e.target)
           }
           onKeyDown={onKeyDown}
+          onPaste={(event) => {
+            const pasted = filesFromClipboard(event.clipboardData);
+            // Mảng rỗng = clipboard chỉ có chữ. KHÔNG chặn sự kiện, để việc dán
+            // chữ hoạt động y như cũ — đó là thứ người ta dùng nhiều nhất.
+            if (pasted.length === 0) return;
+            event.preventDefault();
+            addFiles(pasted);
+          }}
           placeholder={placeholder}
           rows={1}
           className="block min-h-[2.25rem] w-full resize-y bg-white px-3 py-2 text-sm leading-5 text-[#172b4d] outline-none placeholder:text-[#7a869a]"
