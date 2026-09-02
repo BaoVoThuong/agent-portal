@@ -55,7 +55,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const supabase = getSupabaseAdmin();
   const { data: current, error: currentError } = await supabase
     .from("leads")
-    .select("id,assigned_to_email,status_id,next_follow_up_at,custom_values")
+    .select("id,assigned_to_email,status_id,next_follow_up_at,custom_values,updated_at")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
@@ -85,6 +85,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     next_follow_up_at: string | null;
     status_id: string | null;
     custom_values?: Record<string, unknown>;
+    updated_at: string;
   };
   const statusTouched = patch.status_id !== undefined;
   const followUpTouched = patch.next_follow_up_at !== undefined;
@@ -213,15 +214,35 @@ export async function PATCH(request: Request, { params }: Ctx) {
   patch.updated_by_email = email;
   patch.updated_at = new Date().toISOString();
 
+  // Compare-and-swap: chỉ ghi nếu dòng vẫn đúng như lúc đọc đầu request.
+  //
+  // Không có nó thì hai người sửa cùng lead là người ghi sau đè người ghi trước
+  // và không ai biết. Riêng `custom_values` còn tệ hơn: nó được merge từ bản đọc
+  // ở đầu request, nên một giá trị người kia VỪA XOÁ sẽ sống lại.
   const { data, error } = await supabase
     .from("leads")
     .update(patch)
     .eq("id", id)
     .is("archived_at", null)
+    .eq("updated_at", currentRow.updated_at)
     .select(LEAD_SELECT)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!data) {
+    // Không ghi được: hoặc lead vừa bị archive, hoặc có người ghi trước. Phân
+    // biệt hai chuyện đó, vì lời khuyên cho người dùng khác hẳn nhau.
+    const { data: still } = await supabase
+      .from("leads")
+      .select("id")
+      .eq("id", id)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (!still) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json(
+      { error: "Someone else changed this lead. The row has been refreshed." },
+      { status: 409 }
+    );
+  }
 
   const sourceId = readLeadMutationSourceId(request);
   after(async () => {

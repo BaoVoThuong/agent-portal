@@ -495,6 +495,7 @@ export function LeadsClient({
    */
   async function patchLead(id: string, patch: Record<string, unknown>) {
     const previous = leads.find((lead) => lead.id === id);
+    let conflicted = false;
     setLeads((current) =>
       current.map((lead) => (lead.id === id ? mergeLeadPatch(lead, patch) : lead)),
     );
@@ -508,7 +509,10 @@ export function LeadsClient({
         body: JSON.stringify(patch),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error ?? "Could not save that change.");
+      if (!response.ok) {
+        conflicted = response.status === 409;
+        throw new Error(payload?.error ?? "Could not save that change.");
+      }
       updateLead(payload.lead as LeadRow);
       // Changing Product can move a row out of a product-filtered list. The
       // alert case already reloads in updateLead(), so do not issue two fetches.
@@ -526,6 +530,12 @@ export function LeadsClient({
       setEditError(
         error instanceof Error ? error.message : "Could not save that change.",
       );
+      // 409 = có người ghi trước. Khôi phục xong MỚI kéo bản thật về — làm ngược
+      // thứ tự thì phần khôi phục đè mất bản vừa lấy, và màn hình hiện một bản
+      // cũ mà người dùng tưởng là mới nhất.
+      if (conflicted) {
+        void patchLeadsByIdRef.current([id]).catch(() => void reloadRef.current());
+      }
       throw error;
     }
   }

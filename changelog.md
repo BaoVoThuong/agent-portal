@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — PATCH lead không còn âm thầm đè lên nhau
+
+- **Loại**: fix (toàn vẹn dữ liệu).
+- Route đọc lead ở đầu request rồi ghi ở cuối, không có gì chặn giữa hai thời điểm. Hai người sửa cùng một lead thì người ghi sau đè người ghi trước và **không ai biết**. Riêng `custom_values` còn tệ hơn: nó được merge từ bản đọc ở đầu request, nên một giá trị người kia **vừa xoá** sẽ sống lại.
+- Nay ghi kèm `.eq("updated_at", <giá trị lúc đọc>)`. Ai ghi trước thắng; người sau nhận **409** và màn hình kéo bản thật về.
+- 409 phân biệt với 404: lead vừa bị archive là chuyện khác, và lời khuyên cho người dùng cũng khác.
+- Phía client, việc kéo bản thật chạy **sau** phần khôi phục dòng cũ — làm ngược thứ tự thì khôi phục sẽ đè mất bản vừa lấy.
+
 ## 2026-09-02 — Mọi đường gán lead đều nguyên tử
 
 - **Loại**: fix (toàn vẹn dữ liệu).
