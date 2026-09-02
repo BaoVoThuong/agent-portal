@@ -93,6 +93,8 @@ type LeadTableProps = {
   onSelectVisible: (selected: boolean) => void;
   onOpenLead: (lead: LeadRow) => void;
   onPatchLead: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  /** Status cần ngày hẹn mà lead chưa có — màn hình ngoài mở hộp nhập ngày. */
+  onFollowUpNeeded: (lead: LeadRow, statusId: string) => void;
   onAssignLead: (id: string, email: string | null) => Promise<void>;
   sortKey: LeadSortKey | null;
   sortDir: SortDir;
@@ -107,6 +109,7 @@ export function LeadTable({
   editableOwnerEmails,
   alertsByLeadId,
   onPatchLead,
+  onFollowUpNeeded,
   onAssignLead,
   leads,
   columns,
@@ -224,7 +227,22 @@ export function LeadTable({
                     pinnedOffsetByKey={pinnedOffsetByKey}
                     onToggle={() => onToggleLead(lead.id)}
                     onOpen={() => onOpenLead(lead)}
-                    onPatch={(patch) => onPatchLead(lead.id, patch)}
+                    onPatch={(patch) => {
+                      // Chuyển sang một status kiểu `scheduled` mà lead chưa có
+                      // ngày hẹn: KHÔNG gửi lên để rồi nhận về lỗi bảo "mở lead
+                      // ra mà nhập". Hỏi ngay tại đây rồi gửi cả hai cùng lúc.
+                      const nextStatusId = patch.status_id;
+                      if (
+                        typeof nextStatusId === "string" &&
+                        nextStatusId &&
+                        statusById.get(nextStatusId)?.kind === "scheduled" &&
+                        !lead.next_follow_up_at
+                      ) {
+                        onFollowUpNeeded(lead, nextStatusId);
+                        return Promise.resolve();
+                      }
+                      return onPatchLead(lead.id, patch);
+                    }}
                     onAssign={(email) => onAssignLead(lead.id, email)}
                   />
                 </li>

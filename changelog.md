@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Đổi sang status cần ngày hẹn thì hỏi ngày ngay, không báo lỗi
+
+- **Loại**: fix (UX).
+- Đổi status inline sang một status kiểu `scheduled` (ví dụ "Call back") trên lead chưa có ngày hẹn thì nhận lỗi *"That status needs a follow-up date. Open the lead to log it."* — tức bắt người dùng **làm lại việc vừa làm ở một màn hình khác**.
+- Nay bảng chặn ngay tại chỗ: mở hộp nhỏ hỏi ngày giờ, rồi gửi **status và ngày hẹn trong CÙNG một request**. Hai thứ đó là một cặp bất khả phân — gửi riêng thì lần gửi đầu đã vi phạm luật `checkFollowUpInvariant`.
+- Chặn ở lớp bọc `onPatch` của dòng chứ không ở riêng ô Status: mọi đường ghi `status_id` từ bảng đều đi qua đó.
+- Luật phía server **không đổi** — nó vẫn là nơi quyết định. Đây chỉ là hỏi trước cho đủ dữ kiện thay vì đoán rồi bị từ chối.
+
 ## 2026-09-02 — Lead hai product: hai badge xếp dọc
 
 - **Loại**: fix (UI).

@@ -152,6 +152,20 @@ export function LeadsClient({
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importToast, setImportToast] = useState<string | null>(null);
+  /**
+   * Đang hỏi ngày hẹn cho một lần đổi status.
+   *
+   * Status kiểu `scheduled` bắt buộc có ngày hẹn — luật đó nằm ở
+   * `checkFollowUpInvariant`. Bản trước để người dùng đổi status rồi trả về lỗi
+   * "That status needs a follow-up date. Open the lead to log it.", tức bắt họ
+   * làm lại việc vừa làm ở một màn hình khác. Hỏi ngay rồi gửi cả hai cùng lúc.
+   */
+  const [followUpPrompt, setFollowUpPrompt] = useState<{
+    lead: LeadRow;
+    statusId: string;
+  } | null>(null);
+  const [followUpAt, setFollowUpAt] = useState("");
+  const [followUpSaving, setFollowUpSaving] = useState(false);
   const [assignmentEmail, setAssignmentEmail] = useState("");
   const [assignmentReason, setAssignmentReason] = useState("");
   const [assigning, setAssigning] = useState(false);
@@ -1187,6 +1201,9 @@ export function LeadsClient({
               editableOwnerEmails={editableOwnerEmails}
               alertsByLeadId={alertsByLeadId}
               onPatchLead={patchLead}
+              onFollowUpNeeded={(lead, statusId) =>
+                setFollowUpPrompt({ lead, statusId })
+              }
               onAssignLead={assignLead}
               sortKey={sortKey}
               sortDir={sortDir}
@@ -1238,6 +1255,73 @@ export function LeadsClient({
         onClose={() => setDistributeOpen(false)}
         onDistributed={() => void reloadRef.current()}
       />
+      {followUpPrompt ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-[#091e42]/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Set follow-up date"
+          onClick={() => setFollowUpPrompt(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="text-base font-bold text-[#172b4d]">
+              When will you call back?
+            </h2>
+            <p className="mt-1 text-sm text-[#6b778c]">
+              {statusById.get(followUpPrompt.statusId)?.label ?? "This status"}{" "}
+              needs a follow-up time, otherwise the lead sits flagged forever.
+            </p>
+            <input
+              type="datetime-local"
+              autoFocus
+              value={followUpAt}
+              onChange={(event) => setFollowUpAt(event.target.value)}
+              className="mt-3 h-10 w-full rounded border-2 border-[#dfe1e6] px-3 text-sm font-medium text-[#172b4d] outline-none focus:border-[#0c66e4]"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setFollowUpPrompt(null);
+                  setFollowUpAt("");
+                }}
+                className="h-9 rounded border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!followUpAt || followUpSaving}
+                onClick={async () => {
+                  const prompt = followUpPrompt;
+                  if (!prompt || !followUpAt) return;
+                  setFollowUpSaving(true);
+                  try {
+                    // Gửi CẢ HAI trong một lần: status và ngày hẹn là một cặp
+                    // bất khả phân, gửi riêng thì lần gửi đầu đã vi phạm luật.
+                    await patchLead(prompt.lead.id, {
+                      status_id: prompt.statusId,
+                      next_follow_up_at: new Date(followUpAt).toISOString(),
+                    });
+                    setFollowUpPrompt(null);
+                    setFollowUpAt("");
+                  } catch {
+                    // patchLead đã đặt thông báo lỗi và trả dòng về như cũ.
+                  } finally {
+                    setFollowUpSaving(false);
+                  }
+                }}
+                className="h-9 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {followUpSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <Toast
         message={importToast}
         tone="success"
