@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Import xong: báo bằng toast và tự đóng modal
+
+- **Loại**: fix (UX).
+- Import xong nhưng modal ở lại với một bảng kết quả chỉ có mấy con số, người dùng phải tự bấm đóng. Nay lượt import **sạch** thì modal **tự đóng** và một toast xanh báo `Imported 42 leads.`
+- **Modal chỉ ở lại khi có thứ đáng đọc** — có dòng bị bỏ, số trùng, hoặc cột bị bỏ qua. Đóng đi lúc đó là vứt mất lý do từng dòng cùng số dòng Excel để đối chiếu; đó chính là thứ người ta cần để sửa file rồi nhập lại.
+- Toast dùng component `Toast` sẵn có (đã phục vụ Task board, Config, Enrollment, Account manager), không dựng cái mới.
+- Toast vẫn tóm tắt cả phần không sạch (`Imported 40 leads · 2 duplicate · 1 skipped.`) để người dùng biết ngay con số mà không phải đọc bảng.
+
 ## 2026-09-02 — Sửa lỗi import trả 400 sau khi mapping đổi sang mảng
 
 - **Loại**: fix (hồi quy do chính đợt ghép cột gây ra).

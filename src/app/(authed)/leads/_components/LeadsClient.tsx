@@ -58,6 +58,7 @@ import { LeadDetailDrawer } from "./LeadDetailDrawer";
 import { LeadAddDialog } from "./LeadAddDialog";
 import { LeadDistributeDialog } from "./LeadDistributeDialog";
 import { LeadImportDialog } from "./LeadImportDialog";
+import { Toast } from "../../_shared/Toast";
 import { LeadOverview } from "./LeadOverview";
 import { LeadTable } from "./LeadTable";
 import { LeadTableSettingsButton } from "./LeadTableSettingsButton";
@@ -150,6 +151,7 @@ export function LeadsClient({
   const [selectedLead, setSelectedLead] = useState<LeadRow | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [importToast, setImportToast] = useState<string | null>(null);
   const [assignmentEmail, setAssignmentEmail] = useState("");
   const [assignmentReason, setAssignmentReason] = useState("");
   const [assigning, setAssigning] = useState(false);
@@ -1207,13 +1209,26 @@ export function LeadsClient({
         onClose={() => setDistributeOpen(false)}
         onDistributed={() => void reloadRef.current()}
       />
+      <Toast
+        message={importToast}
+        tone="success"
+        onDismiss={() => setImportToast(null)}
+      />
       <LeadImportDialog
         open={importOpen}
         productFilter={productFilter}
         columns={columns}
         sourceId={sourceId}
         onClose={() => setImportOpen(false)}
-        onImported={() => reload()}
+        onImported={async (result) => {
+          await reload();
+          // Báo bằng toast thay vì giữ modal: lượt import sạch thì bảng kết quả
+          // chỉ có một con số. Modal chỉ ở lại khi có thứ đáng đọc.
+          const parts = [`Imported ${result.inserted.toLocaleString()} lead${result.inserted === 1 ? "" : "s"}`];
+          if (result.duplicates > 0) parts.push(`${result.duplicates} duplicate`);
+          if (result.skipped.length > 0) parts.push(`${result.skipped.length} skipped`);
+          setImportToast(`${parts.join(" · ")}.`);
+        }}
       />
       <LeadAddDialog
         open={addOpen}

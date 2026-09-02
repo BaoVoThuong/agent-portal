@@ -36,7 +36,7 @@ const IMPORT_SELECT_BUTTON_CLASS =
 const MAP_ADD_SELECT_BUTTON_CLASS =
   "!h-[26px] !rounded !border !border-dashed !border-[#b3c5d6] !bg-white !px-2 !text-xs !font-semibold !text-[#42526e] !shadow-none";
 
-type ImportResult = {
+export type ImportResult = {
   inserted: number;
   duplicates: number;
   skipped: { row: number; reason: string }[];
@@ -64,7 +64,8 @@ type LeadImportDialogProps = {
   columns: TableColumn[];
   sourceId: string;
   onClose: () => void;
-  onImported: () => Promise<void>;
+  /** Nhận tóm tắt để màn hình ngoài báo toast; modal tự đóng khi lượt import sạch. */
+  onImported: (result: ImportResult) => Promise<void>;
 };
 
 function formatEvent(event: LeadEvent): string {
@@ -309,8 +310,22 @@ export function LeadImportDialog({
       const payload = await response.json().catch(() => null);
       if (!response.ok)
         throw new Error(payload?.error ?? "Could not import leads.");
-      setResult(payload as ImportResult);
-      await onImported();
+      const imported = payload as ImportResult;
+      setResult(imported);
+      await onImported(imported);
+      // Lượt import SẠCH thì đóng modal và báo bằng toast — bảng kết quả lúc đó
+      // chỉ có một con số, không đáng giữ người dùng lại.
+      //
+      // Còn có dòng bị bỏ, số trùng, hay cột bị bỏ qua thì GIỮ modal: đó là
+      // thứ họ cần đọc, và đóng đi là vứt mất lý do từng dòng cùng số dòng
+      // Excel để đối chiếu.
+      if (
+        imported.skipped.length === 0 &&
+        imported.duplicates === 0 &&
+        (imported.ignoredHeaders?.length ?? 0) === 0
+      ) {
+        resetAndClose();
+      }
     } catch (importError) {
       setError(
         importError instanceof Error
