@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Nút "Chia pool" đổi sang tiếng Anh
+
+- **Loại**: fix (chuỗi hiển thị).
+- Nút mở hộp thoại chia lead ghi **"Chia pool"** — chuỗi tiếng Việt duy nhất còn sót trên giao diện. Đổi thành **"Distribute pool"**, khớp đúng tiêu đề hộp thoại (`Distribute pool by ratio`) để người dùng nối được nút với thứ nó mở ra. Tooltip cũng đổi sang tiếng Anh.
+- **Cách tìm ra, ghi lại vì bộ quét theo dấu tiếng Việt KHÔNG bắt được chỗ này**: "Chia pool" không có dấu nào. Quét toàn bộ `src/` theo ký tự có dấu chỉ ra 2 kết quả, và cả hai đều không phải chỗ này. Phải liệt kê **mọi chuỗi hiển thị** trong module rồi soi bằng mắt mới thấy.
+- Đã kiểm và **không còn chỗ nào khác**: dữ liệu trong DB (`table_column` 95 dòng, `lead_statuses` 7, `lead_interaction_types` 4, `lead_events` 1) đều tiếng Anh sạch; 67 chuỗi hiển thị khác trong module lead cũng vậy.
+
 ## 2026-09-02 — Dán ảnh thẳng vào comment (Ctrl+V)
 
 - **Loại**: feature.

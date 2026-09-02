@@ -879,9 +879,9 @@ export function LeadsClient({
                   className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50"
                   type="button"
                   onClick={() => setDistributeOpen(true)}
-                  title="Chia lead đang ở pool cho agent theo tỉ lệ đã cấu hình"
+                  title="Distribute pooled leads to agents by the configured ratio"
                 >
-                  <Shuffle className="h-4 w-4" /> Chia pool
+                  <Shuffle className="h-4 w-4" /> Distribute pool
                 </button>
               )}
               {isManager && (
