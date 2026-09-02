@@ -18,6 +18,7 @@ import {
   resolveVisibleInteractions,
 } from "@/lib/leads/interaction-log-state";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { buildStatusById } from "@/lib/leads/status-lookup";
 import { leadIsInScope } from "@/lib/leads/capabilities";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
@@ -103,6 +104,8 @@ type LeadDetailDrawerProps = {
   lead: LeadRow | null;
   sourceId: string;
   statuses: LeadStatus[];
+  /** CHỈ để tra cứu hiển thị; danh sách chọn vẫn chỉ dùng `statuses`. */
+  archivedStatuses: LeadStatus[];
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
   interactionTypes: LeadInteractionType[];
@@ -145,6 +148,7 @@ export function LeadDetailDrawer({
   lead,
   sourceId,
   statuses,
+  archivedStatuses,
   columns,
   columnOptions,
   interactionTypes,
@@ -242,9 +246,11 @@ export function LeadDetailDrawer({
   const currentLeadStatus = useMemo(
     () =>
       lead?.status_id
-        ? statuses.find((s) => s.id === lead.status_id)
+        // Tra trên bảng ĐẦY ĐỦ. Dùng `statuses` (chỉ active) thì lead giữ một
+        // status vừa bị archive sẽ hiện "No status" dù DB còn status_id hợp lệ.
+        ? buildStatusById(statuses, archivedStatuses).get(lead.status_id)
         : undefined,
-    [lead, statuses],
+    [lead, statuses, archivedStatuses],
   );
   const optionsByColumn = useMemo(() => {
     const map = new Map<string, TableColumnOption[]>();

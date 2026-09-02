@@ -86,7 +86,10 @@ export async function GET(request: Request) {
   const supabase = getSupabaseAdmin();
   const [leadsResult, statusesResult, settingsResult, eventsResult] = await Promise.all([
     fetchAllLeadsForSummary(supabase, product),
-    supabase.from("lead_statuses").select("id,label,color,position,kind,archived_at").is("archived_at", null),
+    // KHÔNG lọc archived: bảng tra này dùng để PHÂN LOẠI lead đã có, không phải
+    // để dựng danh sách chọn. Lọc ở đây là đếm lead đã chốt Won vào nhóm còn mở
+    // và cộng thêm cảnh báo cho nó.
+    supabase.from("lead_statuses").select("id,label,color,position,kind,archived_at"),
     // Cả hai dòng khi xem mọi product: summarizeLeads chọn theo product từng lead.
     fetchLeadAlertSettings(supabase),
     supabase.from("lead_events").select("id,name,event_date").is("archived_at", null),

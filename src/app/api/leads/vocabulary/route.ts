@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@/lib/leads/access";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { validateStatusInput, validateTypeInput } from "@/lib/leads/vocabulary";
+import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -29,14 +30,14 @@ export async function GET() {
   });
   if (!canWorkLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const supabase = getSupabaseAdmin();
-  const [statusesResult, typesResult] = await Promise.all([
-    supabase.from("lead_statuses").select(STATUS_COLUMNS).is("archived_at", null).order("position"),
-    supabase.from("lead_interaction_types").select(TYPE_COLUMNS).is("archived_at", null).order("position"),
-  ]);
-  if (statusesResult.error) return NextResponse.json({ error: statusesResult.error.message }, { status: 500 });
-  if (typesResult.error) return NextResponse.json({ error: typesResult.error.message }, { status: 500 });
-  return NextResponse.json({ statuses: statusesResult.data ?? [], types: typesResult.data ?? [] });
+  // Dùng chung fetchLeadVocabulary thay vì giữ bản sao truy vấn riêng: hai bản
+  // sao của cùng một câu hỏi là hai cơ hội để chúng lệch nhau.
+  const vocabulary = await fetchLeadVocabulary(getSupabaseAdmin());
+  return NextResponse.json({
+    statuses: vocabulary.statuses,
+    types: vocabulary.types,
+    archivedStatuses: vocabulary.archivedStatuses,
+  });
 }
 
 export async function POST(request: Request) {

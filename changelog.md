@@ -6,6 +6,18 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Status đã archive nhìn thấy được ở mọi màn hình
+
+- **Loại**: fix.
+- `resolveLeadAlerts` coi status `null` là **còn mở** (cố ý, để lead không im lặng biến mất khỏi màn hình manager). Nhưng **ba** nơi đưa `null` vào nó vì đã lọc mất status đã archive — một nguyên nhân, ba biểu hiện:
+  - **Danh sách**: lead đã chốt Won sáng cờ đỏ.
+  - **Overview**: đếm lead Won vào nhóm còn mở và cộng thêm cảnh báo.
+  - **Drawer**: hiện "No status" dù DB còn `status_id` hợp lệ.
+- Ngược lại `fetchLeadStatusMap` phía server **không** lọc archived, nên đường `?alert=` lại đúng — hai bên nói ngược nhau về cùng một lead.
+- Nguyên tắc nay viết thành code: *danh sách chọn* chỉ có status đang dùng; *bảng tra để hiển thị* có cả archived. `buildStatusById` là chỗ duy nhất dựng bảng tra, dùng chung cho list và drawer.
+- `fetchLeadVocabulary` lấy hết trong **một** truy vấn rồi tách ở Node: hai truy vấn cho hai nửa của cùng một bảng là hai cơ hội để chúng lệch nhau. Route `/api/leads/vocabulary` nay gọi chung hàm đó thay vì giữ bản sao truy vấn riêng.
+- Chưa cắn vì hiện không có status nào bị archive.
+
 ## 2026-09-02 — Tạo lead: idempotency thật, và chặn trùng cả khi không có event
 
 - **Loại**: fix (toàn vẹn dữ liệu).

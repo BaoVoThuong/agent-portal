@@ -376,13 +376,19 @@ const LEAD_INTERACTION_TYPE_COLUMNS =
  */
 export async function fetchLeadVocabulary(
   supabase: SupabaseClient = getSupabaseAdmin()
-): Promise<{ statuses: LeadStatus[]; types: LeadInteractionType[] }> {
+): Promise<{
+  statuses: LeadStatus[];
+  types: LeadInteractionType[];
+  /**
+   * CHỈ để tra cứu hiển thị, KHÔNG đưa vào danh sách chọn. Lead cũ vẫn trỏ vào
+   * status đã archive; thiếu chúng thì lead đã chốt bị coi là còn mở.
+   */
+  archivedStatuses: LeadStatus[];
+}> {
   const [statusesResult, typesResult] = await Promise.all([
-    supabase
-      .from("lead_statuses")
-      .select(LEAD_STATUS_COLUMNS)
-      .is("archived_at", null)
-      .order("position"),
+    // Lấy hết trong MỘT truy vấn rồi tách ở Node: hai truy vấn cho hai nửa của
+    // cùng một bảng là hai cơ hội để chúng lệch nhau.
+    supabase.from("lead_statuses").select(LEAD_STATUS_COLUMNS).order("position"),
     supabase
       .from("lead_interaction_types")
       .select(LEAD_INTERACTION_TYPE_COLUMNS)
@@ -391,8 +397,10 @@ export async function fetchLeadVocabulary(
   ]);
   if (statusesResult.error) throw new Error(statusesResult.error.message);
   if (typesResult.error) throw new Error(typesResult.error.message);
+  const allStatuses = (statusesResult.data ?? []) as LeadStatus[];
   return {
-    statuses: (statusesResult.data ?? []) as LeadStatus[],
+    statuses: allStatuses.filter((status) => !status.archived_at),
+    archivedStatuses: allStatuses.filter((status) => status.archived_at),
     types: (typesResult.data ?? []) as LeadInteractionType[],
   };
 }

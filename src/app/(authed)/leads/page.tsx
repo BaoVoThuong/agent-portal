@@ -70,6 +70,7 @@ export default async function LeadsPage({
       columns={config.columns}
       columnOptions={config.options}
       statuses={vocabulary.statuses}
+      archivedStatuses={vocabulary.archivedStatuses}
       interactionTypes={vocabulary.types}
       assignees={assignees}
     />

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CircleAlert, Plus, Search, Shuffle, Upload, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { resolveLeadAlerts, type LeadAlert } from "@/lib/leads/alerts";
+import { buildStatusById } from "@/lib/leads/status-lookup";
 import {
   classifyLeadHealth,
   emptyLeadHealthCounts,
@@ -79,6 +80,8 @@ type LeadsClientProps = {
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
   statuses: LeadStatus[];
+  /** CHỈ để tra cứu hiển thị; không đưa vào danh sách chọn. */
+  archivedStatuses: LeadStatus[];
   interactionTypes: LeadInteractionType[];
   /** Empty for non-managers: only they can reassign, so only they get the roster. */
   assignees: { email: string; name: string | null }[];
@@ -135,6 +138,7 @@ export function LeadsClient({
   columns,
   columnOptions,
   statuses,
+  archivedStatuses,
   interactionTypes,
   assignees,
 }: LeadsClientProps) {
@@ -605,7 +609,9 @@ export function LeadsClient({
 
   // The list is fully loaded client-side (fetchAllLeads pages until complete),
   // so filtering and sorting stay in the browser — same as the task board.
-  const statusById = new Map(statuses.map((status) => [status.id, status]));
+  // Gồm cả status đã archive: lead cũ vẫn trỏ vào đó, và thiếu chúng thì
+  // resolveLeadAlerts nhận null rồi coi lead đã chốt là còn mở — sáng cờ đỏ.
+  const statusById = buildStatusById(statuses, archivedStatuses);
   const statusNameById = new Map(statuses.map((status) => [status.id, status.label]));
   // Event is free text on the row, so the choices are whatever the loaded leads
   // actually carry rather than a lookup table.
@@ -1129,6 +1135,7 @@ export function LeadsClient({
           lead={selectedLead}
           sourceId={sourceId}
           statuses={statuses}
+          archivedStatuses={archivedStatuses}
           columns={columns}
           columnOptions={columnOptions}
           interactionTypes={interactionTypes}
