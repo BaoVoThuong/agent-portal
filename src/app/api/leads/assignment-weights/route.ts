@@ -141,52 +141,27 @@ export async function PUT(request: Request) {
   const parsed = parseWeights(body?.weights);
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
-  const supabase = getSupabaseAdmin();
-  const actorEmail = actor.email.trim().toLowerCase();
-  const nowIso = new Date().toISOString();
-
-  const existing = await fetchAssignmentWeights(product, supabase);
-  const keep = new Set(parsed.map((row) => row.agent_email));
-  const removed = existing
-    .map((row) => row.agent_email)
-    .filter((agentEmail) => !keep.has(agentEmail.trim().toLowerCase()));
-
-  if (removed.length > 0) {
-    const { error } = await supabase
-      .from("lead_assignment_weights")
-      .delete()
-      .eq("product", product)
-      .in("agent_email", removed);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Một giao dịch. Trước đó là bốn bước rời (đọc -> xoá agent bị bỏ -> upsert
+  // phần còn lại -> cập nhật cờ), nên một bước hỏng giữa chừng để lại cấu hình
+  // NỬA VỜI: agent đã xoá mà trọng số mới chưa ghi. Đây là bảng quyết định lead
+  // của ai, nên nửa vời ở đây nghĩa là chia lead sai cho tới khi có người phát
+  // hiện. RPC còn khoá mọi dòng của product trước khi đụng vào gì, nên hai admin
+  // lưu cùng lúc thì người thứ hai CHỜ thay vì ghi đè lên nửa chừng.
+  const { error } = await getSupabaseAdmin().rpc("save_lead_assignment_weights", {
+    p_product: product,
+    p_rows: parsed,
+    p_enabled: typeof body?.enabled === "boolean" ? body.enabled : null,
+    p_actor_email: actor.email,
+  });
+  if (error) {
+    if (error.message.includes("LEAD_ACTOR_REQUIRED")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (error.message.includes("LEAD_PRODUCT_INVALID")) {
+      return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
-  if (parsed.length > 0) {
-    // current_weight is deliberately absent: an upsert must not reset the
-    // rotation cursor. Renaming a weight would otherwise hand the next several
-    // leads to whoever happened to be furthest behind.
-    const { error } = await supabase.from("lead_assignment_weights").upsert(
-      parsed.map((row) => ({
-        product,
-        agent_email: row.agent_email,
-        weight: row.weight,
-        position: row.position,
-        is_active: row.is_active,
-        updated_by_email: actorEmail,
-        updated_at: nowIso,
-      })),
-      { onConflict: "product,agent_email" }
-    );
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  if (typeof body?.enabled === "boolean") {
-    const { error } = await supabase
-      .from("lead_alert_settings")
-      .update({ auto_assign_enabled: body.enabled })
-      .eq("product", product);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
   return NextResponse.json({ ok: true });
 }
 

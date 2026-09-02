@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Lưu cấu hình chia pool trong một giao dịch
+
+- **Loại**: fix (toàn vẹn dữ liệu).
+- `PUT /api/leads/assignment-weights` chạy **bốn** bước rời: đọc bản hiện có → xoá agent bị bỏ → upsert phần còn lại → cập nhật cờ auto-assign. Một bước hỏng giữa chừng để lại cấu hình **nửa vời**: agent đã bị xoá nhưng trọng số mới chưa ghi. Hai admin lưu cùng lúc thì người sau xoá mất agent người trước vừa thêm.
+- Đây là bảng quyết định lead của ai, nên nửa vời ở đây nghĩa là **chia lead sai cho tới khi có người phát hiện**.
+- Nay đi qua RPC `save_lead_assignment_weights`, khoá mọi dòng của product **trước** khi đụng vào bất cứ thứ gì: hai admin lưu cùng lúc thì người thứ hai **chờ** thay vì ghi đè lên nửa chừng.
+- `current_weight` vẫn không nằm trong payload: nó là con trỏ vòng xoay, đặt lại nó khi admin chỉ sửa tỉ lệ sẽ trao mấy lead kế tiếp cho người đang tụt xa nhất.
+- **Cần chạy** `supabase/rollouts/2026-09-03-lead-weights-atomic.sql`.
+
 ## 2026-09-02 — Lead nhiều product chấm theo ngưỡng chặt nhất
 
 - **Loại**: fix (business rule).
