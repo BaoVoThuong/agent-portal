@@ -1,4 +1,4 @@
-import type { LeadImportMapping } from "./import-mapping";
+import { joinMappedValues, type LeadImportMapping } from "./import-mapping";
 
 export type ParsedLead = {
   /** Số dòng trong file Excel, để lý do bỏ hàng chỉ đúng dòng người dùng thấy. */
@@ -31,12 +31,18 @@ export function normalizePhone(raw: unknown): string | null {
   return trimmed.length >= 7 ? trimmed : null;
 }
 
-function cell(record: Record<string, unknown>, key: string | undefined): string | null {
-  if (!key) return null;
-  const value = record[key];
-  if (value === null || value === undefined) return null;
-  const text = String(value).trim();
-  return text === "" ? null : text;
+/**
+ * Giá trị của một trường đích, ghép từ mọi cột nguồn được map vào nó.
+ *
+ * File hay tách "First Name" / "Last Name" trong khi đích chỉ có một ô Name —
+ * không ghép được thì phải vứt một nửa dữ liệu.
+ */
+function cell(
+  record: Record<string, unknown>,
+  headers: readonly string[] | undefined
+): string | null {
+  if (!headers || headers.length === 0) return null;
+  return joinMappedValues(headers.map((header) => record[header]));
 }
 
 /**
@@ -70,9 +76,14 @@ export function parseLeadRows(
     // không phải lựa chọn của người dùng. Giữ cả hai cơ chế là để chúng cùng
     // quyết một chuyện rồi mâu thuẫn nhau.
     const customValues: Record<string, unknown> = {};
-    for (const [targetKey, header] of Object.entries(mapping)) {
+    for (const [targetKey, sourceHeaders] of Object.entries(mapping)) {
       if (SYSTEM_TARGET_KEYS.has(targetKey)) continue;
-      const value = record[header];
+      // Một cột nguồn thì giữ nguyên KIỂU gốc (số Excel vẫn là số, để
+      // validateCustomValues nhận cột number). Nhiều cột thì buộc phải ghép
+      // thành chuỗi — và chỉ trường chữ mới được phép ghép, xem allowsMultiple.
+      const value = sourceHeaders.length === 1
+        ? record[sourceHeaders[0]]
+        : joinMappedValues(sourceHeaders.map((header) => record[header]));
       if (value === null || value === undefined || value === "") continue;
       customValues[targetKey] = value;
     }

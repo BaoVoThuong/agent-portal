@@ -15,6 +15,7 @@ import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import { parseLeadRows, type ParseResult } from "@/lib/leads/import-parse";
 import {
   guessMappingByName,
+  previewCellValue,
   type LeadImportMapping,
 } from "@/lib/leads/import-mapping";
 import { buildLeadImportTargets } from "@/lib/leads/import-targets";
@@ -135,6 +136,18 @@ export function LeadImportDialog({
     () => parseLeadRows(records.slice(0, 5), mapping),
     [mapping, records],
   );
+  /**
+   * Bảng xem trước hiện MỘT CỘT cho mỗi trường đã map, mang đúng nhãn của
+   * trường đó.
+   *
+   * Bản trước cứng bốn cột và ô cuối in `Object.keys(custom_values)` — tức tên
+   * KHOÁ, không phải giá trị. Người dùng thấy chữ "secondary_phone" nằm trong ô
+   * dữ liệu và tưởng đó là thứ được import.
+   */
+  const previewTargets = useMemo(
+    () => targets.filter((target) => (mapping[target.key] ?? []).length > 0),
+    [targets, mapping],
+  );
 
   function resetAndClose() {
     setResult(null);
@@ -142,7 +155,7 @@ export function LeadImportDialog({
     setFile(null);
     setRecords([]);
     setHeaders([]);
-    setMapping({ phone: "" });
+    setMapping({});
     setChosenProduct(null);
     setEventId("");
     setNewEventName("");
@@ -460,47 +473,89 @@ export function LeadImportDialog({
                       </span>
                     ) : null}
                   </div>
-                  {targets.map((target) => (
-                    <label key={target.key} className="flex items-center gap-3">
-                      <span className="w-40 shrink-0 text-sm font-semibold text-[#42526e]">
-                        {target.label}
-                        {target.required ? (
-                          <span className="text-[#bf2600]"> *</span>
-                        ) : null}
-                      </span>
-                      <TaskSelect
-                        label={target.label}
-                        value={mapping[target.key] ?? ""}
-                        options={headers.map((header) => ({
-                          value: header,
-                          label: header,
-                        }))}
-                        placeholder="Not mapped"
-                        searchable
-                        className="min-w-0 flex-1"
-                        buttonClassName={IMPORT_SELECT_BUTTON_CLASS}
-                        menuClassName="max-h-64 min-w-full"
-                        onChange={(value) =>
-                          setMapping((current) => {
-                            const next = { ...current };
-                            if (value) next[target.key] = value;
-                            else delete next[target.key];
-                            return next;
-                          })
-                        }
-                      />
-                      {/* Nhãn AI để người dùng biết ô nào máy điền mà soi kỹ ô
-                          đó trước. Không có nhãn thì một gợi ý sai trông y hệt
-                          lựa chọn của chính họ. */}
-                      <span className="w-6 shrink-0">
-                        {aiFilled.has(target.key) ? (
-                          <span className="rounded bg-[#deebff] px-1.5 py-0.5 text-[10px] font-bold text-[#0055cc]">
-                            AI
-                          </span>
-                        ) : null}
-                      </span>
-                    </label>
-                  ))}
+                  {targets.map((target) => {
+                    const picked = mapping[target.key] ?? [];
+                    // Cột đã dùng cho trường khác thì không cho chọn lại: một
+                    // cột nguồn chảy vào hai đích là dữ liệu nhân đôi mà không
+                    // ai cố ý làm.
+                    const takenElsewhere = new Set(
+                      Object.entries(mapping)
+                        .filter(([key]) => key !== target.key)
+                        .flatMap(([, headers]) => headers),
+                    );
+                    const available = headers.filter(
+                      (header) => !takenElsewhere.has(header) && !picked.includes(header),
+                    );
+                    return (
+                      <div key={target.key} className="flex items-start gap-3">
+                        <span className="w-40 shrink-0 pt-2 text-sm font-semibold text-[#42526e]">
+                          {target.label}
+                          {target.required ? (
+                            <span className="text-[#bf2600]"> *</span>
+                          ) : null}
+                        </span>
+                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                          {picked.map((header) => (
+                            <span
+                              key={header}
+                              className="inline-flex items-center gap-1 rounded border border-[#dfe1e6] bg-[#f4f5f7] px-2 py-1 text-xs font-semibold text-[#42526e]"
+                            >
+                              {header}
+                              <button
+                                type="button"
+                                aria-label={`Remove ${header} from ${target.label}`}
+                                onClick={() =>
+                                  setMapping((current) => {
+                                    const next = { ...current };
+                                    const rest = (next[target.key] ?? []).filter(
+                                      (item) => item !== header,
+                                    );
+                                    if (rest.length > 0) next[target.key] = rest;
+                                    else delete next[target.key];
+                                    return next;
+                                  })
+                                }
+                                className="text-[#6b778c] transition hover:text-[#bf2600]"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                          {(target.allowsMultiple || picked.length === 0) &&
+                          available.length > 0 ? (
+                            <TaskSelect
+                              label={target.label}
+                              value=""
+                              options={available.map((header) => ({
+                                value: header,
+                                label: header,
+                              }))}
+                              placeholder={picked.length === 0 ? "Not mapped" : "Add column"}
+                              searchable
+                              className="min-w-[10rem]"
+                              buttonClassName={IMPORT_SELECT_BUTTON_CLASS}
+                              menuClassName="max-h-64 min-w-full"
+                              onChange={(value) => {
+                                if (!value) return;
+                                setMapping((current) => ({
+                                  ...current,
+                                  [target.key]: [...(current[target.key] ?? []), value],
+                                }));
+                              }}
+                            />
+                          ) : null}
+                          {/* Nhãn AI để người dùng biết ô nào máy điền mà soi kỹ
+                              ô đó trước. Không có nhãn thì một gợi ý sai trông
+                              y hệt lựa chọn của chính họ. */}
+                          {aiFilled.has(target.key) ? (
+                            <span className="rounded bg-[#deebff] px-1.5 py-0.5 text-[10px] font-bold text-[#0055cc]">
+                              AI
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -514,27 +569,27 @@ export function LeadImportDialog({
                   <table className="min-w-full text-left text-xs">
                     <thead className="bg-[#f8fafc] text-[10px] font-bold uppercase tracking-[0.06em] text-[#667085]">
                       <tr>
-                        <th className="px-3 py-2">Name</th>
-                        <th className="px-3 py-2">Phone</th>
-                        <th className="px-3 py-2">Email</th>
-                        <th className="px-3 py-2">Custom values</th>
+                        {previewTargets.map((target) => (
+                          <th key={target.key} className="px-3 py-2">
+                            {target.label}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#eef1f5]">
                       {preview.rows.map((row, index) => (
                         <tr key={`${row.phone}-${index}`}>
-                          <td className="px-3 py-2">{row.full_name ?? "—"}</td>
-                          <td className="px-3 py-2">{row.phone}</td>
-                          <td className="px-3 py-2">{row.email ?? "—"}</td>
-                          <td className="px-3 py-2">
-                            {Object.keys(row.custom_values).join(", ") || "—"}
-                          </td>
+                          {previewTargets.map((target) => (
+                            <td key={target.key} className="px-3 py-2">
+                              {previewCellValue(row, target.key)}
+                            </td>
+                          ))}
                         </tr>
                       ))}
                       {preview.rows.length === 0 && (
                         <tr>
                           <td
-                            colSpan={4}
+                            colSpan={Math.max(previewTargets.length, 1)}
                             className="px-3 py-4 text-center text-[#6b778c]"
                           >
                             No valid rows in preview. Map a usable phone column.

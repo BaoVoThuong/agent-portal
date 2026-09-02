@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { guessMappingByName, sanitizeSuggestedMapping } from "./import-mapping";
+import {
+  guessMappingByName,
+  joinMappedValues,
+  sanitizeSuggestedMapping,
+} from "./import-mapping";
 import type { LeadImportTarget } from "./import-targets";
 
 const targets: LeadImportTarget[] = [
-  { key: "name", label: "Name", required: false, isCustom: false },
-  { key: "phone", label: "Phone", required: true, isCustom: false },
-  { key: "email", label: "Email", required: false, isCustom: false },
-  { key: "secondary_phone", label: "Secondary Phone", required: false, isCustom: true },
+  { key: "name", label: "Name", required: false, isCustom: false, allowsMultiple: true },
+  { key: "phone", label: "Phone", required: true, isCustom: false, allowsMultiple: false },
+  { key: "email", label: "Email", required: false, isCustom: false, allowsMultiple: false },
+  {
+    key: "secondary_phone",
+    label: "Secondary Phone",
+    required: false,
+    isCustom: true,
+    allowsMultiple: true,
+  },
 ];
 const headers = ["Ho ten", "SDT", "Mail", "SDT phu"];
 
@@ -18,7 +28,7 @@ describe("sanitizeSuggestedMapping", () => {
         headers,
         targets
       )
-    ).toEqual({ name: "Ho ten", phone: "SDT", email: "Mail" });
+    ).toEqual({ name: ["Ho ten"], phone: ["SDT"], email: ["Mail"] });
   });
 
   it("BỎ cột model bịa ra", () => {
@@ -26,13 +36,13 @@ describe("sanitizeSuggestedMapping", () => {
     // parse sẽ hỏng với thông báo chẳng ai hiểu.
     expect(
       sanitizeSuggestedMapping({ name: "Ho ten", phone: "Cot Khong Ton Tai" }, headers, targets)
-    ).toEqual({ name: "Ho ten" });
+    ).toEqual({ name: ["Ho ten"] });
   });
 
   it("BỎ khoá đích không nằm trong danh sách", () => {
     expect(
       sanitizeSuggestedMapping({ phone: "SDT", attempts: "SDT phu" }, headers, targets)
-    ).toEqual({ phone: "SDT" });
+    ).toEqual({ phone: ["SDT"] });
   });
 
   it("một cột nguồn chỉ được dùng cho MỘT đích", () => {
@@ -40,7 +50,7 @@ describe("sanitizeSuggestedMapping", () => {
     // đầu tiên theo thứ tự danh sách, bỏ cái sau.
     expect(
       sanitizeSuggestedMapping({ phone: "SDT", secondary_phone: "SDT" }, headers, targets)
-    ).toEqual({ phone: "SDT" });
+    ).toEqual({ phone: ["SDT"] });
   });
 
   it("chịu được JSON hỏng mà không nổ", () => {
@@ -54,16 +64,16 @@ describe("sanitizeSuggestedMapping", () => {
 describe("guessMappingByName", () => {
   it("khớp tiêu đề tiếng Anh thông dụng", () => {
     expect(guessMappingByName(["Full Name", "Mobile", "E-mail"], targets)).toEqual({
-      name: "Full Name",
-      phone: "Mobile",
-      email: "E-mail",
+      name: ["Full Name"],
+      phone: ["Mobile"],
+      email: ["E-mail"],
     });
   });
 
   it("khớp cột custom theo nhãn, không phân biệt hoa thường và dấu cách", () => {
-    expect(guessMappingByName(["Phone", "secondary phone"], targets).secondary_phone).toBe(
-      "secondary phone"
-    );
+    expect(guessMappingByName(["Phone", "secondary phone"], targets).secondary_phone).toEqual([
+      "secondary phone",
+    ]);
   });
 
   it("không khớp thì bỏ trống, KHÔNG đoán bừa", () => {
@@ -74,7 +84,63 @@ describe("guessMappingByName", () => {
 
   it("một cột nguồn không bị gán cho hai đích", () => {
     const out = guessMappingByName(["Phone number", "Name"], targets);
-    const values = Object.values(out);
+    const values = Object.values(out).flat();
     expect(values).toEqual([...new Set(values)]);
+  });
+});
+
+describe("ghép nhiều cột", () => {
+  const multiTargets: LeadImportTarget[] = [
+    { key: "name", label: "Name", required: false, isCustom: false, allowsMultiple: true },
+    { key: "phone", label: "Phone", required: true, isCustom: false, allowsMultiple: false },
+  ];
+  const multiHeaders = ["First Name", "Last Name", "Phone", "Phone 2"];
+
+  it("nhận mảng cho trường ghép được — đây là ca First/Last Name", () => {
+    expect(
+      sanitizeSuggestedMapping(
+        { name: ["First Name", "Last Name"], phone: "Phone" },
+        multiHeaders,
+        multiTargets
+      )
+    ).toEqual({ name: ["First Name", "Last Name"], phone: ["Phone"] });
+  });
+
+  it("trường KHÔNG ghép được thì chỉ lấy cột đầu", () => {
+    // Ghép hai cột điện thoại ra một chuỗi 20 chữ số vô nghĩa sau khi
+    // normalizePhone bỏ hết ký tự không phải số.
+    expect(
+      sanitizeSuggestedMapping({ phone: ["Phone", "Phone 2"] }, multiHeaders, multiTargets)
+    ).toEqual({ phone: ["Phone"] });
+  });
+
+  it("bỏ cột bịa nằm giữa mảng nhưng giữ phần còn lại", () => {
+    expect(
+      sanitizeSuggestedMapping(
+        { name: ["First Name", "Cot Ma", "Last Name"] },
+        multiHeaders,
+        multiTargets
+      )
+    ).toEqual({ name: ["First Name", "Last Name"] });
+  });
+});
+
+describe("joinMappedValues", () => {
+  it("nối bằng một dấu cách", () => {
+    expect(joinMappedValues(["An", "Nguyen"])).toBe("An Nguyen");
+  });
+
+  it("bỏ phần rỗng, không để lại dấu cách thừa", () => {
+    // "An " với dấu cách cuối rồi sẽ nằm trong DB và hiện lên màn hình.
+    expect(joinMappedValues(["An", "", null, undefined])).toBe("An");
+  });
+
+  it("rỗng hết thì trả null", () => {
+    expect(joinMappedValues(["", null])).toBeNull();
+    expect(joinMappedValues([])).toBeNull();
+  });
+
+  it("cắt khoảng trắng hai đầu từng phần", () => {
+    expect(joinMappedValues(["  An  ", " Nguyen "])).toBe("An Nguyen");
   });
 });

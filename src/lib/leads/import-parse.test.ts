@@ -21,12 +21,12 @@ describe("normalizePhone", () => {
 });
 
 describe("parseLeadRows", () => {
-  const mapping = { name: "Name", phone: "Cell", email: "Email" };
+  const mapping = { name: ["Name"], phone: ["Cell"], email: ["Email"] };
 
   it("chỉ đưa cột ĐƯỢC MAP vào custom values", () => {
     const result = parseLeadRows(
       [{ Name: "An Nguyen", Cell: "(714) 555-0123", Email: "an@x.com", Language: "VI" }],
-      { ...mapping, language: "Language" }
+      { ...mapping, language: ["Language"] }
     );
     expect(result.rows).toEqual([{
       // Dòng 1 là tiêu đề, nên dòng dữ liệu đầu tiên là 2 — cùng con số mà
@@ -78,7 +78,7 @@ describe("cột custom", () => {
     // tiêu đề file.
     const result = parseLeadRows(
       [{ Name: "A", Cell: "7145550123", "SDT phu": "714-555-9999" }],
-      { name: "Name", phone: "Cell", secondary_phone: "SDT phu" }
+      { name: ["Name"], phone: ["Cell"], secondary_phone: ["SDT phu"] }
     );
     expect(result.rows[0].custom_values).toEqual({
       secondary_phone: "714-555-9999",
@@ -90,7 +90,7 @@ describe("cột custom", () => {
     // chế là để chúng cùng quyết một chuyện rồi mâu thuẫn nhau.
     const result = parseLeadRows(
       [{ Name: "A", Cell: "7145550123", Notes: "gọi lại sau" }],
-      { name: "Name", phone: "Cell" }
+      { name: ["Name"], phone: ["Cell"] }
     );
     expect(result.rows[0].custom_values).toEqual({});
   });
@@ -98,8 +98,38 @@ describe("cột custom", () => {
   it("ba trường hệ thống không lọt vào custom values", () => {
     const result = parseLeadRows(
       [{ Name: "A", Cell: "7145550123", Email: "a@x.com" }],
-      { name: "Name", phone: "Cell", email: "Email" }
+      { name: ["Name"], phone: ["Cell"], email: ["Email"] }
     );
     expect(result.rows[0].custom_values).toEqual({});
+  });
+});
+
+describe("ghép nhiều cột nguồn", () => {
+  it("First Name + Last Name ghép thành một ô Name", () => {
+    // Ca người dùng nêu: file tách họ và tên, đích chỉ có một ô Name. Không
+    // ghép được thì phải vứt một nửa dữ liệu.
+    const result = parseLeadRows(
+      [{ "First Name": "An", "Last Name": "Nguyen", Cell: "7145550123" }],
+      { name: ["First Name", "Last Name"], phone: ["Cell"] }
+    );
+    expect(result.rows[0].full_name).toBe("An Nguyen");
+  });
+
+  it("thiếu một nửa thì không để lại dấu cách thừa", () => {
+    const result = parseLeadRows(
+      [{ "First Name": "An", "Last Name": "", Cell: "7145550123" }],
+      { name: ["First Name", "Last Name"], phone: ["Cell"] }
+    );
+    expect(result.rows[0].full_name).toBe("An");
+  });
+
+  it("một cột nguồn thì giữ nguyên KIỂU gốc cho cột custom", () => {
+    // Số Excel phải vẫn là số, nếu không validateCustomValues sẽ loại dòng đó
+    // ở cột kiểu number.
+    const result = parseLeadRows(
+      [{ Cell: "7145550123", Diem: 42 }],
+      { phone: ["Cell"], diem: ["Diem"] }
+    );
+    expect(result.rows[0].custom_values.diem).toBe(42);
   });
 });

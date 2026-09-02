@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Import: ghép nhiều cột vào một trường, và bảng xem trước hiện đúng giá trị
+
+- **Loại**: fix + feature, nối tiếp bảng map cột.
+- **Ghép cột**: file hay tách `First Name` / `Last Name` trong khi đích chỉ có một ô Name — không ghép được thì phải **vứt một nửa dữ liệu**. Nay một trường nhận **nhiều cột nguồn**, nối bằng một dấu cách, bỏ phần rỗng (không để lại `"An "` với dấu cách thừa).
+  - **Chỉ trường CHỮ mới ghép được**: `name` và cột custom kiểu `text`. **Phone và Email không** — `normalizePhone` bỏ hết ký tự không phải số, nên ghép hai cột điện thoại ra một chuỗi 20 chữ số vô nghĩa; email ghép lại thì không còn là email. Ghép ở đó là làm hỏng dữ liệu chứ không phải tiện lợi.
+  - Cột đã dùng cho trường khác **không cho chọn lại**: một cột nguồn chảy vào hai đích là dữ liệu nhân đôi mà không ai cố ý làm.
+  - Một cột nguồn thì **giữ nguyên kiểu gốc** (số Excel vẫn là số, để `validateCustomValues` nhận cột kiểu number); nhiều cột thì buộc phải ghép thành chuỗi.
+  - Kiểu mapping đổi thành `Record<string, string[]>` — luôn là mảng kể cả khi một phần tử. Kiểu `string | string[]` thì mọi nơi đọc đều phải nhớ kiểm hai nhánh, và chỗ nào quên là một lỗi im lặng.
+- **Bảng xem trước sai, đã sửa**: nó cứng bốn cột và ô cuối in `Object.keys(custom_values)` — tức tên **KHOÁ**, không phải giá trị. Người dùng thấy chữ `secondary_phone` nằm trong ô dữ liệu và tưởng đó là thứ sắp được import. Nay mỗi trường đã map là **một cột riêng mang đúng nhãn của nó** (`Name | Phone | Email | Secondary Phone`), ô hiện **giá trị thật**.
+
 ## 2026-09-02 — Import lead: bảng map cột cố định + AI gợi ý
 
 - **Loại**: feature.

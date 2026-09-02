@@ -7,6 +7,17 @@ export type LeadImportTarget = {
   label: string;
   required: boolean;
   isCustom: boolean;
+  /**
+   * Cho phép ghép NHIỀU cột nguồn vào trường này.
+   *
+   * Chỉ mở cho trường chữ. File hay tách "First Name" / "Last Name" trong khi
+   * đích chỉ có một ô Name — không ghép được thì phải vứt một nửa dữ liệu.
+   *
+   * KHÔNG mở cho phone và email: `normalizePhone` bỏ hết ký tự không phải số,
+   * nên ghép hai cột điện thoại ra một chuỗi 20 chữ số vô nghĩa; email ghép lại
+   * thì không còn là email. Ghép ở đó là làm hỏng dữ liệu chứ không phải tiện lợi.
+   */
+  allowsMultiple: boolean;
 };
 
 /** Ba trường hệ thống mà một file import cấp được. */
@@ -45,6 +56,7 @@ export function buildLeadImportTargets(
       label: column?.label ?? "Phone",
       required: key === "phone",
       isCustom: false,
+      allowsMultiple: key === "name",
     });
   }
 
@@ -55,6 +67,8 @@ export function buildLeadImportTargets(
       label: column.label,
       required: false,
       isCustom: true,
+      // Cột custom kiểu số/ngày/checkbox ghép lại là ra rác; chỉ chữ mới ghép được.
+      allowsMultiple: column.type === "text",
     });
   }
   return targets;

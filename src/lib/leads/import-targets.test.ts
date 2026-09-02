@@ -87,3 +87,37 @@ describe("buildLeadImportTargets", () => {
     expect(out.some((t) => t.key === "phone" && t.required)).toBe(true);
   });
 });
+
+describe("buildLeadImportTargets — ghép nhiều cột", () => {
+  const col = (over: Partial<TableColumn>): TableColumn =>
+    ({
+      id: "id", scope: "lead", key: "x", label: "X", type: "text",
+      is_system: true, position: 1, pinned: false, hidden_default: false,
+      show_in_detail: true, required: false, archived_at: null, ...over,
+    }) as TableColumn;
+
+  it("Name ghép được nhiều cột: file hay tách First/Last Name", () => {
+    const out = buildLeadImportTargets([col({ key: "name" }), col({ key: "phone" })]);
+    expect(out.find((t) => t.key === "name")?.allowsMultiple).toBe(true);
+  });
+
+  it("Phone và Email KHÔNG ghép được", () => {
+    // normalizePhone bỏ hết ký tự không phải số, nên ghép hai cột điện thoại ra
+    // một chuỗi 20 chữ số vô nghĩa. Email ghép lại thì không còn là email.
+    const out = buildLeadImportTargets([col({ key: "phone" }), col({ key: "email" })]);
+    expect(out.find((t) => t.key === "phone")?.allowsMultiple).toBe(false);
+    expect(out.find((t) => t.key === "email")?.allowsMultiple).toBe(false);
+  });
+
+  it("cột custom kiểu chữ ghép được, kiểu khác thì không", () => {
+    const out = buildLeadImportTargets([
+      col({ key: "phone" }),
+      col({ key: "ghi_chu", label: "Ghi chú", is_system: false, type: "text" }),
+      col({ key: "so", label: "Số", is_system: false, type: "number" }),
+      col({ key: "ngay", label: "Ngày", is_system: false, type: "date" }),
+    ]);
+    expect(out.find((t) => t.key === "ghi_chu")?.allowsMultiple).toBe(true);
+    expect(out.find((t) => t.key === "so")?.allowsMultiple).toBe(false);
+    expect(out.find((t) => t.key === "ngay")?.allowsMultiple).toBe(false);
+  });
+});
