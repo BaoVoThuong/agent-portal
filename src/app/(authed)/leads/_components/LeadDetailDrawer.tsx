@@ -522,11 +522,6 @@ export function LeadDetailDrawer({
                   }
                   notice={
                     <>
-                      {loading ? (
-                        <p className="shrink-0 text-sm text-[#6b778c]">
-                          Loading interaction history...
-                        </p>
-                      ) : null}
                       {visibleError ? (
                         <p className="shrink-0 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
                           {visibleError}
@@ -537,6 +532,7 @@ export function LeadDetailDrawer({
                   statuses={statuses}
                   interactionTypes={interactionTypes}
                   interactions={visibleInteractions}
+                  loading={loading}
                   canLog={canLog}
                   ownerLabel={
                     currentLead.assigned_to_email

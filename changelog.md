@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Mở lead không còn chớp qua "No interactions yet"
+
+- **Loại**: fix (UX).
+- **Triệu chứng**: mở một lead đã có tương tác thì thấy "No interactions yet.", rồi mới thấy trạng thái đang tải, rồi danh sách hiện ra.
+- **Nguyên nhân**: `InteractionLog` quyết định hiện ô rỗng chỉ dựa vào `interactions.length === 0`, **không biết đang tải hay không**. Trong khi đó thông báo "Loading interaction history..." lại nằm ở chỗ khác trong drawer — nên cả hai hiện cùng lúc.
+- **Sửa**: truyền `loading` xuống. Chưa tải xong thì hiện "Loading interactions…" ngay tại vị trí danh sách; chỉ khi đã tải xong mà vẫn rỗng mới nói "No interactions yet." Bỏ thông báo tải trùng lặp ở phần notice — nay danh sách tự nói.
+- Nói "chưa có tương tác nào" khi chưa biết là nói một điều **chưa chắc đúng**, rồi một nhịp sau lại thay bằng danh sách — người đọc tưởng mình nhìn nhầm.
+
 ## 2026-09-02 — Đổi sang status cần ngày hẹn thì hỏi ngày ngay, không báo lỗi
 
 - **Loại**: fix (UX).

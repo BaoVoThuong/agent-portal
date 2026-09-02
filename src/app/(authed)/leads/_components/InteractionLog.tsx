@@ -31,6 +31,8 @@ type InteractionLogProps = {
    * nguồn, danh sách đọc nguồn khác. Cái tên là thứ đã mời gọi lỗi đó.
    */
   interactions: LeadInteraction[];
+  /** Đang tải lịch sử — để KHÔNG hiện "chưa có tương tác nào" khi chưa biết. */
+  loading?: boolean;
   canLog: boolean;
   /** Who owns the lead, so a locked composer can say why rather than just look broken. */
   ownerLabel: string | null;
@@ -90,6 +92,7 @@ export function InteractionLog({
   statuses,
   interactionTypes,
   interactions,
+  loading = false,
   canLog,
   ownerLabel,
   onSave,
@@ -340,7 +343,17 @@ export function InteractionLog({
         </div>
       ) : null}
       <div className="space-y-2">
-        {interactions.length === 0 ? (
+        {loading && interactions.length === 0 ? (
+          // Chưa tải xong thì CHƯA biết lead có tương tác hay không. Hiện
+          // "No interactions yet." lúc này là nói một điều chưa chắc đúng, rồi
+          // một nhịp sau lại thay bằng danh sách — người đọc tưởng mình nhìn nhầm.
+          <p
+            className="border border-dashed border-[#cfd8e5] bg-[#f4f5f7] px-3 py-8 text-center text-sm font-semibold text-[#6b778c]"
+            role="status"
+          >
+            Loading interactions…
+          </p>
+        ) : interactions.length === 0 ? (
           <p className="border border-dashed border-[#cfd8e5] bg-[#f4f5f7] px-3 py-8 text-center text-sm font-semibold text-[#6b778c]">
             No interactions yet.
           </p>
