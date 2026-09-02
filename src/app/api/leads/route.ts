@@ -182,9 +182,13 @@ export async function POST(request: Request) {
       full_name: input.fullName,
       phone: input.phone,
       email: input.email,
-      assigned_to_email: input.assignedToEmail,
-      assigned_at: input.assignedToEmail ? nowIso : null,
-      assigned_by_email: input.assignedToEmail ? normalizedActorEmail : null,
+      // Cố ý insert CHƯA GÁN, kể cả khi người dùng đã chọn người nhận. Việc gán
+      // đi qua assign_leads_manual ngay bên dưới, để nó và dòng lịch sử nằm
+      // trong cùng một giao dịch. Set sẵn ở đây thì RPC sẽ đọc chính người đó
+      // làm "chủ cũ" và ghi lịch sử "từ X sang X".
+      assigned_to_email: null,
+      assigned_at: null,
+      assigned_by_email: null,
       status_id: statusId,
       custom_values: input.customValues,
       created_by_email: normalizedActorEmail,
@@ -205,20 +209,39 @@ export async function POST(request: Request) {
   }
   const createdLead = lead as unknown as { id: string };
 
+  let finalLead = lead;
   if (input.assignedToEmail) {
-    const { error: historyError } = await supabase
-      .from("lead_assignment_history")
-      .insert({
-        lead_id: createdLead.id,
-        from_email: null,
-        to_email: input.assignedToEmail,
-        reason: "Assigned when lead was created",
-        actor_email: normalizedActorEmail,
-      });
-    if (historyError) console.error("Lead assignment history insert failed", historyError.message);
+    // Cùng RPC với đường gán tay: gán và ghi lịch sử trong một giao dịch. Trước
+    // đó lỗi ghi lịch sử chỉ được console.error, nên lead tạo ra đã có chủ mà
+    // bảng lịch sử trống.
+    const { error: assignError } = await supabase.rpc("assign_leads_manual", {
+      p_lead_ids: [createdLead.id],
+      p_to_email: input.assignedToEmail,
+      p_actor_email: normalizedActorEmail,
+      p_reason: "Assigned when lead was created",
+    });
+    if (assignError) {
+      // Lead đã tồn tại và CHƯA gán — trạng thái hợp lệ, nhìn thấy được trên
+      // màn hình, sửa bằng một cú bấm. Nói thật còn hơn trả về "đã gán" rồi để
+      // bảng lịch sử nói ngược lại.
+      return NextResponse.json(
+        {
+          error: "The lead was created but could not be assigned. Assign it from the list.",
+          lead,
+        },
+        { status: 500 }
+      );
+    }
+    // Đọc lại để phản hồi mang đúng người nhận: bản `lead` ở trên chụp lúc chưa gán.
+    const { data: reread } = await supabase
+      .from("leads")
+      .select(LEAD_COLUMNS)
+      .eq("id", createdLead.id)
+      .maybeSingle();
+    if (reread) finalLead = reread;
   }
 
   const sourceId = readLeadMutationSourceId(request);
   after(async () => { await broadcastLeadsChanged(sourceId); });
-  return NextResponse.json({ lead, wasCreated: true }, { status: 201 });
+  return NextResponse.json({ lead: finalLead, wasCreated: true }, { status: 201 });
 }

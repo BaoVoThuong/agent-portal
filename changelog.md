@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Mọi đường gán lead đều nguyên tử
+
+- **Loại**: fix (toàn vẹn dữ liệu).
+- Hai đường gán — gán tay, và tạo lead có sẵn người nhận — đều ghi hai bảng bằng hai câu lệnh rời, và lỗi ở câu thứ hai **chỉ được `console.error`**. Lead đổi chủ mà bảng lịch sử không có dòng nào, trong khi đó là bảng duy nhất trả lời được "ai giao việc này".
+- Đường gán tay còn một lỗi nữa: `from_email` đọc ở truy vấn **trước**, dùng ở truy vấn **sau**, nên có người gán chen vào giữa thì lịch sử ghi **sai người chủ cũ**.
+- Cả hai nay đi qua RPC `assign_leads_manual`: `for update` khoá đúng những dòng sắp sửa nên chủ cũ được đọc **dưới khoá**; hàm là một giao dịch nên không còn trạng thái "đã gán nhưng chưa có lịch sử".
+- **Create nay insert lead CHƯA GÁN** rồi mới gọi RPC, kể cả khi người dùng đã chọn người nhận. Set sẵn `assigned_to_email` lúc insert thì RPC sẽ đọc chính người đó làm "chủ cũ" và ghi lịch sử "từ X sang X".
+- **Không** gộp việc tạo lead vào RPC: tạo lead còn kéo theo kiểm event, kiểm status, kiểm trùng phone — gộp hết vào PL/pgSQL là chuyển một đống logic đã có test sang chỗ không test được. Khe còn lại giữa insert và gán chỉ để lại lead **chưa gán**: trạng thái hợp lệ, thấy được trên màn hình, sửa bằng một cú bấm. Khác hẳn một lead đã gán mà không có lịch sử.
+- **Cần chạy** `supabase/rollouts/2026-09-02-lead-write-integrity.sql` (kèm hai unique index của mục idempotency bên dưới).
+
 ## 2026-09-02 — Badge "Interactions 3" mà danh sách nói "No interactions yet"
 
 - **Loại**: fix (bug hiển thị).

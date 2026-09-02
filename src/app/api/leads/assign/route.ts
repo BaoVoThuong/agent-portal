@@ -39,53 +39,44 @@ export async function POST(request: Request) {
   }
 
   const supabase = getSupabaseAdmin();
-  const nowIso = new Date().toISOString();
-  const { data: before, error: beforeError } = await supabase
-    .from("leads")
-    .select("id,assigned_to_email")
-    .in("id", parsed.leadIds)
-    .is("archived_at", null);
-  if (beforeError) return NextResponse.json({ error: beforeError.message }, { status: 500 });
-  const rows = (before ?? []) as { id: string; assigned_to_email: string | null }[];
-  if (rows.length === 0) return NextResponse.json({ error: "No active leads were found." }, { status: 404 });
-
-  const { error: updateError } = await supabase
-    .from("leads")
-    .update({
-      assigned_to_email: parsed.toEmail,
-      assigned_at: parsed.toEmail ? nowIso : null,
-      assigned_by_email: actor.email.trim().toLowerCase(),
-      updated_at: nowIso,
-      updated_by_email: actor.email.trim().toLowerCase(),
-    })
-    .in("id", rows.map((row) => row.id))
-    .is("archived_at", null);
-  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
-
-  const { error: historyError } = await supabase
-    .from("lead_assignment_history")
-    .insert(rows.map((row) => ({
-      lead_id: row.id,
-      from_email: row.assigned_to_email,
-      to_email: parsed.toEmail,
-      reason: parsed.reason,
-      actor_email: actor.email.trim().toLowerCase(),
-    })));
-  if (historyError) {
-    console.error("Lead assignment history insert failed", historyError.message);
+  // Một giao dịch: gán và ghi lịch sử cùng nhau. Trước đó là ba truy vấn rời và
+  // lỗi ở bước ghi lịch sử chỉ được console.error, nên lead đổi chủ mà bảng
+  // lịch sử trống — mà đó là bảng duy nhất trả lời được "ai giao việc này".
+  // RPC còn đọc chủ cũ DƯỚI KHOÁ, nên ai gán chen vào giữa cũng không làm lịch
+  // sử ghi sai người chủ cũ.
+  const { data: assignedRows, error: assignError } = await supabase.rpc(
+    "assign_leads_manual",
+    {
+      p_lead_ids: parsed.leadIds,
+      p_to_email: parsed.toEmail,
+      p_actor_email: actor.email,
+      p_reason: parsed.reason,
+    }
+  );
+  if (assignError) {
+    if (assignError.message.includes("LEAD_ACTOR_REQUIRED")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return NextResponse.json({ error: assignError.message }, { status: 500 });
+  }
+  const assignedIds = ((assignedRows ?? []) as { lead_id: string }[]).map(
+    (row) => row.lead_id
+  );
+  if (assignedIds.length === 0) {
+    return NextResponse.json({ error: "No active leads were found." }, { status: 404 });
   }
 
   const sourceId = readLeadMutationSourceId(request);
-  after(async () => { await broadcastLeadsChanged(sourceId, rows.map((row) => row.id)); });
+  after(async () => { await broadcastLeadsChanged(sourceId, assignedIds); });
   // Trả về chính những dòng vừa đổi để màn hình vá tại chỗ. Trước đây chỉ trả
   // số lượng, nên gán MỘT lead cũng buộc client kéo lại toàn bộ danh sách.
   const { data: updated, error: afterError } = await supabase
     .from("leads")
     .select(LEAD_AFTER_SELECT)
-    .in("id", rows.map((row) => row.id));
+    .in("id", assignedIds);
   if (afterError) return NextResponse.json({ error: afterError.message }, { status: 500 });
   return NextResponse.json({
-    assigned: rows.length,
+    assigned: assignedIds.length,
     leads: (updated ?? []).map((row) => {
       const lead = row as unknown as LeadRow & {
         lead_events?: { name?: string | null } | null;
