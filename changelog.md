@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Tạo lead: idempotency thật, và chặn trùng cả khi không có event
+
+- **Loại**: fix (toàn vẹn dữ liệu).
+- `POST /api/leads` tra `client_request_id` **trước** rồi mới insert, mà cột đó **không có unique index**. Hai request cùng token chạy song song đều "chưa thấy" gì và cùng insert → hai lead. Nay có index `(created_by_email, client_request_id)`.
+- Lượt tra nay giới hạn theo **người tạo**: token do client sinh; không giới hạn thì hai người trùng token sẽ nhận về lead **của người khác**.
+- `leads_event_phone_unique_idx` là `(event_id, phone)`, mà PostgreSQL coi mỗi NULL là **khác nhau** — nên nó không chặn được gì khi lead không thuộc event nào, một trạng thái hợp lệ ở cả Create lẫn Import. Thêm `leads_phone_no_event_unique_idx` cho nhánh đó.
+- Route nay dịch `23505` thành câu người đọc hiểu: cùng token cùng người thì **trả về lead đã có** (đúng điều idempotency hứa hẹn), trùng số thì 409. Import báo là trùng thay vì 500.
+- Kiểm trước khi tạo index: 0 lead trùng số không-event, 0 cặp (người tạo, token) trùng — hai index sẽ dựng sạch.
+- Hiện 0/30 lead có `event_id` NULL nên chưa cắn.
+- **Cần chạy** `supabase/rollouts/2026-09-02-lead-write-integrity.sql`.
+
 ## 2026-09-02 — PATCH lead không còn âm thầm đè lên nhau
 
 - **Loại**: fix (toàn vẹn dữ liệu).

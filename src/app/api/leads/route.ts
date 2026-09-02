@@ -72,6 +72,9 @@ export async function POST(request: Request) {
       .from("leads")
       .select(LEAD_COLUMNS)
       .eq("client_request_id", input.clientRequestId)
+      // Token do client sinh. Không giới hạn theo người tạo thì hai người vô
+      // tình trùng token sẽ nhận về lead CỦA NGƯỜI KHÁC.
+      .eq("created_by_email", actor.email.trim().toLowerCase())
       .limit(1);
     if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
     if (existing?.[0]) return NextResponse.json({ lead: existing[0], wasCreated: false });
@@ -199,9 +202,22 @@ export async function POST(request: Request) {
     .select(LEAD_COLUMNS)
     .single();
   if (insertError) {
+    // 23505 = unique_violation. Ba index có thể chạm tới ở đây và mỗi cái nói
+    // một chuyện khác nhau — trả 500 cho cả ba là bắt người dùng đoán.
     if (insertError.code === "23505") {
+      if (insertError.message.includes("leads_creator_request_unique_idx")) {
+        // Cùng token, cùng người: đây là một lượt gửi lại. Trả về lead đã có
+        // thay vì báo lỗi — đó chính là điều idempotency hứa hẹn.
+        const { data: existing } = await supabase
+          .from("leads")
+          .select(LEAD_COLUMNS)
+          .eq("client_request_id", input.clientRequestId)
+          .eq("created_by_email", normalizedActorEmail)
+          .maybeSingle();
+        if (existing) return NextResponse.json({ lead: existing, wasCreated: false });
+      }
       return NextResponse.json(
-        { error: "A lead with this phone number already exists for that event." },
+        { error: "A lead with this phone number already exists." },
         { status: 409 }
       );
     }

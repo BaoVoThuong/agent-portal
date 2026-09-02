@@ -125,7 +125,20 @@ export async function POST(request: Request) {
         // once so a harmless race is reported as duplicates, not a false 500.
         const afterRace = await findExistingPhones(supabase, eventId, remaining.map((row) => row.phone));
         const retryRows = remaining.filter((row) => !afterRace.has(row.phone));
-        if (retryRows.length === remaining.length) throw new Error(error.message);
+        if (retryRows.length === remaining.length) {
+          // Với lead không thuộc event nào, `leads_phone_no_event_unique_idx`
+          // mới là thứ chặn trùng — lượt đọc trước đó không thấy được dòng mà
+          // một lượt import song song vừa chèn. Báo là trùng, không phải 500.
+          if ((error as { code?: string }).code === "23505") {
+            return NextResponse.json({
+              inserted,
+              duplicates: remaining.length,
+              skipped: parsed.skipped,
+              autoAssign: null,
+            });
+          }
+          throw new Error(error.message);
+        }
         if (retryRows.length > 0) {
           const retry = await supabase.from("leads").insert(retryRows.map((row) => ({
             product, products: product ? [product] : [], event_id: eventId, full_name: row.full_name, phone: row.phone,
