@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Xoay ảnh trong khung xem trước đính kèm
+
+- **Loại**: feature (UI).
+- Nút xoay 90° theo chiều kim đồng hồ, phím tắt **R**. Ảnh chụp bằng điện thoại hay bị nằm ngang; bốn nấc 90° là đủ để dựng lại.
+- **Sửa luôn một chỗ gây hiểu nhầm có sẵn**: toolbar đang có nút mang biểu tượng `RotateCcw` (mũi tên xoay) nhưng lại làm nhiệm vụ **reset zoom** — trùng việc với nút phần trăm ngay bên cạnh. Nay biểu tượng xoay làm đúng việc xoay; nút phần trăm giữ vai trò reset và reset cả góc xoay.
+- **CSS transform không đổi ô chiếm chỗ của ảnh**, nên xoay 90° xong thì cạnh dài đâm ra ngoài khung và bị cắt. Khi ảnh nằm ngang thì đổi chỗ hai giới hạn: giới hạn chiều **rộng** bằng chiều **cao** khả dụng, để sau khi xoay nó vừa đúng khung.
+- **Mở ảnh khác thì trả zoom/góc xoay/trạng thái tải về mặc định.** Đây là lỗi có sẵn: phóng to ảnh A rồi mở ảnh B là B hiện ở 300% — người dùng không hiểu vì sao vì họ đâu chạm nút nào. Chỉnh ngay trong render theo mẫu "điều chỉnh state khi prop đổi" của React, không dùng `useEffect` (React Compiler cấm gọi `setState` trong thân effect, và làm trong render còn tránh được một nhịp vẽ ảnh mới bằng zoom cũ).
+- Dùng chung cho khung xem trước của **cả Task lẫn Enrollment**.
+
 ## 2026-09-02 — Task vỡ hạn Due Date: thông báo, nền hồng, và vết trong activity
 
 - **Loại**: feature + fix.

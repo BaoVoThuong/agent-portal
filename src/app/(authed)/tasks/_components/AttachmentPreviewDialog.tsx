@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileText, RotateCcw, X, ZoomIn, ZoomOut } from "lucide-react";
+import { FileText, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 export type AttachmentPreview = {
@@ -26,6 +26,8 @@ const INLINE_PREVIEW_MIMES = new Set([
 const PREVIEW_ZOOM_MIN = 0.5;
 const PREVIEW_ZOOM_MAX = 3;
 const PREVIEW_ZOOM_STEP = 0.25;
+/** Ảnh chụp bằng điện thoại hay bị nằm ngang; bốn nấc 90° là đủ để dựng lại. */
+const PREVIEW_ROTATION_STEP = 90;
 
 export function canPreviewAttachment(mime: string | null): boolean {
   return Boolean(
@@ -51,6 +53,7 @@ export function AttachmentPreviewDialog({
 }) {
   const [previewStatus, setPreviewStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [previewZoom, setPreviewZoom] = useState(1);
+  const [previewRotation, setPreviewRotation] = useState(0);
   const previewCloseRef = useRef<HTMLButtonElement | null>(null);
   const previewDialogRef = useRef<HTMLDivElement | null>(null);
   const previewTriggerRef = useRef<HTMLElement | null>(null);
@@ -59,6 +62,22 @@ export function AttachmentPreviewDialog({
   // phục khi đóng, nên đóng modal trong lúc một modal khác còn mở là mở
   // khoá cả nền. Hook đếm số modal đang mở nên lồng nhau vẫn đúng.
   useBodyScrollLock(Boolean(preview));
+
+  // Mở ảnh khác thì trả zoom/góc xoay/trạng thái tải về mặc định. Không có
+  // bước này thì phóng to ảnh A rồi mở ảnh B là B hiện ở 300% và xoay 90 độ —
+  // người dùng không hiểu vì sao, vì họ đâu có chạm vào nút nào.
+  //
+  // Chỉnh ngay trong render chứ không dùng useEffect: đây là mẫu "điều chỉnh
+  // state khi prop đổi" của React, và React Compiler cấm gọi setState trong
+  // thân effect. Làm ở đây còn tránh được một nhịp vẽ ảnh mới bằng zoom cũ.
+  const previewUrl = preview?.url ?? null;
+  const [lastPreviewUrl, setLastPreviewUrl] = useState(previewUrl);
+  if (previewUrl !== lastPreviewUrl) {
+    setLastPreviewUrl(previewUrl);
+    setPreviewZoom(1);
+    setPreviewRotation(0);
+    setPreviewStatus("loading");
+  }
 
   useEffect(() => {
     if (!preview) return;
@@ -88,6 +107,12 @@ export function AttachmentPreviewDialog({
       if (event.key === "0") {
         event.preventDefault();
         setPreviewZoom(1);
+        setPreviewRotation(0);
+        return;
+      }
+      if (event.key === "r" || event.key === "R") {
+        event.preventDefault();
+        setPreviewRotation((current) => (current + PREVIEW_ROTATION_STEP) % 360);
         return;
       }
       if (event.key !== "Tab") return;
@@ -191,10 +216,20 @@ export function AttachmentPreviewDialog({
                   alt={preview.fileName}
                   onLoad={() => setPreviewStatus("loaded")}
                   onError={() => setPreviewStatus("error")}
-                  className={`max-h-[calc(100vh-10rem)] max-w-full object-contain transition-transform duration-150 ${previewStatus === "loaded" ? "" : "hidden"}`}
+                  className={`object-contain transition-transform duration-150 ${previewStatus === "loaded" ? "" : "hidden"}`}
                   style={{
-                    transform: `scale(${previewZoom})`,
+                    transform: `rotate(${previewRotation}deg) scale(${previewZoom})`,
                     transformOrigin: "center center",
+                    // CSS transform KHÔNG đổi ô chiếm chỗ của ảnh, nên xoay 90°
+                    // xong thì cạnh dài đâm ra ngoài khung và bị cắt. Đổi chỗ
+                    // hai giới hạn khi ảnh nằm ngang: giới hạn chiều RỘNG bằng
+                    // chiều cao khả dụng, để sau khi xoay nó vừa đúng khung.
+                    ...(previewRotation % 180 === 0
+                      ? { maxHeight: "calc(100vh - 10rem)", maxWidth: "100%" }
+                      : {
+                          maxWidth: "calc(100vh - 10rem)",
+                          maxHeight: "min(calc(100vw - 8rem), 52rem)",
+                        }),
                   }}
                 />
               </button>
@@ -233,9 +268,12 @@ export function AttachmentPreviewDialog({
               </button>
               <button
                 type="button"
-                onClick={() => setPreviewZoom(1)}
-                aria-label="Reset image zoom"
-                title="Reset zoom"
+                onClick={() => {
+                  setPreviewZoom(1);
+                  setPreviewRotation(0);
+                }}
+                aria-label="Reset image zoom and rotation"
+                title="Reset zoom and rotation (0)"
                 className="min-w-14 rounded px-2 py-1.5 text-xs font-semibold text-[#44546f] transition hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
               >
                 {Math.round(previewZoom * 100)}%
@@ -250,14 +288,20 @@ export function AttachmentPreviewDialog({
               >
                 <ZoomIn className="h-4 w-4" />
               </button>
+              {/* Trước đây nút này mang biểu tượng xoay nhưng lại reset zoom —
+                  trùng việc với nút phần trăm ngay bên trái. Nay nó làm đúng
+                  việc mà hình vẽ của nó hứa hẹn. */}
               <button
                 type="button"
-                onClick={() => setPreviewZoom(1)}
-                aria-label="Reset image zoom"
-                title="Reset zoom"
-                className="inline-flex h-8 w-8 items-center justify-center rounded text-[#44546f] transition hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
+                onClick={() =>
+                  setPreviewRotation((current) => (current + PREVIEW_ROTATION_STEP) % 360)
+                }
+                disabled={previewStatus !== "loaded"}
+                aria-label="Rotate image 90 degrees clockwise"
+                title="Rotate 90° (R)"
+                className="inline-flex h-8 w-8 items-center justify-center rounded text-[#44546f] transition hover:bg-[#e9f2ff] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
+                <RotateCw className="h-4 w-4" />
               </button>
             </div>
           ) : (
