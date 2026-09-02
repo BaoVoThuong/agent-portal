@@ -1,3 +1,8 @@
+import {
+  normalizeLeadEmail,
+  normalizeLeadText,
+  type NormalizeResult,
+} from "./lead-fields";
 import { normalizePhone } from "./import-parse";
 import { isLeadProduct } from "./types";
 
@@ -20,6 +25,10 @@ export const EDITABLE_LEAD_FIELDS = [
 /** Not a column: the route turns a name into an event id (find-or-create). */
 export const EVENT_NAME_FIELD = "event_name";
 
+/** Khớp giới hạn của Create: tên 200, các trường chữ khác 500. */
+const MAX_NAME_LENGTH = 200;
+const MAX_TEXT_LENGTH = 500;
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -34,10 +43,20 @@ export type LeadPatchResult =
     }
   | { ok: false; error: string };
 
-function text(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  const trimmed = String(value).trim();
-  return trimmed === "" ? null : trimmed;
+/**
+ * Đọc một trường chữ, dùng CHUNG bộ luật với Create.
+ *
+ * Bản cũ là `String(value).trim()`: một object lọt qua sẽ nằm trong DB dưới
+ * dạng "[object Object]", và không có giới hạn độ dài nào — trong khi Create
+ * từ chối cả hai. Cùng một giá trị mà màn hình Add chặn còn sửa inline ghi
+ * được, thì cái ghi được mới là thứ nằm lại trong DB.
+ */
+function text(
+  value: unknown,
+  label: string,
+  maxLength = MAX_TEXT_LENGTH
+): NormalizeResult {
+  return normalizeLeadText(value, label, maxLength);
 }
 
 /**
@@ -55,7 +74,9 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
 
   for (const [key, value] of Object.entries(input)) {
     if (key === EVENT_NAME_FIELD) {
-      eventName = text(value);
+      const parsedEventName = text(value, "Event", MAX_TEXT_LENGTH);
+      if (!parsedEventName.ok) return { ok: false, error: parsedEventName.error };
+      eventName = parsedEventName.value;
       continue;
     }
     // `products` is an internal multi-product write used by the Product cell.
@@ -84,29 +105,33 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
     }
 
     switch (key) {
-      case "full_name":
-        patch.full_name = text(value);
+      case "full_name": {
+        const parsedName = text(value, "Name", MAX_NAME_LENGTH);
+        if (!parsedName.ok) return { ok: false, error: parsedName.error };
+        patch.full_name = parsedName.value;
         break;
+      }
       case "phone": {
         // Same normaliser Create uses. Without it an inline edit could store
         // "(714) 555-0123" beside a created "7145550123", and the duplicate
         // check plus the digits-only search both compare raw strings.
-        const raw = text(value);
-        if (raw === null) {
+        const parsedPhone = text(value, "Phone", MAX_TEXT_LENGTH);
+        if (!parsedPhone.ok) return { ok: false, error: parsedPhone.error };
+        if (parsedPhone.value === null) {
           patch.phone = null;
           break;
         }
-        const phone = normalizePhone(raw);
+        const phone = normalizePhone(parsedPhone.value);
         if (!phone) return { ok: false, error: "Enter a valid phone number." };
         patch.phone = phone;
         break;
       }
       case "email": {
-        const email = text(value)?.toLowerCase() ?? null;
-        if (email && !email.includes("@")) {
-          return { ok: false, error: "Enter a valid email address." };
-        }
-        patch.email = email;
+        // Cùng regex với Create. Bản cũ chỉ kiểm `includes("@")`, nên "@" cũng
+        // qua được — và nó nằm lại trong DB làm địa chỉ liên hệ.
+        const parsedEmail = normalizeLeadEmail(value);
+        if (!parsedEmail.ok) return { ok: false, error: parsedEmail.error };
+        patch.email = parsedEmail.value;
         break;
       }
       case "product":
@@ -118,7 +143,9 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
         patch.product = value;
         break;
       case "status_id": {
-        const statusId = text(value);
+        const parsedStatus = text(value, "Status", MAX_TEXT_LENGTH);
+        if (!parsedStatus.ok) return { ok: false, error: parsedStatus.error };
+        const statusId = parsedStatus.value;
         if (statusId && !UUID_RE.test(statusId)) {
           return { ok: false, error: "Invalid status." };
         }
@@ -126,12 +153,13 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
         break;
       }
       case "next_follow_up_at": {
-        const raw = text(value);
-        if (raw === null) {
+        const parsedFollowUp = text(value, "Follow-up date", MAX_TEXT_LENGTH);
+        if (!parsedFollowUp.ok) return { ok: false, error: parsedFollowUp.error };
+        if (parsedFollowUp.value === null) {
           patch.next_follow_up_at = null;
           break;
         }
-        const parsed = Date.parse(raw);
+        const parsed = Date.parse(parsedFollowUp.value);
         if (!Number.isFinite(parsed)) {
           return { ok: false, error: "Enter a valid follow-up date." };
         }

@@ -27,6 +27,8 @@ type ImportResult = {
   inserted: number;
   duplicates: number;
   skipped: { row: number; reason: string }[];
+  /** Cột trong file không có trong Lead Table Configuration nên đã bị bỏ qua. */
+  ignoredHeaders?: string[];
   autoAssign: {
     assigned: number;
     unassigned: number;
@@ -542,6 +544,14 @@ export function LeadImportDialog({
                     Skipped: <strong>{result.skipped.length}</strong>
                   </span>
                 </div>
+                {result.ignoredHeaders && result.ignoredHeaders.length > 0 ? (
+                  // Im lặng bỏ dữ liệu là cách nhanh nhất để mất niềm tin:
+                  // người dùng phải biết cột nào trong file của họ không vào.
+                  <p className="mt-2 text-xs font-semibold text-[#974f0c]">
+                    Ignored columns not in the table configuration:{" "}
+                    {result.ignoredHeaders.join(", ")}
+                  </p>
+                ) : null}
                 {result.autoAssign ? (
                   <p className="mt-2 text-sm text-emerald-900">
                     Assigned: <strong>{result.autoAssign.assigned}</strong>

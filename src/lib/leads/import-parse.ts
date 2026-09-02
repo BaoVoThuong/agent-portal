@@ -1,6 +1,8 @@
 import { slugifyColumnKey } from "@/lib/table-config/columns";
 
 export type ParsedLead = {
+  /** Số dòng trong file Excel, để lý do bỏ hàng chỉ đúng dòng người dùng thấy. */
+  row: number;
   full_name: string | null;
   phone: string;
   email: string | null;
@@ -83,6 +85,7 @@ export function parseLeadRows(
 
     const email = cell(record, mapping.email);
     rows.push({
+      row: excelRow,
       full_name: cell(record, mapping.full_name),
       phone,
       email: email ? email.toLowerCase() : null,

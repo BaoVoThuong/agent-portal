@@ -8,9 +8,14 @@ import {
   type AutoAssignOutcome,
 } from "@/lib/leads/auto-assign";
 import { parseLeadRows, type LeadColumnMapping } from "@/lib/leads/import-parse";
+import { partitionImportRows } from "@/lib/leads/import-validate";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { isLeadProduct, type LeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import {
+  fetchWriteValidationContext,
+  TableConfigUnavailableError,
+} from "@/lib/table-config/write-context";
 
 export const dynamic = "force-dynamic";
 
@@ -98,7 +103,45 @@ export async function POST(request: Request) {
   }
 
   const supabase = getSupabaseAdmin();
-  let remaining = parsed.rows;
+
+  // Cùng bộ luật với PATCH. Không có nó, cái admin đánh dấu "Required" chỉ có
+  // tác dụng ở một nửa số cửa vào lead.
+  let writeContext;
+  try {
+    writeContext = await fetchWriteValidationContext(
+      {
+        scope: "lead",
+        mode: "create",
+        touchedSystemKeys: ["full_name", "phone", "email", "product", "event"],
+        touchedCustomKeys: [
+          ...new Set(parsed.rows.flatMap((row) => Object.keys(row.custom_values))),
+        ],
+        submittedCustomValues: Object.assign(
+          {},
+          ...parsed.rows.map((row) => row.custom_values)
+        ),
+      },
+      supabase
+    );
+  } catch (error) {
+    if (error instanceof TableConfigUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
+    throw error;
+  }
+
+  const partitioned = partitionImportRows(parsed.rows, writeContext);
+  const skipped = [...parsed.skipped, ...partitioned.skipped].sort((a, b) => a.row - b.row);
+  if (partitioned.valid.length === 0) {
+    return NextResponse.json({
+      inserted: 0,
+      skipped,
+      duplicates: 0,
+      ignoredHeaders: partitioned.ignoredHeaders,
+    });
+  }
+
+  let remaining = partitioned.valid;
   let inserted = 0;
   try {
     // The schema uses a partial active-row unique index, which cannot be named
@@ -133,7 +176,8 @@ export async function POST(request: Request) {
             return NextResponse.json({
               inserted,
               duplicates: remaining.length,
-              skipped: parsed.skipped,
+              skipped,
+              ignoredHeaders: partitioned.ignoredHeaders,
               autoAssign: null,
             });
           }
@@ -202,8 +246,11 @@ export async function POST(request: Request) {
   after(async () => { await broadcastLeadsChanged(sourceId); });
   return NextResponse.json({
     inserted,
-    duplicates: parsed.rows.length - inserted,
-    skipped: parsed.skipped,
+    // Đếm trên số hàng ĐÃ qua validation: hàng bị bỏ vì sai dữ liệu đã nằm ở
+    // `skipped` kèm lý do rồi, gộp vào "trùng" là nói sai với người import.
+    duplicates: partitioned.valid.length - inserted,
+    skipped,
+    ignoredHeaders: partitioned.ignoredHeaders,
     autoAssign,
   });
 }

@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Một bộ luật trường lead cho Create, PATCH và Import
+
+- **Loại**: fix (business rule).
+- **Import bỏ qua toàn bộ validation** mà PATCH đang chạy: chèn thẳng `custom_values`, không kiểm kiểu, không kiểm trường bắt buộc. Cái admin đánh dấu "Required" chỉ có tác dụng ở một nửa số cửa vào lead.
+- **Cái bẫy phải tránh, và bản plan đầu đã dính** (peer review chỉ ra): `parseLeadRows` nhét **mọi** header Excel không map vào `custom_values`, còn `validateCustomValues` từ chối key lạ bằng `unknown-column`. Nối thẳng hai thứ đó là một file bình thường có cột "Notes" **mất sạch dòng**. Chính sách chốt: **bỏ qua header không có trong cấu hình, và nói cho người import biết cột nào bị bỏ** — im lặng bỏ dữ liệu là cách nhanh nhất để mất niềm tin.
+- **PATCH lỏng hơn Create**: `create.ts` có regex email và giới hạn độ dài; `patch.ts` chỉ `String(value).trim()` không giới hạn, email kiểm bằng `includes("@")` nên `"@"` cũng qua. Cùng một giá trị, màn hình Add từ chối còn sửa inline ghi được — và cái ghi được đó mới là thứ nằm lại trong DB. Nay cả hai dùng chung `lead-fields.ts`.
+- Bỏ `String(value)`: một object lọt qua sẽ nằm trong DB dưới dạng `"[object Object]"`, không ai truy ngược được từ đâu ra. Giới hạn khớp Create: tên 200, trường chữ khác 500.
+- **Ghi lại hành vi thật của `validateCustomValues`** để người sau không tưởng là bỏ sót: cột `date` chỉ đòi **chuỗi**, không kiểm định dạng; cột `number` đòi **số thật**, không ép `"42"` thành `42`. Siết định dạng ngày riêng ở Import mà không siết ở Create là tạo lại đúng cái lệch mà mục này đang xoá bỏ.
+- Hàng hỏng rơi vào `skipped` kèm số dòng Excel, không làm hỏng cả lượt import. `duplicates` nay đếm trên số hàng đã qua validation.
+
 ## 2026-09-02 — Status đã archive nhìn thấy được ở mọi màn hình
 
 - **Loại**: fix.

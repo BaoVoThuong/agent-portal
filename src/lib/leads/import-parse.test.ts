@@ -29,6 +29,9 @@ describe("parseLeadRows", () => {
       mapping
     );
     expect(result.rows).toEqual([{
+      // Dòng 1 là tiêu đề, nên dòng dữ liệu đầu tiên là 2 — cùng con số mà
+      // `skipped` đang dùng, để hai bên chỉ vào cùng một dòng trong file.
+      row: 2,
       full_name: "An Nguyen",
       phone: "7145550123",
       email: "an@x.com",
