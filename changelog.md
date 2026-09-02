@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Import: dọn UI bước chọn file, Event thành tuỳ chọn
+
+- **Loại**: fix (UI) + business rule.
+- **Event không còn bắt buộc.** Lead không thuộc sự kiện nào là trạng thái hợp lệ, và `leads_phone_no_event_unique_idx` đã lo phần chặn trùng số cho nhánh đó. Route vốn đã nhận `event_id` rỗng thành `null`; chỉ có client đang chặn.
+- **Dấu `*` chỉ còn ở chỗ thật sự bắt buộc**: file, và cột Phone trong bảng map. Bỏ chữ "(optional)" khỏi Product — có `*` rồi thì không cần nói ngược lại ở chỗ khác.
+- **Nút Import mờ nay nói rõ còn thiếu gì** ("Still need a file, a phone column."). Một cái nút mờ mà không giải thích là bắt người dùng đi dò từng ô; danh sách xếp theo đúng thứ tự các bước trên màn hình để họ biết quay lên chỗ nào.
+- **Trường bắt buộc chưa map thì nền dòng đỏ nhạt** trong bảng map, cùng lý do trên.
+- **Chọn file xong thì vùng thả file thu lại thành một dòng** kèm tên file, số dòng và số cột. Phần đáng nhìn lúc đó là bảng map bên dưới, không phải cái nút vừa bấm xong.
+- **Ô "Add column" cao bằng chip cột đã chọn** (26px). Trước đó nó dùng chung lớp select 40px nên đứng cạnh chip trông như hai thứ khác cấp bậc, trong khi chúng là hai trạng thái của cùng một việc. Viền đứt để phân biệt "thêm" với "đã chọn".
+- Bảng map đóng khung, có đường kẻ giữa các dòng; chip cột đã chọn dùng màu xanh nhạt và cắt bớt tên dài thay vì đẩy dòng.
+
 ## 2026-09-02 — Import: ghép nhiều cột vào một trường, và bảng xem trước hiện đúng giá trị
 
 - **Loại**: fix + feature, nối tiếp bảng map cột.

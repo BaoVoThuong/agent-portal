@@ -26,6 +26,16 @@ const MAX_BYTES = 5 * 1024 * 1024;
 const IMPORT_SELECT_BUTTON_CLASS =
   "!h-10 !rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 
+/**
+ * Ô "Add column" trong bảng map phải cao BẰNG chip cột đã chọn.
+ *
+ * Dùng chung `IMPORT_SELECT_BUTTON_CLASS` thì nó cao 40px đứng cạnh chip 26px —
+ * mắt đọc ra hai thứ khác cấp bậc, trong khi chúng là hai trạng thái của cùng
+ * một việc. Viền đứt để phân biệt "thêm" với "đã chọn".
+ */
+const MAP_ADD_SELECT_BUTTON_CLASS =
+  "!h-[26px] !rounded !border !border-dashed !border-[#b3c5d6] !bg-white !px-2 !text-xs !font-semibold !text-[#42526e] !shadow-none";
+
 type ImportResult = {
   inserted: number;
   duplicates: number;
@@ -281,7 +291,7 @@ export function LeadImportDialog({
   }
 
   async function importFile() {
-    if (!file || !eventId || !mapping.phone || importing) return;
+    if (!file || !mapping.phone || importing) return;
     setImporting(true);
     setError(null);
     try {
@@ -314,9 +324,24 @@ export function LeadImportDialog({
 
   useBodyScrollLock(open);
   if (!open) return null;
+  // Event KHÔNG bắt buộc: lead không thuộc sự kiện nào là trạng thái hợp lệ, và
+  // `leads_phone_no_event_unique_idx` đã lo phần chặn trùng số cho nhánh đó.
   const canImport = Boolean(
-    eventId && file && mapping.phone && preview.rows.length > 0 && !importing,
+    file && mapping.phone && preview.rows.length > 0 && !importing,
   );
+  /**
+   * Còn thiếu gì để bấm Import được.
+   *
+   * Một cái nút mờ mà không nói vì sao là bắt người dùng đi dò từng ô. Liệt kê
+   * theo đúng thứ tự các bước trên màn hình để họ biết phải quay lên chỗ nào.
+   */
+  const missingForImport = [
+    !file ? "a file" : null,
+    file && !mapping.phone ? "a phone column" : null,
+    file && mapping.phone && preview.rows.length === 0
+      ? "at least one row with a usable phone number"
+      : null,
+  ].filter((item): item is string => item !== null);
 
   return (
     <div
@@ -355,7 +380,7 @@ export function LeadImportDialog({
               {productFilter ? null : (
                 <div className="mb-3">
                   <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
-                    Product (optional)
+                    Product
                   </h3>
                   <TaskSelect
                     label="Product"
@@ -441,10 +466,40 @@ export function LeadImportDialog({
             <section className="border border-[#dbe2eb] bg-white p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)]">
               <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
                 2. Choose a file and map columns
+                <span className="text-[#bf2600]" title="Required">
+                  {" *"}
+                </span>
               </h3>
-              <label className="mt-3 flex cursor-pointer items-center gap-3 border border-dashed border-[#9fb3ca] bg-[#f7f9fc] px-4 py-5 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:bg-[#f0f6ff]">
-                <Upload className="h-5 w-5 shrink-0 text-[#0c66e4]" />
-                <span>Choose an Excel or CSV file</span>
+              {/* Đã chọn file rồi thì vùng thả file thu lại thành một dòng:
+                  phần đáng nhìn lúc đó là bảng map bên dưới, không phải cái nút
+                  vừa bấm xong. */}
+              <label
+                className={`mt-3 flex cursor-pointer items-center gap-3 rounded-lg border border-dashed transition ${
+                  file
+                    ? "border-[#c8d4e2] bg-white px-3 py-2.5 hover:border-[#0c66e4]"
+                    : "border-[#9fb3ca] bg-[#f7f9fc] px-4 py-6 hover:border-[#0c66e4] hover:bg-[#f0f6ff]"
+                }`}
+              >
+                {file ? (
+                  <FileSpreadsheet className="h-5 w-5 shrink-0 text-[#0c66e4]" />
+                ) : (
+                  <Upload className="h-5 w-5 shrink-0 text-[#0c66e4]" />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-[#172b4d]">
+                    {file ? file.name : "Choose an Excel or CSV file"}
+                  </span>
+                  <span className="block text-xs font-medium text-[#6b778c]">
+                    {file
+                      ? `${records.length.toLocaleString()} data rows · ${headers.length} columns`
+                      : "First row must be the column headers"}
+                  </span>
+                </span>
+                {file ? (
+                  <span className="shrink-0 rounded border border-[#dfe1e6] px-2 py-1 text-xs font-bold text-[#42526e]">
+                    Change
+                  </span>
+                ) : null}
                 <input
                   className="sr-only"
                   type="file"
@@ -452,14 +507,9 @@ export function LeadImportDialog({
                   onChange={(event) => void handleFile(event)}
                 />
               </label>
-              {file && (
-                <p className="mt-2 text-xs text-[#6b778c]">
-                  {file.name} · {records.length.toLocaleString()} data rows
-                </p>
-              )}
               {headers.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  <div className="flex items-center justify-between">
+                <div className="mt-3 rounded-lg border border-[#dbe2eb] bg-white">
+                  <div className="flex items-center justify-between gap-3 border-b border-[#eef1f5] bg-[#fafbfc] px-3 py-2">
                     <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#667085]">
                       Map columns
                     </span>
@@ -486,21 +536,35 @@ export function LeadImportDialog({
                     const available = headers.filter(
                       (header) => !takenElsewhere.has(header) && !picked.includes(header),
                     );
+                    const missingRequired = target.required && picked.length === 0;
                     return (
-                      <div key={target.key} className="flex items-start gap-3">
-                        <span className="w-40 shrink-0 pt-2 text-sm font-semibold text-[#42526e]">
-                          {target.label}
+                      <div
+                        key={target.key}
+                        // Trường bắt buộc còn trống thì nền đỏ nhạt: nút Import
+                        // mờ đi mà không nói vì sao là để người ta đi tìm.
+                        className={`flex items-start gap-3 border-b border-[#eef1f5] px-3 py-2 last:border-b-0 ${
+                          missingRequired ? "bg-[#fdecef]" : ""
+                        }`}
+                      >
+                        <span className="flex w-36 shrink-0 items-center gap-1 pt-1.5 text-sm font-semibold text-[#42526e]">
+                          <span className="min-w-0 truncate" title={target.label}>
+                            {target.label}
+                          </span>
                           {target.required ? (
-                            <span className="text-[#bf2600]"> *</span>
+                            <span className="text-[#bf2600]" title="Required">
+                              *
+                            </span>
                           ) : null}
                         </span>
                         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                           {picked.map((header) => (
                             <span
                               key={header}
-                              className="inline-flex items-center gap-1 rounded border border-[#dfe1e6] bg-[#f4f5f7] px-2 py-1 text-xs font-semibold text-[#42526e]"
+                              className="inline-flex max-w-full items-center gap-1 rounded border border-[#b3d4ff] bg-[#e9f2ff] px-2 py-1 text-xs font-semibold text-[#0055cc]"
                             >
-                              {header}
+                              <span className="min-w-0 truncate" title={header}>
+                                {header}
+                              </span>
                               <button
                                 type="button"
                                 aria-label={`Remove ${header} from ${target.label}`}
@@ -515,7 +579,7 @@ export function LeadImportDialog({
                                     return next;
                                   })
                                 }
-                                className="text-[#6b778c] transition hover:text-[#bf2600]"
+                                className="shrink-0 text-[#6b778c] transition hover:text-[#bf2600]"
                               >
                                 <X className="h-3 w-3" />
                               </button>
@@ -532,8 +596,8 @@ export function LeadImportDialog({
                               }))}
                               placeholder={picked.length === 0 ? "Not mapped" : "Add column"}
                               searchable
-                              className="min-w-[10rem]"
-                              buttonClassName={IMPORT_SELECT_BUTTON_CLASS}
+                              className="min-w-[9rem]"
+                              buttonClassName={MAP_ADD_SELECT_BUTTON_CLASS}
                               menuClassName="max-h-64 min-w-full"
                               onChange={(value) => {
                                 if (!value) return;
@@ -547,8 +611,16 @@ export function LeadImportDialog({
                           {/* Nhãn AI để người dùng biết ô nào máy điền mà soi kỹ
                               ô đó trước. Không có nhãn thì một gợi ý sai trông
                               y hệt lựa chọn của chính họ. */}
+                          {picked.length === 0 && available.length === 0 ? (
+                            <span className="text-xs font-medium text-[#97a0af]">
+                              No column left to map
+                            </span>
+                          ) : null}
                           {aiFilled.has(target.key) ? (
-                            <span className="rounded bg-[#deebff] px-1.5 py-0.5 text-[10px] font-bold text-[#0055cc]">
+                            <span
+                              className="rounded bg-[#deebff] px-1.5 py-0.5 text-[10px] font-bold text-[#0055cc]"
+                              title="Suggested by AI — check it before importing"
+                            >
                               AI
                             </span>
                           ) : null}
@@ -626,7 +698,12 @@ export function LeadImportDialog({
                     </span>
                   </label>
                 ) : null}
-                <div className="mt-3 flex justify-end">
+                <div className="mt-3 flex items-center justify-end gap-3">
+                  {missingForImport.length > 0 && !importing ? (
+                    <span className="text-xs font-semibold text-[#974f0c]">
+                      Still need {missingForImport.join(", ")}.
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
