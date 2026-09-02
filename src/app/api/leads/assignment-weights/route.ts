@@ -44,7 +44,7 @@ export async function GET(request: Request) {
   const supabase = getSupabaseAdmin();
   const [rows, enabled] = await Promise.all([
     fetchAssignmentWeights(product, supabase),
-    isAutoAssignEnabled(supabase),
+    isAutoAssignEnabled(product, supabase),
   ]);
 
   // Rows the admin has switched on. That list alone decides who receives

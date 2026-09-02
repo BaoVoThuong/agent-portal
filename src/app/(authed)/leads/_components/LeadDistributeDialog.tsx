@@ -136,7 +136,20 @@ export function LeadDistributeDialog({
   );
   const weights = weightsByProduct[product];
   const draft = draftByProduct[product];
-  const [enabled, setEnabled] = useState(() => weightsCache.health?.enabled ?? false);
+  // Cờ này lưu THEO PRODUCT trong DB, nên state cũng phải theo product. Một
+  // biến dùng chung thì tab P&C hiện giá trị của Health, `dirty` tự bật, và bấm
+  // Save ghi đè giá trị tab kia sang tab này — không ai chạm vào ô tick mà nó
+  // vẫn đổi.
+  const [enabledByProduct, setEnabledByProduct] = useState<Record<LeadProduct, boolean>>(
+    () => ({
+      pc: weightsCache.pc?.enabled ?? false,
+      health: weightsCache.health?.enabled ?? false,
+    })
+  );
+  const enabled = enabledByProduct[product];
+  function setEnabled(next: boolean) {
+    setEnabledByProduct((current) => ({ ...current, [product]: next }));
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -166,7 +179,9 @@ export function LeadDistributeDialog({
         ...current,
         [forProduct]: next.weights.map((row) => ({ ...row })),
       }));
-      setEnabled(next.enabled);
+      // `forProduct`, KHÔNG phải `product` trong closure: lượt nạp có thể trả về
+      // sau khi người dùng đã chuyển tab.
+      setEnabledByProduct((current) => ({ ...current, [forProduct]: next.enabled }));
       setError(null);
     } catch (loadError) {
       if (seq !== weightsRequest.current) return;
@@ -241,7 +256,7 @@ export function LeadDistributeDialog({
             ...current,
             [key]: next.weights.map((row) => ({ ...row })),
           }));
-          if (key === "health") setEnabled(next.enabled);
+          setEnabledByProduct((current) => ({ ...current, [key]: next.enabled }));
         })
         .catch((loadError: unknown) => {
           if (cancelled || seq !== weightsRequest.current) return;

@@ -216,7 +216,7 @@ export async function POST(request: Request) {
         unassigned: insertedIds.length,
         reason: "Pick a product to auto-assign these leads.",
       };
-    } else if (await isAutoAssignEnabled(supabase)) {
+    } else if (await isAutoAssignEnabled(product, supabase)) {
       try {
         autoAssign = await autoAssignLeads(
           insertedIds,

@@ -32,17 +32,53 @@ export async function fetchAssignmentWeights(
   return (data ?? []) as AssignmentWeightRow[];
 }
 
+/**
+ * Cờ "tự chia khi import" của MỘT product.
+ *
+ * Phải có `product`: cờ này được ghi theo từng product (một dòng
+ * `lead_alert_settings` cho mỗi product), nên đọc mà không lọc thì nhận về dòng
+ * nào Postgres trả trước. Bật cho Health thôi mà import P&C cũng tự chia — hoặc
+ * ngược lại — tuỳ thứ tự dòng, là một lỗi không tài nào tái hiện theo ý muốn.
+ */
 export async function isAutoAssignEnabled(
+  product: LeadProduct,
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<boolean> {
   const { data, error } = await supabase
     .from("lead_alert_settings")
     .select("auto_assign_enabled")
-    .limit(1);
+    .eq("product", product)
+    .maybeSingle();
   // A missing column means the rollout has not run. Treat that as OFF rather
   // than failing the caller: auto-assign is an addition, not a prerequisite.
   if (error) return false;
-  return Boolean((data ?? [])[0]?.auto_assign_enabled);
+  return Boolean(data?.auto_assign_enabled);
+}
+
+/**
+ * Ai thực sự nhận được lead trong lượt chia này.
+ *
+ * Ba điều kiện, và điều kiện thứ ba là điều kiện mới: TÀI KHOẢN CÒN HOẠT ĐỘNG.
+ * Danh sách chia pool trả lời câu "ai ĐƯỢC PHÉP nhận" — quyết định của admin và
+ * không bị RBAC phủ quyết. Nhưng nó không trả lời được câu "người này còn làm ở
+ * đây không". Thiếu vế sau thì nhân viên nghỉ việc vẫn nhận lead, và lead nằm
+ * im ở một người không đăng nhập được nữa.
+ *
+ * So email theo bản thường hoá: hai bảng ghi email ở hai đường khác nhau, chỉ
+ * cần một bên viết hoa là người đó lặng lẽ rơi khỏi pool.
+ */
+export function eligibleAssignmentEmails(
+  weights: readonly AssignmentWeightRow[],
+  activeEmails: ReadonlySet<string>
+): string[] {
+  return weights
+    .filter(
+      (row) =>
+        row.is_active &&
+        row.weight > 0 &&
+        activeEmails.has(row.agent_email.trim().toLowerCase())
+    )
+    .map((row) => row.agent_email);
 }
 
 /**
@@ -68,14 +104,34 @@ export async function autoAssignLeads(
   // screen, and a second opinion from the permission table would silently
   // override what they set there.
   const weights = await fetchAssignmentWeights(product, supabase);
-  const eligible = weights
-    .filter((row) => row.is_active && row.weight > 0)
-    .map((row) => row.agent_email);
-  if (eligible.length === 0) {
+  const configured = weights.filter((row) => row.is_active && row.weight > 0);
+  if (configured.length === 0) {
     return {
       assigned: 0,
       unassigned: leadIds.length,
       reason: `Nobody is set to receive ${product === "pc" ? "P&C" : "Health"} leads.`,
+    };
+  }
+
+  const { data: accounts, error: accountError } = await supabase
+    .from("portal_account")
+    .select("email")
+    .in("email", configured.map((row) => row.agent_email))
+    .eq("is_active", true);
+  if (accountError) throw new Error(accountError.message);
+  const activeEmails = new Set(
+    ((accounts ?? []) as { email: string }[]).map((row) => row.email.trim().toLowerCase())
+  );
+
+  const eligible = eligibleAssignmentEmails(weights, activeEmails);
+  if (eligible.length === 0) {
+    // Câu khác hẳn trường hợp trên: ở đây admin ĐÃ cấu hình người nhận, nhưng
+    // tài khoản của họ đã bị tắt. Gộp hai câu làm một là bắt admin đi tìm trong
+    // màn hình chia pool một thứ không nằm ở đó.
+    return {
+      assigned: 0,
+      unassigned: leadIds.length,
+      reason: "Everyone set to receive these leads has a deactivated account.",
     };
   }
 

@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Auto-assign: tài khoản tắt rời pool, cờ đọc và hiện đúng product
+
+- **Loại**: fix (business rule).
+- **Tắt tài khoản không gỡ người đó khỏi pool.** `autoAssignLeads` lấy người nhận chỉ từ `lead_assignment_weights`, không kiểm tài khoản còn hoạt động. Nhân viên nghỉ việc → admin tắt tài khoản → họ **vẫn nhận lead** theo vòng xoay, lead nằm im ở một người không đăng nhập được. Trong khi gán **tay** cho đúng người đó lại bị chặn (`canBeAssignedLead` có kiểm `isActive`) — hai đường gán, hai câu trả lời. Không mâu thuẫn với luật "danh sách chia pool là nguồn quyết duy nhất": luật đó nói về **quyền**, đây là **tài khoản còn tồn tại hay không**.
+- Câu "cấu hình rồi nhưng tài khoản đã tắt" tách khỏi "chưa cấu hình ai": gộp làm một là bắt admin đi tìm trong màn hình chia pool một thứ không nằm ở đó.
+- **Cờ auto-assign đọc không lọc product.** `isAutoAssignEnabled` dùng `.limit(1)` không `.eq("product", …)`, trong khi dialog ghi theo từng product. Bật cho Health thôi thì import P&C có tự chia hay không phụ thuộc thứ tự dòng Postgres trả — lỗi không tái hiện được theo ý muốn. Hàm nay bắt buộc nhận `product`; đổi chữ ký chứ không thêm tham số tuỳ chọn, vì tham số tuỳ chọn để lại đúng cái bẫy cũ cho người gọi tiếp theo.
+- **Ô tick dùng chung một state cho hai tab.** Khởi tạo từ `weightsCache.health`, và lượt nạp sẵn chỉ áp cho Health. Tab P&C hiện giá trị Health, `dirty` tự bật, bấm Save ghi giá trị Health sang P&C **mà không ai chạm vào ô tick**. Nay là `Record<LeadProduct, boolean>`; lượt nạp dùng `forProduct`/`key` chứ không dùng `product` trong closure — lượt nạp có thể trả về sau khi người dùng đã chuyển tab.
+- Hai lỗi cờ chưa cắn vì hai product đều đang tắt.
+
 ## 2026-09-02 — Một bộ luật trường lead cho Create, PATCH và Import
 
 - **Loại**: fix (business rule).

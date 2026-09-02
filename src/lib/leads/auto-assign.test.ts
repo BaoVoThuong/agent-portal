@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupLeadIdsByProduct } from "./auto-assign";
+import { eligibleAssignmentEmails, groupLeadIdsByProduct } from "./auto-assign";
 
 describe("groupLeadIdsByProduct", () => {
   // Import handles one product at a time, but "distribute the pool" does not:
@@ -72,5 +72,54 @@ describe("groupLeadIdsByProduct", () => {
     expect(
       groupLeadIdsByProduct([{ id: "x", product: null, products: [] }], "pc")
     ).toEqual({ pc: ["x"], health: [] });
+  });
+});
+describe("eligibleAssignmentEmails", () => {
+  const row = (email: string, over: Partial<{ weight: number; is_active: boolean }> = {}) => ({
+    product: "health" as const,
+    agent_email: email,
+    weight: 1,
+    current_weight: 0,
+    position: 1,
+    is_active: true,
+    ...over,
+  });
+
+  it("loại người đã bị tắt tài khoản", () => {
+    // Nghỉ việc rồi mà vẫn trong pool thì lead rơi vào một người không đăng
+    // nhập được nữa, và không ai nhìn thấy điều đó.
+    expect(
+      eligibleAssignmentEmails(
+        [row("con.lam@x.com"), row("da.nghi@x.com")],
+        new Set(["con.lam@x.com"])
+      )
+    ).toEqual(["con.lam@x.com"]);
+  });
+
+  it("loại người admin đã bỏ tick Đang nhận", () => {
+    expect(
+      eligibleAssignmentEmails(
+        [row("tam.dung@x.com", { is_active: false })],
+        new Set(["tam.dung@x.com"])
+      )
+    ).toEqual([]);
+  });
+
+  it("loại người trọng số 0", () => {
+    expect(
+      eligibleAssignmentEmails([row("khong@x.com", { weight: 0 })], new Set(["khong@x.com"]))
+    ).toEqual([]);
+  });
+
+  it("so email không phân biệt hoa thường", () => {
+    // Hai bảng ghi email ở hai đường khác nhau; chỉ cần một bên viết hoa là
+    // người đó lặng lẽ rơi khỏi pool.
+    expect(eligibleAssignmentEmails([row("Ann.S@X.com")], new Set(["ann.s@x.com"]))).toEqual([
+      "Ann.S@X.com",
+    ]);
+  });
+
+  it("không ai hoạt động thì trả mảng rỗng", () => {
+    expect(eligibleAssignmentEmails([row("a@x.com")], new Set())).toEqual([]);
   });
 });
