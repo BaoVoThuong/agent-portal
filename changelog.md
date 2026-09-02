@@ -6,6 +6,21 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Vá theo id giữ đúng lịch sử; gán xong không kéo lại cả danh sách
+
+- **Loại**: fix (hồi quy + hiệu năng) + **đính chính changelog**.
+- **Lịch sử tương tác bị nuốt** — hồi quy do chính đợt tối ưu luồng dữ liệu 2026-09-01 gây ra. `patchLeadsById` cố ý giữ `interaction_history` **cũ** khi vá dòng, nhưng `LEAD_LIST_COLUMNS` **có** kèm embed `lead_interactions` nên server đã trả về bản mới. Agent B ghi một tương tác → dòng của A được vá → bộ đếm cập nhật còn **chip lịch sử vẫn là ảnh chụp cũ**: hai phần của cùng một dòng nói ngược nhau. Nay lịch sử từ server thắng; chỉ rơi về bản cũ khi server thật sự không trả về.
+- **Đính chính**: mục ngày 2026-09-01 viết *"gán xong là vá tại chỗ thay vì tải lại"*. Route **có** trả về dòng đã cập nhật, nhưng client **không** dùng — `assignLead` và `assignSelected` vẫn kết thúc bằng `reload()`. Mục đó **sai sự thật**; đây là lần sửa để nó thành đúng.
+- Nay dùng chính phản hồi qua `applyReturnedLeads`. Sau đó vẫn hỏi lại theo id với bộ lọc đang bật, vì người xem có phạm vi hẹp có thể vừa mất quyền nhìn thấy dòng đó — gán lead cho người khác là đúng cái làm nó rời phạm vi của một agent.
+- Hàm mới đặt **sau** `patchLeadsByIdRef` để không dính TDZ như vụ `healthCounts` hôm 2026-09-01.
+
+## 2026-09-02 — Import chia lô truy vấn số điện thoại
+
+- **Loại**: fix (độ tin cậy).
+- `MAX_ROWS = 2000` nhưng `findExistingPhones` nhét toàn bộ số vào một `.in(...)`. PostgREST đặt bộ lọc trên query string; 2.000 số ≈ 24 KB, vượt giới hạn URL phổ biến của proxy (8–16 KB). Hàm còn được gọi **hai** lần mỗi lượt import.
+- Một lượt import đúng giới hạn UI mà hỏng ở tầng mạng thì thông báo lỗi chẳng nói được gì hữu ích — đó mới là phần tệ nhất.
+- Chia lô 200. Chưa đo được ngưỡng thật trên hạ tầng hiện tại; chia nhỏ là thay đổi rẻ và không có mặt trái.
+
 ## 2026-09-02 — Auto-assign: tài khoản tắt rời pool, cờ đọc và hiện đúng product
 
 - **Loại**: fix (business rule).

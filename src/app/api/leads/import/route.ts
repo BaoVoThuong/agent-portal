@@ -26,21 +26,36 @@ const UUID_RE =
 
 type ExistingPhoneRow = { phone: string | null };
 
+/** Mỗi lượt hỏi tối đa ngần này số. Xem chú thích trong hàm. */
+const PHONE_LOOKUP_CHUNK = 200;
+
 async function findExistingPhones(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   eventId: string | null,
   phones: string[]
 ): Promise<Set<string>> {
   if (phones.length === 0) return new Set();
-  let query = supabase
-    .from("leads")
-    .select("phone")
-    .in("phone", phones)
-    .is("archived_at", null);
-  query = eventId === null ? query.is("event_id", null) : query.eq("event_id", eventId);
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return new Set((data as ExistingPhoneRow[] | null ?? []).flatMap((row) => row.phone ? [row.phone] : []));
+  const found = new Set<string>();
+  // PostgREST đặt bộ lọc trên query string. MAX_ROWS cho phép 2.000 số, tức
+  // khoảng 24 KB — vượt giới hạn URL phổ biến của proxy/gateway (8–16 KB). Một
+  // lượt import đúng giới hạn UI mà hỏng ở tầng mạng thì thông báo lỗi chẳng
+  // nói được gì hữu ích, và đó mới là phần tệ nhất. Hàm này còn được gọi HAI
+  // lần mỗi lượt import (đọc trước, và đọc lại sau khi va chạm).
+  for (let start = 0; start < phones.length; start += PHONE_LOOKUP_CHUNK) {
+    const chunk = phones.slice(start, start + PHONE_LOOKUP_CHUNK);
+    let query = supabase
+      .from("leads")
+      .select("phone")
+      .in("phone", chunk)
+      .is("archived_at", null);
+    query = eventId === null ? query.is("event_id", null) : query.eq("event_id", eventId);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    for (const row of (data as ExistingPhoneRow[] | null) ?? []) {
+      if (row.phone) found.add(row.phone);
+    }
+  }
+  return found;
 }
 
 export async function POST(request: Request) {

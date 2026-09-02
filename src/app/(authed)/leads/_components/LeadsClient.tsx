@@ -289,7 +289,13 @@ export function LeadsClient({
           const updated = byId.get(lead.id);
           if (!updated) return null; // đã ra khỏi phạm vi
           seen.add(lead.id);
-          return { ...updated, interaction_history: lead.interaction_history };
+          // Lịch sử từ SERVER thắng. Giữ bản cũ là để bộ đếm cập nhật mà chip
+          // lịch sử vẫn là ảnh chụp trước đó — hai phần của cùng một dòng nói
+          // ngược nhau. Chỉ rơi về bản cũ khi server thật sự không trả về.
+          return {
+            ...updated,
+            interaction_history: updated.interaction_history ?? lead.interaction_history,
+          };
         })
         .filter((lead): lead is LeadRow => lead !== null);
       const added = fresh.filter((lead) => !seen.has(lead.id));
@@ -297,7 +303,11 @@ export function LeadsClient({
     });
     setSelectedLead((current) =>
       current && byId.has(current.id)
-        ? { ...byId.get(current.id)!, interaction_history: current.interaction_history }
+        ? {
+            ...byId.get(current.id)!,
+            interaction_history:
+              byId.get(current.id)!.interaction_history ?? current.interaction_history,
+          }
         : current,
     );
   };
@@ -305,6 +315,39 @@ export function LeadsClient({
   useEffect(() => {
     patchLeadsByIdRef.current = patchLeadsById;
   });
+
+  /**
+   * Trộn những dòng route vừa trả về vào danh sách đang hiển thị.
+   *
+   * Giống patchLeadsById nhưng KHÔNG gọi mạng: dữ liệu đã nằm trong phản hồi.
+   * Sau đó vẫn hỏi lại theo id, vì người xem có phạm vi hẹp (agent/assistant)
+   * có thể vừa mất quyền nhìn thấy dòng này — gán lead cho người khác là đúng
+   * cái làm nó rời phạm vi của một agent.
+   */
+  const applyReturnedLeads = (returned: readonly LeadRow[]) => {
+    if (returned.length === 0) return;
+    const byId = new Map(returned.map((lead) => [lead.id, lead]));
+    setLeads((current) =>
+      current.map((lead) => {
+        const updated = byId.get(lead.id);
+        if (!updated) return lead;
+        return {
+          ...updated,
+          interaction_history: updated.interaction_history ?? lead.interaction_history,
+        };
+      }),
+    );
+    setSelectedLead((current) =>
+      current && byId.has(current.id)
+        ? {
+            ...byId.get(current.id)!,
+            interaction_history:
+              byId.get(current.id)!.interaction_history ?? current.interaction_history,
+          }
+        : current,
+    );
+    void patchLeadsByIdRef.current(returned.map((lead) => lead.id)).catch(() => {});
+  };
 
   const reloadRef = useRef(reload);
   useEffect(() => {
@@ -557,13 +600,19 @@ export function LeadsClient({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error ?? "Could not assign that lead.");
-      setSelectedLead((current) =>
-        current?.id === id
-          ? { ...current, assigned_to_email: toEmail }
-          : current,
-      );
+      // Route đã trả về chính những dòng vừa đổi. Kéo lại cả danh sách để lấy
+      // thứ mình đang cầm trên tay là tốn vô ích — ở 5.000 lead thì đó là vài
+      // MB cho một thao tác đổi một ô.
+      const returned = (payload?.leads ?? []) as LeadRow[];
+      if (returned.length > 0) {
+        applyReturnedLeads(returned);
+      } else {
+        setSelectedLead((current) =>
+          current?.id === id ? { ...current, assigned_to_email: toEmail } : current,
+        );
+        await reloadRef.current();
+      }
       setEditError(null);
-      await reloadRef.current();
     } catch (error) {
       setEditError(
         error instanceof Error ? error.message : "Could not assign that lead.",
@@ -595,7 +644,9 @@ export function LeadsClient({
       setAssignmentEmail("");
       setAssignmentReason("");
       setSelected(new Set());
-      await reload();
+      const returned = (payload?.leads ?? []) as LeadRow[];
+      if (returned.length > 0) applyReturnedLeads(returned);
+      else await reload();
     } catch (assignError) {
       setAssignmentError(
         assignError instanceof Error
