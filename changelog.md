@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Sửa tỉ lệ xong vẫn bấm Distribute được
+
+- **Loại**: fix (UX).
+- **Triệu chứng người dùng gặp**: để weight = 1 cho tất cả thì chia được; đổi một người thành 2 thì "không chia được nữa".
+- **Nguyên nhân**: sửa tỉ lệ làm form thành "chưa lưu", và nút Distribute bị chặn với lý do *"Save your changes before distributing."* — nhưng lý do đó **chỉ nằm trong `title` tooltip**, phải rê chuột và chờ mới thấy. Người dùng gõ 2 rồi bấm Distribute, **không có gì xảy ra và không có gì giải thích**. Ngõ cụt.
+- **Đã kiểm để loại trừ**: gọi thẳng RPC `save_lead_assignment_weights` trên DB thật với weight = 2 → lưu bình thường (đã trả dữ liệu về nguyên trạng). Lỗi không nằm ở DB hay ở route.
+- **Sửa**: nút nay là **"Save and distribute"** khi đang có sửa — một cú bấm làm cả hai việc. Và **mọi lý do chặn hiện thành chữ** cạnh nút, không nấp trong tooltip.
+- **Vẫn không chia bằng tỉ lệ chưa lưu**: lưu trước, chia sau. Chia bằng con số trên màn hình trong khi DB giữ con số khác là hai sự thật cho một lượt chia. `save()` nay trả về kết quả để lượt chia dừng lại khi lưu hỏng.
+
 ## 2026-09-02 — Import và Add lead dùng chung một bộ mặc định
 
 - **Loại**: fix (business rule).

@@ -324,9 +324,7 @@ export function LeadDistributeDialog({
     ? "Working…"
     : loadingWeights
       ? "Still loading."
-      : dirty
-        ? "Save your changes before distributing."
-        : active.length === 0
+      : active.length === 0
           ? `Nobody is receiving ${PRODUCT_LABEL[product]} leads.`
           : !tabPool || tabPool.pending === 0
             ? `No ${PRODUCT_LABEL[product]} leads are waiting.`
@@ -341,8 +339,8 @@ export function LeadDistributeDialog({
     }));
   }
 
-  async function save() {
-    if (busy) return;
+  async function save(): Promise<boolean> {
+    if (busy) return false;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -365,11 +363,28 @@ export function LeadDistributeDialog({
       if (!response.ok) throw new Error(payload?.error ?? "Could not save.");
       await loadWeights(product);
       setNotice("Ratios saved.");
+      return true;
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save.");
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Lưu (nếu đang có sửa) rồi chia.
+   *
+   * Trước đây tỉ lệ chưa lưu làm nút Distribute mờ đi, và lý do chỉ nằm trong
+   * `title` — phải rê chuột và chờ mới thấy. Người dùng gõ weight = 2 rồi bấm
+   * Distribute, không có gì xảy ra và không có gì giải thích. Đó là ngõ cụt.
+   *
+   * Vẫn KHÔNG chia bằng tỉ lệ chưa lưu: lưu trước, chia sau. Chia bằng con số
+   * trên màn hình trong khi DB giữ con số khác là hai sự thật cho một lượt chia.
+   */
+  async function saveThenDistribute() {
+    if (dirty && !(await save())) return;
+    await distribute();
   }
 
   /**
@@ -821,6 +836,13 @@ export function LeadDistributeDialog({
             <RotateCcw className="h-3.5 w-3.5" /> Reset rotation
           </button>
           <div className="flex items-center gap-2">
+            {/* Lý do chặn phải ĐỌC ĐƯỢC, không nấp trong tooltip: nút mờ mà
+                không giải thích là bắt người dùng đoán. */}
+            {blockedReason && !busy ? (
+              <span className="text-xs font-semibold text-[#974f0c]">
+                {blockedReason}
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={() => void save()}
@@ -831,9 +853,7 @@ export function LeadDistributeDialog({
             </button>
             <button
               type="button"
-              onClick={() => void distribute()}
-              // Distributing with unsaved edits would use the stored ratio, not
-              // the one on screen — which is the one the admin is reading.
+              onClick={() => void saveThenDistribute()}
               // Nói trước vì sao không bấm được, thay vì để bấm rồi trả về
               // "assigned 0". Một nút bấm được mà chắc chắn không làm gì là
               // một cái bẫy.
@@ -844,7 +864,12 @@ export function LeadDistributeDialog({
               <Shuffle className="h-4 w-4" />
               {busy
                 ? "Distributing…"
-                : `Distribute ${tabPool?.pending ?? 0} ${PRODUCT_LABEL[product]}`}
+                : dirty
+                  // Tỉ lệ đang sửa: nút nói rõ nó sẽ lưu trước. Chia bằng con số
+                  // trên màn hình trong khi DB giữ con số khác là hai sự thật
+                  // cho một lượt chia.
+                  ? `Save and distribute ${tabPool?.pending ?? 0} ${PRODUCT_LABEL[product]}`
+                  : `Distribute ${tabPool?.pending ?? 0} ${PRODUCT_LABEL[product]}`}
             </button>
           </div>
         </footer>
