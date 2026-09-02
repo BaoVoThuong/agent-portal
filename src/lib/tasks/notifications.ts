@@ -22,6 +22,11 @@ export const TASK_NOTIFICATION_TYPES = [
   "cancelled",
   "attachment_added",
   "backlog_attention",
+  // Hạn cứng do admin đặt (Due Date). Tách khỏi 'overdue'/'overdue_reminder'
+  // của SLA: một task có thể vỡ cái này mà không vỡ cái kia, và người đọc
+  // thông báo cần biết mình đang vỡ cái nào.
+  "due_date_overdue",
+  "due_date_overdue_reminder",
 ] as const;
 
 export type TaskNotificationType = (typeof TASK_NOTIFICATION_TYPES)[number];

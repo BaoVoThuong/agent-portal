@@ -48,7 +48,7 @@ import { Initials, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board
 import { TaskAssigneePicker } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
 import type { TaskListColumn, TaskListColumnKey } from "./task-list-columns";
-import { TASK_DUE_DATE_KEY } from "@/lib/tasks/due-date";
+import { isTaskRowDueDateOverdue, TASK_DUE_DATE_KEY } from "@/lib/tasks/due-date";
 
 // Shared column widths so the List header and the rows line up exactly.
 export const LIST_COL = {
@@ -322,6 +322,9 @@ export function TaskRowItem({
   const reviewedByLabel = personLabel(task.done_reviewed_by_email);
   const ruleSet = rules ?? [];
   const liveNow = now ?? null;
+  // Không phân quyền: người dùng chốt nền đỏ thì AI CŨNG thấy. Đây là tín hiệu
+  // về tình trạng công việc, không phải dữ liệu riêng của ai.
+  const dueDateOverdue = isTaskRowDueDateOverdue(task, liveNow ?? undefined);
   const slaMinutes = effectiveSlaMinutes(task, ruleSet);
   const timeReport = buildTimeReport(task, ruleSet, liveNow);
   const summaryClassName = configuredColumns
@@ -337,7 +340,14 @@ export function TaskRowItem({
       onDoubleClick={() => {
         if (openOnDoubleClick) onOpen(task.id);
       }}
-      className={`group flex bg-white transition hover:bg-[#f7f8f9] ${
+      className={`group flex transition ${
+        dueDateOverdue
+          // Hồng đỏ nhạt, không phải đỏ gắt: nó phải đọc được là "cần chú ý"
+          // khi liếc qua cả bảng, mà chữ đen trên nền vẫn phải rõ. Hover đậm
+          // hơn một nấc để dòng vẫn phản hồi khi rê chuột.
+          ? "bg-[#fdecef] hover:bg-[#fbdde3]"
+          : "bg-white hover:bg-[#f7f8f9]"
+      } ${
         configuredColumns
           ? "min-h-11 min-w-max items-stretch gap-0 whitespace-nowrap px-0 py-0 [&>*]:flex [&>*]:items-center [&>*]:whitespace-nowrap [&>*]:px-3 [&>*]:py-2.5"
           : "items-center gap-3 whitespace-nowrap px-4 py-2.5"

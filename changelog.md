@@ -6,6 +6,25 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Task vỡ hạn Due Date: thông báo, nền hồng, và vết trong activity
+
+- **Loại**: feature + fix.
+- Đây là **hạn cứng do admin đặt**, người dùng chốt nó quan trọng hơn overdue SLA. Hai cơ chế chạy song song, cố ý: viền trái cam = vỡ SLA (nằm In Progress quá lâu), nền hồng = vỡ Due Date. Gộp làm một là mất một trong hai tín hiệu.
+
+**Múi giờ — sửa một lỗi của bản hôm qua.** `isTaskDueDateOverdue` dựng `new Date(...)` rồi so theo **giờ máy đang chạy**. Trên trình duyệt của agent đó là giờ Texas (đúng), nhưng trong cron trên Vercel đó là **UTC** — sớm hơn 5–6 tiếng. Task hạn "Oct 9" sẽ bị cron coi là quá hạn từ **7 giờ tối Oct 9 giờ Texas**, tức thông báo bay đi khi agent vẫn đang trong ngày làm việc. Cùng một hàm mà server và browser cho hai câu trả lời khác nhau. Nay chốt `America/Chicago` (người dùng chọn Texas) và **so chuỗi `"YYYY-MM-DD"`** thay vì làm toán trên `Date`: chuỗi ISO so từ điển đã đúng thứ tự thời gian, và không kéo múi giờ vào phép so sánh vốn chỉ cần biết "ngày nào". Card trên Board tự hưởng luật mới vì dùng chung hàm.
+
+**Nền hồng đỏ nhạt trong bảng.** Task quá hạn mà **chưa xong** thì cả dòng đổi nền `#fdecef`, hover `#fbdde3`. Hồng nhạt chứ không đỏ gắt: phải đọc được là "cần chú ý" khi liếc qua cả bảng mà chữ đen vẫn rõ. **Không phân quyền — ai cũng thấy**, đây là tín hiệu về tình trạng công việc chứ không phải dữ liệu riêng của ai. `done` và `cancel` đều trả nền về trắng: huỷ là một kết cục hợp lệ, tô đỏ task đã huỷ là đòi người ta làm việc đã quyết định không làm.
+
+**Thông báo.** Người nhận: **người được giao, agent của task, assistant của agent đó, và admin**. Khác SLA — SLA chỉ leo thang lên agent/admin khi priority `urgent`/`high`; Due Date luôn báo cả bốn nhóm. Ai vừa là agent vừa là người được giao chỉ nhận **một** thông báo. **Nhắc lại mỗi 24 giờ** tới khi task xong.
+
+**Chống bắn trùng ở hai chỗ**: lần đầu qua RPC `mark_task_due_date_overdue_atomic` (cập nhật có điều kiện rồi đếm dòng đã đổi — trả `false` nghĩa là lượt cron khác đã thắng); lần nhắc bằng cách chốt `due_overdue_reminded_at` **trước** khi gửi và chỉ ghi khi giá trị chưa đổi. Gửi trước rồi mới ghi dấu thì một lượt cron chồng lên sẽ gửi lần hai.
+
+**Đổi Due Date thì xoá dấu đã-báo**, làm bằng **trigger DB** chứ không ở route: due_date sửa được qua PATCH inline, qua modal chi tiết, và qua `patch_task_atomic` — ba đường thì sớm muộn cũng có một đường quên, và lỗi đó im lặng (task vỡ hạn lần hai mà không ai được báo). Người dùng chốt: dời hạn là một cam kết mới, vỡ cam kết mới thì phải báo lại.
+
+**Ghi vào `task_activity`** loại `due_date_overdue`. `task_activity.type` là `text` không ràng buộc CHECK nên chỉ sửa TypeScript; ngược lại `task_notifications.type` **có** CHECK constraint nên hai loại thông báo mới phải sửa **cả DB lẫn TypeScript** — thiếu một bên là insert nổ lúc chạy, mà nổ trong cron thì không ai thấy cho tới khi có người hỏi vì sao không nhận được thông báo.
+
+- **Cần chạy** `supabase/rollouts/2026-09-04-task-due-date-overdue.sql`.
+
 ## 2026-09-02 — Lưu cấu hình chia pool trong một giao dịch
 
 - **Loại**: fix (toàn vẹn dữ liệu).

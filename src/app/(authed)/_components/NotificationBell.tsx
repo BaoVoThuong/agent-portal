@@ -29,6 +29,8 @@ type Notif = {
     | "overdue"
     | "todo_reminder"
     | "overdue_reminder"
+    | "due_date_overdue"
+    | "due_date_overdue_reminder"
     | "waiting_reminder"
     | "unassigned"
     | "reopened"
@@ -159,6 +161,10 @@ function actionText(n: Notif): string {
       return "Task is still in To Do";
     case "overdue_reminder":
       return "Task is still overdue — reminder";
+    case "due_date_overdue":
+      return "Task passed its due date";
+    case "due_date_overdue_reminder":
+      return "Task is still past its due date — reminder";
     case "waiting_reminder":
       return "Task is still waiting for follow-up";
     case "due_soon":

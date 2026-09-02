@@ -24,5 +24,6 @@ export const ACTIVITY_LABELS: Record<TaskActivityType, string> = {
   attachment_added: "attached a file",
   attachment_deleted: "removed a file",
   went_overdue: "task went overdue",
+  due_date_overdue: "passed its due date",
   overdue_unlocked: "unlocked an overdue task",
 };

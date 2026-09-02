@@ -56,6 +56,10 @@ export type TaskRow = {
   overdue_reminded_at: string | null;
   overdue_unlocked_at: string | null;
   due_soon_notified_at: string | null;
+  /** Lần đầu phát hiện vỡ hạn Due Date. Trigger xoá về null khi due_date đổi. */
+  due_overdue_flagged_at?: string | null;
+  /** Lần nhắc gần nhất; nhắc lại mỗi 24 giờ tới khi task xong. */
+  due_overdue_reminded_at?: string | null;
   stale_reminded_at: string | null;
   qc_reminded_at: string | null;
   last_activity_at: string | null;

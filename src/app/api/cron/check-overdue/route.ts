@@ -17,6 +17,7 @@ import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
 import { intervalDue, isDueSoon, isStale } from "@/lib/tasks/reminders";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { checkCronAuthorization } from "@/lib/cron-auth";
+import { isTaskRowDueDateOverdue, readTaskDueDate } from "@/lib/tasks/due-date";
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +149,35 @@ async function runReminderSweep(): Promise<NextResponse> {
   ).filter(
     (task) =>
       intervalDue(task.todo_reminded_at, todoReminderMs, now)
+  );
+
+  // Task có đặt Due Date và chưa kết thúc. Lọc "quá hạn hay chưa" ở Node chứ
+  // không ở SQL: ranh giới ngày phụ thuộc múi giờ Texas, và nhét phép đổi múi
+  // giờ vào PostgREST là để hai nơi định nghĩa "hết ngày" theo hai cách.
+  const { data: dueRows, error: dueError } = await supabase
+    .from("tasks")
+    .select(
+      "id,status,agent_email,custom_values,due_overdue_flagged_at,due_overdue_reminded_at"
+    )
+    .is("archived_at", null)
+    .not("status", "in", "(done,cancel)")
+    .not("custom_values->>due_date", "is", null);
+  if (dueError) return NextResponse.json({ error: dueError.message }, { status: 500 });
+
+  type DueTaskRow = Pick<TaskRow, "id" | "status" | "agent_email" | "custom_values"> & {
+    due_overdue_flagged_at: string | null;
+    due_overdue_reminded_at: string | null;
+  };
+  const dueTasks = ((dueRows ?? []) as DueTaskRow[]).filter((task) =>
+    isTaskRowDueDateOverdue(task, now)
+  );
+  // Lần đầu vỡ hạn — RPC là cổng chống bắn trùng khi hai lượt cron chồng nhau.
+  const newlyDueOverdue = dueTasks.filter((task) => !task.due_overdue_flagged_at);
+  // Vẫn đang vỡ hạn — nhắc lại mỗi 24 giờ, đúng như người dùng chốt.
+  const stillDueOverdue = dueTasks.filter(
+    (task) =>
+      Boolean(task.due_overdue_flagged_at) &&
+      intervalDue(task.due_overdue_reminded_at, 24 * 3600_000, now)
   );
 
   const { data: waitingRows, error: waitingError } = await supabase
@@ -407,6 +437,82 @@ async function runReminderSweep(): Promise<NextResponse> {
     );
   }
 
+  // Người nhận: người được giao, agent của task, assistant của agent đó, và
+  // admin. Khác SLA — SLA chỉ leo thang lên agent/admin khi priority là
+  // urgent/high; Due Date thì LUÔN báo cả bốn nhóm vì đây là hạn cứng do admin
+  // đặt, người dùng chốt nó quan trọng hơn SLA.
+  const dueRecipients = async (task: { id: string; agent_email: string | null }) => {
+    const [assignees, agentRecipients, adminRecipients] = await Promise.all([
+      fetchTaskAssigneeEmails(task.id, supabase),
+      // Hàm này đã gộp sẵn agent VÀ assistant của agent đó.
+      fetchAgentOwnerAndAssistantEmails(task.agent_email),
+      fetchAdminEmails(),
+    ]);
+    // Người được giao chỉ nhận MỘT thông báo dù họ cũng là agent hay admin.
+    const watchers = uniqueNotificationRecipients(
+      [...agentRecipients, ...adminRecipients],
+      assignees
+    );
+    return [...assignees, ...watchers];
+  };
+
+  if (newlyDueOverdue.length > 0) {
+    await Promise.all(
+      newlyDueOverdue.map(async (task) => {
+        const dueDate = readTaskDueDate(task.custom_values) ?? "";
+        const { data: flagged, error: flagError } = await supabase.rpc(
+          "mark_task_due_date_overdue_atomic",
+          { p_task_id: task.id, p_due_date: dueDate }
+        );
+        if (flagError) throw new Error(flagError.message);
+        // Lượt cron khác, hoặc một thao tác của người dùng, đã thắng cổng này.
+        // Không có gì bên dưới thuộc về lần chuyển trạng thái đó, nên không
+        // được bắn thông báo lần hai.
+        if (flagged !== true) return;
+
+        const rows: NotificationInsertInput[] = uniqueNotificationRows(
+          (await dueRecipients(task)).map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "due_date_overdue" as const,
+            actor_email: "system",
+            detail: `Due ${dueDate}`,
+          }))
+        );
+        await insertNotifications(rows);
+      })
+    );
+  }
+
+  if (stillDueOverdue.length > 0) {
+    await Promise.all(
+      stillDueOverdue.map(async (task) => {
+        // Chốt dấu nhắc TRƯỚC khi gửi, và chỉ ghi khi giá trị chưa đổi. Gửi
+        // trước rồi mới ghi dấu thì một lượt cron chồng lên sẽ gửi lần hai.
+        const { data: updated, error: markError } = await supabase
+          .from("tasks")
+          .update({ due_overdue_reminded_at: nowIso })
+          .eq("id", task.id)
+          .eq("due_overdue_reminded_at", task.due_overdue_reminded_at)
+          .select("id");
+        if (markError) throw new Error(markError.message);
+        if ((updated ?? []).length === 0) return;
+
+        const dueDate = readTaskDueDate(task.custom_values) ?? "";
+        const rows: NotificationInsertInput[] = uniqueNotificationRows(
+          (await dueRecipients(task)).map((email) => ({
+            recipient_email: email,
+            task_id: task.id,
+            type: "due_date_overdue_reminder" as const,
+            actor_email: "system",
+            detail: `Due ${dueDate}`,
+          }))
+        );
+        await insertNotifications(rows);
+      })
+    );
+  }
+
   return NextResponse.json({
     checked: tasks.length,
     flagged: newlyOverdue.length,
@@ -416,5 +522,9 @@ async function runReminderSweep(): Promise<NextResponse> {
     dueSoon: dueSoonTasks.length,
     stale: staleReminderTasks.length,
     qcStale: qcStaleTasks.length,
+    // Cron này từng hỏng im lặng năm tiếng liền (xem chú thích đầu file); con
+    // số trong phản hồi là thứ duy nhất nói được nó có làm gì không.
+    dueDateOverdue: newlyDueOverdue.length,
+    dueDateOverdueReminders: stillDueOverdue.length,
   });
 }

@@ -19,6 +19,7 @@ describe("task activity vocabulary", () => {
       "comment_edited",
       "created",
       "done_review_cleared",
+      "due_date_overdue",
       "done_reviewed",
       "edited",
       "overdue_unlocked",
