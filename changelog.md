@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Ảnh trong comment dùng chung khung xem trước (nên mới xoay được)
+
+- **Loại**: fix + dọn trùng lặp.
+- **Triệu chứng người dùng gặp**: thêm nút xoay xong mà bấm vào ảnh trong comment vẫn không xoay được.
+- **Nguyên nhân**: `CommentThread` có **bản sao riêng** của cả khung xem trước — 258 dòng chép nguyên xi, gồm cả kiểu `AttachmentPreview`, hai helper `isPreviewableImage`/`isInlinePreview`, phần khoá cuộn nền, effect bàn phím/tiêu điểm, và **đúng cái nút `RotateCcw` reset-zoom gây hiểu nhầm**. Ảnh trong comment đi qua bản sao đó, còn nút xoay thì được thêm vào `AttachmentPreviewDialog` — nơi chỉ phục vụ đính kèm cấp task và Enrollment.
+- Người dùng bấm đúng vị trí nút xoay, nhưng đó là nút của bản sao: nó gọi `setPreviewZoom(1)`, mà zoom đang là 100% nên **không có gì xảy ra**.
+- **Sửa bằng cách xoá bản sao**, không phải thêm nút xoay lần thứ hai. `CommentThread` nay gọi `AttachmentPreviewDialog`; kiểu và helper cũng lấy từ đó. Bớt **258 dòng**.
+- Đây đúng là kiểu lỗi mà việc chép code sinh ra: hai bản trôi khỏi nhau, và chúng chỉ lộ ra đúng lúc có người cần sửa một trong hai.
+
 ## 2026-09-02 — Xoay ảnh trong khung xem trước đính kèm
 
 - **Loại**: feature (UI).

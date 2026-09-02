@@ -36,11 +36,11 @@ export function canPreviewAttachment(mime: string | null): boolean {
   );
 }
 
-function isPreviewableImage(mime: string | null): boolean {
+export function isPreviewableImage(mime: string | null): boolean {
   return Boolean(mime && PREVIEWABLE_IMAGE_MIMES.has(mime));
 }
 
-function isInlinePreview(mime: string | null): boolean {
+export function isInlinePreview(mime: string | null): boolean {
   return Boolean(mime && INLINE_PREVIEW_MIMES.has(mime));
 }
 
