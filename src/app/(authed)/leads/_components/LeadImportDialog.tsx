@@ -12,11 +12,13 @@ import {
   type LeadEventOption as LeadEvent,
 } from "@/lib/leads/events-cache";
 import { TaskSelect } from "../../tasks/_components/TaskSelect";
+import { parseLeadRows, type ParseResult } from "@/lib/leads/import-parse";
 import {
-  parseLeadRows,
-  type LeadColumnMapping,
-  type ParseResult,
-} from "@/lib/leads/import-parse";
+  guessMappingByName,
+  type LeadImportMapping,
+} from "@/lib/leads/import-mapping";
+import { buildLeadImportTargets } from "@/lib/leads/import-targets";
+import type { TableColumn } from "@/lib/table-config/types";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -47,14 +49,12 @@ type LeadImportDialogProps = {
   open: boolean;
   /** null = màn hình đang xem mọi product, dialog phải hỏi. */
   productFilter: "pc" | "health" | null;
+  /** Cột của scope `lead` trong Table Config — nguồn của bảng map. */
+  columns: TableColumn[];
   sourceId: string;
   onClose: () => void;
   onImported: () => Promise<void>;
 };
-
-function guessColumn(headers: string[], pattern: RegExp): string | undefined {
-  return headers.find((header) => pattern.test(header));
-}
 
 function formatEvent(event: LeadEvent): string {
   return event.event_date ? `${event.name} · ${event.event_date}` : event.name;
@@ -63,6 +63,7 @@ function formatEvent(event: LeadEvent): string {
 export function LeadImportDialog({
   open,
   productFilter,
+  columns,
   sourceId,
   onClose,
   onImported,
@@ -80,12 +81,18 @@ export function LeadImportDialog({
   const [eventsTruncated, setEventsTruncated] = useState(
     () => peekLeadEvents()?.truncated ?? false,
   );
+  // Danh sách cột đích dựng từ Lead Table Config: admin thêm cột custom thì
+  // bảng map tự dài ra, không phải sửa code.
+  const targets = useMemo(() => buildLeadImportTargets(columns), [columns]);
   const [chosenProduct, setChosenProduct] = useState<"pc" | "health" | null>(null);
   const product = resolveDialogProduct(productFilter, chosenProduct);
   const [file, setFile] = useState<File | null>(null);
   const [records, setRecords] = useState<Record<string, unknown>[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
-  const [mapping, setMapping] = useState<LeadColumnMapping>({ phone: "" });
+  const [mapping, setMapping] = useState<LeadImportMapping>({});
+  const [aiState, setAiState] = useState<"idle" | "asking" | "done" | "failed">("idle");
+  /** Trường nào do AI điền — để gắn nhãn cho người dùng soi kỹ ô đó trước. */
+  const [aiFilled, setAiFilled] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -213,15 +220,41 @@ export function LeadImportDialog({
         sheet,
         { defval: null },
       );
-      const nextPhone = guessColumn(nextHeaders, /phone|cell|mobile/i) ?? "";
       setFile(nextFile);
       setHeaders(nextHeaders);
       setRecords(nextRecords);
-      setMapping({
-        full_name: guessColumn(nextHeaders, /name/i),
-        phone: nextPhone,
-        email: guessColumn(nextHeaders, /e-?mail/i),
-      });
+      // Đoán theo tên trước: tức thì, không tốn tiền, và là thứ hiện ra nếu AI
+      // hỏng hoặc chậm.
+      const localGuess = guessMappingByName(nextHeaders, targets);
+      setMapping(localGuess);
+      setAiFilled(new Set());
+      setAiState("asking");
+      void fetch("/api/leads/import/suggest-mapping", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          headers: nextHeaders,
+          sampleRows: nextRecords.slice(0, 10),
+        }),
+      })
+        .then(async (response) => {
+          const payload = await response.json().catch(() => null);
+          const suggested = (payload?.mapping ?? {}) as LeadImportMapping;
+          // Ghép trên `localGuess` chứ không trên state hiện tại: gợi ý AI chỉ
+          // ĐIỀN CHỖ TRỐNG, không đè lên thứ người dùng đã tự chọn.
+          const merged: LeadImportMapping = { ...localGuess };
+          const filled = new Set<string>();
+          for (const [key, header] of Object.entries(suggested)) {
+            if (merged[key]) continue;
+            if (Object.values(merged).includes(header)) continue;
+            merged[key] = header;
+            filled.add(key);
+          }
+          setMapping(merged);
+          setAiFilled(filled);
+          setAiState("done");
+        })
+        .catch(() => setAiState("failed"));
     } catch (readError) {
       setFile(null);
       setRecords([]);
@@ -412,31 +445,60 @@ export function LeadImportDialog({
                 </p>
               )}
               {headers.length > 0 && (
-                <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                  {(["full_name", "phone", "email"] as const).map((field) => (
-                    <label key={field} className="block">
-                      <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#667085]">
-                        {field === "full_name" ? "Full name" : field}
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#667085]">
+                      Map columns
+                    </span>
+                    {aiState === "asking" ? (
+                      <span className="text-xs font-semibold text-[#6b778c]">
+                        Reading your file…
+                      </span>
+                    ) : aiState === "failed" ? (
+                      <span className="text-xs font-semibold text-[#974f0c]">
+                        Could not suggest a mapping — map the columns below.
+                      </span>
+                    ) : null}
+                  </div>
+                  {targets.map((target) => (
+                    <label key={target.key} className="flex items-center gap-3">
+                      <span className="w-40 shrink-0 text-sm font-semibold text-[#42526e]">
+                        {target.label}
+                        {target.required ? (
+                          <span className="text-[#bf2600]"> *</span>
+                        ) : null}
                       </span>
                       <TaskSelect
-                        label={field === "full_name" ? "Full name" : field}
-                        value={mapping[field] ?? ""}
+                        label={target.label}
+                        value={mapping[target.key] ?? ""}
                         options={headers.map((header) => ({
                           value: header,
                           label: header,
                         }))}
                         placeholder="Not mapped"
                         searchable
-                        className="mt-1 w-full"
+                        className="min-w-0 flex-1"
                         buttonClassName={IMPORT_SELECT_BUTTON_CLASS}
                         menuClassName="max-h-64 min-w-full"
                         onChange={(value) =>
-                          setMapping((current) => ({
-                            ...current,
-                            [field]: value || undefined,
-                          }))
+                          setMapping((current) => {
+                            const next = { ...current };
+                            if (value) next[target.key] = value;
+                            else delete next[target.key];
+                            return next;
+                          })
                         }
                       />
+                      {/* Nhãn AI để người dùng biết ô nào máy điền mà soi kỹ ô
+                          đó trước. Không có nhãn thì một gợi ý sai trông y hệt
+                          lựa chọn của chính họ. */}
+                      <span className="w-6 shrink-0">
+                        {aiFilled.has(target.key) ? (
+                          <span className="rounded bg-[#deebff] px-1.5 py-0.5 text-[10px] font-bold text-[#0055cc]">
+                            AI
+                          </span>
+                        ) : null}
+                      </span>
                     </label>
                   ))}
                 </div>

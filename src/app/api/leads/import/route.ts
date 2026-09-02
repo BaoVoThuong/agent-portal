@@ -7,7 +7,8 @@ import {
   isAutoAssignEnabled,
   type AutoAssignOutcome,
 } from "@/lib/leads/auto-assign";
-import { parseLeadRows, type LeadColumnMapping } from "@/lib/leads/import-parse";
+import { parseLeadRows } from "@/lib/leads/import-parse";
+import type { LeadImportMapping } from "@/lib/leads/import-mapping";
 import { partitionImportRows } from "@/lib/leads/import-validate";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { isLeadProduct, type LeadProduct } from "@/lib/leads/types";
@@ -72,18 +73,24 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) return NextResponse.json({ error: "No file uploaded." }, { status: 400 });
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "That file is larger than 5 MB." }, { status: 400 });
 
-  let mapping: LeadColumnMapping;
+  let mapping: LeadImportMapping;
   try {
     const parsed = JSON.parse(String(form.get("mapping") ?? "")) as Record<string, unknown>;
-    mapping = {
-      full_name: typeof parsed.full_name === "string" ? parsed.full_name : undefined,
-      phone: typeof parsed.phone === "string" ? parsed.phone : "",
-      email: typeof parsed.email === "string" ? parsed.email : undefined,
-    };
+    // Chỉ nhận cặp chuỗi→chuỗi. Client là nơi dựng bảng map, nhưng route vẫn
+    // phải tự kiểm: một payload méo phải ra 400 có lời giải thích, không phải
+    // một lỗi lạ ở giữa vòng lặp parse.
+    mapping = Object.fromEntries(
+      Object.entries(parsed).filter(([, value]) => typeof value === "string")
+    ) as LeadImportMapping;
   } catch {
     return NextResponse.json({ error: "Column mapping is missing." }, { status: 400 });
   }
-  if (!mapping.phone) return NextResponse.json({ error: "Choose which column holds the phone number." }, { status: 400 });
+  if (!mapping.phone) {
+    return NextResponse.json(
+      { error: "Choose which column holds the phone number." },
+      { status: 400 }
+    );
+  }
 
   const rawProduct = String(form.get("product") ?? "").trim();
   const product: LeadProduct | null = rawProduct === ""

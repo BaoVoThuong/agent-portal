@@ -21,12 +21,12 @@ describe("normalizePhone", () => {
 });
 
 describe("parseLeadRows", () => {
-  const mapping = { full_name: "Name", phone: "Cell", email: "Email" };
+  const mapping = { name: "Name", phone: "Cell", email: "Email" };
 
-  it("maps the named columns and keeps the rest as custom values", () => {
+  it("chỉ đưa cột ĐƯỢC MAP vào custom values", () => {
     const result = parseLeadRows(
       [{ Name: "An Nguyen", Cell: "(714) 555-0123", Email: "an@x.com", Language: "VI" }],
-      mapping
+      { ...mapping, language: "Language" }
     );
     expect(result.rows).toEqual([{
       // Dòng 1 là tiêu đề, nên dòng dữ liệu đầu tiên là 2 — cùng con số mà
@@ -71,24 +71,34 @@ describe("parseLeadRows", () => {
   });
 });
 
-describe("custom column keys", () => {
-  // A Config Table column built from the label "Secondary Phone" gets the key
-  // `secondary_phone`, and every screen reads custom_values[column.key]. Keying
-  // the import by the raw header put the value in the row but showed "—".
-  it("slugifies a spreadsheet header the way Config Table slugifies a label", () => {
+describe("cột custom", () => {
+  it("lấy giá trị từ cột ĐƯỢC MAP, lưu dưới khoá cột đích", () => {
+    // Bản trước nhặt theo tên đã slugify — một phỏng đoán. Nay người dùng nói
+    // rõ cột nào đi đâu, nên khoá lưu là khoá cột đích chứ không phải slug của
+    // tiêu đề file.
     const result = parseLeadRows(
-      [{ Name: "A", Cell: "7145550123", "Secondary Phone": "714-555-9999" }],
-      { full_name: "Name", phone: "Cell" }
+      [{ Name: "A", Cell: "7145550123", "SDT phu": "714-555-9999" }],
+      { name: "Name", phone: "Cell", secondary_phone: "SDT phu" }
     );
     expect(result.rows[0].custom_values).toEqual({
       secondary_phone: "714-555-9999",
     });
   });
 
-  it("leaves the mapped columns out of custom values", () => {
+  it("cột KHÔNG được map thì bị bỏ hẳn", () => {
+    // Trước đây `Notes` tự rơi vào custom_values.notes theo tên. Giữ cả hai cơ
+    // chế là để chúng cùng quyết một chuyện rồi mâu thuẫn nhau.
+    const result = parseLeadRows(
+      [{ Name: "A", Cell: "7145550123", Notes: "gọi lại sau" }],
+      { name: "Name", phone: "Cell" }
+    );
+    expect(result.rows[0].custom_values).toEqual({});
+  });
+
+  it("ba trường hệ thống không lọt vào custom values", () => {
     const result = parseLeadRows(
       [{ Name: "A", Cell: "7145550123", Email: "a@x.com" }],
-      { full_name: "Name", phone: "Cell", email: "Email" }
+      { name: "Name", phone: "Cell", email: "Email" }
     );
     expect(result.rows[0].custom_values).toEqual({});
   });

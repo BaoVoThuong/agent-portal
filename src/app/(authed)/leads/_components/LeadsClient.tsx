@@ -1210,6 +1210,7 @@ export function LeadsClient({
       <LeadImportDialog
         open={importOpen}
         productFilter={productFilter}
+        columns={columns}
         sourceId={sourceId}
         onClose={() => setImportOpen(false)}
         onImported={() => reload()}

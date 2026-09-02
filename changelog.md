@@ -6,6 +6,19 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Import lead: bảng map cột cố định + AI gợi ý
+
+- **Loại**: feature.
+- Màn hình Import nay hiện **danh sách cột đích cố định** dựng từ Lead Table Config, mỗi cột chọn nguồn từ file. Trước đó chỉ có ba dropdown Name/Phone/Email, còn cột khác thì tự rơi vào `custom_values` **theo tên đã slugify** — một phỏng đoán, không phải lựa chọn của người dùng.
+- **Danh sách đích được LỌC, không lấy nguyên 14 cột trong Table Config.** Bỏ `product`/`event`/`assignee`/`status` (đã chọn một lần cho cả file, đưa vào đây là hỏi hai lần một câu) và bỏ `attempts`/`lastContact`/`interactionHistory`/`createdAt`/`key` (do hệ thống tự sinh — cho map vào là mở đường ghi đè dữ liệu vận hành bằng một file Excel: `attempts` do việc ghi tương tác cộng lên, `lastContact` do lần liên hệ gần nhất quyết định).
+- **Sonnet 5 đọc tiêu đề + 10 dòng đầu rồi điền sẵn mapping**, chạy ngay khi chọn file. Người dùng đã cân nhắc và chấp nhận việc dữ liệu khách được gửi tới Anthropic.
+- **Không bao giờ tin thẳng output của model.** `sanitizeSuggestedMapping` chặn bốn thứ: bịa tên cột không có trong file, trả khoá đích lạ, map hai trường vào cùng một nguồn, và JSON hỏng. Không phải để chống kẻ xấu — mà vì một bảng map trỏ vào cột không tồn tại sẽ hỏng ở bước parse với thông báo chẳng ai hiểu.
+- **Cột đích dựng ở server**, không nhận từ client: client gửi một danh sách bịa thì model sẽ ngoan ngoãn map vào đó.
+- **Gợi ý AI chỉ điền chỗ trống**, không đè lên lựa chọn người dùng đã sửa. Ô nào AI điền có nhãn **AI** — không có nhãn thì một gợi ý sai trông y hệt lựa chọn của chính họ.
+- **Gợi ý hỏng không làm hỏng việc import**: rơi về đoán theo tên (tức thì, không tốn tiền), map tay vẫn chạy.
+- **Đổi hành vi có sẵn**: nay **chỉ cột được map** mới vào `custom_values`, và vào đúng khoá cột đích. Cột không map bị bỏ hẳn. Giữ cả hai cơ chế là để chúng cùng quyết một chuyện rồi mâu thuẫn nhau.
+- Model dùng hằng riêng, **không đụng** `AI_MODEL` của dashboard chat — đổi hằng kia là đổi hành vi của một tính năng khác.
+
 ## 2026-09-02 — Nút "Chia pool" đổi sang tiếng Anh
 
 - **Loại**: fix (chuỗi hiển thị).

@@ -1,4 +1,4 @@
-import { slugifyColumnKey } from "@/lib/table-config/columns";
+import type { LeadImportMapping } from "./import-mapping";
 
 export type ParsedLead = {
   /** Số dòng trong file Excel, để lý do bỏ hàng chỉ đúng dòng người dùng thấy. */
@@ -14,11 +14,8 @@ export type ParseResult = {
   skipped: { row: number; reason: string }[];
 };
 
-export type LeadColumnMapping = {
-  full_name?: string;
-  phone: string;
-  email?: string;
-};
+/** Ba khoá này đổ vào cột thật trên bảng `leads`, không vào `custom_values`. */
+const SYSTEM_TARGET_KEYS = new Set(["name", "phone", "email"]);
 
 /** Normalize the phone formats commonly produced by US spreadsheets. */
 export function normalizePhone(raw: unknown): string | null {
@@ -48,14 +45,11 @@ function cell(record: Record<string, unknown>, key: string | undefined): string 
  */
 export function parseLeadRows(
   records: readonly Record<string, unknown>[],
-  mapping: LeadColumnMapping
+  mapping: LeadImportMapping
 ): ParseResult {
   const rows: ParsedLead[] = [];
   const skipped: ParseResult["skipped"] = [];
   const seenPhones = new Set<string>();
-  const mappedKeys = new Set(
-    [mapping.full_name, mapping.phone, mapping.email].filter(Boolean) as string[]
-  );
 
   records.forEach((record, index) => {
     const excelRow = index + 2;
@@ -70,23 +64,23 @@ export function parseLeadRows(
     }
     seenPhones.add(phone);
 
-    // Store unmapped columns under the SAME slug Config Table gives a column it
-    // creates from that label, so "Secondary Phone" in the spreadsheet lands in
-    // custom_values.secondary_phone and the configured column can read it.
-    // Keying by the raw header instead meant an imported value existed in the
-    // row but every screen rendered it as "—", because the column looks up
-    // custom_values[column.key] and column.key is always slugified.
+    // CHỈ cột được map mới vào custom_values, và vào đúng khoá cột đích.
+    //
+    // Bản trước nhặt MỌI cột không map theo tên đã slugify — một phỏng đoán,
+    // không phải lựa chọn của người dùng. Giữ cả hai cơ chế là để chúng cùng
+    // quyết một chuyện rồi mâu thuẫn nhau.
     const customValues: Record<string, unknown> = {};
-    for (const [header, value] of Object.entries(record)) {
-      if (mappedKeys.has(header)) continue;
+    for (const [targetKey, header] of Object.entries(mapping)) {
+      if (SYSTEM_TARGET_KEYS.has(targetKey)) continue;
+      const value = record[header];
       if (value === null || value === undefined || value === "") continue;
-      customValues[slugifyColumnKey(header)] = value;
+      customValues[targetKey] = value;
     }
 
     const email = cell(record, mapping.email);
     rows.push({
       row: excelRow,
-      full_name: cell(record, mapping.full_name),
+      full_name: cell(record, mapping.name),
       phone,
       email: email ? email.toLowerCase() : null,
       custom_values: customValues,
