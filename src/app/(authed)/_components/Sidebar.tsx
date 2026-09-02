@@ -143,6 +143,11 @@ const menuData: MenuItem[] = [
     ],
   },
   {
+    href: "/time-off",
+    label: "Time Off",
+    anyPermission: [PERMISSIONS.TIME_OFF_USER, PERMISSIONS.TIME_OFF_ADMIN],
+  },
+  {
     title: "Account Management",
     anyPermission: [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.ROLE_MANAGER],
     children: [
