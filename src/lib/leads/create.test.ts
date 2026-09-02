@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseCreateLeadInput, resolveDialogProduct } from "./create";
+import { parseCreateLeadInput, resolveDialogProduct,
+  buildNewLeadRow,
+} from "./create";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 
@@ -114,5 +116,56 @@ describe("resolveDialogProduct", () => {
   it("takes the explicit choice once one is made", () => {
     expect(resolveDialogProduct(null, "pc")).toBe("pc");
     expect(resolveDialogProduct(null, "health")).toBe("health");
+  });
+});
+
+describe("buildNewLeadRow", () => {
+  const base = {
+    product: "health" as const,
+    eventId: "event-1",
+    statusId: "status-new",
+    fullName: "An Nguyen",
+    phone: "7145550123",
+    email: "an@x.com",
+    customValues: { secondary_phone: "7145550999" },
+    actorEmail: "  Admin@Example.COM ",
+    now: new Date("2026-09-02T10:00:00Z"),
+  };
+
+  it("đặt status mặc định được truyền vào", () => {
+    // Đây là chỗ Create và Import từng lệch: Import không đặt gì cả, nên
+    // 91/121 lead trong DB không có status.
+    expect(buildNewLeadRow(base).status_id).toBe("status-new");
+  });
+
+  it("ghi người thao tác vào CẢ created_by lẫn updated_by, đã thường hoá", () => {
+    const row = buildNewLeadRow(base);
+    expect(row.created_by_email).toBe("admin@example.com");
+    expect(row.updated_by_email).toBe("admin@example.com");
+  });
+
+  it("luôn insert CHƯA GÁN", () => {
+    // Cả hai đường đều gán SAU khi insert. Set sẵn ở đây thì RPC đọc chính
+    // người đó làm "chủ cũ" và ghi lịch sử "từ X sang X".
+    const row = buildNewLeadRow(base);
+    expect(row.assigned_to_email).toBeNull();
+    expect(row.assigned_at).toBeNull();
+    expect(row.assigned_by_email).toBeNull();
+  });
+
+  it("products suy ra từ product, rỗng khi chưa phân loại", () => {
+    expect(buildNewLeadRow(base).products).toEqual(["health"]);
+    expect(buildNewLeadRow({ ...base, product: null }).products).toEqual([]);
+  });
+
+  it("chỉ kèm client_request_id khi có", () => {
+    expect("client_request_id" in buildNewLeadRow(base)).toBe(false);
+    expect(
+      buildNewLeadRow({ ...base, clientRequestId: "token-1" }).client_request_id
+    ).toBe("token-1");
+  });
+
+  it("updated_at theo mốc truyền vào", () => {
+    expect(buildNewLeadRow(base).updated_at).toBe("2026-09-02T10:00:00.000Z");
   });
 });

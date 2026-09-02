@@ -147,3 +147,55 @@ export function resolveDialogProduct(
 ): LeadProduct | null {
   return productFilter ?? chosen;
 }
+
+export type NewLeadRowInput = {
+  product: LeadProduct | null;
+  eventId: string | null;
+  statusId: string | null;
+  fullName: string | null;
+  phone: string;
+  email: string | null;
+  customValues: Record<string, unknown>;
+  /** Người bấm nút — dùng cho cả `created_by_email` lẫn `updated_by_email`. */
+  actorEmail: string;
+  /** Chỉ Create có; Import không dùng khoá idempotency theo dòng. */
+  clientRequestId?: string | null;
+  now?: Date;
+};
+
+/**
+ * Dựng hàng `leads` cho một lead MỚI — dùng chung cho Add lead và Import.
+ *
+ * Lý do phải có hàm này thay vì mỗi route tự viết payload: hai cửa đã lệch nhau
+ * ở đúng chỗ dễ lệch nhất. Add lead đặt status mặc định "New", Import không đặt
+ * gì — **91/121 lead trong DB không có status**, cột Status trống và bộ lọc theo
+ * status không tìm thấy chúng. Import cũng bỏ quên `updated_by_email`.
+ *
+ * Gom về một chỗ thì một trường thêm vào là thêm cho CẢ HAI cửa, không phải nhớ
+ * sửa hai nơi.
+ *
+ * `assigned_*` cố ý luôn null: cả hai đường đều gán SAU khi insert — Create qua
+ * `assign_leads_manual`, Import qua vòng xoay chia tự động. Set sẵn ở đây thì
+ * RPC sẽ đọc chính người đó làm "chủ cũ" và ghi lịch sử "từ X sang X".
+ */
+export function buildNewLeadRow(input: NewLeadRowInput): Record<string, unknown> {
+  const actor = input.actorEmail.trim().toLowerCase();
+  const nowIso = (input.now ?? new Date()).toISOString();
+  return {
+    product: input.product,
+    products: input.product ? [input.product] : [],
+    event_id: input.eventId,
+    status_id: input.statusId,
+    full_name: input.fullName,
+    phone: input.phone,
+    email: input.email,
+    assigned_to_email: null,
+    assigned_at: null,
+    assigned_by_email: null,
+    custom_values: input.customValues,
+    created_by_email: actor,
+    updated_by_email: actor,
+    updated_at: nowIso,
+    ...(input.clientRequestId ? { client_request_id: input.clientRequestId } : {}),
+  };
+}

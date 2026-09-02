@@ -404,3 +404,31 @@ export async function fetchLeadVocabulary(
     types: (typesResult.data ?? []) as LeadInteractionType[],
   };
 }
+
+/**
+ * Status mặc định cho lead mới: status `open` có `position` nhỏ nhất — tức "New"
+ * trong bộ từ vựng đang chạy.
+ *
+ * Gom về một chỗ vì Create và Import từng lệch nhau ở đúng điểm này: màn hình
+ * Add lead đặt "New", còn Import không đặt gì cả, nên **91/121 lead trong DB
+ * không có status**. Cột Status trống, và bộ lọc theo status không tìm thấy
+ * chúng — người dùng nhìn vào tưởng dữ liệu hỏng.
+ *
+ * Trả null khi admin đã archive hết status `open`. Đó là cấu hình hợp lệ nhưng
+ * hiếm, và lead không status vẫn hiện được — `resolveLeadAlerts` coi status
+ * null là còn mở.
+ */
+export async function fetchDefaultLeadStatusId(
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("lead_statuses")
+    .select("id")
+    .eq("kind", "open")
+    .is("archived_at", null)
+    .order("position", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { id: string } | null)?.id ?? null;
+}

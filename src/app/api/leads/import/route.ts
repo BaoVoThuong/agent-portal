@@ -7,7 +7,8 @@ import {
   isAutoAssignEnabled,
   type AutoAssignOutcome,
 } from "@/lib/leads/auto-assign";
-import { parseLeadRows } from "@/lib/leads/import-parse";
+import { buildNewLeadRow } from "@/lib/leads/create";
+import { parseLeadRows, type ParsedLead } from "@/lib/leads/import-parse";
 import {
   parseMappingPayload,
   type LeadImportMapping,
@@ -15,6 +16,7 @@ import {
 import { partitionImportRows } from "@/lib/leads/import-validate";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { isLeadProduct, type LeadProduct } from "@/lib/leads/types";
+import { fetchDefaultLeadStatusId } from "@/lib/leads/queries";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   fetchWriteValidationContext,
@@ -124,6 +126,22 @@ export async function POST(request: Request) {
   }
 
   const supabase = getSupabaseAdmin();
+  // Lead import phải có status như lead tạo tay. Trước đây Import không đặt gì,
+  // nên 91/121 lead trong DB không có status: cột Status trống và bộ lọc theo
+  // status không tìm thấy chúng.
+  const defaultStatusId = await fetchDefaultLeadStatusId(supabase);
+  /** Cùng hàm dựng payload với Add lead: mặc định của hai cửa không được lệch. */
+  const newLeadRow = (row: ParsedLead) =>
+    buildNewLeadRow({
+      product,
+      eventId,
+      statusId: defaultStatusId,
+      fullName: row.full_name,
+      phone: row.phone,
+      email: row.email,
+      customValues: row.custom_values,
+      actorEmail: actor.email,
+    });
 
   // Cùng bộ luật với PATCH. Không có nó, cái admin đánh dấu "Required" chỉ có
   // tác dụng ở một nửa số cửa vào lead.
@@ -173,16 +191,7 @@ export async function POST(request: Request) {
     if (remaining.length > 0) {
       const { data, error } = await supabase
         .from("leads")
-        .insert(remaining.map((row) => ({
-          product,
-          products: product ? [product] : [],
-          event_id: eventId,
-          full_name: row.full_name,
-          phone: row.phone,
-          email: row.email,
-          custom_values: row.custom_values,
-          created_by_email: actor.email.trim().toLowerCase(),
-        })))
+        .insert(remaining.map((row) => newLeadRow(row)))
         .select("id");
       if (error) {
         // A concurrent import may win the race after the pre-read. Reconcile
@@ -205,11 +214,10 @@ export async function POST(request: Request) {
           throw new Error(error.message);
         }
         if (retryRows.length > 0) {
-          const retry = await supabase.from("leads").insert(retryRows.map((row) => ({
-            product, products: product ? [product] : [], event_id: eventId, full_name: row.full_name, phone: row.phone,
-            email: row.email, custom_values: row.custom_values,
-            created_by_email: actor.email.trim().toLowerCase(),
-          }))).select("id");
+          const retry = await supabase
+            .from("leads")
+            .insert(retryRows.map((row) => newLeadRow(row)))
+            .select("id");
           if (retry.error) throw new Error(retry.error.message);
           inserted += retry.data?.length ?? 0;
           for (const row of retry.data ?? []) insertedIds.push((row as { id: string }).id);

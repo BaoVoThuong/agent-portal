@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Import và Add lead dùng chung một bộ mặc định
+
+- **Loại**: fix (business rule).
+- **Triệu chứng**: lead import không có status, trong khi lead tạo tay được đặt "New". Đo trên DB: **91/121 lead không có `status_id`** — cột Status trống, và bộ lọc theo status không tìm thấy chúng.
+- Không chỉ status. Đối chiếu hai payload insert còn thấy Import bỏ quên **`updated_by_email`** và **`updated_at`**.
+- **Sửa bằng cách gom về một hàm `buildNewLeadRow`**, không vá từng trường: vá từng trường thì lần thêm cột sau lại lệch. Nay một trường thêm vào là thêm cho **cả hai cửa**, không phải nhớ sửa hai nơi.
+- Status mặc định cũng gom vào `fetchDefaultLeadStatusId` — status `open` có `position` nhỏ nhất, tức "New" trong bộ từ vựng đang chạy. Trả null khi admin archive hết status `open`; đó là cấu hình hợp lệ nhưng hiếm, và lead không status vẫn hiện được.
+- `assigned_*` cố ý luôn null trong hàm dựng: **cả hai** đường đều gán SAU khi insert — Create qua `assign_leads_manual`, Import qua vòng xoay chia tự động. Set sẵn thì RPC đọc chính người đó làm "chủ cũ" và ghi lịch sử "từ X sang X".
+- 6 test cho `buildNewLeadRow`.
+- **CHƯA làm**: 91 lead cũ vẫn đang thiếu status. Đó là sửa dữ liệu production, cần người dùng quyết.
+
 ## 2026-09-02 — Import xong: báo bằng toast và tự đóng modal
 
 - **Loại**: fix (UX).

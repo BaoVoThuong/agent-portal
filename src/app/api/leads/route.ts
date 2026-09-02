@@ -1,8 +1,8 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@/lib/leads/access";
-import { parseCreateLeadInput } from "@/lib/leads/create";
-import { fetchAllLeads } from "@/lib/leads/queries";
+import { buildNewLeadRow, parseCreateLeadInput } from "@/lib/leads/create";
+import { fetchAllLeads, fetchDefaultLeadStatusId } from "@/lib/leads/queries";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -116,16 +116,8 @@ export async function POST(request: Request) {
     if (statusError) return NextResponse.json({ error: statusError.message }, { status: 500 });
     if (!status) return NextResponse.json({ error: "That status no longer exists." }, { status: 400 });
   } else {
-    const { data: defaultStatus, error: defaultStatusError } = await supabase
-      .from("lead_statuses")
-      .select("id")
-      .eq("kind", "open")
-      .is("archived_at", null)
-      .order("position", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (defaultStatusError) return NextResponse.json({ error: defaultStatusError.message }, { status: 500 });
-    statusId = defaultStatus?.id ?? null;
+    // Cùng hàm với Import: hai cửa tạo lead phải đặt cùng một status mặc định.
+    statusId = await fetchDefaultLeadStatusId(supabase);
   }
 
   const missingRequired = await findMissingRequiredFields(
@@ -174,31 +166,22 @@ export async function POST(request: Request) {
     );
   }
 
-  const nowIso = new Date().toISOString();
   const normalizedActorEmail = actor.email.trim().toLowerCase();
   const { data: lead, error: insertError } = await supabase
     .from("leads")
-    .insert({
-      product: input.product,
-      products: [input.product],
-      event_id: eventId,
-      full_name: input.fullName,
-      phone: input.phone,
-      email: input.email,
-      // Cố ý insert CHƯA GÁN, kể cả khi người dùng đã chọn người nhận. Việc gán
-      // đi qua assign_leads_manual ngay bên dưới, để nó và dòng lịch sử nằm
-      // trong cùng một giao dịch. Set sẵn ở đây thì RPC sẽ đọc chính người đó
-      // làm "chủ cũ" và ghi lịch sử "từ X sang X".
-      assigned_to_email: null,
-      assigned_at: null,
-      assigned_by_email: null,
-      status_id: statusId,
-      custom_values: input.customValues,
-      created_by_email: normalizedActorEmail,
-      updated_by_email: normalizedActorEmail,
-      updated_at: nowIso,
-      client_request_id: input.clientRequestId,
-    })
+    .insert(
+      buildNewLeadRow({
+        product: input.product,
+        eventId,
+        statusId,
+        fullName: input.fullName,
+        phone: input.phone,
+        email: input.email,
+        customValues: input.customValues,
+        actorEmail: normalizedActorEmail,
+        clientRequestId: input.clientRequestId,
+      })
+    )
     .select(LEAD_COLUMNS)
     .single();
   if (insertError) {
