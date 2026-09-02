@@ -37,10 +37,11 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   // Use the same width rhythm as the configured Health Task List. A lead name
   // has no task-row flags beside it, so it can stay compact at 220px.
   name: 220,
-  // Đủ cho CẢ HAI badge cùng một hàng: "P&C" (~40px) + "HEALTH" (~64px) + khe
-  // 4px + padding của nút 12px + padding ô 24px. 108px cũ chỉ vừa một badge,
-  // nên lead mang hai product bị cắt mất cái thứ hai.
-  product: 156,
+  // Badge product nay XẾP DỌC, mỗi dòng một cái, nên chỉ cần đủ cho badge RỘNG
+  // NHẤT: "HEALTH" (~64px) + padding nút 12px + padding ô 24px. Bề rộng 156 là
+  // của bản xếp ngang; giữ nó lại là chiếm chỗ vô ích của Client Name và
+  // Assignee.
+  product: 112,
   phone: 112,
   secondary_phone: 160,
   email: 190,
@@ -787,13 +788,18 @@ export function ProductMenu({
       buttonClassName={buttonClassName}
       renderValue={
         current.length > 0 ? (
-          // flex-nowrap: hai badge nằm cùng MỘT hàng, không để cái thứ hai
-          // rơi xuống dòng dưới và đội cao cả dòng của bảng.
-          <span className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden">
+          // Lead mang hai product thì XẾP DỌC, mỗi product một dòng — người
+          // dùng chốt vậy (2026-09-02). Xếp ngang thì hai badge tranh nhau bề
+          // rộng cột và badge dài bị cắt.
+          //
+          // `items-start` chứ không `items-center`: khi một dòng có hai badge
+          // còn dòng bên cạnh chỉ có một, canh giữa làm badge đơn lẻ trôi xuống
+          // giữa ô và không thẳng hàng với các cột khác.
+          <span className="flex min-w-0 flex-col items-start gap-1">
             {current.map((value) => (
               <span
                 key={value}
-                className="inline-flex shrink-0 items-center rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
+                className="inline-flex max-w-full items-center truncate rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
                 style={productBadgeStyle(productOptionLabel(value), options)}
               >
                 {productOptionLabel(value)}

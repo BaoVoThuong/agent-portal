@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Lead hai product: hai badge xếp dọc
+
+- **Loại**: fix (UI).
+- Lead mang hai product nay hiện **mỗi product một dòng**, xếp dọc trong ô. Bản trước xếp ngang (`flex-nowrap`) nên hai badge tranh nhau bề rộng cột và badge dài bị cắt.
+- `items-start` chứ không `items-center`: dòng có hai badge đứng cạnh dòng chỉ có một, canh giữa làm badge đơn lẻ trôi xuống giữa ô và không thẳng hàng với các cột khác.
+- **Cột Product hẹp lại 156 → 112px.** 156 là bề rộng dựng cho bản xếp ngang ("P&C" + "HEALTH" cùng hàng); xếp dọc rồi thì chỉ cần đủ cho badge rộng nhất, và giữ 156 là chiếm chỗ vô ích của Client Name với Assignee.
+
 ## 2026-09-02 — Đổi tab List/Overview không còn nạp lại cả trang
 
 - **Loại**: fix (hiệu năng cảm nhận được).
