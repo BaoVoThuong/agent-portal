@@ -129,3 +129,27 @@ export function previewCellValue(
   if (value === null || value === undefined || value === "") return "—";
   return String(value);
 }
+
+/**
+ * Đọc payload mapping từ client thành `LeadImportMapping`.
+ *
+ * Nhận cả chuỗi lẫn mảng chuỗi cho mỗi trường. Lý do có hàm này thay vì lọc
+ * ngay trong route: bộ lọc cũ ở route chỉ nhận `typeof value === "string"`, nên
+ * khi mapping đổi sang mảng thì MỌI cặp bị vứt lặng lẽ và import trả 400
+ * "Choose which column holds the phone number" dù người dùng đã chọn cột.
+ * Nằm trong lib thì nó có test, và lần đổi kiểu sau sẽ làm test đỏ chứ không
+ * làm người dùng đỏ mắt.
+ */
+export function parseMappingPayload(raw: unknown): LeadImportMapping {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const mapping: LeadImportMapping = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const headers = typeof value === "string"
+      ? [value]
+      : Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string")
+        : [];
+    if (headers.length > 0) mapping[key] = headers;
+  }
+  return mapping;
+}

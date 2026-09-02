@@ -8,7 +8,10 @@ import {
   type AutoAssignOutcome,
 } from "@/lib/leads/auto-assign";
 import { parseLeadRows } from "@/lib/leads/import-parse";
-import type { LeadImportMapping } from "@/lib/leads/import-mapping";
+import {
+  parseMappingPayload,
+  type LeadImportMapping,
+} from "@/lib/leads/import-mapping";
 import { partitionImportRows } from "@/lib/leads/import-validate";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { isLeadProduct, type LeadProduct } from "@/lib/leads/types";
@@ -75,17 +78,13 @@ export async function POST(request: Request) {
 
   let mapping: LeadImportMapping;
   try {
-    const parsed = JSON.parse(String(form.get("mapping") ?? "")) as Record<string, unknown>;
-    // Chỉ nhận cặp chuỗi→chuỗi. Client là nơi dựng bảng map, nhưng route vẫn
-    // phải tự kiểm: một payload méo phải ra 400 có lời giải thích, không phải
-    // một lỗi lạ ở giữa vòng lặp parse.
-    mapping = Object.fromEntries(
-      Object.entries(parsed).filter(([, value]) => typeof value === "string")
-    ) as LeadImportMapping;
+    // Client là nơi dựng bảng map, nhưng route vẫn phải tự kiểm: một payload
+    // méo phải ra 400 có lời giải thích, không phải một lỗi lạ ở giữa vòng lặp.
+    mapping = parseMappingPayload(JSON.parse(String(form.get("mapping") ?? "")));
   } catch {
     return NextResponse.json({ error: "Column mapping is missing." }, { status: 400 });
   }
-  if (!mapping.phone) {
+  if (!mapping.phone?.length) {
     return NextResponse.json(
       { error: "Choose which column holds the phone number." },
       { status: 400 }

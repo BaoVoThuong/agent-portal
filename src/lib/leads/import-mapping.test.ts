@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   guessMappingByName,
   joinMappedValues,
+  parseMappingPayload,
   sanitizeSuggestedMapping,
 } from "./import-mapping";
 import type { LeadImportTarget } from "./import-targets";
@@ -142,5 +143,32 @@ describe("joinMappedValues", () => {
 
   it("cắt khoảng trắng hai đầu từng phần", () => {
     expect(joinMappedValues(["  An  ", " Nguyen "])).toBe("An Nguyen");
+  });
+});
+
+describe("parseMappingPayload", () => {
+  it("nhận mảng chuỗi — dạng client đang gửi", () => {
+    expect(parseMappingPayload({ name: ["First", "Last"], phone: ["Cell"] })).toEqual({
+      name: ["First", "Last"],
+      phone: ["Cell"],
+    });
+  });
+
+  it("nhận cả chuỗi trần, bọc thành mảng", () => {
+    // Bộ lọc cũ ở route chỉ nhận chuỗi, nên khi mapping đổi sang mảng thì mọi
+    // cặp bị vứt lặng lẽ và import trả 400 dù người dùng đã chọn cột.
+    expect(parseMappingPayload({ phone: "Cell" })).toEqual({ phone: ["Cell"] });
+  });
+
+  it("bỏ trường rỗng và giá trị không phải chuỗi", () => {
+    expect(
+      parseMappingPayload({ phone: ["Cell"], a: [], b: 42, c: [1, "X"], d: null })
+    ).toEqual({ phone: ["Cell"], c: ["X"] });
+  });
+
+  it("payload méo thì trả rỗng, không nổ", () => {
+    expect(parseMappingPayload(null)).toEqual({});
+    expect(parseMappingPayload("linh tinh")).toEqual({});
+    expect(parseMappingPayload([1, 2])).toEqual({});
   });
 });

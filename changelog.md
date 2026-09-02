@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Sửa lỗi import trả 400 sau khi mapping đổi sang mảng
+
+- **Loại**: fix (hồi quy do chính đợt ghép cột gây ra).
+- **Triệu chứng**: `POST /api/leads/import` trả **400** liên tục, thông báo "Choose which column holds the phone number" dù người dùng đã chọn cột Phone.
+- **Nguyên nhân**: mapping đổi từ `Record<string, string>` sang `Record<string, string[]>`, nhưng bộ lọc ở route vẫn là `typeof value === "string"`. Mọi cặp bị vứt **lặng lẽ** → `mapping = {}` → `!mapping.phone` → 400. Typecheck không bắt được vì `Object.fromEntries` trả `any` rồi bị ép kiểu bằng `as`.
+- **Sửa**: tách thành `parseMappingPayload` trong `src/lib/leads/import-mapping.ts`, nhận cả chuỗi lẫn mảng chuỗi, **kèm 4 test**. Nằm trong lib thì lần đổi kiểu sau sẽ làm test đỏ chứ không làm người dùng đỏ mắt.
+- Điều kiện chặn đổi từ `!mapping.phone` sang `!mapping.phone?.length` — một mảng rỗng vẫn là truthy.
+
 ## 2026-09-02 — Import: dọn UI bước chọn file, Event thành tuỳ chọn
 
 - **Loại**: fix (UI) + business rule.
