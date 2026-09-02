@@ -167,11 +167,34 @@ export function LeadsClient({
   const [hiddenLeadColumnKeys, setHiddenLeadColumnKeys] = useState<Set<string>>(
     () => new Set(),
   );
-  // Derived, not stored: reading the URL once meant browser Back/Forward moved
-  // the address bar while the tab stayed where it was. Only a manager has an
-  // Overview, so ?view=overview from anyone else falls back to the list.
-  const view: "list" | "overview" =
-    searchParams.get("view") === "overview" && isManager ? "overview" : "list";
+  /**
+   * Tab đang xem. State trong trình duyệt, KHÔNG phải điều hướng.
+   *
+   * Bản trước gọi `router.replace` mỗi lần đổi tab, tức Next chạy lại toàn bộ
+   * server component: `fetchAllLeads` (phân trang tuần tự 200 dòng/lượt, kèm
+   * lịch sử tương tác cho mọi dòng) cộng bốn truy vấn nữa — chỉ để đổi một tab.
+   * Task board đổi tab bằng `useState` nên tức thì; đây là lý do Event Leads
+   * giật còn màn kia thì không.
+   *
+   * URL vẫn được cập nhật bằng `history.pushState` để link chia sẻ được và nút
+   * Back vẫn chạy, nhưng `pushState` KHÔNG kích hoạt điều hướng của Next.
+   *
+   * Chỉ manager có Overview, nên `?view=overview` từ người khác rơi về list.
+   */
+  const [view, setView] = useState<"list" | "overview">(() =>
+    searchParams.get("view") === "overview" && isManager ? "overview" : "list",
+  );
+
+  // Nút Back/Forward đổi URL mà không chạy lại component — phải tự đồng bộ,
+  // nếu không thanh địa chỉ nói một đằng còn màn hình hiện một nẻo.
+  useEffect(() => {
+    const syncFromUrl = () => {
+      const next = new URLSearchParams(window.location.search).get("view");
+      setView(next === "overview" && isManager ? "overview" : "list");
+    };
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, [isManager]);
   const rawAlert = searchParams.get("alert");
   const activeAlert: LeadAlert | null =
     rawAlert &&
@@ -755,7 +778,10 @@ export function LeadsClient({
   }
 
   function selectAlert(alert: LeadAlert) {
-    // No setView: the URL drops ?view=overview, and view now reads the URL.
+    // Đây PHẢI là điều hướng thật: bộ lọc cảnh báo đổi câu truy vấn phía server,
+    // nên trang cần được dựng lại. Khác hẳn việc đổi tab, vốn chỉ đổi thứ đang
+    // hiển thị từ dữ liệu đã có.
+    setView("list");
     router.push(productFilter ? `/leads?product=${productFilter}&alert=${alert}` : `/leads?alert=${alert}`);
   }
 
@@ -768,7 +794,10 @@ export function LeadsClient({
     } else {
       params.delete("view");
     }
-    router.replace(`/leads?${params.toString()}`, { scroll: false });
+    setView(nextView);
+    // `history.pushState` chứ không phải `router.replace`: nó cập nhật thanh địa
+    // chỉ và ngăn xếp Back mà KHÔNG bắt Next chạy lại server component.
+    window.history.pushState(null, "", `/leads?${params.toString()}`);
   }
 
   function saveLeadTableLayout(hiddenKeys: ReadonlySet<string>) {

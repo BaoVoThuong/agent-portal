@@ -8,6 +8,22 @@ import type { LeadSummary } from "@/lib/leads/overview";
 
 type OverviewEvent = { id: string; name: string; event_date: string | null };
 
+/**
+ * Kết quả Overview đã tải, giữ theo product ở phạm vi module.
+ *
+ * `/api/leads/overview` quét toàn bộ lead theo offset 1.000 dòng/trang rồi
+ * tổng hợp ở Node, nên nó là request đắt nhất của màn hình này. Không cache thì
+ * mỗi lần bấm sang tab Overview là một lần quét lại, kể cả khi vừa xem xong.
+ *
+ * Giữ ở phạm vi module chứ không trong state vì component bị gỡ khỏi cây mỗi
+ * lần đổi tab. Không đặt hạn: mỗi lần vào vẫn tải lại ở nền, cache chỉ để lần
+ * thứ hai có cái hiện ra ngay.
+ */
+const overviewCache = new Map<
+  string,
+  { summary: LeadSummary; events: OverviewEvent[]; truncated: boolean }
+>();
+
 type LeadOverviewProps = {
   productFilter: "pc" | "health" | null;
   onAlertClick: (alert: LeadAlert) => void;
@@ -22,32 +38,52 @@ const ALERTS: Array<{ key: LeadAlert; label: string; tone: "red" | "amber" }> =
   ];
 
 export function LeadOverview({ productFilter, onAlertClick }: LeadOverviewProps) {
-  const [summary, setSummary] = useState<LeadSummary | null>(null);
-  const [events, setEvents] = useState<OverviewEvent[]>([]);
+  const cached = overviewCache.get(productFilter ?? "all");
+  const [summary, setSummary] = useState<LeadSummary | null>(cached?.summary ?? null);
+  const [events, setEvents] = useState<OverviewEvent[]>(cached?.events ?? []);
   const [state, setState] = useState<"idle" | "loading" | "ready" | "error">(
-    "idle",
+    cached ? "ready" : "idle",
   );
-  const [truncated, setTruncated] = useState(false);
+  const [truncated, setTruncated] = useState(cached?.truncated ?? false);
 
+  // Chạy mỗi lần mount và mỗi lần đổi product — KHÔNG chặn bằng `state`. Chặn
+  // thì bản cache hiện ra rồi đứng im mãi, và người dùng đọc số liệu cũ mà
+  // không biết. Cache chỉ để lần thứ hai có cái hiện ra NGAY, còn số liệu vẫn
+  // được làm mới ở nền.
   useEffect(() => {
-    if (state !== "idle") return;
+    let cancelled = false;
     void fetch(`/api/leads/overview${productFilter ? `?product=${productFilter}` : ""}`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => null);
         if (!response.ok)
           throw new Error(payload?.error ?? "Could not load overview.");
         if (!payload?.summary) throw new Error("Could not load overview.");
-        setSummary(payload.summary as LeadSummary);
-        setEvents(
-          Array.isArray(payload.events)
-            ? (payload.events as OverviewEvent[])
-            : [],
-        );
+        const nextSummary = payload.summary as LeadSummary;
+        const nextEvents = Array.isArray(payload.events)
+          ? (payload.events as OverviewEvent[])
+          : [];
+        overviewCache.set(productFilter ?? "all", {
+          summary: nextSummary,
+          events: nextEvents,
+          truncated: payload.truncated === true,
+        });
+        if (cancelled) return;
+        setSummary(nextSummary);
+        setEvents(nextEvents);
         setTruncated(payload.truncated === true);
         setState("ready");
       })
-      .catch(() => setState("error"));
-  }, [state, productFilter]);
+      // Có cache rồi mà lượt làm mới hỏng thì GIỮ số cũ, đừng thay bằng màn
+      // hình lỗi: số hơi cũ vẫn dùng được, một trang lỗi thì không.
+      .catch(() => {
+        if (!cancelled && !overviewCache.has(productFilter ?? "all")) {
+          setState("error");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productFilter]);
 
   const eventNames = useMemo(
     () => new Map(events.map((event) => [event.id, event.name])),

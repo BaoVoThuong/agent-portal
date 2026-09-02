@@ -6,6 +6,18 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-02 — Đổi tab List/Overview không còn nạp lại cả trang
+
+- **Loại**: fix (hiệu năng cảm nhận được).
+- **Triệu chứng**: chuyển giữa List và Overview trong Event Leads giật, trong khi Task board đổi tab tức thì.
+- **Nguyên nhân — hai lần chờ chồng lên nhau:**
+  1. `changeView` gọi `router.replace`, tức Next chạy lại **toàn bộ server component**: `fetchAllLeads` (phân trang **tuần tự** 200 dòng/lượt, kèm embed lịch sử tương tác cho mọi dòng) cộng `fetchTableColumnsWithOptions`, `fetchLeadVocabulary`, `fetchLeadAlertSettings`, `fetchLeadAssignees` — **năm truy vấn chỉ để đổi một tab**. Task board đổi bằng `useState` nên không có request nào.
+  2. Vẽ xong rồi `LeadOverview` mới gọi tiếp `/api/leads/overview`, mà route đó quét offset 1.000 dòng/trang tuần tự, tối đa 20.000 lead.
+- **Sửa (1)**: `view` thành state trong trình duyệt. URL vẫn cập nhật bằng `history.pushState` — link chia sẻ được, nút Back vẫn chạy — nhưng `pushState` **không** kích hoạt điều hướng của Next. Thêm listener `popstate` để Back/Forward đồng bộ ngược lại state, giữ đúng tính chất mà bản "derived from URL" trước đây bảo vệ.
+- **Sửa (2)**: cache kết quả Overview theo product ở phạm vi module. Lần thứ hai vào tab là hiện ngay, và vẫn **làm mới ở nền** — chặn bằng `state` thì bản cache hiện ra rồi đứng im mãi và người dùng đọc số cũ mà không biết. Lượt làm mới hỏng mà đã có cache thì **giữ số cũ**, không thay bằng màn hình lỗi: số hơi cũ vẫn dùng được, một trang lỗi thì không.
+- **Bộ lọc cảnh báo vẫn là điều hướng thật** — nó đổi câu truy vấn phía server nên trang phải được dựng lại. Khác hẳn đổi tab, vốn chỉ đổi thứ đang hiển thị từ dữ liệu đã có.
+- **Chưa làm**: `/api/leads/overview` vẫn quét offset ở Node. Đó là mục C10 hoãn từ trước, cần plan riêng và số đo trước/sau.
+
 ## 2026-09-02 — Sửa tỉ lệ xong vẫn bấm Distribute được
 
 - **Loại**: fix (UX).
