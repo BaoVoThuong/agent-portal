@@ -51,6 +51,10 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     permission: PERMISSIONS.TASK_MANAGE,
   },
   {
+    href: "/time-off",
+    anyPermission: [PERMISSIONS.TIME_OFF_USER, PERMISSIONS.TIME_OFF_ADMIN],
+  },
+  {
     href: "/account-manager",
     permission: PERMISSIONS.ACCOUNT_MANAGER,
   },
