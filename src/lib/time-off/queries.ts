@@ -51,10 +51,10 @@ function asRequest(row: RequestRow, accounts: Map<string, AccountRow>): TimeOffR
   };
 }
 
-function asCalendarEvent(row: RequestRow, accounts: Map<string, AccountRow>): TimeOffCalendarEvent {
+function asCalendarEvent(row: RequestRow): TimeOffCalendarEvent {
   return {
     id: row.id,
-    requester_name: accounts.get(row.requester_id)?.name?.trim() || "Team member",
+    policy_code: row.policy_code,
     start_date: row.start_date,
     end_date: row.end_date,
   };
@@ -103,6 +103,7 @@ export async function fetchTimeOffDashboard(
     supabase
       .from("time_off_requests")
       .select("id,requester_id,policy_code,start_date,end_date,total_days,reason,status,reviewer_id,reviewer_note,reviewed_at,created_at")
+      .eq("requester_id", params.accountId)
       .eq("status", "approved")
       .lte("start_date", bounds.end)
       .gte("end_date", bounds.start)
@@ -296,7 +297,7 @@ export async function fetchTimeOffDashboard(
     policies,
     balances,
     holidays: [...holidayByDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
-    calendar_requests: ((calendarResult.data ?? []) as RequestRow[]).map((row) => asCalendarEvent(row, accounts)),
+    calendar_requests: ((calendarResult.data ?? []) as RequestRow[]).map(asCalendarEvent),
     my_requests: ((myRequestsResult.data ?? []) as RequestRow[]).map((row) => asRequest(row, accounts)),
     pending_approvals: ((pendingResult.data ?? []) as RequestRow[]).map((row) => asRequest(row, accounts)),
     team_members: teamMembers,

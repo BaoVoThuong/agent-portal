@@ -38,10 +38,10 @@ export type TimeOffRequest = {
   created_at: string;
 };
 
-/** Safe projection for the shared calendar. Private HR details stay out of it. */
+/** A personal approved leave event shown on the signed-in user's calendar. */
 export type TimeOffCalendarEvent = {
   id: string;
-  requester_name: string;
+  policy_code: string;
   start_date: string;
   end_date: string;
 };

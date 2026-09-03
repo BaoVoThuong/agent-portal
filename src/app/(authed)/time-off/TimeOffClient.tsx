@@ -578,8 +578,8 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5">
         <div className="flex items-baseline gap-2.5">
-          <h2 className="text-base font-semibold text-[#172e55]">Team calendar</h2>
-          <p className="hidden text-[12px] text-slate-500 sm:block">Approved time off and US federal holidays.</p>
+          <h2 className="text-base font-semibold text-[#172e55]">My calendar</h2>
+          <p className="hidden text-[12px] text-slate-500 sm:block">Your approved time off, company days off, and US federal holidays.</p>
         </div>
         <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-1">
           <button type="button" disabled={calendarLoading} onClick={() => navigateMonth(-1)} className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-[#172e55] disabled:cursor-wait disabled:opacity-50" aria-label="Previous month"><ChevronLeft className="h-4 w-4" /></button>
@@ -607,7 +607,9 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
               <div className="mt-1 space-y-0.5">
                 {holiday && <div className={`truncate rounded px-1.5 py-0.5 text-[9px] font-semibold ${holiday.source === "company" ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`} title={holiday.name}>{holiday.name}</div>}
                 {requests.slice(0, 1).map((request) => {
-                  return <div key={request.id} className="truncate rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#1769e8]" title={`${request.requester_name} is out`}>{request.requester_name}</div>;
+                  const policy = policiesByCode.get(request.policy_code);
+                  const label = policy?.label ?? "Time off";
+                  return <div key={request.id} className="truncate rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#1769e8]" title={label}>{label}</div>;
                 })}
                 {requests.length > 1 && <p className="px-1 text-[9px] font-medium text-slate-400">+{requests.length - 1} more</p>}
               </div>

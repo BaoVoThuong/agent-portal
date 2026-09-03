@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 type RequestRow = {
   id: string;
-  requester_id: string;
+  policy_code: string;
   start_date: string;
   end_date: string;
 };
@@ -37,7 +37,8 @@ export async function GET(request: Request) {
       .order("holiday_date"),
     supabase
       .from("time_off_requests")
-      .select("id,requester_id,start_date,end_date")
+      .select("id,policy_code,start_date,end_date")
+      .eq("requester_id", actor.accountId)
       .eq("status", "approved")
       .lte("start_date", bounds.end)
       .gte("end_date", bounds.start)
@@ -47,13 +48,6 @@ export async function GET(request: Request) {
   if (requestsResult.error) return NextResponse.json({ error: requestsResult.error.message }, { status: 500 });
 
   const requestRows = (requestsResult.data ?? []) as RequestRow[];
-  const accountIds = [...new Set(requestRows.map((row) => row.requester_id))];
-  const { data: accounts, error: accountsError } = accountIds.length > 0
-    ? await supabase.from("portal_account").select("id,name").in("id", accountIds)
-    : { data: [], error: null };
-  if (accountsError) return NextResponse.json({ error: accountsError.message }, { status: 500 });
-
-  const accountById = new Map(((accounts ?? []) as { id: string; name: string | null }[]).map((account) => [account.id, account]));
   const holidaysByDate = new Map<string, TimeOffHoliday>();
   for (const holiday of [
     ...getUsFederalHolidaysInRange(bounds.start, bounds.end),
@@ -65,15 +59,12 @@ export async function GET(request: Request) {
     })),
   ]) holidaysByDate.set(holiday.date, holiday);
 
-  const calendarRequests: TimeOffCalendarEvent[] = requestRows.map((row) => {
-    const requester = accountById.get(row.requester_id);
-    return {
-      id: row.id,
-      requester_name: requester?.name?.trim() || "Team member",
-      start_date: row.start_date,
-      end_date: row.end_date,
-    };
-  });
+  const calendarRequests: TimeOffCalendarEvent[] = requestRows.map((row) => ({
+    id: row.id,
+    policy_code: row.policy_code,
+    start_date: row.start_date,
+    end_date: row.end_date,
+  }));
 
   const holidays = [...holidaysByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
   if (isYearRequest) {
