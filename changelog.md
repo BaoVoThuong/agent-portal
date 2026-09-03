@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-03 — Approval nằm trong Leave history
+
+- **Loại**: refactor (Time Off admin workflow).
+- Bỏ tab Approval riêng. Các request chờ duyệt nay nằm ngay đầu `Administration → Leave history`, phía trên log theo nhân viên — admin review và xem lịch sử của cùng một người ở cùng một chỗ.
+- Thêm sample data Time Off riêng, có pending / approved / rejected / cancelled requests. File chỉ dùng cho local/demo, tự dọn và tạo lại đúng các dòng được gắn nhãn `[Sample time off]` khi chạy lại; không nhét dữ liệu minh hoạ vào migration production.
+
 ## 2026-09-03 — Gộp nhóm Lead Management vào Task Management
 
 - **Loại**: refactor (điều hướng).

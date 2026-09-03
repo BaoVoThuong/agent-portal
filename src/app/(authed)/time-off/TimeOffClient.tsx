@@ -28,7 +28,7 @@ import type {
   TimeOffTeamMember,
 } from "@/lib/time-off/types";
 
-type Tab = "overview" | "requests" | "approvals" | "admin";
+type Tab = "overview" | "requests" | "admin";
 type AdminSection = "balances" | "history" | "company-days";
 
 type Props = {
@@ -495,7 +495,6 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
     { id: "overview", label: "Overview" },
     { id: "requests", label: "My requests", count: initialData.my_requests.filter((item) => item.status === "pending").length },
     ...(canManage ? [
-      { id: "approvals" as const, label: "Approvals", count: initialData.pending_approvals.length },
       { id: "admin" as const, label: "Administration" },
     ] : []),
   ];
@@ -551,10 +550,6 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
 
   const requestsTable = <MyRequestsTable requests={initialData.my_requests} policiesByCode={policiesByCode} busy={Boolean(busy)} onCancel={(request) => decide(request, "cancel")} />;
 
-  const approvals = canManage
-    ? <ApprovalQueue requests={initialData.pending_approvals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />
-    : null;
-
   const sidebar = (
     <aside className="space-y-4">
       <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-[#1769e8]" /><h2 className="text-sm font-semibold text-[#172e55]">Upcoming time off</h2></div>{personalUpcoming.length === 0 ? <p className="mt-3 text-[13px] leading-5 text-slate-500">Nothing approved yet. Your planned time away will show here.</p> : <div className="mt-3 space-y-3">{personalUpcoming.map((request) => { const policy = policiesByCode.get(request.policy_code); return <div key={request.id} className="flex gap-3"><span className="mt-0.5 h-8 w-1 rounded-full" style={{ backgroundColor: policy?.color ?? "#64748b" }} /><div><p className="text-sm font-semibold text-[#1e355c]">{policy?.label ?? request.policy_code}</p><p className="mt-0.5 text-[13px] text-slate-500">{formatDateRange(request.start_date, request.end_date)}</p></div></div>; })}</div>}</section>
@@ -570,7 +565,7 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
       </div>
       <div className="mt-4">
         {adminSection === "balances" && <div className="space-y-4"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /><BalanceAdjustmentLog adjustments={initialData.balance_adjustments} members={initialData.team_members} policiesByCode={policiesByCode} /></div>}
-        {adminSection === "history" && <TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} />}
+        {adminSection === "history" && <div className="space-y-4">{initialData.pending_approvals.length > 0 && <ApprovalQueue requests={initialData.pending_approvals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}<TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} /></div>}
         {adminSection === "company-days" && <CompanyDaysTable days={initialData.company_days} busy={Boolean(busy)} onRemove={removeHoliday} />}
       </div>
     </section>
@@ -587,7 +582,6 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
 
         {tab === "overview" && <><section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{initialData.policies.map((policy) => <BalanceCard key={policy.code} policy={policy} balance={balancesByPolicy.get(policy.code)} />)}</section><div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">{calendar}{sidebar}</div></>}
         {tab === "requests" && <div className="mt-3">{requestsTable}</div>}
-        {tab === "approvals" && canManage && <div className="mt-3">{approvals}</div>}
         {tab === "admin" && canManage && <div className="mt-3">{administration}</div>}
       </div>
 
