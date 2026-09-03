@@ -52,6 +52,60 @@ async function availableDays(
   return Number(balance?.entitlement_days ?? defaultAllowance) + Number(balance?.adjustment_days ?? 0) - used;
 }
 
+/** Return a live, server-calculated balance before the user submits a request. */
+export async function GET(request: Request) {
+  const actor = await getTimeOffActor();
+  if (!actor) return error("Unauthorized", 401);
+
+  const { searchParams } = new URL(request.url);
+  const policyCode = text(searchParams.get("policy_code"), 60);
+  const startDate = searchParams.get("start_date");
+  const endDate = searchParams.get("end_date");
+  if (!policyCode || !isDateKey(startDate) || !isDateKey(endDate) || startDate > endDate) {
+    return error("Choose a valid leave type, start date, and end date.");
+  }
+  if (startDate.slice(0, 4) !== endDate.slice(0, 4)) {
+    return error("For now, submit time off separately for each calendar year.");
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data: policy, error: policyError } = await supabase
+    .from("time_off_policies")
+    .select("code,annual_allowance,counts_toward_balance,is_active")
+    .eq("code", policyCode)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (policyError) return error(policyError.message, 500);
+  if (!policy || !["vacation", "sick", "unpaid"].includes(policy.code)) {
+    return error("This time-off type is no longer available.");
+  }
+
+  const { data: companyHolidays, error: holidayError } = await supabase
+    .from("time_off_holidays")
+    .select("holiday_date")
+    .gte("holiday_date", startDate)
+    .lte("holiday_date", endDate);
+  if (holidayError) return error(holidayError.message, 500);
+  const holidayDates = new Set([
+    ...getUsFederalHolidaysInRange(startDate, endDate).map((holiday) => holiday.date),
+    ...((companyHolidays ?? []) as { holiday_date: string }[]).map((holiday) => holiday.holiday_date),
+  ]);
+  const requestedDays = countLeaveBusinessDays(startDate, endDate, holidayDates);
+  if (requestedDays === 0) {
+    return error("Those dates only contain weekends or company / US federal holidays.");
+  }
+
+  const available = policy.counts_toward_balance
+    ? await availableDays(actor.accountId, policy.code, Number(startDate.slice(0, 4)), Number(policy.annual_allowance))
+    : null;
+  return NextResponse.json({
+    tracks_balance: policy.counts_toward_balance,
+    available_days: available,
+    requested_days: requestedDays,
+    remaining_days: available === null ? null : available - requestedDays,
+  });
+}
+
 /** Submit a leave request. The request starts pending and never mutates balance itself. */
 export async function POST(request: Request) {
   const actor = await getTimeOffActor();

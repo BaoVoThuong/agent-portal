@@ -43,6 +43,13 @@ type CalendarData = {
   calendar_requests: TimeOffCalendarEvent[];
 };
 
+type RequestBalancePreview = {
+  tracks_balance: boolean;
+  available_days: number | null;
+  requested_days: number;
+  remaining_days: number | null;
+};
+
 type StoredCalendarData = {
   expiresAt: number;
   calendar: CalendarData;
@@ -187,6 +194,9 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
   const [requestStart, setRequestStart] = useState("");
   const [requestEnd, setRequestEnd] = useState("");
   const [requestReason, setRequestReason] = useState("");
+  const [requestBalancePreview, setRequestBalancePreview] = useState<RequestBalancePreview | null>(null);
+  const [requestBalancePreviewError, setRequestBalancePreviewError] = useState<string | null>(null);
+  const [requestBalancePreviewLoading, setRequestBalancePreviewLoading] = useState(false);
   const [holidayDate, setHolidayDate] = useState("");
   const [holidayName, setHolidayName] = useState("");
   const [balanceAccountId, setBalanceAccountId] = useState("");
@@ -226,6 +236,20 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
     () => new Map(initialData.balances.map((balance) => [balance.policy_code, balance])),
     [initialData.balances]
   );
+  const requestPolicyInfo = policiesByCode.get(requestPolicy);
+  const requestBalanceInfo = balancesByPolicy.get(requestPolicy);
+  const requestAvailableNow = requestPolicyInfo?.counts_toward_balance
+    ? Math.max(0, (requestBalanceInfo?.entitlement_days ?? requestPolicyInfo.annual_allowance ?? 0) + (requestBalanceInfo?.adjustment_days ?? 0) - (requestBalanceInfo?.used_days ?? 0))
+    : null;
+  const requestPreviewAvailable = requestBalancePreview?.available_days ?? requestAvailableNow;
+  const requestPreviewRequested = requestBalancePreview?.requested_days ?? null;
+  const requestPreviewRemaining = requestBalancePreview?.remaining_days ?? null;
+  const requestTracksBalance = requestBalancePreview?.tracks_balance ?? requestPolicyInfo?.counts_toward_balance ?? false;
+  const requestAllowance = requestTracksBalance
+    ? (requestBalanceInfo?.entitlement_days ?? requestPolicyInfo?.annual_allowance ?? 0) + (requestBalanceInfo?.adjustment_days ?? 0)
+    : null;
+  const requestUsedDays = requestBalanceInfo?.used_days ?? 0;
+  const requestExceedsBalance = requestPreviewRemaining !== null && requestPreviewRemaining < 0;
   const holidaysByDate = useMemo(
     () => new Map(calendarData.holidays.map((holiday) => [holiday.date, holiday])),
     [calendarData.holidays]
@@ -248,11 +272,51 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
   const selectedBalanceHistory = initialData.balance_adjustments
     .filter((adjustment) => adjustment.account_id === balanceAccountId && adjustment.policy_code === balancePolicy)
     .slice(0, 4);
+
+  useEffect(() => {
+    if (!showRequest || !requestStart || !requestEnd || requestStart > requestEnd) {
+      setRequestBalancePreview(null);
+      setRequestBalancePreviewError(null);
+      setRequestBalancePreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setRequestBalancePreviewLoading(true);
+      setRequestBalancePreviewError(null);
+      try {
+        const params = new URLSearchParams({
+          policy_code: requestPolicy,
+          start_date: requestStart,
+          end_date: requestEnd,
+        });
+        const response = await fetch(`/api/time-off?${params}`, { signal: controller.signal });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(payload?.error ?? "Unable to calculate the leave balance.");
+        setRequestBalancePreview(payload as RequestBalancePreview);
+      } catch (previewError) {
+        if (controller.signal.aborted) return;
+        setRequestBalancePreview(null);
+        setRequestBalancePreviewError(previewError instanceof Error ? previewError.message : "Unable to calculate the leave balance.");
+      } finally {
+        if (!controller.signal.aborted) setRequestBalancePreviewLoading(false);
+      }
+    }, 150);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [requestEnd, requestPolicy, requestStart, showRequest]);
+
   function openRequest(date?: string) {
     setError(null);
     setRequestStart(date ?? "");
     setRequestEnd(date ?? "");
     setRequestReason("");
+    setRequestBalancePreview(null);
+    setRequestBalancePreviewError(null);
     setShowRequest(true);
   }
 
@@ -595,7 +659,18 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
         {tab === "admin" && canManage && <div className="mt-3">{administration}</div>}
       </div>
 
-      {showRequest && <Modal title="Request time off" onClose={() => setShowRequest(false)}><form onSubmit={submitRequest} className="space-y-5"><p className="-mt-2 text-sm leading-6 text-slate-500">Your request excludes weekends, US federal holidays, and company days off automatically.</p><PolicyPicker label="Time-off type" policies={initialData.policies} value={requestPolicy} onChange={setRequestPolicy} /><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-semibold text-[#304767]">Start date<input required type="date" value={requestStart} onChange={(event) => setRequestStart(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><label className="block text-sm font-semibold text-[#304767]">End date<input required type="date" min={requestStart || undefined} value={requestEnd} onChange={(event) => setRequestEnd(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div><label className="block text-sm font-semibold text-[#304767]">Note <span className="font-normal text-slate-400">(optional)</span><textarea value={requestReason} onChange={(event) => setRequestReason(event.target.value)} maxLength={1000} rows={3} placeholder="Anything your manager should know?" className="mt-2 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowRequest(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "request"} type="submit" className="inline-flex items-center gap-2 rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "request" ? "Sending…" : "Send request"}</button></div></form></Modal>}
+      {showRequest && (
+        <Modal title="Request time off" onClose={() => setShowRequest(false)}>
+          <form onSubmit={submitRequest} className="space-y-5">
+            <p className="-mt-2 text-sm leading-6 text-slate-500">Your request excludes weekends, US federal holidays, and company days off automatically.</p>
+            <PolicyPicker label="Time-off type" policies={initialData.policies} value={requestPolicy} onChange={setRequestPolicy} />
+            <div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-semibold text-[#304767]">Start date<input required type="date" value={requestStart} onChange={(event) => setRequestStart(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><label className="block text-sm font-semibold text-[#304767]">End date<input required type="date" min={requestStart || undefined} value={requestEnd} onChange={(event) => setRequestEnd(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div>
+            {requestPolicyInfo && <section aria-live="polite" className="rounded-xl border border-blue-100 bg-blue-50/60 p-3.5"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold text-[#1e355c]">Leave balance</p><p className="mt-0.5 text-xs text-slate-500">{requestPolicyInfo.label}</p></div>{requestBalancePreviewLoading && <span className="text-xs font-medium text-[#1769e8]">Calculating…</span>}</div><div className="mt-3 grid grid-cols-3 divide-x divide-blue-100"><div className="pr-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Available now</p><p className="mt-1 text-lg font-bold text-[#172e55]">{requestTracksBalance ? `${requestPreviewAvailable ?? 0} d` : "No limit"}</p></div><div className="px-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">This request</p><p className="mt-1 text-lg font-bold text-[#172e55]">{requestPreviewRequested === null ? "—" : `${requestPreviewRequested} d`}</p></div><div className="pl-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">After request</p><p className={`mt-1 text-lg font-bold ${requestExceedsBalance ? "text-rose-600" : "text-[#1769e8]"}`}>{requestTracksBalance ? requestPreviewRemaining === null ? "—" : `${requestPreviewRemaining} d` : "No limit"}</p></div></div>{requestTracksBalance && <p className="mt-3 text-xs text-slate-500">{requestUsedDays} used of {requestAllowance ?? 0} days this year.</p>}{requestBalancePreviewError && <p className="mt-3 text-xs font-medium text-rose-700">{requestBalancePreviewError}</p>}{requestExceedsBalance && <p className="mt-3 text-xs font-medium text-rose-700">This request exceeds the available balance.</p>}</section>}
+            <label className="block text-sm font-semibold text-[#304767]">Note <span className="font-normal text-slate-400">(optional)</span><textarea value={requestReason} onChange={(event) => setRequestReason(event.target.value)} maxLength={1000} rows={3} placeholder="Anything your manager should know?" className="mt-2 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label>
+            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowRequest(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "request" || requestBalancePreviewLoading || requestExceedsBalance} type="submit" className="inline-flex items-center gap-2 rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "request" ? "Sending…" : "Send request"}</button></div>
+          </form>
+        </Modal>
+      )}
       {showHoliday && <Modal title="Add company day off" onClose={() => setShowHoliday(false)}><form onSubmit={submitHoliday} className="space-y-5"><p className="-mt-2 text-sm leading-6 text-slate-500">Use this for company closures in addition to the automatically included US federal holidays.</p><label className="block text-sm font-semibold text-[#304767]">Date<input required type="date" value={holidayDate} onChange={(event) => setHolidayDate(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><label className="block text-sm font-semibold text-[#304767]">Name<input required value={holidayName} onChange={(event) => setHolidayName(event.target.value)} maxLength={120} placeholder="e.g. Company winter break" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowHoliday(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "holiday"} type="submit" className="rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "holiday" ? "Adding…" : "Add day off"}</button></div></form></Modal>}
       {showBalanceSetup && <Modal title="Manage leave balance" onClose={() => setShowBalanceSetup(false)}><form onSubmit={submitBalanceAdjustment} className="space-y-4"><p className="-mt-2 text-sm leading-5 text-slate-500">Credit or deduct leave for a specific month. Every update is retained in the balance audit history.</p><EmployeePicker members={initialData.team_members} value={balanceAccountId} onChange={setBalanceAccountId} /><div className="grid gap-3 sm:grid-cols-2"><PolicyPicker label="Leave type" policies={adjustablePolicies} value={balancePolicy} onChange={setBalancePolicy} /><label className="block text-sm font-semibold text-[#304767]">Effective month<input required type="month" min={`${balanceYear}-01`} max={`${balanceYear}-12`} value={balanceMonth} onChange={(event) => setBalanceMonth(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div><label className="block text-sm font-semibold text-[#304767]">Monthly adjustment<input required type="number" step="0.5" min="-366" max="366" value={balanceDelta} onChange={(event) => setBalanceDelta(event.target.value)} placeholder="e.g. +1.5 or -0.5" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /><span className="mt-1 block text-xs font-normal text-slate-500">Use a positive value to credit days and a negative value to deduct them.</span></label>{selectedBalancePolicy && <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-center"><div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Allowance</p><p className="mt-1 text-sm font-bold text-[#172e55]">{selectedBalance?.entitlement_days ?? selectedBalancePolicy.annual_allowance ?? "—"}</p></div><div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Adjusted</p><p className={`mt-1 text-sm font-bold ${(selectedBalance?.adjustment_days ?? 0) < 0 ? "text-rose-600" : "text-emerald-600"}`}>{(selectedBalance?.adjustment_days ?? 0) > 0 ? "+" : ""}{selectedBalance?.adjustment_days ?? 0}</p></div><div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Available</p><p className="mt-1 text-sm font-bold text-[#172e55]">{selectedBalanceAvailable ?? "—"}</p></div></div>}<label className="block text-sm font-semibold text-[#304767]">Note <span className="font-normal text-slate-400">(optional)</span><textarea value={balanceNote} onChange={(event) => setBalanceNote(event.target.value)} maxLength={500} rows={2} placeholder="Why is this balance changing?" className="mt-1.5 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label>{selectedBalanceHistory.length > 0 && <div className="border-t border-slate-100 pt-3"><p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Recent adjustments</p><div className="mt-2 space-y-2">{selectedBalanceHistory.map((adjustment) => <div key={adjustment.id} className="flex items-start justify-between gap-3 text-sm"><div className="min-w-0"><p className="font-medium text-[#304767]">{formatDate(adjustment.effective_month, { month: "short", year: "numeric" })}{adjustment.note ? ` · ${adjustment.note}` : ""}</p><p className="mt-0.5 text-xs text-slate-500">by {adjustment.created_by_name}</p></div><span className={`shrink-0 font-bold ${adjustment.delta_days > 0 ? "text-emerald-600" : "text-rose-600"}`}>{adjustment.delta_days > 0 ? "+" : ""}{adjustment.delta_days} d</span></div>)}</div></div>}<div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowBalanceSetup(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "balance-adjustment" || !balanceAccountId || !balancePolicy} type="submit" className="rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "balance-adjustment" ? "Saving…" : "Save adjustment"}</button></div></form></Modal>}
       {decisionRequest && decisionAction && (
