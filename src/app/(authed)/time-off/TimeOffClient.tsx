@@ -729,12 +729,12 @@ function TeamLeaveLog({
     ? requests.filter((request) => request.requester_id === memberId)
     : requests;
   const emptyMessage = selectedMember
-    ? `No leave requests were recorded for ${selectedMember.name} this year.`
-    : "No team leave requests have been recorded for this year.";
+    ? `No leave requests were recorded for ${selectedMember.name}.`
+    : "No team leave requests have been recorded.";
 
   return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3.5 xl:flex-row xl:items-end xl:justify-between">
-      <div><h2 className="text-base font-semibold text-[#172e55]">Team leave log</h2><p className="mt-0.5 text-[13px] text-slate-500">Every time-off request recorded for the selected calendar year.</p></div>
+      <div><h2 className="text-base font-semibold text-[#172e55]">Team leave log</h2><p className="mt-0.5 text-[13px] text-slate-500">Every time-off request recorded across the team.</p></div>
       <div className="flex flex-wrap items-end gap-2"><div className="w-full sm:w-72"><EmployeePicker label="Employee" placeholder="All team members" members={members} value={memberId} onChange={setMemberId} /></div>{selectedMember && <button type="button" onClick={() => setMemberId("")} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-[#172e55]">Clear</button>}<span className="mb-0.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{filteredRequests.length} records</span></div>
     </div>
     {filteredRequests.length === 0 ? <EmptyState message={emptyMessage} /> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left"><thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Member</th><th className="px-4 py-3">Leave type</th><th className="px-4 py-3">Dates</th><th className="px-4 py-3">Days</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Reviewed by</th></tr></thead><tbody>{filteredRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <tr key={request.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p><p className="mt-0.5 text-xs text-slate-500">{request.requester_email}</p></td><td className="px-4 py-3"><span className="inline-flex items-center gap-2 font-medium text-[#304767]"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: policy?.color ?? "#94a3b8" }} />{policy?.label ?? request.policy_code}</span></td><td className="px-4 py-3 text-slate-600">{formatDateRange(request.start_date, request.end_date)}</td><td className="px-4 py-3 text-slate-600">{request.total_days} day{request.total_days === 1 ? "" : "s"}</td><td className="px-4 py-3"><StatusBadge status={request.status} /></td><td className="px-4 py-3 text-slate-500">{request.reviewer_name ?? "—"}</td></tr>; })}</tbody></table></div>}

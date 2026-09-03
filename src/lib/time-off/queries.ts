@@ -160,9 +160,7 @@ export async function fetchTimeOffDashboard(
       ? supabase
           .from("time_off_requests")
           .select("id,requester_id,policy_code,start_date,end_date,total_days,reason,status,reviewer_id,reviewer_note,reviewed_at,created_at")
-          .gte("start_date", yearStart)
-          .lte("end_date", yearEnd)
-          .order("start_date", { ascending: false })
+          .order("created_at", { ascending: false })
           .limit(250)
       : Promise.resolve({ data: [], error: null }),
     params.isManager
