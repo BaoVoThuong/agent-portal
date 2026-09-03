@@ -93,4 +93,11 @@ export type TimeOffDashboardData = {
   monthly_accrual_rules: TimeOffMonthlyAccrualRule[];
   team_leave_log: TimeOffRequest[];
   company_days: TimeOffHoliday[];
+  /**
+   * Khu vực nào không nạp được. Rỗng nghĩa là mọi thứ nạp đủ.
+   *
+   * Có mảng này thì một truy vấn phụ hỏng chỉ làm mất đúng khu vực đó, thay vì
+   * ném lỗi ở server component và cho cả trang trắng.
+   */
+  section_errors: string[];
 };

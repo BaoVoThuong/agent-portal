@@ -1,10 +1,21 @@
 import { NextResponse } from "next/server";
+import { availableLeaveDays, leaveRequestRejection } from "@/lib/time-off/balance";
 import { countLeaveBusinessDays, isDateKey } from "@/lib/time-off/business-days";
 import { getTimeOffActor } from "@/lib/time-off/access";
 import { getUsFederalHolidaysInRange } from "@/lib/time-off/us-holidays";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Số ngày làm việc tối đa cho MỘT đơn.
+ *
+ * Trước đây không có trần nào: `unpaid` không bị kiểm quỹ, nên một đơn nghỉ
+ * không lương kéo dài nhiều năm vẫn qua cửa và chiếm chỗ trong mọi truy vấn
+ * theo khoảng ngày. 60 ngày làm việc ≈ 3 tháng — dài hơn thế là chuyện nhân sự
+ * cần xử riêng, không phải một ô nhập ngày.
+ */
+const MAX_REQUEST_BUSINESS_DAYS = 60;
 
 function text(value: unknown, maxLength: number): string | null {
   if (typeof value !== "string") return null;
@@ -37,7 +48,11 @@ async function availableDays(
       .select("total_days")
       .eq("requester_id", accountId)
       .eq("policy_code", policyCode)
-      .eq("status", "approved")
+      // `pending` GIỮ CHỖ, không chỉ `approved`. Nếu chỉ trừ đơn đã duyệt thì
+      // nhiều đơn chờ duyệt KHÔNG trùng kỳ đều lọt cửa, cộng lại vượt quỹ —
+      // và cái sai chỉ lộ ra lúc admin bấm duyệt đơn thứ hai, tức đẩy việc từ
+      // chối xuống người không gây ra nó.
+      .in("status", ["approved", "pending"])
       .gte("start_date", `${year}-01-01`)
       .lte("end_date", `${year}-12-31`),
   ]);
@@ -49,7 +64,12 @@ async function availableDays(
   } | null;
   const used = ((usedResult.data ?? []) as { total_days: number | string }[])
     .reduce((sum, row) => sum + Number(row.total_days), 0);
-  return Number(balance?.entitlement_days ?? defaultAllowance) + Number(balance?.adjustment_days ?? 0) - used;
+  return availableLeaveDays({
+    entitlementDays: balance?.entitlement_days ?? null,
+    adjustmentDays: Number(balance?.adjustment_days ?? 0),
+    usedDays: used,
+    defaultAllowance,
+  });
 }
 
 /** Return a live, server-calculated balance before the user submits a request. */
@@ -93,6 +113,11 @@ export async function GET(request: Request) {
   const requestedDays = countLeaveBusinessDays(startDate, endDate, holidayDates);
   if (requestedDays === 0) {
     return error("Those dates only contain weekends or company / US federal holidays.");
+  }
+  if (requestedDays > MAX_REQUEST_BUSINESS_DAYS) {
+    return error(
+      `A single request covers at most ${MAX_REQUEST_BUSINESS_DAYS} working days. Split longer leave into separate requests.`
+    );
   }
 
   const available = policy.counts_toward_balance
@@ -149,8 +174,21 @@ export async function POST(request: Request) {
     ...((companyHolidays ?? []) as { holiday_date: string }[]).map((holiday) => holiday.holiday_date),
   ]);
   const totalDays = countLeaveBusinessDays(startDate, endDate, holidayDates);
-  if (totalDays === 0) {
+
+  // Hai luật THUẦN (rỗng / quá dài) không cần hỏi database, nên kiểm trước —
+  // không tốn vòng truy vấn nào cho một khoảng ngày vốn đã sai.
+  const shapeRejection = leaveRequestRejection({
+    requestedDays: totalDays,
+    availableDays: null,
+    maxDays: MAX_REQUEST_BUSINESS_DAYS,
+  });
+  if (shapeRejection === "empty") {
     return error("Those dates only contain weekends or company / US federal holidays.");
+  }
+  if (shapeRejection === "too_long") {
+    return error(
+      `A single request covers at most ${MAX_REQUEST_BUSINESS_DAYS} working days. Split longer leave into separate requests.`
+    );
   }
 
   const { data: overlap, error: overlapError } = await supabase
@@ -166,16 +204,29 @@ export async function POST(request: Request) {
     return error("You already have a pending or approved request for part of this period.", 409);
   }
 
-  if (policy.counts_toward_balance) {
-    const balance = await availableDays(
-      actor.accountId,
-      policy.code,
-      Number(startDate.slice(0, 4)),
-      policy.annual_allowance === null ? null : Number(policy.annual_allowance)
+  // Trùng kỳ được báo TRƯỚC "hết ngày" (khối trên), vì chính đơn đang trùng là
+  // thứ đang chiếm quỹ — nói "không đủ ngày" ở đó là chỉ vào hệ quả chứ không
+  // phải nguyên nhân.
+  const balance = policy.counts_toward_balance
+    ? await availableDays(
+        actor.accountId,
+        policy.code,
+        Number(startDate.slice(0, 4)),
+        policy.annual_allowance === null ? null : Number(policy.annual_allowance)
+      )
+    : null;
+  const rejection = leaveRequestRejection({
+    requestedDays: totalDays,
+    availableDays: balance,
+    maxDays: MAX_REQUEST_BUSINESS_DAYS,
+  });
+  if (rejection === "over_balance") {
+    // Không cho âm quỹ, nhưng cũng không bỏ người dùng đứng đó: nói luôn lối
+    // thoát là loại nghỉ không trừ quỹ.
+    return error(
+      `This request needs ${totalDays} day(s) but only ${balance} remain. Submit it as unpaid leave instead, or shorten the dates.`,
+      409
     );
-    if (balance !== null && totalDays > balance) {
-      return error(`This request needs ${totalDays} days, but only ${balance} day(s) remain.`, 409);
-    }
   }
 
   const { data, error: insertError } = await supabase

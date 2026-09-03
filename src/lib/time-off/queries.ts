@@ -120,7 +120,10 @@ export async function fetchTimeOffDashboard(
       .from("time_off_requests")
       .select("policy_code,total_days")
       .eq("requester_id", params.accountId)
-      .eq("status", "approved")
+      // Cùng luật với chốt chặn lúc gửi đơn: đơn chờ duyệt cũng trừ. Hai nơi
+      // đếm khác nhau thì màn hình báo còn 15 ngày trong khi API từ chối ở
+      // ngày thứ 6 — người dùng không cách nào hiểu vì sao.
+      .in("status", ["approved", "pending"])
       .gte("start_date", yearStart)
       .lte("end_date", yearEnd),
     supabase
@@ -146,7 +149,9 @@ export async function fetchTimeOffDashboard(
       ? supabase
           .from("time_off_requests")
           .select("requester_id,policy_code,total_days")
-          .eq("status", "approved")
+          // Giống hệt cột số dư cá nhân, nếu không admin và nhân viên nhìn hai
+          // con số khác nhau cho cùng một người.
+          .in("status", ["approved", "pending"])
           .gte("start_date", yearStart)
           .lte("end_date", yearEnd)
       : Promise.resolve({ data: [], error: null }),
@@ -181,24 +186,45 @@ export async function fetchTimeOffDashboard(
       : Promise.resolve({ data: [], error: null }),
   ]);
 
-  const results = [
-    policiesResult,
-    accountsResult,
-    holidaysResult,
-    calendarResult,
-    myRequestsResult,
-    usedResult,
-    balancesResult,
-    pendingResult,
-    teamBalancesResult,
-    teamUsedResult,
-    adjustmentsResult,
-    accrualRulesResult,
-    teamLeaveLogResult,
-    companyDaysResult,
+  // MỘT truy vấn phụ hỏng KHÔNG được giết cả trang.
+  //
+  // Bản trước gom cả 14 kết quả rồi `throw` nếu bất kỳ cái nào lỗi. Ngày
+  // 2026-09-03 chuyện đó xảy ra thật: bảng lịch sử điều chỉnh quỹ thiếu cột
+  // `source` (code lên trước khi rollout được chạy), và MỌI người — kể cả
+  // người không phải admin, không bao giờ mở tab đó — đều không vào nổi
+  // `/time-off`. Server component throw thì cả trang trắng.
+  //
+  // Nay chỉ hai truy vấn được phép giết trang, vì thiếu chúng thì màn hình
+  // không còn nghĩa gì: danh sách loại nghỉ, và quỹ ngày của chính người xem.
+  // Phần còn lại hỏng thì trả rỗng và báo tên khu vực lên `section_errors` để
+  // giao diện nói rõ chỗ nào đang thiếu — giống cách `/config` dùng
+  // `loadOptional()`.
+  const essential: [string, { error: { message: string } | null }][] = [
+    ["Time-off types", policiesResult],
+    ["Your leave balance", balancesResult],
   ];
-  const failure = results.find((result) => result.error)?.error;
-  if (failure) throw new Error(failure.message);
+  const essentialFailure = essential.find(([, result]) => result.error);
+  if (essentialFailure) {
+    throw new Error(`${essentialFailure[0]}: ${essentialFailure[1].error!.message}`);
+  }
+
+  const optional: [string, { error: { message: string } | null }][] = [
+    ["Team directory", accountsResult],
+    ["Company days off", holidaysResult],
+    ["Calendar", calendarResult],
+    ["Your requests", myRequestsResult],
+    ["Days used", usedResult],
+    ["Approval queue", pendingResult],
+    ["Team balances", teamBalancesResult],
+    ["Team days used", teamUsedResult],
+    ["Balance adjustments", adjustmentsResult],
+    ["Monthly accrual rules", accrualRulesResult],
+    ["Leave history", teamLeaveLogResult],
+    ["Company day list", companyDaysResult],
+  ];
+  const sectionErrors = optional
+    .filter(([, result]) => result.error)
+    .map(([label, result]) => `${label} could not be loaded: ${result.error!.message}`);
 
   const accounts = new Map(
     ((accountsResult.data ?? []) as AccountRow[]).map((account) => [account.id, account])
@@ -330,5 +356,6 @@ export async function fetchTimeOffDashboard(
     monthly_accrual_rules: monthlyAccrualRules,
     team_leave_log: ((teamLeaveLogResult.data ?? []) as RequestRow[]).map((row) => asRequest(row, accounts)),
     company_days: companyDays,
+    section_errors: sectionErrors,
   };
 }

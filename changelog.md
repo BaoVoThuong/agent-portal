@@ -6,6 +6,30 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-03 — Time Off: rà soát logic đầu-cuối
+
+- **Loại**: fix (độ bền + luật nghiệp vụ) + test.
+
+**Một truy vấn phụ hỏng không còn giết cả trang.** `fetchTimeOffDashboard` chạy 14 truy vấn song song rồi `throw` nếu **bất kỳ** cái nào lỗi. Sáng nay chuyện đó xảy ra thật: bảng lịch sử điều chỉnh quỹ thiếu cột `source` (code lên trước khi rollout được chạy), và **mọi người** — kể cả người không phải admin, không bao giờ mở tab đó — đều nhận trang trắng, vì server component throw. Nay chỉ **hai** truy vấn được phép giết trang (danh sách loại nghỉ, quỹ của chính người xem); phần còn lại hỏng thì trả rỗng và báo tên khu vực lên `section_errors`, giao diện hiện một banner nói rõ chỗ nào đang thiếu. Cùng cách `/config` dùng `loadOptional()`.
+
+**Chặn code lên trước rollout.** Thêm `scripts/check-schema-drift.mjs`: đối chiếu bảng, cột, RPC và quyền mà code đang cần với DB thật. Chạy trước khi push thì sự cố trên không lặp lại. Script ghi rõ cái bẫy đã mất thời gian hôm nay: PostgREST phục vụ theo schema đã cache, nên "thiếu thật" và "cache cũ" trông giống hệt nhau — vừa chạy rollout xong mà báo thiếu thì `notify pgrst, 'reload schema';` rồi thử lại.
+
+**Lịch sử điều chỉnh quỹ lấy theo NGƯỜI ở tầng truy vấn.** Trước đây trang nạp 200 dòng mới nhất của **toàn công ty** rồi mới lọc ở trình duyệt. Nhưng tích luỹ hằng tháng ghi **một dòng cho mỗi nhân viên** — 43 dòng mỗi tháng — nên chưa tới **5 tháng** là cửa sổ 200 dòng chỉ còn toàn tích luỹ gần đây, và một lần chỉnh tay từ nửa năm trước **biến mất** khỏi màn hình của chính người bị chỉnh. Một sổ audit không được phép làm thế. Thêm `GET /api/time-off/balances/adjustments` lọc theo account + policy + năm.
+
+**Giới hạn 60 ngày làm việc cho một đơn.** Trước đây không có trần nào, và `unpaid` **không bị kiểm quỹ** — nên một đơn nghỉ không lương kéo dài nhiều năm vẫn qua cửa và chiếm chỗ trong mọi truy vấn theo khoảng ngày.
+
+**Vượt quỹ thì chặn và chỉ lối thoát, không cho nợ ngày.** Không có khái niệm âm ngày phép. Ô xem trước nay nói thiếu bao nhiêu ngày và có nút chuyển thẳng sang loại nghỉ không trừ quỹ; thông báo phía server cũng nói cùng một lối thoát thay vì chỉ báo từ chối.
+
+**Ba phép tính quan trọng nhất nay có test.** `availableLeaveDays`, `leaveRequestRejection`, `leaveRangesOverlap` tách ra `src/lib/time-off/balance.ts` và **được route thật gọi tới**, không phải bản sao. Cộng test cho `countLeaveBusinessDays`, `isDateKey`, `monthBounds`. Tổng **34 test mới** cho phần tính ngày phép và quỹ — trước đó cả tính năng chỉ có 3 test (ngày lễ liên bang). Sai ở đây là trừ sai ngày phép của nhân viên, nên nó cần lưới an toàn hơn bất cứ phần nào khác.
+
+**Duyệt xong đơn không còn nằm lại trong hàng đợi.** Hàng đợi đọc thẳng dữ liệu server và chỉ dựa vào `router.refresh()` — mà refresh là bất đồng bộ, không đảm bảo về kịp lần render kế. Trong khoảng đó bấm lại lần nữa thì nhận *"This request has already been decided."* Nay đơn vừa quyết bị bỏ khỏi danh sách ngay tại client; refresh chỉ còn là bước xác nhận. Nút **Cancel request** ở "My requests" cũng cùng lỗi, gác luôn.
+
+**Loại nghỉ không tính quỹ hiện số ngày đã dùng thay vì "No limit"** (3 chỗ: thẻ số dư, bảng quỹ nhóm, ô xem trước). "Còn lại" vô nghĩa với thứ vô hạn; thứ có nghĩa là đã nghỉ bao nhiêu.
+
+**Nút "View full history"** ở My requests nay luôn hiện khi có ít nhất một đơn. Trước đó nó chỉ hiện khi **quá 3 đơn**, nên với người có 1–3 đơn thì lối vào lịch sử đầy đủ **không tồn tại**.
+
+- Thêm 4 file dữ liệu mẫu trong `supabase/samples/` (lịch sử số lượng lớn + hàng đợi chờ duyệt), nhãn tách riêng nên hai bộ không xoá đè nhau. **Chỉ dùng để thử**, dọn bằng file cleanup tương ứng.
+
 ## 2026-09-03 — Time Off: tích luỹ ngày phép hằng tháng + điều chỉnh cả nhóm
 
 - **Loại**: feature (Time Off admin) + fix (lint).
