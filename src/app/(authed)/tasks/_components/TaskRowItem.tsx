@@ -296,9 +296,17 @@ export function TaskRowItem({
     if (configuredColumns && pinnedLeft !== undefined) style.left = pinnedLeft;
     return Object.keys(style).length > 0 ? style : undefined;
   };
+  // Cột ghim tự đặt nền trắng để không lộ nội dung chạy bên dưới khi cuộn ngang.
+  // Vì vậy phải dùng cùng nền cảnh báo ở đây; nếu không Client name/Due date bị
+  // trắng trong khi phần còn lại của một task quá hạn đã đỏ.
+  const dueDateOverdue = isTaskRowDueDateOverdue(task, now);
   const pinnedCellClass = (key: TaskListColumnKey): string =>
     configuredColumns && pinnedOffsetByKey.has(key)
-      ? "sticky z-[2] border-r border-[#dfe1e6] bg-white group-hover:bg-[#f7f8f9]"
+      ? `sticky z-[2] border-r border-[#dfe1e6] ${
+          dueDateOverdue
+            ? "bg-[#fdecef] group-hover:bg-[#fbdde3]"
+            : "bg-white group-hover:bg-[#f7f8f9]"
+        }`
       : "";
   const cellClassName = (key: TaskListColumnKey, className: string): string =>
     `${className} ${pinnedCellClass(key)}`;
@@ -324,7 +332,6 @@ export function TaskRowItem({
   const liveNow = now ?? null;
   // Không phân quyền: người dùng chốt nền đỏ thì AI CŨNG thấy. Đây là tín hiệu
   // về tình trạng công việc, không phải dữ liệu riêng của ai.
-  const dueDateOverdue = isTaskRowDueDateOverdue(task, liveNow ?? undefined);
   const slaMinutes = effectiveSlaMinutes(task, ruleSet);
   const timeReport = buildTimeReport(task, ruleSet, liveNow);
   const summaryClassName = configuredColumns

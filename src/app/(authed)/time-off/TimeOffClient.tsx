@@ -777,7 +777,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
         {tab === "balances" && <div className="flex min-h-0 flex-1 flex-col"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /></div>}
         {tab === "accruals" && <AccrualSettings policies={adjustablePolicies} rules={initialData.monthly_accrual_rules} teamSize={initialData.team_members.length} busy={Boolean(busy)} onConfigure={openMonthlyAccrual} onBulkAdjust={openBulkAdjustment} />}
         {tab === "approvals" && <ApprovalQueue accountId={accountId} requests={visiblePendingApprovals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}
-        {tab === "history" && <TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} />}
+        {tab === "history" && <TeamLeaveLog requests={initialData.team_leave_log} policiesByCode={policiesByCode} />}
         {tab === "company-days" && <CompanyDaysTable days={initialData.company_days} busy={Boolean(busy)} onRemove={removeHoliday} />}
       </div>
     </section>
@@ -948,26 +948,21 @@ function TeamBalanceTable({ members, policies, onAdjust }: { members: TimeOffTea
 
 function TeamLeaveLog({
   requests,
-  members,
   policiesByCode,
 }: {
   requests: TimeOffRequest[];
-  members: TimeOffTeamMember[];
   policiesByCode: Map<string, TimeOffPolicy>;
 }) {
-  const [memberId, setMemberId] = useState("");
-  const selectedMember = members.find((member) => member.id === memberId);
-  const filteredRequests = memberId
-    ? requests.filter((request) => request.requester_id === memberId)
-    : requests;
-  const emptyMessage = selectedMember
-    ? `No leave requests were recorded for ${selectedMember.name}.`
+  const [query, setQuery] = useState("");
+  const filteredRequests = requests.filter((request) => matchesName(query, request.requester_name, request.requester_email));
+  const emptyMessage = query.trim()
+    ? `No leave requests match "${query.trim()}".`
     : "No team leave requests have been recorded.";
 
   return <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
     <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3.5 xl:flex-row xl:items-end xl:justify-between">
       <div><h2 className="text-base font-semibold text-[#172e55]">Team leave log</h2><p className="mt-0.5 text-[13px] text-slate-500">Every time-off request recorded across the team.</p></div>
-      <div className="flex flex-wrap items-end gap-2"><div className="w-full sm:w-72"><EmployeePicker label="Employee" placeholder="All team members" members={members} value={memberId} onChange={setMemberId} /></div>{selectedMember && <button type="button" onClick={() => setMemberId("")} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-[#172e55]">Clear</button>}<span className="mb-0.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{filteredRequests.length} records</span></div>
+      <div className="flex flex-wrap items-center gap-3"><NameFilter value={query} onChange={setQuery} placeholder="Search agent" /><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{query.trim() ? `${filteredRequests.length} of ${requests.length}` : `${requests.length} records`}</span></div>
     </div>
     {filteredRequests.length === 0 ? <EmptyState message={emptyMessage} /> : <div className="min-h-0 flex-1 overflow-auto"><table className="w-full min-w-[820px] text-left"><thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Member</th><th className="px-4 py-3">Leave type</th><th className="px-4 py-3">Dates</th><th className="px-4 py-3">Days</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Reviewed by</th></tr></thead><tbody>{filteredRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <tr key={request.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p><p className="mt-0.5 text-xs text-slate-500">{request.requester_email}</p></td><td className="px-4 py-3"><span className="inline-flex items-center gap-2 font-medium text-[#304767]"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: policy?.color ?? "#94a3b8" }} />{policy?.label ?? request.policy_code}</span></td><td className="px-4 py-3 text-slate-600">{formatDateRange(request.start_date, request.end_date)}</td><td className="px-4 py-3 text-slate-600">{request.total_days} day{request.total_days === 1 ? "" : "s"}</td><td className="px-4 py-3"><StatusBadge status={request.status} /></td><td className="px-4 py-3 text-slate-500">{request.reviewer_name ?? "—"}</td></tr>; })}</tbody></table></div>}
   </section>;
