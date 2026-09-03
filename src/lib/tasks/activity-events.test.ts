@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   ALLOWED_TASK_ACTIVITY_TYPES,
   describeActivity,
@@ -30,6 +32,20 @@ describe("task activity vocabulary", () => {
       "unassigned",
       "went_overdue",
     ].sort());
+  });
+
+  it("keeps the database constraint aligned with the typed vocabulary", () => {
+    const schema = readFileSync(join(process.cwd(), "supabase/schema.sql"), "utf8");
+    const match = schema.match(
+      /add constraint task_activity_type_check\s+check\s*\(\s*type in \(([\s\S]*?)\)\s*\) not valid;/
+    );
+
+    expect(match?.[1]).toBeDefined();
+    const databaseTypes = [...match![1].matchAll(/'([^']+)'/g)]
+      .map(([, type]) => type)
+      .sort();
+
+    expect(databaseTypes).toEqual([...ALLOWED_TASK_ACTIVITY_TYPES].sort());
   });
 
   it("does not reject historical or unknown values", () => {

@@ -2273,7 +2273,8 @@ begin
       'attachment_added',
       'attachment_deleted',
       'went_overdue',
-      'overdue_unlocked'
+      'overdue_unlocked',
+      'due_date_overdue'
     )
   ) not valid;
 end $$;

@@ -20,8 +20,8 @@ export const ALLOWED_TASK_ACTIVITY_TYPES = [
   "attachment_deleted",
   "went_overdue",
   "overdue_unlocked",
-  // Vỡ hạn cứng theo Due Date. `task_activity.type` là text không ràng buộc
-  // CHECK nên chỉ cần thêm ở đây (khác task_notifications.type).
+  // Vỡ hạn cứng theo Due Date. Giá trị này phải luôn khớp với
+  // `task_activity_type_check` trong schema và rollout production.
   "due_date_overdue",
 ] as const;
 
