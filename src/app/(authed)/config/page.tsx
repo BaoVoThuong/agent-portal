@@ -1,17 +1,25 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   fetchTaskAgentCandidates,
   fetchTaskAgents,
   fetchTaskAssignees,
 } from "@/lib/tasks/assignees";
+import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import { loadConfigAdmin } from "@/lib/table-config/access";
+import { configScopesFor } from "@/lib/table-config/scope-access";
 import {
   fetchAllTableColumnOptions,
   fetchAllTableColumns,
 } from "@/lib/table-config/queries";
-import type { TableColumnOption, TableScope } from "@/lib/table-config/types";
+import {
+  TABLE_SCOPES,
+  type TableColumnOption,
+  type TableScope,
+} from "@/lib/table-config/types";
 import { fetchEnrollmentOptionData } from "@/lib/enrollment/options";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import { emptyEnrollmentOptionData } from "./empty-option-data";
@@ -19,11 +27,8 @@ import { ConfigClient } from "./_components/ConfigClient";
 
 export const dynamic = "force-dynamic";
 
-// Leads have their own configuration screen at /leads/config.
-const CONFIG_SCOPES = ["cs", "aca", "medicare"] as const;
-
 export const metadata: Metadata = {
-  title: "Health Table Configuration",
+  title: "Table Configuration",
 };
 
 type LoadResult<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -49,10 +54,32 @@ async function loadOptional<T>(label: string, loader: () => Promise<T>): Promise
 
 
 export default async function ConfigPage() {
-  const admin = await loadConfigAdmin();
-  if (!admin.ok) {
-    redirect(admin.status === 401 ? "/api/auth/signin" : "/unauthorized");
+  // HAI cổng song song, mỗi cổng giữ đúng luật của nó. Gộp làm một là hoặc nới
+  // quyền Health cho người không phải task-admin (`loadConfigAdmin` đòi
+  // `task.manage` VÀ vai trò admin — xem chú thích ở lib/tasks/access.ts), hoặc
+  // chặn mất hai tài khoản trên production chỉ có quyền lead.
+  const [admin, session] = await Promise.all([loadConfigAdmin(), auth()]);
+  const email = session?.user?.email ?? "";
+  const isLeadManager = email
+    ? canManageLeads(
+        buildLeadActor(session!.user.permissions, email, {
+          isAdmin: isLeadViewAdmin(session!.user),
+        })
+      )
+    : false;
+
+  const scopes = configScopesFor({ isTaskAdmin: admin.ok, isLeadManager });
+  if (scopes.length === 0) {
+    // 401 khi chưa đăng nhập, 403 khi đăng nhập rồi mà không quản bảng nào.
+    redirect(!email ? "/api/auth/signin" : "/unauthorized");
   }
+
+  // Ẩn tab KHÔNG ẩn payload. Trang này nạp cả danh bạ công ty
+  // (`fetchTaskAgentCandidates` đọc mọi tài khoản đang hoạt động) rồi truyền
+  // xuống client. Người chỉ có quyền lead phải nhận đúng mức mà `/leads/config`
+  // gửi cho họ hôm qua: rỗng.
+  const needsTaskData = scopes.some((scope) => scope !== "lead");
+  const needsLeadData = scopes.includes("lead");
 
   const supabase = getSupabaseAdmin();
   const [
@@ -66,13 +93,17 @@ export default async function ConfigPage() {
     slaRulesResult,
     acaOptionDataResult,
     medicareOptionDataResult,
+    leadVocabularyResult,
   ] = await Promise.all([
     loadOptional("Table columns", () => fetchAllTableColumns(supabase)),
     loadOptional("Custom dropdown values", () => fetchAllTableColumnOptions(supabase)),
-    loadOptional("Agents", () => fetchTaskAgents()),
-    loadOptional("Agent candidates", () => fetchTaskAgentCandidates()),
-    loadOptional("Task assignees", () => fetchTaskAssignees()),
+    loadOptional("Agents", async () => (needsTaskData ? fetchTaskAgents() : [])),
+    loadOptional("Agent candidates", async () =>
+      needsTaskData ? fetchTaskAgentCandidates() : []
+    ),
+    loadOptional("Task assignees", async () => (needsTaskData ? fetchTaskAssignees() : [])),
     loadOptional("Assistant memberships", async () => {
+      if (!needsTaskData) return [];
       const result = await supabase
         .from("agent_members")
         .select("agent_email,cs_email,is_assistant")
@@ -81,6 +112,7 @@ export default async function ConfigPage() {
       return result.data ?? [];
     }),
     loadOptional("Categories", async () => {
+      if (!needsTaskData) return [];
       const result = await supabase
         .from("task_categories")
         .select("id,name,color")
@@ -90,32 +122,49 @@ export default async function ConfigPage() {
       return result.data ?? [];
     }),
     loadOptional("SLA rules", async () => {
+      if (!needsTaskData) return [];
       const result = await supabase
         .from("task_sla_rules")
         .select("id,priority,category_id,duration_minutes,updated_at");
       if (result.error) throw new Error(result.error.message);
       return result.data ?? [];
     }),
-    loadOptional("ACA enrollment options", () => fetchEnrollmentOptionData("aca")),
-    loadOptional("Medicare enrollment options", () => fetchEnrollmentOptionData("medicare")),
+    loadOptional("ACA enrollment options", async () =>
+      needsTaskData ? fetchEnrollmentOptionData("aca") : emptyEnrollmentOptionData()
+    ),
+    loadOptional("Medicare enrollment options", async () =>
+      needsTaskData ? fetchEnrollmentOptionData("medicare") : emptyEnrollmentOptionData()
+    ),
+    // Tab Dropdown Values của lead dựng "Lead status" và "Interaction type"
+    // thẳng từ đây. `/config` trước không nạp, nên gộp mà quên là màn hình hiện
+    // "Lead status (0)" trong khi Settings vẫn trỏ người dùng tới đúng chỗ đó.
+    loadOptional("Lead vocabulary", async () =>
+      needsLeadData ? fetchLeadVocabulary(supabase) : undefined
+    ),
   ]);
 
   if (!columnsResult.ok) throw new Error(columnsResult.error);
   const columns = columnsResult.data;
-  // Only this page's own scopes. Judging readiness across every scope in the
-  // system meant a newly added scope that had not been materialised yet
-  // disabled editing here too — a Lead migration silently locked the Health
-  // CS, ACA and Medicare column editors.
-  const columnsReady = CONFIG_SCOPES.every((scope) =>
-    (columns[scope] ?? []).every((column) => !column.id.startsWith("system-"))
-  );
+  // MỘT cờ cho MỖI scope. Bản trước là một cờ chung cho cả trang, và chính nó
+  // đã khoá trình sửa cột của Health CS, ACA, Medicare cùng lúc chỉ vì scope
+  // Lead chưa được materialise. Nay có bốn scope trên MỘT trang, nên cờ chung
+  // là chuyện chắc chắn xảy ra lại chứ không còn là rủi ro.
+  const columnsReadyByScope = Object.fromEntries(
+    TABLE_SCOPES.map((scope) => [
+      scope,
+      (columns[scope] ?? []).every((column) => !column.id.startsWith("system-")),
+    ])
+  ) as Record<TableScope, boolean>;
   const emptyOptions: Record<TableScope, TableColumnOption[]> = {
     cs: [],
     aca: [],
     medicare: [],
     lead: [],
   };
-  const options = optionsResult.ok && columnsReady ? optionsResult.data : emptyOptions;
+  // Options nạp đủ cho mọi scope; ConfigClient tự khoá theo scope đang chọn.
+  // Cắt sạch options vì MỘT scope chưa sẵn sàng là làm các scope kia mất luôn
+  // giá trị dropdown — đúng lỗi cũ ở một dạng khác.
+  const options = optionsResult.ok ? optionsResult.data : emptyOptions;
   const emptyPeople: never[] = [];
   const agents = agentsResult.ok ? agentsResult.data : emptyPeople;
   const candidates = candidatesResult.ok ? candidatesResult.data : emptyPeople;
@@ -129,11 +178,13 @@ export default async function ConfigPage() {
   const medicareOptionData = medicareOptionDataResult.ok
     ? medicareOptionDataResult.data
     : emptyEnrollmentOptionData();
+  const leadVocabulary = leadVocabularyResult.ok ? leadVocabularyResult.data : undefined;
 
   return (
     <ConfigClient
-      title="Health Table Configuration"
-      scopes={CONFIG_SCOPES}
+      title="Table Configuration"
+      scopes={scopes}
+      columnsReadyByScope={columnsReadyByScope}
       initialColumns={columns}
       initialOptions={options}
       initialAgents={agents}
@@ -149,21 +200,21 @@ export default async function ConfigPage() {
       })}
       initialCategories={categoryRows as TaskCategory[]}
       initialSlaRules={slaRows as TaskSlaRule[]}
+      initialLeadVocabulary={leadVocabulary}
       initialOptionData={{ aca: acaOptionData, medicare: medicareOptionData }}
       sectionStatus={{
         columns: {
-          available: columnsReady,
-          error: columnsReady
+          // Cờ cấp trang chỉ còn nói "có bảng nào sửa được không", và chỉ xét
+          // các bảng NGƯỜI NÀY thấy. Việc khoá từng bảng do
+          // columnsReadyByScope làm, trong ConfigClient.
+          available: scopes.some((scope) => columnsReadyByScope[scope]),
+          error: scopes.some((scope) => columnsReadyByScope[scope])
             ? undefined
             : "Table columns are using a migration fallback. Editing is disabled until the schema is applied.",
         },
         options: {
-          available: optionsResult.ok && columnsReady,
-          error: optionsResult.ok
-            ? columnsReady
-              ? undefined
-              : "Custom dropdown values are unavailable until the table-config schema is applied."
-            : optionsResult.error,
+          available: optionsResult.ok,
+          error: optionsResult.ok ? undefined : optionsResult.error,
         },
         categories: {
           available: categoriesResult.ok,

@@ -6,6 +6,44 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-03 — Gộp nhóm Lead Management vào Task Management
+
+- **Loại**: refactor (điều hướng).
+- Sidebar còn một nhóm **Task Management** với 5 mục: Health CS, ACA, Medicare, **Event Leads**, Table Configuration. Nhóm "Lead Management" bị xoá.
+- **Điều kiện hiện nhóm nới sang cả quyền lead.** Hai tài khoản trên production **chỉ** có quyền lead; giữ nguyên điều kiện cũ là họ mất luôn màn hình dùng hằng ngày — và mất **im lặng**, vì menu chỉ đơn giản không hiện.
+- Từng mục con vẫn giữ quyền riêng của nó: nhóm chỉ quyết việc nhóm có hiện hay không. Người chỉ có quyền lead thấy đúng hai mục — Event Leads và Table Configuration.
+- Event Leads đặt sau ba mục Health, trước Table Configuration — cấu hình luôn là mục cuối, giống ba nhóm khác trong menu.
+- `/tasks/leads` **lồng dưới** `/tasks`, nên hai mục dùng chung tiền tố và luật `startsWith` khớp cả hai. Luật "khớp cụ thể nhất thắng" sẵn có xử lý đúng chuyện này; thêm một ca test khoá lại, vì mục đang active render thành `<span>` trơn — nếu Health Customer Service cũng sáng theo thì nó mất khả năng bấm.
+
+## 2026-09-03 — `/api/config/*` mở cho scope lead
+
+- **Loại**: fix (quyền).
+- Mọi handler cấu hình đều gác bằng `loadConfigAdmin` (đòi `task.manage` **và** vai trò task-admin), còn đường đọc gác bằng `loadConfigActor` (đòi `task.work`). Người chỉ có quyền lead **nhìn thấy** màn hình cấu hình nhưng 403 ở mọi lượt đọc lại và mọi lượt ghi — `ConfigClient` gọi lại `GET /api/config/columns?scope=…` sau mỗi lần sửa cột, nên hỏng ngay ở thao tác đầu tiên.
+- Chuyện này **đã đúng từ trước** với `/leads/config`: hai tài khoản chỉ-có-quyền-lead chưa bao giờ sửa được cấu hình bảng lead trên chính màn hình dựng cho họ. Gộp màn hình chỉ làm nó lộ ra.
+- Cùng lỗi đó còn nằm ở `/api/config/layout`: `LeadsClient` gọi `?scope=lead` mỗi lần mở bảng để nạp layout cột **của riêng từng người**, mà route đòi `task.work` — nên với hai tài khoản kia, layout không nạp và không lưu được, im lặng.
+- Thêm `loadConfigAdminForScope` / `loadConfigActorForScope`: scope `lead` gác bằng `canManageLeads` / `canWorkLeads`, ba scope Health giữ **nguyên** luật cũ. Handler thuần task (`agents`, `assistants`) không đổi.
+- Handler định danh theo `id` (cột, option) phải **đọc dòng ra để biết scope trước khi gác** — scope không có trong URL. Gác vẫn chạy trước mọi phản hồi kể cả 409 "không tìm thấy", nên người ngoài không dò được id nào có thật; id không tồn tại thì rơi về cổng Health cũ.
+- Hệ quả có chủ ý: task-admin **không còn** ghi được cấu hình bảng lead qua API nếu không có `lead.manage`. Trước đây API cho phép, nhưng không có màn hình nào mở đường đó (`/leads/config` vốn gác `LEAD_MANAGE`), nên đây là siết cho khớp với UI chứ không mất chức năng.
+
+## 2026-09-03 — Gộp Lead Table Config vào Health Table Config
+
+- **Loại**: refactor (điều hướng + quyền).
+- Một màn hình `/config` phục vụ cả bốn bảng: Health CS, ACA, Medicare, Event Leads. `/leads/config` cũ chuyển hướng sang đó. Tiêu đề đổi thành "Table Configuration" — nó không còn chỉ là Health.
+- **Quyền vẫn TÁCH.** `/config` giữ nguyên cổng cũ `loadConfigAdmin()` (đòi `task.manage` **VÀ** vai trò task-admin) và **thêm** một cổng lead song song bằng `canManageLeads`. `configScopesFor` cắt danh sách bảng theo quyền của **chính người đang xem**, ở server chứ không ở UI. Gộp hai cổng làm một là hoặc nới quyền Health cho mọi agent giữ `task.manage`, hoặc chặn mất hai tài khoản trên production chỉ có quyền lead — cả hai đều sai.
+- **`columnsReady` tách thành một cờ cho MỖI scope.** Bản cũ là một cờ chung, và chính nó đã khoá trình sửa cột của Health CS, ACA, Medicare cùng lúc chỉ vì scope Lead chưa materialise. Bốn scope trên một trang thì cờ chung là chuyện **chắc chắn** xảy ra lại, không còn là rủi ro.
+- Cờ per-scope nối vào **cả hai** tab Columns và Dropdown Values. Chỉ khoá tab Columns là scope chưa materialise vẫn sửa được ở tab bên cạnh, mỗi lượt ghi gửi lên một id giả `system-*` và hỏng với lỗi invalid-uuid — đúng loại lỗi cần chặn, chỉ dời sang chỗ khác.
+- **Tab theo scope đang chọn**, không theo trang: Lead không có Categories, Assistant membership hay SLA. Đổi sang bảng không có tab đang mở thì kéo về tab đầu — không có bước này thì chọn Event Leads khi đang ở tab SLA cho ra màn hình trắng.
+- **Payload cắt theo quyền.** Trang nạp `fetchTaskAgentCandidates()` (đọc **mọi** tài khoản đang hoạt động), `fetchTaskAgents`, `fetchTaskAssignees`, `agent_members`, categories, SLA và enrollment options rồi truyền hết xuống client. Ẩn tab **không** ẩn payload, nên người chỉ có quyền lead sẽ nhận nguyên danh bạ công ty. Nay các lượt nạp đó chỉ chạy khi người dùng thật sự quản một bảng Health — đúng mức mà `/leads/config` gửi cho họ trước đây.
+- Ngược lại, `fetchLeadVocabulary` nay được nạp khi người dùng quản bảng lead. `/config` trước không nạp nó, nên gộp mà quên là tab Values hiện "Lead status (0)" trong khi Settings vẫn trỏ người dùng tới đúng chỗ đó để sửa.
+
+## 2026-09-03 — Event Leads chuyển sang /tasks/leads
+
+- **Loại**: refactor (điều hướng).
+- Event Leads nay nằm trong nhóm Task Management, địa chỉ `/tasks/leads`.
+- **`/leads` cũ vẫn sống** — chuyển hướng sang địa chỉ mới và **giữ nguyên query**, vì Overview sinh liên kết sâu dạng `?alert=stale` và người dùng đã lưu link. Một link chết ở đây là một người bấm vào rồi thấy 404 mà không hiểu vì sao.
+- Chuyển bằng `git mv` chứ không copy: copy thì lịch sử của mười file component đứt và `git log --follow` không lần được nữa.
+- Thêm `/tasks/leads` vào `ACCESSIBLE_ROUTES`, đặt **sau** `/tasks` — danh sách này quyết trang đích sau khi đăng nhập theo thứ tự, và người có cả hai quyền nên hạ cánh ở Health CS như cũ. Trước đây bảng này **không có mục nào cho lead**, nên hai tài khoản chỉ-có-quyền-lead bị đẩy thẳng vào `/unauthorized` khi đăng nhập.
+
 ## 2026-09-02 — Mở lead không còn chớp qua "No interactions yet"
 
 - **Loại**: fix (UX).

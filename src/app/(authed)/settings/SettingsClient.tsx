@@ -361,8 +361,8 @@ export default function SettingsClient({ profile, canManageLeads, initialLeadSet
                   two lists drift apart, so this one points at the other. */}
               <p className="mt-1 text-sm text-[#6b778c]">
                 Statuses and interaction types now live with every other dropdown value, under{" "}
-                <a className="font-semibold text-[#0c66e4] hover:underline" href="/leads/config">
-                  Lead Table Configuration → Values
+                <a className="font-semibold text-[#0c66e4] hover:underline" href="/config">
+                  Table Configuration → Dropdown Values
                 </a>
                 .
               </p>

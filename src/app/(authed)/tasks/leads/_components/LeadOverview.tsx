@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { personLabel } from "@/lib/tasks/people";
-import { Initials } from "../../tasks/_components/board-ui";
+import { Initials } from "../../_components/board-ui";
 import type { LeadAlert } from "@/lib/leads/alerts";
 import type { LeadSummary } from "@/lib/leads/overview";
 

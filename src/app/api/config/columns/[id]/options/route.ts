@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadConfigAdmin, loadConfigActor } from "@/lib/table-config/access";
+import {
+  loadConfigActorForScope,
+  loadConfigAdminForScope,
+} from "@/lib/table-config/access";
 import { fetchTableColumnById } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { duplicateOptionLabelResponse, inactiveConfigValueResponse, isUniqueViolation } from "@/lib/table-config/mutation-errors";
@@ -12,7 +15,11 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Ctx) {
   const { id } = await params;
-  const actorResult = await loadConfigActor();
+  const supabase = getSupabaseAdmin();
+  // Scope không có trong URL — phải đọc cột ra mới biết cổng nào áp dụng. Cột
+  // không tồn tại thì rơi về cổng Health cũ, nên id bịa không dò được gì.
+  const column = await fetchTableColumnById(id, supabase);
+  const actorResult = await loadConfigActorForScope(column?.scope ?? "cs");
   if (!actorResult.ok) {
     return NextResponse.json(
       { error: actorResult.error },
@@ -20,7 +27,7 @@ export async function GET(_request: Request, { params }: Ctx) {
     );
   }
 
-  const { data, error } = await getSupabaseAdmin()
+  const { data, error } = await supabase
     .from("table_column_option")
     .select("id,column_id,label,color,position,created_at,updated_at,archived_at")
     .eq("column_id", id)
@@ -33,13 +40,12 @@ export async function GET(_request: Request, { params }: Ctx) {
 
 export async function POST(request: Request, { params }: Ctx) {
   const { id } = await params;
-  const admin = await loadConfigAdmin();
+  const supabase = getSupabaseAdmin();
+  const column = await fetchTableColumnById(id, supabase);
+  const admin = await loadConfigAdminForScope(column?.scope ?? "cs");
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
-
-  const supabase = getSupabaseAdmin();
-  const column = await fetchTableColumnById(id, supabase);
   if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
   if (column.type !== "dropdown" || column.is_system) {
     return NextResponse.json(

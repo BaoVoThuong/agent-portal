@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadConfigAdmin } from "@/lib/table-config/access";
+import { loadConfigAdminForScope } from "@/lib/table-config/access";
 import { resetTableLayoutsForScope } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { isTableScope } from "@/lib/table-config/types";
@@ -13,15 +13,14 @@ import { layoutResetFailedWarning, type ConfigMutationWarning } from "@/lib/tabl
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const admin = await loadConfigAdmin();
-  if (!admin.ok) {
-    return NextResponse.json({ error: admin.error }, { status: admin.status });
-  }
-
   const body = await request.json().catch(() => null);
   const scope = isTableScope(body?.scope) ? body.scope : null;
   if (!scope) {
     return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
+  }
+  const admin = await loadConfigAdminForScope(scope);
+  if (!admin.ok) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
 
   const expectedColumnKeys = normalizeColumnKeyArray(body?.expected_column_keys);

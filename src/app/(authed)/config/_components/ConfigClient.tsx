@@ -90,6 +90,24 @@ type AssistantMember = {
 
 type Tab = "table" | "value" | "assistant" | "sla";
 const ALL_TABS: readonly Tab[] = ["table", "value", "assistant", "sla"];
+/**
+ * Scope chưa materialise thì cột của nó còn mang id giả `system-<scope>-<key>`
+ * và MỌI lượt ghi hỏng với lỗi invalid-uuid. Phải khoá cả tab Columns LẪN tab
+ * Dropdown Values — khoá một bên là dời lỗi sang tab kia chứ không chặn được.
+ */
+const SCOPE_NOT_READY_ERROR =
+  "This table is using a migration fallback. Editing is disabled until the schema is applied.";
+
+/** Lead không có Categories, Assistant membership hay SLA. */
+const LEAD_TABS: readonly Tab[] = ["table", "value"];
+
+/**
+ * Tab theo SCOPE đang chọn, không theo trang. Một màn hình nay phục vụ cả bốn
+ * bảng, và tab chỉ có nghĩa với bảng đang mở.
+ */
+function tabsForScope(scope: TableScope): readonly Tab[] {
+  return scope === "lead" ? LEAD_TABS : ALL_TABS;
+}
 type AssistantSettingsView = "agents" | "memberships";
 type SelectOption<T extends string> = { value: T; label: string; disabled?: boolean };
 
@@ -170,7 +188,7 @@ type ConfigSectionStatuses = {
 export function ConfigClient({
   title,
   scopes = TABLE_SCOPES,
-  tabs = ALL_TABS,
+  columnsReadyByScope,
   initialColumns,
   initialOptions,
   initialAgents,
@@ -186,8 +204,14 @@ export function ConfigClient({
   title: string;
   /** The scopes this page owns; the Table dropdown lists exactly these. */
   scopes?: readonly TableScope[];
-  /** Which tabs to show. Leads have no categories, assistants or SLA times. */
-  tabs?: readonly Tab[];
+  /**
+   * Cột của scope nào đã materialise và sửa được.
+   *
+   * MỘT cờ cho MỖI scope, không phải một cờ chung: một cờ chung đã từng khoá
+   * trình sửa cột của Health CS, ACA và Medicare cùng lúc chỉ vì scope Lead
+   * chưa được materialise.
+   */
+  columnsReadyByScope: Record<TableScope, boolean>;
   initialColumns: Record<TableScope, TableColumn[]>;
   initialOptions: Record<TableScope, TableColumnOption[]>;
   initialAgents: TaskAgent[];
@@ -205,6 +229,20 @@ export function ConfigClient({
   const [assistantSettingsView, setAssistantSettingsView] =
     useState<AssistantSettingsView>("agents");
   const [scope, setScope] = useState<TableScope>(scopes[0] ?? "cs");
+  const tabs = tabsForScope(scope);
+  const columnsReady = columnsReadyByScope[scope];
+  // Đổi sang một bảng không có tab đang mở thì kéo về tab đầu tiên. Không có
+  // bước này thì chọn Event Leads khi đang đứng ở tab SLA cho ra màn hình
+  // trắng: không tab nào active mà cũng không section nào render.
+  //
+  // Chỉnh state ngay trong render là mẫu chính thức của React cho "state phụ
+  // thuộc prop/state khác"; luật `set-state-in-effect` của
+  // eslint-plugin-react-hooks cấm làm việc này trong thân useEffect.
+  const [lastScope, setLastScope] = useState(scope);
+  if (scope !== lastScope) {
+    setLastScope(scope);
+    if (!tabsForScope(scope).includes(tab)) setTab("table");
+  }
   const [columns, setColumns] = useState(initialColumns);
   const [options, setOptions] = useState(initialOptions);
   const [agents, setAgents] = useState(initialAgents);
@@ -400,8 +438,11 @@ export function ConfigClient({
               scope={scope}
               columns={activeColumns}
               busy={busy}
-              available={sectionStatus.columns.available && !columnsRefreshError}
-              availabilityError={columnsRefreshError ?? sectionStatus.columns.error}
+              available={columnsReady && sectionStatus.columns.available && !columnsRefreshError}
+              availabilityError={
+                columnsRefreshError ??
+                (columnsReady ? sectionStatus.columns.error : SCOPE_NOT_READY_ERROR)
+              }
               run={run}
               refreshScope={refreshScope}
             />
@@ -423,6 +464,7 @@ export function ConfigClient({
               }
               busy={busy}
               available={
+                columnsReady &&
                 sectionStatus.options.available &&
                 !optionsRefreshError &&
                 (scope === "cs"
@@ -432,6 +474,7 @@ export function ConfigClient({
               availabilityError={
                 optionsRefreshError ??
                 enrollmentOptionsRefreshError ??
+                (columnsReady ? undefined : SCOPE_NOT_READY_ERROR) ??
                 sectionStatus.options.error ??
                 (scope === "cs" ? undefined : sectionStatus.enrollmentOptions[scope].error)
               }

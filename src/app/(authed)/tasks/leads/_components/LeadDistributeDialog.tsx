@@ -5,8 +5,8 @@ import { RotateCcw, Shuffle, X } from "lucide-react";
 import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { pickWeighted } from "@/lib/leads/round-robin";
 import { personLabel } from "@/lib/tasks/people";
-import { Initials } from "../../tasks/_components/board-ui";
-import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import { Initials } from "../../_components/board-ui";
+import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
 type WeightRow = {
   agent_email: string;

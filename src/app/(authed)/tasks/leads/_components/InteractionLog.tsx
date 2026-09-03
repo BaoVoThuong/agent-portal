@@ -9,8 +9,8 @@ import type {
 } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
-import { TaskSelect } from "../../tasks/_components/TaskSelect";
-import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import { TaskSelect } from "../../_components/TaskSelect";
+import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
 // Keep the compact form controls visually aligned with the editable Lead
 // fields, while reusing the same custom picker behaviour as Task List.

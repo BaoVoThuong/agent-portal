@@ -97,7 +97,16 @@ const menuData: MenuItem[] = [
   },
   {
     title: "Task Management",
-    anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+    // Nới sang cả quyền lead: Event Leads nay nằm trong nhóm này, và hai tài
+    // khoản trên production CHỈ có quyền lead. Giữ nguyên điều kiện cũ là hai
+    // người đó mất luôn màn hình họ dùng hằng ngày — mất IM LẶNG, vì menu chỉ
+    // đơn giản không hiện ra.
+    anyPermission: [
+      PERMISSIONS.TASK_MANAGE,
+      PERMISSIONS.TASK_WORK,
+      PERMISSIONS.LEAD_MANAGE,
+      PERMISSIONS.LEAD_WORK,
+    ],
     children: [
       {
         href: "/tasks",
@@ -119,26 +128,17 @@ const menuData: MenuItem[] = [
         anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
       },
       {
-        href: "/config",
-        label: "Health Table Configuration",
-        permission: PERMISSIONS.TASK_MANAGE,
-      },
-    ],
-  },
-  {
-    title: "Lead Management",
-    anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
-    children: [
-      {
-        href: "/leads",
+        href: "/tasks/leads",
         label: "Event Leads",
-        activePath: "/leads",
+        activePath: "/tasks/leads",
         anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
       },
       {
-        href: "/leads/config",
-        label: "Lead Table Configuration",
-        permission: PERMISSIONS.LEAD_MANAGE,
+        // MỘT mục cho cả bốn bảng. Người chỉ có quyền lead vào đây vẫn chỉ thấy
+        // bảng Event Leads — xem configScopesFor ở lib/table-config.
+        href: "/config",
+        label: "Table Configuration",
+        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.LEAD_MANAGE],
       },
     ],
   },
@@ -190,7 +190,6 @@ export default function Sidebar({
       pathname.startsWith("/account-manager") ||
       pathname.startsWith("/role-manager") ||
       pathname.startsWith("/management"),
-    "Lead Management": pathname.startsWith("/leads"),
   });
   const menuItems = menuData
     .map((item) => {
@@ -227,9 +226,9 @@ export default function Sidebar({
 
     // An active entry renders as a <span>, not a <Link>. So a parent path that
     // also matches a deeper route would go unclickable while you are on that
-    // deeper route: standing on /leads/config, "Event Leads" matched
-    // /leads/... too and stopped being a link, leaving no way back to the list.
-    // The most specific match wins.
+    // deeper route: standing on /tasks/leads, "Health Customer Service" matches
+    // /tasks/... too and would stop being a link, leaving no way back to the
+    // task list. The most specific match wins.
     const deeperMatch = leafItems.some((other) => {
       if (other === item || !other.href) return false;
       const otherPath = other.activePath ?? other.href.split("?")[0];

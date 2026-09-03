@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadConfigActor } from "@/lib/table-config/access";
+import { loadConfigActorForScope } from "@/lib/table-config/access";
 import { serializeLayout, type LayoutEntry } from "@/lib/table-config/layout";
 import { fetchTableColumns } from "@/lib/table-config/queries";
 import { isTableScope, parseTableScope } from "@/lib/table-config/types";
@@ -8,17 +8,18 @@ import { isTableScope, parseTableScope } from "@/lib/table-config/types";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const actorResult = await loadConfigActor();
+  // Đọc scope TRƯỚC khi gác: cổng phụ thuộc scope. Layout của bảng lead do
+  // quyền lead quản, và `LeadsClient` gọi thẳng vào đây mỗi lần mở bảng.
+  const scope = parseTableScope(new URL(request.url).searchParams.get("scope"));
+  if (!scope) {
+    return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
+  }
+  const actorResult = await loadConfigActorForScope(scope);
   if (!actorResult.ok) {
     return NextResponse.json(
       { error: actorResult.error },
       { status: actorResult.status }
     );
-  }
-
-  const scope = parseTableScope(new URL(request.url).searchParams.get("scope"));
-  if (!scope) {
-    return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
   }
   const { data, error } = await getSupabaseAdmin()
     .from("user_table_layout")
@@ -43,17 +44,16 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const actorResult = await loadConfigActor();
+  const body = await request.json().catch(() => null);
+  if (!isTableScope(body?.scope)) {
+    return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
+  }
+  const actorResult = await loadConfigActorForScope(body.scope);
   if (!actorResult.ok) {
     return NextResponse.json(
       { error: actorResult.error },
       { status: actorResult.status }
     );
-  }
-
-  const body = await request.json().catch(() => null);
-  if (!isTableScope(body?.scope)) {
-    return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
   }
 
   const hasExpectedVersion =
@@ -147,17 +147,16 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const actorResult = await loadConfigActor();
+  const scope = parseTableScope(new URL(request.url).searchParams.get("scope"));
+  if (!scope) {
+    return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
+  }
+  const actorResult = await loadConfigActorForScope(scope);
   if (!actorResult.ok) {
     return NextResponse.json(
       { error: actorResult.error },
       { status: actorResult.status }
     );
-  }
-
-  const scope = parseTableScope(new URL(request.url).searchParams.get("scope"));
-  if (!scope) {
-    return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
   }
   const { error } = await getSupabaseAdmin()
     .from("user_table_layout")
