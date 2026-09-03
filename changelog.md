@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-03 — Gộp nhóm Lead Management vào Task Management
+
+- **Loại**: refactor (điều hướng).
+- Sidebar còn một nhóm **Task Management** với 5 mục: Health CS, ACA, Medicare, **Event Leads**, Table Configuration. Nhóm "Lead Management" bị xoá.
+- **Điều kiện hiện nhóm nới sang cả quyền lead.** Hai tài khoản trên production **chỉ** có quyền lead; giữ nguyên điều kiện cũ là họ mất luôn màn hình dùng hằng ngày — và mất **im lặng**, vì menu chỉ đơn giản không hiện.
+- Từng mục con vẫn giữ quyền riêng của nó: nhóm chỉ quyết việc nhóm có hiện hay không. Người chỉ có quyền lead thấy đúng hai mục — Event Leads và Table Configuration.
+- Event Leads đặt sau ba mục Health, trước Table Configuration — cấu hình luôn là mục cuối, giống ba nhóm khác trong menu.
+- `/tasks/leads` **lồng dưới** `/tasks`, nên hai mục dùng chung tiền tố và luật `startsWith` khớp cả hai. Luật "khớp cụ thể nhất thắng" sẵn có xử lý đúng chuyện này; thêm một ca test khoá lại, vì mục đang active render thành `<span>` trơn — nếu Health Customer Service cũng sáng theo thì nó mất khả năng bấm.
+
 ## 2026-09-03 — `/api/config/*` mở cho scope lead
 
 - **Loại**: fix (quyền).
