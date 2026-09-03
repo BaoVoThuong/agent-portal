@@ -10,10 +10,9 @@ function currentMonthKey() {
   return new Date().toISOString().slice(0, 7);
 }
 
-type TimeOffTab = "overview" | "requests" | "admin";
+type TimeOffTab = "overview" | "admin";
 
 function initialTab(value: string | undefined, canManage: boolean): TimeOffTab {
-  if (value === "requests") return "requests";
   if (value === "admin" && canManage) return "admin";
   return "overview";
 }

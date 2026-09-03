@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   HeartPulse,
   Palmtree,
   Plus,
@@ -28,7 +27,7 @@ import type {
   TimeOffTeamMember,
 } from "@/lib/time-off/types";
 
-type Tab = "overview" | "requests" | "admin";
+type Tab = "overview" | "admin";
 type AdminSection = "balances" | "history" | "company-days";
 
 type Props = {
@@ -249,11 +248,6 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
   const selectedBalanceHistory = initialData.balance_adjustments
     .filter((adjustment) => adjustment.account_id === balanceAccountId && adjustment.policy_code === balancePolicy)
     .slice(0, 4);
-  const personalUpcoming = initialData.my_requests
-    .filter((request) => request.status === "approved" && request.end_date >= dateKey(new Date()))
-    .sort((a, b) => a.start_date.localeCompare(b.start_date))
-    .slice(0, 4);
-
   function openRequest(date?: string) {
     setError(null);
     setRequestStart(date ?? "");
@@ -511,7 +505,6 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "overview", label: "Overview" },
-    { id: "requests", label: "My requests", count: initialData.my_requests.filter((item) => item.status === "pending").length },
     ...(canManage ? [
       { id: "admin" as const, label: "Administration" },
     ] : []),
@@ -566,14 +559,12 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
     </section>
   );
 
-  const requestsTable = <MyRequestsTable requests={initialData.my_requests} policiesByCode={policiesByCode} busy={Boolean(busy)} onCancel={(request) => decide(request, "cancel")} />;
   const recentMyRequests = initialData.my_requests.slice(0, 3);
 
   const sidebar = (
     <aside className="space-y-4">
-      <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-[#1769e8]" /><h2 className="text-sm font-semibold text-[#172e55]">Upcoming time off</h2></div>{personalUpcoming.length === 0 ? <p className="mt-3 text-[13px] leading-5 text-slate-500">Nothing approved yet. Your planned time away will show here.</p> : <div className="mt-3 space-y-3">{personalUpcoming.map((request) => { const policy = policiesByCode.get(request.policy_code); return <div key={request.id} className="flex gap-3"><span className="mt-0.5 h-8 w-1 rounded-full" style={{ backgroundColor: policy?.color ?? "#64748b" }} /><div><p className="text-sm font-semibold text-[#1e355c]">{policy?.label ?? request.policy_code}</p><p className="mt-0.5 text-[13px] text-slate-500">{formatDateRange(request.start_date, request.end_date)}</p></div></div>; })}</div>}</section>
+      <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-[#1769e8]" /><h2 className="text-sm font-semibold text-[#172e55]">My requests</h2></div>{recentMyRequests.length === 0 ? <p className="mt-3 text-[13px] leading-5 text-slate-500">You have not submitted any time-off requests yet.</p> : <div className="mt-3 divide-y divide-slate-100">{recentMyRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <div key={request.id} className="py-2.5 first:pt-0 last:pb-0"><div className="flex items-start justify-between gap-2"><p className="min-w-0 truncate text-sm font-semibold text-[#1e355c]">{policy?.label ?? request.policy_code}</p><StatusBadge status={request.status} /></div><p className="mt-1 text-xs text-slate-500">{formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p></div>; })}</div>}</section>
       <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Building2 className="h-4 w-4 text-violet-600" /><h2 className="text-sm font-semibold text-[#172e55]">Upcoming days off</h2></div>{canManage && <button type="button" onClick={() => { setError(null); setShowHoliday(true); }} className="text-sm font-semibold text-[#1769e8] hover:text-[#115bca]">Add</button>}</div><div className="mt-3 space-y-2.5">{calendarData.holidays.slice(0, 5).map((holiday) => <div key={holiday.id} className="min-w-0"><p className="truncate text-sm font-medium text-[#1e355c]">{holiday.name}</p><p className="mt-0.5 text-xs text-slate-500">{formatDate(holiday.date, { weekday: "short", month: "short", day: "numeric" })}{holiday.source === "us_federal" ? " · US federal" : " · Company"}</p></div>)}</div></section>
-      <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-[#1769e8]" /><h2 className="text-sm font-semibold text-[#172e55]">My requests</h2></div><button type="button" onClick={() => selectTab("requests")} className="text-sm font-semibold text-[#1769e8] hover:text-[#115bca]">View all</button></div>{recentMyRequests.length === 0 ? <p className="mt-3 text-[13px] leading-5 text-slate-500">You have not submitted any time-off requests yet.</p> : <div className="mt-3 divide-y divide-slate-100">{recentMyRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <div key={request.id} className="py-2.5 first:pt-0 last:pb-0"><div className="flex items-start justify-between gap-2"><p className="min-w-0 truncate text-sm font-semibold text-[#1e355c]">{policy?.label ?? request.policy_code}</p><StatusBadge status={request.status} /></div><p className="mt-1 text-xs text-slate-500">{formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p></div>; })}</div>}</section>
     </aside>
   );
 
@@ -601,7 +592,6 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
         <div className="mt-3 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">{tabs.map((item) => <button key={item.id} type="button" onClick={() => selectTab(item.id)} className={`rounded-md px-4 py-2 text-sm font-semibold transition ${tab === item.id ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{item.label}{item.count ? <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${tab === item.id ? "bg-blue-100 text-[#1769e8]" : "bg-white/70 text-slate-500"}`}>{item.count}</span> : null}</button>)}</div>
 
         {tab === "overview" && <><section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{initialData.policies.map((policy) => <BalanceCard key={policy.code} policy={policy} balance={balancesByPolicy.get(policy.code)} />)}</section><div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">{calendar}{sidebar}</div></>}
-        {tab === "requests" && <div className="mt-3">{requestsTable}</div>}
         {tab === "admin" && canManage && <div className="mt-3">{administration}</div>}
       </div>
 
@@ -639,26 +629,6 @@ function BalanceCard({ policy, balance }: { policy: TimeOffPolicy; balance?: { e
 
 function StatusBadge({ status }: { status: TimeOffRequest["status"] }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${STATUS_STYLE[status]}`}>{readableStatus(status)}</span>;
-}
-
-function MyRequestsTable({
-  requests,
-  policiesByCode,
-  busy,
-  onCancel,
-}: {
-  requests: TimeOffRequest[];
-  policiesByCode: Map<string, TimeOffPolicy>;
-  busy: boolean;
-  onCancel: (request: TimeOffRequest) => void;
-}) {
-  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5">
-      <div><h2 className="text-base font-semibold text-[#172e55]">My requests</h2><p className="mt-0.5 text-[13px] text-slate-500">Track the status and decisions for your time-off requests.</p></div>
-      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{requests.length} requests</span>
-    </div>
-    {requests.length === 0 ? <EmptyState message="You have not submitted any time-off requests yet." /> : <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-left"><thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Leave type</th><th className="px-4 py-3">Dates</th><th className="px-4 py-3">Days</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Reviewed by</th><th className="px-4 py-3">Review note</th><th className="px-4 py-3 text-right" /></tr></thead><tbody>{requests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <tr key={request.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><span className="inline-flex items-center gap-2 font-semibold text-[#304767]"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: policy?.color ?? "#94a3b8" }} />{policy?.label ?? request.policy_code}</span></td><td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDateRange(request.start_date, request.end_date)}</td><td className="px-4 py-3 whitespace-nowrap text-slate-600">{request.total_days} day{request.total_days === 1 ? "" : "s"}</td><td className="px-4 py-3"><StatusBadge status={request.status} /></td><td className="px-4 py-3 text-slate-500">{request.reviewer_name ?? "—"}</td><td className="max-w-[240px] px-4 py-3 text-slate-500"><span className="block truncate" title={request.reviewer_note ?? undefined}>{request.reviewer_note ?? "—"}</span></td><td className="px-4 py-3 text-right">{request.status === "pending" && <button type="button" disabled={busy} onClick={() => onCancel(request)} className="text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">Cancel</button>}</td></tr>; })}</tbody></table></div>}
-  </section>;
 }
 
 function ApprovalQueue({
