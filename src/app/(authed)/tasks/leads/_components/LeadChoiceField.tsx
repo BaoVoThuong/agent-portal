@@ -3,8 +3,8 @@
 import { createPortal } from "react-dom";
 import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
-import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
+import { SearchableListboxPanel } from "../../../_shared/SearchableListboxPanel";
+import { useAnchoredMenu } from "../../_components/use-anchored-menu";
 
 export type LeadChoice = {
   value: string;

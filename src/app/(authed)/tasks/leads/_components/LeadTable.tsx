@@ -8,7 +8,7 @@ import type {
   ReactNode,
 } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, UserPlus } from "lucide-react";
-import { EditableCustomCell } from "../../_shared/EditableCustomCell";
+import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
 import { leadDisplayKey } from "@/lib/leads/display";
 import { ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
 import { leadIsInScope } from "@/lib/leads/capabilities";
@@ -28,7 +28,7 @@ import {
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
-import { Initials } from "../../tasks/_components/board-ui";
+import { Initials } from "../../_components/board-ui";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { LeadChoiceField } from "./LeadChoiceField";
 

@@ -47,6 +47,14 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
   },
   {
+    // Đặt SAU /tasks: danh sách này quyết trang đích sau khi đăng nhập theo thứ
+    // tự, và người có cả hai quyền nên hạ cánh ở Health CS như trước. Trước đây
+    // không có mục nào cho lead, nên hai tài khoản chỉ-có-quyền-lead rơi thẳng
+    // vào /unauthorized.
+    href: "/tasks/leads",
+    anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
+  },
+  {
     href: "/config",
     permission: PERMISSIONS.TASK_MANAGE,
   },

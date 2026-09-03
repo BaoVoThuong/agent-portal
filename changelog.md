@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-03 — Event Leads chuyển sang /tasks/leads
+
+- **Loại**: refactor (điều hướng).
+- Event Leads nay nằm trong nhóm Task Management, địa chỉ `/tasks/leads`.
+- **`/leads` cũ vẫn sống** — chuyển hướng sang địa chỉ mới và **giữ nguyên query**, vì Overview sinh liên kết sâu dạng `?alert=stale` và người dùng đã lưu link. Một link chết ở đây là một người bấm vào rồi thấy 404 mà không hiểu vì sao.
+- Chuyển bằng `git mv` chứ không copy: copy thì lịch sử của mười file component đứt và `git log --follow` không lần được nữa.
+- Thêm `/tasks/leads` vào `ACCESSIBLE_ROUTES`, đặt **sau** `/tasks` — danh sách này quyết trang đích sau khi đăng nhập theo thứ tự, và người có cả hai quyền nên hạ cánh ở Health CS như cũ. Trước đây bảng này **không có mục nào cho lead**, nên hai tài khoản chỉ-có-quyền-lead bị đẩy thẳng vào `/unauthorized` khi đăng nhập.
+
 ## 2026-09-02 — Mở lead không còn chớp qua "No interactions yet"
 
 - **Loại**: fix (UX).

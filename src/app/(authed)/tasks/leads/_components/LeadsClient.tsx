@@ -45,7 +45,7 @@ import {
   serializeLayout,
   type LayoutEntry,
 } from "@/lib/table-config/layout";
-import { TaskSelect } from "../../tasks/_components/TaskSelect";
+import { TaskSelect } from "../../_components/TaskSelect";
 import {
   LEAD_INTERACTION_HISTORY_LIMIT,
   type LeadInteraction,
@@ -58,7 +58,7 @@ import { LeadDetailDrawer } from "./LeadDetailDrawer";
 import { LeadAddDialog } from "./LeadAddDialog";
 import { LeadDistributeDialog } from "./LeadDistributeDialog";
 import { LeadImportDialog } from "./LeadImportDialog";
-import { Toast } from "../../_shared/Toast";
+import { Toast } from "../../../_shared/Toast";
 import { LeadOverview } from "./LeadOverview";
 import { LeadTable } from "./LeadTable";
 import { LeadTableSettingsButton } from "./LeadTableSettingsButton";
@@ -796,7 +796,7 @@ export function LeadsClient({
     // nên trang cần được dựng lại. Khác hẳn việc đổi tab, vốn chỉ đổi thứ đang
     // hiển thị từ dữ liệu đã có.
     setView("list");
-    router.push(productFilter ? `/leads?product=${productFilter}&alert=${alert}` : `/leads?alert=${alert}`);
+    router.push(productFilter ? `/tasks/leads?product=${productFilter}&alert=${alert}` : `/tasks/leads?alert=${alert}`);
   }
 
   function changeView(nextView: "list" | "overview") {
@@ -811,7 +811,7 @@ export function LeadsClient({
     setView(nextView);
     // `history.pushState` chứ không phải `router.replace`: nó cập nhật thanh địa
     // chỉ và ngăn xếp Back mà KHÔNG bắt Next chạy lại server component.
-    window.history.pushState(null, "", `/leads?${params.toString()}`);
+    window.history.pushState(null, "", `/tasks/leads?${params.toString()}`);
   }
 
   function saveLeadTableLayout(hiddenKeys: ReadonlySet<string>) {
@@ -993,7 +993,7 @@ export function LeadsClient({
               {alertFilterLabel ? (
                 <button
                   type="button"
-                  onClick={() => router.push(productFilter ? `/leads?product=${productFilter}` : "/leads")}
+                  onClick={() => router.push(productFilter ? `/tasks/leads?product=${productFilter}` : "/tasks/leads")}
                   className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#ffbdad] bg-[#fff7f5] px-3 text-sm font-semibold text-[#bf2600] transition hover:bg-[#ffebe6]"
                 >
                   <CircleAlert className="h-4 w-4" />

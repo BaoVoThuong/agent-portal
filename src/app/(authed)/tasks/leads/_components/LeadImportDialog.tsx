@@ -4,14 +4,14 @@ import * as XLSX from "xlsx";
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { FileSpreadsheet, Upload, X } from "lucide-react";
 import { resolveDialogProduct } from "@/lib/leads/create";
-import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 import {
   fetchLeadEvents,
   peekLeadEvents,
   primeLeadEvent,
   type LeadEventOption as LeadEvent,
 } from "@/lib/leads/events-cache";
-import { TaskSelect } from "../../tasks/_components/TaskSelect";
+import { TaskSelect } from "../../_components/TaskSelect";
 import { parseLeadRows, type ParseResult } from "@/lib/leads/import-parse";
 import {
   guessMappingByName,

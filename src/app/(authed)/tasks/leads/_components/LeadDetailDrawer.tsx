@@ -10,7 +10,7 @@ import {
   type LeadProduct,
 } from "@/lib/leads/types";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
-import { EditableCustomCell } from "../../_shared/EditableCustomCell";
+import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
 import { InteractionLog } from "./InteractionLog";
 import { LeadChoiceField } from "./LeadChoiceField";
 import {
@@ -22,8 +22,8 @@ import { buildStatusById } from "@/lib/leads/status-lookup";
 import { leadIsInScope } from "@/lib/leads/capabilities";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
-import { AvatarStack } from "../../tasks/_components/board-ui";
-import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import { AvatarStack } from "../../_components/board-ui";
+import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 import { ProductMenu } from "./LeadTable";
 
 // These mirror the compact field primitives in TaskDetailDrawer. Keeping them

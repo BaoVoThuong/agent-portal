@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
 import type { TableColumn } from "@/lib/table-config/types";
 import { LEAD_LIST_LOCKED_COLUMN_KEYS } from "@/lib/leads/list-column-visibility";
-import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
+import { useAnchoredMenu } from "../../_components/use-anchored-menu";
 
 type LeadTableSettingsButtonProps = {
   columns: readonly TableColumn[];

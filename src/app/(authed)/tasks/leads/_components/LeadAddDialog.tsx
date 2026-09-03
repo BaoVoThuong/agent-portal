@@ -5,7 +5,7 @@ import { Plus, X } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveDialogProduct } from "@/lib/leads/create";
 import type { LeadProduct, LeadStatus } from "@/lib/leads/types";
-import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 import {
   fetchLeadEvents,
   peekLeadEvents,
