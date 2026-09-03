@@ -6,6 +6,24 @@ function responseError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
+function approvalError(message: string) {
+  const code = message.match(/TIME_OFF_[A-Z_]+/)?.[0];
+  switch (code) {
+    case "TIME_OFF_INSUFFICIENT_BALANCE":
+      return { message: "This request exceeds the employee’s available leave balance.", status: 409 };
+    case "TIME_OFF_REQUEST_ALREADY_DECIDED":
+      return { message: "This request has already been decided. Refresh and try again.", status: 409 };
+    case "TIME_OFF_POLICY_NOT_FOUND":
+      return { message: "This leave type is no longer active, so the request cannot be approved.", status: 409 };
+    case "TIME_OFF_SELF_APPROVAL_FORBIDDEN":
+      return { message: "You cannot approve your own time-off request.", status: 403 };
+    case "TIME_OFF_REQUEST_NOT_FOUND":
+      return { message: "Time-off request not found.", status: 404 };
+    default:
+      return { message: "Approval could not be completed. Please try again or contact an administrator.", status: 400 };
+  }
+}
+
 function note(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -67,10 +85,16 @@ export async function PATCH(
       p_reviewer_note: reviewerNote,
     });
     if (error) {
-      const message = error.message.includes("TIME_OFF_")
-        ? error.message.replace(/^.*?(TIME_OFF_[A-Z_]+).*$/, "$1").replace(/_/g, " ").toLowerCase()
-        : error.message;
-      return responseError(message, error.message.includes("BALANCE") ? 409 : 400);
+      console.error("Time-off approval failed", {
+        requestId: id,
+        reviewerId: actor.accountId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+      const failure = approvalError(error.message);
+      return responseError(failure.message, failure.status);
     }
     return NextResponse.json({ request: data });
   }
