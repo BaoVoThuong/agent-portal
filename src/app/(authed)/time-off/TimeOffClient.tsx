@@ -28,7 +28,7 @@ import type {
   TimeOffTeamMember,
 } from "@/lib/time-off/types";
 
-type Tab = "overview" | "calendar" | "requests" | "approvals" | "admin";
+type Tab = "overview" | "requests" | "approvals" | "admin";
 type AdminSection = "balances" | "history" | "company-days";
 
 type Props = {
@@ -493,7 +493,6 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "overview", label: "Overview" },
-    { id: "calendar", label: "Team calendar" },
     { id: "requests", label: "My requests", count: initialData.my_requests.filter((item) => item.status === "pending").length },
     ...(canManage ? [
       { id: "approvals" as const, label: "Approvals", count: initialData.pending_approvals.length },
@@ -589,8 +588,7 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
 
         <div className="mt-3 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">{tabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`rounded-md px-4 py-2 text-sm font-semibold transition ${tab === item.id ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{item.label}{item.count ? <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${tab === item.id ? "bg-blue-100 text-[#1769e8]" : "bg-white/70 text-slate-500"}`}>{item.count}</span> : null}</button>)}</div>
 
-        {tab === "overview" && <><section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{initialData.policies.map((policy) => <BalanceCard key={policy.code} policy={policy} balance={balancesByPolicy.get(policy.code)} />)}</section><div className="mt-3 max-w-[640px]">{sidebar}</div></>}
-        {tab === "calendar" && <div className="mt-3">{calendar}</div>}
+        {tab === "overview" && <><section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{initialData.policies.map((policy) => <BalanceCard key={policy.code} policy={policy} balance={balancesByPolicy.get(policy.code)} />)}</section><div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">{calendar}{sidebar}</div></>}
         {tab === "requests" && <div className="mt-3">{requestsTable}</div>}
         {tab === "approvals" && canManage && <div className="mt-3">{approvals}</div>}
         {tab === "admin" && canManage && <div className="mt-3">{administration}</div>}
