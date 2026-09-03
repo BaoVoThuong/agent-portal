@@ -6549,13 +6549,13 @@ begin
       and leave_year = leave_year_value
     for update;
 
-    select coalesce(sum(total_days), 0) into used_days
-    from time_off_requests
-    where requester_id = request_value.requester_id
-      and policy_code = request_value.policy_code
-      and status = 'approved'
-      and start_date >= make_date(leave_year_value, 1, 1)
-      and end_date <= make_date(leave_year_value, 12, 31);
+    select coalesce(sum(approved_request.total_days), 0) into used_days
+    from time_off_requests as approved_request
+    where approved_request.requester_id = request_value.requester_id
+      and approved_request.policy_code = request_value.policy_code
+      and approved_request.status = 'approved'
+      and approved_request.start_date >= make_date(leave_year_value, 1, 1)
+      and approved_request.end_date <= make_date(leave_year_value, 12, 31);
     available_days := coalesce(balance_value.entitlement_days, policy_value.annual_allowance)
       + balance_value.adjustment_days - used_days;
     if request_value.total_days > available_days then
