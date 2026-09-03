@@ -28,7 +28,7 @@ import type {
 } from "@/lib/time-off/types";
 
 type Tab = "overview" | "admin";
-type AdminSection = "balances" | "history" | "company-days";
+type AdminSection = "balances" | "approvals" | "history" | "company-days";
 
 type Props = {
   canManage: boolean;
@@ -638,11 +638,12 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
     <section className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-base font-semibold text-[#172e55]">Leave administration</h2><p className="mt-0.5 text-[13px] text-slate-500">Manage team balances, leave history, and company closures.</p></div>{adminSection === "company-days" && <button type="button" onClick={() => { setError(null); setShowHoliday(true); }} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#115bca]"><Plus className="h-4 w-4" />Add company day off</button>}</div>
       <div className="mt-4 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
-        {(["balances", "history", "company-days"] as const).map((section) => <button key={section} type="button" onClick={() => setAdminSection(section)} className={`rounded-md px-3 py-2 text-sm font-semibold transition ${adminSection === section ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{section === "balances" ? "Balances" : section === "history" ? "Leave history" : "Company days off"}</button>)}
+        {(["balances", "approvals", "history", "company-days"] as const).map((section) => <button key={section} type="button" onClick={() => setAdminSection(section)} className={`rounded-md px-3 py-2 text-sm font-semibold transition ${adminSection === section ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{section === "balances" ? "Balances" : section === "approvals" ? <>Approvals{initialData.pending_approvals.length > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700">{initialData.pending_approvals.length}</span>}</> : section === "history" ? "Leave history" : "Company days off"}</button>)}
       </div>
       <div className="mt-4">
         {adminSection === "balances" && <div className="space-y-4"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /><BalanceAdjustmentLog adjustments={initialData.balance_adjustments} members={initialData.team_members} policiesByCode={policiesByCode} /></div>}
-        {adminSection === "history" && <div className="space-y-4">{initialData.pending_approvals.length > 0 && <ApprovalQueue requests={initialData.pending_approvals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}<TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} /></div>}
+        {adminSection === "approvals" && <ApprovalQueue requests={initialData.pending_approvals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}
+        {adminSection === "history" && <TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} />}
         {adminSection === "company-days" && <CompanyDaysTable days={initialData.company_days} busy={Boolean(busy)} onRemove={removeHoliday} />}
       </div>
     </section>
