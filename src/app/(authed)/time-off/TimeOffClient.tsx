@@ -22,13 +22,14 @@ import type {
   TimeOffBalanceAdjustment,
   TimeOffCalendarEvent,
   TimeOffHoliday,
+  TimeOffMonthlyAccrualRule,
   TimeOffPolicy,
   TimeOffRequest,
   TimeOffTeamMember,
 } from "@/lib/time-off/types";
 
 type Tab = "overview" | "admin";
-type AdminSection = "balances" | "approvals" | "history" | "company-days";
+type AdminSection = "balances" | "accruals" | "approvals" | "history" | "company-days";
 
 type Props = {
   accountId: string;
@@ -188,6 +189,8 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   const [showMyRequests, setShowMyRequests] = useState(false);
   const [showHoliday, setShowHoliday] = useState(false);
   const [showBalanceSetup, setShowBalanceSetup] = useState(false);
+  const [showMonthlyAccrual, setShowMonthlyAccrual] = useState(false);
+  const [showBulkAdjustment, setShowBulkAdjustment] = useState(false);
   const [decisionRequest, setDecisionRequest] = useState<TimeOffRequest | null>(null);
   const [decisionAction, setDecisionAction] = useState<"approve" | "reject" | "cancel" | null>(null);
   const [decisionNote, setDecisionNote] = useState("");
@@ -208,6 +211,16 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   const [balanceMonth, setBalanceMonth] = useState(monthKey);
   const [balanceDelta, setBalanceDelta] = useState("");
   const [balanceNote, setBalanceNote] = useState("");
+  const [accrualPolicy, setAccrualPolicy] = useState(initialData.policies.find((policy) => policy.counts_toward_balance)?.code ?? "vacation");
+  const [accrualCredit, setAccrualCredit] = useState("1");
+  const [accrualStartMonth, setAccrualStartMonth] = useState(monthKey);
+  const [accrualActive, setAccrualActive] = useState(true);
+  const [accrualRunMonth, setAccrualRunMonth] = useState(monthKey);
+  const [bulkPolicy, setBulkPolicy] = useState(initialData.policies.find((policy) => policy.counts_toward_balance)?.code ?? "vacation");
+  const [bulkMonth, setBulkMonth] = useState(monthKey);
+  const [bulkDelta, setBulkDelta] = useState("");
+  const [bulkNote, setBulkNote] = useState("");
+  const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -276,15 +289,19 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     .slice(0, 4);
 
   useEffect(() => {
-    if (!showRequest || !requestStart || !requestEnd || requestStart > requestEnd) {
-      setRequestBalancePreview(null);
-      setRequestBalancePreviewError(null);
-      setRequestBalancePreviewLoading(false);
-      return;
-    }
-
     const controller = new AbortController();
+    // Nhánh "chưa đủ dữ liệu để hỏi" nằm TRONG callback debounce chứ không ở
+    // thân effect: luật react-hooks/set-state-in-effect cấm gọi setState thẳng
+    // trong thân effect. Đặt vào đây còn hợp lý hơn — người dùng đang gõ dở
+    // ngày thì ô xem trước không chớp tắt theo từng ký tự.
     const timeout = window.setTimeout(async () => {
+      if (!showRequest || !requestStart || !requestEnd || requestStart > requestEnd) {
+        setRequestBalancePreview(null);
+        setRequestBalancePreviewError(null);
+        setRequestBalancePreviewLoading(false);
+        return;
+      }
+
       setRequestBalancePreviewLoading(true);
       setRequestBalancePreviewError(null);
       try {
@@ -330,6 +347,27 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     setBalanceDelta("");
     setBalanceNote("");
     setShowBalanceSetup(true);
+  }
+
+  function openMonthlyAccrual(policyCode?: string) {
+    const code = policyCode ?? adjustablePolicies[0]?.code ?? "vacation";
+    const existing = initialData.monthly_accrual_rules.find((rule) => rule.policy_code === code);
+    setError(null);
+    setAccrualPolicy(code);
+    setAccrualCredit(String(existing?.credit_days ?? 1));
+    setAccrualStartMonth(existing?.start_month.slice(0, 7) ?? monthKey);
+    setAccrualActive(existing?.is_active ?? true);
+    setShowMonthlyAccrual(true);
+  }
+
+  function openBulkAdjustment() {
+    setError(null);
+    setBulkPolicy(adjustablePolicies[0]?.code ?? "vacation");
+    setBulkMonth(monthKey);
+    setBulkDelta("");
+    setBulkNote("");
+    setBulkIdempotencyKey(crypto.randomUUID());
+    setShowBulkAdjustment(true);
   }
 
   const rememberCalendar = useCallback((calendar: CalendarData) => {
@@ -553,6 +591,77 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     }
   }
 
+  async function submitMonthlyAccrual(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy("monthly-accrual");
+    setError(null);
+    try {
+      await readResponse(await fetch("/api/time-off/accruals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          policy_code: accrualPolicy,
+          credit_days: Number(accrualCredit),
+          start_month: accrualStartMonth,
+          is_active: accrualActive,
+        }),
+      }));
+      setShowMonthlyAccrual(false);
+      setNotice(accrualActive ? "Monthly accrual rule saved." : "Monthly accrual rule paused.");
+      router.refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to save the monthly accrual rule.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function applyMonthlyAccruals() {
+    setBusy("apply-monthly-accruals");
+    setError(null);
+    try {
+      const payload = await readResponse(await fetch("/api/time-off/accruals/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: accrualRunMonth }),
+      })) as { results?: { member_count?: number; applied?: boolean }[] };
+      const applied = (payload.results ?? []).filter((result) => result.applied);
+      const recipients = applied.reduce((total, result) => total + (result.member_count ?? 0), 0);
+      setNotice(applied.length > 0 ? `Monthly accrual applied to ${recipients} team balances.` : "All active monthly accruals were already applied for this month.");
+      router.refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to apply monthly accruals.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function submitBulkAdjustment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy("bulk-adjustment");
+    setError(null);
+    try {
+      const payload = await readResponse(await fetch("/api/time-off/balances/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          policy_code: bulkPolicy,
+          month: bulkMonth,
+          delta_days: Number(bulkDelta),
+          note: bulkNote,
+          idempotency_key: bulkIdempotencyKey,
+        }),
+      })) as { adjustment?: { member_count?: number; applied?: boolean } };
+      setShowBulkAdjustment(false);
+      setNotice(payload.adjustment?.applied ? `Team adjustment applied to ${payload.adjustment.member_count ?? 0} active employees.` : "This team adjustment was already applied.");
+      router.refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to adjust team balances.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function removeHoliday(holiday: TimeOffHoliday) {
     if (!confirm(`Remove ${holiday.name} from the company calendar?`)) return;
     setBusy(`holiday-${holiday.id}`);
@@ -640,10 +749,11 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     <section className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-base font-semibold text-[#172e55]">Leave administration</h2><p className="mt-0.5 text-[13px] text-slate-500">Manage team balances, leave history, and company closures.</p></div>{adminSection === "company-days" && <button type="button" onClick={() => { setError(null); setShowHoliday(true); }} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#115bca]"><Plus className="h-4 w-4" />Add company day off</button>}</div>
       <div className="mt-4 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
-        {(["balances", "approvals", "history", "company-days"] as const).map((section) => <button key={section} type="button" onClick={() => setAdminSection(section)} className={`rounded-md px-3 py-2 text-sm font-semibold transition ${adminSection === section ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{section === "balances" ? "Balances" : section === "approvals" ? <>Approvals{initialData.pending_approvals.length > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700">{initialData.pending_approvals.length}</span>}</> : section === "history" ? "Leave history" : "Company days off"}</button>)}
+        {(["balances", "accruals", "approvals", "history", "company-days"] as const).map((section) => <button key={section} type="button" onClick={() => setAdminSection(section)} className={`rounded-md px-3 py-2 text-sm font-semibold transition ${adminSection === section ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{section === "balances" ? "Balances" : section === "accruals" ? "Monthly accruals" : section === "approvals" ? <>Approvals{initialData.pending_approvals.length > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700">{initialData.pending_approvals.length}</span>}</> : section === "history" ? "Leave history" : "Company days off"}</button>)}
       </div>
       <div className="mt-4">
         {adminSection === "balances" && <div className="space-y-4"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /><BalanceAdjustmentLog adjustments={initialData.balance_adjustments} members={initialData.team_members} policiesByCode={policiesByCode} /></div>}
+        {adminSection === "accruals" && <AccrualSettings policies={adjustablePolicies} rules={initialData.monthly_accrual_rules} teamSize={initialData.team_members.length} runMonth={accrualRunMonth} onRunMonthChange={setAccrualRunMonth} busy={Boolean(busy)} onConfigure={openMonthlyAccrual} onApply={applyMonthlyAccruals} onBulkAdjust={openBulkAdjustment} />}
         {adminSection === "approvals" && <ApprovalQueue accountId={accountId} requests={initialData.pending_approvals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}
         {adminSection === "history" && <TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} />}
         {adminSection === "company-days" && <CompanyDaysTable days={initialData.company_days} busy={Boolean(busy)} onRemove={removeHoliday} />}
@@ -679,6 +789,8 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
       {showMyRequests && <Modal title="My requests" onClose={() => setShowMyRequests(false)}><div className="max-h-[65vh] space-y-2 overflow-y-auto pr-1">{initialData.my_requests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <section key={request.id} className="rounded-lg border border-slate-200 p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold text-[#1e355c]">{policy?.label ?? request.policy_code}</p><p className="mt-1 text-sm text-slate-500">{formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p></div><StatusBadge status={request.status} /></div>{request.status === "pending" && <button type="button" disabled={Boolean(busy)} onClick={() => { setShowMyRequests(false); openDecision(request, "cancel"); }} className="mt-3 text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:cursor-wait disabled:opacity-60">Cancel request</button>}</section>; })}</div></Modal>}
       {showHoliday && <Modal title="Add company day off" onClose={() => setShowHoliday(false)}><form onSubmit={submitHoliday} className="space-y-5"><p className="-mt-2 text-sm leading-6 text-slate-500">Use this for company closures in addition to the automatically included US federal holidays.</p><label className="block text-sm font-semibold text-[#304767]">Date<input required type="date" value={holidayDate} onChange={(event) => setHolidayDate(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><label className="block text-sm font-semibold text-[#304767]">Name<input required value={holidayName} onChange={(event) => setHolidayName(event.target.value)} maxLength={120} placeholder="e.g. Company winter break" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowHoliday(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "holiday"} type="submit" className="rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "holiday" ? "Adding…" : "Add day off"}</button></div></form></Modal>}
       {showBalanceSetup && <Modal title="Manage leave balance" onClose={() => setShowBalanceSetup(false)}><form onSubmit={submitBalanceAdjustment} className="space-y-4"><p className="-mt-2 text-sm leading-5 text-slate-500">Credit or deduct leave for a specific month. Every update is retained in the balance audit history.</p><EmployeePicker members={initialData.team_members} value={balanceAccountId} onChange={setBalanceAccountId} /><div className="grid gap-3 sm:grid-cols-2"><PolicyPicker label="Leave type" policies={adjustablePolicies} value={balancePolicy} onChange={setBalancePolicy} /><label className="block text-sm font-semibold text-[#304767]">Effective month<input required type="month" min={`${balanceYear}-01`} max={`${balanceYear}-12`} value={balanceMonth} onChange={(event) => setBalanceMonth(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div><label className="block text-sm font-semibold text-[#304767]">Monthly adjustment<input required type="number" step="0.5" min="-366" max="366" value={balanceDelta} onChange={(event) => setBalanceDelta(event.target.value)} placeholder="e.g. +1.5 or -0.5" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /><span className="mt-1 block text-xs font-normal text-slate-500">Use a positive value to credit days and a negative value to deduct them.</span></label>{selectedBalancePolicy && <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-center"><div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Allowance</p><p className="mt-1 text-sm font-bold text-[#172e55]">{selectedBalance?.entitlement_days ?? selectedBalancePolicy.annual_allowance ?? "—"}</p></div><div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Adjusted</p><p className={`mt-1 text-sm font-bold ${(selectedBalance?.adjustment_days ?? 0) < 0 ? "text-rose-600" : "text-emerald-600"}`}>{(selectedBalance?.adjustment_days ?? 0) > 0 ? "+" : ""}{selectedBalance?.adjustment_days ?? 0}</p></div><div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Available</p><p className="mt-1 text-sm font-bold text-[#172e55]">{selectedBalanceAvailable ?? "—"}</p></div></div>}<label className="block text-sm font-semibold text-[#304767]">Note <span className="font-normal text-slate-400">(optional)</span><textarea value={balanceNote} onChange={(event) => setBalanceNote(event.target.value)} maxLength={500} rows={2} placeholder="Why is this balance changing?" className="mt-1.5 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label>{selectedBalanceHistory.length > 0 && <div className="border-t border-slate-100 pt-3"><p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Recent adjustments</p><div className="mt-2 space-y-2">{selectedBalanceHistory.map((adjustment) => <div key={adjustment.id} className="flex items-start justify-between gap-3 text-sm"><div className="min-w-0"><p className="font-medium text-[#304767]">{formatDate(adjustment.effective_month, { month: "short", year: "numeric" })}{adjustment.note ? ` · ${adjustment.note}` : ""}</p><p className="mt-0.5 text-xs text-slate-500">by {adjustment.created_by_name}</p></div><span className={`shrink-0 font-bold ${adjustment.delta_days > 0 ? "text-emerald-600" : "text-rose-600"}`}>{adjustment.delta_days > 0 ? "+" : ""}{adjustment.delta_days} d</span></div>)}</div></div>}<div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowBalanceSetup(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "balance-adjustment" || !balanceAccountId || !balancePolicy} type="submit" className="rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "balance-adjustment" ? "Saving…" : "Save adjustment"}</button></div></form></Modal>}
+      {showMonthlyAccrual && <Modal title="Set monthly accrual" onClose={() => setShowMonthlyAccrual(false)}><form onSubmit={submitMonthlyAccrual} className="space-y-4"><p className="-mt-2 text-sm leading-6 text-slate-500">Credits every active employee on the first of each month. This is added on top of the existing annual allowance.</p><PolicyPicker label="Leave type" policies={adjustablePolicies} value={accrualPolicy} onChange={setAccrualPolicy} /><div className="grid gap-3 sm:grid-cols-2"><label className="block text-sm font-semibold text-[#304767]">Credit per month<input required type="number" min="0.1" max="31" step="0.1" value={accrualCredit} onChange={(event) => setAccrualCredit(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><label className="block text-sm font-semibold text-[#304767]">Starts in<input required type="month" value={accrualStartMonth} onChange={(event) => setAccrualStartMonth(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div><label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-[#304767]"><input type="checkbox" checked={accrualActive} onChange={(event) => setAccrualActive(event.target.checked)} className="h-4 w-4 accent-[#1769e8]" />Enable this monthly accrual</label><div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowMonthlyAccrual(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "monthly-accrual"} type="submit" className="rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "monthly-accrual" ? "Saving…" : "Save rule"}</button></div></form></Modal>}
+      {showBulkAdjustment && <Modal title="Adjust all team balances" onClose={() => setShowBulkAdjustment(false)}><form onSubmit={submitBulkAdjustment} className="space-y-4"><div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm leading-5 text-amber-800">This applies one adjustment to all {initialData.team_members.length} active employees. Every employee receives a separate audit-log entry.</div><div className="grid gap-3 sm:grid-cols-2"><PolicyPicker label="Leave type" policies={adjustablePolicies} value={bulkPolicy} onChange={setBulkPolicy} /><label className="block text-sm font-semibold text-[#304767]">Effective month<input required type="month" value={bulkMonth} onChange={(event) => setBulkMonth(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div><label className="block text-sm font-semibold text-[#304767]">Days to add or deduct<input required type="number" step="0.1" min="-366" max="366" value={bulkDelta} onChange={(event) => setBulkDelta(event.target.value)} placeholder="e.g. 1 or -0.5" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /><span className="mt-1 block text-xs font-normal text-slate-500">Positive credits leave; negative deducts leave.</span></label><label className="block text-sm font-semibold text-[#304767]">Reason <span className="font-normal text-slate-400">(optional)</span><textarea value={bulkNote} onChange={(event) => setBulkNote(event.target.value)} maxLength={500} rows={2} placeholder="Why is the whole team receiving this adjustment?" className="mt-1.5 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowBulkAdjustment(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "bulk-adjustment" || !bulkIdempotencyKey} type="submit" className="rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "bulk-adjustment" ? "Applying…" : "Apply to all employees"}</button></div></form></Modal>}
       {decisionRequest && decisionAction && (
         <Modal
           title={decisionAction === "approve" ? "Approve time-off request" : decisionAction === "reject" ? "Decline time-off request" : "Cancel time-off request"}
@@ -710,6 +822,39 @@ function BalanceCard({ policy, balance }: { policy: TimeOffPolicy; balance?: { e
 
 function StatusBadge({ status }: { status: TimeOffRequest["status"] }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${STATUS_STYLE[status]}`}>{readableStatus(status)}</span>;
+}
+
+function AccrualSettings({
+  policies,
+  rules,
+  teamSize,
+  runMonth,
+  onRunMonthChange,
+  busy,
+  onConfigure,
+  onApply,
+  onBulkAdjust,
+}: {
+  policies: TimeOffPolicy[];
+  rules: TimeOffMonthlyAccrualRule[];
+  teamSize: number;
+  runMonth: string;
+  onRunMonthChange: (month: string) => void;
+  busy: boolean;
+  onConfigure: (policyCode?: string) => void;
+  onApply: () => void;
+  onBulkAdjust: () => void;
+}) {
+  const rulesByPolicy = new Map(rules.map((rule) => [rule.policy_code, rule]));
+
+  return <div className="space-y-4">
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="border-b border-slate-100 px-4 py-3.5"><h2 className="text-base font-semibold text-[#172e55]">Monthly accruals</h2><p className="mt-0.5 text-[13px] leading-5 text-slate-500">Automatically credit every active employee each month. Existing annual allowances remain unchanged.</p></div>
+      <div className="divide-y divide-slate-100">{policies.map((policy) => { const rule = rulesByPolicy.get(policy.code); return <div key={policy.code} className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: policy.color }} /><p className="font-semibold text-[#1e355c]">{policy.label}</p>{rule && <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${rule.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{rule.is_active ? "Active" : "Paused"}</span>}</div><p className="mt-1 text-sm text-slate-500">{rule ? `${rule.credit_days} day${rule.credit_days === 1 ? "" : "s"} per month · starts ${formatDate(rule.start_month, { month: "short", year: "numeric" })}` : "No recurring credit configured."}</p></div><button type="button" disabled={busy} onClick={() => onConfigure(policy.code)} className="w-fit rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-[#1769e8] hover:border-blue-200 hover:bg-blue-50 disabled:opacity-50">{rule ? "Edit rule" : "Set up"}</button></div>; })}</div>
+    </section>
+    <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><h2 className="text-base font-semibold text-[#172e55]">Run monthly credits</h2><p className="mt-0.5 text-[13px] leading-5 text-slate-500">The scheduled job runs automatically. Use this to backfill a configured month; rerunning the same month cannot double-credit anyone.</p></div><div className="flex flex-wrap items-end gap-2"><label className="block text-sm font-semibold text-[#304767]">Month<input type="month" value={runMonth} onChange={(event) => onRunMonthChange(event.target.value)} className="mt-1.5 block rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><button type="button" disabled={busy || rules.every((rule) => !rule.is_active)} onClick={onApply} className="rounded-lg bg-[#1769e8] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#115bca] disabled:cursor-not-allowed disabled:opacity-50">Apply monthly credits</button></div></div></section>
+    <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-base font-semibold text-[#172e55]">One-time team adjustment</h2><p className="mt-0.5 text-[13px] leading-5 text-slate-500">Credit or deduct one leave type for all {teamSize} active employees with a separate audit entry per employee.</p></div><button type="button" disabled={busy || policies.length === 0} onClick={onBulkAdjust} className="w-fit rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-semibold text-[#1769e8] hover:border-blue-200 hover:bg-blue-50 disabled:opacity-50">Adjust all employees</button></div></section>
+  </div>;
 }
 
 function ApprovalQueue({

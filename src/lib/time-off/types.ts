@@ -67,9 +67,18 @@ export type TimeOffBalanceAdjustment = {
   leave_year: number;
   effective_month: string;
   delta_days: number;
+  source: "manual" | "monthly_accrual" | "bulk_adjustment";
   note: string | null;
   created_by_name: string;
   created_at: string;
+};
+
+export type TimeOffMonthlyAccrualRule = {
+  policy_code: string;
+  credit_days: number;
+  start_month: string;
+  is_active: boolean;
+  updated_at: string;
 };
 
 export type TimeOffDashboardData = {
@@ -81,6 +90,7 @@ export type TimeOffDashboardData = {
   pending_approvals: TimeOffRequest[];
   team_members: TimeOffTeamMember[];
   balance_adjustments: TimeOffBalanceAdjustment[];
+  monthly_accrual_rules: TimeOffMonthlyAccrualRule[];
   team_leave_log: TimeOffRequest[];
   company_days: TimeOffHoliday[];
 };

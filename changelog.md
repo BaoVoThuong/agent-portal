@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-03 — Time Off: tích luỹ ngày phép hằng tháng + điều chỉnh cả nhóm
+
+- **Loại**: feature (Time Off admin) + fix (lint).
+- Thêm quy tắc **tích luỹ hằng tháng**: mỗi policy cấu hình được số ngày cộng thêm mỗi tháng, có tháng bắt đầu và cờ bật/tắt. Cron `/api/cron/time-off-monthly-accrual` chạy **7:15 hằng ngày** và gọi `apply_time_off_monthly_accruals`. Chạy hằng ngày chứ không phải mỗi tháng một lần vì routine SQL **idempotent theo policy + tháng** — lặp lại hay retry đều không cộng đôi, mà chạy mỗi ngày thì lỡ một ngày cũng tự bù.
+- Tháng được tính theo **giờ Central** (`America/Chicago`), không theo giờ máy chủ: mốc sang tháng phải trùng với mốc mà nhân viên cảm nhận.
+- Thêm **điều chỉnh hàng loạt** (`bulk_adjust_time_off_balances`): một lần áp cho toàn bộ nhân viên đang hoạt động, nhưng **mỗi người vẫn nhận một dòng audit riêng** — gộp thành một dòng thì sau này không truy được ai đã được cộng gì.
+- Rollout: `supabase/rollouts/2026-09-04-time-off-monthly-accruals.sql` (đã chạy). Lưu ý file này **không** kết thúc bằng `notify pgrst, 'reload schema'`, nên PostgREST có thể còn phục vụ schema cũ một lúc sau khi chạy.
+- **Sửa 2 lỗi lint** trong `TimeOffClient.tsx` khiến `npm run lint` đang đỏ:
+  - `react-hooks/set-state-in-effect`: nhánh "chưa đủ dữ liệu để hỏi" của ô xem trước số ngày phép chuyển từ thân effect vào trong callback debounce. Hệ quả phụ có lợi: đang gõ dở ngày thì ô xem trước không còn chớp tắt theo từng ký tự.
+  - `react/jsx-no-duplicate-props`: ô nhập của modal "Adjust all team balances" viết `required` hai lần.
+
 ## 2026-09-03 — Approval nằm trong Leave history
 
 - **Loại**: refactor (Time Off admin workflow).

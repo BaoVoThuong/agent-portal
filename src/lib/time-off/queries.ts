@@ -7,6 +7,7 @@ import type {
   TimeOffCalendarEvent,
   TimeOffDashboardData,
   TimeOffHoliday,
+  TimeOffMonthlyAccrualRule,
   TimeOffPolicy,
   TimeOffRequest,
   TimeOffRequestStatus,
@@ -82,6 +83,7 @@ export async function fetchTimeOffDashboard(
     teamBalancesResult,
     teamUsedResult,
     adjustmentsResult,
+    accrualRulesResult,
     teamLeaveLogResult,
     companyDaysResult,
   ] = await Promise.all([
@@ -151,10 +153,16 @@ export async function fetchTimeOffDashboard(
     params.isManager
       ? supabase
           .from("time_off_balance_adjustments")
-          .select("id,account_id,policy_code,leave_year,effective_month,delta_days,note,created_by_id,created_at")
+          .select("id,account_id,policy_code,leave_year,effective_month,delta_days,source,note,created_by_id,created_at")
           .eq("leave_year", year)
           .order("created_at", { ascending: false })
           .limit(200)
+      : Promise.resolve({ data: [], error: null }),
+    params.isManager
+      ? supabase
+          .from("time_off_monthly_accrual_rules")
+          .select("policy_code,credit_days,start_month,is_active,updated_at")
+          .order("policy_code")
       : Promise.resolve({ data: [], error: null }),
     params.isManager
       ? supabase
@@ -185,6 +193,7 @@ export async function fetchTimeOffDashboard(
     teamBalancesResult,
     teamUsedResult,
     adjustmentsResult,
+    accrualRulesResult,
     teamLeaveLogResult,
     companyDaysResult,
   ];
@@ -272,8 +281,9 @@ export async function fetchTimeOffDashboard(
     leave_year: number;
     effective_month: string;
     delta_days: number | string;
+    source: "manual" | "monthly_accrual" | "bulk_adjustment";
     note: string | null;
-    created_by_id: string;
+    created_by_id: string | null;
     created_at: string;
   }[]).map((row) => ({
     id: row.id,
@@ -282,9 +292,25 @@ export async function fetchTimeOffDashboard(
     leave_year: Number(row.leave_year),
     effective_month: row.effective_month,
     delta_days: Number(row.delta_days),
+    source: row.source,
     note: row.note,
-    created_by_name: accounts.get(row.created_by_id)?.name?.trim() || accounts.get(row.created_by_id)?.email || "Unknown manager",
+    created_by_name: row.created_by_id
+      ? accounts.get(row.created_by_id)?.name?.trim() || accounts.get(row.created_by_id)?.email || "Unknown manager"
+      : "Automated schedule",
     created_at: row.created_at,
+  }));
+  const monthlyAccrualRules: TimeOffMonthlyAccrualRule[] = ((accrualRulesResult.data ?? []) as {
+    policy_code: string;
+    credit_days: number | string;
+    start_month: string;
+    is_active: boolean;
+    updated_at: string;
+  }[]).map((row) => ({
+    policy_code: row.policy_code,
+    credit_days: Number(row.credit_days),
+    start_month: row.start_month,
+    is_active: row.is_active,
+    updated_at: row.updated_at,
   }));
   const companyDays: TimeOffHoliday[] = ((companyDaysResult.data ?? []) as {
     id: string;
@@ -301,6 +327,7 @@ export async function fetchTimeOffDashboard(
     pending_approvals: ((pendingResult.data ?? []) as RequestRow[]).map((row) => asRequest(row, accounts)),
     team_members: teamMembers,
     balance_adjustments: balanceAdjustments,
+    monthly_accrual_rules: monthlyAccrualRules,
     team_leave_log: ((teamLeaveLogResult.data ?? []) as RequestRow[]).map((row) => asRequest(row, accounts)),
     company_days: companyDays,
   };
