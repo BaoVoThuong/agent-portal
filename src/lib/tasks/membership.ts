@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { fetchSelectedAgentEmails } from "./assignees";
 import type { TaskActor } from "./types";
 
@@ -164,6 +165,64 @@ export async function fetchAdminEmails(): Promise<string[]> {
   if (error) return [];
   return [
     ...new Set((data ?? []).map((row) => (row as { email: string }).email)),
+  ];
+}
+
+/**
+ * Every active account that currently holds `task.manage`, through an active
+ * RBAC role. This deliberately does not rely on `portal_account.role = admin`:
+ * task-management access is permission-based, and a dedicated Task Admin role
+ * may not use the legacy admin label.
+ */
+export async function fetchTaskManagerEmails(): Promise<string[]> {
+  const supabase = getSupabaseAdmin();
+  const { data: permissionRows, error: permissionError } = await supabase
+    .from("role_permissions")
+    .select("role_id")
+    .eq("permission_key", PERMISSIONS.TASK_MANAGE);
+  if (permissionError) throw new Error(permissionError.message);
+
+  const roleIds = [
+    ...new Set((permissionRows ?? []).map((row) => (row as { role_id: string }).role_id)),
+  ];
+  if (roleIds.length === 0) return [];
+
+  const { data: activeRoleRows, error: activeRoleError } = await supabase
+    .from("roles")
+    .select("id")
+    .in("id", roleIds)
+    .eq("is_active", true);
+  if (activeRoleError) throw new Error(activeRoleError.message);
+
+  const activeRoleIds = [
+    ...new Set((activeRoleRows ?? []).map((row) => (row as { id: string }).id)),
+  ];
+  if (activeRoleIds.length === 0) return [];
+
+  const { data: userRoleRows, error: userRoleError } = await supabase
+    .from("user_roles")
+    .select("user_id")
+    .in("role_id", activeRoleIds);
+  if (userRoleError) throw new Error(userRoleError.message);
+
+  const userIds = [
+    ...new Set((userRoleRows ?? []).map((row) => (row as { user_id: string }).user_id)),
+  ];
+  if (userIds.length === 0) return [];
+
+  const { data: accounts, error: accountError } = await supabase
+    .from("portal_account")
+    .select("email")
+    .in("id", userIds)
+    .eq("is_active", true);
+  if (accountError) throw new Error(accountError.message);
+
+  return [
+    ...new Set(
+      (accounts ?? [])
+        .map((row) => (row as { email: string }).email.trim())
+        .filter(Boolean),
+    ),
   ];
 }
 

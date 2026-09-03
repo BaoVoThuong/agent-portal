@@ -27,6 +27,7 @@ import {
   fetchAgentOwnerAndAssistantEmails,
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
+  fetchTaskManagerEmails,
 } from "@/lib/tasks/membership";
 import {
   insertNotifications,
@@ -377,7 +378,26 @@ export async function POST(request: Request) {
                   [email]
                 )
               : [];
+            // An Agent Assistant is normally the one creating a task, so the
+            // people who can act on it are its Task Admins (they hold
+            // `task.manage` and can open it straight from the bell to assign or
+            // adjust) and the task's own agent. RBAC, not the legacy
+            // `portal_account.role`, defines the manager list. Nobody else needs
+            // this notification.
+            const taskCreatedRecipients = uniqueNotificationRecipients(
+              [
+                ...(await fetchTaskManagerEmails()),
+                ...(agentEmail ? [agentEmail] : []),
+              ],
+              [email]
+            );
             const notificationRows: NotificationInsertInput[] = uniqueNotificationRows([
+              ...taskCreatedRecipients.map((recipient) => ({
+                recipient_email: recipient,
+                task_id: taskId,
+                type: "task_created" as const,
+                actor_email: email,
+              })),
               ...assignedRecipients.map((assigneeEmail) => ({
                 recipient_email: assigneeEmail,
                 task_id: taskId,

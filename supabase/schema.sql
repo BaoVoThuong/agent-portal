@@ -2788,7 +2788,10 @@ begin
       'qc_reviewed',
       'cancelled',
       'attachment_added',
-      'backlog_attention'
+      'backlog_attention',
+      'due_date_overdue',
+      'due_date_overdue_reminder',
+      'task_created'
     )
   );
 end $$;

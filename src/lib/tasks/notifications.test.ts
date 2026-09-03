@@ -1,10 +1,29 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   resolveCommentRecipients,
+  TASK_NOTIFICATION_TYPES,
   toNotificationInsertRows,
   uniqueNotificationRecipients,
   uniqueNotificationRows,
 } from "@/lib/tasks/notifications";
+
+describe("task notification vocabulary", () => {
+  it("keeps the database constraint aligned with supported notification types", () => {
+    const schema = readFileSync(join(process.cwd(), "supabase/schema.sql"), "utf8");
+    const match = schema.match(
+      /add constraint task_notifications_type_check\s+check\s*\(\s*type in \(([\s\S]*?)\)\s*\);/
+    );
+
+    expect(match?.[1]).toBeDefined();
+    const databaseTypes = [...match![1].matchAll(/'([^']+)'/g)]
+      .map(([, type]) => type)
+      .sort();
+
+    expect(databaseTypes).toEqual([...TASK_NOTIFICATION_TYPES].sort());
+  });
+});
 
 describe("resolveCommentRecipients", () => {
   it("notifies mentioned users (excluding author)", () => {

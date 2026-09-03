@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-03 — Tasks: báo cho Task Admin + agent khi có task mới; cron Due Date hết nổ 500
+
+- **Loại**: feat (thông báo) + fix (cron) + schema.
+
+**Thông báo `task_created`.** Assistant của agent thường là người tạo task, nhưng người có quyền *assign* task đó lại là Task Admin (`task.manage`) và chính agent của task. Nay khi một task được tạo, hệ thống ghi một thông báo `task_created` vào hộp thư của toàn bộ người đang giữ `task.manage` (giải qua RBAC `role_permissions → roles → user_roles → portal_account`, **không** dựa `portal_account.role = admin`) cộng với `agent_email` của task, trừ chính người tạo. Không ai khác nhận. Họ mở thẳng task từ chuông để giao việc.
+
+**Cron nhắc Due Date hết trả HTTP 500.** RPC `mark_task_due_date_overdue_atomic` ghi `due_date_overdue` vào `task_activity`, nhưng `task_activity_type_check` ở production chưa cho giá trị này → RPC rollback và cả lượt cron nhắc hạn trả 500 mỗi khi gặp một task quá Due Date. Rollout `2026-09-03-fix-task-activity-due-date-overdue.sql` (idempotent, giữ `not valid`) thêm giá trị.
+
+**Schema đồng bộ lại với vocab trong code.** `supabase/schema.sql` được cập nhật để `task_activity_type_check` và `task_notifications_type_check` khớp đúng danh sách hằng trong `activity-events.ts` / `notifications.ts` (`due_date_overdue`, `due_date_overdue_reminder`, `task_created`). Thêm test đọc `schema.sql` và so trực tiếp với hằng để lần sau lệch là fail ngay. Rollout `2026-09-03-task-manage-created-task-notification.sql` cho DB nhận `task_created`.
+
 ## 2026-09-03 — Time Off: gộp tab quản trị, địa chỉ `?tab=` đổi theo
 
 - **Loại**: refactor (điều hướng).

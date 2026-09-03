@@ -44,6 +44,7 @@ type Notif = {
     | "cancelled"
     | "attachment_added"
     | "backlog_attention"
+    | "task_created"
     | "stage_changed";
   actor_email: string;
   actor_name: string | null;
@@ -151,6 +152,8 @@ function actionText(n: Notif): string {
       return "added an attachment";
     case "backlog_attention":
       return "created an urgent/high backlog task";
+    case "task_created":
+      return "created a task";
     case "stage_changed":
       return "moved this enrollment record";
     case "overdue":
