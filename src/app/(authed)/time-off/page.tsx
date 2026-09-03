@@ -10,11 +10,30 @@ function currentMonthKey() {
   return new Date().toISOString().slice(0, 7);
 }
 
-type TimeOffTab = "overview" | "admin";
+/** Phải khớp với `Tab` trong TimeOffClient — một hàng tab phẳng, không lồng. */
+type TimeOffTab =
+  | "overview"
+  | "balances"
+  | "accruals"
+  | "approvals"
+  | "history"
+  | "company-days";
+
+const ADMIN_TABS: readonly TimeOffTab[] = [
+  "balances",
+  "accruals",
+  "approvals",
+  "history",
+  "company-days",
+];
 
 function initialTab(value: string | undefined, canManage: boolean): TimeOffTab {
-  if (value === "admin" && canManage) return "admin";
-  return "overview";
+  if (!canManage) return "overview";
+  // `?tab=admin` là địa chỉ cũ, từ hồi Administration còn là một tab chứa năm
+  // tab con. Người ta đã lưu link dạng đó, nên đưa về mục đầu tiên thay vì im
+  // lặng rơi về "My leave".
+  if (value === "admin") return "balances";
+  return ADMIN_TABS.find((tab) => tab === value) ?? "overview";
 }
 
 export default async function TimeOffPage({

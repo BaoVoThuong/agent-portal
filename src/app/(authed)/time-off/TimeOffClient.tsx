@@ -28,8 +28,9 @@ import type {
   TimeOffTeamMember,
 } from "@/lib/time-off/types";
 
-type Tab = "overview" | "admin";
 type AdminSection = "balances" | "accruals" | "approvals" | "history" | "company-days";
+/** Một hàng tab duy nhất: mục của tôi + các mục quản trị, không lồng hai tầng. */
+type Tab = "overview" | AdminSection;
 
 type Props = {
   accountId: string;
@@ -184,7 +185,6 @@ function readableStatus(status: TimeOffRequest["status"]) {
 export default function TimeOffClient({ accountId, canManage, monthKey, initialTab, initialData }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [adminSection, setAdminSection] = useState<AdminSection>("balances");
   const [showRequest, setShowRequest] = useState(false);
   const [showMyRequests, setShowMyRequests] = useState(false);
   const [showHoliday, setShowHoliday] = useState(false);
@@ -565,7 +565,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
       setDecisionNote("");
       setDecisionError(null);
       setNotice(action === "approve" ? "Request approved." : action === "reject" ? "Request declined." : "Request cancelled.");
-      if (action === "approve" || action === "reject") selectTab("admin");
+      if (action === "approve" || action === "reject") selectTab("approvals");
       router.refresh();
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Unable to update request.";
@@ -712,11 +712,20 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     }
   }
 
+  // MỘT hàng tab cho tất cả. Trước đây "Administration" là một tab chứa năm tab
+  // con ở hàng thứ hai — hai tầng cho cùng một việc chọn màn hình, và hàng thứ
+  // hai đẩy nội dung xuống thấp hơn một nhịp.
   const tabs: { id: Tab; label: string; count?: number }[] = [
-    { id: "overview", label: "Overview" },
-    ...(canManage ? [
-      { id: "admin" as const, label: "Administration" },
-    ] : []),
+    { id: "overview", label: "My leave" },
+    ...(canManage
+      ? ([
+          { id: "balances", label: "Balances" },
+          { id: "accruals", label: "Monthly accruals" },
+          { id: "approvals", label: "Approvals", count: initialData.pending_approvals.length },
+          { id: "history", label: "Leave history" },
+          { id: "company-days", label: "Company days off" },
+        ] as { id: Tab; label: string; count?: number }[])
+      : []),
   ];
 
   const calendar = (
@@ -784,19 +793,13 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
 
   const administration = canManage ? (
     <section className="rounded-xl border border-slate-200 bg-white p-4">
-      {/* Tiêu đề "Leave administration" đã bỏ: thanh tab ngay dưới đã nói rõ
-          đang ở đâu, còn dòng mô tả chỉ lặp lại tên các tab. Nút thêm ngày nghỉ
-          công ty phải giữ — đó là lối duy nhất để thêm. */}
-      {adminSection === "company-days" && <div className="flex justify-end border-b border-slate-100 pb-4"><button type="button" onClick={() => { setError(null); setShowHoliday(true); }} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#115bca]"><Plus className="h-4 w-4" />Add company day off</button></div>}
-      <div className="mt-4 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
-        {(["balances", "accruals", "approvals", "history", "company-days"] as const).map((section) => <button key={section} type="button" onClick={() => setAdminSection(section)} className={`rounded-md px-3 py-2 text-sm font-semibold transition ${adminSection === section ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{section === "balances" ? "Balances" : section === "accruals" ? "Monthly accruals" : section === "approvals" ? <>Approvals{initialData.pending_approvals.length > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700">{initialData.pending_approvals.length}</span>}</> : section === "history" ? "Leave history" : "Company days off"}</button>)}
-      </div>
+      {tab === "company-days" && <div className="flex justify-end pb-4"><button type="button" onClick={() => { setError(null); setShowHoliday(true); }} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#115bca]"><Plus className="h-4 w-4" />Add company day off</button></div>}
       <div className="mt-4">
-        {adminSection === "balances" && <div className="space-y-4"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /></div>}
-        {adminSection === "accruals" && <AccrualSettings policies={adjustablePolicies} rules={initialData.monthly_accrual_rules} teamSize={initialData.team_members.length} runMonth={accrualRunMonth} onRunMonthChange={setAccrualRunMonth} busy={Boolean(busy)} onConfigure={openMonthlyAccrual} onApply={applyMonthlyAccruals} onBulkAdjust={openBulkAdjustment} />}
-        {adminSection === "approvals" && <ApprovalQueue accountId={accountId} requests={visiblePendingApprovals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}
-        {adminSection === "history" && <TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} />}
-        {adminSection === "company-days" && <CompanyDaysTable days={initialData.company_days} busy={Boolean(busy)} onRemove={removeHoliday} />}
+        {tab === "balances" && <div className="space-y-4"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /></div>}
+        {tab === "accruals" && <AccrualSettings policies={adjustablePolicies} rules={initialData.monthly_accrual_rules} teamSize={initialData.team_members.length} runMonth={accrualRunMonth} onRunMonthChange={setAccrualRunMonth} busy={Boolean(busy)} onConfigure={openMonthlyAccrual} onApply={applyMonthlyAccruals} onBulkAdjust={openBulkAdjustment} />}
+        {tab === "approvals" && <ApprovalQueue accountId={accountId} requests={visiblePendingApprovals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}
+        {tab === "history" && <TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} />}
+        {tab === "company-days" && <CompanyDaysTable days={initialData.company_days} busy={Boolean(busy)} onRemove={removeHoliday} />}
       </div>
     </section>
   ) : null;
@@ -804,7 +807,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   return (
     <div className="min-h-full bg-[#f7f9fc] px-5 py-4 sm:px-7 lg:px-8">
       <div className="mx-auto max-w-[1320px]">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h1 className="text-[28px] font-bold tracking-tight text-[#172e55]">Time off</h1><p className="text-[13px] text-slate-500">Plan time away, see who is out, and keep your team covered.</p></div><button type="button" onClick={() => openRequest()} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#115bca]"><Plus className="h-4 w-4" />Request time off</button></div>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h1 className="text-[28px] font-bold tracking-tight text-[#172e55]">Time off</h1><p className="text-[13px] text-slate-500">Plan time away, see who is out, and keep your team covered.</p></div>{tab === "overview" && <button type="button" onClick={() => openRequest()} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#115bca]"><Plus className="h-4 w-4" />Request time off</button>}</div>
 
         {(error || notice) && <div role={error ? "alert" : "status"} className={`fixed left-4 right-4 top-24 z-[80] flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg sm:left-auto sm:right-5 sm:w-[420px] ${error ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}><span>{error ?? notice}</span><button type="button" onClick={() => { setError(null); setNotice(null); }} className="shrink-0 opacity-70 hover:opacity-100"><X className="h-4 w-4" /></button></div>}
 
@@ -812,7 +815,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
         <div className="mt-3 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">{tabs.map((item) => <button key={item.id} type="button" onClick={() => selectTab(item.id)} className={`rounded-md px-4 py-2 text-sm font-semibold transition ${tab === item.id ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{item.label}{item.count ? <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${tab === item.id ? "bg-blue-100 text-[#1769e8]" : "bg-white/70 text-slate-500"}`}>{item.count}</span> : null}</button>)}</div>
 
         {tab === "overview" && <><section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{initialData.policies.map((policy) => <BalanceCard key={policy.code} policy={policy} balance={balancesByPolicy.get(policy.code)} />)}</section><div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">{calendar}{sidebar}</div></>}
-        {tab === "admin" && canManage && <div className="mt-3">{administration}</div>}
+        {tab !== "overview" && canManage && <div className="mt-3">{administration}</div>}
       </div>
 
       {showRequest && (
@@ -858,7 +861,8 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
 function BalanceCard({ policy, balance }: { policy: TimeOffPolicy; balance?: { entitlement_days: number | null; adjustment_days: number; used_days: number } }) {
   const total = balance?.entitlement_days === null || balance?.entitlement_days === undefined ? null : balance.entitlement_days + (balance?.adjustment_days ?? 0);
   const remaining = total === null ? null : Math.max(0, total - (balance?.used_days ?? 0));
-  return <section className="rounded-xl border border-slate-200 bg-white p-3.5"><div className="flex items-center gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${policy.color}18`, color: policy.color }}><PolicyIcon code={policy.code} /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="truncate text-[13px] font-semibold text-[#304767]">{policy.label}</p><span className="shrink-0 text-[11px] font-semibold text-slate-400">{`${balance?.used_days ?? 0} used`}</span></div><p className="mt-0.5 text-[24px] font-bold leading-7 tracking-tight text-[#172e55]">{remaining === null ? (balance?.used_days ?? 0) : remaining}<span className="ml-1 text-[12px] font-medium text-slate-400">{remaining === null ? "days used" : "days left"}</span></p></div></div>{total !== null ? <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${Math.min(100, ((balance?.used_days ?? 0) / Math.max(total, 1)) * 100)}%`, backgroundColor: policy.color }} /></div> : <div className="mt-3 h-1" />}</section>;
+  // Thẻ chỉ còn nhãn + con số, nên nới padding rộng như cũ là thừa chỗ trống.
+  return <section className="rounded-xl border border-slate-200 bg-white px-3.5 py-3"><div className="flex items-center gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${policy.color}18`, color: policy.color }}><PolicyIcon code={policy.code} /></span><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="truncate text-[13px] font-semibold text-[#304767]">{policy.label}</p><span className="shrink-0 text-[11px] font-semibold text-slate-400">{`${balance?.used_days ?? 0} used`}</span></div><p className="mt-0.5 text-[24px] font-bold leading-7 tracking-tight text-[#172e55]">{remaining === null ? (balance?.used_days ?? 0) : remaining}<span className="ml-1 text-[12px] font-medium text-slate-400">{remaining === null ? "days used" : "days left"}</span></p></div></div></section>;
 }
 
 function StatusBadge({ status }: { status: TimeOffRequest["status"] }) {
