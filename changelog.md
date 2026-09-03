@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-03 — `/api/config/*` mở cho scope lead
+
+- **Loại**: fix (quyền).
+- Mọi handler cấu hình đều gác bằng `loadConfigAdmin` (đòi `task.manage` **và** vai trò task-admin), còn đường đọc gác bằng `loadConfigActor` (đòi `task.work`). Người chỉ có quyền lead **nhìn thấy** màn hình cấu hình nhưng 403 ở mọi lượt đọc lại và mọi lượt ghi — `ConfigClient` gọi lại `GET /api/config/columns?scope=…` sau mỗi lần sửa cột, nên hỏng ngay ở thao tác đầu tiên.
+- Chuyện này **đã đúng từ trước** với `/leads/config`: hai tài khoản chỉ-có-quyền-lead chưa bao giờ sửa được cấu hình bảng lead trên chính màn hình dựng cho họ. Gộp màn hình chỉ làm nó lộ ra.
+- Cùng lỗi đó còn nằm ở `/api/config/layout`: `LeadsClient` gọi `?scope=lead` mỗi lần mở bảng để nạp layout cột **của riêng từng người**, mà route đòi `task.work` — nên với hai tài khoản kia, layout không nạp và không lưu được, im lặng.
+- Thêm `loadConfigAdminForScope` / `loadConfigActorForScope`: scope `lead` gác bằng `canManageLeads` / `canWorkLeads`, ba scope Health giữ **nguyên** luật cũ. Handler thuần task (`agents`, `assistants`) không đổi.
+- Handler định danh theo `id` (cột, option) phải **đọc dòng ra để biết scope trước khi gác** — scope không có trong URL. Gác vẫn chạy trước mọi phản hồi kể cả 409 "không tìm thấy", nên người ngoài không dò được id nào có thật; id không tồn tại thì rơi về cổng Health cũ.
+- Hệ quả có chủ ý: task-admin **không còn** ghi được cấu hình bảng lead qua API nếu không có `lead.manage`. Trước đây API cho phép, nhưng không có màn hình nào mở đường đó (`/leads/config` vốn gác `LEAD_MANAGE`), nên đây là siết cho khớp với UI chứ không mất chức năng.
+
 ## 2026-09-03 — Gộp Lead Table Config vào Health Table Config
 
 - **Loại**: refactor (điều hướng + quyền).

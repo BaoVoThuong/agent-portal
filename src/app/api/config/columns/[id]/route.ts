@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadConfigAdmin } from "@/lib/table-config/access";
+import { loadConfigAdminForScope } from "@/lib/table-config/access";
 import {
   applyColumnPatchInvariants,
   canEditColumnField,
@@ -21,13 +21,16 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, { params }: Ctx) {
   const { id } = await params;
-  const admin = await loadConfigAdmin();
+  const supabase = getSupabaseAdmin();
+  // Đọc cột TRƯỚC rồi mới gác: cổng phụ thuộc scope của chính cột đó, và scope
+  // không có trong URL. Gác vẫn chạy TRƯỚC mọi phản hồi — kể cả 409 "không tìm
+  // thấy" — nên người ngoài không dò được id nào có thật. Cột không tồn tại thì
+  // rơi về cổng Health cũ.
+  const column = await fetchColumnForPatch(id, supabase);
+  const admin = await loadConfigAdminForScope(column?.scope ?? "cs");
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
-
-  const supabase = getSupabaseAdmin();
-  const column = await fetchColumnForPatch(id, supabase);
   if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
 
   const body = await request.json().catch(() => null);
@@ -135,13 +138,16 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
 export async function DELETE(_request: Request, { params }: Ctx) {
   const { id } = await params;
-  const admin = await loadConfigAdmin();
+  const supabase = getSupabaseAdmin();
+  // Đọc cột TRƯỚC rồi mới gác: cổng phụ thuộc scope của chính cột đó, và scope
+  // không có trong URL. Gác vẫn chạy TRƯỚC mọi phản hồi — kể cả 409 "không tìm
+  // thấy" — nên người ngoài không dò được id nào có thật. Cột không tồn tại thì
+  // rơi về cổng Health cũ.
+  const column = await fetchTableColumnById(id, supabase);
+  const admin = await loadConfigAdminForScope(column?.scope ?? "cs");
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
-
-  const supabase = getSupabaseAdmin();
-  const column = await fetchTableColumnById(id, supabase);
   if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
   if (column.is_system) {
     return NextResponse.json({ error: "System columns cannot be archived." }, { status: 400 });

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadConfigAdmin, loadConfigActor } from "@/lib/table-config/access";
+import {
+  loadConfigActorForScope,
+  loadConfigAdminForScope,
+} from "@/lib/table-config/access";
 import {
   applyColumnPatchInvariants,
   nextPosition,
@@ -28,20 +31,21 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const actorResult = await loadConfigActor();
-  if (!actorResult.ok) {
-    return NextResponse.json(
-      { error: actorResult.error },
-      { status: actorResult.status }
-    );
-  }
-
+  // Gác SAU khi biết scope: `ConfigClient` gọi lại đúng route này sau mỗi lần
+  // sửa cột, nên người quản bảng lead phải đọc được scope `lead` ở đây.
   const scopeParam = new URL(request.url).searchParams.get("scope");
   if (!scopeParam) return NextResponse.json({ error: "Table scope is required." }, { status: 400 });
 
   const scope = parseTableScope(scopeParam);
   if (!scope) {
     return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
+  }
+  const actorResult = await loadConfigActorForScope(scope);
+  if (!actorResult.ok) {
+    return NextResponse.json(
+      { error: actorResult.error },
+      { status: actorResult.status }
+    );
   }
   const [columns, options] = await Promise.all([
     fetchTableColumns(scope),
@@ -51,17 +55,16 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const admin = await loadConfigAdmin();
-  if (!admin.ok) {
-    return NextResponse.json({ error: admin.error }, { status: admin.status });
-  }
-
   const body = await request.json().catch(() => null);
   const scope = isTableScope(body?.scope) ? body.scope : null;
   const label = typeof body?.label === "string" ? body.label.trim() : "";
   const type = isColumnType(body?.type) ? body.type : null;
   if (!scope) {
     return NextResponse.json({ error: "Invalid table scope." }, { status: 400 });
+  }
+  const admin = await loadConfigAdminForScope(scope);
+  if (!admin.ok) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
   const supabase = getSupabaseAdmin();
   if (body?.restore === true) {

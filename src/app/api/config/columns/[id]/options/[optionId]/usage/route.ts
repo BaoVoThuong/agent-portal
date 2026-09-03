@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadConfigAdmin } from "@/lib/table-config/access";
+import { loadConfigAdminForScope } from "@/lib/table-config/access";
 import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
+import { fetchTableColumnById } from "@/lib/table-config/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +10,14 @@ type Ctx = { params: Promise<{ id: string; optionId: string }> };
 
 export async function GET(_request: Request, { params }: Ctx) {
   const { id, optionId } = await params;
-  const admin = await loadConfigAdmin();
+  const supabase = getSupabaseAdmin();
+  // Đếm chỗ đang dùng một option là bước ngay trước khi xoá nó, nên nó phải mở
+  // cho đúng những người được xoá — kể cả người chỉ quản bảng lead.
+  const column = await fetchTableColumnById(id, supabase);
+  const admin = await loadConfigAdminForScope(column?.scope ?? "cs");
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
-  const { data, error } = await getSupabaseAdmin().rpc("table_column_option_usage_count", {
+  const { data, error } = await supabase.rpc("table_column_option_usage_count", {
     p_column_id: id,
     p_option_id: optionId,
   });

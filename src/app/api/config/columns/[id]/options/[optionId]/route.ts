@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadConfigAdmin } from "@/lib/table-config/access";
+import { loadConfigAdminForScope } from "@/lib/table-config/access";
 import { fetchTableColumnById } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { duplicateOptionLabelResponse, inactiveConfigValueResponse, isUniqueViolation } from "@/lib/table-config/mutation-errors";
@@ -12,13 +12,13 @@ type Ctx = { params: Promise<{ id: string; optionId: string }> };
 
 export async function PATCH(request: Request, { params }: Ctx) {
   const { id, optionId } = await params;
-  const admin = await loadConfigAdmin();
+  const supabase = getSupabaseAdmin();
+  // Cổng phụ thuộc scope của cột chứa option này, mà scope không có trong URL.
+  const column = await fetchTableColumnById(id, supabase);
+  const admin = await loadConfigAdminForScope(column?.scope ?? "cs");
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
-
-  const supabase = getSupabaseAdmin();
-  const column = await fetchTableColumnById(id, supabase);
   if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
   if (column.type !== "dropdown" || column.is_system) {
     return NextResponse.json(
@@ -72,13 +72,13 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
 export async function DELETE(_request: Request, { params }: Ctx) {
   const { id, optionId } = await params;
-  const admin = await loadConfigAdmin();
+  const supabase = getSupabaseAdmin();
+  // Cổng phụ thuộc scope của cột chứa option này, mà scope không có trong URL.
+  const column = await fetchTableColumnById(id, supabase);
+  const admin = await loadConfigAdminForScope(column?.scope ?? "cs");
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
-
-  const supabase = getSupabaseAdmin();
-  const column = await fetchTableColumnById(id, supabase);
   if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
   if (column.type !== "dropdown" || column.is_system) {
     return NextResponse.json(
