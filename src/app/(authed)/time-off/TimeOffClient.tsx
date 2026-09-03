@@ -741,7 +741,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
                 {holiday && <div className={`truncate rounded px-1.5 py-0.5 text-[9px] font-semibold ${holiday.source === "company" ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`} title={holiday.name}>{holiday.name}</div>}
                 {requests.slice(0, 1).map((request) => {
                   const policy = policiesByCode.get(request.policy_code);
-                  const label = policy?.label ?? "Time off";
+                  const label = policy?.label ?? "Time Off";
                   return <div key={request.id} className="truncate rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#1769e8]" title={label}>{label}</div>;
                 })}
                 {requests.length > 1 && <p className="px-1 text-[9px] font-medium text-slate-400">+{requests.length - 1} more</p>}
@@ -791,7 +791,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     // thường vì lịch của nó vốn cao hơn một màn.
     <div className={`bg-[#f7f9fc] px-5 py-4 sm:px-7 lg:px-8 ${tab === "overview" ? "min-h-full" : "flex h-full flex-col"}`}>
       <div className={`mx-auto w-full max-w-[1320px] ${tab === "overview" ? "" : "flex min-h-0 flex-1 flex-col"}`}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h1 className="text-[28px] font-bold tracking-tight text-[#172e55]">Time off</h1><p className="text-[13px] text-slate-500">Plan time away, see who is out, and keep your team covered.</p></div>{tab === "overview" && <button type="button" onClick={() => openRequest()} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#115bca]"><Plus className="h-4 w-4" />Request time off</button>}</div>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h1 className="text-[28px] font-bold tracking-tight text-[#172e55]">Time Off</h1><p className="text-[13px] text-slate-500">Plan time away, see who is out, and keep your team covered.</p></div>{tab === "overview" && <button type="button" onClick={() => openRequest()} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#115bca]"><Plus className="h-4 w-4" />Request time off</button>}</div>
 
         {(error || notice) && <div role={error ? "alert" : "status"} className={`fixed left-4 right-4 top-24 z-[80] flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg sm:left-auto sm:right-5 sm:w-[420px] ${error ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}><span>{error ?? notice}</span><button type="button" onClick={() => { setError(null); setNotice(null); }} className="shrink-0 opacity-70 hover:opacity-100"><X className="h-4 w-4" /></button></div>}
 
