@@ -38,6 +38,7 @@ export default async function TimeOffPage({
 
   return (
     <TimeOffClient
+      accountId={actor.accountId}
       canManage={actor.canManage}
       monthKey={monthKey}
       initialTab={initialTab(rawTab, actor.canManage)}

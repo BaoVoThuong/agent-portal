@@ -131,7 +131,6 @@ export async function fetchTimeOffDashboard(
           .from("time_off_requests")
           .select("id,requester_id,policy_code,start_date,end_date,total_days,reason,status,reviewer_id,reviewer_note,reviewed_at,created_at")
           .eq("status", "pending")
-          .neq("requester_id", params.accountId)
           .order("created_at")
           .limit(100)
       : Promise.resolve({ data: [], error: null }),

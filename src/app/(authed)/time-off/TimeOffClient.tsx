@@ -31,6 +31,7 @@ type Tab = "overview" | "admin";
 type AdminSection = "balances" | "approvals" | "history" | "company-days";
 
 type Props = {
+  accountId: string;
   canManage: boolean;
   monthKey: string;
   initialTab: Tab;
@@ -179,7 +180,7 @@ function readableStatus(status: TimeOffRequest["status"]) {
   return status[0].toUpperCase() + status.slice(1);
 }
 
-export default function TimeOffClient({ canManage, monthKey, initialTab, initialData }: Props) {
+export default function TimeOffClient({ accountId, canManage, monthKey, initialTab, initialData }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [adminSection, setAdminSection] = useState<AdminSection>("balances");
@@ -643,7 +644,7 @@ export default function TimeOffClient({ canManage, monthKey, initialTab, initial
       </div>
       <div className="mt-4">
         {adminSection === "balances" && <div className="space-y-4"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /><BalanceAdjustmentLog adjustments={initialData.balance_adjustments} members={initialData.team_members} policiesByCode={policiesByCode} /></div>}
-        {adminSection === "approvals" && <ApprovalQueue requests={initialData.pending_approvals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}
+        {adminSection === "approvals" && <ApprovalQueue accountId={accountId} requests={initialData.pending_approvals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}
         {adminSection === "history" && <TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} />}
         {adminSection === "company-days" && <CompanyDaysTable days={initialData.company_days} busy={Boolean(busy)} onRemove={removeHoliday} />}
       </div>
@@ -712,11 +713,13 @@ function StatusBadge({ status }: { status: TimeOffRequest["status"] }) {
 }
 
 function ApprovalQueue({
+  accountId,
   requests,
   policiesByCode,
   busy,
   onDecide,
 }: {
+  accountId: string;
   requests: TimeOffRequest[];
   policiesByCode: Map<string, TimeOffPolicy>;
   busy: boolean;
@@ -724,10 +727,10 @@ function ApprovalQueue({
 }) {
   return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5">
-      <div><h2 className="text-base font-semibold text-[#172e55]">Requests to review</h2><p className="mt-0.5 text-[13px] text-slate-500">Approve or decline requests from other team members.</p></div>
+      <div><h2 className="text-base font-semibold text-[#172e55]">Requests to review</h2><p className="mt-0.5 text-[13px] text-slate-500">All pending requests. Your own request is visible but needs another admin to decide.</p></div>
       <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">{requests.length} pending</span>
     </div>
-    {requests.length === 0 ? <EmptyState message="No teammate requests are waiting for your decision. Your own pending requests stay in My requests and must be reviewed by another Time Off Admin." /> : <div className="divide-y divide-slate-100">{requests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <div key={request.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#1769e8]">{initials(request.requester_name)}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p><span className="text-xs text-slate-400">requested {formatDate(request.created_at.slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}</span></div><p className="mt-1 text-sm text-slate-600"><span className="font-semibold text-[#304767]">{policy?.label ?? request.policy_code}</span> · {formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p>{request.reason && <p className="mt-1 max-w-2xl truncate text-sm text-slate-500" title={request.reason}>{request.reason}</p>}</div></div><div className="flex shrink-0 gap-2 pl-12 lg:pl-0"><button type="button" disabled={busy} onClick={() => onDecide(request, "reject")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50">Decline</button><button type="button" disabled={busy} onClick={() => onDecide(request, "approve")} className="rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-50">Approve</button></div></div>; })}</div>}
+    {requests.length === 0 ? <EmptyState message="No pending time-off requests are waiting for review." /> : <div className="divide-y divide-slate-100">{requests.map((request) => { const policy = policiesByCode.get(request.policy_code); const isOwnRequest = request.requester_id === accountId; return <div key={request.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#1769e8]">{initials(request.requester_name)}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p>{isOwnRequest && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Your request</span>}<span className="text-xs text-slate-400">requested {formatDate(request.created_at.slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}</span></div><p className="mt-1 text-sm text-slate-600"><span className="font-semibold text-[#304767]">{policy?.label ?? request.policy_code}</span> · {formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p>{request.reason && <p className="mt-1 max-w-2xl truncate text-sm text-slate-500" title={request.reason}>{request.reason}</p>}</div></div>{isOwnRequest ? <p className="pl-12 text-sm font-medium text-slate-500 lg:pl-0">Awaiting another admin</p> : <div className="flex shrink-0 gap-2 pl-12 lg:pl-0"><button type="button" disabled={busy} onClick={() => onDecide(request, "reject")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50">Decline</button><button type="button" disabled={busy} onClick={() => onDecide(request, "approve")} className="rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-50">Approve</button></div>}</div>; })}</div>}
   </section>;
 }
 
