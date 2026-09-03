@@ -221,7 +221,6 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   const [accrualCredit, setAccrualCredit] = useState("1");
   const [accrualStartMonth, setAccrualStartMonth] = useState(monthKey);
   const [accrualActive, setAccrualActive] = useState(true);
-  const [accrualRunMonth, setAccrualRunMonth] = useState(monthKey);
   const [bulkPolicy, setBulkPolicy] = useState(initialData.policies.find((policy) => policy.counts_toward_balance)?.code ?? "vacation");
   const [bulkMonth, setBulkMonth] = useState(monthKey);
   const [bulkDelta, setBulkDelta] = useState("");
@@ -650,26 +649,6 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     }
   }
 
-  async function applyMonthlyAccruals() {
-    setBusy("apply-monthly-accruals");
-    setError(null);
-    try {
-      const payload = await readResponse(await fetch("/api/time-off/accruals/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month: accrualRunMonth }),
-      })) as { results?: { member_count?: number; applied?: boolean }[] };
-      const applied = (payload.results ?? []).filter((result) => result.applied);
-      const recipients = applied.reduce((total, result) => total + (result.member_count ?? 0), 0);
-      setNotice(applied.length > 0 ? `Monthly accrual applied to ${recipients} team balances.` : "All active monthly accruals were already applied for this month.");
-      router.refresh();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to apply monthly accruals.");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function submitBulkAdjustment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy("bulk-adjustment");
@@ -792,11 +771,11 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   );
 
   const administration = canManage ? (
-    <section className="rounded-xl border border-slate-200 bg-white p-4">
+    <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-4">
       {tab === "company-days" && <div className="flex justify-end pb-4"><button type="button" onClick={() => { setError(null); setShowHoliday(true); }} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#115bca]"><Plus className="h-4 w-4" />Add company day off</button></div>}
-      <div className="mt-4">
-        {tab === "balances" && <div className="space-y-4"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /></div>}
-        {tab === "accruals" && <AccrualSettings policies={adjustablePolicies} rules={initialData.monthly_accrual_rules} teamSize={initialData.team_members.length} runMonth={accrualRunMonth} onRunMonthChange={setAccrualRunMonth} busy={Boolean(busy)} onConfigure={openMonthlyAccrual} onApply={applyMonthlyAccruals} onBulkAdjust={openBulkAdjustment} />}
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
+        {tab === "balances" && <div className="flex min-h-0 flex-1 flex-col"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /></div>}
+        {tab === "accruals" && <AccrualSettings policies={adjustablePolicies} rules={initialData.monthly_accrual_rules} teamSize={initialData.team_members.length} busy={Boolean(busy)} onConfigure={openMonthlyAccrual} onBulkAdjust={openBulkAdjustment} />}
         {tab === "approvals" && <ApprovalQueue accountId={accountId} requests={visiblePendingApprovals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}
         {tab === "history" && <TeamLeaveLog requests={initialData.team_leave_log} members={initialData.team_members} policiesByCode={policiesByCode} />}
         {tab === "company-days" && <CompanyDaysTable days={initialData.company_days} busy={Boolean(busy)} onRemove={removeHoliday} />}
@@ -805,8 +784,13 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   ) : null;
 
   return (
-    <div className="min-h-full bg-[#f7f9fc] px-5 py-4 sm:px-7 lg:px-8">
-      <div className="mx-auto max-w-[1320px]">
+    // Tab quản trị lấp ĐÚNG chiều cao còn lại của khung, để chỉ danh sách bên
+    // trong cuộn chứ không phải cả trang. `max-h-[60vh]` không làm được việc
+    // này: nó giới hạn danh sách nhưng phần header + tab phía trên vẫn cộng
+    // thêm chiều cao, nên tổng vẫn vượt màn hình. Tab "My leave" giữ cuộn
+    // thường vì lịch của nó vốn cao hơn một màn.
+    <div className={`bg-[#f7f9fc] px-5 py-4 sm:px-7 lg:px-8 ${tab === "overview" ? "min-h-full" : "flex h-full flex-col"}`}>
+      <div className={`mx-auto w-full max-w-[1320px] ${tab === "overview" ? "" : "flex min-h-0 flex-1 flex-col"}`}>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h1 className="text-[28px] font-bold tracking-tight text-[#172e55]">Time off</h1><p className="text-[13px] text-slate-500">Plan time away, see who is out, and keep your team covered.</p></div>{tab === "overview" && <button type="button" onClick={() => openRequest()} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#115bca]"><Plus className="h-4 w-4" />Request time off</button>}</div>
 
         {(error || notice) && <div role={error ? "alert" : "status"} className={`fixed left-4 right-4 top-24 z-[80] flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg sm:left-auto sm:right-5 sm:w-[420px] ${error ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}><span>{error ?? notice}</span><button type="button" onClick={() => { setError(null); setNotice(null); }} className="shrink-0 opacity-70 hover:opacity-100"><X className="h-4 w-4" /></button></div>}
@@ -815,7 +799,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
         <div className="mt-3 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">{tabs.map((item) => <button key={item.id} type="button" onClick={() => selectTab(item.id)} className={`rounded-md px-4 py-2 text-sm font-semibold transition ${tab === item.id ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{item.label}{item.count ? <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${tab === item.id ? "bg-blue-100 text-[#1769e8]" : "bg-white/70 text-slate-500"}`}>{item.count}</span> : null}</button>)}</div>
 
         {tab === "overview" && <><section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{initialData.policies.map((policy) => <BalanceCard key={policy.code} policy={policy} balance={balancesByPolicy.get(policy.code)} />)}</section><div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">{calendar}{sidebar}</div></>}
-        {tab !== "overview" && canManage && <div className="mt-3">{administration}</div>}
+        {tab !== "overview" && canManage && <div className="mt-3 flex min-h-0 flex-1 flex-col">{administration}</div>}
       </div>
 
       {showRequest && (
@@ -873,21 +857,15 @@ function AccrualSettings({
   policies,
   rules,
   teamSize,
-  runMonth,
-  onRunMonthChange,
   busy,
   onConfigure,
-  onApply,
   onBulkAdjust,
 }: {
   policies: TimeOffPolicy[];
   rules: TimeOffMonthlyAccrualRule[];
   teamSize: number;
-  runMonth: string;
-  onRunMonthChange: (month: string) => void;
   busy: boolean;
   onConfigure: (policyCode?: string) => void;
-  onApply: () => void;
   onBulkAdjust: () => void;
 }) {
   const rulesByPolicy = new Map(rules.map((rule) => [rule.policy_code, rule]));
@@ -897,7 +875,6 @@ function AccrualSettings({
       <div className="border-b border-slate-100 px-4 py-3.5"><h2 className="text-base font-semibold text-[#172e55]">Monthly accruals</h2><p className="mt-0.5 text-[13px] leading-5 text-slate-500">Automatically credit every active employee each month. Existing annual allowances remain unchanged.</p></div>
       <div className="divide-y divide-slate-100">{policies.map((policy) => { const rule = rulesByPolicy.get(policy.code); return <div key={policy.code} className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: policy.color }} /><p className="font-semibold text-[#1e355c]">{policy.label}</p>{rule && <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${rule.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{rule.is_active ? "Active" : "Paused"}</span>}</div><p className="mt-1 text-sm text-slate-500">{rule ? `${rule.credit_days} day${rule.credit_days === 1 ? "" : "s"} per month · starts ${formatDate(rule.start_month, { month: "short", year: "numeric" })}` : "No recurring credit configured."}</p></div><button type="button" disabled={busy} onClick={() => onConfigure(policy.code)} className="w-fit rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-[#1769e8] hover:border-blue-200 hover:bg-blue-50 disabled:opacity-50">{rule ? "Edit rule" : "Set up"}</button></div>; })}</div>
     </section>
-    <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><h2 className="text-base font-semibold text-[#172e55]">Run monthly credits</h2><p className="mt-0.5 text-[13px] leading-5 text-slate-500">The scheduled job runs automatically. Use this to backfill a configured month; rerunning the same month cannot double-credit anyone.</p></div><div className="flex flex-wrap items-end gap-2"><label className="block text-sm font-semibold text-[#304767]">Month<input type="month" value={runMonth} onChange={(event) => onRunMonthChange(event.target.value)} className="mt-1.5 block rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><button type="button" disabled={busy || rules.every((rule) => !rule.is_active)} onClick={onApply} className="rounded-lg bg-[#1769e8] px-3.5 py-2 text-sm font-semibold text-white hover:bg-[#115bca] disabled:cursor-not-allowed disabled:opacity-50">Apply monthly credits</button></div></div></section>
     <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-base font-semibold text-[#172e55]">One-time team adjustment</h2><p className="mt-0.5 text-[13px] leading-5 text-slate-500">Credit or deduct one leave type for all {teamSize} active employees with a separate audit entry per employee.</p></div><button type="button" disabled={busy || policies.length === 0} onClick={onBulkAdjust} className="w-fit rounded-lg border border-slate-300 px-3.5 py-2 text-sm font-semibold text-[#1769e8] hover:border-blue-200 hover:bg-blue-50 disabled:opacity-50">Adjust all employees</button></div></section>
   </div>;
 }
@@ -915,12 +892,14 @@ function ApprovalQueue({
   busy: boolean;
   onDecide: (request: TimeOffRequest, action: "approve" | "reject") => void;
 }) {
-  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+  const [query, setQuery] = useState("");
+  const visibleRequests = requests.filter((request) => matchesName(query, request.requester_name));
+  return <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5">
       <div><h2 className="text-base font-semibold text-[#172e55]">Requests to review</h2><p className="mt-0.5 text-[13px] text-slate-500">All pending requests. Your own request is visible but needs another admin to decide.</p></div>
-      <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">{requests.length} pending</span>
+      <div className="flex flex-wrap items-center gap-3"><NameFilter value={query} onChange={setQuery} placeholder="Search agent" /><span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">{query.trim() ? `${visibleRequests.length} of ${requests.length}` : `${requests.length} pending`}</span></div>
     </div>
-    {requests.length === 0 ? <EmptyState message="No pending time-off requests are waiting for review." /> : <div className="divide-y divide-slate-100">{requests.map((request) => { const policy = policiesByCode.get(request.policy_code); const isOwnRequest = request.requester_id === accountId; return <div key={request.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#1769e8]">{initials(request.requester_name)}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p>{isOwnRequest && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Your request</span>}<span className="text-xs text-slate-400">requested {formatDate(request.created_at.slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}</span></div><p className="mt-1 text-sm text-slate-600"><span className="font-semibold text-[#304767]">{policy?.label ?? request.policy_code}</span> · {formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p>{request.reason && <p className="mt-1 max-w-2xl truncate text-sm text-slate-500" title={request.reason}>{request.reason}</p>}</div></div>{isOwnRequest ? <p className="pl-12 text-sm font-medium text-slate-500 lg:pl-0">Awaiting another admin</p> : <div className="flex shrink-0 gap-2 pl-12 lg:pl-0"><button type="button" disabled={busy} onClick={() => onDecide(request, "reject")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50">Decline</button><button type="button" disabled={busy} onClick={() => onDecide(request, "approve")} className="rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-50">Approve</button></div>}</div>; })}</div>}
+    {visibleRequests.length === 0 ? <EmptyState message={query.trim() ? `No pending requests match "${query.trim()}".` : "No pending time-off requests are waiting for review."} /> : <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">{visibleRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); const isOwnRequest = request.requester_id === accountId; return <div key={request.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#1769e8]">{initials(request.requester_name)}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p>{isOwnRequest && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Your request</span>}<span className="text-xs text-slate-400">requested {formatDate(request.created_at.slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}</span></div><p className="mt-1 text-sm text-slate-600"><span className="font-semibold text-[#304767]">{policy?.label ?? request.policy_code}</span> · {formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p>{request.reason && <p className="mt-1 max-w-2xl truncate text-sm text-slate-500" title={request.reason}>{request.reason}</p>}</div></div>{isOwnRequest ? <p className="pl-12 text-sm font-medium text-slate-500 lg:pl-0">Awaiting another admin</p> : <div className="flex shrink-0 gap-2 pl-12 lg:pl-0"><button type="button" disabled={busy} onClick={() => onDecide(request, "reject")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50">Decline</button><button type="button" disabled={busy} onClick={() => onDecide(request, "approve")} className="rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-50">Approve</button></div>}</div>; })}</div>}
   </section>;
 }
 
@@ -933,14 +912,38 @@ function CompanyDaysTable({
   busy: boolean;
   onRemove: (holiday: TimeOffHoliday) => void;
 }) {
-  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+  return <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5"><div><h2 className="text-base font-semibold text-[#172e55]">Company days off</h2><p className="mt-0.5 text-[13px] text-slate-500">Company closures added on top of the US federal holiday calendar.</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{days.length} days</span></div>
     {days.length === 0 ? <EmptyState message="No company days off have been added for this year." /> : <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left"><thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Name</th><th className="px-4 py-3">Source</th><th className="px-4 py-3 text-right" /></tr></thead><tbody>{days.map((holiday) => <tr key={holiday.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3 whitespace-nowrap font-medium text-[#304767]">{formatDate(holiday.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</td><td className="px-4 py-3 font-semibold text-[#1e355c]">{holiday.name}</td><td className="px-4 py-3 text-slate-500">Company</td><td className="px-4 py-3 text-right"><button type="button" disabled={busy} onClick={() => onRemove(holiday)} className="text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">Remove</button></td></tr>)}</tbody></table></div>}
   </section>;
 }
 
+/**
+ * Ô lọc theo tên. Cả hai bảng đều dài hơn một màn hình và đều được cuộn trong
+ * khung riêng, nên cuộn tay để tìm một người là việc vô ích khi gõ được tên.
+ */
+function NameFilter({ value, onChange, placeholder }: {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder: string;
+}) {
+  return <div className="relative w-full sm:w-64">
+    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+    <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" />
+  </div>;
+}
+
+/** So khớp không phân biệt hoa thường, tìm cả trong email vì tên có thể trùng. */
+function matchesName(query: string, ...fields: (string | null | undefined)[]): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return fields.some((field) => (field ?? "").toLowerCase().includes(needle));
+}
+
 function TeamBalanceTable({ members, policies, onAdjust }: { members: TimeOffTeamMember[]; policies: TimeOffPolicy[]; onAdjust: (accountId: string) => void }) {
-  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5"><div><h2 className="text-base font-semibold text-[#172e55]">Team leave balances</h2><p className="mt-0.5 text-[13px] text-slate-500">Remaining leave for every active team member this year.</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{members.length} members</span></div><div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left"><thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Member</th>{policies.map((policy) => <th key={policy.code} className="px-4 py-3">{policy.label}</th>)}<th className="px-4 py-3 text-right" /></tr></thead><tbody>{members.map((member) => <tr key={member.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{member.name}</p><p className="mt-0.5 text-xs text-slate-500">{member.email}</p></td>{policies.map((policy) => { const balance = member.balances.find((item) => item.policy_code === policy.code); const total = balance?.entitlement_days === null || balance?.entitlement_days === undefined ? null : balance.entitlement_days + balance.adjustment_days; const remaining = total === null ? null : Math.max(0, total - (balance?.used_days ?? 0)); return <td key={policy.code} className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{remaining === null ? `${balance?.used_days ?? 0} days used` : `${remaining} days`}</p>{total !== null && <p className="mt-0.5 text-xs text-slate-500">{balance?.used_days ?? 0} used{(balance?.adjustment_days ?? 0) !== 0 ? ` · ${(balance?.adjustment_days ?? 0) > 0 ? "+" : ""}${balance?.adjustment_days ?? 0} adjusted` : ""}</p>}</td>; })}<td className="px-4 py-3 text-right"><button type="button" onClick={() => onAdjust(member.id)} className="text-sm font-semibold text-[#1769e8] hover:text-[#115bca]">Adjust</button></td></tr>)}</tbody></table></div></section>;
+  const [query, setQuery] = useState("");
+  const visibleMembers = members.filter((member) => matchesName(query, member.name, member.email));
+  return <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5"><div><h2 className="text-base font-semibold text-[#172e55]">Team leave balances</h2><p className="mt-0.5 text-[13px] text-slate-500">Remaining leave for every active team member this year.</p></div><div className="flex flex-wrap items-center gap-3"><NameFilter value={query} onChange={setQuery} placeholder="Search agent" /><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{query.trim() ? `${visibleMembers.length} of ${members.length}` : `${members.length} members`}</span></div></div><div className="min-h-0 flex-1 overflow-auto"><table className="w-full min-w-[720px] text-left"><thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Member</th>{policies.map((policy) => <th key={policy.code} className="px-4 py-3">{policy.label}</th>)}<th className="px-4 py-3 text-right" /></tr></thead><tbody>{visibleMembers.map((member) => <tr key={member.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{member.name}</p><p className="mt-0.5 text-xs text-slate-500">{member.email}</p></td>{policies.map((policy) => { const balance = member.balances.find((item) => item.policy_code === policy.code); const total = balance?.entitlement_days === null || balance?.entitlement_days === undefined ? null : balance.entitlement_days + balance.adjustment_days; const remaining = total === null ? null : Math.max(0, total - (balance?.used_days ?? 0)); return <td key={policy.code} className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{remaining === null ? `${balance?.used_days ?? 0} days used` : `${remaining} days`}</p>{total !== null && <p className="mt-0.5 text-xs text-slate-500">{balance?.used_days ?? 0} used{(balance?.adjustment_days ?? 0) !== 0 ? ` · ${(balance?.adjustment_days ?? 0) > 0 ? "+" : ""}${balance?.adjustment_days ?? 0} adjusted` : ""}</p>}</td>; })}<td className="px-4 py-3 text-right"><button type="button" onClick={() => onAdjust(member.id)} className="text-sm font-semibold text-[#1769e8] hover:text-[#115bca]">Adjust</button></td></tr>)}</tbody></table></div></section>;
 }
 
 function TeamLeaveLog({
@@ -961,12 +964,12 @@ function TeamLeaveLog({
     ? `No leave requests were recorded for ${selectedMember.name}.`
     : "No team leave requests have been recorded.";
 
-  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+  return <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
     <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3.5 xl:flex-row xl:items-end xl:justify-between">
       <div><h2 className="text-base font-semibold text-[#172e55]">Team leave log</h2><p className="mt-0.5 text-[13px] text-slate-500">Every time-off request recorded across the team.</p></div>
       <div className="flex flex-wrap items-end gap-2"><div className="w-full sm:w-72"><EmployeePicker label="Employee" placeholder="All team members" members={members} value={memberId} onChange={setMemberId} /></div>{selectedMember && <button type="button" onClick={() => setMemberId("")} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-[#172e55]">Clear</button>}<span className="mb-0.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{filteredRequests.length} records</span></div>
     </div>
-    {filteredRequests.length === 0 ? <EmptyState message={emptyMessage} /> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left"><thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Member</th><th className="px-4 py-3">Leave type</th><th className="px-4 py-3">Dates</th><th className="px-4 py-3">Days</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Reviewed by</th></tr></thead><tbody>{filteredRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <tr key={request.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p><p className="mt-0.5 text-xs text-slate-500">{request.requester_email}</p></td><td className="px-4 py-3"><span className="inline-flex items-center gap-2 font-medium text-[#304767]"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: policy?.color ?? "#94a3b8" }} />{policy?.label ?? request.policy_code}</span></td><td className="px-4 py-3 text-slate-600">{formatDateRange(request.start_date, request.end_date)}</td><td className="px-4 py-3 text-slate-600">{request.total_days} day{request.total_days === 1 ? "" : "s"}</td><td className="px-4 py-3"><StatusBadge status={request.status} /></td><td className="px-4 py-3 text-slate-500">{request.reviewer_name ?? "—"}</td></tr>; })}</tbody></table></div>}
+    {filteredRequests.length === 0 ? <EmptyState message={emptyMessage} /> : <div className="min-h-0 flex-1 overflow-auto"><table className="w-full min-w-[820px] text-left"><thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Member</th><th className="px-4 py-3">Leave type</th><th className="px-4 py-3">Dates</th><th className="px-4 py-3">Days</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Reviewed by</th></tr></thead><tbody>{filteredRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <tr key={request.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p><p className="mt-0.5 text-xs text-slate-500">{request.requester_email}</p></td><td className="px-4 py-3"><span className="inline-flex items-center gap-2 font-medium text-[#304767]"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: policy?.color ?? "#94a3b8" }} />{policy?.label ?? request.policy_code}</span></td><td className="px-4 py-3 text-slate-600">{formatDateRange(request.start_date, request.end_date)}</td><td className="px-4 py-3 text-slate-600">{request.total_days} day{request.total_days === 1 ? "" : "s"}</td><td className="px-4 py-3"><StatusBadge status={request.status} /></td><td className="px-4 py-3 text-slate-500">{request.reviewer_name ?? "—"}</td></tr>; })}</tbody></table></div>}
   </section>;
 }
 

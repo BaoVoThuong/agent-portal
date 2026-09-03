@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-03 — Time Off: gộp tab quản trị, địa chỉ `?tab=` đổi theo
+
+- **Loại**: refactor (điều hướng).
+- "Administration" không còn là một tab chứa năm tab con ở hàng thứ hai. Tất cả nằm chung **một hàng**: My leave · Balances · Monthly accruals · Approvals · Leave history · Company days off.
+- **`?tab=admin` là địa chỉ cũ** — người dùng đã lưu link dạng đó. Nó nay đưa về **Balances** (mục đầu của nhóm quản trị) thay vì im lặng rơi về "My leave", vốn là màn hình hoàn toàn khác với thứ họ đã lưu.
+- Sau khi duyệt/từ chối, màn hình quay về tab **Approvals** thay vì "admin" — id đó không còn tồn tại.
+- Nút **Request time off** chỉ hiện ở tab của chính người dùng; ở các tab quản trị nó không liên quan.
+- Ba danh sách dài (Balances, Approvals, Leave history) nay lấp đúng chiều cao khung và **chỉ danh sách bên trong cuộn**, kèm ô tìm theo tên agent. Dùng `max-h-[60vh]` là không đủ: nó giới hạn danh sách nhưng phần header và thanh tab phía trên vẫn cộng thêm chiều cao, nên tổng vẫn vượt màn hình.
+
 ## 2026-09-03 — Time Off: rà soát logic đầu-cuối
 
 - **Loại**: fix (độ bền + luật nghiệp vụ) + test.
