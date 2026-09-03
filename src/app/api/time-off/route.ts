@@ -80,6 +80,9 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (policyError) return error(policyError.message, 500);
   if (!policy) return error("This time-off type is no longer available.");
+  if (!["vacation", "sick", "unpaid"].includes(policy.code)) {
+    return error("This time-off type is no longer available.");
+  }
 
   const { data: companyHolidays, error: holidayError } = await supabase
     .from("time_off_holidays")

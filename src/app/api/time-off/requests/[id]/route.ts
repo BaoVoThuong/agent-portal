@@ -56,7 +56,7 @@ export async function PATCH(
     return NextResponse.json({ request: data });
   }
 
-  if (!actor.canManage) return responseError("Only an Account Manager can review time off.", 403);
+  if (!actor.canManage) return responseError("Time Off Admin permission is required to review time off.", 403);
   if (row.requester_id === actor.accountId) {
     return responseError("You cannot review your own time-off request.", 403);
   }

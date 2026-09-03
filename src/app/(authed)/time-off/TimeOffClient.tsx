@@ -20,6 +20,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type {
   TimeOffDashboardData,
+  TimeOffBalanceAdjustment,
   TimeOffCalendarEvent,
   TimeOffHoliday,
   TimeOffPolicy,
@@ -204,6 +205,7 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
   };
   const calendarCache = useRef(new Map<string, CalendarData>([[monthKey, initialCalendarData]]));
   const calendarYearPreloads = useRef(new Map<string, Promise<void>>());
+  const calendarYearVersions = useRef(new Map<string, number>());
   const [calendarData, setCalendarData] = useState<CalendarData>(initialCalendarData);
   const [calendarLoading, setCalendarLoading] = useState(false);
 
@@ -269,6 +271,7 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
     const existingPreload = calendarYearPreloads.current.get(year);
     if (existingPreload) return existingPreload;
 
+    const version = calendarYearVersions.current.get(year) ?? 0;
     const preload = (async () => {
       try {
         const response = await fetch(`/api/time-off/calendar?year=${encodeURIComponent(year)}`);
@@ -276,9 +279,14 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
         if (!response.ok) throw new Error(payload?.error ?? "Unable to load the calendar.");
         if (!Array.isArray(payload?.calendars)) throw new Error("Calendar data is unavailable.");
 
-        for (const calendar of payload.calendars as CalendarData[]) rememberCalendar(calendar);
+        if ((calendarYearVersions.current.get(year) ?? 0) === version) {
+          for (const calendar of payload.calendars as CalendarData[]) rememberCalendar(calendar);
+        }
       } finally {
-        calendarYearPreloads.current.delete(year);
+        // An invalidation may have started a newer preload for this year.
+        if ((calendarYearVersions.current.get(year) ?? 0) === version) {
+          calendarYearPreloads.current.delete(year);
+        }
       }
     })();
 
@@ -336,6 +344,7 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
         removeStoredCalendar(cachedMonth);
       }
     }
+    calendarYearVersions.current.set(activeYear, (calendarYearVersions.current.get(activeYear) ?? 0) + 1);
     calendarYearPreloads.current.delete(activeYear);
     const freshCalendar = await fetchCalendarMonth(activeMonth);
     setCalendarData(freshCalendar);
@@ -574,21 +583,23 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
   return (
     <div className="min-h-full bg-[#f7f9fc] px-5 py-4 sm:px-7 lg:px-8">
       <div className="mx-auto max-w-[1320px]">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h1 className="text-[28px] font-bold tracking-tight text-[#172e55]">Time off</h1><p className="text-[13px] text-slate-500">Plan time away, see who is out, and keep your team covered.</p></div><div className="flex flex-wrap items-center gap-2">{canManage && <button type="button" onClick={() => openBalanceSetup()} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-[#304767] transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#1769e8]"><UserRound className="h-4 w-4" />Manage balances</button>}<button type="button" onClick={() => openRequest()} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#115bca]"><Plus className="h-4 w-4" />Request time off</button></div></div>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h1 className="text-[28px] font-bold tracking-tight text-[#172e55]">Time off</h1><p className="text-[13px] text-slate-500">Plan time away, see who is out, and keep your team covered.</p></div><button type="button" onClick={() => openRequest()} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#115bca]"><Plus className="h-4 w-4" />Request time off</button></div>
 
         {(error || notice) && <div role={error ? "alert" : "status"} className={`mt-5 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${error ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}><span>{error ?? notice}</span><button type="button" onClick={() => { setError(null); setNotice(null); }} className="shrink-0 opacity-70 hover:opacity-100"><X className="h-4 w-4" /></button></div>}
 
         <div className="mt-3 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">{tabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`rounded-md px-4 py-2 text-sm font-semibold transition ${tab === item.id ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{item.label}{item.count ? <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${tab === item.id ? "bg-blue-100 text-[#1769e8]" : "bg-white/70 text-slate-500"}`}>{item.count}</span> : null}</button>)}</div>
 
-        {tab === "overview" && <><section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{initialData.policies.map((policy) => <BalanceCard key={policy.code} policy={policy} balance={balancesByPolicy.get(policy.code)} />)}</section><div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">{calendar}{sidebar}</div></>}
-        {tab === "calendar" && <div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">{calendar}{sidebar}</div>}
-        {tab === "requests" && <div className="mt-3 space-y-4">{requestsTable}{canManage && approvals}</div>}
-        {tab === "team" && canManage && <div className="mt-3 space-y-4"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /><TeamLeaveLog requests={initialData.team_leave_log} policiesByCode={policiesByCode} /></div>}
+        {tab === "overview" && <><section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{initialData.policies.map((policy) => <BalanceCard key={policy.code} policy={policy} balance={balancesByPolicy.get(policy.code)} />)}</section><div className="mt-3 max-w-[640px]">{sidebar}</div></>}
+        {tab === "calendar" && <div className="mt-3">{calendar}</div>}
+        {tab === "requests" && <div className="mt-3">{requestsTable}</div>}
+        {tab === "approvals" && canManage && <div className="mt-3">{approvals}</div>}
+        {tab === "admin" && canManage && <div className="mt-3">{administration}</div>}
       </div>
 
       {showRequest && <Modal title="Request time off" onClose={() => setShowRequest(false)}><form onSubmit={submitRequest} className="space-y-5"><p className="-mt-2 text-sm leading-6 text-slate-500">Your request excludes weekends, US federal holidays, and company days off automatically.</p><PolicyPicker label="Time-off type" policies={initialData.policies} value={requestPolicy} onChange={setRequestPolicy} /><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-semibold text-[#304767]">Start date<input required type="date" value={requestStart} onChange={(event) => setRequestStart(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><label className="block text-sm font-semibold text-[#304767]">End date<input required type="date" min={requestStart || undefined} value={requestEnd} onChange={(event) => setRequestEnd(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div><label className="block text-sm font-semibold text-[#304767]">Note <span className="font-normal text-slate-400">(optional)</span><textarea value={requestReason} onChange={(event) => setRequestReason(event.target.value)} maxLength={1000} rows={3} placeholder="Anything your manager should know?" className="mt-2 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowRequest(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "request"} type="submit" className="inline-flex items-center gap-2 rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "request" ? "Sending…" : "Send request"}</button></div></form></Modal>}
       {showHoliday && <Modal title="Add company day off" onClose={() => setShowHoliday(false)}><form onSubmit={submitHoliday} className="space-y-5"><p className="-mt-2 text-sm leading-6 text-slate-500">Use this for company closures in addition to the automatically included US federal holidays.</p><label className="block text-sm font-semibold text-[#304767]">Date<input required type="date" value={holidayDate} onChange={(event) => setHolidayDate(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><label className="block text-sm font-semibold text-[#304767]">Name<input required value={holidayName} onChange={(event) => setHolidayName(event.target.value)} maxLength={120} placeholder="e.g. Company winter break" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowHoliday(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "holiday"} type="submit" className="rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "holiday" ? "Adding…" : "Add day off"}</button></div></form></Modal>}
       {showBalanceSetup && <Modal title="Manage leave balance" onClose={() => setShowBalanceSetup(false)}><form onSubmit={submitBalanceAdjustment} className="space-y-4"><p className="-mt-2 text-sm leading-5 text-slate-500">Credit or deduct leave for a specific month. Every update is retained in the balance audit history.</p><EmployeePicker members={initialData.team_members} value={balanceAccountId} onChange={setBalanceAccountId} /><div className="grid gap-3 sm:grid-cols-2"><PolicyPicker label="Leave type" policies={adjustablePolicies} value={balancePolicy} onChange={setBalancePolicy} /><label className="block text-sm font-semibold text-[#304767]">Effective month<input required type="month" min={`${balanceYear}-01`} max={`${balanceYear}-12`} value={balanceMonth} onChange={(event) => setBalanceMonth(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div><label className="block text-sm font-semibold text-[#304767]">Monthly adjustment<input required type="number" step="0.5" min="-366" max="366" value={balanceDelta} onChange={(event) => setBalanceDelta(event.target.value)} placeholder="e.g. +1.5 or -0.5" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /><span className="mt-1 block text-xs font-normal text-slate-500">Use a positive value to credit days and a negative value to deduct them.</span></label>{selectedBalancePolicy && <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-center"><div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Allowance</p><p className="mt-1 text-sm font-bold text-[#172e55]">{selectedBalance?.entitlement_days ?? selectedBalancePolicy.annual_allowance ?? "—"}</p></div><div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Adjusted</p><p className={`mt-1 text-sm font-bold ${(selectedBalance?.adjustment_days ?? 0) < 0 ? "text-rose-600" : "text-emerald-600"}`}>{(selectedBalance?.adjustment_days ?? 0) > 0 ? "+" : ""}{selectedBalance?.adjustment_days ?? 0}</p></div><div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Available</p><p className="mt-1 text-sm font-bold text-[#172e55]">{selectedBalanceAvailable ?? "—"}</p></div></div>}<label className="block text-sm font-semibold text-[#304767]">Note <span className="font-normal text-slate-400">(optional)</span><textarea value={balanceNote} onChange={(event) => setBalanceNote(event.target.value)} maxLength={500} rows={2} placeholder="Why is this balance changing?" className="mt-1.5 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label>{selectedBalanceHistory.length > 0 && <div className="border-t border-slate-100 pt-3"><p className="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Recent adjustments</p><div className="mt-2 space-y-2">{selectedBalanceHistory.map((adjustment) => <div key={adjustment.id} className="flex items-start justify-between gap-3 text-sm"><div className="min-w-0"><p className="font-medium text-[#304767]">{formatDate(adjustment.effective_month, { month: "short", year: "numeric" })}{adjustment.note ? ` · ${adjustment.note}` : ""}</p><p className="mt-0.5 text-xs text-slate-500">by {adjustment.created_by_name}</p></div><span className={`shrink-0 font-bold ${adjustment.delta_days > 0 ? "text-emerald-600" : "text-rose-600"}`}>{adjustment.delta_days > 0 ? "+" : ""}{adjustment.delta_days} d</span></div>)}</div></div>}<div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowBalanceSetup(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "balance-adjustment" || !balanceAccountId || !balancePolicy} type="submit" className="rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "balance-adjustment" ? "Saving…" : "Save adjustment"}</button></div></form></Modal>}
+      {decisionRequest && decisionAction && <Modal title={decisionAction === "approve" ? "Approve time-off request" : "Decline time-off request"} onClose={() => { if (!busy) { setDecisionRequest(null); setDecisionAction(null); } }}><form onSubmit={(event) => { event.preventDefault(); void decide(decisionRequest, decisionAction, decisionNote); }} className="space-y-4"><div className="rounded-lg bg-slate-50 px-3.5 py-3"><p className="font-semibold text-[#1e355c]">{decisionRequest.requester_name}</p><p className="mt-1 text-sm text-slate-500">{formatDateRange(decisionRequest.start_date, decisionRequest.end_date)} · {decisionRequest.total_days} day{decisionRequest.total_days === 1 ? "" : "s"}</p>{decisionRequest.reason && <p className="mt-1 text-sm text-slate-600">“{decisionRequest.reason}”</p>}</div><label className="block text-sm font-semibold text-[#304767]">Review note <span className="font-normal text-slate-400">(optional)</span><textarea value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} maxLength={1000} rows={3} placeholder={decisionAction === "approve" ? "Add context for the employee (optional)" : "Explain why this request was declined (optional)"} className="mt-1.5 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" disabled={Boolean(busy)} onClick={() => { setDecisionRequest(null); setDecisionAction(null); }} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={Boolean(busy)} type="submit" className={`rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60 ${decisionAction === "approve" ? "bg-[#1769e8] hover:bg-[#115bca]" : "bg-rose-600 hover:bg-rose-700"}`}>{busy ? "Saving…" : decisionAction === "approve" ? "Approve request" : "Decline request"}</button></div></form></Modal>}
     </div>
   );
 }
@@ -601,6 +612,77 @@ function BalanceCard({ policy, balance }: { policy: TimeOffPolicy; balance?: { e
 
 function StatusBadge({ status }: { status: TimeOffRequest["status"] }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${STATUS_STYLE[status]}`}>{readableStatus(status)}</span>;
+}
+
+function MyRequestsTable({
+  requests,
+  policiesByCode,
+  busy,
+  onCancel,
+}: {
+  requests: TimeOffRequest[];
+  policiesByCode: Map<string, TimeOffPolicy>;
+  busy: boolean;
+  onCancel: (request: TimeOffRequest) => void;
+}) {
+  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5">
+      <div><h2 className="text-base font-semibold text-[#172e55]">My requests</h2><p className="mt-0.5 text-[13px] text-slate-500">Track the status and decisions for your time-off requests.</p></div>
+      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{requests.length} requests</span>
+    </div>
+    {requests.length === 0 ? <EmptyState message="You have not submitted any time-off requests yet." /> : <div className="overflow-x-auto"><table className="w-full min-w-[860px] text-left"><thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Leave type</th><th className="px-4 py-3">Dates</th><th className="px-4 py-3">Days</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Reviewed by</th><th className="px-4 py-3">Review note</th><th className="px-4 py-3 text-right" /></tr></thead><tbody>{requests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <tr key={request.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><span className="inline-flex items-center gap-2 font-semibold text-[#304767]"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: policy?.color ?? "#94a3b8" }} />{policy?.label ?? request.policy_code}</span></td><td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDateRange(request.start_date, request.end_date)}</td><td className="px-4 py-3 whitespace-nowrap text-slate-600">{request.total_days} day{request.total_days === 1 ? "" : "s"}</td><td className="px-4 py-3"><StatusBadge status={request.status} /></td><td className="px-4 py-3 text-slate-500">{request.reviewer_name ?? "—"}</td><td className="max-w-[240px] px-4 py-3 text-slate-500"><span className="block truncate" title={request.reviewer_note ?? undefined}>{request.reviewer_note ?? "—"}</span></td><td className="px-4 py-3 text-right">{request.status === "pending" && <button type="button" disabled={busy} onClick={() => onCancel(request)} className="text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">Cancel</button>}</td></tr>; })}</tbody></table></div>}
+  </section>;
+}
+
+function ApprovalQueue({
+  requests,
+  policiesByCode,
+  busy,
+  onDecide,
+}: {
+  requests: TimeOffRequest[];
+  policiesByCode: Map<string, TimeOffPolicy>;
+  busy: boolean;
+  onDecide: (request: TimeOffRequest, action: "approve" | "reject") => void;
+}) {
+  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5">
+      <div><h2 className="text-base font-semibold text-[#172e55]">Requests to review</h2><p className="mt-0.5 text-[13px] text-slate-500">Approve or decline requests from other team members.</p></div>
+      <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">{requests.length} pending</span>
+    </div>
+    {requests.length === 0 ? <EmptyState message="There are no pending requests to review." /> : <div className="divide-y divide-slate-100">{requests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <div key={request.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#1769e8]">{initials(request.requester_name)}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p><span className="text-xs text-slate-400">requested {formatDate(request.created_at.slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}</span></div><p className="mt-1 text-sm text-slate-600"><span className="font-semibold text-[#304767]">{policy?.label ?? request.policy_code}</span> · {formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p>{request.reason && <p className="mt-1 max-w-2xl truncate text-sm text-slate-500" title={request.reason}>{request.reason}</p>}</div></div><div className="flex shrink-0 gap-2 pl-12 lg:pl-0"><button type="button" disabled={busy} onClick={() => onDecide(request, "reject")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50">Decline</button><button type="button" disabled={busy} onClick={() => onDecide(request, "approve")} className="rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-50">Approve</button></div></div>; })}</div>}
+  </section>;
+}
+
+function BalanceAdjustmentLog({
+  adjustments,
+  members,
+  policiesByCode,
+}: {
+  adjustments: TimeOffBalanceAdjustment[];
+  members: TimeOffTeamMember[];
+  policiesByCode: Map<string, TimeOffPolicy>;
+}) {
+  const memberById = new Map(members.map((member) => [member.id, member]));
+  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5"><div><h2 className="text-base font-semibold text-[#172e55]">Balance adjustment log</h2><p className="mt-0.5 text-[13px] text-slate-500">Credits and deductions retained for audit.</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{adjustments.length} records</span></div>
+    {adjustments.length === 0 ? <EmptyState message="No balance adjustments have been recorded yet." /> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left"><thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Member</th><th className="px-4 py-3">Leave type</th><th className="px-4 py-3">Effective month</th><th className="px-4 py-3">Change</th><th className="px-4 py-3">Note</th><th className="px-4 py-3">Updated by</th></tr></thead><tbody>{adjustments.map((adjustment) => { const member = memberById.get(adjustment.account_id); const policy = policiesByCode.get(adjustment.policy_code); return <tr key={adjustment.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{member?.name ?? "Unknown employee"}</p><p className="mt-0.5 text-xs text-slate-500">{member?.email ?? "—"}</p></td><td className="px-4 py-3 text-slate-600">{policy?.label ?? adjustment.policy_code}</td><td className="px-4 py-3 whitespace-nowrap text-slate-600">{formatDate(adjustment.effective_month, { month: "short", year: "numeric" })}</td><td className={`px-4 py-3 font-bold ${adjustment.delta_days > 0 ? "text-emerald-600" : "text-rose-600"}`}>{adjustment.delta_days > 0 ? "+" : ""}{adjustment.delta_days} d</td><td className="max-w-[240px] px-4 py-3 text-slate-500"><span className="block truncate" title={adjustment.note ?? undefined}>{adjustment.note ?? "—"}</span></td><td className="px-4 py-3 text-slate-500">{adjustment.created_by_name}</td></tr>; })}</tbody></table></div>}
+  </section>;
+}
+
+function CompanyDaysTable({
+  days,
+  busy,
+  onRemove,
+}: {
+  days: TimeOffHoliday[];
+  busy: boolean;
+  onRemove: (holiday: TimeOffHoliday) => void;
+}) {
+  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5"><div><h2 className="text-base font-semibold text-[#172e55]">Company days off</h2><p className="mt-0.5 text-[13px] text-slate-500">Company closures added on top of the US federal holiday calendar.</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{days.length} days</span></div>
+    {days.length === 0 ? <EmptyState message="No company days off have been added for this year." /> : <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left"><thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Name</th><th className="px-4 py-3">Source</th><th className="px-4 py-3 text-right" /></tr></thead><tbody>{days.map((holiday) => <tr key={holiday.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3 whitespace-nowrap font-medium text-[#304767]">{formatDate(holiday.date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</td><td className="px-4 py-3 font-semibold text-[#1e355c]">{holiday.name}</td><td className="px-4 py-3 text-slate-500">Company</td><td className="px-4 py-3 text-right"><button type="button" disabled={busy} onClick={() => onRemove(holiday)} className="text-sm font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">Remove</button></td></tr>)}</tbody></table></div>}
+  </section>;
 }
 
 function TeamBalanceTable({ members, policies, onAdjust }: { members: TimeOffTeamMember[]; policies: TimeOffPolicy[]; onAdjust: (accountId: string) => void }) {

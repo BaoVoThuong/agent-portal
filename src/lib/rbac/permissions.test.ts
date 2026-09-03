@@ -24,3 +24,12 @@ describe("lead permissions", () => {
       .toEqual(["lead.manage", "lead.work"]);
   });
 });
+
+describe("time-off permissions", () => {
+  it("keeps user and admin access separate", () => {
+    expect(PERMISSIONS.TIME_OFF_USER).toBe("timeoff.user");
+    expect(PERMISSIONS.TIME_OFF_ADMIN).toBe("timeoff.admin");
+    expect(PERMISSION_DEFINITIONS.filter((d) => d.groupKey === "time_off").map((d) => d.key))
+      .toEqual(["timeoff.user", "timeoff.admin"]);
+  });
+});
