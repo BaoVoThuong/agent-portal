@@ -784,7 +784,10 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
 
   const administration = canManage ? (
     <section className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between"><div><h2 className="text-base font-semibold text-[#172e55]">Leave administration</h2><p className="mt-0.5 text-[13px] text-slate-500">Manage team balances, leave history, and company closures.</p></div>{adminSection === "company-days" && <button type="button" onClick={() => { setError(null); setShowHoliday(true); }} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#115bca]"><Plus className="h-4 w-4" />Add company day off</button>}</div>
+      {/* Tiêu đề "Leave administration" đã bỏ: thanh tab ngay dưới đã nói rõ
+          đang ở đâu, còn dòng mô tả chỉ lặp lại tên các tab. Nút thêm ngày nghỉ
+          công ty phải giữ — đó là lối duy nhất để thêm. */}
+      {adminSection === "company-days" && <div className="flex justify-end border-b border-slate-100 pb-4"><button type="button" onClick={() => { setError(null); setShowHoliday(true); }} className="inline-flex w-fit items-center gap-2 rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#115bca]"><Plus className="h-4 w-4" />Add company day off</button></div>}
       <div className="mt-4 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
         {(["balances", "accruals", "approvals", "history", "company-days"] as const).map((section) => <button key={section} type="button" onClick={() => setAdminSection(section)} className={`rounded-md px-3 py-2 text-sm font-semibold transition ${adminSection === section ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{section === "balances" ? "Balances" : section === "accruals" ? "Monthly accruals" : section === "approvals" ? <>Approvals{initialData.pending_approvals.length > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700">{initialData.pending_approvals.length}</span>}</> : section === "history" ? "Leave history" : "Company days off"}</button>)}
       </div>
