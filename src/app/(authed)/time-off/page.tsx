@@ -10,6 +10,14 @@ function currentMonthKey() {
   return new Date().toISOString().slice(0, 7);
 }
 
+type TimeOffTab = "overview" | "requests" | "admin";
+
+function initialTab(value: string | undefined, canManage: boolean): TimeOffTab {
+  if (value === "requests") return "requests";
+  if (value === "admin" && canManage) return "admin";
+  return "overview";
+}
+
 export default async function TimeOffPage({
   searchParams,
 }: {
@@ -19,6 +27,7 @@ export default async function TimeOffPage({
   if (!actor) redirect("/unauthorized");
   const params = searchParams ? await searchParams : {};
   const rawMonth = Array.isArray(params.month) ? params.month[0] : params.month;
+  const rawTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   const monthKey = typeof rawMonth === "string" && monthBounds(rawMonth)
     ? rawMonth
     : currentMonthKey();
@@ -32,6 +41,7 @@ export default async function TimeOffPage({
     <TimeOffClient
       canManage={actor.canManage}
       monthKey={monthKey}
+      initialTab={initialTab(rawTab, actor.canManage)}
       initialData={data}
     />
   );

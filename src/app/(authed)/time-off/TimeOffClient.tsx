@@ -34,6 +34,7 @@ type AdminSection = "balances" | "history" | "company-days";
 type Props = {
   canManage: boolean;
   monthKey: string;
+  initialTab: Tab;
   initialData: TimeOffDashboardData;
 };
 
@@ -172,9 +173,9 @@ function readableStatus(status: TimeOffRequest["status"]) {
   return status[0].toUpperCase() + status.slice(1);
 }
 
-export default function TimeOffClient({ canManage, monthKey, initialData }: Props) {
+export default function TimeOffClient({ canManage, monthKey, initialTab, initialData }: Props) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [adminSection, setAdminSection] = useState<AdminSection>("balances");
   const [showRequest, setShowRequest] = useState(false);
   const [showHoliday, setShowHoliday] = useState(false);
@@ -209,6 +210,14 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
   const calendarYearVersions = useRef(new Map<string, number>());
   const [calendarData, setCalendarData] = useState<CalendarData>(initialCalendarData);
   const [calendarLoading, setCalendarLoading] = useState(false);
+
+  function selectTab(nextTab: Tab) {
+    setTab(nextTab);
+    const url = new URL(window.location.href);
+    if (nextTab === "overview") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", nextTab);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
 
   const policiesByCode = useMemo(
     () => new Map(initialData.policies.map((policy) => [policy.code, policy])),
@@ -359,7 +368,9 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
     try {
       const calendar = await fetchCalendarMonth(targetMonth);
       setCalendarData(calendar);
-      window.history.pushState(null, "", `/time-off?month=${targetMonth}`);
+      const url = new URL(window.location.href);
+      url.searchParams.set("month", targetMonth);
+      window.history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
     } catch (calendarError) {
       setError(calendarError instanceof Error ? calendarError.message : "Unable to load the calendar.");
     } finally {
@@ -422,6 +433,7 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
       setDecisionNote("");
       setDecisionError(null);
       setNotice(action === "approve" ? "Request approved." : action === "reject" ? "Request declined." : "Request cancelled.");
+      if (action === "approve" || action === "reject") selectTab("admin");
       router.refresh();
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Unable to update request.";
@@ -584,7 +596,7 @@ export default function TimeOffClient({ canManage, monthKey, initialData }: Prop
 
         {(error || notice) && <div role={error ? "alert" : "status"} className={`mt-5 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${error ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}><span>{error ?? notice}</span><button type="button" onClick={() => { setError(null); setNotice(null); }} className="shrink-0 opacity-70 hover:opacity-100"><X className="h-4 w-4" /></button></div>}
 
-        <div className="mt-3 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">{tabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} className={`rounded-md px-4 py-2 text-sm font-semibold transition ${tab === item.id ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{item.label}{item.count ? <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${tab === item.id ? "bg-blue-100 text-[#1769e8]" : "bg-white/70 text-slate-500"}`}>{item.count}</span> : null}</button>)}</div>
+        <div className="mt-3 inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-1">{tabs.map((item) => <button key={item.id} type="button" onClick={() => selectTab(item.id)} className={`rounded-md px-4 py-2 text-sm font-semibold transition ${tab === item.id ? "bg-white text-[#1769e8] shadow-sm" : "text-slate-500 hover:bg-slate-50 hover:text-[#172e55]"}`}>{item.label}{item.count ? <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[11px] ${tab === item.id ? "bg-blue-100 text-[#1769e8]" : "bg-white/70 text-slate-500"}`}>{item.count}</span> : null}</button>)}</div>
 
         {tab === "overview" && <><section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{initialData.policies.map((policy) => <BalanceCard key={policy.code} policy={policy} balance={balancesByPolicy.get(policy.code)} />)}</section><div className="mt-3 grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">{calendar}{sidebar}</div></>}
         {tab === "requests" && <div className="mt-3">{requestsTable}</div>}
