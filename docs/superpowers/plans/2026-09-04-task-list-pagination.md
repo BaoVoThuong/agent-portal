@@ -889,3 +889,369 @@ Check 5 is the important one. Without it, nothing in this change is exercised un
 - **Is returning `total` from `fetchTasksForActor` a trap?** For a scoped worker it is the pre-`canViewTask` SQL count, so it is larger than the array. It is only used to compute `truncated`, but it is exported and someone will eventually display it.
 - **Should the API keep returning 503 on the legacy truncation path**, now that the main path returns partial data plus a flag? Two different behaviours for "the list is short" may be one too many.
 - **Is `TASK_MAX_ROWS = 20_000` right?** At 9,4 tasks/day it is ~6 years. It also caps the payload near 26 MB raw, which is far past what the browser should be handed — arguably the ceiling should be lower (5.000?) precisely so the banner appears *before* the board becomes unusable, rather than after.
+
+---
+
+## 9. [codex] Review — changes requested
+
+**[codex] Kết luận:** plan này là một hotfix hợp lý cho trần PostgREST 1.000
+dòng, nhưng chưa phải giải pháp pagination/scale hoàn chỉnh. Nó vẫn tải, enrich,
+truyền sang browser và render toàn bộ active task. Vì vậy plan hiện tại có thể làm
+`/tasks` hết hard-crash ở dòng 1.001 nhưng chưa đạt mục tiêu "scale lên mà không
+chậm". Không nên triển khai nguyên trạng dưới tên một giải pháp scale hoàn chỉnh.
+
+### [codex] Blockers và high-risk findings
+
+1. **[codex][blocker] Đây vẫn là full-load, không phải pagination theo viewport.**
+   `fetchAllTaskPages` chỉ chia một lần tải toàn bộ thành nhiều request rồi ghép lại
+   trước khi trả response. `TaskBoardClient` tiếp tục gọi `/api/tasks` cho realtime,
+   reconnect, focus và polling (60 giây khi live, 15 giây khi degraded). Ở quy mô
+   lớn, một thay đổi nhỏ vẫn khiến server đọc và enrich lại toàn bộ danh sách.
+
+   **[codex][solution]** Tách rõ hai mục tiêu:
+   - Phase hotfix: page toàn bộ để bỏ crash ở mốc 1.000.
+   - Phase scale: API cursor pagination có `limit`, `cursor` và server-side filters;
+     realtime cập nhật theo `taskId` thay vì full snapshot; periodic reconcile chỉ
+     tải lại query/page đang xem.
+
+2. **[codex][blocker] List và Board vẫn mount toàn bộ task.** `TaskListView` dùng
+   `rows.map(...)`; Kanban dùng `tasks.map(...)` bên trong `SortableContext`. Plan
+   cũng tự ước tính 2.000 task có thể tạo khoảng 30.000 mounted components nhưng
+   lại để windowing ngoài scope. Đây là blocker performance, không chỉ là một tối
+   ưu tùy chọn.
+
+   **[codex][solution]** Thêm virtualization cho List trong cùng chương trình scale.
+   Board cần window/load-more theo từng column và phải kiểm tra tương tác drag/drop
+   với item chưa mount. Nếu chưa làm được Board virtualization trong hotfix, đặt
+   một giới hạn hiển thị có thông báo rõ ràng thay vì mount hàng nghìn card.
+
+3. **[codex][high] Task 4 bỏ sót fan-out của assignee.** Trước metadata,
+   `attachAssigneesToTasks` gọi `fetchTaskAssigneeRowsForTaskIds`; hàm này cũng chia
+   50 ids/chunk rồi chạy `Promise.all` trên tất cả chunks. 2.000 task tạo 40 query
+   đồng thời; 20.000 task tạo 400 query đồng thời.
+
+   **[codex][solution]** Áp dụng cùng concurrency helper cho cả assignee và metadata,
+   có unit test chứng minh số request in-flight không vượt giới hạn. Tốt hơn ở phase
+   scale là trả assignee và metadata cùng page từ một SQL function/view thay vì hai
+   vòng fan-out riêng.
+
+4. **[codex][high] Thiếu index khớp query phân trang.** Query lọc
+   `archived_at is null` rồi order theo `(position, created_at, id)`, trong khi schema
+   chỉ có index riêng cho `archived_at` và `(status, position)`. Offset càng sâu càng
+   phải scan/sort và bỏ qua nhiều dòng.
+
+   **[codex][solution]** Thêm migration cho partial composite index khớp filter/order,
+   ví dụ `(position, created_at, id) where archived_at is null`, sau đó lưu kết quả
+   `EXPLAIN (ANALYZE, BUFFERS)` ở 1.000/5.000/20.000 rows trước khi chốt index.
+
+5. **[codex][high] Scope filter có thể vượt giới hạn URL.** Worker scope lấy toàn bộ
+   `assignedIds` và `participantIds`, rồi nhét vào `.or(id.in.(...))`. Khi lịch sử
+   tham gia/được assign tăng, request có thể lỗi 414/431 trước khi task table chạm
+   `TASK_MAX_ROWS`; cùng chuỗi filter lớn còn bị gửi lại ở từng page.
+
+   **[codex][solution]** Chuyển visibility scope vào SQL RPC/view và join trực tiếp
+   với `task_assignees`/`task_participants`. Không đưa một danh sách UUID tăng không
+   giới hạn vào query string.
+
+6. **[codex][high] Offset trên một thứ tự mutable không cho snapshot đáng tin cậy.**
+   `position` thay đổi khi kéo task. Trong lúc các page chạy song song, một task có
+   thể bị lặp hoặc bị bỏ sót. Dedupe chỉ bỏ được bản trùng, không thể khôi phục row
+   bị miss; `rows.length === total` cũng không chứng minh hai tập dữ liệu giống nhau
+   nếu insert/delete/move bù trừ nhau.
+
+   **[codex][solution]** Dùng cursor/keyset với thứ tự ổn định hoặc một database
+   snapshot. Nếu vẫn dùng offset cho hotfix, khi count/dedupe không khớp phải retry
+   toàn bộ snapshot một lần rồi fail/warn rõ ràng; không xem realtime là cơ chế bảo
+   đảm correctness.
+
+7. **[codex][high] Bounding metadata concurrency chỉ giảm spike, không giảm tổng
+   workload.** Với chunk 50, 20.000 task vẫn tạo 400 RPC calls; mỗi call chạy hai
+   correlated count subqueries cho từng task.
+
+   **[codex][solution]** Chỉ enrich page đang hiển thị, hoặc trả metadata bằng một
+   aggregate query theo page. Phương án dài hạn là duy trì `comment_count` và
+   `attachment_count` bằng mutation/trigger để list không phải đếm lại toàn bộ ở
+   mỗi lần refresh.
+
+8. **[codex][medium] `TASK_MAX_ROWS = 20_000` quá cao so với client architecture
+   hiện tại.** Khoảng 26 MB raw chưa gồm overhead của RSC/JSON, object allocations,
+   metadata, assignees và DOM. Đây là mức mà app có thể timeout hoặc treo browser
+   trước khi banner truncation xuất hiện. Ngoài ra helper chưa bảo đảm cap chính
+   xác nếu server page size thực tế không chia hết cho `maxRows`, vì page cuối vẫn
+   dùng range theo `TASK_PAGE_SIZE`.
+
+   **[codex][solution]** Trong hotfix dùng ceiling an toàn hơn (đề xuất bắt đầu ở
+   5.000 nhưng phải chốt bằng benchmark), và giới hạn `to = min(offset + pageSize,
+   maxRows) - 1` cho page cuối. Phase scale không nên dựa vào một all-load ceiling.
+
+9. **[codex][medium] Retry hiện tại retry mọi lỗi ngay lập tức.** Lỗi quyền, schema,
+   query hoặc request 4xx là lỗi permanent; retry chỉ nhân đôi tải và độ trễ.
+
+   **[codex][solution]** Chỉ retry network error/timeout/5xx/429, tối đa một lần với
+   backoff + jitter. Trả nguyên lỗi non-transient ngay lần đầu.
+
+10. **[codex][medium] Test plan chưa kiểm tra đường pagination thật.** Hai test được
+    đề xuất chỉ kiểm tra first-page exact count và fail-closed scope. Chúng không
+    chứng minh page assembly, boundary, cap, retry, dedupe, stable order, scope trên
+    mọi page hoặc concurrency limit.
+
+    **[codex][solution]** Bổ sung test cho:
+    - nhiều page với server cap nhỏ hơn requested page size;
+    - page cuối và strict row ceiling;
+    - duplicate/missing row detection;
+    - transient retry và permanent error không retry;
+    - cùng scope predicate trên mọi page;
+    - max in-flight của metadata **và assignee**;
+    - API/page/export contract khi `truncated`.
+
+11. **[codex][medium] Không nên làm refactor Leads thành prerequisite của hotfix
+    Tasks.** Move helper đang chạy production tạo thêm regression surface nhưng
+    không góp phần giải quyết outage ở mốc 1.000.
+
+    **[codex][solution]** Tạo generic helper mới kèm test và dùng cho Tasks trước.
+    Migrate Leads sang helper shared ở một commit/PR độc lập sau khi hotfix ổn định.
+
+### [codex] Revised execution plan
+
+#### Phase A — hotfix an toàn trước mốc 1.000
+
+- [ ] Giữ `assertTaskListComplete` cho đến khi multi-page tests pass.
+- [ ] Page main query với strict row ceiling và chỉ retry transient error.
+- [ ] Không refactor live Leads trong cùng hotfix.
+- [ ] Bound concurrency cho cả metadata, legacy metadata và assignee fan-out.
+- [ ] Thêm partial composite index và kiểm tra execution plan.
+- [ ] Trả `truncated` nhất quán cho page/API; export phải fail closed.
+- [ ] Thêm test multi-page, scope, cap, retry và concurrency.
+- [ ] Benchmark end-to-end ở 1.000/2.000/5.000 active tasks trước khi deploy.
+
+#### Phase B — scale thật sự
+
+- [ ] Thiết kế `/api/tasks` theo cursor + server-side filters; initial page khoảng
+      100–200 records thay vì toàn bộ active tasks.
+- [ ] Virtualize Task List; thiết kế window/load-more cho từng Kanban column.
+- [ ] Dùng delta endpoint/realtime payload theo task id; bỏ full-list refetch cho
+      mỗi mutation, focus và broadcast.
+- [ ] Enrich assignee + metadata theo page bằng một DB query/RPC; loại bỏ N-chunk
+      fan-out khỏi normal list path.
+- [ ] Chuyển worker visibility scope thành DB-side joins/RPC.
+- [ ] Đặt performance budget và test ở 1k/5k/20k: TTFB/API p95, payload size,
+      query count, DB time, React commit time và số mounted rows/cards.
+
+### [codex] Approval condition
+
+**[codex] Có thể approve Phase A sau khi findings 3, 4, 8, 9 và 10 được đưa vào
+plan. Không được tuyên bố mục tiêu "scale không chậm" hoàn tất cho đến khi Phase B
+xử lý full refetch, server-side pagination/filtering và DOM virtualization.**
+
+---
+
+## 10. Revised plan after review — SUPERSEDES §5–§8
+
+Written 2026-09-04 after the [codex] review in §9 and a product decision from the owner.
+**§5–§8 above are kept as history; build from this section.**
+
+### 10.1 What changed and why
+
+Two things invalidated the original plan:
+
+1. **The goal moved.** The original goal was "stop crashing, change nothing a user
+   sees". The owner has since restated it: *the board must still load smoothly at
+   1.000 and 5.000 active tasks.* §9 finding 1 is correct — the original plan was a
+   hotfix for the PostgREST cap, not a scale solution, and it should not have been
+   presented as one.
+2. **The owner chose instant filtering.** Asked whether changing a filter may cost a
+   ~200 ms round-trip, the answer was **instant**. That rules out [codex]'s Phase B
+   shape (cursor + server-side filters + 100–200 initial records): every filter
+   change would become a request.
+
+Those two together force a conclusion neither the original plan nor the review
+stated: **the board must load a bounded window, and everything the user filters over
+must be inside that window.**
+
+### 10.2 The measurement that settles it
+
+At 5.000 active tasks, **one** full load costs:
+
+| | |
+|---|---|
+| Payload | 6,54 MB raw / 1,87 MB gzip |
+| Task page queries | 5 |
+| Metadata RPC calls (chunk 50) | 100 |
+| Assignee queries (chunk 50) | 100 |
+| **Total DB queries per load** | **205** |
+
+And `TASK_LIVE_RECONCILE_MS = 60_000` (`src/lib/tasks/live-sync.ts:12`) makes every
+visible tab repeat that every 60 seconds — a 5× more aggressive poll than the Leads
+list, which sits at 300 s. With ~20 CS tabs open:
+
+> **37 MB/min egress · 4.100 DB queries/min**
+
+This is [codex] finding 7 expressed as a number: bounding concurrency flattens the
+spike, it does not reduce the work. **No amount of DOM virtualization fixes this**,
+because the cost is paid before a single row is rendered. The data volume itself has
+to shrink.
+
+### 10.3 Architecture: a bounded window that preserves instant filtering
+
+**Always loaded, no date limit:** every task whose status is *not* `done`/`cancel`.
+This is the working set. It is bounded by team capacity, not by history — 42 today,
+and it stays flat as long as throughput matches the 9,4 tasks/day inflow. A task
+opened three months ago and still `waiting` must always be visible, whatever date
+range is selected.
+
+**Plus, inside the selected date range:** `done`/`cancel` tasks by `closed_at`, and
+any task with `done_reviewed_at IS NULL` regardless of age (QC still owes it — this
+is exactly the `.or()` at `src/app/api/leads/../overview-data.ts:57-60`, already
+established in this codebase).
+
+**Stays instant (client-side, zero requests):** status, agent, assignee, category,
+priority, quick filters, text search — the filters people flip constantly.
+
+**Costs one request:** changing the date range. That control is semantically "how
+much history do I want loaded", so it is the honest place to put the round-trip.
+
+**Anything older:** `runTaskSearch` (`src/lib/tasks/search.ts`) is already a
+server-side search across the whole table with no date limit, covering task titles,
+comment bodies and attachment filenames, already on the toolbar. Nothing is deleted
+and nothing becomes unreachable.
+
+Steady-state board size: ~42 open + ~66 done in a 7-day window ≈ **110 rows**;
+≈ **320 rows** with a 30-day window. Permanently, at any company size this product
+reaches. That turns 205 queries/load into ~10 and 37 MB/min into ~2 MB/min.
+
+> **Assumption to challenge before building Phase B:** that a round-trip on the date
+> range only is acceptable. If the owner wants even that instant, the fallback is to
+> load a fixed generous window (say 30 days of done) and offer an explicit
+> "load older" button instead of making the date picker fetch.
+
+### 10.4 Disposition of every [codex] finding
+
+| # | [codex] finding | Decision |
+|---|---|---|
+| 1 | Still a full load, not real pagination | **Accepted.** Resolved by §10.3, not by cursors. |
+| 2 | List and Kanban mount every task | **Accepted as Phase B blocker.** With a ~320-row window this is far less acute, but still done. |
+| 3 | Assignee fan-out missed in Task 4 | **Accepted.** Verified at `src/lib/tasks/assignees.ts:331`. |
+| 4 | Missing index for filter+order | **Accepted, simpler fix — see §10.5.** No composite index needed. |
+| 5 | Scope UUID list may blow the URL (414/431) | **Accepted, and promoted into Phase A.** It is a Phase A correctness bug, not a Phase B concern. |
+| 6 | Offset over mutable `position` can miss rows | **Accepted, simpler fix — see §10.5.** No cursor infrastructure needed. |
+| 7 | Bounding concurrency ≠ less total work | **Accepted.** Quantified in §10.2; it is the argument for §10.3. |
+| 8 | `TASK_MAX_ROWS = 20_000` too high; last-page overshoot | **Accepted.** Ceiling drops to 5.000 and the last page clamps to the ceiling. |
+| 9 | Retry retries permanent errors | **Accepted.** |
+| 10 | Test plan does not exercise paging | **Accepted.** |
+| 11 | Do not make the Leads refactor a prerequisite | **Accepted.** Task 1 of §5 is dropped from Phase A; a new generic helper is written for tasks, and Leads migrates later in its own commit. |
+
+**One inconsistency in the review:** its approval condition lists findings 3, 4, 8, 9,
+10 but omits 5 and 6, which the same review labels `[high]` and which are correctness
+bugs *in Phase A itself* — the review even notes that dedupe cannot recover a missed
+row. Both are therefore in the Phase A gate below.
+
+### 10.5 A simpler resolution for findings 4 and 6 than the review proposed
+
+The review proposes cursor/keyset pagination because `position` is mutable
+(drag-and-drop) and offset paging over a mutable order can duplicate or drop rows.
+The premise is right. The remedy is heavier than it needs to be.
+
+`src/app/(authed)/tasks/_components/TaskListView.tsx:112-117`:
+
+```ts
+  const ranked =
+    sortKey === null
+      ? managerView
+        ? rankTasksForManager(tasks, rules, now)
+        : rankTasks(tasks, rules, now)
+      : sortTasks(tasks, sortKey, sortDir, categoryName);
+```
+
+**The client always re-ranks or re-sorts. The SQL ordering is never what the user
+sees** — it only decides *which* rows come back, never the order they appear in.
+
+So order the paged query by **`id` alone**: immutable, unique, and already the
+primary key, so the index exists.
+
+- Finding 6 disappears: dragging a task cannot shift another task's page.
+- Finding 4 disappears: no `(position, created_at, id) where archived_at is null`
+  composite index is needed; the PK ordering plus the existing `tasks_archived_idx`
+  serves it.
+
+**Verify before relying on this:** confirm nothing downstream depends on the SQL
+order — in particular that `KanbanBoard.tsx` derives its card order from the
+`position` *field* on each row rather than from array order. If it does depend on
+array order, sort by `position` in Node after assembly (cheap at ≤ 5.000 rows)
+rather than reintroducing it into the SQL.
+
+### 10.6 Phase A — stop the crash. Ship first, alone.
+
+Deadline is real: 141 active tasks, 9,4/day, ~92 days to the cap.
+Phase A does **not** claim to meet the "smooth at 5.000" goal — it buys the room to
+build Phase B properly.
+
+- [ ] **A1.** New generic paging helper `src/lib/pagination/page-plan.ts` **written
+      fresh with its own tests**. Do **not** move `src/lib/leads/page-plan.ts`
+      ([codex] 11) — Leads went live today and must not be touched by a task hotfix.
+      Duplication here is deliberate and temporary; a follow-up commit migrates Leads.
+- [ ] **A2.** Page `fetchTasksForActor`, **ordered by `id`** (§10.5). First page
+      carries `count: exact`; later pages in bounded parallel; step by the rows page
+      one actually returned.
+- [ ] **A3.** `TASK_MAX_ROWS = 5_000`, and clamp the final page:
+      `.range(offset, Math.min(offset + pageSize, TASK_MAX_ROWS) - 1)` ([codex] 8).
+- [ ] **A4.** Retry only transient failures — network/timeout/5xx/429, once, with
+      jitter. Return permanent errors (permission, schema, malformed query)
+      immediately ([codex] 9).
+- [ ] **A5.** Move worker visibility scope out of the query string ([codex] 5).
+      `assignedIds` + `participantIds` grow without bound and are now re-sent on
+      every page. Either resolve the scope in SQL (a view or RPC joining
+      `task_assignees` / `task_participants`), or — if that is too large for a
+      hotfix — cap the id list, detect the cap, and fall back to a scope-free query
+      plus the existing Node-side `canViewTask` filter, which is already the
+      authority. **Do not ship an unbounded UUID list in a URL.**
+- [ ] **A6.** Bound the fan-out in `fetchTaskListMetadata`, its three legacy helpers,
+      **and `fetchTaskAssigneeRowsForTaskIds`** ([codex] 3) with one shared helper.
+- [ ] **A7.** Report `truncated`: banner on the board, field on `/api/tasks`, and
+      **export refuses outright** — a short CSV leaves the building and nobody can
+      tell it is short.
+- [ ] **A8.** Tests ([codex] 10): multi-page assembly with a server cap below the
+      requested size; last page against the ceiling; duplicate and missing-row
+      detection; transient retried once vs permanent not retried; the same scope
+      predicate on every page; max in-flight for metadata **and** assignees; the
+      `truncated` contract on page, API and export.
+- [ ] **A9.** Verify at volume before deploy: seed a scratch environment to 1.000 /
+      2.000 / 5.000 tasks and record TTFB, `/api/tasks` p95, payload size and DB
+      query count. Numbers, not assertions.
+
+### 10.7 Phase B — actually smooth at 5.000
+
+- [ ] **B1.** Server loads the bounded window of §10.3: all non-`done`/`cancel`
+      tasks, plus `done`/`cancel` inside the requested date range, plus anything with
+      `done_reviewed_at IS NULL`. `fetchTasksForActor` takes the range; the board
+      passes its current range.
+- [ ] **B2.** Refetch on date-range change only, through the existing path at
+      `TaskBoardClient.tsx:462` (which already handles overlapping refetches and
+      write-version races — read it before touching it). Every other filter stays
+      client-side and instant.
+- [ ] **B3.** Cut the standing cost of `TASK_LIVE_RECONCILE_MS = 60_000`. With a
+      ~320-row window a full reconcile is affordable, but the id-scoped realtime
+      patch path that Leads uses (`patchLeadsById`) is the better model. At minimum,
+      justify 60 s with a measurement instead of inheriting it.
+- [ ] **B4.** Virtualize `TaskListView` ([codex] 2). `@tanstack/react-virtual` is
+      already a dependency. Use `top`, not `transform` — every pinned cell is
+      `position: sticky` and sticky inside a transformed ancestor is the classic
+      breakage (learned on `LeadTable` this morning).
+- [ ] **B5.** Kanban: window or load-more per column. **Verify drag-and-drop against
+      unmounted cards** — `KanbanBoard.tsx:285` wraps the column in
+      `SortableContext`, and dnd-kit needs its items registered. If windowing and
+      dnd-kit cannot be reconciled cheaply, cap cards per column with a visible
+      "showing N of M" instead of mounting thousands.
+- [ ] **B6.** Stop recounting comments and attachments on every load. `task_list_metadata`
+      runs two correlated subqueries per task, per load, per user. Either enrich only
+      the rendered page, or maintain `comment_count` / `attachment_count` on `tasks`
+      via trigger ([codex] 7).
+- [ ] **B7.** Performance budget, measured at 1k / 5k: API p95, payload, DB query
+      count, React commit time, mounted row count. Ship against numbers.
+
+### 10.8 Definition of done
+
+Phase A is done when the board cannot crash and the paging path is proven by tests
+plus a seeded 5.000-task run.
+
+**The "smooth at 1.000–5.000" goal is met only when B1, B4 and B6 are shipped and
+B7's numbers say so** — [codex] is right that it must not be declared before then.
