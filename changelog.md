@@ -6,6 +6,24 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-04 — Leads: bảng danh sách bỏ render thừa
+
+- **Loại**: perf (client) — không đổi hành vi.
+- Các phép suy diễn của danh sách (`alertsByLeadId`, `healthByLeadId`,
+  `displayedLeads`, `eventNames`, các mảng `*FilterOptions`) tách sang
+  `src/lib/leads/list-derivations.ts` (test được ở môi trường node) và bọc
+  `useMemo`; badge chỉ phụ thuộc `leads` + `alertSettings`, không phụ thuộc
+  filters, nên không còn tính lại mỗi phím gõ vào Search.
+- Ô Search vẫn hiện ký tự tức thì; việc LỌC + sắp xếp + render lại bảng hoãn
+  200ms sau phím cuối (`useDebouncedValue`).
+- `LeadRow` / `LeadDataCell` bọc `memo`; các map tra cứu trong `LeadTable`
+  (`statusById`, `optionsByColumn`, `assigneeChoices`, `pinnedOffsetByKey`…)
+  chuyển sang `useMemo`; handler truyền xuống bảng bọc `useCallback` (đọc `leads`
+  / `activeAlert` / `displayedLeads` qua ref để giữ danh tính). Trước đây mỗi
+  phím gõ render lại toàn bộ N dòng × ~15 ô; giờ chỉ dòng có dữ liệu đổi.
+- Chưa thêm windowing: ở ~120 lead số node DOM chưa phải nút thắt. Xem lại khi
+  vượt ~500 lead hoạt động.
+
 ## 2026-09-04 — Leads: index cho danh sách mặc định và bộ lọc Status
 
 - **Loại**: perf (chỉ số plan truy vấn) — cần chạy rollout

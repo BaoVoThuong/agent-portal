@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { memo, useCallback, useMemo, useRef } from "react";
 import type {
   CSSProperties,
   MouseEvent,
@@ -124,37 +124,47 @@ export function LeadTable({
   onSelectVisible,
   onOpenLead,
 }: LeadTableProps) {
-  const statusById = new Map(statuses.map((status) => [status.id, status]));
-  const interactionTypeById = new Map(
-    interactionTypes.map((type) => [type.id, type]),
+  const statusById = useMemo(
+    () => new Map(statuses.map((status) => [status.id, status])),
+    [statuses],
   );
-  const optionsByColumn = new Map<string, TableColumnOption[]>();
-  for (const option of columnOptions) {
-    optionsByColumn.set(option.column_id, [
-      ...(optionsByColumn.get(option.column_id) ?? []),
-      option,
-    ]);
-  }
+  const interactionTypeById = useMemo(
+    () => new Map(interactionTypes.map((type) => [type.id, type])),
+    [interactionTypes],
+  );
+  const optionsByColumn = useMemo(() => {
+    const map = new Map<string, TableColumnOption[]>();
+    for (const option of columnOptions) {
+      map.set(option.column_id, [...(map.get(option.column_id) ?? []), option]);
+    }
+    return map;
+  }, [columnOptions]);
 
   // "No status" is a real choice: a lead can sit in the pool before anyone has
   // spoken to it, and an agent must be able to put one back there.
-  const statusChoices = [
-    { value: "", label: "No status" },
-    ...statuses.map((status) => ({ value: status.id, label: status.label })),
-  ];
-  const assigneeChoices = [
-    { value: "", label: "Unassigned" },
-    ...assignees.map((person) => ({
-      value: person.email,
-      label: personLabel(person.email, nameByEmail),
-      keywords: [person.email],
-    })),
-  ];
+  const statusChoices = useMemo(
+    () => [
+      { value: "", label: "No status" },
+      ...statuses.map((status) => ({ value: status.id, label: status.label })),
+    ],
+    [statuses],
+  );
+  const assigneeChoices = useMemo(
+    () => [
+      { value: "", label: "Unassigned" },
+      ...assignees.map((person) => ({
+        value: person.email,
+        label: personLabel(person.email, nameByEmail),
+        keywords: [person.email],
+      })),
+    ],
+    [assignees, nameByEmail],
+  );
 
   const staticColumnWidth = isManager ? SELECTION_COLUMN_WIDTH : 0;
-  const pinnedOffsetByKey = buildPinnedOffsetByKey(
-    columns,
-    staticColumnWidth,
+  const pinnedOffsetByKey = useMemo(
+    () => buildPinnedOffsetByKey(columns, staticColumnWidth),
+    [columns, staticColumnWidth],
   );
   const minWidth =
     staticColumnWidth +
@@ -204,50 +214,31 @@ export function LeadTable({
           </div>
 
           <ul>
-            {leads.map((lead) => {
-              const status = lead.status_id
-                ? statusById.get(lead.status_id)
-                : undefined;
-              return (
-                <li key={lead.id} className="border-b border-[#ebecf0]">
-                  <LeadRow
-                    lead={lead}
-                    columns={columns}
-                    status={status}
-                    statuses={statusById}
-                    interactionTypeById={interactionTypeById}
-                    optionsByColumn={optionsByColumn}
-                    nameByEmail={nameByEmail}
-                    statusChoices={statusChoices}
-                    assigneeChoices={assigneeChoices}
-                    isManager={isManager}
-                    canEdit={leadIsInScope(lead, editableOwnerEmails)}
-                    alerts={alertsByLeadId.get(lead.id) ?? EMPTY_ALERTS}
-                    selected={selected.has(lead.id)}
-                    pinnedOffsetByKey={pinnedOffsetByKey}
-                    onToggle={() => onToggleLead(lead.id)}
-                    onOpen={() => onOpenLead(lead)}
-                    onPatch={(patch) => {
-                      // Chuyển sang một status kiểu `scheduled` mà lead chưa có
-                      // ngày hẹn: KHÔNG gửi lên để rồi nhận về lỗi bảo "mở lead
-                      // ra mà nhập". Hỏi ngay tại đây rồi gửi cả hai cùng lúc.
-                      const nextStatusId = patch.status_id;
-                      if (
-                        typeof nextStatusId === "string" &&
-                        nextStatusId &&
-                        statusById.get(nextStatusId)?.kind === "scheduled" &&
-                        !lead.next_follow_up_at
-                      ) {
-                        onFollowUpNeeded(lead, nextStatusId);
-                        return Promise.resolve();
-                      }
-                      return onPatchLead(lead.id, patch);
-                    }}
-                    onAssign={(email) => onAssignLead(lead.id, email)}
-                  />
-                </li>
-              );
-            })}
+            {leads.map((lead) => (
+              <li key={lead.id} className="border-b border-[#ebecf0]">
+                <LeadRow
+                  lead={lead}
+                  columns={columns}
+                  status={lead.status_id ? statusById.get(lead.status_id) : undefined}
+                  statuses={statusById}
+                  interactionTypeById={interactionTypeById}
+                  optionsByColumn={optionsByColumn}
+                  nameByEmail={nameByEmail}
+                  statusChoices={statusChoices}
+                  assigneeChoices={assigneeChoices}
+                  isManager={isManager}
+                  canEdit={leadIsInScope(lead, editableOwnerEmails)}
+                  alerts={alertsByLeadId.get(lead.id) ?? EMPTY_ALERTS}
+                  selected={selected.has(lead.id)}
+                  pinnedOffsetByKey={pinnedOffsetByKey}
+                  onToggleLead={onToggleLead}
+                  onOpenLead={onOpenLead}
+                  onPatchLead={onPatchLead}
+                  onFollowUpNeeded={onFollowUpNeeded}
+                  onAssignLead={onAssignLead}
+                />
+              </li>
+            ))}
           </ul>
         </div>
       </div>
@@ -316,7 +307,17 @@ function LeadHeaderCell({
   );
 }
 
-function LeadRow({
+/**
+ * `memo` skips a row whose props are unchanged. That works only because
+ * `LeadsClient` replaces the `lead` OBJECT for a changed row and keeps every
+ * untouched row's object identity (`patchLeadsById` / `updateLead` /
+ * `applyReturnedLeads` all do `current.map(l => l.id === id ? {...} : l)`), and
+ * because the callbacks below arrive with stable identity (they are `useCallback`
+ * in `LeadsClient`, threaded row-agnostic and re-bound per row HERE with
+ * `[…, lead]` deps). A full `reload()` replaces every object — every row
+ * re-renders then, which is fine: that is the 5-minute fallback, not a hot path.
+ */
+const LeadRow = memo(function LeadRow({
   lead,
   columns,
   status,
@@ -331,10 +332,11 @@ function LeadRow({
   alerts,
   selected,
   pinnedOffsetByKey,
-  onToggle,
-  onOpen,
-  onPatch,
-  onAssign,
+  onToggleLead,
+  onOpenLead,
+  onPatchLead,
+  onFollowUpNeeded,
+  onAssignLead,
 }: {
   lead: LeadRow;
   columns: TableColumn[];
@@ -350,15 +352,45 @@ function LeadRow({
   alerts: readonly LeadAlert[];
   selected: boolean;
   pinnedOffsetByKey: ReadonlyMap<string, number>;
-  onToggle: () => void;
-  onOpen: () => void;
-  onPatch: (patch: Record<string, unknown>) => Promise<void>;
-  onAssign: (email: string | null) => Promise<void>;
+  onToggleLead: (id: string) => void;
+  onOpenLead: (lead: LeadRow) => void;
+  onPatchLead: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  onFollowUpNeeded: (lead: LeadRow, statusId: string) => void;
+  onAssignLead: (id: string, email: string | null) => Promise<void>;
 }) {
+  const handleOpen = useCallback(() => onOpenLead(lead), [onOpenLead, lead]);
+  const handleToggle = useCallback(
+    () => onToggleLead(lead.id),
+    [onToggleLead, lead.id],
+  );
+  const handleAssign = useCallback(
+    (email: string | null) => onAssignLead(lead.id, email),
+    [onAssignLead, lead.id],
+  );
+  const handlePatch = useCallback(
+    (patch: Record<string, unknown>) => {
+      // Chuyển sang một status kiểu `scheduled` mà lead chưa có ngày hẹn: KHÔNG
+      // gửi lên để rồi nhận về lỗi bảo "mở lead ra mà nhập". Hỏi ngay tại đây
+      // rồi gửi cả hai cùng lúc.
+      const nextStatusId = patch.status_id;
+      if (
+        typeof nextStatusId === "string" &&
+        nextStatusId &&
+        statuses.get(nextStatusId)?.kind === "scheduled" &&
+        !lead.next_follow_up_at
+      ) {
+        onFollowUpNeeded(lead, nextStatusId);
+        return Promise.resolve();
+      }
+      return onPatchLead(lead.id, patch);
+    },
+    [onPatchLead, onFollowUpNeeded, statuses, lead],
+  );
+
   return (
     <div
       className="group flex min-h-11 min-w-max cursor-pointer items-stretch gap-0 whitespace-nowrap bg-white px-0 py-0 transition hover:bg-[#f7f8f9] [&>*]:flex [&>*]:items-center [&>*]:whitespace-nowrap [&>*]:px-3 [&>*]:py-2.5"
-      onClick={onOpen}
+      onClick={handleOpen}
     >
       {isManager ? (
         <StaticCell width={SELECTION_COLUMN_WIDTH} left={0}>
@@ -368,7 +400,7 @@ function LeadRow({
             aria-label={`Select lead ${lead.display_number}`}
             checked={selected}
             onClick={stopPropagation}
-            onChange={onToggle}
+            onChange={handleToggle}
           />
         </StaticCell>
       ) : null}
@@ -389,16 +421,16 @@ function LeadRow({
           canAssign={isManager}
           alerts={alerts}
           pinnedOffset={pinnedOffsetByKey.get(column.key)}
-          onOpen={onOpen}
-          onPatch={onPatch}
-          onAssign={onAssign}
+          onOpen={handleOpen}
+          onPatch={handlePatch}
+          onAssign={handleAssign}
         />
       ))}
     </div>
   );
-}
+});
 
-function LeadDataCell({
+const LeadDataCell = memo(function LeadDataCell({
   lead,
   column,
   status,
@@ -644,7 +676,7 @@ function LeadDataCell({
       {renderLeadCell(lead, column, status, statuses, options, nameByEmail)}
     </div>
   );
-}
+});
 
 function renderLeadCell(
   lead: LeadRow,
