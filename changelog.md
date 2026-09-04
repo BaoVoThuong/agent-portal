@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-04 — Leads: gán lead không còn trả 500 sau khi đã commit
+
+- **Loại**: fix (mã lỗi HTTP).
+- `POST /api/leads/assign` đọc lại các dòng vừa gán để client vá tại chỗ. Nếu
+  lượt đọc lại đó lỗi, RPC `assign_leads_manual` vốn ĐÃ commit và broadcast đã
+  lên lịch — nhưng route trả 500, client báo lỗi rồi thử lại, lần thử lại không
+  còn gì để gán nên trả 404 "No active leads were found". Nay trả 200 với
+  `leads: []`; client rơi về `reload()` như đường đã có sẵn.
+
 ## 2026-09-04 — Leads: bảng danh sách bỏ render thừa
 
 - **Loại**: perf (client) — không đổi hành vi.

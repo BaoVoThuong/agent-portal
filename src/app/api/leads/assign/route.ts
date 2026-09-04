@@ -74,7 +74,14 @@ export async function POST(request: Request) {
     .from("leads")
     .select(LEAD_AFTER_SELECT)
     .in("id", assignedIds);
-  if (afterError) return NextResponse.json({ error: afterError.message }, { status: 500 });
+  // RPC đã commit và broadcast đã lên lịch — nếu lượt đọc lại này hỏng, việc gán
+  // KHÔNG hỏng, nên đừng trả 500. Client không có `leads` thì rơi về reload()
+  // (đường đã có, xem LeadsClient.assignLead / assignSelected). Trả 500 ở đây
+  // khiến client báo lỗi rồi thử lại, lần thử lại không còn gì để gán nên nhận
+  // 404 "No active leads were found".
+  if (afterError) {
+    return NextResponse.json({ assigned: assignedIds.length, leads: [] });
+  }
   return NextResponse.json({
     assigned: assignedIds.length,
     leads: (updated ?? []).map((row) => {
