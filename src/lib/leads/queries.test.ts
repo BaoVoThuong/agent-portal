@@ -58,6 +58,16 @@ describe("buildLeadListFilter", () => {
       .toBe(10);
   });
 
+  // MAX_PAGE_SIZE là trần của PostgREST, không phải một con số tuỳ ý:
+  // fetchAllLeads phân trang ở đúng con số này, nên hạ nó xuống là âm thầm nhân
+  // số lượt đi-về của mỗi lượt nạp danh sách lên.
+  it("accepts a page size up to the PostgREST ceiling", () => {
+    expect(buildLeadListFilter(manager, { product: "pc", limit: "1000" }).limit)
+      .toBe(1000);
+    expect(buildLeadListFilter(manager, { product: "pc", limit: "1001" }).limit)
+      .toBe(LEAD_PAGE_SIZE);
+  });
+
   // Superseded by the "product filter" block below: Event Leads is one list,
   // so an unrecognised product means "no filter", not a default product.
   it("treats an unknown product as no filter", () => {

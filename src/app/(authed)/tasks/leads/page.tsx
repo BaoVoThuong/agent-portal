@@ -67,6 +67,7 @@ export default async function LeadsPage({
       isManager={actor.isManager}
       initialLeads={page.rows}
       initialTotal={page.total}
+      initialTruncated={page.truncated}
       columns={config.columns}
       columnOptions={config.options}
       statuses={vocabulary.statuses}

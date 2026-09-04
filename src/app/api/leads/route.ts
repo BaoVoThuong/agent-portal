@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   // ?ids=a,b,c đi qua ĐÚNG bộ lọc phạm vi như mọi truy vấn khác — nó chỉ thêm
   // một mệnh đề `in (id)`, không phải một đường tắt. Realtime dùng nó để vá vài
   // dòng thay vì kéo lại cả danh sách.
-  const { rows, total } = await fetchAllLeads(
+  const { rows, total, truncated } = await fetchAllLeads(
     actor,
     params,
     undefined,
@@ -43,6 +43,9 @@ export async function GET(request: Request) {
   return NextResponse.json({
     leads: rows,
     total,
+    // Client phải phân biệt được một tổng thật với một tổng đã bị cắt — cùng lý
+    // do /api/leads/overview trả cờ này.
+    truncated,
   });
 }
 

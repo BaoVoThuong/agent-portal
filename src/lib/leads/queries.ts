@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { resolveLeadAlerts, type LeadAlert } from "./alerts";
+import {
+  chunkPageOffsets,
+  dedupeLeadsById,
+  LEAD_MAX_ROWS,
+  LEAD_PAGE_FETCH_CONCURRENCY,
+  planLeadPageOffsets,
+} from "./page-plan";
 import { settingsForLead, type LeadAlertSettingsByProduct } from "./overview";
 import type { LeadActor } from "./access";
 import {
@@ -15,7 +22,11 @@ import {
 } from "./types";
 
 export const LEAD_PAGE_SIZE = 50;
-const MAX_PAGE_SIZE = 200;
+// Trần của PostgREST (`db-max-rows`, mặc định 1000 trên Supabase) chứ không
+// phải một con số ta tự chọn — `overview/route.ts` đã phân trang ở 1000. Ở 200
+// thì 2.000 lead là 10 lượt đi-về; ở 1000 là 2. Xin nhiều hơn trần thì server
+// lặng lẽ trả ít hơn, và đó chính là trường hợp planLeadPageOffsets xử lý.
+const MAX_PAGE_SIZE = 1000;
 
 export type LeadListParams = {
   /** Danh sách id cụ thể; realtime dùng để vá vài dòng thay vì kéo cả danh sách. */
@@ -272,36 +283,77 @@ export async function fetchAllLeads(
   params: LeadListParams,
   supabase: SupabaseClient = getSupabaseAdmin(),
   ownerEmails?: string[] | null
-): Promise<{ rows: LeadRow[]; total: number }> {
-  const rows: LeadRow[] = [];
-  let offset = 0;
-  let total = 0;
+): Promise<{
+  rows: LeadRow[];
+  total: number;
+  /**
+   * True khi danh sách bị cắt ở `LEAD_MAX_ROWS`. Người gọi PHẢI nói ra: hai con
+   * số trên màn hình đọc từ hai nguồn khác nhau — tiêu đề lấy `total` do
+   * PostgREST đếm (chưa cắt), thanh công cụ đếm mảng thật (đã cắt) — nên cắt
+   * cụt mà im lặng là màn hình tự mâu thuẫn với chính nó, không lỗi, không log.
+   */
+  truncated: boolean;
+}> {
   let settingsByProduct: LeadAlertSettingsByProduct | null = null;
   const alert = toLeadAlert(params.alert);
   // Đọc một lần cho cả lượt phân trang, không phải một lần mỗi trang.
   const alertContext = alert ? await fetchLeadAlertContext(supabase) : undefined;
 
-  do {
-    const page = await fetchLeadsPage(
+  const readPage = (offset: number) =>
+    fetchLeadsPage(
       actor,
-      {
-        ...params,
-        limit: String(MAX_PAGE_SIZE),
-        offset: String(offset),
-      },
+      { ...params, limit: String(MAX_PAGE_SIZE), offset: String(offset) },
       supabase,
       ownerEmails,
       alertContext,
     );
-    if (offset === 0) total = page.total;
-    settingsByProduct = page.alertSettingsByProduct;
-    rows.push(...page.rows);
-    offset += page.rows.length;
 
-    // A zero-row page guards against a concurrent deletion or a backend
-    // cursor anomaly and makes the loop finite even when the count changes.
-    if (page.rows.length === 0) break;
-  } while (rows.length < total);
+  // Thử lại đúng MỘT lần. Trước đây cả lượt nạp là một truy vấn tại một thời
+  // điểm; giờ là nhiều truy vấn, nên xác suất "ít nhất một cái hỏng" cao hơn
+  // hẳn, mà một trang hỏng thì `fetchLeadsPage` throw và giết cả server component.
+  const readPageWithRetry = async (offset: number) => {
+    try {
+      return await readPage(offset);
+    } catch {
+      return await readPage(offset);
+    }
+  };
+
+  // Trang đầu phải đi một mình: nó là trang DUY NHẤT xin `count: "exact"`, và
+  // không biết `total` thì không lập được kế hoạch cho các trang sau.
+  const firstPage = await readPage(0);
+  const total = firstPage.total;
+  settingsByProduct = firstPage.alertSettingsByProduct;
+
+  // Các trang còn lại đi SONG SONG, theo chùm. Trước đây chúng nối đuôi nhau:
+  // ở 2.000 lead với trang 200 dòng là 10 lượt đi-về tuần tự, tức khoảng một
+  // giây thời gian database thuần tuý chặn server component trước khi trang kịp
+  // render. Chùm chứ không thả hết: trang này đã nằm trong một Promise.all cùng
+  // bốn truy vấn khác, và mỗi trang lead còn kéo theo một join lead_interactions.
+  const offsets = planLeadPageOffsets(
+    firstPage.rows.length,
+    total,
+    LEAD_MAX_ROWS,
+  );
+  const restRows: LeadRow[] = [];
+  for (const chunk of chunkPageOffsets(offsets, LEAD_PAGE_FETCH_CONCURRENCY)) {
+    // Promise.all giữ nguyên thứ tự mảng, nên các trang ghép lại vẫn đúng thứ
+    // tự `created_at desc, id` mà truy vấn đã sắp.
+    const pages = await Promise.all(chunk.map(readPageWithRetry));
+    for (const page of pages) restRows.push(...page.rows);
+  }
+
+  const rows = dedupeLeadsById([...firstPage.rows, ...restRows]);
+
+  // Chạm trần thì nói ra — ở cả log server lẫn payload. Xem chú thích ở
+  // LEAD_MAX_ROWS và tiền lệ `truncated` của /api/leads/overview.
+  const truncated = firstPage.rows.length > 0 && rows.length < total;
+  if (truncated) {
+    console.error(
+      `[leads] danh sách bị cắt: nạp ${rows.length}/${total} dòng ` +
+        `(trần ${LEAD_MAX_ROWS}, trang ${firstPage.rows.length} dòng)`,
+    );
+  }
 
   // The SQL predicate is a superset filter (loosest thresholds, and no way to
   // express "contacted after the promised time" in PostgREST). resolveLeadAlerts
@@ -320,10 +372,12 @@ export async function fetchAllLeads(
         settingsForLead(settingsByProduct, lead),
       ).includes(alert),
     );
-    return { rows: matched, total: matched.length };
+    // `truncated` vẫn đi kèm: nếu tập cha bị cắt thì danh sách cảnh báo cũng
+    // đang lọc trên một tập thiếu, dù `matched.length` tự nó trông vẫn nhất quán.
+    return { rows: matched, total: matched.length, truncated };
   }
 
-  return { rows, total };
+  return { rows, total, truncated };
 }
 
 /** Every status, archived included: an archived one still labels old rows. */

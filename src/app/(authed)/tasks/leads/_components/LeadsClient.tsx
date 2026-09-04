@@ -78,6 +78,12 @@ type LeadsClientProps = {
   alertSettings: LeadAlertSettingsByProduct;
   initialLeads: LeadRow[];
   initialTotal: number;
+  /**
+   * Danh sách đã chạm trần `LEAD_MAX_ROWS` và bị cắt. Phải hiện ra: tiêu đề đọc
+   * `total` do PostgREST đếm (chưa cắt) còn thanh công cụ đếm mảng thật (đã
+   * cắt), nên im lặng là để màn hình tự mâu thuẫn mà không ai biết vì sao.
+   */
+  initialTruncated?: boolean;
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
   statuses: LeadStatus[];
@@ -136,6 +142,7 @@ export function LeadsClient({
   alertSettings,
   initialLeads,
   initialTotal,
+  initialTruncated = false,
   columns,
   columnOptions,
   statuses,
@@ -147,6 +154,7 @@ export function LeadsClient({
   const searchParams = useSearchParams();
   const [leads, setLeads] = useState(initialLeads);
   const [total, setTotal] = useState(initialTotal);
+  const [truncated, setTruncated] = useState(initialTruncated);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedLead, setSelectedLead] = useState<LeadRow | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -279,6 +287,7 @@ export function LeadsClient({
         setSelected((current) => retainSelection(current, refreshedLeads));
       }
       if (typeof payload?.total === "number") setTotal(payload.total);
+      setTruncated(payload?.truncated === true);
     } catch (error) {
       console.error("Could not refresh leads", error);
     } finally {
@@ -1209,6 +1218,22 @@ export function LeadsClient({
           </div>
         </div>
       )}
+
+      {/* Danh sách chạm trần và bị cắt. Không có banner này thì tiêu đề nói
+          "20.500 active leads" còn thanh công cụ nói "20.000 of 20.000" — hai
+          con số cãi nhau, không lỗi, không cách nào đoán ra vì sao. */}
+      {view === "list" && truncated ? (
+        <div className="min-w-0 shrink-0 px-6 pb-3">
+          <div className="mx-auto flex max-w-[1760px] items-start gap-2 rounded border border-[#ffc400] bg-[#fffae6] px-4 py-2.5 text-sm font-semibold text-[#974f0c]">
+            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Đang hiện {leads.length.toLocaleString()} trên tổng{" "}
+              {total.toLocaleString()} lead — danh sách đã chạm trần một lượt
+              nạp. Lọc theo sự kiện hoặc người nhận để thu hẹp lại.
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       {view === "list" && editError ? (
         <div className="min-w-0 shrink-0 px-6 pb-3">
