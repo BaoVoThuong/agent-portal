@@ -1,4 +1,9 @@
-export type KeysetPageError = { code?: string; message?: string };
+export type KeysetPageError = {
+  code?: string;
+  message?: string;
+  /** HTTP status của phản hồi. 429 và 5xx là tạm thời, phải giữ lại để biết. */
+  status?: number;
+};
 
 export type KeysetPage<T> = {
   rows: T[] | null;
@@ -48,7 +53,14 @@ export async function fetchAllByKeyset<T extends { id: string }>(
 ): Promise<KeysetResult<T>> {
   const rows: T[] = [];
   let afterId: string | null = null;
-  let total = 0;
+  /**
+   * `null` = server KHÔNG trả `count`. Phải phân biệt với 0, và tuyệt đối không
+   * được suy `total` từ số dòng đã nhận: nếu PostgREST cắt phản hồi ở trần của
+   * nó mà header count lại thiếu, thì `total = rows.length` khiến vòng lặp dừng
+   * ngay và `truncated` thành false — đúng cái lỗi cắt-cụt-im-lặng mà lớp này
+   * sinh ra để diệt.
+   */
+  let exactCount: number | null = null;
   let sawFirstPage = false;
 
   while (rows.length < opts.maxRows) {
@@ -65,23 +77,30 @@ export async function fetchAllByKeyset<T extends { id: string }>(
     const batch = page.rows ?? [];
     if (!sawFirstPage) {
       sawFirstPage = true;
-      total = page.count ?? batch.length;
+      exactCount = typeof page.count === "number" ? page.count : null;
     }
+
+    // Trang RỖNG là điều kiện dừng duy nhất ngoài trần. Cố ý không dừng khi
+    // "trang ngắn hơn kích thước yêu cầu": nếu trần của server nhỏ hơn kích
+    // thước ta xin thì MỌI trang đều ngắn, và dừng ở trang đầu là mất dữ liệu.
     if (batch.length === 0) break;
 
     rows.push(...batch);
     afterId = batch[batch.length - 1].id;
 
-    // Biết tổng rồi và đã đủ thì dừng, khỏi tốn một lượt đi-về chỉ để nhận về
-    // một trang rỗng.
-    if (total > 0 && rows.length >= total) break;
+    // Chỉ đi đường tắt khi server ĐÃ nói tổng là bao nhiêu. Không biết tổng thì
+    // phải đi tiếp tới trang rỗng, đổi lấy một lượt đi-về cuối.
+    if (exactCount !== null && rows.length >= exactCount) break;
   }
 
+  const hitCap = rows.length >= opts.maxRows;
   const capped = rows.length > opts.maxRows ? rows.slice(0, opts.maxRows) : rows;
   return {
     rows: capped,
-    total,
-    truncated: capped.length < total,
+    total: exactCount ?? capped.length,
+    // Chạm trần thì chắc chắn thiếu. Ngoài ra chỉ dám khẳng định thiếu khi biết
+    // tổng thật; không biết tổng mà đã đi tới trang rỗng thì là đã lấy hết.
+    truncated: hitCap || (exactCount !== null && capped.length < exactCount),
   };
 }
 
@@ -90,6 +109,15 @@ export async function fetchAllByKeyset<T extends { id: string }>(
  * Mọi thứ khác (42501 quyền, 42703 thiếu cột, PGRST* cú pháp) là vĩnh viễn.
  */
 export function isTransientPostgrestError(error: KeysetPageError): boolean {
+  // Status đứng TRƯỚC code: 502/503/504 từ gateway và 429 rate-limit thường
+  // không mang mã Postgres nào, và message của chúng cũng chẳng chứa từ nào
+  // khớp regex bên dưới — nên nếu chỉ nhìn code/message thì đúng những lỗi
+  // đáng thử lại nhất lại là những lỗi bị bỏ qua.
+  const status = error.status;
+  if (typeof status === "number") {
+    if (status === 429 || status >= 500) return true;
+    if (status >= 400) return false; // 4xx còn lại là lỗi của phía gọi
+  }
   const code = error.code ?? "";
   if (code === "PGRST504" || code === "57014") return true;
   // Lớp 08 của Postgres = connection exception.

@@ -76,7 +76,7 @@ describe("fetchTaskListMetadata", () => {
   });
 
   it("bounds metadata RPC payloads for a large task queue", async () => {
-    const taskIds = Array.from({ length: 101 }, (_, index) => `task-${index}`);
+    const taskIds = Array.from({ length: 1001 }, (_, index) => `task-${index}`);
     const rpc = vi.fn(async (_name: string, args: { task_ids: string[] }) => ({
       data: args.task_ids.map((task_id) => ({
         task_id,
@@ -89,12 +89,15 @@ describe("fetchTaskListMetadata", () => {
 
     const rows = await fetchTaskListMetadata(taskIds, { rpc } as never);
 
+    // 1.001 id / chùm 500 = 3 lượt. Kích thước chùm là đòn bẩy giảm số lượt
+    // đi-về: khối lượng DB không đổi (mỗi id là hai subquery có index), nên
+    // chùm nhỏ chỉ tốn thêm round-trip chứ không đỡ được gì.
     expect(rpc).toHaveBeenCalledTimes(3);
     expect(
       Math.max(
         ...rpc.mock.calls.map(([, args]) => args.task_ids.length),
       ),
-    ).toBeLessThanOrEqual(50);
+    ).toBeLessThanOrEqual(500);
     expect(rows).toHaveLength(taskIds.length);
     expect(rows.map((row) => row.task_id)).toEqual(taskIds);
   });
@@ -204,8 +207,8 @@ describe("fetchTasksForActor keyset paging", () => {
   });
 
   // A6: enrich metadata không được thả hết chùm cùng lúc.
-  it("chunks metadata rpc calls to at most 50 ids", async () => {
-    const ids = Array.from({ length: 120 }, (_, i) => `id-${String(i).padStart(3, "0")}`);
+  it("chunks metadata rpc calls to at most the configured chunk size", async () => {
+    const ids = Array.from({ length: 1200 }, (_, i) => `id-${String(i).padStart(4, "0")}`);
     const { fetchTasksForActor, rpcCalls } = await loadFetchTasksForActor({
       selectedAgentEmails: [],
       assistantAgents: [],
@@ -217,7 +220,7 @@ describe("fetchTasksForActor keyset paging", () => {
     await fetchTasksForActor(manager as never);
     expect(rpcCalls.length).toBeGreaterThan(1);
     for (const [, args] of rpcCalls) {
-      expect((args as { task_ids: string[] }).task_ids.length).toBeLessThanOrEqual(50);
+      expect((args as { task_ids: string[] }).task_ids.length).toBeLessThanOrEqual(500);
     }
   });
 });

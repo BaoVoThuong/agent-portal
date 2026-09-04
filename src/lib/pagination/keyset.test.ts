@@ -141,6 +141,46 @@ describe("fetchAllByKeyset", () => {
     }, permissive);
     expect(result.rows.map((r) => r.id)).toEqual(["a", "b", "c", "d", "e", "f"]);
   });
+
+  // Đây là lỗi mà bản đầu mắc phải: suy `total` từ số dòng đã nhận. Nếu server
+  // cắt phản hồi ở trần của nó mà header count lại thiếu, vòng lặp dừng ngay ở
+  // trang đầu và báo truncated: false — cắt cụt IM LẶNG.
+  it("does not infer total from the first batch when count is missing", async () => {
+    const ids = Array.from({ length: 25 }, (_, i) => `id-${String(i).padStart(3, "0")}`);
+    const table = fakeTable(ids, 10);
+    const result = await fetchAllByKeyset<Row>(async (afterId) => {
+      const page = table(afterId);
+      return { rows: page.rows, error: null, count: null }; // server không trả count
+    }, permissive);
+    expect(result.rows).toHaveLength(25);
+    expect(result.total).toBe(25);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("reports truncated when the cap is hit even without a count", async () => {
+    const ids = Array.from({ length: 100 }, (_, i) => `id-${String(i).padStart(3, "0")}`);
+    const table = fakeTable(ids, 10);
+    const result = await fetchAllByKeyset<Row>(
+      async (afterId) => ({ rows: table(afterId).rows, error: null, count: null }),
+      { maxRows: 30, isTransient: isTransientPostgrestError },
+    );
+    expect(result.rows).toHaveLength(30);
+    expect(result.truncated).toBe(true);
+  });
+
+  // Trần của server có thể nhỏ hơn kích thước trang ta xin, khiến MỌI trang đều
+  // "ngắn". Dừng khi thấy trang ngắn là mất dữ liệu; chỉ trang RỖNG mới là hết.
+  it("keeps walking when every page is shorter than requested", async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `id-${String(i).padStart(3, "0")}`);
+    const table = fakeTable(ids, 5); // server luôn cắt ở 5 dù ta xin nhiều hơn
+    const result = await fetchAllByKeyset<Row>(
+      async (afterId) => ({ rows: table(afterId).rows, error: null, count: null }),
+      permissive,
+    );
+    expect(result.rows).toHaveLength(12);
+    expect(result.truncated).toBe(false);
+  });
+
 });
 
 describe("isTransientPostgrestError", () => {
@@ -150,6 +190,18 @@ describe("isTransientPostgrestError", () => {
     expect(isTransientPostgrestError({ code: "57014" })).toBe(true);
     expect(isTransientPostgrestError({ message: "fetch failed" })).toBe(true);
     expect(isTransientPostgrestError({ message: "ECONNRESET" })).toBe(true);
+  });
+
+  it("retries 429 and 5xx by HTTP status even without a code", () => {
+    expect(isTransientPostgrestError({ status: 429 })).toBe(true);
+    expect(isTransientPostgrestError({ status: 502, message: "Bad Gateway" })).toBe(true);
+    expect(isTransientPostgrestError({ status: 503 })).toBe(true);
+    expect(isTransientPostgrestError({ status: 504 })).toBe(true);
+  });
+
+  it("does not retry other 4xx", () => {
+    expect(isTransientPostgrestError({ status: 400 })).toBe(false);
+    expect(isTransientPostgrestError({ status: 403 })).toBe(false);
   });
 
   it("does not retry permission, schema or syntax failures", () => {

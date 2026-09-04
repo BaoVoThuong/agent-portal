@@ -25,7 +25,10 @@ export type TaskAssigneeRow = { task_id: string; email: string; created_at: stri
 
 type SupabaseErrorLike = { code?: string; message?: string };
 type AttachAssigneeOptions = { currentEmail?: string | null };
-const TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE = 50;
+// Cùng lý do với TASK_METADATA_TASK_ID_CHUNK_SIZE: `.in("task_id", ...)` đi
+// trong URL nên chùm không được quá lớn, nhưng 50 là quá dè dặt — 300 UUID có
+// nháy là ~11 KB, vẫn dưới giới hạn URL thông dụng. Ở 5.000 task: 100 lượt → 17.
+const TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE = 300;
 type AccountRoleRow = {
   id: string;
   email: string;

@@ -478,7 +478,6 @@ export function TaskBoardClient({
             tasks?: TaskRow[];
             truncated?: boolean;
           };
-          setTasksTruncated(data.truncated === true);
           const fetchedTasks = data.tasks;
           if (!Array.isArray(fetchedTasks)) {
             setError("The task list response was invalid. Retrying automatically.");
@@ -501,6 +500,11 @@ export function TaskBoardClient({
           updateTasks((currentTasks) =>
             authoritativeTaskSnapshot(currentTasks, fetchedTasks),
           );
+          // Đặt CÙNG LÚC với việc áp dữ liệu, và chỉ khi disposition là accept.
+          // Đặt sớm hơn thì một phản hồi bị "defer"/"retry" (do có mutation đang
+          // chạy) vẫn đổi được banner trong khi dữ liệu của nó bị bỏ — banner
+          // nói về một ảnh chụp không hề được hiển thị.
+          setTasksTruncated(data.truncated === true);
           void loadUnreadAssignedTaskIds();
         } catch {
           // A queued trigger gets one trailing attempt now; otherwise the next

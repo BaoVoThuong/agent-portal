@@ -173,9 +173,13 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
     afterId: string | null
   ): Promise<KeysetPage<{ id: string }>> => {
     const result = await buildTaskQuery(supabase, { columns, scopedOrs }, afterId);
+    const error = result.error as { code?: string; message?: string } | null;
     return {
       rows: result.data as unknown as { id: string }[] | null,
-      error: result.error as { code?: string; message?: string } | null,
+      // Giữ HTTP status: 502/503/504 từ gateway và 429 rate-limit không mang mã
+      // Postgres nào, nên thiếu status thì đúng những lỗi đáng thử lại nhất lại
+      // bị coi là vĩnh viễn.
+      error: error ? { ...error, status: result.status } : null,
       count: result.count,
     };
   };
@@ -300,7 +304,19 @@ export type TaskListMetadataRow = {
   comment_count: number | null;
   attachment_count: number | null;
 };
-const TASK_METADATA_TASK_ID_CHUNK_SIZE = 50;
+/**
+ * Số id mỗi lượt gọi `task_list_metadata`.
+ *
+ * 50 là con số cũ, chọn để "giữ payload nhỏ". Nhưng RPC nhận `uuid[]` qua POST
+ * body, nên payload chưa bao giờ là ràng buộc: 500 UUID chỉ ~18 KB. Còn khối
+ * lượng DB thì KHÔNG đổi theo kích thước chùm — hàm chạy hai subquery có index
+ * cho mỗi id (`task_comments(task_id, created_at)`,
+ * `task_attachments(task_id)`), nên 100 lượt × 50 id tốn đúng bằng 10 lượt ×
+ * 500 id, chỉ khác số lượt đi-về.
+ *
+ * Ở 5.000 task: 100 lượt → 10.
+ */
+const TASK_METADATA_TASK_ID_CHUNK_SIZE = 500;
 
 async function attachTaskListMetadata(
   tasks: TaskRow[],
