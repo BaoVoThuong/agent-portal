@@ -1874,3 +1874,122 @@ says "after confirming this is a test database".
 
 **Until that is resolved, B7 cannot pass, and the "smooth at 5.000" claim cannot be
 made** — [codex] §9 was right that it must not be declared before then.
+
+---
+
+## 14. Round-4 review folded in — LOCKED decisions for B1/B5/B7
+
+Supersedes the corresponding parts of §13. All three findings verified against
+source before accepting.
+
+### 14.1 B1 — two predicates, not one
+
+**§13 was wrong** to say "one exported predicate used by both the SQL builder and
+`filterTasks`". They answer different questions and one is deliberately wider:
+
+- `matchesTaskDateWindow(task, range)` — **what is displayed**. Must reproduce
+  today's `matchesDateWindow` exactly.
+- `shouldLoadTaskForWindow(task, range)` — **what the server loads**. A superset,
+  because the window loads every non-terminal task regardless of date.
+
+**Required invariant, and it gets a property test:**
+
+```
+matchesTaskDateWindow(task, range)  ⇒  shouldLoadTaskForWindow(task, range)
+```
+
+**The display contract, verbatim from `src/lib/tasks/filtering.ts:158-182`** — note
+the third clause, which §13 omitted entirely:
+
+```
+no range at all                                            → show
+created_at (Texas day) in range                            → show   // ALL statuses, terminal included
+terminal AND coalesce(closed_at, updated_at) in range      → show
+active AND created_at < dateFrom                           → show   // carry-over
+otherwise                                                  → hide   // i.e. active created AFTER dateTo is hidden
+```
+
+That last line is why the two functions cannot be one: the server loads active
+tasks created after `dateTo`, and the client then hides them. Superset, by design.
+
+- [ ] **Consolidate the fourth copy.** `matchesOverviewDateWindow`
+      (`src/lib/tasks/overview-data.ts:236`) is a near-duplicate of
+      `matchesDateWindow` — verified. Move both onto the shared module in the same
+      commit. (Three date-*key* copies were already consolidated in `cf05906`; this
+      is the date-*window* logic, a separate duplication.)
+
+- [ ] **SQL boundaries are not `businessDateKey`'s job.** It maps
+      timestamp → Texas day. The SQL side needs the inverse: a Texas calendar day →
+      a UTC instant range. Use Postgres, which knows the zone and therefore DST:
+
+      ```sql
+      created_at >= (p_from::date)::timestamp AT TIME ZONE 'America/Chicago'
+      AND created_at <  ((p_to::date + 1))::timestamp AT TIME ZONE 'America/Chicago'
+      ```
+
+      **Upper bound exclusive, on the next day.** An inclusive bound on
+      `p_to 23:59:59` loses the final second, and hand-computing the offset breaks
+      twice a year at the DST switch.
+
+- [ ] **`done_reviewed_at IS NULL`: DECIDED — do not special-case it.**
+      §13 left this open and [codex] is right that "server loads, client hides" is
+      not an acceptable resting state. Resolution: the board keeps exactly today's
+      three-clause contract; un-QC'd terminal tasks outside the range are neither
+      loaded nor displayed. QC debt is surfaced by the Overview, which runs its own
+      query and already keeps `done_reviewed_at IS NULL` rows regardless of age
+      (`overview-data.ts:60`), and by the QC quick filter within the loaded window.
+      Loading rows that nothing displays is the worst of both.
+      *Consequence to accept knowingly:* a QC-overdue task older than the selected
+      range is not reachable from the board's quick filter; it is reachable from
+      the Overview and from search.
+
+### 14.2 B5 — spike first, and the fallback must be usable
+
+Confirmed favourable ([codex]): `verticalListSortingStrategy` and `DragOverlay` are
+already in use (`KanbanBoard.tsx:285`, `:552`). The blocker is narrower than "dnd-kit
+needs mounted items": **collision detection only sees mounted cards**, so a drop onto
+a card outside the viewport cannot resolve.
+
+Order:
+
+- [ ] 1. Spike a virtualized column before writing production code.
+- [ ] 2. Test: reorder within a column · cross-column move · auto-scroll during drag
+      · the dragged card's own row scrolling out and unmounting mid-drag.
+- [ ] 3. Only if that fails, fall back to a per-column cap.
+
+**The fallback is not "hide the rest".** It must be:
+
+```
+Showing 50 of 327
+[Load 50 more]
+```
+
+- [ ] The cap runs **after** filter/search, never before — otherwise a card the user
+      just searched for can sit outside the cap and appear not to exist.
+
+### 14.3 B7 — isolated database is a hard prerequisite, and the dataset splits in two
+
+**Production is ruled out, including off-hours.** A cleanup script cannot undo:
+fake tasks propagating through realtime and polling to open boards; KPI/Overview
+polluted for the benchmark window; cron and triggers processing fake rows; the real
+board degraded before cleanup runs. Confirmed environment: one `.env.local` pointing
+at production, no task-list seed or benchmark script, no Supabase CLI, no Docker.
+
+- [ ] **Hard prerequisite:** a separate Supabase project (free tier is fine) or a
+      local Supabase stack. B7 does not start before this exists.
+
+**And §13's single budget table was self-contradictory** ([codex]): if the seed is
+5.000 *non-terminal* tasks, B1 loads all 5.000 by design, so a ≤400 KB gzip budget
+is unreachable — the plan would be failing itself for behaving correctly. Two
+profiles, two contracts:
+
+| Profile | Dataset | Contract |
+|---|---|---|
+| **A — realistic** | 5.000 total, small active set (~50–150), rest terminal and outside the range | Must meet **every** budget in §13's table |
+| **B — stress** | 5.000 **non-terminal** | Must truncate and warn correctly, must not crash. **No claim** that 5.000 loads under 400 KB |
+
+Profile A is what the product actually looks like at scale (open work is bounded by
+team capacity; history accumulates). Profile B exists to prove the failure mode is
+graceful, not to be met.
+
+**"Smooth at 5.000" may be claimed only against Profile A.**
