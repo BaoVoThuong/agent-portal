@@ -6158,9 +6158,12 @@ create table if not exists leads (
   display_number bigint not null default nextval('leads_display_number_seq'),
   -- Null means the lead was imported before the customer's product was known.
   product text check (product in ('pc', 'health')),
-  products text[] not null default '{}'::text[] check (
-    products <@ array['pc', 'health']::text[]
-  ),
+  -- `products` là nguồn sự thật; cột scalar `product` do trigger
+  -- lead_sync_primary_product giữ đồng bộ bằng phần tử đầu. Mảng rỗng = chưa
+  -- phân loại. Ràng buộc có TÊN để rollout 2026-09-03-lead-multi-product.sql
+  -- (dùng `drop constraint if exists leads_products_valid`) có đích để bấu vào.
+  products text[] not null default '{}'::text[],
+  constraint leads_products_valid check (products <@ array['pc', 'health']::text[]),
   event_id uuid references lead_events(id) on delete set null,
   full_name text,
   phone text,
@@ -6215,12 +6218,30 @@ create table if not exists lead_alert_settings (
   no_contact_hours integer not null default 24 check (no_contact_hours > 0),
   stale_days integer not null default 3 check (stale_days > 0),
   max_attempts integer not null default 4 check (max_attempts > 0),
+  -- Bật/tắt tự chia lead khi import, theo từng product; mặc định TẮT. Đặt sai tỉ
+  -- lệ rồi import 2.000 lead là một mớ phải gỡ tay (2026-09-02-lead-auto-assign.sql).
+  auto_assign_enabled boolean not null default false,
   updated_by_email text,
   updated_at timestamptz not null default now()
 );
 
 insert into lead_alert_settings (product) values ('pc'), ('health')
 on conflict (product) do nothing;
+
+-- Trọng số chia pool + con trỏ smooth weighted round-robin, theo từng product
+-- (2026-09-02-lead-auto-assign.sql). `current_weight` PHẢI lưu ở đây: tính lại
+-- mỗi lượt import thì mười lần import mỗi lần một lead sẽ cùng rơi vào người đầu.
+create table if not exists lead_assignment_weights (
+  product text not null check (product in ('pc', 'health')),
+  agent_email text not null,
+  weight integer not null default 1 check (weight >= 0),
+  current_weight integer not null default 0,
+  position integer not null default 0,
+  is_active boolean not null default true,
+  updated_by_email text,
+  updated_at timestamptz not null default now(),
+  primary key (product, agent_email)
+);
 
 
 
@@ -6250,6 +6271,28 @@ create index if not exists lead_assignment_history_lead_idx
 -- Chống import trùng: cùng một sự kiện không được có hai lead trùng số.
 create unique index if not exists leads_event_phone_unique_idx
   on leads (event_id, phone) where phone is not null and archived_at is null;
+
+-- Idempotency cho POST /api/leads: khoá theo (người tạo, token) vì token do
+-- client sinh (2026-09-02-lead-write-integrity.sql).
+create unique index if not exists leads_creator_request_unique_idx
+  on leads (created_by_email, client_request_id)
+  where client_request_id is not null;
+
+-- Chặn trùng số cho lead KHÔNG thuộc event nào: `(event_id, phone)` không ràng
+-- được vì Postgres coi mỗi NULL là khác nhau (2026-09-02-lead-write-integrity.sql).
+create unique index if not exists leads_phone_no_event_unique_idx
+  on leads (phone)
+  where phone is not null and event_id is null and archived_at is null;
+
+-- `products @> array[...]` cho bộ lọc product và pool theo product
+-- (2026-09-03-lead-multi-product.sql).
+create index if not exists leads_products_idx on leads using gin (products);
+
+-- Vòng lặp chia pool đọc trọng số theo product rồi position
+-- (2026-09-02-lead-auto-assign.sql).
+create index if not exists lead_assignment_weights_active_idx
+  on lead_assignment_weights (product, position, agent_email)
+  where is_active and weight > 0;
 
 -- Từ vựng mặc định. Admin sửa/xoá/thêm thoải mái sau, nhưng phải có sẵn thứ gì
 -- đó ngay từ đầu: không có status và loại tương tác thì form ghi nhật ký chỉ
@@ -6281,6 +6324,7 @@ alter table leads enable row level security;
 alter table lead_interactions enable row level security;
 alter table lead_assignment_history enable row level security;
 alter table lead_alert_settings enable row level security;
+alter table lead_assignment_weights enable row level security;
 
 -- ---------------------------------------------------------------------------
 -- Lead Management: ghi interaction và cập nhật thống kê atomically.
@@ -6403,6 +6447,268 @@ $$;
 revoke all on function log_lead_interaction_atomic(uuid, uuid, uuid, text, text, timestamptz, uuid, timestamptz)
   from public, anon, authenticated;
 grant execute on function log_lead_interaction_atomic(uuid, uuid, uuid, text, text, timestamptz, uuid, timestamptz)
+  to service_role;
+
+-- ---------------------------------------------------------------------------
+-- Lead Management: một lead có thể mang nhiều product; cột scalar `product` là
+-- phái sinh, do trigger giữ = products[1] (2026-09-03-lead-multi-product.sql).
+create or replace function lead_sync_primary_product()
+returns trigger
+language plpgsql as $$
+begin
+  if tg_op = 'UPDATE'
+    and new.products is distinct from old.products then
+    -- `products` is authoritative when it was edited. This branch must run
+    -- for an empty array too; otherwise removing the last product would see
+    -- the old scalar `product` and immediately add it back.
+    new.products := array(
+      select p from unnest(array['pc', 'health']) as p where p = any (new.products)
+    );
+    new.product := new.products[1];
+  elsif tg_op = 'UPDATE'
+    and new.products is not distinct from old.products
+    and new.product is distinct from old.product then
+    -- Inline edit vẫn gửi cột `product` riêng. Một lần chọn product mới phải
+    -- bỏ trạng thái multi-product cũ thay vì để trigger giữ giá trị cũ.
+    new.products := case
+      when new.product is null then '{}'::text[]
+      else array[new.product]
+    end;
+  elsif new.products is null or cardinality(new.products) = 0 then
+    -- Insert kiểu cũ (chỉ set `product`) vẫn hợp lệ: suy ngược ra mảng. Cả hai
+    -- NULL/empty đều được giữ nguyên để biểu diễn "chưa biết product".
+    new.products := case
+      when new.product is null then '{}'::text[]
+      else array[new.product]
+    end;
+  else
+    -- Thứ tự cố định để `product` không đổi chỉ vì mảng được ghi khác thứ tự.
+    new.products := array(
+      select p from unnest(array['pc', 'health']) as p where p = any (new.products)
+    );
+    new.product := new.products[1];
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists lead_sync_primary_product_trg on leads;
+create trigger lead_sync_primary_product_trg
+  before insert or update of products, product on leads
+  for each row execute function lead_sync_primary_product();
+
+-- Gán lead nguyên tử: update + ghi lịch sử trong một giao dịch, chủ cũ đọc dưới
+-- khoá (2026-09-02-lead-write-integrity.sql).
+create or replace function assign_leads_manual(
+  p_lead_ids uuid[],
+  p_to_email text,
+  p_actor_email text,
+  p_reason text
+) returns table (lead_id uuid, from_email text)
+language plpgsql security definer set search_path = public as $$
+declare
+  actor_value text;
+  target_value text;
+  r record;
+begin
+  actor_value := lead_norm_email(p_actor_email);
+  if actor_value is null then
+    raise exception 'LEAD_ACTOR_REQUIRED';
+  end if;
+  -- null = bỏ gán, đưa lead về pool. Thao tác hợp lệ, không phải lỗi.
+  target_value := lead_norm_email(p_to_email);
+
+  for r in
+    select l.id, l.assigned_to_email
+    from leads l
+    where l.id = any (coalesce(p_lead_ids, array[]::uuid[]))
+      and l.archived_at is null
+    order by l.id
+    for update
+  loop
+    update leads
+    set assigned_to_email = target_value,
+        assigned_at = case when target_value is null then null else now() end,
+        assigned_by_email = actor_value,
+        updated_at = now(),
+        updated_by_email = actor_value
+    where id = r.id;
+
+    insert into lead_assignment_history
+      (lead_id, from_email, to_email, reason, actor_email)
+    values (r.id, r.assigned_to_email, target_value, p_reason, actor_value);
+
+    lead_id := r.id;
+    from_email := r.assigned_to_email;
+    return next;
+  end loop;
+end $$;
+
+revoke all on function assign_leads_manual(uuid[], text, text, text)
+  from public, anon, authenticated;
+grant execute on function assign_leads_manual(uuid[], text, text, text)
+  to service_role;
+
+-- Chia pool theo smooth weighted round-robin: giữ TRẠNG THÁI + KHOÁ, hai thứ
+-- không thể nằm ở Node. Thuật toán ở src/lib/leads/round-robin.ts. Khớp lead
+-- theo THÀNH VIÊN mảng products (2026-09-02-lead-auto-assign.sql, cập nhật
+-- multi-product 2026-09-03-lead-multi-product.sql).
+create or replace function assign_leads_round_robin(
+  p_lead_ids uuid[],
+  p_product text,
+  p_eligible_emails text[],
+  p_actor_email text,
+  p_reason text default 'auto: weighted round-robin'
+) returns table (lead_id uuid, to_email text)
+language plpgsql security definer set search_path = public as $$
+declare
+  target_lead uuid;
+  total_weight integer;
+  best_email text;
+  actor_value text;
+  eligible text[];
+begin
+  actor_value := lead_norm_email(p_actor_email);
+  if actor_value is null then
+    raise exception 'LEAD_ACTOR_REQUIRED';
+  end if;
+  if p_product is null or p_product not in ('pc', 'health') then
+    raise exception 'LEAD_PRODUCT_INVALID';
+  end if;
+
+  select coalesce(array_agg(lower(btrim(value))), array[]::text[])
+  into eligible
+  from unnest(coalesce(p_eligible_emails, array[]::text[])) as value
+  where btrim(value) <> '';
+
+  perform 1
+  from lead_assignment_weights w
+  where w.product = p_product
+  for update;
+
+  select coalesce(sum(w.weight), 0) into total_weight
+  from lead_assignment_weights w
+  where w.product = p_product
+    and w.is_active
+    and w.weight > 0
+    and lower(w.agent_email) = any (eligible);
+
+  if total_weight <= 0 then
+    return;
+  end if;
+
+  foreach target_lead in array coalesce(p_lead_ids, array[]::uuid[]) loop
+    update lead_assignment_weights w
+    set current_weight = w.current_weight + w.weight
+    where w.product = p_product
+      and w.is_active
+      and w.weight > 0
+      and lower(w.agent_email) = any (eligible);
+
+    select w.agent_email into best_email
+    from lead_assignment_weights w
+    where w.product = p_product
+      and w.is_active
+      and w.weight > 0
+      and lower(w.agent_email) = any (eligible)
+    order by w.current_weight desc, w.position asc, w.agent_email asc
+    limit 1;
+
+    update lead_assignment_weights w
+    set current_weight = w.current_weight - total_weight,
+        updated_at = now()
+    where w.product = p_product and w.agent_email = best_email;
+
+    update leads l
+    set assigned_to_email = best_email,
+        assigned_at = now(),
+        assigned_by_email = actor_value,
+        updated_at = now(),
+        updated_by_email = actor_value
+    where l.id = target_lead
+      and l.archived_at is null
+      and l.assigned_to_email is null
+      -- Lead mang product này là đủ; nó có thể mang cả product kia nữa.
+      and p_product = any (l.products);
+
+    if found then
+      insert into lead_assignment_history
+        (lead_id, from_email, to_email, reason, actor_email)
+      values (target_lead, null, best_email, p_reason, actor_value);
+      lead_id := target_lead;
+      to_email := best_email;
+      return next;
+    end if;
+  end loop;
+end $$;
+
+revoke all on function assign_leads_round_robin(uuid[], text, text[], text, text)
+  from public, anon, authenticated;
+grant execute on function assign_leads_round_robin(uuid[], text, text[], text, text)
+  to service_role;
+
+-- Lưu toàn bộ cấu hình chia pool của MỘT product trong một giao dịch, khoá mọi
+-- dòng của product đó trước khi ghi (2026-09-03-lead-weights-atomic.sql).
+-- `current_weight` KHÔNG nằm trong payload: đặt lại con trỏ khi admin chỉ sửa tỉ
+-- lệ sẽ trao mấy lead kế tiếp cho người đang tụt xa nhất.
+create or replace function save_lead_assignment_weights(
+  p_product text,
+  p_rows jsonb,
+  p_enabled boolean,
+  p_actor_email text
+) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  actor_value text;
+  keep text[];
+begin
+  actor_value := lead_norm_email(p_actor_email);
+  if actor_value is null then
+    raise exception 'LEAD_ACTOR_REQUIRED';
+  end if;
+  if p_product is null or p_product not in ('pc', 'health') then
+    raise exception 'LEAD_PRODUCT_INVALID';
+  end if;
+
+  perform 1 from lead_assignment_weights w where w.product = p_product for update;
+
+  select coalesce(array_agg(lower(btrim(value ->> 'agent_email'))), array[]::text[])
+  into keep
+  from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) as value
+  where btrim(coalesce(value ->> 'agent_email', '')) <> '';
+
+  delete from lead_assignment_weights w
+  where w.product = p_product
+    and lower(w.agent_email) <> all (keep);
+
+  insert into lead_assignment_weights
+    (product, agent_email, weight, position, is_active, updated_by_email, updated_at)
+  select
+    p_product,
+    lower(btrim(value ->> 'agent_email')),
+    greatest(coalesce((value ->> 'weight')::int, 0), 0),
+    coalesce((value ->> 'position')::int, 0),
+    coalesce((value ->> 'is_active')::boolean, true),
+    actor_value,
+    now()
+  from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) as value
+  where btrim(coalesce(value ->> 'agent_email', '')) <> ''
+  on conflict (product, agent_email) do update
+  set weight = excluded.weight,
+      position = excluded.position,
+      is_active = excluded.is_active,
+      updated_by_email = excluded.updated_by_email,
+      updated_at = excluded.updated_at;
+
+  if p_enabled is not null then
+    update lead_alert_settings
+    set auto_assign_enabled = p_enabled
+    where product = p_product;
+  end if;
+end $$;
+
+revoke all on function save_lead_assignment_weights(text, jsonb, boolean, text)
+  from public, anon, authenticated;
+grant execute on function save_lead_assignment_weights(text, jsonb, boolean, text)
   to service_role;
 
 -- ===========================================================================

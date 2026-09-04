@@ -6,6 +6,21 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-04 — Leads: schema.sql bắt kịp 4 rollout đã deploy
+
+- **Loại**: chore (đồng bộ schema canonical) — không đổi hành vi production.
+- `supabase/schema.sql` thiếu toàn bộ mặt DDL của lead sau 2026-08-31: bảng
+  `lead_assignment_weights`, cột `lead_alert_settings.auto_assign_enabled`, index
+  `leads_products_idx` (GIN) / `leads_creator_request_unique_idx` /
+  `leads_phone_no_event_unique_idx` / `lead_assignment_weights_active_idx`, ràng
+  buộc có tên `leads_products_valid`, các hàm `assign_leads_manual` /
+  `assign_leads_round_robin` (bản multi-product) / `save_lead_assignment_weights`
+  (bản atomic) / `lead_sync_primary_product` và trigger của nó.
+- Production đã có đủ qua rollout; đây là trả nợ cho nguyên tắc "schema.sql là
+  nguồn sự thật" đã chốt sau sự cố time-off 2026-09-03. Dựng lại DB từ schema.sql
+  trước thay đổi này sẽ thiếu bảng Distribute, RPC gán, trigger đồng bộ
+  `product`, và mọi ràng buộc chống trùng.
+
 ## 2026-09-03 — Tasks: báo cho Task Admin + agent khi có task mới; cron Due Date hết nổ 500
 
 - **Loại**: feat (thông báo) + fix (cron) + schema.
