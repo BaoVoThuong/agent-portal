@@ -362,8 +362,13 @@ function LeadHeaderCell({
  * `applyReturnedLeads` all do `current.map(l => l.id === id ? {...} : l)`), and
  * because the callbacks below arrive with stable identity (they are `useCallback`
  * in `LeadsClient`, threaded row-agnostic and re-bound per row HERE with
- * `[…, lead]` deps). A full `reload()` replaces every object — every row
- * re-renders then, which is fine: that is the 5-minute fallback, not a hot path.
+ * `[…, lead]` deps). A full `reload()` replaces every object, so every row
+ * re-renders then — cheap now that windowing means "every row" is the ~30 on
+ * screen rather than the whole list.
+ *
+ * Windowing does NOT make this `memo` redundant: rows that scroll out unmount,
+ * but the rows that stay put across a keystroke, a selection toggle or a peer's
+ * realtime edit are exactly what `memo` keeps from re-rendering.
  */
 const LeadRow = memo(function LeadRow({
   lead,

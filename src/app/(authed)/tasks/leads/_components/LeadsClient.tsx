@@ -193,8 +193,8 @@ export function LeadsClient({
    * Tab đang xem. State trong trình duyệt, KHÔNG phải điều hướng.
    *
    * Bản trước gọi `router.replace` mỗi lần đổi tab, tức Next chạy lại toàn bộ
-   * server component: `fetchAllLeads` (phân trang tuần tự 200 dòng/lượt, kèm
-   * lịch sử tương tác cho mọi dòng) cộng bốn truy vấn nữa — chỉ để đổi một tab.
+   * server component: `fetchAllLeads` (kéo về mọi lead kèm lịch sử tương tác
+   * cho từng dòng) cộng bốn truy vấn nữa — chỉ để đổi một tab.
    * Task board đổi tab bằng `useState` nên tức thì; đây là lý do Event Leads
    * giật còn màn kia thì không.
    *
@@ -723,8 +723,9 @@ export function LeadsClient({
     }
   }
 
-  // The list is fully loaded client-side (fetchAllLeads pages until complete),
-  // so filtering and sorting stay in the browser — same as the task board.
+  // The list is loaded client-side (fetchAllLeads pages until complete, up to
+  // LEAD_MAX_ROWS — past that `truncated` says so), so filtering and sorting
+  // stay in the browser — same as the task board.
   // Mọi phép suy diễn dưới đây từng chạy lại MỖI render, kể cả mỗi ký tự gõ vào
   // ô Search. Chúng được tách sang lib/leads/list-derivations.ts (test được ở
   // môi trường node) và bọc useMemo ở đây; badge chỉ phụ thuộc `leads` +

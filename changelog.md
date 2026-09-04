@@ -6,6 +6,45 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-04 — Leads: chuẩn bị cho quy mô ~2.000 lead
+
+- **Loại**: perf (server + client) + fix (cắt cụt im lặng).
+- **Phân trang song song.** `fetchAllLeads` kéo từng trang 200 dòng NỐI ĐUÔI
+  nhau cho tới hết. Đo ở 2.000 lead: 10 lượt đi-về tuần tự, khoảng một giây thời
+  gian database thuần tuý chặn server component trước khi trang kịp render. Nay
+  trang đầu đi một mình (nó giữ `count: exact` và cho biết `total`), các trang
+  còn lại đi song song theo chùm 4, và `MAX_PAGE_SIZE` lên 1000 — trần của
+  PostgREST, đúng con số `overview/route.ts` đã dùng. Còn 2 lượt đi-về.
+  Bước nhảy tính theo số dòng trang đầu THỰC SỰ trả về chứ không theo con số ta
+  yêu cầu: nếu server có trần thấp hơn, kế hoạch song song dựng theo con số yêu
+  cầu sẽ bỏ lọt im lặng cả một khoảng dòng. Mỗi trang thử lại một lần, và kết
+  quả khử trùng theo id vì phân trang theo offset trên bảng đang được ghi có thể
+  trả cùng một dòng hai lần.
+- **Trần một lượt nạp tính theo DÒNG, và chạm trần thì phải nói ra.**
+  `LEAD_MAX_ROWS = 20.000`. Bản nháp đầu chặn theo TRANG — thực chất là
+  "N × trần server", tức chỉ 2.600 dòng nếu server trả 200/trang, thấp hơn cả
+  quy mô đang nhắm tới. `fetchAllLeads` nay trả cờ `truncated`, `/api/leads`
+  chuyển tiếp, server ghi `console.error`, và danh sách hiện banner cảnh báo.
+  Theo đúng tiền lệ `/api/leads/overview`: cắt cụt mà im lặng còn tệ hơn báo
+  lỗi, vì tiêu đề đọc `total` chưa cắt còn thanh công cụ đếm mảng đã cắt — hai
+  con số cãi nhau và không ai đoán ra vì sao.
+- **Bảng chỉ dựng dòng đang nhìn thấy.** Ở 2.000 lead × ~15 cột là 30.000
+  component; windowing (`@tanstack/react-virtual`) giữ con số đó ở khoảng 450.
+  Đo lại chiều cao từng dòng thay vì cố định, vì lead mang hai product xếp badge
+  dọc nên cao hơn dòng thường. Đặt dòng bằng `top` chứ không `transform`: mọi ô
+  ghim là `position: sticky`, và sticky trong một tổ tiên có transform là lỗi
+  layout kinh điển của bảng virtualized. Header dính và cột ghim giữ nguyên.
+  Đánh đổi đã chấp nhận: Ctrl/Cmd+F của trình duyệt không còn tìm được dòng
+  ngoài màn hình — màn hình có ô Search riêng, tìm trên toàn bộ lead đã nạp.
+- **KHÔNG chuyển lọc sang server.** Ở 2.000 lead một lượt nạp đầy là 2,77 MB thô
+  / ~0,8 MB gzip. Không phải một lần: mỗi tab đang mở kéo lại toàn bộ mỗi 5 phút
+  (`FALLBACK_POLL_MS`), cộng mỗi broadcast realtime không kèm `leadIds` (import,
+  hoặc tab quay lại từ trạng thái ẩn). Vẫn chưa đáng để viết lại `/api/leads` +
+  state của `LeadsClient` + đường realtime patch, và đổi lấy việc mất
+  search/filter/sort tức thì. Xem lại khi vượt ~10.000 lead. Hai cách giảm rẻ
+  hơn nhiều, chưa làm: nới `FALLBACK_POLL_MS`, hoặc cho đường reload không kèm
+  id chỉ lấy delta theo `updated_at`.
+
 ## 2026-09-04 — Leads: chuẩn hoá tên sự kiện, hết tách đôi vì khoảng trắng
 
 - **Loại**: fix (toàn vẹn dữ liệu) — cần chạy rollout
