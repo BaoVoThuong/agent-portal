@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **For a reviewer:** this document is written to be read cold. Section 1 is the context you need; sections 2–3 are the evidence; section 5 onwards is the work. Section 8 lists what I deliberately did **not** do and the questions I want pushed back on.
+> **For a reviewer:** Section 1 is the context; §2–§3 the evidence; §9 and §11 are two rounds of [codex] review; **§12 is the only executable section.**
+>
+> **⛔ §5–§8 ARE A REJECTED DRAFT — DO NOT EXECUTE THEM.** They contain working code snippets for an approach review rejected (parallel OFFSET, `position` ordering, a 20.000 cap, unconditional retry, moving the live Leads helper). They are kept only so the review trail reads in order. Everything executable lives in §12.
 
 **Goal:** Stop the Health CS task board from hard-crashing when the number of active tasks passes 1.000, without changing a single thing a user sees.
 
@@ -118,7 +120,7 @@ For comparison, the Event Leads list shipped today carries ~0,8 MB gzipped at 2.
 
 ---
 
-## 5. File Structure
+## 5. [REJECTED DRAFT — DO NOT EXECUTE] File Structure
 
 **Task 1 — make the paging helpers shared (they are not lead-specific)**
 - Move: `src/lib/leads/page-plan.ts` → `src/lib/pagination/page-plan.ts`, renaming `dedupeLeadsById` → `dedupeById<T extends { id: string }>` and `LEAD_MAX_ROWS` → stays lead-specific in the leads caller. Rationale: `src/lib/tasks/*` must not import from `src/lib/leads/*`.
@@ -1255,3 +1257,403 @@ plus a seeded 5.000-task run.
 
 **The "smooth at 1.000–5.000" goal is met only when B1, B4 and B6 are shipped and
 B7's numbers say so** — [codex] is right that it must not be declared before then.
+
+---
+
+## 11. [codex] Second review of §10 — changes still required
+
+**[codex] Review status: NOT APPROVED YET.** Section 10 is materially better than
+the original plan: it separates the 1.000-row outage hotfix from the real scale
+work, includes assignee fan-out, lowers/clamps the cap, narrows retries, adds real
+paging tests, and stops making the Leads refactor a prerequisite. Those points are
+accepted below. However, the revised plan still contains correctness blockers that
+would either omit tasks or make older tasks searchable but impossible to open.
+
+### 11.1 [codex] Resolution status from the first review
+
+| Finding | Second-review status | [codex] comment |
+|---|---|---|
+| 1. Full-load architecture | **Partially resolved** | Bounded history is the right direction, but open tasks and the `All` preset are still unbounded. |
+| 2. List/Kanban mount all rows | **Resolved in plan** | B4/B5 now include virtualization/windowing with a DnD caveat. |
+| 3. Assignee fan-out omitted | **Resolved in plan** | A6 now explicitly includes `fetchTaskAssigneeRowsForTaskIds`. |
+| 4. Missing supporting index | **Not resolved** | Ordering by `id` changes the required index; it does not prove that no index is required. |
+| 5. UUID scope in URL | **Accepted but solution unresolved** | A5 still offers a fallback that can silently omit authorized rows. |
+| 6. Offset consistency | **Not resolved** | Immutable ordering removes reorder races, not insert/delete offset races. |
+| 7. Metadata total workload | **Resolved in direction** | B6 addresses the root cause; choose one canonical design before implementation. |
+| 8. 20.000 cap/overshoot | **Resolved in plan** | A3 lowers to 5.000 and clamps the last range. |
+| 9. Retry permanent errors | **Resolved in plan** | A4 now limits retries to transient failures. |
+| 10. Missing pagination tests | **Resolved in plan** | A8 covers the important boundaries; add the races described below. |
+| 11. Leads refactor prerequisite | **Resolved in plan** | A1 keeps the live Leads implementation untouched. |
+
+### 11.2 [codex][blocker] Ordering by immutable `id` does not make OFFSET safe
+
+Section 10.5 correctly proves that the SQL array order is not the final UI order:
+both `TaskListView` and `KanbanBoard` rank a copied array. Therefore removing
+`position` from the database order is safe for presentation.
+
+It does **not** make parallel offset pagination a stable snapshot. Given pages
+`0..999` and `1000..1999` ordered by UUID:
+
+- inserting a UUID before offset 1.000 shifts an existing row onto the next page;
+- deleting a row before offset 1.000 shifts an existing row onto the previous page;
+- one page can duplicate or skip a row even though `id` itself never changes;
+- insert/delete pairs can leave `rows.length === total`, so count + dedupe cannot
+  detect every wrong snapshot.
+
+**[codex][solution]** Replace A2's parallel OFFSET loop with sequential keyset
+pagination: `order("id")`, then `id > lastSeenId`, with the exact count requested
+only on the first page. Five sequential pages are acceptable for an outage hotfix
+and correctness is more important than saving four round trips. If Phase A must be
+parallel, use one database-side snapshot/RPC; do not claim OFFSET is race-free.
+
+Add a test where rows are inserted/deleted before the next boundary. The expected
+contract must distinguish rows present at snapshot start from rows created while
+the snapshot is loading.
+
+### 11.3 [codex][high] Finding 4 needs EXPLAIN, not an assertion
+
+The claim that the primary-key index plus `tasks_archived_idx` "serves" this query
+is not guaranteed. PostgreSQL may scan the PK and filter archived rows, or scan
+`tasks_archived_idx` and sort by UUID. It generally cannot assume two independent
+B-tree indexes satisfy both filtering and ordering efficiently.
+
+**[codex][solution]** Keep A9's seeded measurements, but explicitly compare:
+
+- current PK + `tasks_archived_idx` plan;
+- `create index ... on tasks (id) where archived_at is null`;
+- the Phase-B bounded-window predicates and their supporting indexes.
+
+Record `EXPLAIN (ANALYZE, BUFFERS)` with both mostly-active and mostly-archived
+datasets. Add only the index the measured plan needs. Finding 4 is therefore
+**pending measurement**, not "disappeared".
+
+### 11.4 [codex][blocker] Remove the unsafe A5 fallback
+
+A5 currently allows capping `assignedIds`/`participantIds`, querying without SQL
+scope, and applying `canViewTask` in Node. That is not a safe fallback:
+
+1. The 5.000-row cap is applied to the company-wide set before Node authorization.
+2. Authorized tasks may fall outside those first 5.000 rows and never reach Node.
+3. Capping the ID lists also removes part of the information `canViewTask` needs.
+4. The result can be silently incomplete while `truncated` only describes the
+   company-wide query, not the actor's authorized result.
+
+**[codex][solution]** A5 must choose the DB-side solution: an RPC/view/query that
+joins `task_assignees` and `task_participants`, applies actor visibility before
+pagination/count, and deduplicates task ids in SQL. Keep the existing Node check as
+defense-in-depth, not as the primary scope mechanism. Do not ship the capped-ID
+fallback.
+
+The RPC must receive actor context only from the authenticated server path; never
+trust an actor email supplied directly by a browser request.
+
+### 11.5 [codex][blocker] The `All` date preset breaks the bounded-window model
+
+The current UI has an `all` preset and resolves it to `{ from: "", to: "" }`.
+Section 10.3 does not define what Phase B does for this case:
+
+- loading every terminal task makes the window unbounded again;
+- loading no reviewed terminal history makes `All` lie;
+- silently applying a hidden 30-day cap changes the meaning of the control.
+
+**[codex][solution]** Make an explicit product decision before B1:
+
+- Recommended: `All` becomes a server-paginated historical mode with visible
+  "load more"/result count; other presets use the bounded working window.
+- Or remove `All` and replace it with a documented maximum history window.
+
+In either case, export must use the same server-side filter/pagination contract and
+must not export only the currently mounted virtual rows.
+
+### 11.6 [codex][high] The proposed window does not match current date semantics
+
+Current `matchesDateWindow` includes a terminal task when **either**:
+
+- `created_at` falls inside the selected range; or
+- `closed_at` falls inside the range; or
+- for legacy rows without `closed_at`, `updated_at` falls inside the range.
+
+Section 10.3 says terminal tasks are loaded only "by `closed_at`". That drops the
+first rule and the legacy fallback, so the same date selection can show fewer rows
+after Phase B.
+
+**[codex][solution]** Define one shared, unit-tested date-window contract and use it
+in both SQL and `filterTasks`:
+
+```text
+open task
+OR terminal created in range
+OR terminal coalesce(closed_at, updated_at) in range
+OR terminal still awaiting QC (only if product explicitly wants QC to ignore range)
+```
+
+Also define timezone boundaries. The browser currently converts timestamps to a
+local `YYYY-MM-DD`; comparing database timestamptz directly to bare date strings can
+move rows across midnight for users outside UTC. Pass an explicit timezone or UTC
+start/end instants derived from the agreed business timezone.
+
+The unconditional `done_reviewed_at IS NULL` clause is also ambiguous: those rows
+are loaded, but today's `filterTasks` will still hide them when outside the date
+range. Decide whether they bypass the range, and test that exact behavior.
+
+### 11.7 [codex][high] Initial range cannot currently be known by the server
+
+The saved Task date preset lives only in browser `localStorage`. The server component
+always starts with the fallback `thisMonth`; hydration later reads localStorage and
+changes `dateRange`. After B1 this means a user whose saved range is `last30`, fixed,
+or `All` receives the wrong initial window and immediately needs a second request.
+It can also flash an incomplete count before the second response wins.
+
+**[codex][solution]** Persist the selected range in a server-readable source
+(URL query is preferred for shareability/back-forward behavior; a cookie or account
+preference is also valid). The server render and `/api/tasks` must use the same
+normalized range. If localStorage remains during migration, explicitly perform one
+client correction and suppress stale-window rendering until it settles.
+
+### 11.8 [codex][blocker] Search results outside the window are not currently openable
+
+Section 10.3 says older tasks remain reachable through `runTaskSearch`. Search does
+find them through `/api/tasks/search`, but `TaskBoardClient` derives `openTask` with:
+
+```ts
+const openTask = tasks.find((task) => task.id === openId) ?? null;
+```
+
+When an old search result is outside the bounded board array, the existing recovery
+only refetches `/api/tasks`. After B1 that refetch returns the same bounded window,
+so the task remains absent and the detail drawer cannot open.
+
+**[codex][solution]** Add a scoped `GET /api/tasks/:id` list-row/detail bootstrap.
+When `openId` is absent from the window, fetch that id after authorization and hold
+it as an ephemeral open task without adding it to board counts/columns. Closing the
+drawer may discard it. Cover direct URLs and search results for archived/out-of-
+window/unauthorized tasks with tests. Until this exists, the statement "nothing
+becomes unreachable" is false.
+
+### 11.9 [codex][high] Date-window requests need their own race/version guard
+
+B2 says to reuse `refetchTasks`, but its current race guard tracks task mutation
+versions, not query/range versions. If range A is loading and the user selects range
+B, response A may temporarily replace the board before the queued B request runs.
+Realtime/focus/poll requests also need to carry the latest active range, not a stale
+closure.
+
+**[codex][solution]** Add a normalized query key/generation:
+
+- every request includes the range/query key;
+- only a response matching the latest key may apply;
+- AbortController cancels an obsolete range request when practical;
+- realtime/focus/poll read the latest range from a ref;
+- changing range shows an in-place loading state without clearing the previous
+  valid snapshot or applying a stale one.
+
+Test rapid A → B → C selection with responses arriving C → A → B.
+
+### 11.10 [codex][high] "Bounded by team capacity" is an assumption, not a bound
+
+All non-terminal tasks can grow indefinitely when backlog accumulates, waiting tasks
+are abandoned, or company/team size increases. Likewise, 30 days of completed work
+grows with throughput. The claim that the board remains ~320 rows "permanently, at
+any company size" is unsupported.
+
+**[codex][solution]** Treat 320 as today's estimate, not an invariant. Keep an
+explicit maximum per working set, surface truncation separately for open and
+terminal rows, and add monitoring/alerts before either reaches the cap. Product
+policy must decide how stale open work is resolved; performance code must not hide
+it automatically.
+
+### 11.11 [codex][medium] Clarify metadata and search claims
+
+- Toolbar text search is already server-side and debounced by 200 ms; it is not one
+  of the zero-request client filters listed in §10.3.
+- "Enrich only the rendered page" conflicts with instant client sorting/filtering
+  and columns that display comment/attachment counts for any row entering the
+  viewport. The bounded window does not currently have numbered pages.
+
+**[codex][solution]** Correct the text-search statement. For B6, prefer durable
+`comment_count`/`attachment_count` counters (with backfill and consistency tests),
+or enrich the whole bounded window in one aggregate query. Do not leave two
+incompatible alternatives in the execution plan.
+
+### 11.12 [codex][high] Performance budget needs pass/fail numbers
+
+A9/B7 currently say to record metrics but do not define success. An implementation
+could measure a slow result and still mark the checkbox complete.
+
+**[codex][solution]** Before implementation, set explicit budgets for seeded 1k/5k
+datasets, at minimum:
+
+- initial server render and `/api/tasks` p50/p95;
+- DB query count and slowest query;
+- compressed response size;
+- React commit time and mounted node/row/card count;
+- one realtime update and one date-range transition;
+- 20 concurrent visible sessions, matching §10.2's load model.
+
+The exact thresholds are a product/SLO decision, but every metric needs a numerical
+pass/fail threshold and a repeatable benchmark command.
+
+### 11.13 [codex][high] Make one canonical executable plan
+
+The document header still says §5 onward is the work, while §5–§8 contain detailed,
+obsolete instructions (`position` ordering, 20.000 cap, unconditional retry, Leads
+move). Section 10 says it supersedes them but provides only high-level checklists.
+An executing agent can still copy code from the obsolete sections and produce the
+exact implementation the review rejected.
+
+**[codex][solution]** Before execution:
+
+1. Move §5–§8 under an explicit "Rejected historical draft — do not execute"
+   appendix, or delete them after preserving history in git.
+2. Rewrite §10 into the same task-by-task format: exact files, interfaces,
+   migrations, tests, verification commands and commit boundaries.
+3. Resolve every `either/or` choice (especially A5, `All`, B6 and timezone) so an
+   implementation agent does not make product/security decisions implicitly.
+4. Update the top-level Goal and Architecture to describe Phase A + Phase B.
+
+### 11.14 [codex] Revised approval gate
+
+**Phase A may be approved only after:**
+
+- [ ] A2 uses keyset/snapshot pagination, not parallel OFFSET.
+- [ ] A5 uses DB-side authorization scope; the capped scope-free fallback is removed.
+- [ ] Index behavior is measured with `EXPLAIN`, not assumed.
+- [ ] The canonical Phase-A steps replace/supersede executable obsolete snippets.
+- [ ] Tests define snapshot semantics plus truncation and authorization behavior.
+
+**Phase B may be approved only after:**
+
+- [ ] `All` semantics are decided.
+- [ ] SQL and client date-window semantics, legacy fallback and timezone match.
+- [ ] Initial range persistence and request-race behavior are specified.
+- [ ] Search/direct-link opening works for tasks outside the board window.
+- [ ] Open-task growth has a real cap/monitoring policy.
+- [ ] B6 chooses one metadata architecture.
+- [ ] B7 contains numerical performance budgets and repeatable load tests.
+
+**[codex] Once these items are folded into a single executable section, the revised
+architecture is directionally sound and can be reviewed for final approval.**
+
+---
+
+## 12. CANONICAL EXECUTABLE PLAN — Phase A
+
+Supersedes §5–§8 entirely. Folds in both [codex] reviews. **This is the only section to execute.**
+
+### 12.1 Findings accepted from review round 2
+
+All 13 verified against source before accepting:
+
+| # | Accepted change |
+|---|---|
+| 11.2 | **Keyset, not OFFSET.** Immutable `id` ordering stops reorder races but not insert/delete races: a UUID inserted before the boundary shifts every later row onto the next page, and an insert/delete pair can leave `rows.length === total` so count+dedupe cannot detect it. Paging is now `where id > lastSeenId order by id limit N`, **sequential**. 5 sequential round-trips is the right price for a correct snapshot. |
+| 11.3 | Index is **pending measurement**, not "disappeared". A9 must compare plans with `EXPLAIN (ANALYZE, BUFFERS)`. |
+| 11.4 | **The capped scope-free fallback is removed.** It applied the 5.000-row cap to the company-wide set *before* Node authorization, so an authorized task could fall outside the first 5.000 and never reach `canViewTask` — silently incomplete, with `truncated` describing the wrong query. Phase A now **fails loudly** instead (12.4/A5); DB-side scope is a Phase B prerequisite. |
+| 11.5 | `All` preset semantics: **Phase B decision, blocking B1.** Phase A does not change date behaviour at all. |
+| 11.6 | Date-window contract mismatch: **Phase B**, blocking B1. Phase A does not touch `matchesDateWindow`. |
+| 11.7 | Range lives in `localStorage` (`TaskBoardClient.tsx:99,2417,2451`), unreadable by the server: **Phase B**, blocking B1. |
+| 11.8 | `openTask = tasks.find(...)` (`:1224`) — a search hit outside the window cannot open. **Phase B, blocking B1.** The §10.3 claim "nothing becomes unreachable" was false and is retracted. |
+| 11.9 | Range/query generation guard: **Phase B**, blocking B2. |
+| 11.10 | "Bounded by team capacity" downgraded from invariant to today's estimate; open and terminal truncation reported separately. |
+| 11.11 | Toolbar text search is server-side + 200 ms debounced (`TaskSearchBox.tsx:67,81`) — removed from the "zero-request client filters" list. B6 picks **one** design: durable counters. |
+| 11.12 | A9/B7 need numeric pass/fail thresholds, not "record metrics". |
+| 11.13 | This section; §5–§8 marked rejected in the header. |
+
+### 12.2 Phase A scope
+
+Stop the crash. Nothing else. **Phase A explicitly does NOT claim the "smooth at 5.000" goal** — that is Phase B, gated by 11.5/11.6/11.7/11.8/11.9.
+
+### A1 — Generic keyset paging helper
+
+**Create:** `src/lib/pagination/keyset.ts`, `src/lib/pagination/keyset.test.ts`
+**Do NOT touch** `src/lib/leads/page-plan.ts` — Leads is live ([codex] 11).
+
+```ts
+export type KeysetPage<T> = {
+  rows: T[] | null;
+  error: { code?: string; message?: string } | null;
+  count?: number | null;
+};
+
+export type KeysetResult<T> = {
+  rows: T[];
+  total: number;
+  truncated: boolean;
+};
+
+/**
+ * Nạp hết một bảng bằng KEYSET (`id > lastSeenId`), tuần tự.
+ *
+ * KHÔNG dùng OFFSET song song. Sắp theo `id` bất biến chỉ bỏ được race do
+ * kéo-thả; nó KHÔNG bỏ được race do insert/delete: một UUID chèn vào trước biên
+ * trang đẩy mọi dòng sau sang trang kế, và một cặp insert+delete có thể để
+ * `rows.length === total` nên đếm + khử trùng không phát hiện được. Keyset thì
+ * con trỏ là một dòng cụ thể, nên chèn/xoá ở nơi khác không dịch được nó.
+ *
+ * `fetchPage(afterId)` phải: lọc `id > afterId` khi afterId khác null, sắp theo
+ * `id` tăng dần, và chỉ xin `count: exact` khi afterId === null.
+ */
+export async function fetchAllByKeyset<T extends { id: string }>(
+  fetchPage: (afterId: string | null) => Promise<KeysetPage<T>>,
+  opts: { maxRows: number; isTransient: (e: { code?: string; message?: string }) => boolean },
+): Promise<KeysetResult<T>>
+```
+
+Behaviour, each of which gets a test:
+1. one page → returns it, `truncated` false
+2. several pages → concatenated in order, cursor is the last row's id
+3. a page shorter than the previous one still continues (server ceiling may vary)
+4. empty page ends the loop
+5. stops at `maxRows`, `truncated: true`, and does **not** fetch further
+6. transient error → retried **once**; permanent error → thrown immediately, not retried
+7. `total` comes from the first page's count; `truncated` is `rows.length < total`
+
+### A2 — Keyset-page `fetchTasksForActor`
+
+**Modify:** `src/lib/tasks/queries.ts`
+
+- `TASK_PAGE_SIZE = 1000`, `TASK_MAX_ROWS = 5_000`.
+- Order **`id` ascending only**. Justification (verified): `TaskListView.tsx:112-117` always re-ranks via `rankTasks`/`rankTasksForManager`/`sortTasks`, so the SQL order is never the displayed order. **Verify `KanbanBoard` reads the `position` field, not array order**; if it relies on array order, sort by `position` in Node after assembly.
+- One `buildTaskQuery(supabase, shape, afterId, withCount)` used for every page; `count: "exact"` only when `afterId === null`.
+- Preserve the `.eq("id","00000000-0000-0000-0000-000000000000")` fail-closed branch for an actor with empty scope.
+- Return `{ tasks, total, truncated }`.
+- Legacy `custom_values` fallback stays single-shot with `assertTaskListComplete` (production has the column; the branch is cold).
+
+`isTransient`: retry only when there is no `code`, or code is `PGRST504`/`08*`/`57014`, or the message matches `/timeout|fetch failed|network|ECONN|socket/i`. Everything else (permission, schema, malformed filter) throws on the first attempt.
+
+### A5 — Fail loudly on an oversized scope string
+
+**Do not** ship the capped scope-free fallback ([codex] 11.4). Before issuing a scoped query, measure the assembled `.or()` string:
+
+```ts
+const SCOPE_FILTER_MAX_BYTES = 6_000;   // ~8 KB proxy/gateway limit, minus headroom
+```
+
+Over budget → throw a named `TaskScopeTooLargeError` carrying the byte count and id counts. `/api/tasks` maps it to 503 with a clear message; the board page lets it surface. A loud failure for one scoped worker is correct; a silently short board is not. Moving visibility into SQL is **Phase B prerequisite B0**.
+
+### A6 — Bound every fan-out
+
+`src/lib/tasks/queries.ts`: `fetchTaskListMetadata` plus `fetchTaskActorRows`, `fetchTaskCommentRows`, `fetchTaskAttachmentRows`.
+`src/lib/tasks/assignees.ts:331`: `fetchTaskAssigneeRowsForTaskIds` ([codex] 3 — missed in the first draft).
+
+One shared `mapWithConcurrency(items, size, run)` in `src/lib/pagination/concurrency.ts`, limit **6**. Chunk size stays 50 (`queries.test.ts:95-97` asserts it). A test asserts max in-flight never exceeds the limit for **both** metadata and assignees.
+
+### A7 — Report truncation
+
+Board banner; `truncated` on `/api/tasks`; **export refuses outright** (a short CSV leaves the building and nobody can tell). Report open vs terminal truncation separately ([codex] 11.10).
+
+### A9 — Measure, with pass/fail numbers ([codex] 11.12)
+
+Seed 1.000 / 2.000 / 5.000 tasks. Record and gate on:
+
+| Metric | Budget @5.000 |
+|---|---|
+| `/api/tasks` p95 | ≤ 2.500 ms |
+| Server render TTFB | ≤ 3.000 ms |
+| DB queries per load | ≤ 30 |
+| Response size (gzip) | ≤ 2,5 MB |
+| `EXPLAIN` on the keyset page | index scan, no full sort |
+
+Compare `EXPLAIN (ANALYZE, BUFFERS)` for PK + `tasks_archived_idx` vs `create index on tasks (id) where archived_at is null`, on mostly-active and mostly-archived datasets. Add the index only if measurement demands it ([codex] 11.3).
+
+**Phase A is done when the board cannot crash and these numbers pass. It is not the scale goal.**
