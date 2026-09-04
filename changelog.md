@@ -6,6 +6,31 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-04 — Tasks: mọi phép tính ngày về giờ Texas
+
+- **Loại**: fix (toàn vẹn dữ liệu / báo cáo).
+- Cùng một task đang rơi vào **ba ngày khác nhau** tuỳ ai hỏi:
+  bộ lọc trên board dùng múi giờ **trình duyệt người xem** (CS ở VN là UTC+7),
+  Overview/KPI dùng múi giờ **server** (Vercel là UTC), còn cron vỡ hạn Due Date
+  đã dùng đúng **America/Chicago**. Task đóng lúc 20h ngày 3 giờ Texas là 8h
+  sáng ngày 4 ở VN — không con số nào cộng lại khớp con số nào.
+- Nguyên nhân: `getLocalDateKey` được viết **hai bản giống hệt nhau** ở
+  `lib/tasks/filtering.ts` (chạy ở trình duyệt) và `lib/tasks/overview-data.ts`
+  (chạy ở server), cả hai lấy ngày bằng `date.getFullYear()/getMonth()/getDate()`
+  tức theo múi giờ của MÁY đang chạy. Bảng preset khoảng ngày còn có **bản thứ
+  ba** ở `TaskToolbar` bên cạnh bản ở `TaskBoardClient`.
+- Nay có `lib/tasks/business-date.ts` dùng chung: `businessDateKey` xếp một
+  timestamp vào ngày theo `TASK_DUE_DATE_TIMEZONE` (America/Chicago — hằng đã có
+  sẵn, không dựng cái thứ hai), `shiftBusinessDateKey` và
+  `firstDayOfBusinessMonth` làm phép ngày **trong không gian date-key** thay vì
+  trên `Date` giờ địa phương: `new Date(y, m, 1)` dựng nửa đêm theo múi giờ máy,
+  nên với người xem ở UTC+7 thì preset "This month" bắt đầu sai một ngày.
+- Cả ba bản sao đều chuyển sang hàm dùng chung. Có test cho ranh giới CST/CDT,
+  qua tháng, qua năm, ngày nhuận và ngày đổi giờ.
+- **KHÔNG đụng** `time-off`, `sales-dashboard`, `enrollment`: những chỗ đó dùng
+  `timeZone: "UTC"` cho giá trị **chỉ-có-ngày** (`YYYY-MM-DD`), và format
+  date-only theo UTC là ĐÚNG — ép sang Texas sẽ lùi chúng lại một ngày.
+
 ## 2026-09-04 — Tasks: bảng task hết sập khi vượt 1.000 dòng (Phase A)
 
 - **Loại**: fix (bảng không tải được) + perf. **Không đổi hành vi nhìn thấy được.**

@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  businessDateKey,
+  firstDayOfBusinessMonth,
+  shiftBusinessDateKey,
+} from "@/lib/tasks/business-date";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -960,28 +965,30 @@ function getDatePresetForRange(from: string, to: string): TaskDatePresetKey {
   return "fixed";
 }
 
+/**
+ * Bản sao thứ hai của cùng bảng preset (bản kia ở TaskBoardClient). Cả hai
+ * PHẢI cho ra cùng một kết quả, nếu không thanh công cụ hiện một khoảng còn bộ
+ * lọc chạy một khoảng khác. Cùng lý do đó, mọi ngày ở đây tính theo GIỜ TEXAS
+ * qua `businessDateKey`, khớp với cách task được xếp vào ngày.
+ */
 function getPresetDateRange(presetKey: TaskDatePresetKey) {
-  const today = new Date();
-  const todayKey = dateToDateKey(today);
+  const todayKey = businessDateKey(new Date());
 
   switch (presetKey) {
     case "today":
       return { from: todayKey, to: todayKey };
     case "yesterday": {
-      const yesterday = addDays(today, -1);
-      const yesterdayKey = dateToDateKey(yesterday);
+      const yesterdayKey = shiftBusinessDateKey(todayKey, -1);
       return { from: yesterdayKey, to: yesterdayKey };
     }
-    case "thisMonth": {
-      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-      return { from: dateToDateKey(firstDay), to: todayKey };
-    }
+    case "thisMonth":
+      return { from: firstDayOfBusinessMonth(todayKey), to: todayKey };
     case "last7":
-      return { from: dateToDateKey(addDays(today, -6)), to: todayKey };
+      return { from: shiftBusinessDateKey(todayKey, -6), to: todayKey };
     case "last14":
-      return { from: dateToDateKey(addDays(today, -13)), to: todayKey };
+      return { from: shiftBusinessDateKey(todayKey, -13), to: todayKey };
     case "last30":
-      return { from: dateToDateKey(addDays(today, -29)), to: todayKey };
+      return { from: shiftBusinessDateKey(todayKey, -29), to: todayKey };
     case "all":
     case "fixed":
       return { from: "", to: "" };
@@ -1063,11 +1070,6 @@ function addMonths(date: Date, amount: number) {
   return new Date(date.getFullYear(), date.getMonth() + amount, 1);
 }
 
-function addDays(date: Date, amount: number) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + amount);
-  return nextDate;
-}
 
 function dateToDateKey(date: Date) {
   const year = date.getFullYear();

@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  businessDateKey,
+  firstDayOfBusinessMonth,
+  shiftBusinessDateKey,
+} from "@/lib/tasks/business-date";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
@@ -2492,28 +2497,30 @@ function resolveTaskDateRangeDefault(
   return getTaskPresetDateRange(value.preset);
 }
 
+/**
+ * Mọi preset tính trong không gian date-key theo GIỜ TEXAS, không phải giờ
+ * trình duyệt. Nếu "hôm nay" ở đây khác "hôm nay" mà `businessDateKey` dùng để
+ * xếp task vào ngày, thì preset "Today" sẽ lọc ra một ngày rồi so với các task
+ * đã được gán sang ngày khác — bảng rỗng mà không ai hiểu vì sao.
+ */
 function getTaskPresetDateRange(preset: TaskDatePresetKey): TaskDateRangeValue {
-  const today = new Date();
-  const todayKey = toDateInputValue(today);
+  const todayKey = businessDateKey(new Date());
 
   switch (preset) {
     case "today":
       return { from: todayKey, to: todayKey };
     case "yesterday": {
-      const yesterday = addDays(today, -1);
-      const yesterdayKey = toDateInputValue(yesterday);
+      const yesterdayKey = shiftBusinessDateKey(todayKey, -1);
       return { from: yesterdayKey, to: yesterdayKey };
     }
-    case "thisMonth": {
-      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-      return { from: toDateInputValue(firstDay), to: todayKey };
-    }
+    case "thisMonth":
+      return { from: firstDayOfBusinessMonth(todayKey), to: todayKey };
     case "last7":
-      return { from: toDateInputValue(addDays(today, -6)), to: todayKey };
+      return { from: shiftBusinessDateKey(todayKey, -6), to: todayKey };
     case "last14":
-      return { from: toDateInputValue(addDays(today, -13)), to: todayKey };
+      return { from: shiftBusinessDateKey(todayKey, -13), to: todayKey };
     case "last30":
-      return { from: toDateInputValue(addDays(today, -29)), to: todayKey };
+      return { from: shiftBusinessDateKey(todayKey, -29), to: todayKey };
     case "all":
     case "fixed":
       return { from: "", to: "" };
@@ -2542,15 +2549,4 @@ function isDateKey(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function addDays(date: Date, amount: number) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + amount);
-  return nextDate;
-}
 
-function toDateInputValue(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}

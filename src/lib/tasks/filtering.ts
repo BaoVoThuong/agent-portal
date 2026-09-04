@@ -1,3 +1,4 @@
+import { businessDateKey } from "./business-date";
 import type { TaskPriority, TaskRow, TaskStatus } from "./types";
 
 export const ALL_AGENTS = "__all_agents__";
@@ -161,7 +162,7 @@ function matchesDateWindow(
 ): boolean {
   if (!dateFrom && !dateTo) return true;
 
-  const createdDate = getLocalDateKey(task.created_at);
+  const createdDate = businessDateKey(task.created_at);
   if (dateKeyInRange(createdDate, dateFrom, dateTo)) return true;
 
   const isTerminal = task.status === "done" || task.status === "cancel";
@@ -170,7 +171,7 @@ function matchesDateWindow(
     // they were created. Fall back to updated_at for older rows before
     // closed_at existed.
     return dateKeyInRange(
-      getLocalDateKey(task.closed_at ?? task.updated_at),
+      businessDateKey(task.closed_at ?? task.updated_at),
       dateFrom,
       dateTo
     );
@@ -185,12 +186,4 @@ function normalizeDateKey(value: string | undefined): string | null {
   return value;
 }
 
-function getLocalDateKey(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
 
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
