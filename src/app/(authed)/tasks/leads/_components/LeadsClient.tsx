@@ -1,22 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CircleAlert, Plus, Search, Shuffle, Upload, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
-import { resolveLeadAlerts, type LeadAlert } from "@/lib/leads/alerts";
-import { buildStatusById } from "@/lib/leads/status-lookup";
+import { type LeadAlert } from "@/lib/leads/alerts";
 import {
-  classifyLeadHealth,
-  emptyLeadHealthCounts,
   isLeadHealth,
   LEAD_HEALTH_BUCKETS,
   type LeadHealth,
 } from "@/lib/leads/health";
+import type { LeadAlertSettingsByProduct } from "@/lib/leads/overview";
 import {
-  settingsForLead,
-  type LeadAlertSettingsByProduct,
-} from "@/lib/leads/overview";
+  buildLeadBadges,
+  buildLeadLookups,
+  collectEventNames,
+} from "@/lib/leads/list-derivations";
+import { useDebouncedValue } from "@/lib/leads/use-debounced-value";
 import {
   activeLeadFilterCount,
   EMPTY_LEAD_FILTERS,
@@ -363,7 +363,7 @@ export function LeadsClient({
    * có thể vừa mất quyền nhìn thấy dòng này — gán lead cho người khác là đúng
    * cái làm nó rời phạm vi của một agent.
    */
-  const applyReturnedLeads = (returned: readonly LeadRow[]) => {
+  const applyReturnedLeads = useCallback((returned: readonly LeadRow[]) => {
     if (returned.length === 0) return;
     const byId = new Map(returned.map((lead) => [lead.id, lead]));
     setLeads((current) =>
@@ -386,7 +386,7 @@ export function LeadsClient({
         : current,
     );
     void patchLeadsByIdRef.current(returned.map((lead) => lead.id)).catch(() => {});
-  };
+  }, []);
 
   const reloadRef = useRef(reload);
   useEffect(() => {
@@ -533,7 +533,18 @@ export function LeadsClient({
     return () => window.clearInterval(timer);
   }, []);
 
-  function updateLead(nextLead: LeadRow, interaction?: LeadInteraction) {
+  // `leads` đọc qua ref trong các handler bọc useCallback bên dưới, để danh tính
+  // handler không đổi mỗi lần danh sách đổi (nếu không thì mọi dòng render lại
+  // sau mỗi lần sửa — đúng thứ memo(LeadRow) ở LeadTable cần tránh).
+  const leadsRef = useRef(leads);
+  useEffect(() => {
+    leadsRef.current = leads;
+  });
+
+  const updateLead = useCallback(function updateLead(
+    nextLead: LeadRow,
+    interaction?: LeadInteraction,
+  ) {
     const mergeLead = (currentLead: LeadRow): LeadRow => {
       const history = interaction
         ? [
@@ -563,24 +574,27 @@ export function LeadsClient({
     if (activeAlert) {
       void patchLeadsByIdRef.current([nextLead.id]).catch(() => void reloadRef.current());
     }
-  }
+  }, [activeAlert]);
 
-  function toggleLead(id: string) {
+  const toggleLead = useCallback((id: string) => {
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }
+  }, []);
 
   /**
    * One inline edit. The cell has already repainted optimistically, so a
    * failure must both restore the old row and say why — a silent revert reads
    * as the app randomly discarding what someone typed.
    */
-  async function patchLead(id: string, patch: Record<string, unknown>) {
-    const previous = leads.find((lead) => lead.id === id);
+  const patchLead = useCallback(async function patchLead(
+    id: string,
+    patch: Record<string, unknown>,
+  ) {
+    const previous = leadsRef.current.find((lead) => lead.id === id);
     let conflicted = false;
     setLeads((current) =>
       current.map((lead) => (lead.id === id ? mergeLeadPatch(lead, patch) : lead)),
@@ -624,10 +638,13 @@ export function LeadsClient({
       }
       throw error;
     }
-  }
+  }, [sourceId, activeAlert, updateLead]);
 
   /** Reassigning one lead from its cell, through the route that keeps history. */
-  async function assignLead(id: string, toEmail: string | null) {
+  const assignLead = useCallback(async function assignLead(
+    id: string,
+    toEmail: string | null,
+  ) {
     try {
       const response = await fetch("/api/leads/assign", {
         method: "POST",
@@ -658,7 +675,7 @@ export function LeadsClient({
       );
       throw error;
     }
-  }
+  }, [sourceId, applyReturnedLeads]);
 
   async function assignSelected(toEmail: string | null) {
     if (selected.size === 0 || assigning) return;
@@ -699,97 +716,114 @@ export function LeadsClient({
 
   // The list is fully loaded client-side (fetchAllLeads pages until complete),
   // so filtering and sorting stay in the browser — same as the task board.
-  // Gồm cả status đã archive: lead cũ vẫn trỏ vào đó, và thiếu chúng thì
-  // resolveLeadAlerts nhận null rồi coi lead đã chốt là còn mở — sáng cờ đỏ.
-  const statusById = buildStatusById(statuses, archivedStatuses);
-  const statusNameById = new Map(statuses.map((status) => [status.id, status.label]));
-  // Event is free text on the row, so the choices are whatever the loaded leads
-  // actually carry rather than a lookup table.
-  const eventNames = [
-    ...new Set(
-      leads
-        .map((lead) => lead.event_name?.trim())
-        .filter((name): name is string => Boolean(name)),
-    ),
-  ].sort((a, b) => a.localeCompare(b));
-
-  const assigneeFilterOptions = [
-    { value: ALL_FILTER, label: "All assignees" },
-    { value: UNASSIGNED_FILTER, label: "Unassigned" },
-    ...assigneeOptions,
-  ];
-  const statusFilterOptions = [
-    { value: ALL_FILTER, label: "All statuses" },
-    ...statuses.map((status) => ({ value: status.id, label: status.label })),
-  ];
-  const eventFilterOptions = [
-    { value: ALL_FILTER, label: "All events" },
-    ...eventNames.map((name) => ({ value: name, label: name })),
-  ];
-
-  // resolveLeadAlerts is pure and reads four stored columns, so recomputing it
-  // for every row on every render costs nothing and is always current — that is
-  // why this module has no cron sweeping for overdue leads.
-  const alertsByLeadId = new Map(
-    leads.map((lead) => [
-      lead.id,
-      resolveLeadAlerts(
-        lead,
-        lead.status_id ? statusById.get(lead.status_id) ?? null : null,
-        settingsForLead(alertSettings, lead),
-      ),
-    ]),
+  // Mọi phép suy diễn dưới đây từng chạy lại MỖI render, kể cả mỗi ký tự gõ vào
+  // ô Search. Chúng được tách sang lib/leads/list-derivations.ts (test được ở
+  // môi trường node) và bọc useMemo ở đây; badge chỉ phụ thuộc `leads` +
+  // `alertSettings`, KHÔNG phụ thuộc filters, nên tách hẳn khỏi đường gõ.
+  const lookups = useMemo(
+    () => buildLeadLookups(statuses, archivedStatuses, interactionTypes, columnOptions),
+    [statuses, archivedStatuses, interactionTypes, columnOptions],
   );
-  // Một nhóm cho mỗi lead, rời nhau — nên số ở các lựa chọn cộng lại đúng bằng
-  // tổng danh sách. Badge vẫn hiện MỌI cờ của dòng đó; nhóm chỉ để lọc.
-  const healthByLeadId = new Map(
-    leads.map((lead) => [
-      lead.id,
-      classifyLeadHealth(
-        lead,
-        lead.status_id ? statusById.get(lead.status_id) ?? null : null,
-        settingsForLead(alertSettings, lead),
-      ),
-    ]),
+  const { statusById, statusNameById } = lookups;
+
+  const { alertsByLeadId, healthByLeadId, healthCounts } = useMemo(
+    () => buildLeadBadges(leads, lookups, alertSettings),
+    [leads, lookups, alertSettings],
   );
-  const healthCounts = emptyLeadHealthCounts();
-  for (const bucket of healthByLeadId.values()) healthCounts[bucket] += 1;
 
-  const healthFilterOptions = [
-    { value: ALL_FILTER, label: `All leads (${leads.length})` },
-    // Nhóm rỗng thì ẩn cho đỡ rối — trừ nhóm đang được chọn: nếu ẩn nó đi,
-    // ô select rơi về "All leads" trong khi bộ lọc vẫn đang chạy và danh sách
-    // vẫn rỗng, tức màn hình nói dối về trạng thái của chính nó.
-    ...LEAD_HEALTH_BUCKETS.filter(
-      (bucket) => healthCounts[bucket] > 0 || filters.health === bucket,
-    ).map((bucket) => ({
-      value: bucket,
-      label: `${LEAD_HEALTH_LABEL[bucket]} (${healthCounts[bucket]})`,
-    })),
-  ];
+  // Event là free text trên dòng, nên lựa chọn là những tên các dòng đang mang.
+  const eventNames = useMemo(() => collectEventNames(leads), [leads]);
 
-  const displayedLeads = (() => {
-    const matched = filterLeads(leads, filters, healthByLeadId);
+  // Ô input vẫn cập nhật filters.search tức thì (người dùng phải thấy chữ mình
+  // gõ); chỉ việc LỌC mới hoãn lại.
+  const debouncedSearch = useDebouncedValue(filters.search, 200);
+  const effectiveFilters = useMemo(
+    () => ({ ...filters, search: debouncedSearch }),
+    [filters, debouncedSearch],
+  );
+
+  const assigneeFilterOptions = useMemo(
+    () => [
+      { value: ALL_FILTER, label: "All assignees" },
+      { value: UNASSIGNED_FILTER, label: "Unassigned" },
+      ...assigneeOptions,
+    ],
+    [assigneeOptions],
+  );
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: ALL_FILTER, label: "All statuses" },
+      ...statuses.map((status) => ({ value: status.id, label: status.label })),
+    ],
+    [statuses],
+  );
+  const eventFilterOptions = useMemo(
+    () => [
+      { value: ALL_FILTER, label: "All events" },
+      ...eventNames.map((name) => ({ value: name, label: name })),
+    ],
+    [eventNames],
+  );
+
+  const healthFilterOptions = useMemo(
+    () => [
+      { value: ALL_FILTER, label: `All leads (${leads.length})` },
+      // Nhóm rỗng thì ẩn cho đỡ rối — trừ nhóm đang được chọn: nếu ẩn nó đi,
+      // ô select rơi về "All leads" trong khi bộ lọc vẫn đang chạy và danh sách
+      // vẫn rỗng, tức màn hình nói dối về trạng thái của chính nó.
+      ...LEAD_HEALTH_BUCKETS.filter(
+        (bucket) => healthCounts[bucket] > 0 || filters.health === bucket,
+      ).map((bucket) => ({
+        value: bucket,
+        label: `${LEAD_HEALTH_LABEL[bucket]} (${healthCounts[bucket]})`,
+      })),
+    ],
+    [leads.length, healthCounts, filters.health],
+  );
+
+  const displayedLeads = useMemo(() => {
+    const matched = filterLeads(leads, effectiveFilters, healthByLeadId);
     if (!sortKey) return matched;
     return sortLeads(matched, sortKey, sortDir, {
       statusLabel: (id) => (id ? statusNameById.get(id) ?? null : null),
       personLabel: (email) => personLabel(email, nameByEmail),
     });
-  })();
+  }, [leads, effectiveFilters, healthByLeadId, sortKey, sortDir, statusNameById, nameByEmail]);
   const activeFilterCount = activeLeadFilterCount(filters);
+
+  // `displayedLeads` đổi mỗi lần lọc; đọc qua ref để handler "chọn tất cả" giữ
+  // nguyên danh tính và không phá memo của các dòng.
+  const displayedLeadsRef = useRef(displayedLeads);
+  useEffect(() => {
+    displayedLeadsRef.current = displayedLeads;
+  });
+  const handleFollowUpNeeded = useCallback(
+    (lead: LeadRow, statusId: string) => setFollowUpPrompt({ lead, statusId }),
+    [],
+  );
+  const handleSelectVisible = useCallback((checked: boolean) => {
+    setSelected(
+      checked
+        ? new Set(displayedLeadsRef.current.map((lead) => lead.id))
+        : new Set(),
+    );
+  }, []);
   const allVisibleSelected =
     displayedLeads.length > 0 &&
     displayedLeads.every((lead) => selected.has(lead.id));
 
   /** Click the same header to flip direction; a new header starts ascending. */
-  function toggleSort(key: LeadSortKey) {
-    if (sortKey === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-      return;
-    }
-    setSortKey(key);
-    setSortDir("asc");
-  }
+  const toggleSort = useCallback(
+    (key: LeadSortKey) => {
+      if (sortKey === key) {
+        setSortDir(sortDir === "asc" ? "desc" : "asc");
+        return;
+      }
+      setSortKey(key);
+      setSortDir("asc");
+    },
+    [sortKey, sortDir],
+  );
 
   function selectAlert(alert: LeadAlert) {
     // Đây PHẢI là điều hướng thật: bộ lọc cảnh báo đổi câu truy vấn phía server,
@@ -1201,9 +1235,7 @@ export function LeadsClient({
               editableOwnerEmails={editableOwnerEmails}
               alertsByLeadId={alertsByLeadId}
               onPatchLead={patchLead}
-              onFollowUpNeeded={(lead, statusId) =>
-                setFollowUpPrompt({ lead, statusId })
-              }
+              onFollowUpNeeded={handleFollowUpNeeded}
               onAssignLead={assignLead}
               sortKey={sortKey}
               sortDir={sortDir}
@@ -1217,13 +1249,7 @@ export function LeadsClient({
               selected={selected}
               allVisibleSelected={allVisibleSelected}
               onToggleLead={toggleLead}
-              onSelectVisible={(checked) =>
-                setSelected(
-                  checked
-                    ? new Set(displayedLeads.map((lead) => lead.id))
-                    : new Set(),
-                )
-              }
+              onSelectVisible={handleSelectVisible}
               onOpenLead={setSelectedLead}
             />
           </div>
