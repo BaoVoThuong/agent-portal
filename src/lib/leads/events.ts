@@ -12,6 +12,17 @@ export function escapeLikePattern(value: string): string {
 }
 
 /**
+ * Chuẩn hoá tên sự kiện: gộp mọi chuỗi khoảng trắng thành một dấu cách và cắt
+ * hai đầu. Index duy nhất là `lower(btrim(name))` — `btrim` chỉ cắt đầu/cuối,
+ * nên "Health Fair" và "Health  Fair" hiện là hai sự kiện, và báo cáo theo sự
+ * kiện tách đôi đúng con số đó. Chuẩn hoá cả lúc TÌM và lúc GHI để hai người gõ
+ * cùng một cái tên với khoảng cách khác nhau vẫn về một dòng.
+ */
+export function normalizeEventName(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim();
+}
+
+/**
  * Find the event with this name, or create it. Matching ignores case and
  * surrounding space; a unique index on lower(btrim(name)) makes two people
  * typing the same name at the same moment collapse to one row rather than
@@ -25,7 +36,7 @@ export async function resolveEventByName(
   rawName: string,
   actorEmail: string
 ): Promise<{ ok: true; id: string; wasCreated: boolean } | { ok: false; error: string }> {
-  const name = rawName.trim();
+  const name = normalizeEventName(rawName);
   if (!name) return { ok: false, error: "The event needs a name." };
   const pattern = escapeLikePattern(name);
 

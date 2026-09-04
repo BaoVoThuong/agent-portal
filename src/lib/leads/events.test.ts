@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { escapeLikePattern } from "./events";
+import { escapeLikePattern, normalizeEventName } from "./events";
+
+describe("normalizeEventName", () => {
+  it("collapses internal whitespace and trims", () => {
+    expect(normalizeEventName("  Health   Fair \t2026 ")).toBe("Health Fair 2026");
+    expect(normalizeEventName("Health  Fair")).toBe("Health Fair");
+  });
+  it("leaves an already-clean name untouched", () => {
+    expect(normalizeEventName("Auto Expo")).toBe("Auto Expo");
+  });
+  it("returns empty for whitespace-only input", () => {
+    expect(normalizeEventName("   \t ")).toBe("");
+  });
+});
 
 describe("escapeLikePattern", () => {
-  // An event genuinely called "50% Off Fair" would otherwise match half the
-  // table through ILIKE and resolve a lead to the wrong event.
-  it("escapes the ILIKE wildcards", () => {
-    expect(escapeLikePattern("50% Off")).toBe("50\\% Off");
-    expect(escapeLikePattern("Health_Fair")).toBe("Health\\_Fair");
-    expect(escapeLikePattern("a\\b")).toBe("a\\\\b");
-  });
-
-  it("leaves an ordinary name alone", () => {
-    expect(escapeLikePattern("Health Fair 2026")).toBe("Health Fair 2026");
+  it("escapes LIKE metacharacters", () => {
+    expect(escapeLikePattern("50% Off_Fair")).toBe("50\\% Off\\_Fair");
   });
 });

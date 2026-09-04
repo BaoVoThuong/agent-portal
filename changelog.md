@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-04 — Leads: chuẩn hoá tên sự kiện, hết tách đôi vì khoảng trắng
+
+- **Loại**: fix (toàn vẹn dữ liệu) — cần chạy rollout
+  `2026-09-04-lead-event-name-normalize.sql`.
+- `resolveEventByName` tìm bằng `ilike` (so khớp cả chuỗi) trong khi index duy
+  nhất key theo `lower(btrim(name))`. "Health Fair" và "Health  Fair" thành hai
+  sự kiện; báo cáo theo sự kiện tách đôi con số. Nay có `normalizeEventName` gộp
+  khoảng trắng ở route, một trigger làm việc đó ở DB, và rollout gộp các sự kiện
+  đã bị tách (chuyển lead về dòng cũ hơn, archive dòng mới).
+
 ## 2026-09-04 — Leads: gán lead không còn trả 500 sau khi đã commit
 
 - **Loại**: fix (mã lỗi HTTP).

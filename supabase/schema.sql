@@ -6253,6 +6253,22 @@ create table if not exists lead_assignment_weights (
 create unique index if not exists lead_events_name_unique_idx
   on lead_events (lower(btrim(name))) where archived_at is null;
 
+-- Gộp mọi chuỗi khoảng trắng trong tên về một dấu cách khi ghi: `btrim` ở index
+-- trên chỉ cắt hai đầu, nên "Health Fair" và "Health  Fair" lọt qua thành hai
+-- sự kiện (2026-09-04-lead-event-name-normalize.sql).
+create or replace function lead_event_normalize_name()
+returns trigger
+language plpgsql as $$
+begin
+  new.name := btrim(regexp_replace(new.name, '\s+', ' ', 'g'));
+  return new;
+end $$;
+
+drop trigger if exists lead_event_normalize_name_trg on lead_events;
+create trigger lead_event_normalize_name_trg
+  before insert or update of name on lead_events
+  for each row execute function lead_event_normalize_name();
+
 create unique index if not exists lead_interaction_types_label_unique_idx
   on lead_interaction_types (label) where archived_at is null;
 create unique index if not exists lead_statuses_label_unique_idx
