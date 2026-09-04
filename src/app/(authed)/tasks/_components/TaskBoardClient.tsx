@@ -133,6 +133,7 @@ export function TaskBoardClient({
   initialNowIso,
   boardTitle,
   isManager,
+  seesAllTasks,
   currentEmail,
   assignees,
   agents,
@@ -154,6 +155,8 @@ export function TaskBoardClient({
   initialNowIso: string;
   boardTitle: string;
   isManager: boolean;
+  /** CS thường nhìn hàng đợi company-wide — cùng cờ server dùng cho quyền xem. */
+  seesAllTasks: boolean;
   currentEmail: string;
   assignees: TaskAssignee[];
   agents: TaskAgent[];
@@ -1333,6 +1336,7 @@ export function TaskBoardClient({
         isAgentMember: isAgentTeamMemberOf(task.agent_email),
         isReporter: task.reporter_email === currentEmail,
         isParticipant: Boolean(task.viewer_is_participant),
+        seesAllTasks,
       }
     );
   }
@@ -2087,6 +2091,7 @@ export function TaskBoardClient({
           assignees={assignees}
           agents={agents}
           isManager={isManager}
+          seesAllTasks={seesAllTasks}
           myAssistantAgents={myAssistantAgents}
           agentMembersByAgent={agentMembersByAgent}
           currentEmail={currentEmail}

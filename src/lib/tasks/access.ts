@@ -146,20 +146,24 @@ export function canMutateTask(
 }
 
 /**
- * Sửa Due Date: CHỈ agent của task, assistant của agent đó, và admin.
+ * Sửa Due Date: ai xem được task thì dời được hạn.
  *
- * Hẹp hơn `canMutateTask` đúng một người: NGƯỜI MỞ TASK. Ai cũng mở được task
- * cho CS, nhưng hạn chót là cam kết vận hành — người mở task không được tự dời
- * deadline của người khác. `isAgentOwner` đã bao gồm assistant (xem
- * isAgentOwnerOrAssistant), nên không cần cờ riêng cho assistant.
+ * Trước 2026-09-04 đây là quyền HẸP NHẤT trên task — chỉ agent của task,
+ * assistant của agent đó, và admin — với lý do hạn chót là cam kết vận hành của
+ * agent. Người dùng chốt lại: mở rộng cho tất cả những ai xem được task, gồm cả
+ * người mở task, người được giao, và CS thường thấy task qua hàng đợi
+ * company-wide (`seesAllTasks`).
+ *
+ * Vì vậy hàm này giờ chỉ là `canViewTask`. Giữ tên riêng thay vì xoá đi và dùng
+ * thẳng `canView`: chỗ gác trong route và các ô nhập trên UI vẫn nói rõ chúng
+ * đang hỏi về Due Date, nên nếu sau này quyền lại tách ra thì chỉ sửa ở đây.
  */
 export function canEditTaskDueDate(
   actor: TaskActor,
-  flags: { isAgentOwner?: boolean } = {}
+  task: Pick<TaskRow, "assignee_email">,
+  flags: TaskMembershipFlags = {}
 ): boolean {
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return Boolean(flags.isAgentOwner);
+  return canViewTask(actor, task, flags);
 }
 
 // Status transitions (kanban move, position), overdue-unlock, and reopening
@@ -231,9 +235,7 @@ export function resolveTaskCapabilities(
       isAgentOwner: flags.isAgentOwner,
     }),
     canReopen: changeStatus,
-    canEditDueDate: canEditTaskDueDate(actor, {
-      isAgentOwner: flags.isAgentOwner,
-    }),
+    canEditDueDate: canEditTaskDueDate(actor, task, flags),
   };
 }
 

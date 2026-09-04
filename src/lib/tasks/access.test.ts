@@ -330,12 +330,12 @@ describe("resolveTaskCapabilities", () => {
     });
   });
 
-  // Due Date hẹp hơn canEditContent đúng một người: NGƯỜI MỞ TASK. Ai cũng mở
-  // được task cho CS, nhưng hạn chót là cam kết vận hành của agent.
-  it("người mở task sửa được nội dung nhưng KHÔNG dời được hạn chót", () => {
+  // Due Date đi theo quyền XEM task (2026-09-04): ai mở được task lên thì dời
+  // được hạn. Trước đó nó là quyền hẹp nhất trên task — chỉ agent/assistant/admin.
+  it("người mở task dời được hạn chót", () => {
     const c = resolveTaskCapabilities(cs, task, { isReporter: true });
     expect(c.canEditContent).toBe(true);
-    expect(c.canEditDueDate).toBe(false);
+    expect(c.canEditDueDate).toBe(true);
   });
 
   it("assistant của agent dời được hạn chót", () => {
@@ -345,10 +345,20 @@ describe("resolveTaskCapabilities", () => {
     ).toBe(true);
   });
 
-  it("CS chỉ là người được giao thì không dời được hạn chót", () => {
+  it("người được giao dời được hạn chót dù không sửa được nội dung", () => {
+    const c = resolveTaskCapabilities(cs, task, { isAssignee: true });
+    expect(c.canEditContent).toBe(false);
+    expect(c.canEditDueDate).toBe(true);
+  });
+
+  it("CS thấy task qua hàng đợi company-wide cũng dời được hạn chót", () => {
     expect(
-      resolveTaskCapabilities(cs, task, { isAssignee: true }).canEditDueDate
-    ).toBe(false);
+      resolveTaskCapabilities(cs, task, { seesAllTasks: true }).canEditDueDate
+    ).toBe(true);
+  });
+
+  it("người không xem được task thì không dời được hạn chót", () => {
+    expect(resolveTaskCapabilities(cs, task, {}).canEditDueDate).toBe(false);
   });
 
   it("CS assignee: view + status + reopen only", () => {

@@ -34,6 +34,7 @@ export function TaskListView({
   assignees,
   agents,
   isManager,
+  seesAllTasks,
   myAssistantAgents,
   agentMembersByAgent,
   currentEmail,
@@ -58,6 +59,8 @@ export function TaskListView({
   assignees: TaskAssignee[];
   agents: TaskAgent[];
   isManager: boolean;
+  /** CS thường nhìn hàng đợi company-wide — cùng cờ server dùng cho quyền xem. */
+  seesAllTasks: boolean;
   myAssistantAgents: string[];
   agentMembersByAgent: Record<string, string[]>;
   currentEmail: string;
@@ -94,6 +97,7 @@ export function TaskListView({
         isAgentMember: isAgentTeamMemberOf(task.agent_email),
         isReporter: task.reporter_email === currentEmail,
         isParticipant: Boolean(task.viewer_is_participant),
+        seesAllTasks,
       }
     );
   }

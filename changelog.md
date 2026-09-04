@@ -6,6 +6,32 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-04 — CS Tasks: ai xem được task thì đổi được Due Date
+
+**Trước:** Due Date là quyền HẸP NHẤT trên task — chỉ admin, agent của task và
+assistant của agent đó (`canEditTaskDueDate` chỉ đọc cờ `isAgentOwner`). Người mở
+task sửa được title/description/priority/agent nhưng không dời được hạn; người
+được giao task cũng không.
+
+**Sau:** `canEditTaskDueDate(actor, task, flags)` = `canViewTask(...)`. Ai mở được
+task lên thì dời được hạn: admin, agent, assistant, người mở task, người được
+giao, và CS thường thấy task qua hàng đợi company-wide (`seesAllTasks`). Người
+không xem được task vẫn không đổi được.
+
+Kéo theo:
+
+- `PATCH /api/tasks/[id]`: `custom_values` được xét theo hai nửa. `due_date` đi
+  theo `canEditDueDate`; mọi custom value khác vẫn đòi `canEditContent`. Trước
+  đây `custom_values` nằm trọn trong `CONTENT_PATCH_KEYS`, nên một patch chỉ đổi
+  due date của người được giao sẽ bị chặn bằng "You cannot edit this task." —
+  đúng thứ mà việc mở rộng quyền này muốn bỏ. Thông báo lỗi due date đổi thành
+  "You cannot change this task's due date."
+- `resolveTaskAccess` trả thêm `seesAllTasks`, và PATCH truyền cờ đó vào
+  `resolveTaskCapabilities`. Thiếu nó thì CS nhìn hàng đợi company-wide bị 403
+  khi dời hạn dù luật mới cho phép.
+- Client nhận prop `seesAllTasks` (page.tsx → TaskBoardClient → TaskListView) để
+  ô nhập Due Date trên List/Board/Drawer mở đúng bằng server, thay vì tự suy ra.
+
 ## 2026-09-04 — Tasks: mọi phép tính ngày về giờ Texas
 
 - **Loại**: fix (toàn vẹn dữ liệu / báo cáo).

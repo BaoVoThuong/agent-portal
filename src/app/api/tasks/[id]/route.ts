@@ -89,18 +89,31 @@ function patchCapabilityError(
   body: Record<string, unknown>,
   capabilities: TaskCapabilities
 ): string | null {
-  if (hasAnyPatchKey(body, CONTENT_PATCH_KEYS) && !capabilities.canEditContent) {
+  // Due Date là custom column nhưng quyền sửa nó RỘNG hơn phần còn lại của
+  // custom_values: ai xem được task thì dời được hạn (canEditDueDate), trong khi
+  // mọi custom value khác vẫn đòi canEditContent. Nên `custom_values` phải được
+  // xét theo hai nửa — nếu chỉ kiểm cả cụm qua CONTENT_PATCH_KEYS thì một patch
+  // chỉ đổi due date của người được giao sẽ bị chặn bằng "You cannot edit this
+  // task.", đúng cái mà việc mở rộng quyền này muốn bỏ.
+  const customValues = isRecord(body.custom_values) ? body.custom_values : null;
+  const touchesDueDate = Boolean(customValues && TASK_DUE_DATE_KEY in customValues);
+  // custom_values gửi lên mà không phải object thì coi như đụng nội dung; thân
+  // request hỏng sẽ bị trả 400 ở bước validate phía dưới.
+  const touchesOtherCustomValues =
+    body.custom_values !== undefined &&
+    (!customValues ||
+      Object.keys(customValues).some((key) => key !== TASK_DUE_DATE_KEY));
+  const touchesContent =
+    Object.keys(body).some(
+      (key) => key !== "custom_values" && CONTENT_PATCH_KEYS.has(key)
+    ) || touchesOtherCustomValues;
+
+  if (touchesContent && !capabilities.canEditContent) {
     return "You cannot edit this task.";
   }
-  // Due Date hẹp hơn phần còn lại của custom_values: người mở task sửa được nội
-  // dung task nhưng không được dời hạn chót của agent. Kiểm ở đây chứ không chỉ
-  // ẩn nút trên giao diện — ẩn nút không phải là quyền.
-  if (
-    isRecord(body.custom_values) &&
-    TASK_DUE_DATE_KEY in body.custom_values &&
-    !capabilities.canEditDueDate
-  ) {
-    return "Only the agent, their assistant, or an admin can change the due date.";
+  // Kiểm ở đây chứ không chỉ khoá ô nhập trên giao diện — khoá ô không phải là quyền.
+  if (touchesDueDate && !capabilities.canEditDueDate) {
+    return "You cannot change this task's due date.";
   }
   if (body.assignee_email !== undefined && !capabilities.canAssign) {
     return "You cannot assign this task.";
@@ -125,6 +138,7 @@ async function resolveTaskAccess(
   isAssignee: boolean;
   isParticipant: boolean;
   isReporter: boolean;
+  seesAllTasks: boolean;
 }> {
   if (actor.isManager) {
     const capabilities = resolveTaskCapabilities(actor, task, {});
@@ -135,6 +149,7 @@ async function resolveTaskAccess(
       isAssignee: false,
       isParticipant: false,
       isReporter: false,
+      seesAllTasks: true,
     };
   }
   // seesAllTasks must be resolved here too, not just in detail/comments: a
@@ -167,6 +182,7 @@ async function resolveTaskAccess(
     isAssignee,
     isParticipant,
     isReporter,
+    seesAllTasks: scope.seesAllTasks,
   };
 }
 
@@ -280,12 +296,15 @@ export async function PATCH(req: Request, { params }: Ctx) {
     slaRules = rulesData ?? [];
   }
 
+  // seesAllTasks phải đi kèm ở đây: Due Date giờ theo canView, nên bỏ cờ này ra
+  // là một CS thấy task qua hàng đợi company-wide sẽ bị 403 khi dời hạn.
   const capabilities = resolveTaskCapabilities(r.actor, currentForPatch, {
     isAssignee: access.isAssignee,
     isAgentOwner: access.isAgentOwner,
     isReporter: access.isReporter,
     isAgentMember: access.isAgentMember,
     isParticipant: access.isParticipant,
+    seesAllTasks: access.seesAllTasks,
   });
   const capabilityError = patchCapabilityError(bodyRecord, capabilities);
   if (capabilityError) {

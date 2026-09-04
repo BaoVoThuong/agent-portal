@@ -9,6 +9,7 @@ import {
   fetchTaskAssignees,
 } from "@/lib/tasks/assignees";
 import {
+  actorSeesAllTasks,
   fetchAgentsForCs,
   fetchAssistantAgentsForCs,
   fetchCsForAgents,
@@ -46,6 +47,7 @@ export default async function TasksPage() {
     categories,
     tableConfig,
     canExport,
+    seesAllTasks,
   ] = await Promise.all([
     fetchTasksForActor(actor),
     fetchTaskAssignees(),
@@ -64,6 +66,10 @@ export default async function TasksPage() {
       .then((r) => (r.data ?? []) as TaskCategory[]),
     fetchTableColumnsWithOptions("cs"),
     canActorExport(session.user.permissions),
+    // Due Date đi theo quyền XEM task, nên client cần đúng cờ hàng đợi
+    // company-wide mà server dùng; tự suy ra ở client sẽ khoá ô nhập của CS
+    // thường trong khi API vẫn nhận patch.
+    actorSeesAllTasks(actor),
   ]);
   const tasks = taskPage.tasks;
   const myAgents = actor.isManager ? agents.map((a) => a.email) : csAgents;
@@ -93,6 +99,7 @@ export default async function TasksPage() {
       initialNowIso={initialNowIso}
       boardTitle={boardTitle}
       isManager={actor.isManager}
+      seesAllTasks={seesAllTasks}
       currentEmail={email}
       assignees={assignees}
       agents={agents}
