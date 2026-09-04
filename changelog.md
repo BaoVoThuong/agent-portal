@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-04 — Leads: index cho danh sách mặc định và bộ lọc Status
+
+- **Loại**: perf (chỉ số plan truy vấn) — cần chạy rollout
+  `2026-09-04-lead-list-indexes.sql` trên production.
+- `leads_active_created_idx (created_at desc, id) where archived_at is null` cho
+  danh sách khi không lọc product; `leads_status_active_idx (status_id) where
+  archived_at is null` cho bộ lọc Status và mệnh đề `status_id not in (...)` của
+  truy vấn cảnh báo. Ở dữ liệu hiện tại (~120 lead) khác biệt chưa đo được; đây
+  là chuẩn bị cho quy mô một đợt event.
+
 ## 2026-09-04 — Leads: schema.sql bắt kịp 4 rollout đã deploy
 
 - **Loại**: chore (đồng bộ schema canonical) — không đổi hành vi production.

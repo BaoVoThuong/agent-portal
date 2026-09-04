@@ -6294,6 +6294,18 @@ create index if not exists lead_assignment_weights_active_idx
   on lead_assignment_weights (product, position, agent_email)
   where is_active and weight > 0;
 
+-- Danh sách mặc định: archived_at is null, sắp created_at desc
+-- (2026-09-04-lead-list-indexes.sql).
+create index if not exists leads_active_created_idx
+  on leads (created_at desc, id)
+  where archived_at is null;
+
+-- Bộ lọc Status và mệnh đề status_id NOT IN của truy vấn cảnh báo
+-- (2026-09-04-lead-list-indexes.sql).
+create index if not exists leads_status_active_idx
+  on leads (status_id)
+  where archived_at is null;
+
 -- Từ vựng mặc định. Admin sửa/xoá/thêm thoải mái sau, nhưng phải có sẵn thứ gì
 -- đó ngay từ đầu: không có status và loại tương tác thì form ghi nhật ký chỉ
 -- là hai dropdown rỗng và cả module không dùng được.
