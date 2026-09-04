@@ -1657,3 +1657,220 @@ Seed 1.000 / 2.000 / 5.000 tasks. Record and gate on:
 Compare `EXPLAIN (ANALYZE, BUFFERS)` for PK + `tasks_archived_idx` vs `create index on tasks (id) where archived_at is null`, on mostly-active and mostly-archived datasets. Add the index only if measurement demands it ([codex] 11.3).
 
 **Phase A is done when the board cannot crash and these numbers pass. It is not the scale goal.**
+
+---
+
+## 13. PHASE B PLAN — actually smooth at 1.000–5.000
+
+Phase A (commits `8260aa4`, `87ad9e8`) stopped the crash. It did **not** meet the
+owner's goal. This section is the work that does.
+
+### 13.1 Where Phase A left things
+
+At 5.000 active tasks, one board load still costs:
+
+| | Phase A | Budget |
+|---|---|---|
+| DB queries | ~32 (5 pages + 10 metadata + 17 assignee) | ≤ 30 |
+| Payload | 6,5 MB raw / ~1,9 MB gzip | — |
+| Mounted components | ~75.000 (5.000 rows × ~15 cols) | — |
+
+…and `TASK_LIVE_RECONCILE_MS = 60_000` (`src/lib/tasks/live-sync.ts:12`) repeats
+the whole thing per visible tab every minute. At ~20 CS tabs that is **37 MB/min
+and ~640 DB queries/min**. Phase A did not touch any of that; it only stopped the
+1.000-row throw.
+
+### 13.2 The one product constraint that shapes everything
+
+The owner chose **instant filtering**. Every filter except the date range must stay
+client-side with zero requests. That rules out cursor pagination with server-side
+filters ([codex] §9's Phase B shape) and forces the alternative: **load a bounded
+window, and keep everything the user filters over inside it.**
+
+### 13.3 Resolved since §10
+
+- **Timezone: America/Chicago (Texas).** Already shipped — `cf05906` added
+  `src/lib/tasks/business-date.ts` and moved all four date-key sites onto it.
+  [codex] §11.6's timezone half is closed; the *contract* half is B1 below.
+
+### 13.4 Still to decide — recommendations, flag disagreement
+
+| Question | Recommendation |
+|---|---|
+| `All` preset ([codex] 11.5) | **Keep it**, server-paginated with the same `TASK_MAX_ROWS` cap and the Phase A banner. Removing a control people use is worse than a bounded one that says when it is bounded. |
+| B6 metadata design ([codex] 11.11) | **Durable counters** on `tasks` maintained by trigger — not "enrich the rendered page", which conflicts with instant client sorting over the whole window. |
+| Open-task growth cap ([codex] 11.10) | Report open and terminal truncation **separately** so an accumulating backlog is visible rather than silently squeezing out terminal rows. |
+
+### B0 — Move visibility scope into SQL (prerequisite for B1)
+
+**Why first:** Phase A ships `TaskScopeTooLargeError` — a loud failure once a
+worker's `assignedIds + participantIds` exceed 6 KB of query string. That is a
+stopgap, not a fix, and B1 makes it worse by adding a date predicate to the same
+URL. ([codex] 11.4 rejected the alternative — capping the id list and filtering in
+Node — because the row cap applies to the company-wide set *before* `canViewTask`
+runs, so an authorized task can fall outside the cap and never reach the check.)
+
+**Shape.** A SQL function that applies visibility **before** pagination and count:
+
+```sql
+create or replace function task_ids_visible_to(p_email text)
+returns table (task_id uuid)
+language sql stable security definer set search_path = public as $$
+  select t.id from tasks t where t.archived_at is null and (
+    t.assignee_email = p_email or t.agent_email = p_email or t.reporter_email = p_email
+  )
+  union
+  select a.task_id from task_assignees a where a.email = p_email
+  union
+  select p.task_id from task_participants p where p.email = p_email
+  union
+  select t.id from tasks t
+    join agent_members m on m.agent_email = t.agent_email
+   where m.cs_email = p_email and m.is_assistant
+$$;
+```
+
+**Index needed:** `task_participants` has only `primary key (task_id, email)` —
+no index on `email` alone (verified `schema.sql:2801-2808`). Add
+`create index on task_participants (email)`. `task_assignees_email_idx` already
+exists (`:2822`).
+
+**Actor context comes from the authenticated server path only** ([codex] 11.4) —
+never an email supplied by the browser. Keep the Node `canViewTask` filter as
+defence in depth, not as the primary gate.
+
+- [ ] Rollout with the function, the index, and `EXPLAIN` evidence.
+- [ ] `fetchTasksForActor` joins it instead of assembling `.or()` strings.
+- [ ] Delete `TaskScopeTooLargeError` and `SCOPE_FILTER_MAX_BYTES` once unused.
+- [ ] Test: a scoped worker sees exactly the same set as today, on every page.
+
+### B1 — The bounded window
+
+**Loaded always, no date limit:** every task whose status is not `done`/`cancel`.
+Bounded by team capacity, **an estimate not an invariant** ([codex] 11.10) — 42
+today; report its truncation separately.
+
+**Loaded inside the selected range:** terminal tasks, using a contract that must
+match `matchesDateWindow` (`src/lib/tasks/filtering.ts:157-177`) **exactly**, or
+the same date selection shows fewer rows after B1 than before it ([codex] 11.6):
+
+```
+created_at in range
+  OR (terminal AND coalesce(closed_at, updated_at) in range)
+  OR done_reviewed_at IS NULL          -- QC còn nợ; Overview đã giữ chúng vô hạn
+```
+
+Note the first clause applies to **all** tasks including terminal ones — §10.3
+said "terminal by closed_at" and that was narrower than today's behaviour.
+
+- [ ] One exported predicate in `src/lib/tasks/date-window.ts`, unit-tested,
+      used by **both** the SQL builder and `filterTasks`. Two copies is how the
+      three date-key copies happened.
+- [ ] Range boundaries converted to UTC instants from Texas day boundaries via
+      `businessDateKey` / `shiftBusinessDateKey` (`cf05906`).
+- [ ] Decide and test whether `done_reviewed_at IS NULL` rows bypass the range in
+      `filterTasks` too — today they would be loaded and then hidden ([codex] 11.6).
+
+### B2 — Range becomes a server-readable, race-guarded input
+
+The saved preset lives in `localStorage` (`TaskBoardClient.tsx:99, 2417, 2451`), so
+the server always renders `thisMonth` first and hydration corrects it ([codex] 11.7).
+After B1 that means a wrong initial window plus an immediate second request.
+
+- [ ] Move the range to a **URL query param** — shareable, and Back/Forward works.
+      Server render and `/api/tasks` read the same normalized range.
+- [ ] Refetch on range change through the existing path (`TaskBoardClient.tsx:462`,
+      which already handles overlapping refetches and write-version races — read it
+      before touching it).
+- [ ] **Query-generation guard** ([codex] 11.9): the current guard tracks *mutation*
+      versions, not *range* versions, so a slow response for range A can overwrite
+      range B. Every request carries a range key; only a response matching the
+      latest key may apply; `AbortController` cancels obsolete ones; realtime/focus/
+      poll read the latest range from a ref, not a stale closure.
+- [ ] Test rapid A → B → C selection with responses arriving C → A → B.
+
+### B3 — Open a task that is outside the window
+
+`const openTask = tasks.find((t) => t.id === openId) ?? null` (`:1224`). After B1 a
+search hit or a direct link to an older task is **not in the array**, and the
+existing recovery refetches the same bounded window, so the drawer never opens.
+§10.3's claim that "nothing becomes unreachable" was false ([codex] 11.8).
+
+- [ ] Scoped `GET /api/tasks/:id` bootstrap. When `openId` is absent from the
+      window, fetch it after authorization and hold it as an ephemeral open task
+      **without** adding it to board counts or columns; discard on close.
+- [ ] Tests: direct URL, search result, archived task, out-of-window task,
+      unauthorized task.
+
+### B4 — Virtualize the task list
+
+- [ ] `@tanstack/react-virtual` (already a dependency). Use **`top`, not
+      `transform`** — every pinned cell is `position: sticky` and sticky inside a
+      transformed ancestor is the classic breakage (learned on `LeadTable`, and the
+      React Compiler lint will skip memoizing the component, so the manual
+      `memo`/`useMemo` there is load-bearing — same will apply here).
+- [ ] `TaskRowItem` gets `React.memo`; handlers passed to it become `useCallback`.
+- [ ] Manual checks that actually exercise it: shrink the list while scrolled down;
+      re-sort while scrolled; a row whose height differs from the estimate.
+
+### B5 — Kanban windowing (highest technical risk)
+
+`KanbanBoard.tsx:285` wraps each column in dnd-kit's `SortableContext`, which needs
+its items registered — and windowing unmounts exactly the items outside the
+viewport.
+
+- [ ] Spike first: confirm whether dnd-kit can drag to an unmounted target.
+- [ ] If it cannot be reconciled cheaply, **cap cards per column with a visible
+      "showing N of M"** rather than mounting thousands. A visible cap beats a
+      broken drag.
+
+### B6 — Stop recounting comments and attachments
+
+`task_list_metadata` (`schema.sql:2212-2241`) runs two correlated subqueries **per
+task, per load, per user**. Phase A cut the round trips (chunk 50 → 500) but not the
+work ([codex] 7).
+
+- [ ] Add `comment_count` / `attachment_count` columns on `tasks`, maintained by
+      trigger on `task_comments` / `task_attachments` insert/update/delete
+      (including the `deleted_at` soft-delete transitions).
+- [ ] Backfill rollout + a consistency test comparing counters against a live count.
+- [ ] Then `task_list_metadata` collapses into the main select and the assignee
+      fan-out is the only enrich left — which a single `task_id = any($1)` query
+      replaces.
+
+### B7 — Performance budget with pass/fail numbers ([codex] 11.12)
+
+Seeded 1.000 / 2.000 / 5.000 datasets. Every metric needs a threshold and a
+repeatable command; "recorded a number" is not a passing gate.
+
+| Metric | Budget @5.000 |
+|---|---|
+| `/api/tasks` p95 | ≤ 800 ms |
+| Server render TTFB | ≤ 1.500 ms |
+| DB queries per load | ≤ 10 |
+| Response size (gzip) | ≤ 400 KB |
+| React commit time, filter keystroke | ≤ 50 ms |
+| Mounted rows | ≤ 60 regardless of dataset |
+| 20 concurrent visible sessions | no error, p95 within budget |
+
+Seeding needs a database that is not production — see §13.6.
+
+### 13.5 Ordering and independence
+
+B0 → B1 → B2 → B3 is one dependency chain and delivers the payload/query win.
+**B4/B5 are independent** and can ship first or in parallel; they fix rendering, not
+loading. B6 is independent of both. B7 gates the claim, not the code.
+
+### 13.6 The measurement problem, unresolved
+
+There is exactly one Supabase config in `.env.local` and it is **production** (141
+real tasks, real emails). Seeding 5.000 rows there would show fake tasks on every
+CS board, pollute Overview/KPI, and — above 1.000 — reproduce the very outage this
+work prevents. B7 therefore needs either a second (free) Supabase project as a test
+database, or an agreed off-hours window with cleanup scripted **before** seeding.
+The repo's existing convention is in `scripts/seed-enrollment-performance-samples.mjs`:
+marker + prefix, `SEED_PERF_ALLOW=1`, `--dry-run`, `--cleanup`, and its own guard
+says "after confirming this is a test database".
+
+**Until that is resolved, B7 cannot pass, and the "smooth at 5.000" claim cannot be
+made** — [codex] §9 was right that it must not be declared before then.
