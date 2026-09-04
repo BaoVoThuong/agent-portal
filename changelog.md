@@ -6,6 +6,47 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-04 — Tasks: bảng task hết sập khi vượt 1.000 dòng (Phase A)
+
+- **Loại**: fix (bảng không tải được) + perf. **Không đổi hành vi nhìn thấy được.**
+- `fetchTasksForActor` gọi MỘT `.select()` không phân trang. PostgREST của dự án
+  cắt mọi phản hồi ở 1.000 dòng (đo trên production 2026-09-04), và
+  `assertTaskListComplete` cố ý `throw` khi số dòng nhận về ít hơn `count`. Ở
+  task active thứ 1.001: `/tasks` chết ngay trong server component — không ai mở
+  được bảng — và export trả 500. Đo được: 141 task active, 9,4 task/ngày →
+  chạm mốc sau khoảng 92 ngày.
+- Nay phân trang bằng **KEYSET** (`id > lastSeenId`), **tuần tự**, không phải
+  OFFSET song song. Sắp theo `id` bất biến chỉ bỏ được race do kéo-thả (đổi
+  `position`); nó KHÔNG bỏ được race do insert/delete: một UUID chèn vào trước
+  biên trang đẩy mọi dòng sau sang trang kế, một dòng bị xoá kéo dòng sau lùi
+  qua biên và BỎ SÓT, còn một cặp insert+delete bù nhau thì để
+  `rows.length === total` nên đếm cộng khử trùng không phát hiện được. Con trỏ
+  keyset là một DÒNG cụ thể nên chèn/xoá chỗ khác không dịch được nó.
+- Sắp xếp đổi từ `(position, created_at, id)` sang **chỉ `id`**. Thứ tự SQL chưa
+  bao giờ là thứ người dùng thấy: `TaskListView` luôn xếp lại bằng
+  `rankTasks`/`rankTasksForManager`/`sortTasks`.
+- Trần `TASK_MAX_ROWS = 5.000` tính theo DÒNG chứ không theo TRANG (trần theo
+  trang thực chất là "N × trần server", đổi theo cấu hình server). Chạm trần thì
+  hiện banner chứ không sập; export **từ chối xuất**, vì một file CSV thiếu dòng
+  rời khỏi toà nhà và không ai biết là nó thiếu.
+- Chỉ thử lại lỗi TẠM THỜI (mạng/timeout/5xx/connection), đúng một lần. Lỗi
+  quyền, thiếu cột hay truy vấn sai là vĩnh viễn — thử lại chỉ nhân đôi tải.
+- **Phạm vi quá lớn thì hỏng TO, không âm thầm.** `assignedIds` +
+  `participantIds` được nhét vào query string dạng `id.in.(...)`, lớn dần theo
+  lịch sử làm việc và không có trần; quá 6 KB thì ném `TaskScopeTooLargeError`
+  (API trả 503 `TASK_SCOPE_TOO_LARGE`). Cố ý KHÔNG rơi về truy vấn không phạm
+  vi: trần 5.000 áp lên tập toàn công ty TRƯỚC khi `canViewTask` chạy ở Node,
+  nên task người ta được phép xem có thể nằm ngoài 5.000 dòng đầu và không bao
+  giờ tới lớp kiểm quyền — một bảng thiếu dòng mà không ai biết là thiếu.
+- Chặn fan-out ở 5 chỗ từng `Promise.all` trên TOÀN BỘ chùm: `task_list_metadata`
+  RPC, ba helper legacy, và `fetchTaskAssigneeRowsForTaskIds`. Ở 141 task là 3
+  truy vấn song song; ở 5.000 task là 100 mỗi loại, vào một pool 10 kết nối.
+- **Đây là Phase A — chống sập, KHÔNG phải mục tiêu "mượt ở 5.000".** Bảng vẫn
+  nạp toàn bộ task active và vẫn mount mọi dòng. Phase B (cửa sổ dữ liệu theo
+  khoảng ngày, virtualization List + Kanban, bỏ đếm lại comment/attachment mỗi
+  lượt) mới đạt mục tiêu đó. Xem
+  `docs/superpowers/plans/2026-09-04-task-list-pagination.md` §12.
+
 ## 2026-09-04 — Leads: chuẩn bị cho quy mô ~2.000 lead
 
 - **Loại**: perf (server + client) + fix (cắt cụt im lặng).

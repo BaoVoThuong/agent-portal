@@ -127,6 +127,101 @@ describe("quotePostgrestFilterValue", () => {
   });
 });
 
+const row = (id: string) => ({ id, custom_values: {}, assignees: [] });
+
+describe("fetchTasksForActor keyset paging", () => {
+  const manager = { email: "mgr@x.com", isManager: true, isWorker: true };
+
+  it("asks for an exact count on the FIRST page only", async () => {
+    // Xin count ở mọi trang là chạy lại COUNT(*) trên toàn bộ tập đã lọc cho
+    // từng trang — cùng một câu trả lời, trả tiền nhiều lần.
+    const { fetchTasksForActor, selectCalls } = await loadFetchTasksForActor({
+      selectedAgentEmails: [],
+      assistantAgents: [],
+      pages: [
+        { data: [row("a"), row("b")], error: null, count: 3 },
+        { data: [row("c")], error: null },
+      ],
+    });
+    await fetchTasksForActor(manager as never);
+    const withCount = selectCalls.filter(
+      ([, opts]) => (opts as { count?: string } | undefined)?.count === "exact",
+    );
+    expect(withCount).toHaveLength(1);
+  });
+
+  it("walks pages with a keyset cursor, not an offset", async () => {
+    const { fetchTasksForActor, gtCalls } = await loadFetchTasksForActor({
+      selectedAgentEmails: [],
+      assistantAgents: [],
+      pages: [
+        { data: [row("a"), row("b")], error: null, count: 3 },
+        { data: [row("c")], error: null },
+      ],
+    });
+    const result = await fetchTasksForActor(manager as never);
+    expect(result.tasks.map((t) => t.id)).toEqual(["a", "b", "c"]);
+    expect(result.total).toBe(3);
+    expect(result.truncated).toBe(false);
+    // Trang hai phải hỏi `id > <id cuối trang một>`, không phải một offset.
+    expect(gtCalls).toEqual([["id", "b"]]);
+  });
+
+  it("reports truncated when the server has more than it returned", async () => {
+    const { fetchTasksForActor } = await loadFetchTasksForActor({
+      selectedAgentEmails: [],
+      assistantAgents: [],
+      pages: [
+        { data: [row("a")], error: null, count: 9 },
+        { data: [], error: null },
+      ],
+    });
+    const result = await fetchTasksForActor(manager as never);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.total).toBe(9);
+    expect(result.truncated).toBe(true);
+  });
+
+  // A8: phạm vi phải được áp lên MỌI trang, không chỉ trang đầu. Thiếu nó thì
+  // trang hai trở đi trả về task của cả công ty cho một người bị giới hạn.
+  it("applies the same scope predicate to every page", async () => {
+    const { fetchTasksForActor, orCalls } = await loadFetchTasksForActor({
+      selectedAgentEmails: ["cs@x.com"],
+      assistantAgents: [],
+      pages: [
+        { data: [row("a")], error: null, count: 2 },
+        { data: [row("b")], error: null },
+      ],
+    });
+    await fetchTasksForActor({
+      email: "cs@x.com",
+      isManager: false,
+      isWorker: true,
+    } as never);
+    expect(orCalls.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(orCalls).size).toBe(1);
+    expect(orCalls[0]).toContain("cs@x.com");
+  });
+
+  // A6: enrich metadata không được thả hết chùm cùng lúc.
+  it("chunks metadata rpc calls to at most 50 ids", async () => {
+    const ids = Array.from({ length: 120 }, (_, i) => `id-${String(i).padStart(3, "0")}`);
+    const { fetchTasksForActor, rpcCalls } = await loadFetchTasksForActor({
+      selectedAgentEmails: [],
+      assistantAgents: [],
+      pages: [
+        { data: ids.map(row), error: null, count: 120 },
+        { data: [], error: null },
+      ],
+    });
+    await fetchTasksForActor(manager as never);
+    expect(rpcCalls.length).toBeGreaterThan(1);
+    for (const [, args] of rpcCalls) {
+      expect((args as { task_ids: string[] }).task_ids.length).toBeLessThanOrEqual(50);
+    }
+  });
+});
+
 describe("fetchTasksForActor view scope", () => {
   it("does not scope plain-CS workers", async () => {
     const { fetchTasksForActor, orCalls } = await loadFetchTasksForActor({
@@ -175,29 +270,56 @@ describe("fetchTasksForActor view scope", () => {
   });
 });
 
-async function loadFetchTasksForActor({
-  selectedAgentEmails,
-  assistantAgents,
-}: {
+type HarnessPage = { data: unknown[]; error: null; count?: number };
+
+async function loadFetchTasksForActor(options: {
   selectedAgentEmails: string[];
   assistantAgents: string[];
+  pages?: HarnessPage[];
 }) {
+  const { selectedAgentEmails, assistantAgents } = options;
   vi.resetModules();
   const orCalls: string[] = [];
+  const selectCalls: unknown[][] = [];
+  const eqCalls: unknown[][] = [];
+  const gtCalls: unknown[][] = [];
+  // Mỗi lượt `then` trả về một trang. Mặc định một trang rỗng = danh sách rỗng.
+  const pages: { data: unknown[]; error: null; count?: number }[] =
+    options.pages ?? [{ data: [], error: null, count: 0 }];
+  let pageIndex = 0;
   const builder = {
-    select: vi.fn(() => builder),
+    select: vi.fn((...args: unknown[]) => {
+      selectCalls.push(args);
+      return builder;
+    }),
     is: vi.fn(() => builder),
     order: vi.fn(() => builder),
+    limit: vi.fn(() => builder),
+    gt: vi.fn((...args: unknown[]) => {
+      gtCalls.push(args);
+      return builder;
+    }),
     or: vi.fn((value: string) => {
       orCalls.push(value);
       return builder;
     }),
-    eq: vi.fn(() => builder),
-    then: (resolve: (value: { data: unknown[]; error: null }) => void) =>
-      resolve({ data: [], error: null }),
+    eq: vi.fn((...args: unknown[]) => {
+      eqCalls.push(args);
+      return builder;
+    }),
+    then: (resolve: (value: { data: unknown[]; error: null }) => void) => {
+      const page = pages[Math.min(pageIndex, pages.length - 1)];
+      pageIndex += 1;
+      return resolve(page);
+    },
   };
+  const rpcCalls: unknown[][] = [];
   const supabase = {
     from: vi.fn(() => builder),
+    rpc: vi.fn((...args: unknown[]) => {
+      rpcCalls.push(args);
+      return Promise.resolve({ data: [], error: null });
+    }),
   };
 
   vi.doMock("@/lib/supabase", () => ({
@@ -226,5 +348,12 @@ async function loadFetchTasksForActor({
   }));
 
   const queriesModule = await import("./queries");
-  return { fetchTasksForActor: queriesModule.fetchTasksForActor, orCalls };
+  return {
+    fetchTasksForActor: queriesModule.fetchTasksForActor,
+    orCalls,
+    selectCalls,
+    eqCalls,
+    gtCalls,
+    rpcCalls,
+  };
 }

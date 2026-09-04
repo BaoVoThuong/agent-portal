@@ -124,6 +124,7 @@ type TaskMutationState = {
 
 export function TaskBoardClient({
   initialTasks,
+  initialTasksTruncated = false,
   initialNowIso,
   boardTitle,
   isManager,
@@ -140,6 +141,11 @@ export function TaskBoardClient({
   canExport,
 }: {
   initialTasks: TaskRow[];
+  /**
+   * Danh sách đã chạm trần một lượt nạp (TASK_MAX_ROWS) và bị cắt. Phải hiện
+   * ra: bảng đang thiếu dòng, và không có gì khác trên màn hình nói lên điều đó.
+   */
+  initialTasksTruncated?: boolean;
   initialNowIso: string;
   boardTitle: string;
   isManager: boolean;
@@ -159,6 +165,7 @@ export function TaskBoardClient({
   const deepLinkId = searchParams.get("task");
   const deepLinkCommentId = searchParams.get("comment");
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
+  const [tasksTruncated, setTasksTruncated] = useState(initialTasksTruncated);
   const taskRowsRef = useRef(new Map(initialTasks.map((task) => [task.id, task])));
   const taskMutationStatesRef = useRef(new Map<string, TaskMutationState>());
   const [view, setView] = useState<BoardView>("list");
@@ -467,7 +474,11 @@ export function TaskBoardClient({
             if (data?.error) setError(data.error);
             continue;
           }
-          const data = (await res.json()) as { tasks?: TaskRow[] };
+          const data = (await res.json()) as {
+            tasks?: TaskRow[];
+            truncated?: boolean;
+          };
+          setTasksTruncated(data.truncated === true);
           const fetchedTasks = data.tasks;
           if (!Array.isArray(fetchedTasks)) {
             setError("The task list response was invalid. Retrying automatically.");
@@ -1976,6 +1987,19 @@ export function TaskBoardClient({
               </div>
             ) : null}
           </header>
+
+          {/* Danh sách chạm trần một lượt nạp. Không có banner này thì bảng chỉ
+              đơn giản là thiếu dòng, không lỗi, không dấu hiệu nào — đúng kiểu
+              hỏng mà repo này đã quyết là không chấp nhận. */}
+          {tasksTruncated ? (
+            <div className="mb-3 flex items-start gap-2 rounded border border-[#ffc400] bg-[#fffae6] px-4 py-2.5 text-sm font-semibold text-[#974f0c]">
+              <span>
+                Danh sách task đã chạm trần một lượt nạp — màn hình đang thiếu
+                một phần. Báo quản trị viên: đây là dấu hiệu cần phân trang sâu
+                hơn cho bảng task.
+              </span>
+            </div>
+          ) : null}
 
           <TaskToolbar
             view={view}

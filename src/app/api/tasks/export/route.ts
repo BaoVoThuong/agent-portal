@@ -58,7 +58,7 @@ async function exportTasksResponse({
   }
 
   const supabase = getSupabaseAdmin();
-  const [tasks, columns, customOptions, categories, assignees, agents] =
+  const [taskPage, columns, customOptions, categories, assignees, agents] =
     await Promise.all([
       fetchTasksForActor(actorResult.actor),
       fetchTableColumns("cs"),
@@ -73,6 +73,19 @@ async function exportTasksResponse({
   if (categories.error) {
     return NextResponse.json({ error: categories.error.message }, { status: 500 });
   }
+  // Một file CSV thiếu dòng thì rời khỏi toà nhà và không ai biết là nó thiếu.
+  // Từ chối hẳn còn hơn xuất một bản không đầy đủ.
+  if (taskPage.truncated) {
+    return NextResponse.json(
+      {
+        error:
+          `Chỉ nạp được ${taskPage.tasks.length} trên ${taskPage.total} task. ` +
+          `Thu hẹp phạm vi rồi xuất lại.`,
+      },
+      { status: 503 }
+    );
+  }
+  const tasks = taskPage.tasks;
 
   const categoryById = new Map(
     ((categories.data ?? []) as Array<{ id: string; name: string }>).map(

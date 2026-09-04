@@ -37,7 +37,7 @@ export default async function TasksPage() {
 
   // Wave 1 — every independent fetch in parallel (was ~7 sequential awaits).
   const [
-    tasks,
+    taskPage,
     assignees,
     agents,
     agentCandidates,
@@ -65,6 +65,7 @@ export default async function TasksPage() {
     fetchTableColumnsWithOptions("cs"),
     canActorExport(session.user.permissions),
   ]);
+  const tasks = taskPage.tasks;
   const myAgents = actor.isManager ? agents.map((a) => a.email) : csAgents;
 
   // Wave 2 — depends on wave 1 (agents + tasks + myAgents).
@@ -88,6 +89,7 @@ export default async function TasksPage() {
   return (
     <TaskBoardClient
       initialTasks={tasks}
+      initialTasksTruncated={taskPage.truncated}
       initialNowIso={initialNowIso}
       boardTitle={boardTitle}
       isManager={actor.isManager}

@@ -15,6 +15,7 @@ import {
 import {
   fetchTasksForActor,
   TaskListTruncatedError,
+  TaskScopeTooLargeError,
 } from "@/lib/tasks/queries";
 import { midpoint } from "@/lib/tasks/ordering";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskRow } from "@/lib/tasks/types";
@@ -81,11 +82,28 @@ export async function GET() {
       return respond({ error: "Unauthorized" }, 401);
     }
 
-    const tasks = await timing.measure("tasks", async () =>
+    const page = await timing.measure("tasks", async () =>
       fetchTasksForActor(actor),
     );
-    return respond({ tasks });
+    // Trước đây quá trần là 503 và bảng không tải được gì. Nay trả về những gì
+    // nạp được kèm cờ `truncated` — thiếu một phần và NÓI RA vẫn dùng được hơn
+    // là không có gì. Nhánh 503 dưới đây chỉ còn phục vụ đường legacy.
+    return respond({ tasks: page.tasks, truncated: page.truncated });
   } catch (error) {
+    if (error instanceof TaskScopeTooLargeError) {
+      // Danh sách id phạm vi của người này đã vượt giới hạn URL. Hỏng to là cố
+      // ý: rơi về truy vấn không phạm vi sẽ cho ra một bảng thiếu dòng mà không
+      // ai biết là thiếu. Xem chú thích ở SCOPE_FILTER_MAX_BYTES.
+      return respond(
+        {
+          error:
+            "Phạm vi task của tài khoản này đã quá lớn để lọc ở tầng truy vấn. " +
+            "Báo quản trị viên — cần chuyển phạm vi xuống database.",
+          code: "TASK_SCOPE_TOO_LARGE",
+        },
+        503,
+      );
+    }
     if (error instanceof TaskListTruncatedError) {
       return respond(
         {

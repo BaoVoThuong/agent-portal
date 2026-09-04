@@ -1,4 +1,8 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import {
+  LIST_ENRICH_CONCURRENCY,
+  mapWithConcurrency,
+} from "@/lib/pagination/concurrency";
 import { cache } from "react";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
@@ -328,8 +332,12 @@ export async function fetchTaskAssigneeRowsForTaskIds(
   if (ids.length === 0) return [];
 
   const rows: TaskAssigneeRow[] = [];
-  const results = await Promise.all(
-    chunkValues(ids, TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE).map(async (chunk) => {
+  // Chặn số lượt song song: chia 50 id/chùm rồi `Promise.all` TOÀN BỘ chùm là
+  // 3 truy vấn ở 141 task nhưng 100 ở 5.000 task, vào một pool 10 kết nối.
+  const results = await mapWithConcurrency(
+    chunkValues(ids, TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE),
+    LIST_ENRICH_CONCURRENCY,
+    async (chunk) => {
       let result:
         | {
             data: unknown[] | null;
@@ -347,7 +355,7 @@ export async function fetchTaskAssigneeRowsForTaskIds(
         throw error;
       }
       return result;
-    })
+    }
   );
 
   for (const result of results) {
