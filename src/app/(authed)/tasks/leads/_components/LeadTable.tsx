@@ -7,6 +7,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, UserPlus } from "lucide-react";
 import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
 import { leadDisplayKey } from "@/lib/leads/display";
@@ -171,6 +172,34 @@ export function LeadTable({
     columns.reduce((sum, column) => sum + leadColumnWidth(column), 0);
   const tableFrameStyle: CSSProperties = { maxHeight: "1008px" };
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Chỉ dựng những dòng đang nhìn thấy. Ở 2.000 lead × ~15 cột là 30.000
+  // component; windowing giữ con số đó ở khoảng 450 bất kể danh sách dài bao
+  // nhiêu.
+  //
+  // `estimateSize` chỉ là phỏng đoán ban đầu — `measureElement` đo lại từng
+  // dòng thật. Bắt buộc phải đo, không được dùng chiều cao cố định: lead mang
+  // hai product xếp badge DỌC (người dùng chốt 2026-09-02), nên dòng đó cao
+  // ~68px so với 44px của dòng thường, và chiều cao cố định sẽ đặt sai vị trí
+  // mọi dòng nằm sau lead multi-product đầu tiên.
+  //
+  // Hook phải nằm TRÊN nhánh return sớm cho danh sách rỗng bên dưới, nếu không
+  // là vi phạm rules of hooks ngay khi một bộ lọc làm rỗng danh sách.
+  //
+  // ĐỪNG bỏ các useMemo/memo thủ công trong file này vì nghĩ React Compiler lo
+  // hết: `useVirtualizer` trả về hàm không memo an toàn được, nên compiler BỎ
+  // QUA việc memo hoá component này (lint `react-hooks/incompatible-library`
+  // nói đúng chỗ đó). Từ đây trở đi, memo thủ công là thứ duy nhất giữ bảng
+  // không render lại toàn bộ. Các giá trị của virtualizer chỉ đi xuống <li>
+  // thường, không đi vào component nào đang bọc memo.
+  const rowVirtualizer = useVirtualizer({
+    count: leads.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 44,
+    overscan: 10,
+    getItemKey: (index) => leads[index].id,
+  });
+
   if (leads.length === 0) {
     return (
       <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
@@ -184,7 +213,7 @@ export function LeadTable({
       className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
       style={tableFrameStyle}
     >
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         <div style={{ minWidth }}>
           <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
             {isManager ? (
@@ -213,9 +242,27 @@ export function LeadTable({
             ))}
           </div>
 
-          <ul>
-            {leads.map((lead) => (
-              <li key={lead.id} className="border-b border-[#ebecf0]">
+          {/* Dòng đặt bằng `top`, KHÔNG bằng `transform: translateY`. Mọi ô
+              ghim trong dòng là `position: sticky; left: N` (LeadDataCell và
+              StaticCell), và sticky nằm trong một tổ tiên có transform là lỗi
+              layout được báo nhiều nhất ở bảng virtualized. `top` cho cùng kết
+              quả ở quy mô này và không mở ra cả một lớp lỗi đó. */}
+          <ul
+            style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const lead = leads[virtualRow.index];
+              return (
+              // `data-index` là BẮT BUỘC: measureElement đọc nó để biết vừa đo
+              // dòng nào. Và không được đặt `height` lên <li> — chiều cao phải
+              // do nội dung quyết định, nếu không phép đo chỉ đọc lại phỏng đoán.
+              <li
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                ref={rowVirtualizer.measureElement}
+                className="absolute left-0 w-full border-b border-[#ebecf0]"
+                style={{ top: virtualRow.start }}
+              >
                 <LeadRow
                   lead={lead}
                   columns={columns}
@@ -238,7 +285,8 @@ export function LeadTable({
                   onAssignLead={onAssignLead}
                 />
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       </div>
