@@ -1,4 +1,4 @@
-import { compareEnrollmentOptionLabels } from "./options";
+import { compareEnrollmentOptions } from "./options";
 import type { EnrollmentOption, EnrollmentProgram } from "./types";
 import {
   type EnrollmentOverviewAccount,
@@ -291,7 +291,7 @@ export function aggregateEnrollmentOverview(input: {
   const thresholds = input.thresholds ?? ENROLLMENT_OVERVIEW_THRESHOLDS;
   const period = input.period;
   const stageById = new Map(input.stageOptions.map((option) => [option.id, option]));
-  const sortedStages = [...input.stageOptions].sort(compareEnrollmentOptionLabels);
+  const sortedStages = [...input.stageOptions].sort(compareEnrollmentOptions);
   const activeRecords = input.records.filter((record) => !record.archived_at);
   const today = dateKey(input.now);
   const dueSoonEnd = dateKey(addDays(parseDateKey(today), thresholds.dueSoonDays));

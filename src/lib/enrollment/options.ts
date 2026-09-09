@@ -34,20 +34,37 @@ export function compareEnrollmentOptionText(first: string, second: string): numb
   return enrollmentOptionLabelCollator.compare(first.trim(), second.trim());
 }
 
-export function compareEnrollmentOptionLabels(
-  first: Pick<EnrollmentOption, "id" | "label">,
-  second: Pick<EnrollmentOption, "id" | "label">
+/**
+ * Thứ tự của một nhóm option: theo `position` trước, nhãn sau.
+ *
+ * Trước 2026-09-09 hàm này chỉ so NHÃN. ACA và Medicare vẫn ra đúng thứ tự quy
+ * trình, nhưng chỉ vì admin đã tự đánh số vào nhãn ("1-Need quote", "2-Quoted",
+ * …) và collator bật `numeric`. Nói cách khác thứ tự đúng là nhờ quy ước đặt
+ * tên, không phải nhờ dữ liệu.
+ *
+ * Medicaid không đánh số (nhãn là "URGENT", "Hold", "Approved", …) nên sắp theo
+ * nhãn cho ra thứ tự bảng chữ cái — và vì stage mặc định lúc tạo hồ sơ là phần
+ * tử ĐẦU TIÊN của danh sách này, hồ sơ Medicaid mới sẽ mặc định là "Approved".
+ *
+ * `position` chính là thứ tự admin kéo-thả trong /config, nên nó mới là nguồn
+ * đúng. Với ACA/Medicare thì position đã khớp sẵn số trong nhãn (10, 20, 30 …)
+ * nên đổi sang đây không làm xê dịch gì của họ.
+ */
+export function compareEnrollmentOptions(
+  first: Pick<EnrollmentOption, "id" | "label" | "position">,
+  second: Pick<EnrollmentOption, "id" | "label" | "position">
 ): number {
   return (
+    first.position - second.position ||
     compareEnrollmentOptionText(first.label, second.label) ||
     first.id.localeCompare(second.id)
   );
 }
 
-export function sortEnrollmentOptionsByLabel(
+export function sortEnrollmentOptions(
   options: EnrollmentOption[]
 ): EnrollmentOption[] {
-  return [...options].sort(compareEnrollmentOptionLabels);
+  return [...options].sort(compareEnrollmentOptions);
 }
 
 export function emptyEnrollmentOptionsBySet(): EnrollmentOptionsBySet {
@@ -94,12 +111,12 @@ export async function fetchEnrollmentOptionData(
     .filter((option): option is EnrollmentOption => Boolean(option));
 
   const optionsBySet = emptyEnrollmentOptionsBySet();
-  for (const option of sortEnrollmentOptionsByLabel(options)) {
+  for (const option of sortEnrollmentOptions(options)) {
     if (option.archived_at) continue;
     optionsBySet[option.set_key].push(option);
   }
 
-  const sortedOptions = sortEnrollmentOptionsByLabel(options);
+  const sortedOptions = sortEnrollmentOptions(options);
   return { sets, options: sortedOptions, optionsBySet, optionsById: optionById(sortedOptions) };
 }
 
@@ -107,6 +124,11 @@ export function optionById(options: EnrollmentOption[]): Map<string, EnrollmentO
   return new Map(options.map((option) => [option.id, option]));
 }
 
+/**
+ * Stage mặc định khi tạo hồ sơ mới: stage đứng đầu theo `position`.
+ * `optionsBySet` đã được sắp bằng compareEnrollmentOptions nên chỉ cần phần tử
+ * đầu — nhưng ý nghĩa "đầu tiên" giờ là thứ tự quy trình, không phải bảng chữ cái.
+ */
 export function firstStageOption(optionsBySet: EnrollmentOptionsBySet): EnrollmentOption | null {
   return optionsBySet.stage[0] ?? null;
 }

@@ -6,6 +6,38 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-09 — Enrollment: thứ tự option theo position, và Config nhận Medicaid
+
+Ba sửa lỗi phát hiện khi dựng bảng Medicaid thật.
+
+**1. `/config` không hiển thị gì cho Medicaid.** ConfigClient còn 9 nhánh viết
+cứng `scope === "aca" || scope === "medicare"`, nên scope medicaid rơi ra ngoài:
+tab Dropdown Values trống, không nạp/refresh được option, không sửa được cột
+tuỳ chỉnh. Thay bằng `isEnrollmentProgram(scope)` — chương trình thứ tư sau này
+không phải sửa lại.
+
+**2. Option sắp theo NHÃN, không theo `position`.** Đây là lỗi nghiêm trọng
+nhất: stage mặc định khi tạo hồ sơ là phần tử đầu danh sách, nên với Medicaid
+(nhãn "URGENT", "Hold", "Approved"… không có tiền tố số) hồ sơ mới sẽ mặc định
+là **Approved** — tức vừa tạo đã thành đã duyệt.
+
+ACA và Medicare không lộ ra vì admin tự đánh số vào nhãn ("1-Need quote",
+"2-Quoted"…) và collator bật `numeric`; thứ tự đúng là nhờ quy ước đặt tên, không
+phải nhờ dữ liệu. Nay `compareEnrollmentOptions` so `position` trước, nhãn sau.
+Đã đối chiếu production: position của ACA (10→120) và Medicare (10→110) khớp sẵn
+số trong nhãn, nên **thứ tự và stage mặc định của hai chương trình đó không đổi**.
+
+**3. Bộ Status của Medicaid thiếu 3 giá trị.** Bổ sung `To Do` (position 5 → là
+stage mặc định lúc tạo), `Need Apply` và `Expired`. Tổng 12 trạng thái. Kết thúc
+hồ sơ: Approved, Denied, Cancelled, Expired — "Need to renewal" thì không, đó vẫn
+là việc phải làm. Chỉ Approved bật ô Complete.
+
+Rollout `2026-09-09-medicaid-enrollment.sql` cập nhật theo, idempotent nên chạy
+lại chỉ thêm ba trạng thái mới. Thêm truy vấn kiểm chứng (b2): stage mặc định
+lúc tạo phải trả về "To Do".
+
+Kiểm chứng: `npx tsc --noEmit` sạch, `npx vitest run` 1194 pass / 0 fail.
+
 ## 2026-09-09 — Health Medicaid Enrollment: chương trình enrollment thứ ba
 
 Thêm `medicaid` bên cạnh `aca` và `medicare`. **Backend dùng chung hoàn toàn** —

@@ -78,7 +78,7 @@ import {
   compareEnrollmentOptionText,
   emptyEnrollmentOptionsBySet,
   optionById,
-  sortEnrollmentOptionsByLabel,
+  sortEnrollmentOptions,
   type EnrollmentOptionsBySet,
 } from "@/lib/enrollment/options";
 import { findInvalidEnrollmentOptionFields } from "@/lib/enrollment/form-options";
@@ -5427,7 +5427,7 @@ function groupOptions(options: EnrollmentOption[]): EnrollmentOptionsBySet {
     if (!option.archived_at) bySet[option.set_key].push(option);
   }
   for (const key of Object.keys(bySet) as EnrollmentOptionSetKey[]) {
-    bySet[key] = sortEnrollmentOptionsByLabel(bySet[key]);
+    bySet[key] = sortEnrollmentOptions(bySet[key]);
   }
   return bySet;
 }
@@ -5454,7 +5454,7 @@ function getReopenStage(
   stage: EnrollmentOption | null,
   stages: EnrollmentOption[]
 ): EnrollmentOption | null {
-  const orderedStages = sortEnrollmentOptionsByLabel(stages);
+  const orderedStages = sortEnrollmentOptions(stages);
   const candidates = orderedStages.filter((option) => !option.is_terminal);
   if (!stage) return candidates[0] ?? null;
 

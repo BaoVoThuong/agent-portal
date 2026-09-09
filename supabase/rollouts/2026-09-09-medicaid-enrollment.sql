@@ -142,14 +142,19 @@ where not exists (
   where program = 'medicaid' and key = 'stage'
 );
 
--- B2. Chín giá trị Status.
+-- B2. Mười hai giá trị Status.
 --
--- is_terminal = hồ sơ đã đi tới kết cục: Approved, Denied, Cancelled. Đó là cờ
--- quyết định "đóng hồ sơ" — hết đếm quá hạn, hết nhắc. Các trạng thái còn lại
--- vẫn là việc đang chạy, kể cả "Need to renewal".
+-- Thứ tự lấy theo `position`, KHÔNG theo bảng chữ cái — xem
+-- compareEnrollmentOptions trong src/lib/enrollment/options.ts. "To Do" đứng
+-- đầu nên nó là stage mặc định khi tạo hồ sơ mới (firstStageOption lấy phần tử
+-- đầu danh sách đã sắp). Nếu ai đó kéo một trạng thái khác lên đầu trong
+-- /config thì mặc định đổi theo — đúng như mong đợi.
 --
--- triggers_qc = chuyển sang trạng thái này thì bật ô Complete để người ta soát.
--- Chỉ Approved bật, vì đó là lúc hồ sơ thực sự xong.
+-- is_terminal = hồ sơ đã tới kết cục: hết đếm quá hạn, hết nhắc. Approved,
+-- Denied, Cancelled và Expired thuộc nhóm này. "Need to renewal" thì KHÔNG —
+-- đó vẫn là việc phải làm.
+--
+-- triggers_qc = vào trạng thái này thì bật ô Complete để soát. Chỉ Approved.
 insert into enrollment_options (
   set_id, label, color, position, is_terminal, treat_as_terminal, triggers_qc
 )
@@ -157,15 +162,18 @@ select s.id, seed.label, seed.color, seed.position, seed.is_terminal, seed.is_te
 from enrollment_option_sets s
 cross join (
   values
-    ('URGENT',                      '#dc2626', 10, false, false),
-    ('Hold',                        '#f472b6', 20, false, false),
-    ('In processing',               '#f59e0b', 30, false, false),
-    ('Need Upload',                 '#f59e0b', 40, false, false),
-    ('Waiting for collect document', '#a855f7', 50, false, false),
-    ('Need to renewal',             '#3b82f6', 60, false, false),
-    ('Approved',                    '#16a34a', 70, true,  true),
-    ('Denied',                      '#6b7280', 80, true,  false),
-    ('Cancelled',                   '#84cc16', 90, true,  false)
+    ('To Do',                        '#64748b', 5,   false, false),
+    ('URGENT',                       '#dc2626', 10,  false, false),
+    ('Hold',                         '#f472b6', 20,  false, false),
+    ('In processing',                '#f59e0b', 30,  false, false),
+    ('Need Apply',                   '#f97316', 35,  false, false),
+    ('Need Upload',                  '#f59e0b', 40,  false, false),
+    ('Waiting for collect document', '#a855f7', 50,  false, false),
+    ('Need to renewal',              '#3b82f6', 60,  false, false),
+    ('Approved',                     '#16a34a', 70,  true,  true),
+    ('Denied',                       '#6b7280', 80,  true,  false),
+    ('Cancelled',                    '#84cc16', 90,  true,  false),
+    ('Expired',                      '#9ca3af', 100, true,  false)
 ) as seed(label, color, position, is_terminal, triggers_qc)
 where s.program = 'medicaid' and s.key = 'stage'
   and not exists (
@@ -253,7 +261,8 @@ from enrollment_option_sets
 group by program
 order by program;
 
--- (b) Đủ 9 trạng thái, và đúng 3 trạng thái kết thúc (Approved/Denied/Cancelled).
+-- (b) Đủ 12 trạng thái; 4 trạng thái kết thúc (Approved/Denied/Cancelled/Expired);
+--     1 trạng thái bật ô Complete (Approved).
 select
   count(*) as statuses,
   count(*) filter (where o.is_terminal) as terminal_statuses,
@@ -261,6 +270,14 @@ select
 from enrollment_options o
 join enrollment_option_sets s on s.id = o.set_id
 where s.program = 'medicaid' and s.key = 'stage';
+
+-- (b2) Stage mặc định khi tạo hồ sơ mới — phải là "To Do".
+select o.label as default_stage_on_create
+from enrollment_options o
+join enrollment_option_sets s on s.id = o.set_id
+where s.program = 'medicaid' and s.key = 'stage' and o.archived_at is null
+order by o.position, o.label
+limit 1;
 
 -- (c) 12 cột hệ thống + 3 cột tuỳ chỉnh = 15.
 select

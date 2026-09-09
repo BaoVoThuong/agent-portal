@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   assertEnrollmentOptionSet,
+  emptyEnrollmentOptionsBySet,
+  firstStageOption,
+  sortEnrollmentOptions,
   type EnrollmentOptionData,
 } from "./options";
 import type { EnrollmentOption } from "./types";
@@ -70,5 +73,57 @@ describe("assertEnrollmentOptionSet snapshot validation", () => {
         snapshot([])
       )
     ).rejects.toThrow("Invalid Stage option.");
+  });
+});
+
+describe("thứ tự option đi theo position, không theo bảng chữ cái", () => {
+  const stage = (label: string, position: number) =>
+    option({ id: `stage-${position}`, label, position });
+
+  // Đúng bộ Status của Medicaid: không nhãn nào có tiền tố số.
+  const medicaidStages = [
+    stage("Approved", 70),
+    stage("To Do", 5),
+    stage("Cancelled", 90),
+    stage("URGENT", 10),
+    stage("In processing", 30),
+  ];
+
+  it("sắp theo position", () => {
+    expect(sortEnrollmentOptions(medicaidStages).map((o) => o.label)).toEqual([
+      "To Do",
+      "URGENT",
+      "In processing",
+      "Approved",
+      "Cancelled",
+    ]);
+  });
+
+  it("stage mặc định khi tạo hồ sơ là To Do, không phải Approved", () => {
+    // Trước 2026-09-09 danh sách sắp theo nhãn, nên "Approved" đứng đầu bảng
+    // chữ cái và hồ sơ Medicaid mới sẽ mặc định là ĐÃ DUYỆT.
+    const bySet = emptyEnrollmentOptionsBySet();
+    bySet.stage = sortEnrollmentOptions(medicaidStages);
+    expect(firstStageOption(bySet)?.label).toBe("To Do");
+  });
+
+  it("ACA/Medicare không bị xê dịch: position khớp sẵn số trong nhãn", () => {
+    const acaStages = [
+      stage("2-Quoted", 20),
+      stage("12-Terminated", 120),
+      stage("1-Need quote", 10),
+      stage("10-ID card done", 100),
+    ];
+    expect(sortEnrollmentOptions(acaStages).map((o) => o.label)).toEqual([
+      "1-Need quote",
+      "2-Quoted",
+      "10-ID card done",
+      "12-Terminated",
+    ]);
+  });
+
+  it("cùng position thì mới xét tới nhãn", () => {
+    const tied = [stage("Bravo", 10), stage("Alpha", 10)];
+    expect(sortEnrollmentOptions(tied).map((o) => o.label)).toEqual(["Alpha", "Bravo"]);
   });
 });

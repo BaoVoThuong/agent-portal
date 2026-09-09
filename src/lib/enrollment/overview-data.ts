@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumns } from "@/lib/table-config/queries";
 import { aggregateEnrollmentOverview, defaultEnrollmentOverviewPeriod } from "./overview";
-import { sortEnrollmentOptionsByLabel } from "./options";
+import { sortEnrollmentOptions } from "./options";
 import { fetchStageDwellMetrics } from "./stage-metrics";
 import {
   type EnrollmentOverviewRecordInput,
@@ -63,7 +63,7 @@ export async function fetchEnrollmentOverview(
       .eq("set_id", stageSet.id)
       ;
     if (error) throw new Error(error.message);
-    stageOptions = sortEnrollmentOptionsByLabel(
+    stageOptions = sortEnrollmentOptions(
       (data ?? []).map((option) => ({ ...option, set_key: "stage" as const }))
     );
   }
