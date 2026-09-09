@@ -42,13 +42,22 @@ import {
 } from "@/lib/table-config/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
 import { ChevronDown, Download, Loader2, Plus } from "lucide-react";
-import type {
-  TaskCategory,
-  TaskPriority,
-  TaskRow,
-  TaskSlaRule,
-  TaskStatus,
+import {
+  TASK_PRIORITIES,
+  TASK_STATUSES,
+  type TaskCategory,
+  type TaskPriority,
+  type TaskRow,
+  type TaskSlaRule,
+  type TaskStatus,
 } from "@/lib/tasks/types";
+import {
+  browserFilterStorage,
+  keepKnownStrings,
+  readPersistedFilters,
+  readStoredBoolean,
+  writePersistedFilters,
+} from "@/lib/ui/persisted-filters";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import {
   filterTasks,
@@ -197,20 +206,65 @@ export function TaskBoardClient({
   const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
   const [reopeningTaskId, setReopeningTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date(initialNowIso));
-  const [agentFilter, setAgentFilter] = useState<string[]>([]);
+  // Bộ lọc được nhớ qua lần tải trang — xem lib/ui/persisted-filters.ts. Đọc một
+  // lần lúc mount; mọi id/email không còn tồn tại đều bị loại tại đây, để một
+  // category bị xoá hay một người nghỉ việc không làm bảng lọc ra 0 dòng.
+  const storedTaskFilters = useMemo(() => {
+    const validEmails = new Set([
+      ...assignees.map((person) => person.email),
+      ...agents.map((agent) => agent.email),
+      currentEmail,
+    ]);
+    return readPersistedFilters(
+      TASK_FILTERS_STORAGE_KEY,
+      browserFilterStorage(),
+      (raw: Record<string, unknown>) => ({
+        agent: keepKnownStrings(raw.agent, validEmails),
+        assignee: keepKnownStrings(raw.assignee, validEmails),
+        category: keepKnownStrings(
+          raw.category,
+          new Set(initialCategories.map((category) => category.id))
+        ),
+        status: keepKnownStrings(raw.status, new Set<string>(TASK_STATUSES)) as TaskStatus[],
+        priority: keepKnownStrings(
+          raw.priority,
+          new Set<string>(TASK_PRIORITIES)
+        ) as TaskPriority[],
+        showTeamTasks: readStoredBoolean(raw.showTeamTasks),
+      })
+    );
+    // Chỉ đọc một lần lúc mount: bộ nhớ là điểm KHỞI ĐẦU, không phải nguồn điều
+    // khiển liên tục — nếu không, mỗi lần ghi lại sẽ nảy ngược vào state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [agentFilter, setAgentFilter] = useState<string[]>(
+    () => storedTaskFilters?.agent ?? []
+  );
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>(() => {
+    // Bộ nhớ thắng mặc định "chỉ việc của tôi" của plain-CS: người dùng đã chủ
+    // động đổi thì lần sau phải thấy đúng thứ họ để lại.
+    if (storedTaskFilters) return storedTaskFilters.assignee;
     const ownsAgent = agents.some((agent) => agent.email === currentEmail);
     const plainCs = !isManager && !ownsAgent && myAssistantAgents.length === 0;
     return plainCs ? [currentEmail] : [];
   });
   const [presets, setPresets] = useState<QuickFilter[]>([]);
-  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<TaskStatus[]>([]);
-  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string[]>(
+    () => storedTaskFilters?.category ?? []
+  );
+  const [statusFilter, setStatusFilter] = useState<TaskStatus[]>(
+    () => storedTaskFilters?.status ?? []
+  );
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>(
+    () => storedTaskFilters?.priority ?? []
+  );
   const [hiddenTaskListColumnKeys, setHiddenTaskListColumnKeys] = useState<
     Set<TaskListColumnKey>
   >(() => new Set(TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS));
-  const [showTeamTasks, setShowTeamTasks] = useState(false);
+  const [showTeamTasks, setShowTeamTasks] = useState(
+    () => storedTaskFilters?.showTeamTasks ?? false
+  );
   const [newAssignedTaskIds, setNewAssignedTaskIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -274,6 +328,19 @@ export function TaskBoardClient({
   const taskLayoutUpdatedAtRef = useRef<string | null>(null);
   const taskLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const taskLayoutSaveSequenceRef = useRef(0);
+  // Ghi lại mỗi khi một bộ lọc đổi. Ô tìm kiếm cố ý không nằm trong đây: gõ tìm
+  // một task là việc nhất thời, khôi phục lại gây khó hiểu hơn là giúp.
+  useEffect(() => {
+    writePersistedFilters(TASK_FILTERS_STORAGE_KEY, browserFilterStorage(), {
+      agent: agentFilter,
+      assignee: assigneeFilter,
+      category: categoryFilter,
+      status: statusFilter,
+      priority: priorityFilter,
+      showTeamTasks,
+    });
+  }, [agentFilter, assigneeFilter, categoryFilter, statusFilter, priorityFilter, showTeamTasks]);
+
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
@@ -2425,6 +2492,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 const TASK_DATE_RANGE_DEFAULT_STORAGE_KEY = "eps.tasks.dateRangeDefault.v1";
+const TASK_FILTERS_STORAGE_KEY = "eps.tasks.filters.v1";
 
 const TASK_DATE_PRESET_KEYS: TaskDatePresetKey[] = [
   "fixed",

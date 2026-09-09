@@ -6,6 +6,42 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-09 — Nhớ bộ lọc qua lần tải trang (CS Task, 3 Enrollment, Leads)
+
+Agent lọc Status + Agent + People rồi F5, hoặc mở một hồ sơ rồi bấm back, là mất
+sạch bộ lọc và phải chọn lại. Nay bộ lọc được nhớ trên máy đó.
+
+**Vì sao là localStorage chứ không phải URL.** Bộ lọc của Task/Enrollment/Leads
+chạy hoàn toàn ở client — server trả cả trang rồi client mới lọc. Đẩy filter vào
+URL nghĩa là mỗi lần tick một ô, Next chạy lại server component (`page.tsx` đọc
+`searchParams`) và nạp lại dữ liệu. Đổi một tiện ích nhỏ lấy một loạt round-trip
+là không đáng. Muốn chia sẻ link kèm filter thì làm riêng sau bằng
+`history.replaceState`, không đụng đường chính.
+
+**`src/lib/ui/persisted-filters.ts`** — helper dùng chung cho cả 5 bảng. Phần khó
+không ở lúc GHI mà ở lúc ĐỌC LẠI: giá trị lưu hôm nay có thể vô nghĩa ngày mai —
+một Stage bị archive, một người nghỉ việc, một category bị xoá. Khôi phục nguyên
+xi thì agent mở lên thấy danh sách trống mà không hiểu vì sao, nên mọi id/email
+đều được đối chiếu với dữ liệu đang có trước khi nhận lại (cùng cách
+`readHiddenTaskListColumns` làm với cột). Mọi truy cập storage đều bọc try/catch:
+Safari riêng tư và trình duyệt chặn site data đều NÉM lỗi chứ không trả null.
+
+**Khoá tách theo từng bảng**, vì stage id của ACA không tồn tại ở Medicaid:
+`eps.enrollment.filters.{aca,medicare,medicaid}.v1`, `eps.tasks.filters.v1`,
+`eps.leads.filters.v1`.
+
+**Hai quyết định nghiệp vụ**
+
+- Ô tìm kiếm KHÔNG được nhớ. Gõ tìm một khách hàng là việc nhất thời; khôi phục
+  lại thường gây khó hiểu hơn là giúp.
+- Bộ nhớ THẮNG mặc định "chỉ việc của tôi" (plain-CS ở cả Task lẫn Enrollment).
+  Người dùng đã chủ động đổi thì lần sau phải thấy đúng thứ họ để lại; chỉ khi
+  chưa lưu gì mới rơi về mặc định cũ.
+
+Kiểm chứng: `npx tsc --noEmit` sạch, `npx vitest run` 1210 pass / 0 fail (12 test
+mới cho helper, gồm JSON hỏng, storage ném lỗi, và id đã biến mất), `npm run build`
+thành công, eslint 0 error.
+
 ## 2026-09-09 — Medicaid: gỡ hết chỗ còn thừa hưởng ACA
 
 Review lại toàn bộ đường đi của Medicaid. Gốc của mọi lỗi dưới đây là **một giả

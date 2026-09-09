@@ -41,6 +41,14 @@ import {
 } from "@/lib/leads/list-column-visibility";
 import { personLabel } from "@/lib/tasks/people";
 import {
+  browserFilterStorage,
+  keepKnownString,
+  readPersistedFilters,
+  writePersistedFilters,
+} from "@/lib/ui/persisted-filters";
+
+const LEAD_FILTERS_STORAGE_KEY = "eps.leads.filters.v1";
+import {
   resolveLayout,
   serializeLayout,
   type LayoutEntry,
@@ -180,7 +188,43 @@ export function LeadsClient({
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [distributeOpen, setDistributeOpen] = useState(false);
-  const [filters, setFilters] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
+  const [filters, setFilters] = useState<LeadFilters>(() => {
+    // Nhớ bộ lọc qua lần tải trang — xem lib/ui/persisted-filters.ts. Status và
+    // event có thể đã bị xoá/đổi tên từ lần trước, nên đối chiếu lại với dữ
+    // liệu đang có; `search` cố ý không được nhớ.
+    const stored = readPersistedFilters(
+      LEAD_FILTERS_STORAGE_KEY,
+      browserFilterStorage(),
+      (raw: Record<string, unknown>): LeadFilters => ({
+        search: "",
+        assignedTo: keepKnownString(
+          raw.assignedTo,
+          new Set(assignees.map((person) => person.email))
+        ),
+        statusId: keepKnownString(
+          raw.statusId,
+          new Set(statuses.map((status) => status.id))
+        ),
+        eventName: typeof raw.eventName === "string" ? raw.eventName : null,
+        product: keepKnownString(raw.product, new Set(["pc", "health"])) as
+          | "pc"
+          | "health"
+          | null,
+        health: keepKnownString(
+          raw.health,
+          new Set<string>(LEAD_HEALTH_BUCKETS)
+        ) as LeadHealth | null,
+      })
+    );
+    return stored ?? EMPTY_LEAD_FILTERS;
+  });
+
+  useEffect(() => {
+    // Ô tìm kiếm cố ý không được nhớ, nên loại trước khi ghi.
+    const { search, ...persistable } = filters;
+    void search;
+    writePersistedFilters(LEAD_FILTERS_STORAGE_KEY, browserFilterStorage(), persistable);
+  }, [filters]);
   const [sortKey, setSortKey] = useState<LeadSortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [leadLayoutColumns, setLeadLayoutColumns] = useState<TableColumn[]>(

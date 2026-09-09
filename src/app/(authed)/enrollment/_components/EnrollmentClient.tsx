@@ -97,6 +97,14 @@ import {
   isEnrollmentFieldApplicable,
 } from "@/lib/enrollment/program-fields";
 import {
+  browserFilterStorage,
+  keepKnownStrings,
+  readPersistedFilters,
+  readStoredBoolean,
+  readStoredDateOnly,
+  writePersistedFilters,
+} from "@/lib/ui/persisted-filters";
+import {
   enrollmentIdentityBadgeStyle,
   enrollmentStateBadgeStyle,
 } from "@/lib/enrollment/option-badge";
@@ -197,6 +205,44 @@ type EnrollmentMutationState = {
   nextSequence: number;
   tail: Promise<void>;
 };
+
+/**
+ * Bộ lọc được nhớ RIÊNG cho từng chương trình: stage id của ACA không tồn tại ở
+ * Medicaid, nên dùng chung một khoá là mở bảng này lên đã dính bộ lọc của bảng kia.
+ */
+function enrollmentFiltersStorageKey(program: EnrollmentProgram): string {
+  return `eps.enrollment.filters.${program}.v1`;
+}
+
+/**
+ * Dựng lại bộ lọc đã lưu, bỏ đi những gì không còn tồn tại.
+ *
+ * Một Stage bị archive hay một người nghỉ việc sẽ khiến bộ lọc cũ lọc ra 0 dòng
+ * và không ai hiểu vì sao — nên mọi id/email đều phải đối chiếu với dữ liệu
+ * đang có trước khi nhận lại.
+ *
+ * `query` cố ý KHÔNG được nhớ: gõ tìm một khách hàng là việc nhất thời, khôi
+ * phục lại thường gây khó hiểu hơn là giúp.
+ */
+function reviveEnrollmentFilters(
+  raw: Record<string, unknown>,
+  valid: { optionIds: ReadonlySet<string>; emails: ReadonlySet<string> }
+): Filters {
+  return {
+    query: "",
+    stage: keepKnownStrings(raw.stage, valid.optionIds),
+    carrier: keepKnownStrings(raw.carrier, valid.optionIds),
+    agent: keepKnownStrings(raw.agent, valid.emails),
+    caller: keepKnownStrings(raw.caller, valid.emails),
+    responsible: keepKnownStrings(raw.responsible, valid.emails),
+    mineOnly: readStoredBoolean(raw.mineOnly),
+    attention: readStoredBoolean(raw.attention),
+    qcNeeded: readStoredBoolean(raw.qcNeeded),
+    unowned: readStoredBoolean(raw.unowned),
+    createdFrom: readStoredDateOnly(raw.createdFrom),
+    createdTo: readStoredDateOnly(raw.createdTo),
+  };
+}
 
 const DEFAULT_FILTERS: Filters = {
   query: "",
@@ -653,11 +699,33 @@ export function EnrollmentClient({
   // Keep the client-side view fail-closed as well as the API. Enrollment
   // overview is manager-only, matching the CS board's hidden Overview tab.
   const visibleView = canManageOptions ? view : "list";
-  const [filters, setFilters] = useState<Filters>(() =>
-    defaultToOwnAssignments
+  const filtersStorageKey = enrollmentFiltersStorageKey(program);
+  const [filters, setFilters] = useState<Filters>(() => {
+    // Bộ nhớ THẮNG mặc định "chỉ việc của tôi": người dùng đã chủ động chọn thì
+    // lần sau mở lên phải thấy đúng thứ họ để lại. Chỉ khi chưa lưu gì mới rơi
+    // về mặc định.
+    const stored = readPersistedFilters(
+      filtersStorageKey,
+      browserFilterStorage(),
+      (raw: Record<string, unknown>) =>
+        reviveEnrollmentFilters(raw, {
+          optionIds: new Set(initialOptions.map((option) => option.id)),
+          emails: new Set(people.map((person) => normalizeEnrollmentEmail(person.email))),
+        })
+    );
+    if (stored) return stored;
+    return defaultToOwnAssignments
       ? { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
-      : DEFAULT_FILTERS
-  );
+      : DEFAULT_FILTERS;
+  });
+
+  // Ghi lại mỗi khi bộ lọc đổi. `query` bị loại ngay từ reviver nên có lưu cũng
+  // không đọc lại; loại luôn ở đây để thứ nằm trong storage đúng bằng thứ được dùng.
+  useEffect(() => {
+    const { query, ...persistable } = filters;
+    void query;
+    writePersistedFilters(filtersStorageKey, browserFilterStorage(), persistable);
+  }, [filters, filtersStorageKey]);
   const [overviewDateRanges, setOverviewDateRanges] = useState<
     Record<EnrollmentProgram, TaskDateRangeValue>
     // ACA mở toàn thời gian; Medicare/Medicaid mặc định tháng này. Sinh theo
