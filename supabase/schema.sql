@@ -3770,7 +3770,7 @@ on conflict (email) do nothing;
 create table if not exists enrollment_option_sets (
   id uuid primary key default gen_random_uuid(),
   program text not null default 'aca'
-    check (program in ('aca', 'medicare')),
+    check (program in ('aca', 'medicare', 'medicaid')),
   key text not null
     check (key in ('stage', 'carrier', 'platform', 'consent', 'payment_status', 'aca_status')),
   label text not null,
@@ -3790,7 +3790,7 @@ alter table enrollment_option_sets
   drop constraint if exists enrollment_option_sets_program_check;
 alter table enrollment_option_sets
   add constraint enrollment_option_sets_program_check
-  check (program in ('aca', 'medicare'));
+  check (program in ('aca', 'medicare', 'medicaid'));
 create unique index if not exists enrollment_option_sets_program_key_idx
   on enrollment_option_sets (program, key);
 
@@ -3823,7 +3823,7 @@ create index if not exists enrollment_options_set_position_idx
 
 create table if not exists table_column (
   id uuid primary key default gen_random_uuid(),
-  scope text not null check (scope in ('cs','aca','medicare','lead_pc','lead_health','lead')),
+  scope text not null check (scope in ('cs','aca','medicare','medicaid','lead_pc','lead_health','lead')),
   key text not null,
   label text not null,
   type text not null
@@ -3866,7 +3866,7 @@ language sql
 immutable
 set search_path = public
 as $$
-  select p_scope in ('cs', 'aca', 'medicare', 'lead');
+  select p_scope in ('cs', 'aca', 'medicare', 'medicaid', 'lead');
 $$;
 
 create or replace function reorder_table_columns_atomic(
@@ -4223,7 +4223,7 @@ alter table table_column
 create table if not exists user_table_layout (
   id uuid primary key default gen_random_uuid(),
   user_email text not null,
-  scope text not null check (scope in ('cs','aca','medicare','lead_pc','lead_health','lead')),
+  scope text not null check (scope in ('cs','aca','medicare','medicaid','lead_pc','lead_health','lead')),
   layout jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now(),
   unique (user_email, scope)
@@ -4231,7 +4231,7 @@ create table if not exists user_table_layout (
 
 create table if not exists import_request (
   id uuid primary key default gen_random_uuid(),
-  scope text not null check (scope in ('cs','aca','medicare','lead_pc','lead_health','lead')),
+  scope text not null check (scope in ('cs','aca','medicare','medicaid','lead_pc','lead_health','lead')),
   submitted_by_email text not null,
   status text not null default 'pending'
     check (status in ('pending','processing','approved','rejected','failed')),
@@ -4269,7 +4269,7 @@ alter table import_request
 create table if not exists enrollment_records (
   id uuid primary key default gen_random_uuid(),
   program text not null default 'aca'
-    check (program in ('aca', 'medicare')),
+    check (program in ('aca', 'medicare', 'medicaid')),
   client_name text,
   description text,
   fub_link text,
@@ -4311,10 +4311,11 @@ create table if not exists enrollment_records (
   responsible_assigned_at timestamptz
 );
 
--- Durable human-facing key. UUIDs remain the internal/API identifier. ACA and
--- Medicare have independent counters and render as ACA-* and MED-*.
+-- Durable human-facing key. UUIDs remain the internal/API identifier. Each
+-- program has an independent counter: ACA-*, MED-*, MCD-*.
 create sequence if not exists enrollment_records_aca_display_number_seq;
 create sequence if not exists enrollment_records_medicare_display_number_seq;
+create sequence if not exists enrollment_records_medicaid_display_number_seq;
 alter table enrollment_records add column if not exists display_number bigint;
 alter table enrollment_records alter column display_number drop default;
 drop index if exists enrollment_records_display_number_key;
@@ -4323,6 +4324,7 @@ do $$
 declare
   aca_max bigint;
   medicare_max bigint;
+  medicaid_max bigint;
 begin
   select max(display_number) into aca_max
   from enrollment_records
@@ -4330,6 +4332,9 @@ begin
   select max(display_number) into medicare_max
   from enrollment_records
   where program = 'medicare';
+  select max(display_number) into medicaid_max
+  from enrollment_records
+  where program = 'medicaid';
 
   if aca_max is null then
     perform setval('enrollment_records_aca_display_number_seq', 1, false);
@@ -4341,6 +4346,11 @@ begin
   else
     perform setval('enrollment_records_medicare_display_number_seq', medicare_max, true);
   end if;
+  if medicaid_max is null then
+    perform setval('enrollment_records_medicaid_display_number_seq', 1, false);
+  else
+    perform setval('enrollment_records_medicaid_display_number_seq', medicaid_max, true);
+  end if;
 end $$;
 
 create or replace function enrollment_records_assign_display_number()
@@ -4351,6 +4361,7 @@ begin
   if new.display_number is null then
     new.display_number := case new.program
       when 'medicare' then nextval('enrollment_records_medicare_display_number_seq')
+      when 'medicaid' then nextval('enrollment_records_medicaid_display_number_seq')
       else nextval('enrollment_records_aca_display_number_seq')
     end;
   end if;
@@ -4569,7 +4580,7 @@ alter table enrollment_records
   drop constraint if exists enrollment_records_program_check;
 alter table enrollment_records
   add constraint enrollment_records_program_check
-  check (program in ('aca', 'medicare'));
+  check (program in ('aca', 'medicare', 'medicaid'));
 update enrollment_records
   set
     caller_email = null,
@@ -4615,7 +4626,7 @@ create table if not exists enrollment_stage_cycles (
   from_stage_id uuid references enrollment_options(id) on delete restrict,
   to_stage_id uuid references enrollment_options(id) on delete restrict,
   agent_email text,
-  program text not null default 'aca' check (program in ('aca', 'medicare')),
+  program text not null default 'aca' check (program in ('aca', 'medicare', 'medicaid')),
   kind text not null default 'dwell'
     check (kind in ('dwell', 'entry_marker')),
   started_at timestamptz not null,
@@ -4727,7 +4738,7 @@ for each row execute function enrollment_sync_overview_timestamps();
 -- silently govern another program, unlike the CS queue table.
 create table if not exists enrollment_queue_members (
   email text not null,
-  program text not null default 'aca' check (program in ('aca', 'medicare')),
+  program text not null default 'aca' check (program in ('aca', 'medicare', 'medicaid')),
   enabled boolean not null default true,
   updated_by_email text not null,
   updated_at timestamptz not null default now(),
@@ -5930,7 +5941,22 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('medicare', 'createdAt', 'Created time', 'date', 160, true),
     ('medicare', 'updatedBy', 'Last edited by', 'person', 170, true),
     ('medicare', 'updated', 'Last edited time', 'date', 180, true),
-    ('medicare', 'qc', 'QC', 'checkbox', 190, false)
+    ('medicare', 'qc', 'QC', 'checkbox', 190, false),
+    -- Medicaid: cùng backend với ACA nhưng data schema riêng. Ba cột còn lại
+    -- của bảng này (Who need?, End Date, Program) là cột TUỲ CHỈNH nên không
+    -- nằm ở đây — xem rollout 2026-09-09-medicaid-enrollment.sql.
+    ('medicaid', 'key', 'Key', 'text', 10, false),
+    ('medicaid', 'client', 'Name', 'text', 20, false),
+    ('medicaid', 'due', 'Renewal Date', 'date', 40, false),
+    ('medicaid', 'stage', 'Status', 'dropdown', 60, false),
+    ('medicaid', 'fub', 'Link', 'link', 80, false),
+    ('medicaid', 'responsible', 'People', 'person', 90, false),
+    ('medicaid', 'agent', 'Agent', 'person', 100, false),
+    ('medicaid', 'qc', 'Complete', 'checkbox', 110, false),
+    ('medicaid', 'createdBy', 'Created by', 'person', 150, true),
+    ('medicaid', 'createdAt', 'Created time', 'date', 160, true),
+    ('medicaid', 'updatedBy', 'Last edited by', 'person', 170, true),
+    ('medicaid', 'updated', 'Last edited time', 'date', 180, true)
 )
 insert into table_column (
   scope, key, label, type, is_system, position, pinned, hidden_default, required
@@ -5944,13 +5970,13 @@ select
   position,
   case
     when scope = 'cs' and key in ('key', 'summary') then true
-    when scope in ('aca', 'medicare') and key in ('key', 'client') then true
+    when scope in ('aca', 'medicare', 'medicaid') and key in ('key', 'client') then true
     else false
   end,
   hidden_default,
   case
     when scope = 'cs' and key in ('summary', 'agent', 'category') then true
-    when scope in ('aca', 'medicare') and key in ('agent', 'client') then true
+    when scope in ('aca', 'medicare', 'medicaid') and key in ('agent', 'client') then true
     else false
   end
 from system_column_seed
@@ -5960,7 +5986,7 @@ update table_column
 set pinned = true
 where
   (scope = 'cs' and key in ('key', 'summary'))
-  or (scope in ('aca', 'medicare') and key in ('key', 'client'));
+  or (scope in ('aca', 'medicare', 'medicaid') and key in ('key', 'client'));
 
 -- Agent/Category (CS) and Agent/Client Name (Enrollment) are hard-required to
 -- submit Create — see canSubmit in NewTaskDialog.tsx / the disabled= check in
@@ -5972,7 +5998,7 @@ update table_column
 set required = true, updated_at = now()
 where
   (scope = 'cs' and key in ('summary', 'agent', 'category') and is_system = true)
-  or (scope in ('aca', 'medicare') and key in ('agent', 'client') and is_system = true);
+  or (scope in ('aca', 'medicare', 'medicaid') and key in ('agent', 'client') and is_system = true);
 
 -- show_in_detail is only READ for custom (non-system) columns — see
 -- taskDetailColumns in TaskBoardClient.tsx / detailCustomColumns in
@@ -5993,7 +6019,7 @@ set show_in_detail = true, updated_at = now()
 where
   (scope = 'cs' and key in ('summary', 'priority', 'category', 'agent', 'assignee') and is_system = true)
   or (
-    scope in ('aca', 'medicare')
+    scope in ('aca', 'medicare', 'medicaid')
     and key in (
       'client', 'fub', 'stage', 'due', 'agent', 'responsible',
       'payment', 'carrier', 'aca', 'consent', 'platform', 'caller',

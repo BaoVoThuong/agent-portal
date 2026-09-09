@@ -548,7 +548,16 @@ export function EnrollmentClient({
   );
   const [overviewDateRanges, setOverviewDateRanges] = useState<
     Record<EnrollmentProgram, TaskDateRangeValue>
-  >(() => ({ aca: { from: "", to: "" }, medicare: thisMonthDateRange() }));
+    // ACA mở toàn thời gian; Medicare/Medicaid mặc định tháng này. Sinh theo
+    // ENROLLMENT_PROGRAMS để thêm chương trình không làm state thiếu khoá.
+  >(() =>
+    Object.fromEntries(
+      ENROLLMENT_PROGRAMS.map((item) => [
+        item,
+        item === "aca" ? { from: "", to: "" } : thisMonthDateRange(),
+      ])
+    ) as Record<EnrollmentProgram, TaskDateRangeValue>
+  );
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
     key: "attention",
     dir: "desc",

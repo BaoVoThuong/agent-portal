@@ -1,13 +1,19 @@
-export const ENROLLMENT_PROGRAMS = ["aca", "medicare"] as const;
+export const ENROLLMENT_PROGRAMS = ["aca", "medicare", "medicaid"] as const;
 export type EnrollmentProgram = (typeof ENROLLMENT_PROGRAMS)[number];
 
 export const ENROLLMENT_PROGRAM_LABELS: Record<EnrollmentProgram, string> = {
   aca: "Health ACA Enrollment",
   medicare: "Health Medicare Enrollment",
+  medicaid: "Health Medicaid Enrollment",
 };
 
 export function isEnrollmentProgram(value: unknown): value is EnrollmentProgram {
-  return value === "aca" || value === "medicare";
+  // Đọc từ ENROLLMENT_PROGRAMS thay vì liệt kê tay: thêm program mới chỉ phải
+  // sửa MỘT dòng ở trên, và không có cách nào để danh sách này trôi lệch.
+  return (
+    typeof value === "string" &&
+    (ENROLLMENT_PROGRAMS as readonly string[]).includes(value)
+  );
 }
 
 /**
@@ -39,6 +45,11 @@ export const ENROLLMENT_OPTION_SET_KEYS_BY_PROGRAM: Record<
 > = {
   aca: ENROLLMENT_OPTION_SET_KEYS,
   medicare: ["stage", "carrier"],
+  // Medicaid chỉ có MỘT nhóm option hệ thống: Stage — chính là cột "Status"
+  // trên bảng nghiệp vụ (URGENT / Hold / In processing / Approved / …). Hai
+  // dropdown còn lại của nó, "Who need?" và "Program", là cột tuỳ chỉnh nên
+  // giá trị nằm ở table_column_option, không phải ở đây.
+  medicaid: ["stage"],
 };
 
 export function enrollmentOptionSetKeysForProgram(

@@ -5,7 +5,7 @@ import {
   enrollmentRoomTopic,
   enrollmentTopic,
 } from "./realtime-topics";
-import type { EnrollmentProgram } from "./types";
+import { ENROLLMENT_PROGRAMS, type EnrollmentProgram } from "./types";
 
 export {
   ENROLLMENT_MUTATION_SOURCE_HEADER,
@@ -99,9 +99,11 @@ export async function broadcastEnrollmentChanged(
   program?: EnrollmentProgram,
   sourceId?: string,
 ): Promise<boolean> {
+  // Không truyền program = phát cho MỌI chương trình. Đọc từ ENROLLMENT_PROGRAMS
+  // để một chương trình mới không lặng lẽ mất realtime.
   const topics = program
     ? [enrollmentTopic(program), ENROLLMENT_TOPIC]
-    : [enrollmentTopic("aca"), enrollmentTopic("medicare"), ENROLLMENT_TOPIC];
+    : [...ENROLLMENT_PROGRAMS.map(enrollmentTopic), ENROLLMENT_TOPIC];
   const payload: Record<string, string> = sourceId ? { sourceId } : {};
   return sendEnrollmentBroadcastMessages(
     topics.map((topic) => ({ topic, event: "changed", payload })),

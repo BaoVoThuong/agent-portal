@@ -51,6 +51,7 @@ import {
 import type {
   EnrollmentOption,
   EnrollmentOptionSetKey,
+  EnrollmentProgram,
   EnrollmentRecord,
   EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
@@ -698,7 +699,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
   after(async () => {
     const delivered = await Promise.all([
       broadcastEnrollmentChanged(
-        (currentData as { program: "aca" | "medicare" }).program,
+        (currentData as { program: EnrollmentProgram }).program,
         sourceId,
       ),
       broadcastEnrollmentRoom(id, sourceId),

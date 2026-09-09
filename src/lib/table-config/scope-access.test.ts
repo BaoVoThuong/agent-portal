@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import { configScopesFor } from "./scope-access";
 
 describe("configScopesFor", () => {
-  it("task-admin mở ba bảng Health", () => {
+  it("task-admin mở mọi bảng Health", () => {
     expect(configScopesFor({ isTaskAdmin: true, isLeadManager: false })).toEqual([
       "cs",
       "aca",
       "medicare",
+      "medicaid",
     ]);
   });
 
@@ -18,13 +19,15 @@ describe("configScopesFor", () => {
     ]);
   });
 
-  it("có cả hai thì thấy cả bốn, theo THỨ TỰ CỐ ĐỊNH", () => {
+  it("có cả hai thì thấy mọi bảng, theo THỨ TỰ CỐ ĐỊNH", () => {
     // Thứ tự phải giống nhau giữa hai lần tải; người dùng học vị trí trong
-    // dropdown rồi bấm theo trí nhớ.
+    // dropdown rồi bấm theo trí nhớ. Bảng mới chèn vào giữa nhóm Health, TRƯỚC
+    // Event Leads, để vị trí của Leads không đổi.
     expect(configScopesFor({ isTaskAdmin: true, isLeadManager: true })).toEqual([
       "cs",
       "aca",
       "medicare",
+      "medicaid",
       "lead",
     ]);
   });

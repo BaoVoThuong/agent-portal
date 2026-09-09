@@ -7,6 +7,7 @@ import type {
 const ENROLLMENT_PROGRAM_PREFIX: Record<EnrollmentProgram, string> = {
   aca: "ACA",
   medicare: "MED",
+  medicaid: "MCD",
 };
 
 export function enrollmentKey(

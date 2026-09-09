@@ -45,6 +45,26 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("aca", "updated", "Last edited time", "date", 180, true),
     col("aca", "qc", "QC", "checkbox", 190),
   ],
+  // Medicaid dùng chung TOÀN BỘ backend với ACA nhưng data schema khác hẳn:
+  // không có Carrier/Platform/Consent/Payment/AC/PCP. Ba cột riêng của nó —
+  // Who need?, Program, End Date — là cột TUỲ CHỈNH (seed trong rollout
+  // 2026-09-09-medicaid-enrollment.sql), nên không xuất hiện ở đây: danh sách
+  // này chỉ là bản dự phòng cho cột HỆ THỐNG khi database chưa seed.
+  // Nhãn bám theo bảng nghiệp vụ: Name / Renewal Date / Status / Link / People.
+  medicaid: [
+    col("medicaid", "key", "Key", "text", 10, false, true),
+    col("medicaid", "client", "Name", "text", 20, false, true),
+    col("medicaid", "due", "Renewal Date", "date", 40),
+    col("medicaid", "stage", "Status", "dropdown", 60),
+    col("medicaid", "fub", "Link", "link", 80),
+    col("medicaid", "responsible", "People", "person", 90),
+    col("medicaid", "agent", "Agent", "person", 100),
+    col("medicaid", "qc", "Complete", "checkbox", 110),
+    col("medicaid", "createdBy", "Created by", "person", 150, true),
+    col("medicaid", "createdAt", "Created time", "date", 160, true),
+    col("medicaid", "updatedBy", "Last edited by", "person", 170, true),
+    col("medicaid", "updated", "Last edited time", "date", 180, true),
+  ],
   medicare: [
     col("medicare", "key", "Key", "text", 10, false, true),
     col("medicare", "client", "Client Name", "text", 20, false, true),

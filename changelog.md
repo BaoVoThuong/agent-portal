@@ -6,6 +6,68 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-09 — Health Medicaid Enrollment: chương trình enrollment thứ ba
+
+Thêm `medicaid` bên cạnh `aca` và `medicare`. **Backend dùng chung hoàn toàn** —
+quyền, scope, realtime, comment, attachment, activity, Overview, export,
+notification đều là code sẵn có, không nhánh riêng nào cho Medicaid. Khác duy
+nhất là **data schema**.
+
+**Data schema (khác ACA, không phải bản sao)**
+
+Bảng nghiệp vụ: Name · Who need? · Renewal Date · End Date · Status · Program ·
+Link · People · Agent · Complete.
+
+Ánh xạ vào cột sẵn có, **không thêm cột nào vào `enrollment_records`**:
+
+| Cột nghiệp vụ | Đi vào |
+|---|---|
+| Name | `client_name` |
+| Renewal Date | `due_date` — nhờ vậy ăn theo nhắc sắp đến hạn / quá hạn |
+| Status | `stage_id` — có lịch sử chuyển stage, đóng hồ sơ, lên Overview |
+| Link | `fub_link` |
+| People | `responsible_enroll_email` |
+| Agent | `agent_email` |
+| Complete | QC |
+
+Ba cột còn lại — **Who need?**, **Program**, **End Date** — là cột *tuỳ chỉnh*,
+giá trị nằm trong `custom_values`. Đó là đường mà list, detail, create, export và
+activity đã xử lý sẵn, nên backend không phải biết Medicaid khác ACA ở đâu, và
+admin sửa được ngay trong `/config` mà không cần rollout mới.
+
+Status là 9 giá trị Stage: URGENT, Hold, In processing, Need Upload, Waiting for
+collect document, Need to renewal, Approved, Denied, Cancelled. Ba trạng thái
+cuối đánh dấu kết thúc (hết đếm quá hạn); Approved bật ô Complete để soát.
+
+**Thay đổi diện rộng, tất cả theo hướng bớt liệt kê tay**
+
+- `ENROLLMENT_PROGRAMS` thêm `medicaid`; `isEnrollmentProgram` nay đọc từ chính
+  danh sách đó thay vì so tay từng chuỗi.
+- `TABLE_SCOPES`, `configScopesFor`, prefix mã hồ sơ (`MCD-*`), Sidebar.
+- `/config`: bốn chỗ liệt kê tay từng chương trình gộp lại thành một vòng lặp
+  theo `ENROLLMENT_PROGRAMS` (nạp option, trạng thái lỗi, dữ liệu ban đầu, ô
+  rỗng). Thêm chương trình lần sau không phải sửa file này nữa.
+- `broadcastEnrollmentChanged` phát theo `ENROLLMENT_PROGRAMS` thay vì hai topic
+  viết cứng — một chương trình mới không thể lặng lẽ mất realtime.
+- Hai chỗ còn khai `program: "aca" | "medicare"` đổi sang `EnrollmentProgram`.
+
+**Rollout `supabase/rollouts/2026-09-09-medicaid-enrollment.sql`** (chưa chạy)
+
+Phần A nới khung: 5 constraint (`enrollment_records`, `enrollment_option_sets`,
+`table_column`, `user_table_layout`, `import_request`), hàm `is_table_scope`,
+sequence `MCD` riêng và thêm nhánh vào trigger cấp số — thiếu nhánh này thì hồ sơ
+Medicaid lấy số của ACA và hai bên đụng số. Phần B khai báo data schema ở trên.
+
+Kèm 6 truy vấn kiểm chứng, trong đó một truy vấn dò constraint còn nhắc
+`medicare` mà thiếu `medicaid` — bắt trường hợp `drop constraint if exists` trượt
+tên và constraint cũ vẫn âm thầm chặn.
+
+⚠ Chạy rollout **trước** khi deploy: code mới gửi `program = 'medicaid'` mà
+constraint cũ sẽ từ chối.
+
+Kiểm chứng: `npx tsc --noEmit` sạch, `npx vitest run` 1190 pass / 0 fail, eslint
+0 error, `node scripts/check-schema-drift.mjs` ok.
+
 ## 2026-09-04 — CS Tasks: ai xem được task thì đổi được Due Date
 
 **Trước:** Due Date là quyền HẸP NHẤT trên task — chỉ admin, agent của task và

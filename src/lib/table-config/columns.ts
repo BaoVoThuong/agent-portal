@@ -73,6 +73,11 @@ export const REQUIRED_CAPABLE_SYSTEM_KEYS: Record<TableScope, ReadonlySet<string
     "client", "description", "fub", "due", "stage", "carrier", "platform",
     "consent", "payment", "aca", "pcp2025", "pcp2026", "agent", "caller", "responsible",
   ]),
+  // Medicaid chỉ có những cột hệ thống này; Who need?/Program/End Date là cột
+  // tuỳ chỉnh, mà cột tuỳ chỉnh luôn đánh Required được nên không liệt kê ở đây.
+  medicaid: new Set([
+    "client", "description", "fub", "due", "stage", "agent", "responsible",
+  ]),
   medicare: new Set([
     "client", "description", "fub", "due", "stage", "carrier", "pcp2025", "agent", "responsible",
   ]),
@@ -92,6 +97,7 @@ const OPTIONAL_SYSTEM_DETAIL_KEYS: Record<TableScope, ReadonlySet<string>> = {
   cs: new Set(),
   aca: new Set(),
   medicare: new Set(),
+  medicaid: new Set(),
   lead: new Set(["createdAt"]),
 };
 

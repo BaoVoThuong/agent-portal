@@ -20,10 +20,18 @@ import {
   type TableColumnOption,
   type TableScope,
 } from "@/lib/table-config/types";
-import { fetchEnrollmentOptionData } from "@/lib/enrollment/options";
+import {
+  fetchEnrollmentOptionData,
+  type EnrollmentOptionData,
+} from "@/lib/enrollment/options";
+import {
+  ENROLLMENT_PROGRAMS,
+  ENROLLMENT_PROGRAM_LABELS,
+  type EnrollmentProgram,
+} from "@/lib/enrollment/types";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import { emptyEnrollmentOptionData } from "./empty-option-data";
-import { ConfigClient } from "./_components/ConfigClient";
+import { ConfigClient, type ConfigSectionStatus } from "./_components/ConfigClient";
 
 export const dynamic = "force-dynamic";
 
@@ -91,8 +99,7 @@ export default async function ConfigPage() {
     membersResult,
     categoriesResult,
     slaRulesResult,
-    acaOptionDataResult,
-    medicareOptionDataResult,
+    enrollmentOptionResults,
     leadVocabularyResult,
   ] = await Promise.all([
     loadOptional("Table columns", () => fetchAllTableColumns(supabase)),
@@ -129,11 +136,16 @@ export default async function ConfigPage() {
       if (result.error) throw new Error(result.error.message);
       return result.data ?? [];
     }),
-    loadOptional("ACA enrollment options", async () =>
-      needsTaskData ? fetchEnrollmentOptionData("aca") : emptyEnrollmentOptionData()
-    ),
-    loadOptional("Medicare enrollment options", async () =>
-      needsTaskData ? fetchEnrollmentOptionData("medicare") : emptyEnrollmentOptionData()
+    // Một dòng cho MỌI chương trình, theo ENROLLMENT_PROGRAMS. Bản trước liệt
+    // kê tay từng program ở bốn chỗ trong file này, nên thêm một chương trình
+    // là bốn cơ hội để quên một chỗ. Vẫn giữ loadOptional riêng cho từng
+    // chương trình để một bảng lỗi không kéo theo các bảng còn lại.
+    Promise.all(
+      ENROLLMENT_PROGRAMS.map((program) =>
+        loadOptional(`${ENROLLMENT_PROGRAM_LABELS[program]} options`, async () =>
+          needsTaskData ? fetchEnrollmentOptionData(program) : emptyEnrollmentOptionData()
+        )
+      )
     ),
     // Tab Dropdown Values của lead dựng "Lead status" và "Interaction type"
     // thẳng từ đây. `/config` trước không nạp, nên gộp mà quên là màn hình hiện
@@ -155,12 +167,9 @@ export default async function ConfigPage() {
       (columns[scope] ?? []).every((column) => !column.id.startsWith("system-")),
     ])
   ) as Record<TableScope, boolean>;
-  const emptyOptions: Record<TableScope, TableColumnOption[]> = {
-    cs: [],
-    aca: [],
-    medicare: [],
-    lead: [],
-  };
+  const emptyOptions = Object.fromEntries(
+    TABLE_SCOPES.map((scope) => [scope, [] as TableColumnOption[]])
+  ) as Record<TableScope, TableColumnOption[]>;
   // Options nạp đủ cho mọi scope; ConfigClient tự khoá theo scope đang chọn.
   // Cắt sạch options vì MỘT scope chưa sẵn sàng là làm các scope kia mất luôn
   // giá trị dropdown — đúng lỗi cũ ở một dạng khác.
@@ -172,12 +181,12 @@ export default async function ConfigPage() {
   const memberRows = membersResult.ok ? membersResult.data : [];
   const categoryRows = categoriesResult.ok ? categoriesResult.data : [];
   const slaRows = slaRulesResult.ok ? slaRulesResult.data : [];
-  const acaOptionData = acaOptionDataResult.ok
-    ? acaOptionDataResult.data
-    : emptyEnrollmentOptionData();
-  const medicareOptionData = medicareOptionDataResult.ok
-    ? medicareOptionDataResult.data
-    : emptyEnrollmentOptionData();
+  const optionDataByProgram = Object.fromEntries(
+    ENROLLMENT_PROGRAMS.map((program, index) => {
+      const result = enrollmentOptionResults[index];
+      return [program, result.ok ? result.data : emptyEnrollmentOptionData()];
+    })
+  ) as Record<EnrollmentProgram, EnrollmentOptionData>;
   const leadVocabulary = leadVocabularyResult.ok ? leadVocabularyResult.data : undefined;
 
   return (
@@ -201,7 +210,7 @@ export default async function ConfigPage() {
       initialCategories={categoryRows as TaskCategory[]}
       initialSlaRules={slaRows as TaskSlaRule[]}
       initialLeadVocabulary={leadVocabulary}
-      initialOptionData={{ aca: acaOptionData, medicare: medicareOptionData }}
+      initialOptionData={optionDataByProgram}
       sectionStatus={{
         columns: {
           // Cờ cấp trang chỉ còn nói "có bảng nào sửa được không", và chỉ xét
@@ -231,15 +240,16 @@ export default async function ConfigPage() {
         },
         enrollmentOptions: {
           cs: { available: true },
-          aca: {
-            available: acaOptionDataResult.ok,
-            error: acaOptionDataResult.ok ? undefined : acaOptionDataResult.error,
-          },
-          medicare: {
-            available: medicareOptionDataResult.ok,
-            error: medicareOptionDataResult.ok ? undefined : medicareOptionDataResult.error,
-          },
           lead: { available: true },
+          ...(Object.fromEntries(
+            ENROLLMENT_PROGRAMS.map((program, index) => {
+              const result = enrollmentOptionResults[index];
+              return [
+                program,
+                { available: result.ok, error: result.ok ? undefined : result.error },
+              ];
+            })
+          ) as Record<EnrollmentProgram, ConfigSectionStatus>),
         },
       }}
     />

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifTopic } from "@/lib/tasks/realtime";
+import type { EnrollmentProgram } from "@/lib/enrollment/types";
 
 export const dynamic = "force-dynamic";
 
@@ -195,7 +196,7 @@ export async function GET(req: Request) {
       : Promise.resolve({ data: [] as { id: string; title: string; display_number: number | null }[], error: null }),
     enrollmentIds.length
       ? supabase.from("enrollment_records").select("id,client_name,display_number,program").in("id", enrollmentIds)
-      : Promise.resolve({ data: [] as { id: string; client_name: string | null; display_number: number | null; program: "aca" | "medicare" }[], error: null }),
+      : Promise.resolve({ data: [] as { id: string; client_name: string | null; display_number: number | null; program: EnrollmentProgram }[], error: null }),
     actorEmails.length
       ? supabase.from("portal_account").select("email,name").in("email", actorEmails)
       : Promise.resolve({ data: [] as { email: string; name: string | null }[], error: null }),
@@ -235,7 +236,7 @@ export async function GET(req: Request) {
   const enrollmentProgramById = new Map(
     ((enrollmentTitlesRes.data ?? []) as {
       id: string;
-      program: "aca" | "medicare";
+      program: EnrollmentProgram;
     }[]).map((record) => [record.id, record.program])
   );
   const nameByEmail = new Map(
