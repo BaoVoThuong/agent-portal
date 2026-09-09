@@ -38,6 +38,14 @@ Safari riêng tư và trình duyệt chặn site data đều NÉM lỗi chứ kh
   Người dùng đã chủ động đổi thì lần sau phải thấy đúng thứ họ để lại; chỉ khi
   chưa lưu gì mới rơi về mặc định cũ.
 
+**Sửa ngay sau đó: lỗi hydration.** Bản đầu đọc localStorage trong
+`useState(() => …)`, nên HTML server (bộ lọc mặc định) khác lần render đầu của
+client (bộ lọc đã nhớ) — React báo *"server rendered text didn't match"*. Nay
+khôi phục trong `useEffect` sau khi mount, và effect GHI bỏ qua cho tới khi khôi
+phục xong; thiếu chốt này thì lần ghi đầu tiên đè bộ lọc mặc định lên đúng thứ
+vừa định đọc ra. Cái giá là một nhịp nháy: trang hiện mặc định rồi mới nhảy sang
+bộ lọc đã nhớ.
+
 Kiểm chứng: `npx tsc --noEmit` sạch, `npx vitest run` 1210 pass / 0 fail (12 test
 mới cho helper, gồm JSON hỏng, storage ném lỗi, và id đã biến mất), `npm run build`
 thành công, eslint 0 error.

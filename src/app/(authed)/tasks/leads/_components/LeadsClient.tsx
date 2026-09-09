@@ -188,10 +188,13 @@ export function LeadsClient({
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [distributeOpen, setDistributeOpen] = useState(false);
-  const [filters, setFilters] = useState<LeadFilters>(() => {
-    // Nhớ bộ lọc qua lần tải trang — xem lib/ui/persisted-filters.ts. Status và
-    // event có thể đã bị xoá/đổi tên từ lần trước, nên đối chiếu lại với dữ
-    // liệu đang có; `search` cố ý không được nhớ.
+  const [filters, setFilters] = useState<LeadFilters>(EMPTY_LEAD_FILTERS);
+  // Khôi phục SAU khi mount — đọc localStorage trong useState sẽ làm HTML của
+  // server khác lần render đầu của client (lỗi hydration).
+  const filtersRestoredRef = useRef(false);
+  useEffect(() => {
+    // Status và event có thể đã bị xoá/đổi tên từ lần trước, nên đối chiếu lại
+    // với dữ liệu đang có; `search` cố ý không được nhớ.
     const stored = readPersistedFilters(
       LEAD_FILTERS_STORAGE_KEY,
       browserFilterStorage(),
@@ -216,15 +219,25 @@ export function LeadsClient({
         ) as LeadHealth | null,
       })
     );
-    return stored ?? EMPTY_LEAD_FILTERS;
-  });
+    // Đây là ca ngoại lệ hợp lệ của react-hooks/set-state-in-effect: đồng bộ
+    // MỘT LẦN từ một nguồn ngoài React (localStorage) mà server không đọc được.
+    // Đọc sớm hơn — trong useState — thì HTML của server khác lần render đầu của
+    // client và React báo lỗi hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (stored) setFilters(stored);
+    filtersRestoredRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
-    // Ô tìm kiếm cố ý không được nhớ, nên loại trước khi ghi.
+    // Bỏ qua trước khi khôi phục xong, nếu không lần ghi đầu sẽ đè bộ lọc rỗng
+    // lên đúng thứ vừa định đọc ra.
+    if (!filtersRestoredRef.current) return;
     const { search, ...persistable } = filters;
     void search;
     writePersistedFilters(LEAD_FILTERS_STORAGE_KEY, browserFilterStorage(), persistable);
   }, [filters]);
+
   const [sortKey, setSortKey] = useState<LeadSortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [leadLayoutColumns, setLeadLayoutColumns] = useState<TableColumn[]>(

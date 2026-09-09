@@ -700,10 +700,17 @@ export function EnrollmentClient({
   // overview is manager-only, matching the CS board's hidden Overview tab.
   const visibleView = canManageOptions ? view : "list";
   const filtersStorageKey = enrollmentFiltersStorageKey(program);
-  const [filters, setFilters] = useState<Filters>(() => {
+  const [filters, setFilters] = useState<Filters>(() =>
+    defaultToOwnAssignments
+      ? { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
+      : DEFAULT_FILTERS
+  );
+  // Khôi phục SAU khi mount, không phải trong useState: server không có
+  // localStorage nên đọc sớm là lệch HTML giữa hai bên (lỗi hydration).
+  const filtersRestoredRef = useRef(false);
+  useEffect(() => {
     // Bộ nhớ THẮNG mặc định "chỉ việc của tôi": người dùng đã chủ động chọn thì
-    // lần sau mở lên phải thấy đúng thứ họ để lại. Chỉ khi chưa lưu gì mới rơi
-    // về mặc định.
+    // lần sau mở lên phải thấy đúng thứ họ để lại.
     const stored = readPersistedFilters(
       filtersStorageKey,
       browserFilterStorage(),
@@ -713,15 +720,22 @@ export function EnrollmentClient({
           emails: new Set(people.map((person) => normalizeEnrollmentEmail(person.email))),
         })
     );
-    if (stored) return stored;
-    return defaultToOwnAssignments
-      ? { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
-      : DEFAULT_FILTERS;
-  });
+    // Đây là ca ngoại lệ hợp lệ của react-hooks/set-state-in-effect: đồng bộ
+    // MỘT LẦN từ một nguồn ngoài React (localStorage) mà server không đọc được.
+    // Đọc sớm hơn — trong useState — thì HTML của server khác lần render đầu của
+    // client và React báo lỗi hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (stored) setFilters(stored);
+    filtersRestoredRef.current = true;
+    // Chỉ chạy một lần cho mỗi bảng; danh sách option/người chỉ dùng để lọc giá
+    // trị đã chết, không phải thứ cần theo dõi.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersStorageKey]);
 
-  // Ghi lại mỗi khi bộ lọc đổi. `query` bị loại ngay từ reviver nên có lưu cũng
-  // không đọc lại; loại luôn ở đây để thứ nằm trong storage đúng bằng thứ được dùng.
+  // Ghi lại mỗi khi bộ lọc đổi. Bỏ qua trước khi khôi phục xong, nếu không lần
+  // ghi đầu tiên sẽ đè bộ lọc mặc định lên đúng thứ vừa định đọc ra.
   useEffect(() => {
+    if (!filtersRestoredRef.current) return;
     const { query, ...persistable } = filters;
     void query;
     writePersistedFilters(filtersStorageKey, browserFilterStorage(), persistable);

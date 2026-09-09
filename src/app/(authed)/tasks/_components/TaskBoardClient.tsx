@@ -206,65 +206,20 @@ export function TaskBoardClient({
   const [unlockingTaskId, setUnlockingTaskId] = useState<string | null>(null);
   const [reopeningTaskId, setReopeningTaskId] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date(initialNowIso));
-  // Bộ lọc được nhớ qua lần tải trang — xem lib/ui/persisted-filters.ts. Đọc một
-  // lần lúc mount; mọi id/email không còn tồn tại đều bị loại tại đây, để một
-  // category bị xoá hay một người nghỉ việc không làm bảng lọc ra 0 dòng.
-  const storedTaskFilters = useMemo(() => {
-    const validEmails = new Set([
-      ...assignees.map((person) => person.email),
-      ...agents.map((agent) => agent.email),
-      currentEmail,
-    ]);
-    return readPersistedFilters(
-      TASK_FILTERS_STORAGE_KEY,
-      browserFilterStorage(),
-      (raw: Record<string, unknown>) => ({
-        agent: keepKnownStrings(raw.agent, validEmails),
-        assignee: keepKnownStrings(raw.assignee, validEmails),
-        category: keepKnownStrings(
-          raw.category,
-          new Set(initialCategories.map((category) => category.id))
-        ),
-        status: keepKnownStrings(raw.status, new Set<string>(TASK_STATUSES)) as TaskStatus[],
-        priority: keepKnownStrings(
-          raw.priority,
-          new Set<string>(TASK_PRIORITIES)
-        ) as TaskPriority[],
-        showTeamTasks: readStoredBoolean(raw.showTeamTasks),
-      })
-    );
-    // Chỉ đọc một lần lúc mount: bộ nhớ là điểm KHỞI ĐẦU, không phải nguồn điều
-    // khiển liên tục — nếu không, mỗi lần ghi lại sẽ nảy ngược vào state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const [agentFilter, setAgentFilter] = useState<string[]>(
-    () => storedTaskFilters?.agent ?? []
-  );
+  const [agentFilter, setAgentFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>(() => {
-    // Bộ nhớ thắng mặc định "chỉ việc của tôi" của plain-CS: người dùng đã chủ
-    // động đổi thì lần sau phải thấy đúng thứ họ để lại.
-    if (storedTaskFilters) return storedTaskFilters.assignee;
     const ownsAgent = agents.some((agent) => agent.email === currentEmail);
     const plainCs = !isManager && !ownsAgent && myAssistantAgents.length === 0;
     return plainCs ? [currentEmail] : [];
   });
   const [presets, setPresets] = useState<QuickFilter[]>([]);
-  const [categoryFilter, setCategoryFilter] = useState<string[]>(
-    () => storedTaskFilters?.category ?? []
-  );
-  const [statusFilter, setStatusFilter] = useState<TaskStatus[]>(
-    () => storedTaskFilters?.status ?? []
-  );
-  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>(
-    () => storedTaskFilters?.priority ?? []
-  );
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<TaskStatus[]>([]);
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriority[]>([]);
   const [hiddenTaskListColumnKeys, setHiddenTaskListColumnKeys] = useState<
     Set<TaskListColumnKey>
   >(() => new Set(TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS));
-  const [showTeamTasks, setShowTeamTasks] = useState(
-    () => storedTaskFilters?.showTeamTasks ?? false
-  );
+  const [showTeamTasks, setShowTeamTasks] = useState(false);
   const [newAssignedTaskIds, setNewAssignedTaskIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -328,9 +283,59 @@ export function TaskBoardClient({
   const taskLayoutUpdatedAtRef = useRef<string | null>(null);
   const taskLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const taskLayoutSaveSequenceRef = useRef(0);
-  // Ghi lại mỗi khi một bộ lọc đổi. Ô tìm kiếm cố ý không nằm trong đây: gõ tìm
-  // một task là việc nhất thời, khôi phục lại gây khó hiểu hơn là giúp.
+  // Khôi phục bộ lọc SAU khi mount — xem lib/ui/persisted-filters.ts. Đọc trong
+  // useState sẽ khiến HTML của server (bộ lọc mặc định) khác lần render đầu của
+  // client (bộ lọc đã nhớ), và React báo lỗi hydration.
+  const filtersRestoredRef = useRef(false);
   useEffect(() => {
+    const validEmails = new Set([
+      ...assignees.map((person) => person.email),
+      ...agents.map((agent) => agent.email),
+      currentEmail,
+    ]);
+    const stored = readPersistedFilters(
+      TASK_FILTERS_STORAGE_KEY,
+      browserFilterStorage(),
+      (raw: Record<string, unknown>) => ({
+        agent: keepKnownStrings(raw.agent, validEmails),
+        assignee: keepKnownStrings(raw.assignee, validEmails),
+        category: keepKnownStrings(
+          raw.category,
+          new Set(initialCategories.map((category) => category.id))
+        ),
+        status: keepKnownStrings(raw.status, new Set<string>(TASK_STATUSES)) as TaskStatus[],
+        priority: keepKnownStrings(
+          raw.priority,
+          new Set<string>(TASK_PRIORITIES)
+        ) as TaskPriority[],
+        showTeamTasks: readStoredBoolean(raw.showTeamTasks),
+      })
+    );
+    if (stored) {
+      // Bộ nhớ thắng mặc định "chỉ việc của tôi" của plain-CS: người dùng đã chủ
+      // động đổi thì lần sau phải thấy đúng thứ họ để lại.
+      // Đây là ca ngoại lệ hợp lệ của react-hooks/set-state-in-effect: đồng bộ
+      // MỘT LẦN từ một nguồn ngoài React (localStorage) mà server không đọc được.
+      // Đọc sớm hơn — trong useState — thì HTML của server khác lần render đầu của
+      // client và React báo lỗi hydration.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAgentFilter(stored.agent);
+      setAssigneeFilter(stored.assignee);
+      setCategoryFilter(stored.category);
+      setStatusFilter(stored.status);
+      setPriorityFilter(stored.priority);
+      setShowTeamTasks(stored.showTeamTasks);
+    }
+    filtersRestoredRef.current = true;
+    // Chỉ chạy một lần lúc mount; các danh sách chỉ dùng để loại giá trị đã chết.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Ghi lại mỗi khi một bộ lọc đổi. Bỏ qua trước khi khôi phục xong, nếu không
+  // lần ghi đầu sẽ đè mặc định lên đúng thứ vừa định đọc ra. Ô tìm kiếm cố ý
+  // không nằm trong đây: gõ tìm một task là việc nhất thời.
+  useEffect(() => {
+    if (!filtersRestoredRef.current) return;
     writePersistedFilters(TASK_FILTERS_STORAGE_KEY, browserFilterStorage(), {
       agent: agentFilter,
       assignee: assigneeFilter,

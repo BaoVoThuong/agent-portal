@@ -10,6 +10,12 @@
  * đọc `searchParams`) và nạp lại dữ liệu. Đổi một tiện ích nhỏ lấy một loạt
  * round-trip là không đáng.
  *
+ * ⚠ PHẢI đọc trong `useEffect` sau khi mount, KHÔNG đọc trong `useState(() => …)`.
+ * Server không có localStorage nên render ra bộ lọc mặc định, còn client đọc
+ * được giá trị đã lưu — hai bên khác nhau và React báo lỗi hydration ("server
+ * rendered text didn't match the client"). Cái giá phải trả là một nhịp: trang
+ * hiện mặc định rồi mới nhảy sang bộ lọc đã nhớ.
+ *
  * Phần khó không nằm ở lúc GHI mà ở lúc ĐỌC LẠI: giá trị lưu hôm nay có thể vô
  * nghĩa ngày mai — một Stage bị archive, một người nghỉ việc, một carrier bị
  * xoá. Khôi phục nguyên xi thì agent mở lên thấy danh sách trống và không hiểu
