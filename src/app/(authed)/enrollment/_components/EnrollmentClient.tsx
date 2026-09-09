@@ -398,24 +398,27 @@ function programColumnLabel(
 /**
  * Bề rộng cột tuỳ chỉnh theo KIỂU dữ liệu.
  *
- * Trước đây mọi cột tuỳ chỉnh đều 180px trừ checkbox. Một ô ngày và một ô văn
- * bản dài dùng chung một bề rộng thì hoặc thừa chỗ, hoặc cắt chữ — thấy rõ nhất
- * ở bảng Medicaid, nơi ba trong mười cột là cột tuỳ chỉnh.
+ * Trước đây mọi cột tuỳ chỉnh đều 180px trừ checkbox. Một ô ngày hiển thị
+ * "Oct 9" trong 180px là bỏ trống gần một nửa, và chỗ trống đó lấy đi từ Name /
+ * People / Status.
+ *
+ * Số ở đây bám theo bảng CS (`CUSTOM_COL_WIDTH_BY_TYPE` trong TaskRowItem.tsx)
+ * để hai danh sách trông cùng một hệ: date 120, phần còn lại 180. Checkbox lấy
+ * 96 theo cột QC/Consent của chính bảng enrollment.
  */
 function customColumnWidth(type: TableColumn["type"]): number {
   switch (type) {
     case "checkbox":
       return 96;
     case "date":
-      return 140;
+      return 120;
     case "number":
       return 120;
-    case "dropdown":
-      return 180;
     case "person":
       return 170;
     case "link":
       return 200;
+    // text và dropdown giữ 180 như mặc định cũ của cả CS lẫn enrollment.
     default:
       return 180;
   }
