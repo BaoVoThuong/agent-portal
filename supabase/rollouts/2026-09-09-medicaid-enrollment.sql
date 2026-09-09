@@ -39,8 +39,70 @@ alter table enrollment_option_sets
   add constraint enrollment_option_sets_program_check
   check (program in ('aca', 'medicare', 'medicaid'));
 
+-- A1b. HAI bảng phụ cũng có cột `program` với check riêng, và chúng được ghi
+-- NGẦM chứ không phải qua form:
+--   • enrollment_stage_cycles — trigger ghi mỗi lần đổi Stage, nên thiếu nó thì
+--     tạo hồ sơ Medicaid sẽ lỗi "violates check constraint
+--     enrollment_stage_cycles_program_check" ngay ở lần đổi Stage đầu tiên.
+--   • enrollment_queue_members — cấu hình hàng đợi của Overview.
+-- Bản rollout đầu bỏ sót cả hai; đó chính là thứ truy vấn kiểm chứng (f) ở cuối
+-- file được viết ra để bắt.
+alter table enrollment_stage_cycles
+  drop constraint if exists enrollment_stage_cycles_program_check;
+alter table enrollment_stage_cycles
+  add constraint enrollment_stage_cycles_program_check
+  check (program in ('aca', 'medicare', 'medicaid'));
+
+alter table enrollment_queue_members
+  drop constraint if exists enrollment_queue_members_program_check;
+alter table enrollment_queue_members
+  add constraint enrollment_queue_members_program_check
+  check (program in ('aca', 'medicare', 'medicaid'));
+
+-- A1c. Medicaid cũng không có Carrier / Platform / Consent / Payment / AC /
+-- PCP / Caller. Ứng dụng đã xoá các trường này khỏi payload
+-- (INAPPLICABLE_FIELDS_BY_PROGRAM), nhưng ràng buộc ở đây là lớp cuối: một
+-- request gửi thẳng vào API, một script, hay một lần sửa tay trong Studio đều
+-- không ghi được dữ liệu lạc chương trình.
+--
+-- Dọn trước rồi mới ràng buộc, để lệnh không vỡ trên hàng đã lỡ có dữ liệu.
+update enrollment_records
+  set
+    caller_email = null,
+    carrier_id = null,
+    pcp_2025 = null,
+    pcp_2026 = null,
+    platform_id = null,
+    consent_id = null,
+    payment_status_id = null,
+    aca_status_id = null
+  where program = 'medicaid'
+    and (
+      caller_email is not null or carrier_id is not null or
+      pcp_2025 is not null or pcp_2026 is not null or
+      platform_id is not null or consent_id is not null or
+      payment_status_id is not null or aca_status_id is not null
+    );
+
+alter table enrollment_records
+  drop constraint if exists enrollment_records_medicaid_fields_check;
+alter table enrollment_records
+  add constraint enrollment_records_medicaid_fields_check
+  check (
+    program <> 'medicaid' or (
+      caller_email is null and
+      carrier_id is null and
+      pcp_2025 is null and
+      pcp_2026 is null and
+      platform_id is null and
+      consent_id is null and
+      payment_status_id is null and
+      aca_status_id is null
+    )
+  );
+
 -- Ràng buộc "Medicare không có các trường của ACA" giữ NGUYÊN: nó chỉ nói về
--- program = 'medicare'. Medicaid dùng đủ trường như ACA nên không thêm gì.
+-- program = 'medicare'.
 
 -- A2. Ba bảng của Table Configuration cùng nhận scope mới.
 alter table table_column

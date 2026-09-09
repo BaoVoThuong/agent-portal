@@ -93,6 +93,10 @@ import {
   type EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
 import {
+  INAPPLICABLE_FIELDS_BY_PROGRAM,
+  isEnrollmentFieldApplicable,
+} from "@/lib/enrollment/program-fields";
+import {
   enrollmentIdentityBadgeStyle,
   enrollmentStateBadgeStyle,
 } from "@/lib/enrollment/option-badge";
@@ -298,32 +302,137 @@ const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
 // single Assignee + single PCP (no Caller/Responsible split, no PCP 2025/2026
 // split) — drop what doesn't apply and relabel what's shared but named
 // differently, rather than showing empty N/A columns for every Medicare row.
-const MEDICARE_HIDDEN_COLUMNS = new Set<EnrollmentColumn["key"]>([
-  "caller",
-  "payment",
-  "aca",
-  "consent",
-  "platform",
-  "pcp2026",
-]);
-const MEDICARE_COLUMN_LABELS: Partial<Record<EnrollmentColumn["key"], string>> = {
-  responsible: "Assignee",
-  pcp2025: "PCP",
+/**
+ * Cột nào KHÔNG thuộc chương trình nào.
+ *
+ * `ACA_ENROLLMENT_COLUMNS` là danh sách đầy đủ nhất nên được dùng làm bộ gốc,
+ * nhưng "gốc" không có nghĩa là "mặc định". Trước 2026-09-09 chỉ Medicare được
+ * lọc bớt, còn mọi chương trình khác rơi vào nhánh else và nhận nguyên bộ ACA —
+ * nên bảng Medicaid hiện cả Carrier, Platform, Consent, Payment, AC và PCP, dù
+ * nghiệp vụ của nó không có những cột đó.
+ *
+ * `Record<EnrollmentProgram, …>` bắt mọi chương trình phải khai báo: thêm
+ * chương trình mới mà quên thì TypeScript báo thiếu khoá.
+ */
+const PROGRAM_HIDDEN_COLUMNS: Record<
+  EnrollmentProgram,
+  ReadonlySet<EnrollmentColumn["key"]>
+> = {
+  aca: new Set(),
+  medicare: new Set(["caller", "payment", "aca", "consent", "platform", "pcp2026"]),
+  medicaid: new Set([
+    "caller",
+    "carrier",
+    "payment",
+    "aca",
+    "consent",
+    "platform",
+    "pcp2025",
+    "pcp2026",
+  ]),
 };
+
+/**
+ * Nhãn riêng của từng chương trình cho cùng một cột dữ liệu.
+ *
+ * Đây chỉ là bản dự phòng khi Config chưa có cấu hình cột; nhãn thật lấy từ
+ * `table_column` để admin đổi được.
+ */
+const PROGRAM_COLUMN_LABELS: Record<
+  EnrollmentProgram,
+  Partial<Record<EnrollmentColumn["key"], string>>
+> = {
+  aca: {},
+  medicare: { responsible: "Assignee", pcp2025: "PCP" },
+  medicaid: {
+    client: "Name",
+    due: "Renewal Date",
+    stage: "Status",
+    fub: "Link",
+    responsible: "People",
+    qc: "Complete",
+  },
+};
+
+/**
+ * Bề rộng riêng của từng chương trình.
+ *
+ * Bộ gốc là bề rộng của ACA, vốn cân theo bảng 19 cột của ACA. Medicaid chỉ có
+ * 10 cột nghiệp vụ nên giữ nguyên các số đó làm bảng trông thưa và lệch: Name
+ * chiếm 300px trong khi Renewal Date 110px không đủ để hiện hết tiêu đề. Số ở
+ * đây bám theo nội dung thật của từng cột — tên người, ngày tháng, nhãn trạng
+ * thái — chứ không phải chia đều.
+ */
+const PROGRAM_COLUMN_WIDTHS: Record<
+  EnrollmentProgram,
+  Partial<Record<EnrollmentColumn["key"], number>>
+> = {
+  aca: {},
+  medicare: {},
+  medicaid: {
+    client: 220,
+    due: 140,
+    stage: 200,
+    responsible: 170,
+    qc: 96,
+  },
+};
+
+/** Cột này có thuộc chương trình đang mở không. */
+function isColumnInProgram(
+  program: EnrollmentProgram,
+  key: EnrollmentColumn["key"]
+): boolean {
+  return !PROGRAM_HIDDEN_COLUMNS[program].has(key);
+}
+
+/** Nhãn của cột theo chương trình, lùi về `fallback` khi chương trình không đổi tên. */
+function programColumnLabel(
+  program: EnrollmentProgram,
+  key: EnrollmentColumn["key"],
+  fallback: string
+): string {
+  return PROGRAM_COLUMN_LABELS[program][key] ?? fallback;
+}
+
+/**
+ * Bề rộng cột tuỳ chỉnh theo KIỂU dữ liệu.
+ *
+ * Trước đây mọi cột tuỳ chỉnh đều 180px trừ checkbox. Một ô ngày và một ô văn
+ * bản dài dùng chung một bề rộng thì hoặc thừa chỗ, hoặc cắt chữ — thấy rõ nhất
+ * ở bảng Medicaid, nơi ba trong mười cột là cột tuỳ chỉnh.
+ */
+function customColumnWidth(type: TableColumn["type"]): number {
+  switch (type) {
+    case "checkbox":
+      return 96;
+    case "date":
+      return 140;
+    case "number":
+      return 120;
+    case "dropdown":
+      return 180;
+    case "person":
+      return 170;
+    case "link":
+      return 200;
+    default:
+      return 180;
+  }
+}
 
 function enrollmentColumnsForProgram(
   program: EnrollmentProgram,
   configuredColumns: TableColumn[] = []
 ): EnrollmentColumn[] {
-  const baseColumns =
-    program === "medicare"
-      ? ACA_ENROLLMENT_COLUMNS.filter((column) => !MEDICARE_HIDDEN_COLUMNS.has(column.key)).map(
-          (column) =>
-            MEDICARE_COLUMN_LABELS[column.key]
-              ? { ...column, label: MEDICARE_COLUMN_LABELS[column.key]! }
-              : column
-        )
-      : ACA_ENROLLMENT_COLUMNS;
+  const baseColumns = ACA_ENROLLMENT_COLUMNS.filter((column) =>
+    isColumnInProgram(program, column.key)
+  ).map((column) => {
+    const label = PROGRAM_COLUMN_LABELS[program][column.key];
+    const width = PROGRAM_COLUMN_WIDTHS[program][column.key];
+    if (!label && !width) return column;
+    return { ...column, ...(label ? { label } : {}), ...(width ? { width } : {}) };
+  });
 
   if (configuredColumns.length === 0) return baseColumns;
   const byKey = new Map(baseColumns.map((column) => [column.key, column]));
@@ -349,7 +458,7 @@ function enrollmentColumnsForProgram(
       next.push({
         key,
         label: configured.label,
-        width: configured.type === "checkbox" ? 110 : 180,
+        width: customColumnWidth(configured.type),
         sticky: configured.pinned,
         align: configured.type === "checkbox" ? "center" : undefined,
         configColumn: configured,
@@ -1761,7 +1870,6 @@ function EnrollmentToolbar({
   visibleCount: number;
   totalCount: number;
 }) {
-  const isMedicare = program === "medicare";
   // Label source for the filter dropdowns below — built from the already
   // resolved `columns` prop, not a second independent derivation.
   const columnByKey = new Map(columns.map((column) => [column.key, column]));
@@ -1865,7 +1973,7 @@ function EnrollmentToolbar({
           onValuesChange={(agent) => setFilters((current) => ({ ...current, agent }))}
         />
 
-        {!isMedicare ? (
+        {isColumnInProgram(program, "caller") ? (
           <TaskSelect
             label={columnByKey.get("caller")?.label ?? "Caller"}
             multi
@@ -1885,17 +1993,22 @@ function EnrollmentToolbar({
 
         <TaskSelect
           label={
-            columnByKey.get("responsible")?.label ?? (isMedicare ? "Assignee" : "Responsible")
+            columnByKey.get("responsible")?.label ??
+            programColumnLabel(program, "responsible", "Responsible")
           }
           multi
           searchable
           values={filters.responsible}
           options={[
-            { value: "", label: isMedicare ? "All Assignees" : "All Responsible" },
+            {
+              value: "",
+              label: `All ${programColumnLabel(program, "responsible", "Responsible")}`,
+            },
             ...peopleOptions(people),
           ]}
           placeholder={
-            columnByKey.get("responsible")?.label ?? (isMedicare ? "Assignee" : "Responsible")
+            columnByKey.get("responsible")?.label ??
+            programColumnLabel(program, "responsible", "Responsible")
           }
           allValue=""
           summaryLabel="people"
@@ -1906,24 +2019,26 @@ function EnrollmentToolbar({
           }
         />
 
-        <TaskSelect
-          label={columnByKey.get("carrier")?.label ?? "Carrier"}
-          multi
-          searchable
-          values={filters.carrier}
-          options={[
-            { value: "", label: columnByKey.get("carrier")?.label ?? "Carrier" },
-            ...selectOptions(optionsBySet.carrier),
-          ]}
-          placeholder={columnByKey.get("carrier")?.label ?? "Carrier"}
-          allValue=""
-          summaryLabel="carriers"
-          className="w-max min-w-[10rem]"
-          buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-          onValuesChange={(carrier) =>
-            setFilters((current) => ({ ...current, carrier }))
-          }
-        />
+        {isColumnInProgram(program, "carrier") ? (
+          <TaskSelect
+            label={columnByKey.get("carrier")?.label ?? "Carrier"}
+            multi
+            searchable
+            values={filters.carrier}
+            options={[
+              { value: "", label: columnByKey.get("carrier")?.label ?? "Carrier" },
+              ...selectOptions(optionsBySet.carrier),
+            ]}
+            placeholder={columnByKey.get("carrier")?.label ?? "Carrier"}
+            allValue=""
+            summaryLabel="carriers"
+            className="w-max min-w-[10rem]"
+            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+            onValuesChange={(carrier) =>
+              setFilters((current) => ({ ...current, carrier }))
+            }
+          />
+        ) : null}
 
         <ColumnVisibilityButton
           columns={columns}
@@ -3288,24 +3403,24 @@ function EnrollmentDrawer({
   // Medicare's real data has no Payment/Consent/Platform/AC concepts and a
   // single Assignee + PCP field — see enrollmentColumnsForProgram() for the
   // list-view equivalent of this same trim.
-  const isMedicare = record.program === "medicare";
   const showField = (key: string) =>
-    visibleColumnKeys.has(key as EnrollmentColumnKey);
+    visibleColumnKeys.has(key as EnrollmentColumnKey) &&
+    isColumnInProgram(record.program, key as EnrollmentColumnKey);
   const showClient = showField("client");
   const showStage = showField("stage");
   const showFub = showField("fub");
   const showDue = showField("due");
-  const showPayment = !isMedicare && showField("payment");
+  const showPayment = showField("payment");
   const showCarrier = showField("carrier");
-  const showAca = !isMedicare && showField("aca");
-  const showConsent = !isMedicare && showField("consent");
-  const showPlatform = !isMedicare && showField("platform");
+  const showAca = showField("aca");
+  const showConsent = showField("consent");
+  const showPlatform = showField("platform");
   const showAgent = showField("agent");
-  const showCaller = !isMedicare && showField("caller");
+  const showCaller = showField("caller");
   const showResponsible = showField("responsible");
   const showCreatedBy = showField("createdBy");
   const showPcp2025 = showField("pcp2025");
-  const showPcp2026 = !isMedicare && showField("pcp2026");
+  const showPcp2026 = showField("pcp2026");
   const showQc = showField("qc");
   const visibleDetailColumns = detailColumns;
 
@@ -3934,7 +4049,7 @@ function EnrollmentDrawer({
                   className="order-1"
                   label={
                     columnByKey.get("responsible")?.label ??
-                    (isMedicare ? "Assignee" : "Responsible enroll")
+                    programColumnLabel(record.program, "responsible", "Responsible enroll")
                   }
                   required={requiredColumnKeys.has("responsible")}
                 >
@@ -3964,13 +4079,14 @@ function EnrollmentDrawer({
                 <FieldBlock
                   className="order-6"
                   label={
-                    columnByKey.get("pcp2025")?.label ?? (isMedicare ? "PCP" : "PCP 2025")
+                    columnByKey.get("pcp2025")?.label ??
+                    programColumnLabel(record.program, "pcp2025", "PCP 2025")
                   }
                   required={requiredColumnKeys.has("pcp2025")}
                 >
                   <EditableInput
                     value={record.pcp_2025 ?? ""}
-                    placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                    placeholder={`No ${programColumnLabel(record.program, "pcp2025", "PCP 2025")}`}
                     canEdit={capabilities.canEditFields}
                     className={`${INPUT_CLASS} h-9 px-2 py-1.5 font-semibold`}
                     required={requiredColumnKeys.has("pcp2025")}
@@ -4146,7 +4262,6 @@ function NewEnrollmentDialog({
   // Chỉ mount khi mở, nên khoá vô điều kiện.
   useBodyScrollLock(true);
 
-  const isMedicare = program === "medicare";
   const ticketInputRef = useRef<HTMLInputElement | null>(null);
   const [form, setForm] = useState<Record<string, string>>({
     client_name: "",
@@ -4205,20 +4320,21 @@ function NewEnrollmentDialog({
     ticketInputRef.current?.focus();
   }, []);
 
-  const showField = (key: EnrollmentColumnKey) => visibleColumnKeys.has(key);
+  const showField = (key: EnrollmentColumnKey) =>
+    visibleColumnKeys.has(key) && isColumnInProgram(program, key);
   const showFub = showField("fub");
   const showStage = showField("stage");
   const showDue = showField("due");
-  const showPayment = !isMedicare && showField("payment");
+  const showPayment = showField("payment");
   const showCarrier = showField("carrier");
-  const showAca = !isMedicare && showField("aca");
-  const showConsent = !isMedicare && showField("consent");
-  const showPlatform = !isMedicare && showField("platform");
+  const showAca = showField("aca");
+  const showConsent = showField("consent");
+  const showPlatform = showField("platform");
   const showAgent = showField("agent");
-  const showCaller = !isMedicare && showField("caller");
+  const showCaller = showField("caller");
   const showResponsible = showField("responsible");
   const showPcp2025 = showField("pcp2025");
-  const showPcp2026 = !isMedicare && showField("pcp2026");
+  const showPcp2026 = showField("pcp2026");
   const initialStage = optionsBySet.stage[0] ?? null;
   const initialStageStyle = enrollmentStateBadgeStyle(initialStage);
   const showPipelineSection = showStage || showDue;
@@ -4286,22 +4402,13 @@ function NewEnrollmentDialog({
     setSaving(true);
     setError(null);
     try {
-      // Medicare has no Payment/Consent/Platform/AC/Caller/PCP-2026 concepts
-      // — don't rely on the form fields being hidden in the UI to keep them
-      // out of the record; strip them from the payload explicitly so a
-      // record can never end up with Medicare-inapplicable data.
-      const payload = isMedicare
-        ? {
-            ...form,
-            caller_email: "",
-            payment_status_id: "",
-            aca_status_id: "",
-            consent_id: "",
-            platform_id: "",
-            pcp_2026: "",
-            custom_values: customValues,
-          }
-        : { ...form, custom_values: customValues };
+      // Đừng trông vào việc UI đã ẩn ô nhập để giữ dữ liệu lạc chương trình ra
+      // ngoài hồ sơ: xoá thẳng khỏi payload theo đúng bảng chính sách dùng
+      // chung với API (INAPPLICABLE_FIELDS_BY_PROGRAM).
+      const payload: Record<string, unknown> = { ...form, custom_values: customValues };
+      for (const field of INAPPLICABLE_FIELDS_BY_PROGRAM[program]) {
+        payload[field] = "";
+      }
       await onCreate(
         {
           ...payload,
@@ -4626,7 +4733,7 @@ function NewEnrollmentDialog({
                     <CreatePropertyField
                       label={
                         columnByKey.get("responsible")?.label ??
-                        (isMedicare ? "Assignee" : "Responsible enroll")
+                        programColumnLabel(program, "responsible", "Responsible enroll")
                       }
                       required={requiredColumnKeys.has("responsible")}
                       invalid={isInvalid("responsible")}
@@ -4649,10 +4756,11 @@ function NewEnrollmentDialog({
                   {showPcp2025 ? (
                     <CreatePropertyInput
                       label={
-                        columnByKey.get("pcp2025")?.label ?? (isMedicare ? "PCP" : "PCP 2025")
+                        columnByKey.get("pcp2025")?.label ??
+                        programColumnLabel(program, "pcp2025", "PCP 2025")
                       }
                       value={form.pcp_2025}
-                      placeholder={isMedicare ? "No PCP" : "No PCP 2025"}
+                      placeholder={`No ${programColumnLabel(program, "pcp2025", "PCP 2025")}`}
                       required={requiredColumnKeys.has("pcp2025")}
                       invalid={isInvalid("pcp2025")}
                       onChange={(value) => update("pcp_2025", value)}
@@ -5266,7 +5374,11 @@ function filterRecords(
     const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
     if (filters.attention && !enrollmentNeedsAttention(record, optionsById)) return false;
     if (filters.qcNeeded && !(stage?.triggers_qc && !record.qc_checked_at)) return false;
-    const hasCaller = record.program === "medicare" || Boolean(record.caller_email);
+    // Chương trình không có vai trò Caller thì coi như đã đủ người phụ trách ở
+    // vế đó — nếu không, mọi hồ sơ của nó sẽ bị tính là "chưa ai nhận".
+    const hasCaller =
+      !isEnrollmentFieldApplicable(record.program, "caller_email") ||
+      Boolean(record.caller_email);
     if (filters.unowned && hasCaller && record.responsible_enroll_email) {
       return false;
     }
@@ -5395,9 +5507,11 @@ function enrollmentNeedsAttention(
 ): boolean {
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
   if (record.closed_at) return Boolean(stage?.triggers_qc && !record.qc_checked_at);
-  // Medicare has no Caller role (always null by design) — only ACA should
-  // treat a missing caller as a real "nobody owns this" signal.
-  const missingCaller = record.program !== "medicare" && !record.caller_email;
+  // Chỉ chương trình THỰC SỰ có vai trò Caller mới coi thiếu Caller là tín hiệu
+  // "chưa ai nhận". Medicare và Medicaid không có vai trò này (luôn null theo
+  // thiết kế), nên trước đây mọi hồ sơ Medicaid đều bị gắn cờ cần chú ý.
+  const missingCaller =
+    isEnrollmentFieldApplicable(record.program, "caller_email") && !record.caller_email;
   return (
     Boolean(stage?.triggers_qc && !record.qc_checked_at) ||
     missingCaller ||
@@ -5416,7 +5530,9 @@ function enrollmentAttentionScore(
   let score = 0;
   if (stage?.triggers_qc && !record.qc_checked_at) score += 700;
   if (!record.responsible_enroll_email) score += 500;
-  if (record.program !== "medicare" && !record.caller_email) score += 400;
+  if (isEnrollmentFieldApplicable(record.program, "caller_email") && !record.caller_email) {
+    score += 400;
+  }
   if (!record.due_date) score += 300;
   return score;
 }

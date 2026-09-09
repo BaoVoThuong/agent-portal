@@ -6,6 +6,48 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-09 — Medicaid: gỡ hết chỗ còn thừa hưởng ACA
+
+Review lại toàn bộ đường đi của Medicaid. Gốc của mọi lỗi dưới đây là **một giả
+định duy nhất**: code chỉ biết "Medicare bị lọc bớt", còn mọi chương trình khác
+mặc nhiên là ACA. Nay từng chương trình phải tự khai, và `Record<EnrollmentProgram, …>`
+bắt TypeScript báo lỗi nếu chương trình mới quên khai.
+
+**Bảng danh sách hiện cột của ACA.** `enrollmentColumnsForProgram` kết thúc bằng
+một vòng "thêm lại mọi cột base chưa dùng", mà base của Medicaid đang là bộ ACA —
+nên Carrier, Platform, Consent, Payment, AC, PCP 2025/2026, Caller đều bị nhét
+vào cuối bảng. Thay `MEDICARE_HIDDEN_COLUMNS` bằng `PROGRAM_HIDDEN_COLUMNS` khai
+cho cả ba chương trình.
+
+**Mọi hồ sơ Medicaid bị gắn cờ "cần chú ý".** Ba chỗ viết
+`program !== "medicare"` để suy ra "chương trình này có Caller", nên Medicaid —
+vốn không có vai trò Caller — luôn bị tính là thiếu Caller: hiện cảnh báo, cộng
+400 điểm attention, và lọt vào bộ lọc "chưa ai nhận". Nay hỏi
+`isEnrollmentFieldApplicable(program, "caller_email")`.
+
+**Bộ lọc Carrier vẫn hiện** ở bảng không có Carrier — đã ẩn theo chương trình.
+
+**Bề rộng cột.** Bộ số của ACA cân cho bảng 19 cột; Medicaid chỉ có 10 nên
+Name chiếm 300px trong khi Renewal Date 110px không đủ hiện hết tiêu đề. Thêm
+`PROGRAM_COLUMN_WIDTHS`, và cột tuỳ chỉnh nay lấy bề rộng theo KIỂU dữ liệu
+(`customColumnWidth`) thay vì 180px cho tất cả — cải thiện cho mọi bảng, không
+riêng Medicaid.
+
+**Lớp chặn cuối ở database.** Thêm `enrollment_records_medicaid_fields_check`:
+Medicaid không được có Carrier/Platform/Consent/Payment/AC/PCP/Caller. Ứng dụng
+đã xoá các trường này khỏi payload, nhưng constraint chặn cả request gửi thẳng
+vào API lẫn sửa tay trong Studio. Kèm lệnh dọn dữ liệu trước khi ràng buộc.
+
+**Hai bảng phụ bị sót trong rollout** — `enrollment_stage_cycles` (trigger ghi
+mỗi lần đổi Stage) và `enrollment_queue_members`. Thiếu chúng thì đổi Stage một
+hồ sơ Medicaid là lỗi ngay; đây đúng là thứ truy vấn kiểm chứng (f) được viết ra
+để bắt.
+
+Còn tồn: dashboard Overview có cột "Caller" cứng, luôn trống với Medicaid — và
+với cả Medicare từ trước. Không sai dữ liệu nên để lại, sửa cùng đợt Overview.
+
+Kiểm chứng: `npx tsc --noEmit` sạch, `npx vitest run` 1198 pass / 0 fail.
+
 ## 2026-09-09 — Enrollment: thứ tự option theo position, và Config nhận Medicaid
 
 Ba sửa lỗi phát hiện khi dựng bảng Medicaid thật.

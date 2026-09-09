@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeEnrollmentPatchForProgram } from "./program-fields";
+import {
+  ENROLLMENT_RECORD_FIELDS,
+  isEnrollmentFieldApplicable,
+  programsMissingFieldPolicy,
+  sanitizeEnrollmentPatchForProgram,
+} from "./program-fields";
 
 describe("sanitizeEnrollmentPatchForProgram", () => {
   it("clears Medicare-inapplicable fields", () => {
@@ -46,6 +51,48 @@ describe("sanitizeEnrollmentPatchForProgram", () => {
     ).toEqual({
       client_name: "Updated",
       caller_email: null,
+    });
+  });
+});
+
+describe("chính sách trường theo chương trình", () => {
+  it("mọi chương trình đều phải khai báo", () => {
+    expect(programsMissingFieldPolicy()).toEqual([]);
+  });
+
+  it("Medicaid không có Carrier/PCP/Caller và các trường riêng của ACA", () => {
+    for (const field of [
+      "caller_email",
+      "carrier_id",
+      "pcp_2025",
+      "pcp_2026",
+      "platform_id",
+      "consent_id",
+      "payment_status_id",
+      "aca_status_id",
+    ] as const) {
+      expect(isEnrollmentFieldApplicable("medicaid", field)).toBe(false);
+    }
+  });
+
+  it("ACA vẫn dùng đủ bộ — thay đổi này không đụng ACA", () => {
+    for (const field of ENROLLMENT_RECORD_FIELDS) {
+      expect(isEnrollmentFieldApplicable("aca", field)).toBe(true);
+    }
+  });
+
+  it("patch của Medicaid bị xoá sạch trường lạc chương trình", () => {
+    const patch = sanitizeEnrollmentPatchForProgram("medicaid", {
+      client_name: "Test",
+      carrier_id: "carrier-1",
+      caller_email: "a@b.c",
+      pcp_2025: "PCP",
+    });
+    expect(patch).toEqual({
+      client_name: "Test",
+      carrier_id: null,
+      caller_email: null,
+      pcp_2025: null,
     });
   });
 });

@@ -4598,6 +4598,24 @@ update enrollment_records
       payment_status_id is not null or
       aca_status_id is not null
     );
+-- Medicaid cũng không có Carrier/Platform/Consent/Payment/AC/PCP/Caller.
+alter table enrollment_records
+  drop constraint if exists enrollment_records_medicaid_fields_check;
+alter table enrollment_records
+  add constraint enrollment_records_medicaid_fields_check
+  check (
+    program <> 'medicaid' or (
+      caller_email is null and
+      carrier_id is null and
+      pcp_2025 is null and
+      pcp_2026 is null and
+      platform_id is null and
+      consent_id is null and
+      payment_status_id is null and
+      aca_status_id is null
+    )
+  );
+
 alter table enrollment_records
   drop constraint if exists enrollment_records_medicare_fields_check;
 alter table enrollment_records
