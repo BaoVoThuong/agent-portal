@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Badge, CheckCircle2, LockKeyhole, Mail, UserRound } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import type { LeadAlertSettings, LeadProduct } from "@/lib/leads/types";
+import PushNotificationCard from "./PushNotificationCard";
 
 type SettingsClientProps = {
   profile: {
@@ -14,6 +15,7 @@ type SettingsClientProps = {
   };
   canManageLeads: boolean;
   initialLeadSettings: LeadAlertSettings[];
+  vapidPublicKey: string;
 };
 
 function initials(name: string, email: string): string {
@@ -23,7 +25,12 @@ function initials(name: string, email: string): string {
   return source.slice(0, 2).toUpperCase();
 }
 
-export default function SettingsClient({ profile, canManageLeads, initialLeadSettings }: SettingsClientProps) {
+export default function SettingsClient({
+  profile,
+  canManageLeads,
+  initialLeadSettings,
+  vapidPublicKey,
+}: SettingsClientProps) {
   const router = useRouter();
   const [displayName, setDisplayName] = useState(profile.name);
   const [hasLocalPassword, setHasLocalPassword] = useState(profile.hasLocalPassword);
@@ -369,6 +376,8 @@ export default function SettingsClient({ profile, canManageLeads, initialLeadSet
             </div>
           </section>
         )}
+
+        <PushNotificationCard vapidPublicKey={vapidPublicKey} />
       </div>
     </div>
   );

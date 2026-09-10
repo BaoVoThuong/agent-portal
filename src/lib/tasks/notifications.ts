@@ -94,8 +94,39 @@ export async function insertNotifications(
   if (error) throw new Error(error.message);
 
   // Realtime "ping" so recipients' open tabs toast instantly (content stays in DB).
-  return broadcastNotif(rows.map((r) => r.recipient_email));
+  const broadcast = await broadcastNotif(rows.map((r) => r.recipient_email));
+
+  // Và đẩy ra ngoài trình duyệt cho ai không mở tab. Service worker tự bỏ qua
+  // khi người nhận đang nhìn portal, nên không kêu hai lần.
+  await schedulePush(async () => {
+    const { pushForTaskNotifications } = await import("@/lib/notifications/push-dispatch");
+    await pushForTaskNotifications(rows);
+  });
+
+  return broadcast;
 }
+
+/**
+ * Đẩy thông báo ra ngoài trình duyệt, sau khi response đã trả.
+ *
+ * `after()` của Next chạy tiếp khi request đã kết thúc, và trên Vercel nó giữ
+ * function sống đủ lâu để hoàn tất. Cố ý KHÔNG thả promise trôi: serverless giết
+ * tiến trình ngay sau response, nên promise thả trôi bị cắt giữa chừng và người
+ * nhận mất thông báo một cách ngẫu nhiên.
+ *
+ * Nạp động vì hai lý do: `push-dispatch` là `server-only` (không được kéo vào
+ * test đang import module này), và ngoài request scope — script, cron chạy tay —
+ * thì `after()` ném lỗi, lúc đó bỏ qua là đúng.
+ */
+async function schedulePush(run: () => Promise<void>): Promise<void> {
+  try {
+    const { after } = await import("next/server");
+    after(run);
+  } catch {
+    // Ngoài request scope: bỏ qua push, thông báo trong web vẫn đã ghi xong.
+  }
+}
+
 
 export function toNotificationInsertRows(
   rows: NotificationInsertInput[]

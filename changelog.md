@@ -6,6 +6,59 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-10 — Web Push: thông báo đẩy ra ngoài trình duyệt
+
+Trước đây thông báo chỉ tồn tại khi tab đang mở: `broadcastNotif` bắn tín hiệu
+realtime, chuông kêu, toast hiện. Đóng tab là không ai biết gì cho tới lần mở
+sau. Nay thông báo đẩy ra màn hình hệ điều hành kể cả khi đã đóng portal.
+
+Phạm vi đã chốt: **máy tính** (Chrome/Edge trên Mac & Windows); đẩy **mọi loại**
+thông báo nhưng **chỉ khi người nhận không mở tab**. Điện thoại tách đợt sau vì
+iPhone bắt buộc phải "Add to Home Screen" mới nhận được push.
+
+**Móc vào đúng hai chỗ.** Mọi thông báo trong hệ thống đi qua `insertNotifications`
+(task) và `insertEnrollmentNotifications` (enrollment). Thêm push ở hai hàm đó là
+toàn bộ 24 loại thông báo có push cùng lúc — không phải sửa 13 route đang gọi.
+
+**"Chỉ khi không mở tab" do service worker tự quyết**, không dùng presence. Cách
+kia phải dựng heartbeat, xử lý mất kết nối, và vẫn sai khi người dùng vừa đóng
+máy. Nay cứ gửi, `public/sw.js` kiểm `clients.matchAll()` ngay trước khi hiện —
+có tab đang `visible` thì im, vì chuông trong web đã báo rồi.
+
+**Câu chữ chuyển lên `src/lib/notifications/copy.ts`.** `actionText()` vốn nằm
+trong `NotificationBell.tsx` (client), mà push cần title/body lúc GỬI ở server.
+Chép bản thứ hai là chữ trong web và chữ ngoài màn hình sẽ trôi lệch nhau.
+
+**Gửi push nằm ngoài đường request.** Một bình luận sinh 10 thông báo = 10 lượt
+gọi tới Google. Dùng `after()` của Next 16 — cố ý KHÔNG thả promise trôi, vì
+serverless giết tiến trình ngay sau response và người nhận sẽ mất thông báo một
+cách ngẫu nhiên.
+
+**Ba chỗ fail mềm, đều có chủ đích:** thiếu khoá VAPID (dev chưa cấu hình) thì
+push im lặng bỏ qua; đọc `notification_preferences` hỏng thì vẫn gửi (thà gửi
+thừa hơn nuốt mất thông báo của cả công ty); và mọi lỗi trong `push-server` đều
+bị nuốt, vì chúng chạy sau khi thông báo đã ghi xong.
+
+**Dọn đăng ký chết:** dịch vụ đẩy trả 404/410 nghĩa là trình duyệt đã huỷ đăng ký
+— xoá dòng ngay. Không xoá thì mỗi lần gửi tốn một request lỗi và bảng phình dần.
+
+Hai lỗi tự bắt được khi review: `sw.js` trỏ vào hai file icon không tồn tại (đã
+bỏ, dùng icon mặc định của trình duyệt), và hàm gom nhóm lấy người thực hiện
+bằng `find` theo bản ghi — sai khi hai người cùng tác động lên một task trong
+cùng lượt ghi, khiến một nửa người nhận thấy sai tên. Đã tách `groupPushRows` ra
+để test riêng.
+
+Rollout `supabase/rollouts/2026-09-10-web-push.sql` (chưa chạy): hai bảng
+`push_subscriptions` (khoá chính là `endpoint`, nên một người dùng nhiều máy vẫn
+đúng) và `notification_preferences` (gộp luôn cờ bật/tắt ÂM THANH — cùng một yêu
+cầu trong đợt feedback, và hai cờ luôn đọc cùng nhau).
+
+Chưa làm, để đợt sau: màn quản trị cho admin bật/tắt hộ từng người (bảng đã có),
+và nối cờ `sound_enabled` vào chuông trong web.
+
+Kiểm chứng: `npx tsc --noEmit` sạch, `npx vitest run` 1225 pass / 0 fail (15 test
+mới cho câu chữ và gom nhóm), `npm run build` thành công, eslint 0 error.
+
 ## 2026-09-09 — Nhớ bộ lọc qua lần tải trang (CS Task, 3 Enrollment, Leads)
 
 Agent lọc Status + Agent + People rồi F5, hoặc mở một hồ sơ rồi bấm back, là mất

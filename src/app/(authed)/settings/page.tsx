@@ -47,6 +47,9 @@ export default async function SettingsPage() {
       }}
       canManageLeads={canManageLeads}
       initialLeadSettings={(leadSettingsResult.data ?? []) as LeadAlertSettings[]}
+      // Khoá CÔNG của VAPID — đưa xuống trình duyệt là đúng thiết kế; khoá tư
+      // nằm ở server và không bao giờ rời khỏi đó.
+      vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""}
     />
   );
 }

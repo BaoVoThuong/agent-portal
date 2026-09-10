@@ -51,6 +51,7 @@
     "tailwind-merge": "^3.6.0",
     "topojson-client": "^3.1.0",
     "us-atlas": "^3.0.1",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -59,6 +60,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "emojilib": "4.0.3",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",

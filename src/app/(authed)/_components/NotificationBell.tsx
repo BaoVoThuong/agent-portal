@@ -15,37 +15,22 @@ import {
 } from "@/lib/tasks/client-events";
 import { resolveNotificationInvalidation } from "@/lib/tasks/notification-invalidation";
 import { playNotificationChime, primeNotificationSound } from "@/lib/tasks/sound";
+import {
+  isSystemNotification,
+  notificationActionText,
+  notificationEntityId,
+  notificationEntityKind,
+  notificationEntityLabel,
+  notificationHref as sharedNotificationHref,
+  type NotificationCopyType,
+} from "@/lib/notifications/copy";
 
 type Notif = {
   id: string;
   task_id: string;
   entity_type?: "task" | "enrollment";
   entity_id?: string;
-  type:
-    | "assigned"
-    | "mentioned"
-    | "commented"
-    | "reacted"
-    | "overdue"
-    | "todo_reminder"
-    | "overdue_reminder"
-    | "due_date_overdue"
-    | "due_date_overdue_reminder"
-    | "waiting_reminder"
-    | "unassigned"
-    | "reopened"
-    | "qc_needed"
-    | "due_soon"
-    | "stale"
-    | "overdue_unlocked"
-    | "qc_stale"
-    | "sla_escalated"
-    | "qc_reviewed"
-    | "cancelled"
-    | "attachment_added"
-    | "backlog_attention"
-    | "task_created"
-    | "stage_changed";
+  type: NotificationCopyType;
   actor_email: string;
   actor_name: string | null;
   task_title: string | null;
@@ -96,11 +81,19 @@ function commentPreview(n: Notif): string | null {
 }
 
 function entityKind(n: Notif): "task" | "enrollment" {
-  return n.entity_type === "enrollment" ? "enrollment" : "task";
+  return notificationEntityKind(n);
 }
 
 function entityId(n: Notif): string {
-  return n.entity_id ?? n.task_id;
+  return notificationEntityId(n);
+}
+
+function entityLabel(n: Notif): string {
+  return notificationEntityLabel(n);
+}
+
+function notificationHref(n: Notif): string {
+  return sharedNotificationHref(n);
 }
 
 function entityKey(n: Notif): string {
@@ -109,95 +102,14 @@ function entityKey(n: Notif): string {
     : taskDisplayKey(n.entity_display_number);
 }
 
-function entityLabel(n: Notif): string {
-  return entityKind(n) === "enrollment" ? "Enrollment" : "Task";
-}
-
-function notificationHref(n: Notif): string {
-  return entityKind(n) === "enrollment"
-    ? `/enrollment?record=${entityId(n)}`
-    : `/tasks?task=${entityId(n)}`;
-}
-
 function actionText(n: Notif): string {
-  const kind = entityKind(n);
-  switch (n.type) {
-    case "assigned":
-      return kind === "enrollment"
-        ? "assigned you to an enrollment record"
-        : "assigned you to a task";
-    case "mentioned":
-      return "tagged you in a comment";
-    case "commented":
-      return kind === "enrollment"
-        ? "commented on an enrollment record"
-        : "commented on a task assigned to you";
-    case "reacted":
-      return kind === "enrollment"
-        ? "reacted to your enrollment comment"
-        : "reacted to your task comment";
-    case "unassigned":
-      return "removed you from a task";
-    case "reopened":
-      return kind === "enrollment" ? "reopened this enrollment record" : "reopened this task";
-    case "qc_needed":
-      return kind === "enrollment"
-        ? "marked an enrollment record for QC"
-        : "marked a closed task for QC";
-    case "qc_reviewed":
-      return kind === "enrollment" ? "QC checked this enrollment record" : "QC checked this task";
-    case "cancelled":
-      return "cancelled this task";
-    case "attachment_added":
-      return "added an attachment";
-    case "backlog_attention":
-      return "created an urgent/high backlog task";
-    case "task_created":
-      return "created a task";
-    case "stage_changed":
-      return "moved this enrollment record";
-    case "overdue":
-      return kind === "enrollment"
-        ? "Enrollment due date is overdue"
-        : "Task just went overdue";
-    case "todo_reminder":
-      return "Task is still in To Do";
-    case "overdue_reminder":
-      return "Task is still overdue — reminder";
-    case "due_date_overdue":
-      return "Task passed its due date";
-    case "due_date_overdue_reminder":
-      return "Task is still past its due date — reminder";
-    case "waiting_reminder":
-      return "Task is still waiting for follow-up";
-    case "due_soon":
-      return kind === "enrollment" ? "Enrollment is due soon" : "Task is due soon";
-    case "stale":
-      return "Task has had no activity";
-    case "overdue_unlocked":
-      return "resolved this overdue task (reason logged)";
-    case "qc_stale":
-      return kind === "enrollment"
-        ? "Enrollment still needs QC — reminder"
-        : "Task still needs QC — reminder";
-    case "sla_escalated":
-      return "SLA needs attention";
-  }
+  return notificationActionText(n);
 }
 
 // System-triggered (cron) notifications aren't "from" anyone — actionText is
 // already a complete sentence for these, so skip the actor-name prefix.
 function isSystemNotif(n: Notif): boolean {
-  return (
-    n.type === "overdue" ||
-    n.type === "todo_reminder" ||
-    n.type === "overdue_reminder" ||
-    n.type === "waiting_reminder" ||
-    n.type === "due_soon" ||
-    n.type === "stale" ||
-    n.type === "qc_stale" ||
-    n.type === "sla_escalated"
-  );
+  return isSystemNotification(n);
 }
 
 function detailLabel(n: Notif): string {

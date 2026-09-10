@@ -30,6 +30,14 @@ export async function insertEnrollmentNotifications(
   if (error) throw new Error(error.message);
 
   await broadcastNotif(uniqueRows.map((row) => row.recipient_email));
+
+  // Đẩy ra ngoài trình duyệt — xem ghi chú ở lib/tasks/notifications.ts.
+  await schedulePush(async () => {
+    const { pushForEnrollmentNotifications } = await import(
+      "@/lib/notifications/push-dispatch"
+    );
+    await pushForEnrollmentNotifications(uniqueRows);
+  });
 }
 
 export function uniqueEnrollmentNotificationRecipients(
@@ -73,4 +81,25 @@ export function uniqueEnrollmentNotificationRows(
 function normalizeEmail(email: string | null | undefined): string | null {
   const normalized = email?.trim().toLowerCase();
   return normalized || null;
+}
+
+/**
+ * Đẩy thông báo ra ngoài trình duyệt, sau khi response đã trả.
+ *
+ * `after()` của Next chạy tiếp khi request đã kết thúc, và trên Vercel nó giữ
+ * function sống đủ lâu để hoàn tất. Cố ý KHÔNG thả promise trôi: serverless giết
+ * tiến trình ngay sau response, nên promise thả trôi bị cắt giữa chừng và người
+ * nhận mất thông báo một cách ngẫu nhiên.
+ *
+ * Nạp động vì hai lý do: `push-dispatch` là `server-only` (không được kéo vào
+ * test đang import module này), và ngoài request scope — script, cron chạy tay —
+ * thì `after()` ném lỗi, lúc đó bỏ qua là đúng.
+ */
+async function schedulePush(run: () => Promise<void>): Promise<void> {
+  try {
+    const { after } = await import("next/server");
+    after(run);
+  } catch {
+    // Ngoài request scope: bỏ qua push, thông báo trong web vẫn đã ghi xong.
+  }
 }
