@@ -44,7 +44,7 @@ function ensureVapid(): boolean {
 
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT ?? "mailto:admin@epsins.co";
+  const subject = process.env.VAPID_SUBJECT ?? "mailto:bao.vo@excelplannings.com";
 
   if (!publicKey || !privateKey) {
     vapidConfigured = false;

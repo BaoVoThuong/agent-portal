@@ -140,7 +140,7 @@ Env cần thêm (Vercel + `.env.local`):
 ```
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
-VAPID_SUBJECT=mailto:admin@epsins.co
+VAPID_SUBJECT=mailto:bao.vo@excelplannings.com
 ```
 Sinh bằng `npx web-push generate-vapid-keys`. **Đổi khoá về sau là giết toàn bộ
 subscription đã đăng ký** — sinh một lần rồi giữ.
