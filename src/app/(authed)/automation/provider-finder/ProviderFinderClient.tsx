@@ -4,15 +4,43 @@ import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ProviderFinderMap } from "./ProviderFinderMap";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
+/**
+ * Danh sách hãng bảo hiểm cho ô Carrier.
+ *
+ * Viết cứng ở đây, không lấy từ dữ liệu provider: thêm hãng mới vẫn phải sửa
+ * file này rồi deploy. Đổi lại, danh sách không phụ thuộc vào chất lượng dữ liệu
+ * nhập vào — một dòng gõ sai tên hãng sẽ không tự chui lên thành một lựa chọn.
+ *
+ * Viết HOA toàn bộ chỉ để hiển thị cho đều. Việc lọc không phân biệt hoa thường:
+ * `normalize()` trong lib/provider-finder/search.ts hạ cả hai vế về chữ thường
+ * rồi mới so, nên "Harbor Health" trong dữ liệu vẫn khớp "HARBOR HEALTH" ở đây.
+ *
+ * Cập nhật 2026-09-11 theo danh sách nghiệp vụ: 9 → 24 hãng.
+ */
 const carrierOptions = [
+  "AETNA",
   "AMBETTER",
+  "ANTHEM",
+  "ANTIDOTE",
   "BCBS",
+  "BSW",
+  "CHC",
   "CHRISTUS",
   "CIGNA",
+  "DEVOTED",
+  "HARBOR HEALTH",
+  "HEALTHFIRST",
+  "HEALTHSPRING",
+  "HIGHMARK",
+  "HUMANA",
   "IMPERIAL",
+  "MCLAREN",
   "MOLINA",
   "OSCAR",
+  "PRIORITY HEALTH",
+  "SCAN",
   "UHC",
+  "WELLCARE",
   "WELLPOINT",
 ];
 

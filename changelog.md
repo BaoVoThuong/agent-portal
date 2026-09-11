@@ -6,6 +6,22 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-11 — Provider Finder: cập nhật danh sách hãng bảo hiểm
+
+Ô Carrier chỉ có 9 hãng viết cứng từ ngày dựng trang. Nay 24 hãng theo danh sách
+nghiệp vụ mới, viết hoa toàn bộ cho khớp với ô nhập (vốn đã tự viết hoa).
+
+Danh sách gốc đưa vào 28 mục nhưng BCBS, CHC, Imperial và Molina lặp ở cả hai
+nhóm (Medicare và ACA) — bán cả hai loại — nên còn 24 sau khi bỏ trùng. Cả 9 hãng
+cũ đều nằm trong danh sách mới, không mất lựa chọn nào đang dùng.
+
+Viết hoa KHÔNG ảnh hưởng việc lọc: `normalize()` trong lib/provider-finder/search.ts
+hạ cả hai vế về chữ thường rồi mới so, nên "Harbor Health" trong dữ liệu vẫn khớp
+"HARBOR HEALTH" trong danh sách.
+
+Vẫn để một danh sách chung cho mọi Insurance Type, không tách theo Medicare/ACA —
+người dùng chốt như vậy.
+
 ## 2026-09-11 — Alert settings chuyển về Table Configuration, dọn trang Settings
 
 `/settings` là trang CÁ NHÂN — đổi tên, đổi mật khẩu, bật thông báo cho máy mình.
