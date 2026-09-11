@@ -134,7 +134,7 @@ export default async function ConfigPage() {
       if (!needsTaskData) return [];
       const result = await supabase
         .from("task_sla_rules")
-        .select("id,priority,category_id,duration_minutes,updated_at");
+        .select("id,priority,category_id,duration_minutes,is_enabled,updated_at");
       if (result.error) throw new Error(result.error.message);
       return result.data ?? [];
     }),

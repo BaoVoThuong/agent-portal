@@ -36,6 +36,7 @@ import {
   uniqueNotificationRows,
   type NotificationInsertInput,
 } from "@/lib/tasks/notifications";
+import { isPriorityEnabledForCategory } from "@/lib/tasks/priority-availability";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
@@ -297,11 +298,22 @@ export async function POST(request: Request) {
   const startingInProgress = assignment.status === "in_progress";
   const startingWaiting = assignment.status === "waiting";
   const startingClosed = assignment.status === "done" || assignment.status === "cancel";
-  const shouldLoadSlaRules = startingInProgress || assignedEmails.length > 0;
-  const { data: rulesData, error: rulesError } = shouldLoadSlaRules
-    ? await supabase.from("task_sla_rules").select("priority,category_id,duration_minutes")
-    : { data: null, error: null };
+  // Luôn nạp, không còn phụ thuộc `shouldLoadSlaRules`: bảng này nay mang cả nút
+  // bật/tắt của từng tổ hợp category × priority, và việc kiểm phải chạy cho MỌI
+  // task được tạo, kể cả task chưa vào In Progress.
+  const { data: rulesData, error: rulesError } = await supabase
+    .from("task_sla_rules")
+    .select("priority,category_id,duration_minutes,is_enabled");
   if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
+
+  // Chặn ở server chứ không chỉ ẩn trên giao diện: ẩn một lựa chọn không phải là
+  // ràng buộc — request gửi thẳng vào API vẫn ghi được nếu đây không kiểm.
+  if (!isPriorityEnabledForCategory(priority, categoryId, rulesData ?? [])) {
+    return NextResponse.json(
+      { error: "This priority is turned off for the selected category." },
+      { status: 400 }
+    );
+  }
   const slaMinutes = startingInProgress
     ? resolveSlaMinutes(priority, categoryId, rulesData ?? [])
     : null;

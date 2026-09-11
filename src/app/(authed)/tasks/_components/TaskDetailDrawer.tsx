@@ -49,6 +49,8 @@ import { StatusPill } from "./TaskRowItem";
 import { TaskSelect } from "./TaskSelect";
 import { TaskCategoryBadge } from "./TaskCategoryBadge";
 import { TaskPrioritySelect } from "./TaskPrioritySelect";
+import { enabledPrioritiesForCategory } from "@/lib/tasks/priority-availability";
+import type { TaskSlaRule } from "@/lib/tasks/types";
 import { AvatarStack } from "./board-ui";
 import { TaskAssigneeDropdown } from "./TaskAssigneePicker";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
@@ -126,6 +128,7 @@ export function TaskDetailDrawer({
   agents,
   mentionMembers,
   categories,
+  slaRules = [],
   detailColumns,
   configuredColumnKeys,
   visibleColumnKeys,
@@ -159,6 +162,8 @@ export function TaskDetailDrawer({
   agents: TaskAgent[];
   mentionMembers: TaskAssignee[];
   categories: TaskCategory[];
+  /** Mang theo nút bật/tắt của từng tổ hợp Category × Priority. */
+  slaRules?: TaskSlaRule[];
   detailColumns: TableColumn[];
   configuredColumnKeys: ReadonlySet<string>;
   visibleColumnKeys: ReadonlySet<string>;
@@ -965,6 +970,12 @@ export function TaskDetailDrawer({
                     </span>
                     <TaskPrioritySelect
                       value={task.priority}
+                      // Ẩn mức đã bị tắt cho loại việc này. Mức task đang mang
+                      // vẫn hiện — task cũ phải đọc được đúng thứ nó có.
+                      availablePriorities={enabledPrioritiesForCategory(
+                        task.category_id ?? null,
+                        slaRules
+                      )}
                       disabled={!canEdit}
                       buttonClassName="!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none"
                       onChange={(nextPriority) =>

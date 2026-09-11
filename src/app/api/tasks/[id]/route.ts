@@ -10,8 +10,9 @@ import {
   type TaskCapabilities,
 } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
+import { isPriorityEnabledForCategory } from "@/lib/tasks/priority-availability";
 import { currentStintDueAt, effectiveSlaMinutes, isTaskOverdue } from "@/lib/tasks/sla";
-import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
+import type { TaskPriority, TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { buildActivityEntries } from "@/lib/tasks/activity";
 import {
   insertNotifications,
@@ -279,7 +280,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
   // Needed to snapshot sla_minutes on a first start into in_progress, and to
   // check whether a task was overdue at the moment it's marked Done directly
   // (skipping /overdue-unlock) so overdue_count still gets credited.
-  let slaRules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[] = [];
+  let slaRules: Pick<
+    TaskSlaRule,
+    "priority" | "category_id" | "duration_minutes" | "is_enabled"
+  >[] = [];
   const requestedStatus =
     typeof bodyRecord.status === "string" ? bodyRecord.status : null;
   const enteringInProgress =
@@ -288,12 +292,37 @@ export async function PATCH(req: Request, { params }: Ctx) {
     requestedStatus !== null &&
     requestedStatus !== "in_progress" &&
     r.task.status === "in_progress";
-  if (enteringInProgress || leavingInProgress) {
+  // Đổi priority HOẶC đổi category đều có thể tạo ra một tổ hợp đang tắt, nên
+  // phải nạp luật cả khi task không đổi trạng thái.
+  const changingPriorityOrCategory =
+    Object.prototype.hasOwnProperty.call(bodyRecord, "priority") ||
+    Object.prototype.hasOwnProperty.call(bodyRecord, "category_id");
+  if (enteringInProgress || leavingInProgress || changingPriorityOrCategory) {
     const { data: rulesData, error: rulesError } = await r.supabase
       .from("task_sla_rules")
-      .select("priority,category_id,duration_minutes");
+      .select("priority,category_id,duration_minutes,is_enabled");
     if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
     slaRules = rulesData ?? [];
+  }
+
+  if (changingPriorityOrCategory) {
+    // Lấy giá trị SAU khi sửa cho cả hai vế: đổi mỗi category cũng có thể làm
+    // priority đang có trở thành không hợp lệ, và ngược lại.
+    const nextPriority = (
+      typeof bodyRecord.priority === "string" ? bodyRecord.priority : r.task.priority
+    ) as TaskPriority;
+    const nextCategoryId =
+      bodyRecord.category_id === undefined
+        ? r.task.category_id
+        : typeof bodyRecord.category_id === "string" && bodyRecord.category_id.trim() !== ""
+          ? bodyRecord.category_id.trim()
+          : null;
+    if (!isPriorityEnabledForCategory(nextPriority, nextCategoryId, slaRules)) {
+      return NextResponse.json(
+        { error: "This priority is turned off for the selected category." },
+        { status: 400 }
+      );
+    }
   }
 
   // seesAllTasks phải đi kèm ở đây: Due Date giờ theo canView, nên bỏ cờ này ra

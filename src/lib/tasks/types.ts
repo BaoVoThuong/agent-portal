@@ -83,6 +83,18 @@ export type TaskSlaRule = {
   priority: TaskPriority;
   category_id: string | null;
   duration_minutes: number;
+  /**
+   * Nút bật/tắt của tổ hợp category × priority này.
+   *
+   * BẬT  → chọn được khi tạo/sửa task, và đặt được thời hạn SLA.
+   * TẮT  → không đặt được thời hạn, và không chọn được tổ hợp đó.
+   *
+   * Trước 2026-09-11, "tắt" được ghi bằng cách đặt SLA đúng 5 phút — một quy ước
+   * ngầm không chặn được gì (task vẫn tạo được rồi 5 phút sau quá hạn thật).
+   *
+   * Optional vì bản ghi cũ chưa có cột; thiếu thì hiểu là ĐANG BẬT.
+   */
+  is_enabled?: boolean;
   updated_at?: string | null;
 };
 

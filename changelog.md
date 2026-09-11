@@ -6,6 +6,43 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-11 — SLA Times: nút bật/tắt cho từng tổ hợp Category × Priority
+
+Đội cần "loại việc này không được đặt mức ưu tiên kia" — ví dụ *Order Physical ID
+card* thì không được Urgent. Hệ thống chưa có chỗ khai, nên admin mượn ô SLA: đặt
+ĐÚNG 5 phút để ngầm hiểu là cấm (2h05, tức 125 phút, vẫn là SLA thật).
+
+**Quy ước ngầm ấy không chặn được gì.** 5 phút vẫn là một SLA đang chạy, nên task
+tạo bằng tổ hợp "cấm" sẽ quá hạn thật sau 5 phút: bắn thông báo, bôi đỏ bảng,
+đếm vào KPI. Nó chỉ đẻ thêm cảnh báo giả. Nay mỗi ô có một nút bật/tắt thật:
+
+- **Bật** → tổ hợp dùng được, và đặt được thời hạn.
+- **Tắt** → ô nhập thời hạn bị khoá, và mức ưu tiên đó biến mất khỏi danh sách
+  khi tạo/sửa task của loại việc đó.
+
+**Chặn ở server, không chỉ ẩn trên giao diện.** Cả `POST /api/tasks` lẫn
+`PATCH /api/tasks/[id]` đều kiểm — ẩn một lựa chọn không phải là ràng buộc, và
+đổi *category* cũng có thể làm priority đang có trở thành không hợp lệ, nên phải
+kiểm cả hai vế sau khi sửa.
+
+**Thứ tự tra giống hệt `resolveSlaMinutes`**: dòng riêng của category → dòng mặc
+định → không có gì thì coi như bật. Hai hàm phải tra cùng cách, nếu không sẽ có
+tổ hợp vừa bật vừa tắt tuỳ chỗ nào hỏi. Dòng riêng thắng dòng mặc định kể cả khi
+nó bật còn mặc định tắt — đó là cách một loại việc xin ngoại lệ.
+
+Vài quyết định nhỏ: mức đang chọn luôn hiện trong danh sách kể cả khi vừa bị tắt
+(task cũ phải đọc được đúng thứ nó mang); đổi loại việc thì mức ưu tiên tự lùi
+xuống mức hợp lệ gần nhất, **không bao giờ tự nâng lên** vì nâng là làm sai lệch
+mức độ khẩn thật sự.
+
+Rollout `supabase/rollouts/2026-09-11-sla-enabled-toggle.sql` (chưa chạy) thêm cột
+`is_enabled`, chuyển 8 tổ hợp đang để 5 phút sang trạng thái tắt, và đặt lại thời
+hạn của chúng theo mặc định từng mức — giữ số 5 là để lại cái bẫy cho ngày ai đó
+bật lại mà không nhớ con số ấy vốn chỉ là dấu hiệu.
+
+Kiểm chứng: `npx tsc --noEmit` sạch, `npx vitest run` 1235 pass / 0 fail (10 test
+mới), `npm run build` thành công, eslint 0 error.
+
 ## 2026-09-11 — Provider Finder: cập nhật danh sách hãng bảo hiểm
 
 Ô Carrier chỉ có 9 hãng viết cứng từ ngày dựng trang. Nay 24 hãng theo danh sách

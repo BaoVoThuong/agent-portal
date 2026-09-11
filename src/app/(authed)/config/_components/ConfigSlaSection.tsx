@@ -20,6 +20,7 @@ import {
   slaMinuteOptionsForHours,
 } from "@/lib/tasks/sla-config";
 import { taskCategoryPalette } from "@/lib/tasks/category-colors";
+import { isPriorityEnabledForCategory } from "@/lib/tasks/priority-availability";
 import {
   DEFAULT_REMINDER_SETTINGS,
   isReminderSettingValueInBounds,
@@ -127,6 +128,61 @@ export function ConfigSlaSection({
 
   function hasOverride(categoryId: string | null): boolean {
     return rules.some((r) => r.priority === priority && r.category_id === categoryId);
+  }
+
+  function enabledFor(categoryId: string | null): boolean {
+    return isPriorityEnabledForCategory(priority, categoryId, rules);
+  }
+
+  /**
+   * Bật/tắt một tổ hợp.
+   *
+   * Vẫn phải gửi kèm thời hạn vì cột `duration_minutes` không cho phép rỗng.
+   * Dòng chưa tồn tại thì lấy thời hạn đang hiển thị (kế thừa từ dòng mặc định),
+   * nên bật/tắt không vô tình đổi luôn thời hạn mà người dùng đang thấy.
+   */
+  async function toggle(
+    categoryId: string | null,
+    nextEnabled: boolean,
+    key: string
+  ): Promise<void> {
+    if (!available) return;
+    markSaving(key, true);
+    setError(null);
+    const existing = rules.find(
+      (rule) => rule.priority === priority && rule.category_id === categoryId
+    );
+    try {
+      const res = await fetch("/api/admin/task-sla-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          priority,
+          category_id: categoryId,
+          duration_minutes: existing?.duration_minutes ?? minutesFor(categoryId),
+          is_enabled: nextEnabled,
+          expected_updated_at: existing?.updated_at ?? null,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { rule?: TaskSlaRule; error?: string }
+        | null;
+      if (!res.ok || !data?.rule) {
+        if (res.status === 409) await reloadRules().catch(() => undefined);
+        throw new Error(data?.error ?? "Could not change this setting.");
+      }
+      onRulesChange((currentRules) => [
+        ...currentRules.filter(
+          (r) => !(r.priority === priority && r.category_id === categoryId)
+        ),
+        data.rule!,
+      ]);
+      void broadcastSlaConfigChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change this setting.");
+    } finally {
+      markSaving(key, false);
+    }
   }
 
   async function reloadRules() {
@@ -347,15 +403,17 @@ export function ConfigSlaSection({
                   const saving = savingKeys.has(key);
                   return (
                     <SlaRuleRow
-                      key={`${key}:${minutesFor(categoryId)}`}
+                      key={`${key}:${minutesFor(categoryId)}:${enabledFor(categoryId)}`}
                       label={row.name}
                       color={row.color}
                       minutes={minutesFor(categoryId)}
+                      enabled={enabledFor(categoryId)}
                       showReset={
                         row.id !== SLA_DEFAULT_CATEGORY_ROW_KEY && hasOverride(categoryId)
                       }
                       saving={saving}
                       onSave={(totalMinutes) => save(categoryId, totalMinutes, key)}
+                      onToggle={(nextEnabled) => void toggle(categoryId, nextEnabled, key)}
                       onReset={() => reset(categoryId, key)}
                       disabled={!available}
                     />
@@ -478,18 +536,23 @@ function SlaRuleRow({
   label,
   color,
   minutes,
+  enabled,
   showReset,
   saving,
   onSave,
+  onToggle,
   onReset,
   disabled = false,
 }: {
   label: string;
   color: string | null;
   minutes: number;
+  /** Tổ hợp này có đang dùng được không — xem ghi chú ở đầu file. */
+  enabled: boolean;
   showReset: boolean;
   saving: boolean;
   onSave: (totalMinutes: number) => void;
+  onToggle: (nextEnabled: boolean) => void;
   onReset: () => void;
   disabled?: boolean;
 }) {
@@ -516,7 +579,11 @@ function SlaRuleRow({
 
   return (
     <li className="flex items-center justify-between gap-3 rounded border border-[#dfe1e6] bg-white px-3 py-2">
-      <span className="flex min-w-0 flex-1 items-center gap-2 truncate text-sm font-semibold text-[#172b4d]">
+      <span
+        className={`flex min-w-0 flex-1 items-center gap-2 truncate text-sm font-semibold ${
+          enabled ? "text-[#172b4d]" : "text-[#97a0af] line-through"
+        }`}
+      >
         {palette ? (
           <span
             className="h-3 w-3 shrink-0 rounded-sm"
@@ -525,13 +592,16 @@ function SlaRuleRow({
         ) : null}
         <span className="min-w-0 truncate">{label}</span>
       </span>
+      {/* Tắt thì khoá luôn ô nhập thời hạn: một tổ hợp không dùng được thì đặt
+          thời hạn cho nó cũng vô nghĩa, và để mở là mời người ta nhập một con số
+          không bao giờ có tác dụng. */}
       <div className="flex shrink-0 items-center gap-1.5">
         <DurationDropdown
           value={hours}
           options={SLA_HOUR_OPTIONS}
           suffix="h"
           ariaLabel={`${label} — hours`}
-          disabled={disabled || saving}
+          disabled={disabled || saving || !enabled}
           onChange={(next) => commit(next, normalizeSlaMinutesForHours(next, mins))}
         />
         <DurationDropdown
@@ -539,10 +609,32 @@ function SlaRuleRow({
           options={minuteOptions}
           suffix="m"
           ariaLabel={`${label} — minutes`}
-          disabled={disabled || saving}
+          disabled={disabled || saving || !enabled}
           onChange={(next) => commit(hours, next)}
         />
       </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={`${label} — ${enabled ? "turn off" : "turn on"}`}
+        title={
+          enabled
+            ? "On — this priority can be used for this category"
+            : "Off — this priority cannot be chosen for this category"
+        }
+        disabled={disabled || saving}
+        onClick={() => onToggle(!enabled)}
+        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition disabled:opacity-50 ${
+          enabled ? "bg-[#0c66e4]" : "bg-[#c1c7d0]"
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+            enabled ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
+      </button>
       {showReset ? (
         <button
           type="button"

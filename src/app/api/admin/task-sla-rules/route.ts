@@ -23,7 +23,7 @@ export async function GET() {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("task_sla_rules")
-    .select("id,priority,category_id,duration_minutes,updated_at");
+    .select("id,priority,category_id,duration_minutes,is_enabled,updated_at");
   if (error) return NextResponse.json({ error: "Could not load SLA rules." }, { status: 500 });
 
   return NextResponse.json({ rules: data ?? [] });
@@ -67,12 +67,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "SLA rule version is required." }, { status: 400 });
   }
 
+  // Thiếu `is_enabled` trong body thì giữ nguyên nghĩa cũ là ĐANG BẬT: client cũ
+  // chỉ gửi thời hạn, và không được vì thế mà vô tình tắt mất một tổ hợp.
+  const isEnabled = body?.is_enabled === undefined ? true : body.is_enabled === true;
+
   const { data, error } = await getSupabaseAdmin().rpc("save_task_sla_rule_atomic", {
     p_priority: priority,
     p_category_id: categoryId,
     p_duration_minutes: durationMinutes,
     p_expected_updated_at: expectedUpdatedAt,
     p_has_expected: true,
+    p_is_enabled: isEnabled,
   });
   if (error) return mapSlaMutationError(error);
   return NextResponse.json({ rule: data });

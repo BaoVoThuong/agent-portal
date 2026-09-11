@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, useMemo } from "react";
 import { Check, Paperclip, X } from "lucide-react";
 import {
   TASK_STATUSES,
   STATUS_LABEL,
   type TaskPriority,
   type TaskCategory,
+  type TaskSlaRule,
   type TaskStatus,
 } from "@/lib/tasks/types";
+import {
+  enabledPrioritiesForCategory,
+  resolvePriorityForCategory,
+} from "@/lib/tasks/priority-availability";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
@@ -73,6 +78,7 @@ export function NewTaskDialog({
   agentCandidates,
   myAgents,
   categories,
+  slaRules = [],
   detailColumns,
   tableColumnOptions,
   configuredColumnKeys,
@@ -93,6 +99,8 @@ export function NewTaskDialog({
   myAgents: string[];
   agentMembersByAgent: Record<string, string[]>;
   categories: TaskCategory[];
+  /** Mang theo nút bật/tắt của từng tổ hợp Category × Priority. */
+  slaRules?: TaskSlaRule[];
   detailColumns: TableColumn[];
   tableColumnOptions: TableColumnOption[];
   configuredColumnKeys: ReadonlySet<string>;
@@ -127,6 +135,24 @@ export function NewTaskDialog({
     }
   }, [open]);
   const categoryById = new Map(categories.map((category) => [category.id, category]));
+  // Mức ưu tiên còn dùng được cho loại việc đang chọn. Đổi category thì danh
+  // sách đổi theo, và nếu mức đang chọn vừa bị tắt thì tự lùi về mức hợp lệ —
+  // để người dùng không bấm Save rồi mới nhận lỗi từ server.
+  const availablePriorities = useMemo(
+    () => enabledPrioritiesForCategory(categoryId || null, slaRules),
+    [categoryId, slaRules]
+  );
+
+  // Mức thực sự được gửi đi: tính ngay lúc render, KHÔNG đồng bộ bằng effect.
+  // Dùng effect ở đây nghĩa là render một nhịp với giá trị sai rồi mới sửa —
+  // vừa thừa một lượt vẽ, vừa là đúng thứ quy tắc set-state-in-effect ngăn.
+  //
+  // Người dùng không chọn được mức đã tắt (chúng bị ẩn khỏi danh sách), nên chỉ
+  // khi ĐỔI loại việc thì mức đang chọn mới có thể thành không hợp lệ — lúc đó
+  // hàm này tự lùi về mức hợp lệ gần nhất.
+  const effectivePriority =
+    resolvePriorityForCategory(priority, categoryId || null, slaRules) ?? priority;
+
   const categoryOptions = categories.map((category) => ({
     value: category.id,
     label: category.name,
@@ -233,7 +259,7 @@ export function NewTaskDialog({
         title: title.trim(),
         description: description.trim(),
         fub_link: fubLink.trim() || undefined,
-        priority,
+        priority: effectivePriority,
         agent_email: agentEmail,
         assignees: canPickAssignee ? selectedAssignees : undefined,
         category_id: categoryId,
@@ -446,7 +472,8 @@ export function NewTaskDialog({
                   required={requiredColumnKeys.has("priority")}
                 >
                   <TaskPrioritySelect
-                    value={priority}
+                    value={effectivePriority}
+                    availablePriorities={availablePriorities}
                     onChange={setPriority}
                     menuClassName="min-w-full"
                     buttonClassName={isInvalid("priority") ? INVALID_RING_CLASS : ""}

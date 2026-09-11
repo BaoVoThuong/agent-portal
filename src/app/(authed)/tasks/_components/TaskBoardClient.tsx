@@ -2212,6 +2212,7 @@ export function TaskBoardClient({
           myAgents={myAgents}
           agentMembersByAgent={agentMembersByAgent}
           categories={categories}
+          slaRules={slaRules}
           detailColumns={taskDetailColumns}
           tableColumnOptions={tableColumnOptions}
           configuredColumnKeys={configuredColumnKeys}
@@ -2227,6 +2228,7 @@ export function TaskBoardClient({
         <TaskDetailDrawer
           key={openTask.id}
           task={openTask}
+          slaRules={slaRules}
           canEdit={canEditOpen}
           canEditDueDate={canEditDueDateOpen}
           canAssign={canAssignOpen}

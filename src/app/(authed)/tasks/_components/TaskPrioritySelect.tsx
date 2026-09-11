@@ -14,6 +14,7 @@ export function TaskPrioritySelect({
   className = "",
   buttonClassName = "",
   menuClassName = "",
+  availablePriorities,
   onChange,
 }: {
   value: TaskPriority;
@@ -21,6 +22,13 @@ export function TaskPrioritySelect({
   className?: string;
   buttonClassName?: string;
   menuClassName?: string;
+  /**
+   * Chỉ những mức này được chọn. Bỏ trống = cho chọn tất cả.
+   *
+   * Admin tắt một tổ hợp Category × Priority trong SLA Times thì mức đó biến mất
+   * khỏi danh sách, chứ không hiện ra rồi báo lỗi sau khi bấm Save.
+   */
+  availablePriorities?: readonly TaskPriority[];
   onChange: (value: TaskPriority) => void;
 }) {
   const { isOpen, setIsOpen, toggle, triggerRef, menuRef, menuStyle } =
@@ -69,7 +77,14 @@ export function TaskPrioritySelect({
               style={menuStyle}
               className={`z-[100] min-w-[18rem] overflow-auto rounded border border-[#dfe1e6] bg-white p-1.5 shadow-[0_12px_32px_rgba(9,30,66,0.22)] ${menuClassName}`}
             >
-              {PICKER_PRIORITIES.map((priority) => {
+              {PICKER_PRIORITIES.filter(
+                (priority) =>
+                  !availablePriorities ||
+                  availablePriorities.includes(priority) ||
+                  // Giá trị đang chọn luôn hiện, kể cả khi vừa bị tắt: task cũ
+                  // phải đọc được đúng thứ nó đang mang.
+                  priority === value
+              ).map((priority) => {
                 const meta = PRIORITY_META[priority];
                 const selected = priority === value;
                 return (
