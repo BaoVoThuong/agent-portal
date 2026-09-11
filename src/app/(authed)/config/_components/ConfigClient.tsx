@@ -22,6 +22,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronDown,
+  BellRing,
   Clock,
   GripVertical,
   Plus,
@@ -80,7 +81,9 @@ import {
   recommendDropdownValueColor,
   tableColumnOptionBadgePalette,
 } from "@/lib/table-config/value-colors";
+import type { LeadAlertSettings } from "@/lib/leads/types";
 import { ConfigSlaSection } from "./ConfigSlaSection";
+import ConfigAlertSection from "./ConfigAlertSection";
 import { isConfigMutationWarning } from "@/lib/table-config/partial-success";
 import { isLatestRefresh, readRefreshResponse } from "@/lib/table-config/refresh-state";
 
@@ -90,7 +93,7 @@ type AssistantMember = {
   is_assistant: boolean;
 };
 
-type Tab = "table" | "value" | "assistant" | "sla";
+type Tab = "table" | "value" | "assistant" | "sla" | "alert";
 const ALL_TABS: readonly Tab[] = ["table", "value", "assistant", "sla"];
 /**
  * Scope chưa materialise thì cột của nó còn mang id giả `system-<scope>-<key>`
@@ -100,8 +103,11 @@ const ALL_TABS: readonly Tab[] = ["table", "value", "assistant", "sla"];
 const SCOPE_NOT_READY_ERROR =
   "This table is using a migration fallback. Editing is disabled until the schema is applied.";
 
-/** Lead không có Categories, Assistant membership hay SLA. */
-const LEAD_TABS: readonly Tab[] = ["table", "value"];
+/**
+ * Lead không có Categories, Assistant membership hay SLA, nhưng có ngưỡng cảnh
+ * báo riêng — thứ trước 2026-09-11 nằm lạc trong trang Settings cá nhân.
+ */
+const LEAD_TABS: readonly Tab[] = ["table", "value", "alert"];
 
 /**
  * Tab theo SCOPE đang chọn, không theo trang. Một màn hình nay phục vụ cả bốn
@@ -185,6 +191,7 @@ type ConfigSectionStatuses = {
   categories: ConfigSectionStatus;
   assistants: ConfigSectionStatus;
   sla: ConfigSectionStatus;
+  leadAlerts: ConfigSectionStatus;
   enrollmentOptions: Record<TableScope, ConfigSectionStatus>;
 };
 
@@ -202,6 +209,7 @@ export function ConfigClient({
   initialSlaRules,
   initialOptionData,
   initialLeadVocabulary = EMPTY_LEAD_VOCABULARY,
+  initialLeadAlertSettings = [],
   sectionStatus,
 }: {
   title: string;
@@ -226,9 +234,11 @@ export function ConfigClient({
   initialOptionData: Record<EnrollmentProgram, EnrollmentOptionData>;
   /** Only the Lead config page passes this; every other scope ignores it. */
   initialLeadVocabulary?: LeadVocabulary;
+  initialLeadAlertSettings?: LeadAlertSettings[];
   sectionStatus: ConfigSectionStatuses;
 }) {
   const [tab, setTab] = useState<Tab>("table");
+  const [leadAlertSettings, setLeadAlertSettings] = useState(initialLeadAlertSettings);
   const [assistantSettingsView, setAssistantSettingsView] =
     useState<AssistantSettingsView>("agents");
   const [scope, setScope] = useState<TableScope>(scopes[0] ?? "cs");
@@ -421,6 +431,11 @@ export function ConfigClient({
                 <Clock className="h-4 w-4" /> SLA Times
               </TabButton>
             ) : null}
+            {tabs.includes("alert") ? (
+              <TabButton active={tab === "alert"} onClick={() => setTab("alert")}>
+                <BellRing className="h-4 w-4" /> Alert Settings
+              </TabButton>
+            ) : null}
           </div>
           {tab === "assistant" ? (
             <div className="w-[220px]">
@@ -504,6 +519,14 @@ export function ConfigClient({
               setMembers={setMembers}
               onAgentsChange={setAgents}
               settingsView={assistantSettingsView}
+            />
+          ) : null}
+          {tab === "alert" ? (
+            <ConfigAlertSection
+              settings={leadAlertSettings}
+              onSettingsChange={setLeadAlertSettings}
+              available={sectionStatus.leadAlerts.available}
+              availabilityError={sectionStatus.leadAlerts.error}
             />
           ) : null}
           {tab === "sla" ? (

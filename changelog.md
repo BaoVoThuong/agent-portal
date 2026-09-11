@@ -6,6 +6,32 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-11 — Alert settings chuyển về Table Configuration, dọn trang Settings
+
+`/settings` là trang CÁ NHÂN — đổi tên, đổi mật khẩu, bật thông báo cho máy mình.
+Nhưng nó đang chứa hai thứ không thuộc về đó, và người dùng mở lên không hiểu
+chúng là gì.
+
+**Lead alerts → `/config` → tab "Alert Settings"** (chỉ hiện ở bảng Event Leads).
+Ba ngưỡng no-contact / stale / max-attempts là chính sách áp cho cả công ty, nên
+nằm cạnh các cấu hình toàn cục khác thì đúng chỗ và dễ tìm hơn. Logic và API giữ
+nguyên; chỉ đổi nơi đặt, nên không ai mất quyền hay mất dữ liệu.
+
+**Xoá khối "Lead vocabulary"** khỏi Settings — nó chỉ là một tấm biển chỉ đường
+ghi "statuses và interaction types giờ nằm ở Table Configuration". Một đoạn chữ
+không làm được gì thì không đáng chiếm chỗ trong trang.
+
+Nhân tiện dọn: `canManageLeads` không còn ai dùng ở Settings nên bỏ khỏi cả
+component lẫn page, kèm truy vấn `lead_alert_settings` nay đã chuyển sang
+`/config/page.tsx`.
+
+**Ngôn ngữ giao diện về lại tiếng Anh** cho thẻ Desktop notifications và tab
+Alert Settings — phần còn lại của portal đều tiếng Anh, hai khối này lệch ra.
+Ghi chú trong mã nguồn vẫn giữ tiếng Việt như quy ước của repo.
+
+Kiểm chứng: `npx tsc --noEmit` sạch, `npx vitest run` 1225 pass / 0 fail,
+`npm run build` thành công, eslint 0 error.
+
 ## 2026-09-10 — Web Push: thông báo đẩy ra ngoài trình duyệt
 
 Trước đây thông báo chỉ tồn tại khi tab đang mở: `broadcastNotif` bắn tín hiệu

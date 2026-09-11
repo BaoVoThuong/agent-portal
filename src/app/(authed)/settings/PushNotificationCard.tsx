@@ -63,13 +63,13 @@ export default function PushNotificationCard({
       if (enabled) {
         await disablePush();
         setEnabled(false);
-        setMessage("Đã tắt thông báo trên máy này.");
+        setMessage("Notifications turned off on this device.");
         return;
       }
       const result = await enablePush(vapidPublicKey);
       if (result.ok) {
         setEnabled(true);
-        setMessage("Đã bật. Thử đóng tab portal rồi nhờ ai đó bình luận vào task của bạn.");
+        setMessage("Turned on. Try closing every portal tab, then have someone comment on one of your tasks.");
         return;
       }
       setError(result.message);
@@ -85,17 +85,17 @@ export default function PushNotificationCard({
       <div className="border-b border-[#e6eaf0] px-6 py-5">
         <h2 className="flex items-center gap-2 text-base font-semibold text-[#172b4d]">
           <BellRing className="h-4 w-4 text-[#0c66e4]" />
-          Thông báo ngoài trình duyệt
+          Desktop notifications
         </h2>
         <p className="mt-1 text-sm text-[#6b778c]">
-          Nhận thông báo ngay trên màn hình kể cả khi đã đóng tab portal. Bật riêng
-          cho từng máy bạn dùng.
+          Get notified on your screen even when every portal tab is closed. Turn
+          this on separately for each device you use.
         </p>
       </div>
 
       <div className="px-6 py-5">
         {!ready ? (
-          <p className="text-sm text-[#6b778c]">Đang kiểm tra…</p>
+          <p className="text-sm text-[#6b778c]">Checking…</p>
         ) : unsupportedReason ? (
           <p className="text-sm text-[#6b778c]">{unsupportedReason}</p>
         ) : (
@@ -112,10 +112,10 @@ export default function PushNotificationCard({
                 }`}
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {enabled ? "Tắt trên máy này" : "Bật trên máy này"}
+                {enabled ? "Turn off on this device" : "Turn on for this device"}
               </button>
               <span className="text-sm text-[#6b778c]">
-                {enabled ? "Đang bật cho máy này." : "Đang tắt."}
+                {enabled ? "On for this device." : "Off."}
               </span>
             </div>
 
@@ -123,8 +123,8 @@ export default function PushNotificationCard({
                 cho hỏi lại. Chỉ còn cách chỉ người dùng tự mở khoá. */}
             {permission === "denied" ? (
               <p className="mt-3 rounded-md bg-[#fff7f5] px-3 py-2 text-sm text-[#a3473c]">
-                Trình duyệt đang chặn thông báo cho trang này. Bấm vào biểu tượng ổ khoá
-                cạnh thanh địa chỉ → Notifications → Allow, rồi tải lại trang.
+                Your browser is blocking notifications for this site. Click the lock
+                icon next to the address bar → Notifications → Allow, then reload.
               </p>
             ) : null}
 
@@ -138,9 +138,9 @@ export default function PushNotificationCard({
             {/* Cạm bẫy hay gặp nhất trên máy Mac: web đã cấp quyền nhưng hệ điều
                 hành vẫn chặn, và không có tín hiệu nào báo cho người dùng biết. */}
             <p className="mt-4 text-xs text-[#6b778c]">
-              Dùng macOS: nếu đã bật mà vẫn không thấy gì, kiểm tra
-              <span className="font-semibold"> System Settings → Notifications → Chrome</span> và
-              tắt chế độ Focus.
+              On macOS: if this is on but nothing shows up, check
+              <span className="font-semibold"> System Settings → Notifications → Chrome</span> and
+              turn off Focus.
             </p>
           </>
         )}

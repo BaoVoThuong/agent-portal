@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   const p256dh = readString(body?.subscription?.keys?.p256dh, 500);
   const authKey = readString(body?.subscription?.keys?.auth, 500);
   if (!endpoint || !p256dh || !authKey) {
-    return NextResponse.json({ error: "Đăng ký thông báo không hợp lệ." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid notification subscription." }, { status: 400 });
   }
 
   // upsert theo endpoint: cùng một máy đăng ký lại (đổi khoá VAPID, cài lại
@@ -69,7 +69,7 @@ export async function DELETE(request: Request) {
   const body = (await request.json().catch(() => null)) as { endpoint?: unknown } | null;
   const endpoint = readString(body?.endpoint, 2000);
   if (!endpoint) {
-    return NextResponse.json({ error: "Thiếu endpoint." }, { status: 400 });
+    return NextResponse.json({ error: "Missing endpoint." }, { status: 400 });
   }
 
   // Chỉ xoá được đăng ký CỦA MÌNH: biết endpoint của người khác cũng không tắt

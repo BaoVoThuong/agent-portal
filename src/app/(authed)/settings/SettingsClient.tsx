@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { Badge, CheckCircle2, LockKeyhole, Mail, UserRound } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import type { LeadAlertSettings, LeadProduct } from "@/lib/leads/types";
 import PushNotificationCard from "./PushNotificationCard";
 
 type SettingsClientProps = {
@@ -13,8 +12,6 @@ type SettingsClientProps = {
     agentId: string | null;
     hasLocalPassword: boolean;
   };
-  canManageLeads: boolean;
-  initialLeadSettings: LeadAlertSettings[];
   vapidPublicKey: string;
 };
 
@@ -27,8 +24,6 @@ function initials(name: string, email: string): string {
 
 export default function SettingsClient({
   profile,
-  canManageLeads,
-  initialLeadSettings,
   vapidPublicKey,
 }: SettingsClientProps) {
   const router = useRouter();
@@ -43,10 +38,6 @@ export default function SettingsClient({
   const [profileError, setProfileError] = useState<string | null>(null);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [leadSettings, setLeadSettings] = useState(initialLeadSettings);
-  const [savingLeadProduct, setSavingLeadProduct] = useState<LeadProduct | null>(null);
-  const [leadSettingsMessage, setLeadSettingsMessage] = useState<string | null>(null);
-  const [leadSettingsError, setLeadSettingsError] = useState<string | null>(null);
 
   async function handleProfileSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -117,36 +108,6 @@ export default function SettingsClient({
     } finally {
       setIsSavingPassword(false);
     }
-  }
-
-  async function saveLeadSettings(product: LeadProduct) {
-    const setting = leadSettings.find((row) => row.product === product);
-    if (!setting || savingLeadProduct) return;
-    setSavingLeadProduct(product);
-    setLeadSettingsError(null);
-    setLeadSettingsMessage(null);
-    try {
-      const response = await fetch("/api/leads/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(setting),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error ?? "Unable to update lead alerts.");
-      if (payload?.setting) {
-        setLeadSettings((current) => current.map((row) => row.product === product ? payload.setting as LeadAlertSettings : row));
-      }
-      setLeadSettingsMessage(`${product === "pc" ? "P&C" : "Health"} lead alerts updated.`);
-    } catch (error) {
-      setLeadSettingsError(error instanceof Error ? error.message : "Unable to update lead alerts.");
-    } finally {
-      setSavingLeadProduct(null);
-    }
-  }
-
-  function updateLeadSetting(product: LeadProduct, key: "no_contact_hours" | "stale_days" | "max_attempts", value: string) {
-    const parsed = Number(value);
-    setLeadSettings((current) => current.map((row) => row.product === product ? { ...row, [key]: Number.isFinite(parsed) ? parsed : 0 } : row));
   }
 
   return (
@@ -331,52 +292,6 @@ export default function SettingsClient({
             </div>
           </form>
         </div>
-        {canManageLeads && (
-          <section className="mt-6 rounded-lg border border-[#d8dee7] bg-white">
-            <div className="border-b border-[#e6eaf0] px-6 py-5">
-              <h2 className="text-base font-semibold text-[#172b4d]">Lead alerts</h2>
-              <p className="mt-1 text-sm text-[#6b778c]">Set when an active lead should be called out for manager attention.</p>
-            </div>
-            <div className="grid gap-5 px-6 py-6 xl:grid-cols-2">
-              {(["pc", "health"] as const).map((product) => {
-                const setting = leadSettings.find((row) => row.product === product);
-                if (!setting) return null;
-                return (
-                  <div key={product} className="rounded-lg border border-[#e6eaf0] bg-[#f7f8fa] p-4">
-                    <h3 className="font-semibold text-[#172b4d]">{product === "pc" ? "P&C" : "Health"}</h3>
-                    <div className="mt-4 grid gap-4">
-                      <label className="block"><span className="text-xs font-bold text-[#6b778c]">No-contact window (hours)</span><input className="mt-1 w-full rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm" type="number" min={1} step={1} value={setting.no_contact_hours} onChange={(event) => updateLeadSetting(product, "no_contact_hours", event.target.value)} /><span className="mt-1 block text-xs text-[#6b778c]">Report red if a lead is assigned this long without a contact.</span></label>
-                      <label className="block"><span className="text-xs font-bold text-[#6b778c]">Stale window (days)</span><input className="mt-1 w-full rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm" type="number" min={1} step={1} value={setting.stale_days} onChange={(event) => updateLeadSetting(product, "stale_days", event.target.value)} /><span className="mt-1 block text-xs text-[#6b778c]">Report red when a contacted lead has been quiet this long.</span></label>
-                      <label className="block"><span className="text-xs font-bold text-[#6b778c]">Maximum attempts</span><input className="mt-1 w-full rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm" type="number" min={1} step={1} value={setting.max_attempts} onChange={(event) => updateLeadSetting(product, "max_attempts", event.target.value)} /><span className="mt-1 block text-xs text-[#6b778c]">Report amber after this many contact attempts.</span></label>
-                    </div>
-                    <div className="mt-4 flex justify-end"><button type="button" className="rounded-md bg-[#0c66e4] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={savingLeadProduct !== null} onClick={() => void saveLeadSettings(product)}>{savingLeadProduct === product ? "Saving..." : "Save alert settings"}</button></div>
-                  </div>
-                );
-              })}
-            </div>
-            {leadSettingsError && <p className="mx-6 mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{leadSettingsError}</p>}
-            {leadSettingsMessage && <p className="mx-6 mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">{leadSettingsMessage}</p>}
-          </section>
-        )}
-        {canManageLeads && (
-          <section className="mt-6 rounded-lg border border-[#d8dee7] bg-white">
-            <div className="px-6 py-5">
-              <h2 className="text-base font-semibold text-[#172b4d]">Lead vocabulary</h2>
-              {/* Statuses and interaction types are dropdown values, and every
-                  other dropdown value in the app is set up under Table
-                  Configuration. Two editors writing the same rows is how the
-                  two lists drift apart, so this one points at the other. */}
-              <p className="mt-1 text-sm text-[#6b778c]">
-                Statuses and interaction types now live with every other dropdown value, under{" "}
-                <a className="font-semibold text-[#0c66e4] hover:underline" href="/config">
-                  Table Configuration → Dropdown Values
-                </a>
-                .
-              </p>
-            </div>
-          </section>
-        )}
-
         <PushNotificationCard vapidPublicKey={vapidPublicKey} />
       </div>
     </div>

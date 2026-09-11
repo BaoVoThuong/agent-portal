@@ -30,6 +30,7 @@ import {
   type EnrollmentProgram,
 } from "@/lib/enrollment/types";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
+import type { LeadAlertSettings } from "@/lib/leads/types";
 import { emptyEnrollmentOptionData } from "./empty-option-data";
 import { ConfigClient, type ConfigSectionStatus } from "./_components/ConfigClient";
 
@@ -101,6 +102,7 @@ export default async function ConfigPage() {
     slaRulesResult,
     enrollmentOptionResults,
     leadVocabularyResult,
+    leadAlertResult,
   ] = await Promise.all([
     loadOptional("Table columns", () => fetchAllTableColumns(supabase)),
     loadOptional("Custom dropdown values", () => fetchAllTableColumnOptions(supabase)),
@@ -153,6 +155,17 @@ export default async function ConfigPage() {
     loadOptional("Lead vocabulary", async () =>
       needsLeadData ? fetchLeadVocabulary(supabase) : undefined
     ),
+    // Ngưỡng cảnh báo lead — chuyển từ /settings sang đây 2026-09-11. Chỉ nạp
+    // khi người này thực sự thấy bảng Event Leads.
+    loadOptional("Lead alert settings", async () => {
+      if (!needsLeadData) return [] as LeadAlertSettings[];
+      const result = await supabase
+        .from("lead_alert_settings")
+        .select("product,no_contact_hours,stale_days,max_attempts")
+        .order("product");
+      if (result.error) throw new Error(result.error.message);
+      return (result.data ?? []) as LeadAlertSettings[];
+    }),
   ]);
 
   if (!columnsResult.ok) throw new Error(columnsResult.error);
@@ -188,6 +201,7 @@ export default async function ConfigPage() {
     })
   ) as Record<EnrollmentProgram, EnrollmentOptionData>;
   const leadVocabulary = leadVocabularyResult.ok ? leadVocabularyResult.data : undefined;
+  const leadAlertSettings = leadAlertResult.ok ? leadAlertResult.data : [];
 
   return (
     <ConfigClient
@@ -210,6 +224,7 @@ export default async function ConfigPage() {
       initialCategories={categoryRows as TaskCategory[]}
       initialSlaRules={slaRows as TaskSlaRule[]}
       initialLeadVocabulary={leadVocabulary}
+      initialLeadAlertSettings={leadAlertSettings}
       initialOptionData={optionDataByProgram}
       sectionStatus={{
         columns: {
@@ -237,6 +252,10 @@ export default async function ConfigPage() {
         sla: {
           available: slaRulesResult.ok,
           error: slaRulesResult.ok ? undefined : slaRulesResult.error,
+        },
+        leadAlerts: {
+          available: leadAlertResult.ok,
+          error: leadAlertResult.ok ? undefined : leadAlertResult.error,
         },
         enrollmentOptions: {
           cs: { available: true },

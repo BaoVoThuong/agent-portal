@@ -22,20 +22,20 @@ const SUBSCRIBE_ENDPOINT = "/api/notifications/push/subscribe";
 
 export function checkPushSupport(): PushSupport {
   if (typeof window === "undefined") {
-    return { supported: false, reason: "Không chạy trên trình duyệt." };
+    return { supported: false, reason: "Not running in a browser." };
   }
   if (!("serviceWorker" in navigator)) {
-    return { supported: false, reason: "Trình duyệt này không hỗ trợ service worker." };
+    return { supported: false, reason: "This browser does not support service workers." };
   }
   if (!("PushManager" in window)) {
-    return { supported: false, reason: "Trình duyệt này không hỗ trợ Web Push." };
+    return { supported: false, reason: "This browser does not support Web Push." };
   }
   if (!("Notification" in window)) {
-    return { supported: false, reason: "Trình duyệt này không hỗ trợ thông báo." };
+    return { supported: false, reason: "This browser does not support notifications." };
   }
   // Web Push đòi HTTPS. localhost được miễn nên vẫn test local được.
   if (!window.isSecureContext) {
-    return { supported: false, reason: "Cần HTTPS để bật thông báo." };
+    return { supported: false, reason: "Notifications require HTTPS." };
   }
   return { supported: true };
 }
@@ -81,7 +81,7 @@ export async function enablePush(vapidPublicKey: string): Promise<EnablePushResu
     return {
       ok: false,
       reason: "failed",
-      message: "Máy chủ chưa cấu hình khoá VAPID.",
+      message: "The server has no VAPID key configured.",
     };
   }
 
@@ -91,7 +91,7 @@ export async function enablePush(vapidPublicKey: string): Promise<EnablePushResu
       ok: false,
       reason: "denied",
       message:
-        "Trình duyệt đang chặn thông báo. Mở phần cài đặt quyền của trang này để cho phép, rồi thử lại.",
+        "Your browser is blocking notifications. Allow them in this site's permission settings, then try again.",
     };
   }
 
@@ -122,7 +122,7 @@ export async function enablePush(vapidPublicKey: string): Promise<EnablePushResu
       return {
         ok: false,
         reason: "failed",
-        message: detail?.error ?? "Không lưu được đăng ký thông báo.",
+        message: detail?.error ?? "Could not save the notification subscription.",
       };
     }
 
@@ -131,7 +131,7 @@ export async function enablePush(vapidPublicKey: string): Promise<EnablePushResu
     return {
       ok: false,
       reason: "failed",
-      message: error instanceof Error ? error.message : "Bật thông báo thất bại.",
+      message: error instanceof Error ? error.message : "Could not turn on notifications.",
     };
   }
 }
