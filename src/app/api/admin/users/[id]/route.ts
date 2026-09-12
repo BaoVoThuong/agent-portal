@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
+import {
+  canAssignManager,
+  ORG_ASSIGN_MESSAGE,
+  type OrgPerson,
+} from "@/lib/org-chart/tree";
 import type { UserRole } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { assignDefaultRoleToUser } from "@/lib/rbac/access";
@@ -192,7 +197,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const { id } = await context.params;
-    const { email, name, role, roleIds, is_active, password, agentId } =
+    const { email, name, role, roleIds, is_active, password, agentId, managerId } =
       await req.json();
     const selectedRoleIds = Array.isArray(roleIds)
       ? roleIds.filter((item): item is string => typeof item === "string")
@@ -205,7 +210,8 @@ export async function PATCH(req: Request, context: RouteContext) {
         roleIds !== undefined ||
         is_active !== undefined ||
         password !== undefined ||
-        agentId !== undefined) &&
+        agentId !== undefined ||
+        managerId !== undefined) &&
       !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
     ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -248,7 +254,42 @@ export async function PATCH(req: Request, context: RouteContext) {
       role?: UserRole;
       is_active?: boolean;
       password_hash?: string;
+      manager_id?: string | null;
     } = {};
+
+    // Sơ đồ tổ chức. `null` là gỡ người này lên làm gốc — khác hẳn `undefined`,
+    // nghĩa là lần PATCH này không đụng tới quan hệ quản lý.
+    //
+    // Kiểm bằng ĐÚNG hàm mà giao diện kéo thả dùng, nên hai bên không thể bất
+    // đồng về việc thế nào là hợp lệ. Database còn một trigger chặn vòng nữa —
+    // đó mới là lớp không thể đi vòng — nhưng kiểm ở đây cho ra câu báo lỗi
+    // đọc được, thay vì một mã lỗi Postgres.
+    if (managerId !== undefined) {
+      const nextManagerId =
+        typeof managerId === "string" && managerId.trim() !== ""
+          ? managerId.trim()
+          : null;
+
+      const { data: orgRows, error: orgError } = await supabase
+        .from(PORTAL_ACCOUNT_TABLE)
+        .select("id,email,name,manager_id,is_active");
+      if (orgError) {
+        return NextResponse.json({ error: orgError.message }, { status: 500 });
+      }
+
+      const verdict = canAssignManager(
+        (orgRows ?? []) as unknown as OrgPerson[],
+        id,
+        nextManagerId
+      );
+      if (!verdict.ok) {
+        return NextResponse.json(
+          { error: ORG_ASSIGN_MESSAGE[verdict.reason] },
+          { status: 400 }
+        );
+      }
+      updates.manager_id = nextManagerId;
+    }
 
     if (email !== undefined) {
       const normalizedEmail =

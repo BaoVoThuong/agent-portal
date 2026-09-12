@@ -11,4 +11,10 @@ export type AccountUser = {
   role: UserRole;
   is_active: boolean;
   created_at: string;
+  /**
+   * Quản lý trực tiếp, trỏ tới portal_account.id. null = đứng đầu sơ đồ.
+   * Quan hệ này KHÁC `agent_members` — bảng đó nói ai làm task của agent nào,
+   * còn cột này nói ai báo cáo cho ai.
+   */
+  manager_id?: string | null;
 };
