@@ -6,6 +6,25 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-12 — Trần đính kèm mỗi bình luận: 10 tệp / 50MB → 50 tệp / 250MB
+
+Yêu cầu là "cho đính kèm 50 ảnh trong một bình luận". Nâng mỗi `maxFiles` thì
+KHÔNG đủ: `maxAggregateBytes` được kiểm **trước** `maxFiles` (thứ tự cố ý, vì
+mười tệp cỡ tối đa vượt trần tổng gấp ba lần). Để 50 tệp mà giữ trần tổng 50MB
+thì mỗi tệp chỉ còn trung bình 1MB — ảnh điện thoại 2-5MB sẽ bị chặn ở khoảng
+10-25 tấm, kèm thông báo "quá dung lượng" thay vì "quá số lượng", và con số 50
+thành vô nghĩa. Nên nâng cả hai: 250MB = 50 × 5MB.
+
+Trần MỖI TỆP giữ nguyên 15MB, nên vẫn không ai tải nổi 50 × 15MB. Tải lên là
+mỗi tệp một request và server kiểm lại tổng của những tệp đã lưu cho bình luận
+đó, nên nâng trần tổng không tạo ra request khổng lồ nào.
+
+Trần áp cho **mọi loại tệp đính kèm**, không riêng ảnh — giới hạn này vốn không
+phân biệt loại.
+
+`LIMITS` là nguồn sự thật duy nhất cho cả client lẫn server, và mọi thông báo
+lỗi đều sinh ra từ nó, nên không có chỗ nào viết cứng số cũ cần sửa theo.
+
 ## 2026-09-12 — Thêm stage Billing, bỏ cột Cancel khỏi board
 
 Task nay có thêm một chặng **Billing**, nằm giữa Waiting và Done. Đây là chặng
