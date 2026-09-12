@@ -6,6 +6,31 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-12 — Ngưng loại nghỉ Sick Leave
+
+Đội không dùng Sick Leave nữa. Không tạo đơn Sick mới được, và loại này biến
+mất khỏi ô chọn lẫn bảng quỹ ngày.
+
+**Ngưng hoạt động chứ KHÔNG xoá**, đúng khuôn đã dùng cho 'personal' trước đây.
+`time_off_requests.policy_code` và `time_off_balances.policy_code` tham chiếu
+dòng policy bằng `on delete restrict`, nên xoá vừa bị database chặn, vừa là xoá
+1.505 đơn trong lịch sử.
+
+Chặn ở hai lớp: cờ `is_active` dưới database, và danh sách cứng trong
+`POST /api/time-off`. Hai lớp phải cùng đồng ý thì một loại nghỉ mới dùng được.
+
+**Hệ quả cần biết: 43 đơn Sick đang chờ duyệt nay KHÔNG duyệt được nữa.**
+`approve_time_off_request` tra policy kèm điều kiện `and is_active` và ném
+TIME_OFF_POLICY_NOT_FOUND nếu không thấy. Từ chối và huỷ vẫn chạy bình thường
+(hai thao tác đó là UPDATE thẳng, không qua RPC), nên admin vẫn dọn được và
+không ai kẹt vĩnh viễn. Rollout cố ý KHÔNG tự huỷ 43 đơn đó — đóng đơn của
+người khác hàng loạt là quyết định của đội, câu lệnh để sẵn dạng ghi chú.
+
+Icon của Sick trong `TimeOffClient` được giữ lại: đơn cũ vẫn phải hiện đúng
+biểu tượng khi xem lịch sử.
+
+Rollout `supabase/rollouts/2026-09-12-time-off-remove-sick-leave.sql` — đã chạy.
+
 ## 2026-09-12 — Bỏ phụ tá khỏi bảng CS workload overview
 
 Phụ tá (`agent_members.is_assistant`) không còn là một dòng trên bảng workload

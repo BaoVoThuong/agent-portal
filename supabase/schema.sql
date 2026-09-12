@@ -6845,11 +6845,15 @@ on conflict (code) do update set
   is_active = true,
   updated_at = now();
 
--- Keep any historic Personal Day requests intact, but remove it from all new
--- requests and balance views now that the company uses only three leave types.
+-- Giữ nguyên mọi đơn cũ của các loại nghỉ đã ngưng, nhưng bỏ chúng khỏi màn
+-- hình tạo đơn và khỏi bảng quỹ ngày. Dòng policy PHẢI ở lại: time_off_requests
+-- và time_off_balances tham chiếu nó bằng `on delete restrict`, nên xoá dòng là
+-- xoá luôn lịch sử.
+--
+-- 'personal' ngưng từ trước; 'sick' ngưng ngày 2026-09-12 theo yêu cầu của đội.
 update time_off_policies
 set is_active = false, updated_at = now()
-where code = 'personal';
+where code in ('personal', 'sick');
 
 create table if not exists time_off_balances (
   account_id uuid not null references portal_account(id) on delete cascade,

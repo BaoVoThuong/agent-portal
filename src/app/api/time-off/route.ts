@@ -96,7 +96,11 @@ export async function GET(request: Request) {
     .eq("is_active", true)
     .maybeSingle();
   if (policyError) return error(policyError.message, 500);
-  if (!policy || !["vacation", "sick", "unpaid"].includes(policy.code)) {
+  // Danh sách này chặn TẠO MỚI, và cố ý tách khỏi cờ `is_active` ở database:
+  // hai lớp phải cùng đồng ý thì một loại nghỉ mới dùng được. Loại đã ngưng vẫn
+  // giữ nguyên trong bảng và trong đơn cũ — bỏ hẳn dòng policy sẽ vi phạm khoá
+  // ngoại `on delete restrict` từ time_off_requests và xoá mất lịch sử.
+  if (!policy || !["vacation", "unpaid"].includes(policy.code)) {
     return error("This time-off type is no longer available.");
   }
 
@@ -159,7 +163,7 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (policyError) return error(policyError.message, 500);
   if (!policy) return error("This time-off type is no longer available.");
-  if (!["vacation", "sick", "unpaid"].includes(policy.code)) {
+  if (!["vacation", "unpaid"].includes(policy.code)) {
     return error("This time-off type is no longer available.");
   }
 
