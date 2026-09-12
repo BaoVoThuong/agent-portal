@@ -11,13 +11,10 @@ import {
 } from "@/lib/tasks/sla";
 import {
   REMINDER_FIELDS,
-  SLA_DEFAULT_CATEGORY_ROW_KEY,
   SLA_HOUR_OPTIONS,
   SLA_PRIORITY_ORDER,
   TASK_PRIORITY_LABEL,
   isSlaDurationInBounds,
-  normalizeSlaMinutesForHours,
-  slaMinuteOptionsForHours,
 } from "@/lib/tasks/sla-config";
 import { taskCategoryPalette } from "@/lib/tasks/category-colors";
 import { isPriorityEnabledForCategory } from "@/lib/tasks/priority-availability";
@@ -40,6 +37,8 @@ type SettingsView = "priority" | "reminders";
 function formatDuration(minutes: number): string {
   return formatDurationMinutes(minutes);
 }
+
+const SLA_HOUR_ONLY_OPTIONS = SLA_HOUR_OPTIONS.filter((hours) => hours > 0);
 
 export function ConfigSlaSection({
   categories,
@@ -80,11 +79,6 @@ export function ConfigSlaSection({
       return next;
     });
   }
-
-  const rows = [
-    { id: SLA_DEFAULT_CATEGORY_ROW_KEY, name: "Default (no category)", color: null },
-    ...categories,
-  ];
 
   useEffect(() => {
     let ignore = false;
@@ -133,6 +127,10 @@ export function ConfigSlaSection({
   function enabledFor(categoryId: string | null): boolean {
     return isPriorityEnabledForCategory(priority, categoryId, rules);
   }
+
+  const rows = [...categories].sort(
+    (left, right) => Number(enabledFor(right.id)) - Number(enabledFor(left.id))
+  );
 
   /**
    * Bật/tắt một tổ hợp.
@@ -397,8 +395,7 @@ export function ConfigSlaSection({
             <>
               <ul className="space-y-1.5">
                 {rows.map((row) => {
-                  const categoryId =
-                    row.id === SLA_DEFAULT_CATEGORY_ROW_KEY ? null : row.id;
+                  const categoryId = row.id;
                   const key = `${priority}:${row.id}`;
                   const saving = savingKeys.has(key);
                   return (
@@ -408,9 +405,7 @@ export function ConfigSlaSection({
                       color={row.color}
                       minutes={minutesFor(categoryId)}
                       enabled={enabledFor(categoryId)}
-                      showReset={
-                        row.id !== SLA_DEFAULT_CATEGORY_ROW_KEY && hasOverride(categoryId)
-                      }
+                      showReset={hasOverride(categoryId)}
                       saving={saving}
                       onSave={(totalMinutes) => save(categoryId, totalMinutes, key)}
                       onToggle={(nextEnabled) => void toggle(categoryId, nextEnabled, key)}
@@ -422,7 +417,7 @@ export function ConfigSlaSection({
               </ul>
               <p className="mt-3 text-xs text-[#97a0af]">
                 System default: {formatDuration(DEFAULT_SLA_MINUTES[priority])}. Categories
-                without an override use the &quot;Default&quot; row above.
+                without an override use this system default.
               </p>
             </>
           ) : (
@@ -556,32 +551,27 @@ function SlaRuleRow({
   onReset: () => void;
   disabled?: boolean;
 }) {
-  const [hours, setHours] = useState(Math.floor(minutes / 60));
-  const [mins, setMins] = useState(minutes % 60);
+  const [hours, setHours] = useState(Math.max(1, Math.floor(minutes / 60)));
   const commitVersionRef = useRef(0);
-  const minuteOptions = slaMinuteOptionsForHours(hours);
   const palette = color
     ? taskCategoryPalette({ id: label, name: label, color })
     : null;
 
-  async function commit(nextHours: number, nextMins: number) {
+  async function commit(nextHours: number) {
     if (saving) return;
     const previousHours = hours;
-    const previousMins = mins;
     const commitVersion = ++commitVersionRef.current;
     setHours(nextHours);
-    setMins(nextMins);
-    const saved = await onSave(nextHours * 60 + nextMins);
+    const saved = await onSave(nextHours * 60);
     if (commitVersion !== commitVersionRef.current || saved) return;
     setHours(previousHours);
-    setMins(previousMins);
   }
 
   return (
     <li className="flex items-center justify-between gap-3 rounded border border-[#dfe1e6] bg-white px-3 py-2">
       <span
         className={`flex min-w-0 flex-1 items-center gap-2 truncate text-sm font-semibold ${
-          enabled ? "text-[#172b4d]" : "text-[#97a0af] line-through"
+          enabled ? "text-[#172b4d]" : "text-[#97a0af]"
         }`}
       >
         {palette ? (
@@ -592,27 +582,18 @@ function SlaRuleRow({
         ) : null}
         <span className="min-w-0 truncate">{label}</span>
       </span>
-      {/* Tắt thì khoá luôn ô nhập thời hạn: một tổ hợp không dùng được thì đặt
-          thời hạn cho nó cũng vô nghĩa, và để mở là mời người ta nhập một con số
-          không bao giờ có tác dụng. */}
-      <div className="flex shrink-0 items-center gap-1.5">
-        <DurationDropdown
-          value={hours}
-          options={SLA_HOUR_OPTIONS}
-          suffix="h"
-          ariaLabel={`${label} — hours`}
-          disabled={disabled || saving || !enabled}
-          onChange={(next) => commit(next, normalizeSlaMinutesForHours(next, mins))}
-        />
-        <DurationDropdown
-          value={mins}
-          options={minuteOptions}
-          suffix="m"
-          ariaLabel={`${label} — minutes`}
-          disabled={disabled || saving || !enabled}
-          onChange={(next) => commit(hours, next)}
-        />
-      </div>
+      {enabled ? (
+        <div className="flex shrink-0 items-center gap-1.5">
+          <DurationDropdown
+            value={hours}
+            options={SLA_HOUR_ONLY_OPTIONS}
+            suffix="h"
+            ariaLabel={`${label} — hours`}
+            disabled={disabled || saving}
+            onChange={commit}
+          />
+        </div>
+      ) : null}
       <button
         type="button"
         role="switch"

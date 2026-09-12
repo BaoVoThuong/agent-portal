@@ -46,6 +46,7 @@ const PRIMARY_TEXTAREA_CLASS =
   "min-h-[21rem] w-full resize-none rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
 const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
 const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
+const DEFAULT_NEW_TASK_PRIORITY: TaskPriority = "low";
 
 export type NewTaskPayload = {
   title: string;
@@ -113,7 +114,7 @@ export function NewTaskDialog({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [fubLink, setFubLink] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>("medium");
+  const [priority, setPriority] = useState<TaskPriority>(DEFAULT_NEW_TASK_PRIORITY);
   const [agentEmail, setAgentEmail] = useState("");
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [status, setStatus] = useState<TaskStatus>("todo");
@@ -153,10 +154,14 @@ export function NewTaskDialog({
   const effectivePriority =
     resolvePriorityForCategory(priority, categoryId || null, slaRules) ?? priority;
 
-  const categoryOptions = categories.map((category) => ({
-    value: category.id,
-    label: category.name,
-  }));
+  const categoryOptions = [...categories]
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+    )
+    .map((category) => ({
+      value: category.id,
+      label: category.name,
+    }));
   const visibleAgents = (() => {
     if (isManager) return agents;
     const byEmail = new Map<string, TaskAgent>();
@@ -310,7 +315,7 @@ export function NewTaskDialog({
       setTitle("");
       setDescription("");
       setFubLink("");
-      setPriority("medium");
+      setPriority(DEFAULT_NEW_TASK_PRIORITY);
       setAgentEmail("");
       setSelectedAssignees([]);
       setStatus("todo");
@@ -466,21 +471,6 @@ export function NewTaskDialog({
                   Task
                 </span>
               </div>
-              {showPriority ? (
-                <MetaField
-                  label={columnByKey.get("priority")?.label ?? "Priority"}
-                  required={requiredColumnKeys.has("priority")}
-                >
-                  <TaskPrioritySelect
-                    value={effectivePriority}
-                    availablePriorities={availablePriorities}
-                    onChange={setPriority}
-                    menuClassName="min-w-full"
-                    buttonClassName={isInvalid("priority") ? INVALID_RING_CLASS : ""}
-                  />
-                </MetaField>
-              ) : null}
-
               {showCategory ? (
                 <MetaField
                   label={columnByKey.get("category")?.label ?? "Category"}
@@ -499,6 +489,21 @@ export function NewTaskDialog({
                     onChange={setCategoryId}
                     buttonClassName={`${SIDE_SELECT_BUTTON_CLASS} ${isInvalid("category") ? INVALID_RING_CLASS : ""}`}
                     menuClassName="min-w-full"
+                  />
+                </MetaField>
+              ) : null}
+
+              {showPriority ? (
+                <MetaField
+                  label={columnByKey.get("priority")?.label ?? "Priority"}
+                  required={requiredColumnKeys.has("priority")}
+                >
+                  <TaskPrioritySelect
+                    value={effectivePriority}
+                    availablePriorities={availablePriorities}
+                    onChange={setPriority}
+                    menuClassName="min-w-full"
+                    buttonClassName={isInvalid("priority") ? INVALID_RING_CLASS : ""}
                   />
                 </MetaField>
               ) : null}
