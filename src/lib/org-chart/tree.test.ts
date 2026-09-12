@@ -3,6 +3,7 @@ import {
   buildOrgForest,
   canAssignManager,
   countReports,
+  countDirectReports,
   descendantIds,
   flattenForest,
   type OrgPerson,
@@ -84,6 +85,14 @@ describe("canAssignManager", () => {
       reason: "unknown_person",
     });
   });
+
+  it("refuses assigning an inactive account as manager", () => {
+    const withInactive = [...org, { ...person("former-manager"), is_active: false }];
+    expect(canAssignManager(withInactive, "dev", "former-manager")).toEqual({
+      ok: false,
+      reason: "inactive_manager",
+    });
+  });
 });
 
 describe("buildOrgForest", () => {
@@ -113,14 +122,16 @@ describe("buildOrgForest", () => {
     expect(roots.map((node) => node.person.id)).toEqual(["kept"]);
   });
 
-  it("names people trapped in a cycle instead of dropping them silently", () => {
+  it("names the actual cycle and still renders its attached reports", () => {
     const { roots, orphanedByCycle } = buildOrgForest([
       person("boss"),
       person("a", "b"),
       person("b", "a"),
+      person("report", "a"),
     ]);
-    expect(roots.map((node) => node.person.id)).toEqual(["boss"]);
+    expect(roots.map((node) => node.person.id)).toEqual(["a", "boss"]);
     expect(orphanedByCycle.map((p) => p.id).sort()).toEqual(["a", "b"]);
+    expect(flattenForest(roots).map((node) => node.person.id)).toContain("report");
   });
 
   it("reports nobody as orphaned for healthy data", () => {
@@ -133,5 +144,11 @@ describe("countReports", () => {
     const { roots } = buildOrgForest(org);
     expect(countReports(roots[0])).toBe(4);
     expect(countReports(roots[0].reports[0])).toBe(2);
+  });
+
+  it("counts direct reports separately from the whole reporting line", () => {
+    const { roots } = buildOrgForest(org);
+    expect(countDirectReports(roots[0])).toBe(2);
+    expect(countDirectReports(roots[0].reports[0])).toBe(2);
   });
 });

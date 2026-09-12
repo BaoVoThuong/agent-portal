@@ -6,6 +6,25 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-12 — Org Chart thành People directory có quyền xem/sửa riêng
+
+Org Chart không còn nằm trong Account Manager. Màn `/org-chart` là team
+directory riêng: ai có `people.org_chart_view` xem được sơ đồ, còn chỉ
+`people.org_chart_manage` (hoặc Account Manager tương thích ngược) mới đổi
+được reporting line. Role Agent mặc định có quyền xem; Admin có cả hai. Các
+custom role đã có `management.account_manager` được cấp tự động cả hai quyền
+mới để không mất hành vi cũ.
+
+Quan hệ manager vẫn là một cây tự trỏ `portal_account.manager_id`, nhưng nay
+chặn thêm manager đã inactive ở cả application lẫn database. Trigger database
+có transaction advisory lock chung cho toàn graph: không còn race hai admin
+cùng đổi A → B và B → A rồi commit thành vòng. Khi dữ liệu cũ đã hỏng, UI vẫn
+nâng nhánh vòng lên để sửa được thay vì làm mất cả cấp dưới của nhánh đó.
+
+Hai rollout theo thứ tự: `2026-09-12-org-chart-manager.sql` (bắt buộc chạy
+trước code) rồi `2026-09-12-org-chart-access.sql`. Time Off rollout vẫn chạy
+sau manager rollout như ghi ở entry bên dưới.
+
 ## 2026-09-12 — Org chart kéo thả, và Time Off báo tin cho manager
 
 **Sơ đồ tổ chức** dựng từ một cột tự trỏ `portal_account.manager_id`. Kéo một

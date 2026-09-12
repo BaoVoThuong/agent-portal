@@ -155,6 +155,25 @@ const menuData: MenuItem[] = [
     anyPermission: [PERMISSIONS.TIME_OFF_USER, PERMISSIONS.TIME_OFF_ADMIN],
   },
   {
+    title: "People",
+    anyPermission: [
+      PERMISSIONS.ORG_CHART_VIEW,
+      PERMISSIONS.ORG_CHART_MANAGE,
+      PERMISSIONS.ACCOUNT_MANAGER,
+    ],
+    children: [
+      {
+        href: "/org-chart",
+        label: "Org Chart",
+        anyPermission: [
+          PERMISSIONS.ORG_CHART_VIEW,
+          PERMISSIONS.ORG_CHART_MANAGE,
+          PERMISSIONS.ACCOUNT_MANAGER,
+        ],
+      },
+    ],
+  },
+  {
     title: "Account Management",
     anyPermission: [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.ROLE_MANAGER],
     children: [
@@ -193,7 +212,8 @@ export default function Sidebar({
       pathname.startsWith("/tasks") ||
       pathname.startsWith("/enrollment") ||
       pathname.startsWith("/config"),
-    Management:
+    People: pathname.startsWith("/org-chart"),
+    "Account Management":
       pathname.startsWith("/account-manager") ||
       pathname.startsWith("/role-manager") ||
       pathname.startsWith("/management"),

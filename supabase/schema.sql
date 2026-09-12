@@ -18,7 +18,8 @@ create table if not exists portal_account (
   password_hash text,
   role text not null default 'agent',
   is_active boolean not null default true,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  manager_id uuid references portal_account(id) on delete set null
 );
 
 alter table portal_account
@@ -32,6 +33,9 @@ add column if not exists created_at timestamptz not null default now();
 
 alter table portal_account
 add column if not exists agent_id text;
+
+alter table portal_account
+add column if not exists manager_id uuid references portal_account(id) on delete set null;
 
 -- agent_id là duy nhất khi có giá trị (account cũ có thể null).
 create unique index if not exists portal_account_agent_id_key
@@ -52,6 +56,64 @@ end $$;
 
 create index if not exists portal_account_email_idx on portal_account (email);
 create index if not exists portal_account_active_idx on portal_account (is_active);
+create index if not exists portal_account_manager_idx on portal_account (manager_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'portal_account_manager_not_self'
+  ) then
+    alter table portal_account
+      add constraint portal_account_manager_not_self
+      check (manager_id is null or manager_id <> id);
+  end if;
+end $$;
+
+-- Reporting lines are a real tree, not merely a UI convention. The advisory
+-- lock serializes graph mutations: without it, two concurrent A -> B / B -> A
+-- updates could each validate the old graph and commit a cycle.
+create or replace function portal_account_manager_no_cycle()
+returns trigger language plpgsql as $$
+declare
+  walker uuid;
+  hops integer := 0;
+begin
+  perform pg_advisory_xact_lock(704120260912::bigint);
+
+  if new.manager_id is null then return new; end if;
+  if not exists (
+    select 1 from portal_account
+    where id = new.manager_id and is_active
+  ) then
+    raise exception 'PORTAL_ACCOUNT_MANAGER_INACTIVE'
+      using hint = 'Không thể đặt tài khoản đã ngưng hoạt động làm manager.';
+  end if;
+
+  walker := new.manager_id;
+  while walker is not null loop
+    if walker = new.id then
+      raise exception 'PORTAL_ACCOUNT_MANAGER_CYCLE'
+        using hint = 'Không thể đặt người này làm manager: sẽ tạo thành vòng lặp trong sơ đồ tổ chức.';
+    end if;
+
+    hops := hops + 1;
+    if hops > 100 then
+      raise exception 'PORTAL_ACCOUNT_MANAGER_CHAIN_TOO_DEEP'
+        using hint = 'Chuỗi manager quá sâu hoặc đã có vòng lặp sẵn trong dữ liệu.';
+    end if;
+
+    select manager_id into walker from portal_account where id = walker;
+  end loop;
+
+  return new;
+end $$;
+
+drop trigger if exists portal_account_manager_no_cycle on portal_account;
+create trigger portal_account_manager_no_cycle
+  before insert or update of manager_id on portal_account
+  for each row
+  when (new.manager_id is not null)
+  execute function portal_account_manager_no_cycle();
 
 create table if not exists login_attempts (
   id uuid primary key default gen_random_uuid(),
@@ -174,6 +236,8 @@ values
   ('company.view_all', 'View All Agents', 'See all agents'' data in Agent Dashboard and Customer Registration.', 'dashboard', 'Dashboard', 500),
   ('management.account_manager', 'Account Manager', 'Create accounts, assign roles, update status, and reset passwords.', 'management', 'Management', 100),
   ('management.role_manager', 'Role Manager', 'Create roles and manage role permissions.', 'management', 'Management', 200),
+  ('people.org_chart_view', 'View Org Chart', 'View the organization chart and reporting lines.', 'people', 'People', 100),
+  ('people.org_chart_manage', 'Manage Org Chart', 'Update reporting lines in the organization chart.', 'people', 'People', 200),
   ('timeoff.user', 'Time Off - User', 'Request personal leave, view own requests, and see the shared availability calendar.', 'time_off', 'Time Off', 100),
   ('timeoff.admin', 'Time Off - Admin', 'Review team leave, manage balances, view leave history, and manage company days off.', 'time_off', 'Time Off', 200),
   ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100),
@@ -229,6 +293,8 @@ where key not in (
   'company.view_all',
   'management.account_manager',
   'management.role_manager',
+  'people.org_chart_view',
+  'people.org_chart_manage',
   'timeoff.user',
   'timeoff.admin',
   'settings.access',
@@ -310,6 +376,7 @@ join permissions p on p.key in (
   'automation.pc_statement',
   'automation.provider_finder',
   'agent_dashboard.health',
+  'people.org_chart_view',
   'settings.access',
   'timeoff.user'
 )

@@ -33,3 +33,15 @@ describe("time-off permissions", () => {
       .toEqual(["timeoff.user", "timeoff.admin"]);
   });
 });
+
+describe("org chart permissions", () => {
+  it("separates viewing the chart from changing reporting lines", () => {
+    expect(PERMISSIONS.ORG_CHART_VIEW).toBe("people.org_chart_view");
+    expect(PERMISSIONS.ORG_CHART_MANAGE).toBe("people.org_chart_manage");
+    expect(
+      PERMISSION_DEFINITIONS.filter((d) => d.groupKey === "people").map(
+        (d) => d.key
+      )
+    ).toEqual(["people.org_chart_view", "people.org_chart_manage"]);
+  });
+});

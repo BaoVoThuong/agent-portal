@@ -63,6 +63,16 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     anyPermission: [PERMISSIONS.TIME_OFF_USER, PERMISSIONS.TIME_OFF_ADMIN],
   },
   {
+    href: "/org-chart",
+    anyPermission: [
+      PERMISSIONS.ORG_CHART_VIEW,
+      PERMISSIONS.ORG_CHART_MANAGE,
+      // Tương thích với các session/account-manager chưa kịp nhận quyền mới
+      // trong lúc rollout đang lan ra.
+      PERMISSIONS.ACCOUNT_MANAGER,
+    ],
+  },
+  {
     href: "/account-manager",
     permission: PERMISSIONS.ACCOUNT_MANAGER,
   },

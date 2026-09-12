@@ -59,7 +59,21 @@ declare
   walker uuid;
   hops integer := 0;
 begin
+  -- Chỉ một transaction được kiểm và đổi cạnh trong cây tại một thời điểm.
+  -- Nếu không, hai admin có thể cùng đọc graph cũ rồi lần lượt tạo A → B và
+  -- B → A. CHECK/trigger thường đều nhìn thấy từng lệnh là hợp lệ, nhưng kết
+  -- quả sau commit lại là vòng.
+  perform pg_advisory_xact_lock(704120260912::bigint);
+
   if new.manager_id is null then return new; end if;
+
+  if not exists (
+    select 1 from portal_account
+    where id = new.manager_id and is_active
+  ) then
+    raise exception 'PORTAL_ACCOUNT_MANAGER_INACTIVE'
+      using hint = 'Không thể đặt tài khoản đã ngưng hoạt động làm manager.';
+  end if;
 
   -- Đi ngược lên từ manager mới. Nếu gặp lại chính mình thì phép gán này đóng
   -- một vòng.
@@ -117,7 +131,6 @@ begin
   exception when check_violation then
     raise notice 'OK — tự trỏ chính mình đã bị chặn.';
   end;
-  rollback;
 exception when others then
   if sqlerrm like 'HỎNG:%' then raise; end if;
   raise notice 'OK — tự trỏ chính mình đã bị chặn (%).', sqlerrm;

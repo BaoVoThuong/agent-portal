@@ -203,17 +203,28 @@ export async function PATCH(req: Request, context: RouteContext) {
       ? roleIds.filter((item): item is string => typeof item === "string")
       : null;
 
-    if (
-      (email !== undefined ||
-        name !== undefined ||
-        role !== undefined ||
-        roleIds !== undefined ||
-        is_active !== undefined ||
-        password !== undefined ||
-        agentId !== undefined ||
-        managerId !== undefined) &&
-      !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
-    ) {
+    const changesAccount =
+      email !== undefined ||
+      name !== undefined ||
+      role !== undefined ||
+      roleIds !== undefined ||
+      is_active !== undefined ||
+      password !== undefined ||
+      agentId !== undefined;
+    const changesReportingLine = managerId !== undefined;
+    const canManageAccounts = can(
+      session.user.permissions,
+      PERMISSIONS.ACCOUNT_MANAGER
+    );
+    const canManageOrgChart =
+      canManageAccounts ||
+      can(session.user.permissions, PERMISSIONS.ORG_CHART_MANAGE);
+
+    if (changesAccount && !canManageAccounts) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (changesReportingLine && !canManageOrgChart) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -258,7 +269,9 @@ export async function PATCH(req: Request, context: RouteContext) {
     } = {};
 
     // Sơ đồ tổ chức. `null` là gỡ người này lên làm gốc — khác hẳn `undefined`,
-    // nghĩa là lần PATCH này không đụng tới quan hệ quản lý.
+    // nghĩa là lần PATCH này không đụng tới quan hệ quản lý. Người có quyền
+    // `people.org_chart_manage` được làm đúng thao tác này, không vì thế mà có
+    // quyền sửa email/role/password của tài khoản.
     //
     // Kiểm bằng ĐÚNG hàm mà giao diện kéo thả dùng, nên hai bên không thể bất
     // đồng về việc thế nào là hợp lệ. Database còn một trigger chặn vòng nữa —
@@ -483,7 +496,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       .from(PORTAL_ACCOUNT_TABLE)
       .update(updates)
       .eq("id", id)
-      .select("id,email,name,agent_id,role,is_active,created_at")
+      .select("id,email,name,agent_id,role,is_active,created_at,manager_id")
       .single();
 
     if (error) {

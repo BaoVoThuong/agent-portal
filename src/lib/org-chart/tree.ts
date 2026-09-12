@@ -68,11 +68,18 @@ export function canAssignManager(
   people: readonly OrgPerson[],
   personId: string,
   managerId: string | null
-): { ok: true } | { ok: false; reason: "self" | "cycle" | "unknown_person" } {
+):
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "self" | "cycle" | "unknown_person" | "inactive_manager";
+    } {
   const byId = new Map(people.map((person) => [person.id, person]));
   if (!byId.has(personId)) return { ok: false, reason: "unknown_person" };
   if (managerId === null) return { ok: true };
-  if (!byId.has(managerId)) return { ok: false, reason: "unknown_person" };
+  const manager = byId.get(managerId);
+  if (!manager) return { ok: false, reason: "unknown_person" };
+  if (!manager.is_active) return { ok: false, reason: "inactive_manager" };
   if (managerId === personId) return { ok: false, reason: "self" };
   if (descendantIds(people, personId).has(managerId)) {
     return { ok: false, reason: "cycle" };
@@ -80,12 +87,46 @@ export function canAssignManager(
   return { ok: true };
 }
 
-export const ORG_ASSIGN_MESSAGE: Record<"self" | "cycle" | "unknown_person", string> = {
+export const ORG_ASSIGN_MESSAGE: Record<
+  "self" | "cycle" | "unknown_person" | "inactive_manager",
+  string
+> = {
   self: "Một người không thể là quản lý của chính mình.",
   cycle:
     "Không thể đặt người này làm quản lý: họ đang nằm dưới quyền người kia, nên sơ đồ sẽ thành vòng lặp.",
   unknown_person: "Không tìm thấy tài khoản.",
+  inactive_manager: "Không thể đặt một tài khoản đã ngưng hoạt động làm quản lý.",
 };
+
+function findCycleIds<T extends OrgPerson>(people: readonly T[]): Set<string> {
+  const byId = new Map(people.map((person) => [person.id, person]));
+  const visited = new Set<string>();
+  const cycleIds = new Set<string>();
+
+  for (const start of people) {
+    if (visited.has(start.id)) continue;
+
+    const path: string[] = [];
+    const indexInPath = new Map<string, number>();
+    let cursor: T | undefined = start;
+
+    while (cursor && !visited.has(cursor.id)) {
+      const cycleStart = indexInPath.get(cursor.id);
+      if (cycleStart !== undefined) {
+        for (const id of path.slice(cycleStart)) cycleIds.add(id);
+        break;
+      }
+
+      indexInPath.set(cursor.id, path.length);
+      path.push(cursor.id);
+      cursor = cursor.manager_id ? byId.get(cursor.manager_id) : undefined;
+    }
+
+    for (const id of path) visited.add(id);
+  }
+
+  return cycleIds;
+}
 
 /**
  * Dựng rừng cây từ danh sách phẳng.
@@ -126,9 +167,16 @@ export function buildOrgForest<T extends OrgPerson>(
     .map((person) => build(person, 0))
     .sort(byName);
 
+  // Nếu data cũ đã có vòng, đừng làm mất luôn các cấp dưới của vòng đó. Nâng
+  // nhánh hỏng lên thành một root tạm để admin còn nhìn thấy và sửa được.
+  for (const person of [...people].sort((a, b) => displayName(a).localeCompare(displayName(b)))) {
+    if (!placed.has(person.id)) roots.push(build(person, 0));
+  }
+  const cycleIds = findCycleIds(people);
+
   return {
-    roots,
-    orphanedByCycle: people.filter((person) => !placed.has(person.id)),
+    roots: roots.sort(byName),
+    orphanedByCycle: people.filter((person) => cycleIds.has(person.id)),
   };
 }
 
@@ -146,4 +194,9 @@ export function flattenForest<T extends OrgPerson>(roots: OrgNode<T>[]): OrgNode
 /** Tổng số người dưới quyền, mọi tầng. Dùng cho nhãn "quản lý N người". */
 export function countReports<T extends OrgPerson>(node: OrgNode<T>): number {
   return node.reports.reduce((sum, child) => sum + 1 + countReports(child), 0);
+}
+
+/** Số người báo cáo trực tiếp, tách riêng với tổng mọi cấp. */
+export function countDirectReports<T extends OrgPerson>(node: OrgNode<T>): number {
+  return node.reports.length;
 }

@@ -1,10 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Toast } from "../_shared/Toast";
 import type { AccountUser } from "@/lib/domain/account.types";
-import { OrgChartSection } from "./OrgChartSection";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import type { RoleOption } from "@/lib/rbac/role-management";
@@ -78,7 +78,6 @@ export default function AccountManagerClient({
   const [roleUser, setRoleUser] = useState<ManagedAccountUser | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [resetUser, setResetUser] = useState<ManagedAccountUser | null>(null);
-  const [tab, setTab] = useState<"accounts" | "org">("accounts");
   // Năm modal nội tuyến trong một component: khoá nền khi BẤT KỲ cái nào mở.
   useBodyScrollLock(
     Boolean(showCreateForm || editUser || roleUser || resetUser || deleteUser)
@@ -157,26 +156,6 @@ export default function AccountManagerClient({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [actionUserId]);
-
-  /**
-   * Ghi quan hệ quản lý từ thao tác kéo thả.
-   *
-   * Ném lỗi thay vì nuốt: `OrgChartSection` bắt lại để trả cây về trạng thái
-   * trước khi thả, nên màn hình không bao giờ hiện một quan hệ mà database đã
-   * từ chối.
-   */
-  async function assignManager(personId: string, managerId: string | null) {
-    const response = await fetch(`/api/admin/users/${personId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ managerId }),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new Error(payload?.error ?? "Không lưu được quản lý.");
-    }
-    router.refresh();
-  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -349,32 +328,20 @@ export default function AccountManagerClient({
       <section className="min-w-0 overflow-visible rounded-lg border border-[#d8dee7] bg-white">
         <div className="flex items-center justify-between gap-4 border-b border-[#e4e9f2] px-5 py-4">
           <div>
-            <div className="flex items-center gap-1">
-              {([
-                ["accounts", "Accounts"],
-                ["org", "Org chart"],
-              ] as const).map(([key, tabLabel]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setTab(key)}
-                  className={`rounded-md px-3 py-1.5 text-base font-semibold transition ${
-                    tab === key
-                      ? "bg-[#eef2f7] text-[#16233a]"
-                      : "text-[#667085] hover:bg-[#f8fafc]"
-                  }`}
-                >
-                  {tabLabel}
-                </button>
-              ))}
-            </div>
-            <p className="mt-1 px-3 text-xs text-[#667085]">
+            <h2 className="text-base font-semibold text-[#16233a]">Accounts</h2>
+            <p className="mt-1 text-xs text-[#667085]">
               {activeCount} active user{activeCount === 1 ? "" : "s"} of{" "}
               {initialUsers.length} total
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {canCreate && tab === "accounts" && (
+            <Link
+              href="/org-chart"
+              className="rounded-md border border-[#cfd6e3] bg-white px-4 py-2 text-sm font-semibold text-[#344054] transition hover:bg-[#f4f7fb]"
+            >
+              View Org Chart
+            </Link>
+            {canCreate && (
               <button
                 className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155]"
                 type="button"
@@ -385,19 +352,6 @@ export default function AccountManagerClient({
             )}
           </div>
         </div>
-        {tab === "org" ? (
-          <OrgChartSection
-            people={initialUsers.map((user) => ({
-              id: user.id,
-              name: user.name,
-              email: user.email,
-              manager_id: user.manager_id ?? null,
-              is_active: user.is_active,
-            }))}
-            canEdit={canManageAccounts}
-            onAssign={assignManager}
-          />
-        ) : (
         <div className="w-full overflow-visible">
           <table className="w-full table-fixed border-collapse text-left">
             <thead className="bg-[#f8fafc] text-xs uppercase tracking-wide text-[#667085]">
@@ -523,7 +477,6 @@ export default function AccountManagerClient({
             </tbody>
           </table>
         </div>
-        )}
       </section>
 
       {showCreateForm && (
