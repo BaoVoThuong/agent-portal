@@ -15,7 +15,12 @@ import type {
 } from "./types";
 import { getUsFederalHolidaysInRange } from "./us-holidays";
 
-type AccountRow = { id: string; email: string; name: string | null };
+type AccountRow = {
+  id: string;
+  email: string;
+  name: string | null;
+  manager_id?: string | null;
+};
 type RequestRow = {
   id: string;
   requester_id: string;
@@ -94,7 +99,7 @@ export async function fetchTimeOffDashboard(
       .order("position"),
     supabase
       .from("portal_account")
-      .select("id,email,name")
+      .select("id,email,name,manager_id")
       .eq("is_active", true),
     supabase
       .from("time_off_holidays")
@@ -346,6 +351,19 @@ export async function fetchTimeOffDashboard(
 
   return {
     policies,
+    // Ai cũng chọn được bất kỳ đồng nghiệp nào đang hoạt động: đây là ô "gửi tin
+    // cho ai", không phải ô phân quyền. Chỉ loại chính mình — tự gửi đơn cho
+    // bản thân thì vô nghĩa, và server cũng từ chối.
+    manager_options: ((accountsResult.data ?? []) as AccountRow[])
+      .filter((account) => account.id !== params.accountId)
+      .map((account) => ({ id: account.id, name: account.name, email: account.email }))
+      .sort((a, b) =>
+        (a.name?.trim() || a.email).localeCompare(b.name?.trim() || b.email)
+      ),
+    my_manager_id:
+      ((accountsResult.data ?? []) as AccountRow[]).find(
+        (account) => account.id === params.accountId
+      )?.manager_id ?? null,
     balances,
     holidays: [...holidayByDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
     calendar_requests: ((calendarResult.data ?? []) as RequestRow[]).map(asCalendarEvent),

@@ -1,4 +1,9 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
+import {
+  insertTimeOffNotifications,
+  resolveTimeOffRecipients,
+} from "@/lib/time-off/notifications";
 import { availableLeaveDays, leaveRequestRejection } from "@/lib/time-off/balance";
 import { countLeaveBusinessDays, isDateKey } from "@/lib/time-off/business-days";
 import { getTimeOffActor } from "@/lib/time-off/access";
@@ -145,6 +150,10 @@ export async function POST(request: Request) {
   const startDate = body?.start_date;
   const endDate = body?.end_date;
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+  const managerId =
+    typeof body?.manager_id === "string" && body.manager_id.trim() !== ""
+      ? body.manager_id.trim()
+      : null;
   if (!policyCode) return error("Choose a time-off type.");
   if (!isDateKey(startDate) || !isDateKey(endDate) || startDate > endDate) {
     return error("Choose a valid start and end date.");
@@ -233,6 +242,24 @@ export async function POST(request: Request) {
     );
   }
 
+  // Manager nhận tin về đơn này. Kiểm ở server chứ không tin ô chọn: id gửi
+  // thẳng vào API vẫn ghi được nếu đây không kiểm.
+  let managerEmail: string | null = null;
+  if (managerId) {
+    if (managerId === actor.accountId) {
+      return error("Bạn không thể chọn chính mình làm người duyệt.");
+    }
+    const { data: manager, error: managerError } = await supabase
+      .from(PORTAL_ACCOUNT_TABLE)
+      .select("id,email")
+      .eq("id", managerId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (managerError) return error(managerError.message, 500);
+    if (!manager) return error("Không tìm thấy người duyệt đã chọn.");
+    managerEmail = (manager as { email: string }).email;
+  }
+
   const { data, error: insertError } = await supabase
     .from("time_off_requests")
     .insert({
@@ -242,9 +269,35 @@ export async function POST(request: Request) {
       end_date: endDate,
       total_days: totalDays,
       reason: reason || null,
+      manager_id: managerId,
     })
     .select("id,status,total_days")
     .single();
   if (insertError) return error(insertError.message, 500);
+
+  // Thông báo chạy SAU khi phản hồi đã trả, và nuốt mọi lỗi: đơn đã ghi xong
+  // rồi, một trục trặc ở khâu báo tin không được phép làm người dùng tưởng
+  // việc nộp đơn thất bại rồi nộp lại.
+  const requestId = (data as { id: string }).id;
+  after(async () => {
+    try {
+      const recipients = await resolveTimeOffRecipients({
+        requesterEmail: actor.email,
+        managerEmail,
+      });
+      await insertTimeOffNotifications(
+        recipients.map((recipient) => ({
+          recipient_email: recipient,
+          request_id: requestId,
+          type: "submitted" as const,
+          actor_email: actor.email,
+          detail: `${totalDays} ngày, ${startDate} → ${endDate}`,
+        }))
+      );
+    } catch (caught) {
+      console.error("Time-off notification failed", { requestId, error: caught });
+    }
+  });
+
   return NextResponse.json({ request: data }, { status: 201 });
 }

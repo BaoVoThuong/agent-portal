@@ -22,9 +22,12 @@ export async function POST(req: Request) {
   if (hasIds) {
     const taskIds: string[] = [];
     const enrollmentIds: string[] = [];
+    const timeOffIds: string[] = [];
     for (const id of ids ?? []) {
       if (id.startsWith("enrollment:")) enrollmentIds.push(id.slice("enrollment:".length));
+      else if (id.startsWith("timeoff:")) timeOffIds.push(id.slice("timeoff:".length));
       else if (id.startsWith("task:")) taskIds.push(id.slice("task:".length));
+      // Không có tiền tố = dữ liệu cũ, ghi trước khi chuông đọc nhiều nguồn.
       else taskIds.push(id);
     }
     const updates = [];
@@ -46,9 +49,18 @@ export async function POST(req: Request) {
           .in("id", enrollmentIds)
       );
     }
+    if (timeOffIds.length > 0) {
+      updates.push(
+        supabase
+          .from("time_off_notifications")
+          .update({ is_read: true })
+          .eq("recipient_email", email)
+          .in("id", timeOffIds)
+      );
+    }
     const results = await Promise.all(updates);
     const error = results.find(
-      (result) => result.error && !isMissingEnrollmentTableError(result.error)
+      (result) => result.error && !isMissingOptionalTableError(result.error)
     )?.error;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
@@ -75,16 +87,30 @@ export async function POST(req: Request) {
       .from("enrollment_notifications")
       .update({ is_read: true })
       .eq("recipient_email", email);
+    // Bỏ sót bảng này là "Đánh dấu đã đọc tất cả" không bao giờ đưa chuông về 0:
+    // phần đếm đã cộng cả ba nguồn, nên phần ghi cũng phải quét đủ ba.
+    let timeOffQuery = supabase
+      .from("time_off_notifications")
+      .update({ is_read: true })
+      .eq("recipient_email", email);
     if (type) {
       taskQuery = taskQuery.eq("type", type);
       enrollmentQuery = enrollmentQuery.eq("type", type);
+      timeOffQuery = timeOffQuery.eq("type", type);
     }
-    const [taskRes, enrollmentRes] = await Promise.all([taskQuery, enrollmentQuery]);
+    const [taskRes, enrollmentRes, timeOffRes] = await Promise.all([
+      taskQuery,
+      enrollmentQuery,
+      timeOffQuery,
+    ]);
     if (taskRes.error) {
       return NextResponse.json({ error: taskRes.error.message }, { status: 500 });
     }
-    if (enrollmentRes.error && !isMissingEnrollmentTableError(enrollmentRes.error)) {
+    if (enrollmentRes.error && !isMissingOptionalTableError(enrollmentRes.error)) {
       return NextResponse.json({ error: enrollmentRes.error.message }, { status: 500 });
+    }
+    if (timeOffRes.error && !isMissingOptionalTableError(timeOffRes.error)) {
+      return NextResponse.json({ error: timeOffRes.error.message }, { status: 500 });
     }
     return NextResponse.json({ ok: true });
   }
@@ -101,11 +127,13 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
-function isMissingEnrollmentTableError(error: { code?: string; message?: string }) {
+/** Xem ghi chú cùng tên trong ../route.ts — bảng module phụ có thể chưa tồn tại. */
+function isMissingOptionalTableError(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() ?? "";
   return (
     error.code === "PGRST205" ||
     message.includes("schema cache") ||
-    message.includes("enrollment_notifications")
+    message.includes("enrollment_notifications") ||
+    message.includes("time_off_notifications")
   );
 }

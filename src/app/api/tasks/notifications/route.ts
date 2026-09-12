@@ -19,7 +19,8 @@ export async function GET(req: Request) {
   // and enrichment queries makes polling cheap; the full list is loaded when
   // the user opens the dropdown or a realtime signal arrives.
   if (mode === "summary") {
-    const [unreadRes, enrollmentUnreadRes, unreadAssignedRes] = await Promise.all([
+    const [unreadRes, enrollmentUnreadRes, timeOffUnreadRes, unreadAssignedRes] =
+      await Promise.all([
       supabase
         .from("task_notifications")
         .select("id", { count: "exact", head: true })
@@ -27,6 +28,11 @@ export async function GET(req: Request) {
         .eq("is_read", false),
       supabase
         .from("enrollment_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_email", email)
+        .eq("is_read", false),
+      supabase
+        .from("time_off_notifications")
         .select("id", { count: "exact", head: true })
         .eq("recipient_email", email)
         .eq("is_read", false),
@@ -43,10 +49,19 @@ export async function GET(req: Request) {
     }
     if (
       enrollmentUnreadRes.error &&
-      !isMissingEnrollmentTableError(enrollmentUnreadRes.error)
+      !isMissingOptionalTableError(enrollmentUnreadRes.error)
     ) {
       return NextResponse.json(
         { error: enrollmentUnreadRes.error.message },
+        { status: 500 },
+      );
+    }
+    if (
+      timeOffUnreadRes.error &&
+      !isMissingOptionalTableError(timeOffUnreadRes.error)
+    ) {
+      return NextResponse.json(
+        { error: timeOffUnreadRes.error.message },
         { status: 500 },
       );
     }
@@ -65,7 +80,10 @@ export async function GET(req: Request) {
       ),
     ];
     return NextResponse.json({
-      unread: (unreadRes.count ?? 0) + (enrollmentUnreadRes.count ?? 0),
+      unread:
+        (unreadRes.count ?? 0) +
+        (enrollmentUnreadRes.count ?? 0) +
+        (timeOffUnreadRes.count ?? 0),
       unreadAssignedTaskIds,
       topic: notifTopic(email),
     });
@@ -74,8 +92,10 @@ export async function GET(req: Request) {
   const [
     { data, error },
     enrollmentRes,
+    timeOffRes,
     unreadRes,
     enrollmentUnreadRes,
+    timeOffUnreadRes,
     unreadAssignedRes,
   ] = await Promise.all([
     supabase
@@ -91,12 +111,23 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: false })
       .limit(30),
     supabase
+      .from("time_off_notifications")
+      .select("id,request_id,type,actor_email,detail,is_read,created_at")
+      .eq("recipient_email", email)
+      .order("created_at", { ascending: false })
+      .limit(30),
+    supabase
       .from("task_notifications")
       .select("id", { count: "exact", head: true })
       .eq("recipient_email", email)
       .eq("is_read", false),
     supabase
       .from("enrollment_notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("recipient_email", email)
+      .eq("is_read", false),
+    supabase
+      .from("time_off_notifications")
       .select("id", { count: "exact", head: true })
       .eq("recipient_email", email)
       .eq("is_read", false),
@@ -108,7 +139,7 @@ export async function GET(req: Request) {
       .eq("is_read", false),
   ]);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (enrollmentRes.error && !isMissingEnrollmentTableError(enrollmentRes.error)) {
+  if (enrollmentRes.error && !isMissingOptionalTableError(enrollmentRes.error)) {
     return NextResponse.json({ error: enrollmentRes.error.message }, { status: 500 });
   }
   if (unreadRes.error) {
@@ -116,10 +147,22 @@ export async function GET(req: Request) {
   }
   if (
     enrollmentUnreadRes.error &&
-    !isMissingEnrollmentTableError(enrollmentUnreadRes.error)
+    !isMissingOptionalTableError(enrollmentUnreadRes.error)
   ) {
     return NextResponse.json(
       { error: enrollmentUnreadRes.error.message },
+      { status: 500 }
+    );
+  }
+  if (timeOffRes.error && !isMissingOptionalTableError(timeOffRes.error)) {
+    return NextResponse.json({ error: timeOffRes.error.message }, { status: 500 });
+  }
+  if (
+    timeOffUnreadRes.error &&
+    !isMissingOptionalTableError(timeOffUnreadRes.error)
+  ) {
+    return NextResponse.json(
+      { error: timeOffUnreadRes.error.message },
       { status: 500 }
     );
   }
@@ -158,7 +201,25 @@ export async function GET(req: Request) {
     entity_type: "enrollment" as const,
     entity_id: n.record_id,
   }));
-  const base = [...taskBase, ...enrollmentBase]
+  // Time Off không có bình luận, nên `comment_id` luôn null — vẫn phải có mặt
+  // để ba nguồn cùng một hình dạng khi trộn.
+  const timeOffBase = ((timeOffRes.data ?? []) as {
+    id: string;
+    request_id: string;
+    type: string;
+    actor_email: string;
+    detail: string | null;
+    is_read: boolean;
+    created_at: string;
+  }[]).map((n) => ({
+    ...n,
+    id: `timeoff:${n.id}`,
+    task_id: n.request_id,
+    comment_id: null as string | null,
+    entity_type: "time_off" as const,
+    entity_id: n.request_id,
+  }));
+  const base = [...taskBase, ...enrollmentBase, ...timeOffBase]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, 30);
 
@@ -170,6 +231,11 @@ export async function GET(req: Request) {
   const enrollmentIds = [
     ...new Set(
       base.filter((n) => n.entity_type === "enrollment").map((n) => n.entity_id)
+    ),
+  ];
+  const timeOffIds = [
+    ...new Set(
+      base.filter((n) => n.entity_type === "time_off").map((n) => n.entity_id)
     ),
   ];
   const actorEmails = [...new Set(base.map((n) => n.actor_email))];
@@ -189,14 +255,34 @@ export async function GET(req: Request) {
         .filter((id): id is string => Boolean(id))
     ),
   ];
-  const [titlesRes, enrollmentTitlesRes, actorsRes, commentsRes, enrollmentCommentsRes] =
-    await Promise.all([
+  const [
+    titlesRes,
+    enrollmentTitlesRes,
+    timeOffTitlesRes,
+    actorsRes,
+    commentsRes,
+    enrollmentCommentsRes,
+  ] = await Promise.all([
     taskIds.length
       ? supabase.from("tasks").select("id,title,display_number").in("id", taskIds)
       : Promise.resolve({ data: [] as { id: string; title: string; display_number: number | null }[], error: null }),
     enrollmentIds.length
       ? supabase.from("enrollment_records").select("id,client_name,display_number,program").in("id", enrollmentIds)
       : Promise.resolve({ data: [] as { id: string; client_name: string | null; display_number: number | null; program: EnrollmentProgram }[], error: null }),
+    timeOffIds.length
+      ? supabase
+          .from("time_off_requests")
+          .select("id,start_date,end_date,total_days")
+          .in("id", timeOffIds)
+      : Promise.resolve({
+          data: [] as {
+            id: string;
+            start_date: string;
+            end_date: string;
+            total_days: number;
+          }[],
+          error: null,
+        }),
     actorEmails.length
       ? supabase.from("portal_account").select("email,name").in("email", actorEmails)
       : Promise.resolve({ data: [] as { email: string; name: string | null }[], error: null }),
@@ -213,6 +299,7 @@ export async function GET(req: Request) {
   reportOptionalEnrichmentFailures([
     ["task_titles", titlesRes],
     ["enrollment_titles", enrollmentTitlesRes],
+    ["time_off_titles", timeOffTitlesRes],
     ["actor_names", actorsRes],
     ["task_comment_bodies", commentsRes],
     ["enrollment_comment_bodies", enrollmentCommentsRes],
@@ -239,6 +326,19 @@ export async function GET(req: Request) {
       program: EnrollmentProgram;
     }[]).map((record) => [record.id, record.program])
   );
+  const timeOffTitleById = new Map(
+    ((timeOffTitlesRes.data ?? []) as {
+      id: string;
+      start_date: string;
+      end_date: string;
+      total_days: number;
+    }[]).map((request) => [
+      request.id,
+      request.start_date === request.end_date
+        ? `${request.total_days} ngày · ${request.start_date}`
+        : `${request.total_days} ngày · ${request.start_date} → ${request.end_date}`,
+    ])
+  );
   const nameByEmail = new Map(
     ((actorsRes.data ?? []) as { email: string; name: string | null }[]).map((a) => [
       a.email,
@@ -257,7 +357,9 @@ export async function GET(req: Request) {
     entity_display_number:
       n.entity_type === "enrollment"
         ? enrollmentDisplayNumberById.get(n.entity_id) ?? null
-        : taskDisplayNumberById.get(n.entity_id) ?? null,
+        : n.entity_type === "time_off"
+          ? null
+          : taskDisplayNumberById.get(n.entity_id) ?? null,
     entity_program:
       n.entity_type === "enrollment"
         ? enrollmentProgramById.get(n.entity_id) ?? "aca"
@@ -265,13 +367,19 @@ export async function GET(req: Request) {
     task_title:
       n.entity_type === "enrollment"
         ? enrollmentTitleById.get(n.entity_id) ?? null
-        : titleById.get(n.entity_id) ?? null,
+        : n.entity_type === "time_off"
+          ? timeOffTitleById.get(n.entity_id) ?? "Đơn xin nghỉ"
+          : titleById.get(n.entity_id) ?? null,
     actor_name: nameByEmail.get(n.actor_email) ?? null,
     comment_body: n.comment_id ? commentById.get(n.comment_id) ?? null : null,
   }));
   const unread =
-    typeof unreadRes.count === "number" || typeof enrollmentUnreadRes.count === "number"
-      ? (unreadRes.count ?? 0) + (enrollmentUnreadRes.count ?? 0)
+    typeof unreadRes.count === "number" ||
+    typeof enrollmentUnreadRes.count === "number" ||
+    typeof timeOffUnreadRes.count === "number"
+      ? (unreadRes.count ?? 0) +
+        (enrollmentUnreadRes.count ?? 0) +
+        (timeOffUnreadRes.count ?? 0)
       : notifications.filter((n) => !n.is_read).length;
   const unreadAssignedTaskIds = [
     ...new Set(
@@ -286,12 +394,21 @@ export async function GET(req: Request) {
   });
 }
 
-function isMissingEnrollmentTableError(error: { code?: string; message?: string }) {
+/**
+ * Bảng thông báo của một module phụ chưa tồn tại trên database này.
+ *
+ * Chuông đọc ba bảng, nhưng chỉ `task_notifications` là bắt buộc. Hai bảng kia
+ * thuộc module ra đời sau, và luôn có quãng giữa lúc code lên và lúc rollout
+ * chạy. Không bỏ qua được lỗi này thì một bảng còn thiếu làm CHẾT CẢ CÁI
+ * CHUÔNG của mọi người, kể cả những thông báo task hoàn toàn bình thường.
+ */
+function isMissingOptionalTableError(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() ?? "";
   return (
     error.code === "PGRST205" ||
     message.includes("schema cache") ||
-    message.includes("enrollment_notifications")
+    message.includes("enrollment_notifications") ||
+    message.includes("time_off_notifications")
   );
 }
 

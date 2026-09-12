@@ -6,6 +6,52 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-12 — Org chart kéo thả, và Time Off báo tin cho manager
+
+**Sơ đồ tổ chức** dựng từ một cột tự trỏ `portal_account.manager_id`. Kéo một
+người thả vào người khác là đổi đúng một cột, cây tự vẽ lại — không viết cứng
+ở đâu. Không dùng lại `agent_members`: bảng đó trả lời "ai làm task của agent
+này", một câu hỏi khác hẳn "ai báo cáo cho ai".
+
+**Chặn vòng lặp ở ba lớp**, vì `CHECK` chỉ bắt được A→A (nó chỉ nhìn được một
+dòng), mà vòng dài hơn lọt vào là mọi truy vấn đệ quy chạy vô tận:
+giao diện làm mờ ô sẽ tạo vòng ngay trong lúc kéo → API gọi đúng hàm
+`canAssignManager` mà giao diện dùng → trigger database là lớp cuối, vì gọi
+thẳng API thì qua mặt được giao diện. Ngoài ra `descendantIds` có `seen` nên
+không treo trên dữ liệu đã hỏng, và `buildOrgForest` trả `orphanedByCycle` để
+người kẹt trong vòng được gọi tên trên màn hình thay vì lặng lẽ biến mất.
+
+**Time Off**: modal xin nghỉ có ô chọn người nhận tin, mặc định là quản lý
+trực tiếp theo sơ đồ. Lưu **bản chụp** `manager_id` lên chính đơn — org chart
+đổi về sau thì đơn cũ vẫn phải cho thấy đã gửi cho ai.
+
+Theo quyết định của đội: chọn manager là để **BÁO TIN, không giới hạn ai được
+duyệt**. Người nhận = manager được chọn + mọi người có `timeoff.admin`. Quyền
+duyệt giữ nguyên toàn cục như trước.
+
+Thông báo đi **bảng riêng `time_off_notifications`**, đúng khuôn
+`enrollment_notifications`: mỗi module một bảng, chuông đọc hết rồi trộn.
+Không nhồi vào `task_notifications` vì bảng đó có `task_id not null references
+tasks(id)` — dùng chung phải nới cột thành nullable, tức đụng vào đường thông
+báo bận nhất của ứng dụng để phục vụ một module phụ.
+
+Ba chỗ dễ sót đã xử:
+* `isMissingEnrollmentTableError` đổi thành `isMissingOptionalTableError` và
+  nhận thêm tên bảng mới. Luôn có quãng giữa lúc code lên và lúc rollout chạy;
+  không bỏ qua lỗi này thì một bảng còn thiếu làm **chết cả cái chuông** của
+  mọi người, kể cả thông báo task bình thường.
+* "Đánh dấu đã đọc tất cả" phải quét đủ **ba** bảng. Phần đếm đã cộng ba nguồn,
+  nên phần ghi bỏ sót một bảng là chuông không bao giờ về 0.
+* Gộp trùng theo (đơn, người nhận, loại): người vừa là manager được chọn vừa có
+  quyền duyệt sẽ lọt vào cả hai danh sách, và index duy nhất dưới database sẽ
+  làm cả lượt insert thất bại.
+
+`resolveNotificationInvalidation` nới kiểu để nhận `time_off`, nhưng vẫn lọc bỏ
+— thông báo nghỉ phép không được làm mới drawer task đang mở.
+
+Hai rollout — `2026-09-12-org-chart-manager.sql` rồi
+`2026-09-12-time-off-manager-notifications.sql`, đúng thứ tự đó. CHƯA CHẠY.
+
 ## 2026-09-12 — Ngưng loại nghỉ Sick Leave
 
 Đội không dùng Sick Leave nữa. Không tạo đơn Sick mới được, và loại này biến

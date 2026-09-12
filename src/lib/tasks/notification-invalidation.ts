@@ -1,5 +1,7 @@
+import type { NotificationEntityKind } from "@/lib/notifications/copy";
+
 export type NotificationEntity = {
-  kind: "task" | "enrollment";
+  kind: NotificationEntityKind;
   id: string;
 };
 
