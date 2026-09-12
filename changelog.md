@@ -6,6 +6,65 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-12 — Thêm stage Billing, bỏ cột Cancel khỏi board
+
+Task nay có thêm một chặng **Billing**, nằm giữa Waiting và Done. Đây là chặng
+**tuỳ chọn** — In Progress → Done thẳng vẫn hợp lệ như cũ — và nó là việc **đang
+chạy chưa xong**, không phải trạng thái kết thúc.
+
+**Billing dừng SLA y hệt Waiting.** Đây là quyết định chi phối gần như mọi thay
+đổi bên dưới. SLA chỉ chạy trong chặng In Progress ĐẦU TIÊN, trước khi task từng
+bị "đỗ" lần nào. Trước đây chỉ Waiting mới đỗ được; giờ Waiting và Billing là hai
+chặng đỗ ngang hàng, nên `hasEnteredWaiting` đổi tên thành `hasBeenParked` và đọc
+cả hai. Task đi In Progress → Billing → In Progress sẽ KHÔNG mở lại đồng hồ SLA,
+đúng như khi nó đi qua Waiting.
+
+Cron quá hạn cũng nạp hai dấu Billing này trước khi gọi quy tắc SLA. Nếu thiếu
+`billing_started_at` / `billing_seconds` trong câu `select`, task đã đi qua
+Billing rồi quay lại In Progress sẽ trông như chưa từng bị đỗ và có thể bị gắn
+quá hạn oan trên server, dù UI hiển thị đúng.
+
+**Đồng hồ mới.** `billing_started_at` (chỉ khác null khi task đang ở Billing) +
+`billing_seconds` (cộng dồn mọi lượt đã đóng), đúng khuôn todo/in_progress/waiting.
+`billing_seconds` còn kiêm việc làm dấu "đã từng đỗ" mà quy tắc SLA đọc, nên nó
+luôn ≥ 1 kể cả khi task vào rồi ra ngay — y như `waiting_seconds`.
+
+**Chỗ suýt mất dữ liệu âm thầm.** `patch_task_atomic` liệt kê từng cột một trong
+khối SET, và `PATCH /api/tasks/[id]` cũng liệt kê từng cột khi dựng `currentForPatch`.
+Nếu chỉ sửa TypeScript, patch vẫn mang `billing_seconds` nhưng SQL lặng lẽ vứt đi
+— không lỗi, không cảnh báo, chỉ là giờ Billing mãi mãi bằng 0. Cả hai nơi đều đã
+được bổ sung, và rollout có sẵn câu truy vấn đọc ngược thân hàm trên database để
+xác nhận.
+
+**Cancel vẫn là stage hợp lệ, chỉ rời board.** Cột Cancel luôn rỗng nên bị bỏ khỏi
+Kanban (Billing thế đúng chỗ đó, board vẫn 5 cột). Cancel vẫn chọn được ở ô Stage,
+vẫn có lịch sử chặng riêng, vẫn lọc được ở list. `columnOf()` nay trả
+`BoardColumn | null` thay vì mặc định về To Do, để compiler bắt mọi nơi phải tự
+nói nó xử lý task không-có-cột thế nào — thay vì thẻ Cancel lặng lẽ hiện ra ở To Do.
+
+**Sửa kèm một lỗi đồng hồ có sẵn từ trước.** Gỡ hết người khỏi task sẽ đẩy task về
+Backlog, nhưng đường đó không hạ đồng hồ chặng: task đang Waiting bị gỡ người sẽ
+giữ nguyên `waiting_started_at` dù đã rời Waiting, và mọi màn hình cộng thêm "lượt
+đang mở" nên số giờ Waiting cứ thế phình mãi. Nay cả hai route assignee đều gọi
+`bankParkedStageOnLeave` — sửa cho cả Waiting lẫn Billing, vì thả chặng mới vào
+đúng cái bẫy cũ thì vô lý.
+
+**Nhắc task ì (stale) nay quét cả Billing.** `isStale()` vốn đã tính Billing là có
+thể ì (nó chỉ loại done/cancel/backlog), nhưng query của cron lại không kéo task
+Billing về — hai bên nói ngược nhau. Đã cho khớp lại ở **cả hai** chỗ: câu lấy
+danh sách và câu UPDATE đóng dấu `stale_reminded_at`. Chỉ sửa một trong hai thì
+cron sẽ nhắc lại vô hạn vì dấu không bao giờ được đóng.
+
+`billing_reminded_at` đã thêm sẵn vào database nhưng **chưa nối cron** — loại nhắc
+riêng kiểu "nằm Billing quá N giờ" còn chờ chốt, cột có sẵn để khỏi migrate lần nữa.
+
+**Cập nhật sau review:** Billing nay dùng đúng ngưỡng nhắc Waiting, loại thông báo
+`waiting_reminder` và mức cảnh báo workload như Waiting. Mỗi stage vẫn có marker
+nhắc riêng (`waiting_reminded_at` / `billing_reminded_at`), để chuyển giữa hai
+stage mở một chu kỳ nhắc mới mà không gửi trùng.
+
+Rollout: `supabase/rollouts/2026-09-12-billing-stage.sql` (chưa chạy).
+
 ## 2026-09-11 — SLA Times: nút bật/tắt cho từng tổ hợp Category × Priority
 
 Đội cần "loại việc này không được đặt mức ưu tiên kia" — ví dụ *Order Physical ID

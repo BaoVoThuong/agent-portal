@@ -8,6 +8,7 @@ import {
   isTaskAssigneesMissingError,
 } from "@/lib/tasks/assignees";
 import { resolveAssigneeChange } from "@/lib/tasks/assignees-set";
+import { bankParkedStageOnLeave } from "@/lib/tasks/transitions";
 import { isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import {
@@ -91,9 +92,12 @@ export async function DELETE(req: Request, { params }: Ctx) {
   };
   if (next.status !== ctx.task.status) {
     taskPatch.status = next.status;
-    if (ctx.task.status === "waiting" && next.status !== "waiting") {
-      taskPatch.waiting_reminded_at = null;
-    }
+    // Unassigning the last person sends the task to Backlog. That is a stage
+    // change like any other, so whichever parked stage it is leaving must have
+    // its clock banked and closed here too — otherwise *_started_at stays set
+    // on a task that is no longer in that stage and the displayed stage time
+    // keeps growing forever.
+    Object.assign(taskPatch, bankParkedStageOnLeave(ctx.task, nowIso));
   }
 
   const { data: updated, error: updateError } = await ctx.supabase.rpc("patch_task_atomic", {

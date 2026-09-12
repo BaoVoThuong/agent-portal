@@ -54,11 +54,13 @@ export type OverviewTaskInput = {
   todo_started_at: string | null;
   in_progress_at: string | null;
   waiting_started_at: string | null;
+  billing_started_at: string | null;
   last_activity_at: string | null;
   sla_minutes: number | null;
   overdue_count: number;
   in_progress_seconds: number;
   waiting_seconds: number;
+  billing_seconds: number;
   closed_at: string | null;
   done_reviewed_at: string | null;
   created_at: string;
@@ -70,7 +72,7 @@ export type OverviewTaskSummary = {
   id: string;
   title: string;
   agentEmail: string | null;
-  status: Extract<TaskStatus, "todo" | "in_progress" | "waiting">;
+  status: Extract<TaskStatus, "todo" | "in_progress" | "waiting" | "billing">;
   priority: TaskPriority;
   createdAt: string;
   slaLoadMinutes: number;
@@ -89,13 +91,17 @@ export type OverviewQcNeededTaskSummary = {
   closedAt: string | null;
 };
 
-export type OverviewOpenStage = Extract<TaskStatus, "todo" | "in_progress" | "waiting">;
+export type OverviewOpenStage = Extract<
+  TaskStatus,
+  "todo" | "in_progress" | "waiting" | "billing"
+>;
 export type OverviewWorkMixStage =
   | "todo_overdue"
   | "todo"
   | "in_progress_overdue"
   | "in_progress"
-  | "waiting";
+  | "waiting"
+  | "billing";
 export type OverviewPriorityCounts = Record<TaskPriority, number>;
 export type OverviewStageCounts = Record<OverviewOpenStage, number>;
 export type OverviewStagePriorityMatrix = Record<OverviewWorkMixStage, OverviewPriorityCounts>;

@@ -33,9 +33,11 @@ type Current = Pick<TaskRow, "status" | "assignee_email" | "in_progress_at"> & {
   // lock the SLA budget only on the first-ever In Progress entry.
   todo_started_at?: string | null;
   waiting_started_at?: string | null;
+  billing_started_at?: string | null;
   todo_seconds?: number | null;
   in_progress_seconds?: number | null;
   waiting_seconds?: number | null;
+  billing_seconds?: number | null;
   sla_minutes?: number | null;
 };
 type Result =
@@ -73,16 +75,20 @@ function elapsedSeconds(startIso: string, endIso: string): number {
   return Math.max(0, Math.round((end - start) / 1000));
 }
 
-function bankWaitingSeconds(
+// Waiting and Billing are the two PARKED stages: the task is open but nobody is
+// actively working it, so both stop the SLA clock. Their accumulators carry a
+// second job beyond elapsed time — they are the durable "has been parked at
+// least once" marker that patch_task_atomic reads to decide a later In Progress
+// stint no longer has a meaningful single-stint due date. Keep the value > 0
+// even for legacy/null starts or an immediate park -> In Progress bounce, or
+// that marker would read as "never parked" and re-arm a stale SLA window.
+export function bankParkedSeconds(
   currentSeconds: number | null | undefined,
   startedAt: string | null | undefined,
   nowIso: string
 ): number {
   const base = currentSeconds ?? 0;
   const elapsed = startedAt ? elapsedSeconds(startedAt, nowIso) : 0;
-  // Besides elapsed time, this is also the durable marker that the task has
-  // entered Waiting at least once. Keep it > 0 even for legacy/null starts or
-  // immediate Waiting -> In Progress moves.
   return Math.max(1, base + elapsed);
 }
 
@@ -236,12 +242,19 @@ export function resolveTaskPatch(
         (current.in_progress_seconds ?? 0) + elapsedSeconds(current.in_progress_at, nowIso);
       patch.in_progress_at = null;
     } else if (current.status === "waiting") {
-      patch.waiting_seconds = bankWaitingSeconds(
+      patch.waiting_seconds = bankParkedSeconds(
         current.waiting_seconds,
         current.waiting_started_at,
         nowIso
       );
       patch.waiting_started_at = null;
+    } else if (current.status === "billing") {
+      patch.billing_seconds = bankParkedSeconds(
+        current.billing_seconds,
+        current.billing_started_at,
+        nowIso
+      );
+      patch.billing_started_at = null;
     }
   }
 
@@ -258,8 +271,9 @@ export function resolveTaskPatch(
     patch.due_soon_notified_at = null;
     // Lock the SLA budget on the FIRST-ever In Progress entry only. Re-entries
     // keep the original budget so editing priority later can't move work that
-    // has already started. After Waiting, In Progress remains plain effort
-    // tracking and does not open another active SLA window.
+    // has already started. After a parked stage (Waiting or Billing), In
+    // Progress remains plain effort tracking and does not open another active
+    // SLA window.
     if (current.sla_minutes == null && opts?.rules && current.priority !== undefined) {
       const nextPriority = (patch.priority as TaskRow["priority"] | undefined) ?? current.priority;
       const nextCategoryId =
@@ -275,6 +289,13 @@ export function resolveTaskPatch(
     patch.waiting_reminded_at = null;
   } else if (statusChanged && current.status === "waiting") {
     patch.waiting_reminded_at = null;
+  }
+
+  if (statusChanged && nextStatus === "billing") {
+    patch.billing_started_at = nowIso;
+    patch.billing_reminded_at = null;
+  } else if (statusChanged && current.status === "billing") {
+    patch.billing_reminded_at = null;
   }
 
   if (statusChanged && (nextStatus === "done" || nextStatus === "cancel")) {
@@ -303,4 +324,53 @@ export function resolveTaskPatch(
   if (Object.keys(patch).length === 0)
     return { ok: false, error: "Nothing to update." };
   return { ok: true, patch };
+}
+
+/**
+ * Patch fragment that closes whichever PARKED stage a task is currently in.
+ *
+ * `resolveTaskPatch` above already does this for ordinary status edits. The
+ * assignee routes are the other way a task's status can change: unassigning the
+ * last person sends any task straight to Backlog. That path never ran the stage
+ * clocks, so a task parked in Waiting kept a non-null `waiting_started_at`
+ * after it had left Waiting — and every screen that renders
+ * `stageElapsedSeconds(seconds, started_at, now)` kept adding a live stint to a
+ * stage the task was no longer in, so the number grew forever.
+ *
+ * Returns an empty object when the task is not parked, so callers can spread it
+ * unconditionally.
+ */
+export function bankParkedStageOnLeave(
+  task: {
+    status: TaskRow["status"];
+    waiting_started_at?: string | null;
+    waiting_seconds?: number | null;
+    billing_started_at?: string | null;
+    billing_seconds?: number | null;
+  },
+  nowIso: string
+): Record<string, unknown> {
+  if (task.status === "waiting") {
+    return {
+      waiting_seconds: bankParkedSeconds(
+        task.waiting_seconds,
+        task.waiting_started_at,
+        nowIso
+      ),
+      waiting_started_at: null,
+      waiting_reminded_at: null,
+    };
+  }
+  if (task.status === "billing") {
+    return {
+      billing_seconds: bankParkedSeconds(
+        task.billing_seconds,
+        task.billing_started_at,
+        nowIso
+      ),
+      billing_started_at: null,
+      billing_reminded_at: null,
+    };
+  }
+  return {};
 }

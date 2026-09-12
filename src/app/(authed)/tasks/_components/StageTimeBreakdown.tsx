@@ -23,6 +23,10 @@ export function StageTimeBreakdown({ task }: { task: TaskRow }) {
       label: "Waiting",
       seconds: stageElapsedSeconds(task.waiting_seconds, task.waiting_started_at, now),
     },
+    {
+      label: "Billing",
+      seconds: stageElapsedSeconds(task.billing_seconds, task.billing_started_at, now),
+    },
   ];
 
   return (

@@ -1327,7 +1327,7 @@ create table if not exists tasks (
   description text,
   fub_link text,
   status text not null default 'backlog'
-    check (status in ('backlog','todo','in_progress','waiting','done','cancel')),
+    check (status in ('backlog','todo','in_progress','waiting','billing','done','cancel')),
   priority text not null default 'medium'
     check (priority in ('low','medium','high','urgent')),
   category_id uuid references task_categories(id) on delete set null,
@@ -1432,6 +1432,8 @@ alter table tasks add column if not exists todo_started_at timestamptz;
 alter table tasks add column if not exists todo_reminded_at timestamptz;
 alter table tasks add column if not exists waiting_started_at timestamptz;
 alter table tasks add column if not exists waiting_reminded_at timestamptz;
+alter table tasks add column if not exists billing_started_at timestamptz;
+alter table tasks add column if not exists billing_reminded_at timestamptz;
 alter table tasks add column if not exists overdue_reminded_at timestamptz;
 alter table tasks add column if not exists overdue_unlocked_at timestamptz;
 alter table tasks add column if not exists reopened_at timestamptz;
@@ -1501,11 +1503,13 @@ alter table tasks add column if not exists qc_reminded_at timestamptz;
 -- the stage clocks consistent across every allowed stage transition.
 --
 -- in_progress_seconds is historical/KPI time only. Active SLA overdue uses
--- the current in_progress_at stint before any Waiting. Once a task has entered
--- Waiting, later In Progress time is plain effort tracking without active SLA.
+-- the current in_progress_at stint before any Waiting or Billing. Once a task
+-- has entered either of those two parked stages, later In Progress time is
+-- plain effort tracking without active SLA.
 alter table tasks add column if not exists todo_seconds integer not null default 0;
 alter table tasks add column if not exists in_progress_seconds integer not null default 0;
 alter table tasks add column if not exists waiting_seconds integer not null default 0;
+alter table tasks add column if not exists billing_seconds integer not null default 0;
 
 update tasks
 set todo_started_at = coalesce(updated_at, created_at)
@@ -1534,7 +1538,7 @@ begin
 
   alter table tasks
   add constraint tasks_status_check
-  check (status in ('backlog','todo','in_progress','waiting','done','cancel'));
+  check (status in ('backlog','todo','in_progress','waiting','billing','done','cancel'));
 end $$;
 
 drop index if exists tasks_due_date_idx;
@@ -1602,7 +1606,7 @@ create index if not exists tasks_archived_idx on tasks (archived_at);
 create table if not exists task_stage_cycles (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references tasks(id) on delete cascade,
-  stage text not null check (stage in ('backlog','todo','in_progress','waiting','done','cancel')),
+  stage text not null check (stage in ('backlog','todo','in_progress','waiting','billing','done','cancel')),
   started_at timestamptz not null,
   ended_at timestamptz,
   duration_seconds integer,
@@ -1644,6 +1648,7 @@ select
     when t.status = 'todo' then coalesce(t.todo_started_at, t.updated_at, t.created_at)
     when t.status = 'in_progress' then coalesce(t.in_progress_at, t.updated_at, t.created_at)
     when t.status = 'waiting' then coalesce(t.waiting_started_at, t.updated_at, t.created_at)
+    when t.status = 'billing' then coalesce(t.billing_started_at, t.updated_at, t.created_at)
     when t.status in ('done', 'cancel') then coalesce(t.closed_at, t.updated_at, t.created_at)
     else t.created_at
   end,
@@ -1680,6 +1685,10 @@ update tasks t set
   waiting_seconds = coalesce((
     select sum(c.duration_seconds) from task_stage_cycles c
     where c.task_id = t.id and c.stage = 'waiting' and c.ended_at is not null
+  ), 0),
+  billing_seconds = coalesce((
+    select sum(c.duration_seconds) from task_stage_cycles c
+    where c.task_id = t.id and c.stage = 'billing' and c.ended_at is not null
   ), 0);
 
 create table if not exists task_overdue_events (
@@ -2907,7 +2916,7 @@ begin
   where btrim(input_email.email) <> '';
 
   v_status := coalesce(nullif(p_task->>'status', ''), 'backlog');
-  if v_status not in ('backlog', 'todo', 'in_progress', 'waiting', 'done', 'cancel') then
+  if v_status not in ('backlog', 'todo', 'in_progress', 'waiting', 'billing', 'done', 'cancel') then
     raise exception 'TASK_STATUS_INVALID';
   end if;
   v_sla_minutes := nullif(p_task->>'sla_minutes', '')::integer;
@@ -2918,7 +2927,7 @@ begin
     title, description, fub_link, status, priority, category_id,
     agent_email, assignee_email, reporter_email, custom_values, position,
     last_activity_at, last_activity_by_email, client_request_id,
-    todo_started_at, in_progress_at, waiting_started_at, closed_at,
+    todo_started_at, in_progress_at, waiting_started_at, billing_started_at, closed_at,
     sla_minutes, stale_reminded_at, created_at, updated_at
   ) values (
     btrim(p_task->>'title'),
@@ -2938,6 +2947,7 @@ begin
     nullif(p_task->>'todo_started_at', '')::timestamptz,
     nullif(p_task->>'in_progress_at', '')::timestamptz,
     nullif(p_task->>'waiting_started_at', '')::timestamptz,
+    nullif(p_task->>'billing_started_at', '')::timestamptz,
     nullif(p_task->>'closed_at', '')::timestamptz,
     case when v_status = 'in_progress' then v_sla_minutes else null end,
     null,
@@ -2979,6 +2989,7 @@ begin
     when 'todo' then coalesce(v_task.todo_started_at, v_now)
     when 'in_progress' then coalesce(v_task.in_progress_at, v_now)
     when 'waiting' then coalesce(v_task.waiting_started_at, v_now)
+    when 'billing' then coalesce(v_task.billing_started_at, v_now)
     when 'done' then coalesce(v_task.closed_at, v_now)
     when 'cancel' then coalesce(v_task.closed_at, v_now)
     else v_task.created_at
@@ -3183,6 +3194,9 @@ begin
     waiting_started_at = case when p_patch ? 'waiting_started_at' then (p_patch->>'waiting_started_at')::timestamptz else waiting_started_at end,
     waiting_reminded_at = case when p_patch ? 'waiting_reminded_at' then (p_patch->>'waiting_reminded_at')::timestamptz else waiting_reminded_at end,
     waiting_seconds = case when p_patch ? 'waiting_seconds' then (p_patch->>'waiting_seconds')::integer else waiting_seconds end,
+    billing_started_at = case when p_patch ? 'billing_started_at' then (p_patch->>'billing_started_at')::timestamptz else billing_started_at end,
+    billing_reminded_at = case when p_patch ? 'billing_reminded_at' then (p_patch->>'billing_reminded_at')::timestamptz else billing_reminded_at end,
+    billing_seconds = case when p_patch ? 'billing_seconds' then (p_patch->>'billing_seconds')::integer else billing_seconds end,
     overdue_flagged_at = case when p_patch ? 'overdue_flagged_at' then (p_patch->>'overdue_flagged_at')::timestamptz else overdue_flagged_at end,
     overdue_reminded_at = case when p_patch ? 'overdue_reminded_at' then (p_patch->>'overdue_reminded_at')::timestamptz else overdue_reminded_at end,
     overdue_unlocked_at = case when p_patch ? 'overdue_unlocked_at' then (p_patch->>'overdue_unlocked_at')::timestamptz else overdue_unlocked_at end,
@@ -3314,6 +3328,7 @@ begin
         when 'todo' then coalesce(target_task.todo_started_at, target_task.updated_at, target_task.created_at)
         when 'in_progress' then coalesce(target_task.in_progress_at, target_task.updated_at, target_task.created_at)
         when 'waiting' then coalesce(target_task.waiting_started_at, target_task.updated_at, target_task.created_at)
+        when 'billing' then coalesce(target_task.billing_started_at, target_task.updated_at, target_task.created_at)
         when 'done' then coalesce(target_task.closed_at, target_task.updated_at, target_task.created_at)
         when 'cancel' then coalesce(target_task.closed_at, target_task.updated_at, target_task.created_at)
         else target_task.created_at
@@ -3333,11 +3348,15 @@ begin
           and target_task.overdue_count = 0
           and target_task.waiting_started_at is null
           and coalesce(target_task.waiting_seconds, 0) = 0
+          and target_task.billing_started_at is null
+          and coalesce(target_task.billing_seconds, 0) = 0
           then target_task.sla_minutes else null end,
         case when target_task.status = 'in_progress'
           and target_task.overdue_count = 0
           and target_task.waiting_started_at is null
           and coalesce(target_task.waiting_seconds, 0) = 0
+          and target_task.billing_started_at is null
+          and coalesce(target_task.billing_seconds, 0) = 0
           and target_task.sla_minutes is not null
           then old_started_at + make_interval(mins => target_task.sla_minutes) else null end,
         jsonb_build_object('source', 'fallback-close')
@@ -3348,14 +3367,19 @@ begin
       when 'todo' then coalesce(next_task.todo_started_at, p_now)
       when 'in_progress' then coalesce(next_task.in_progress_at, p_now)
       when 'waiting' then coalesce(next_task.waiting_started_at, p_now)
+      when 'billing' then coalesce(next_task.billing_started_at, p_now)
       when 'done' then coalesce(next_task.closed_at, p_now)
       when 'cancel' then coalesce(next_task.closed_at, p_now)
       else p_now
     end;
+    -- Billing parks a task exactly the way Waiting does, so a task that has
+    -- ever been parked no longer carries a meaningful single-stint due date.
     next_sla_active := next_task.status = 'in_progress'
       and target_task.overdue_count = 0
       and target_task.waiting_started_at is null
-      and coalesce(target_task.waiting_seconds, 0) = 0;
+      and coalesce(target_task.waiting_seconds, 0) = 0
+      and target_task.billing_started_at is null
+      and coalesce(target_task.billing_seconds, 0) = 0;
     next_sla_minutes := case when next_sla_active then next_task.sla_minutes else null end;
     insert into task_stage_cycles (
       task_id, stage, started_at, started_by_email, from_status,

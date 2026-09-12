@@ -37,7 +37,9 @@ export const PRIORITY_WEIGHTS: Record<TaskPriority, number> = {
   low: 1,
 };
 
-const OPEN_STATUSES = ["todo", "in_progress", "waiting"] as const;
+// Billing belongs here: the work is not finished, so the task still occupies
+// its assignee and still counts toward that person's load.
+const OPEN_STATUSES = ["todo", "in_progress", "waiting", "billing"] as const;
 type OpenStatus = (typeof OPEN_STATUSES)[number];
 
 function isUrgentHighPriority(priority: TaskPriority): boolean {
@@ -50,7 +52,7 @@ const ATTENTION_LABELS: Record<OverviewRiskFlag, string> = {
   previously_overdue: "Previously overdue",
   unassigned_urgent: "Unassigned urgent/high",
   todo_stuck: "Todo stuck",
-  waiting_stuck: "Waiting stuck",
+  waiting_stuck: "Waiting/Billing stuck",
   stale: "Stale activity",
   qc_needed: "QC needed",
 };
@@ -101,7 +103,7 @@ type PersonAccumulator = {
 };
 
 function emptyStageCounts(): OverviewStageCounts {
-  return { todo: 0, in_progress: 0, waiting: 0 };
+  return { todo: 0, in_progress: 0, waiting: 0, billing: 0 };
 }
 
 function emptyPriorityCounts(): OverviewPriorityCounts {
@@ -115,6 +117,7 @@ function emptyStagePriorityMatrix(): OverviewStagePriorityMatrix {
     in_progress_overdue: emptyPriorityCounts(),
     in_progress: emptyPriorityCounts(),
     waiting: emptyPriorityCounts(),
+    billing: emptyPriorityCounts(),
   };
 }
 
@@ -165,7 +168,9 @@ function deriveOpenTask(
     }
   } else if (task.status === "in_progress") {
     unknownEffort = true;
-  } else if (task.status === "waiting") {
+  } else if (task.status === "waiting" || task.status === "billing") {
+    // Parked stages: the task still belongs to its assignee, but it is not
+    // consuming their hands right now. Same discount for both.
     loadMinutes = effective / 3;
   }
 
@@ -177,8 +182,12 @@ function deriveOpenTask(
     const age = ageSeconds(task.todo_started_at ?? task.created_at, now) ?? 0;
     if (age >= reminderSettings.todoHours * 3600) addFlag(flags, "todo_stuck");
   }
-  if (task.status === "waiting") {
-    const age = ageSeconds(task.waiting_started_at ?? task.created_at, now) ?? 0;
+  if (task.status === "waiting" || task.status === "billing") {
+    // Billing is a specific kind of Waiting: use the identical parked-stage
+    // threshold and attention flag, with the matching stage clock as its age.
+    const startedAt =
+      task.status === "billing" ? task.billing_started_at : task.waiting_started_at;
+    const age = ageSeconds(startedAt ?? task.created_at, now) ?? 0;
     if (age >= reminderSettings.waitingHours * 3600) addFlag(flags, "waiting_stuck");
   }
 

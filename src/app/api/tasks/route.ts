@@ -297,6 +297,7 @@ export async function POST(request: Request) {
   const startingTodo = assignment.status === "todo";
   const startingInProgress = assignment.status === "in_progress";
   const startingWaiting = assignment.status === "waiting";
+  const startingBilling = assignment.status === "billing";
   const startingClosed = assignment.status === "done" || assignment.status === "cancel";
   // Luôn nạp, không còn phụ thuộc `shouldLoadSlaRules`: bảng này nay mang cả nút
   // bật/tắt của từng tổ hợp category × priority, và việc kiểm phải chạy cho MỌI
@@ -339,6 +340,7 @@ export async function POST(request: Request) {
     ...(startingTodo ? { todo_started_at: nowIso } : {}),
     ...(startingInProgress ? { in_progress_at: nowIso } : {}),
     ...(startingWaiting ? { waiting_started_at: nowIso } : {}),
+    ...(startingBilling ? { billing_started_at: nowIso } : {}),
     ...(startingClosed ? { closed_at: nowIso } : {}),
   };
   const { data: created, error: createError } = await supabase

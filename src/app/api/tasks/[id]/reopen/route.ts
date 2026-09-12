@@ -81,6 +81,7 @@ export async function POST(req: Request, { params }: Ctx) {
     todo_reminded_at: null,
     in_progress_at: null,
     waiting_started_at: null,
+    billing_started_at: null,
     done_reviewed_by_email: null,
     done_reviewed_at: null,
     closed_at: null,

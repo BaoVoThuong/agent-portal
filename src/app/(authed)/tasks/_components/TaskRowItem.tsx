@@ -209,6 +209,7 @@ const STATUS_PILL: Record<TaskStatus, { bg: string; fg: string }> = {
   todo: { bg: "#dfe1e6", fg: "#42526e" },
   in_progress: { bg: "#deebff", fg: "#0055cc" },
   waiting: { bg: "#fff0b3", fg: "#7f5f01" },
+  billing: { bg: "#e6fcff", fg: "#008da6" },
   done: { bg: "#e3fcef", fg: "#006644" },
   cancel: { bg: "#ffebe6", fg: "#bf2600" },
 };
@@ -1085,7 +1086,7 @@ function buildTimeReport(
       return {
         label: `In progress for ${formatDurationSeconds(elapsed)}`,
         title:
-          "Total time spent in In Progress. SLA countdown is no longer active after waiting or an overdue unlock.",
+          "Total time spent in In Progress. SLA countdown is no longer active after Waiting, Billing, or an overdue unlock.",
         className: "text-[#42526e]",
       };
     }
@@ -1099,6 +1100,18 @@ function buildTimeReport(
         label: `Waiting for ${formatDurationSeconds(elapsed)}`,
         title: "Total time spent in Waiting, including the current stint.",
         className: "text-[#7f5f01]",
+      };
+    }
+    case "billing": {
+      const elapsed = stageElapsedSeconds(
+        task.billing_seconds,
+        task.billing_started_at,
+        now
+      );
+      return {
+        label: `Billing for ${formatDurationSeconds(elapsed)}`,
+        title: "Total time spent in Billing, including the current stint.",
+        className: "text-[#008da6]",
       };
     }
     case "done": {

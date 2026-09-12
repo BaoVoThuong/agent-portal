@@ -79,7 +79,7 @@ async function runReminderSweep(): Promise<NextResponse> {
   const { data: taskRows, error: tasksError } = await supabase
     .from("tasks")
     .select(
-      "id,status,priority,category_id,agent_email,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,overdue_flagged_at,overdue_reminded_at,due_soon_notified_at,sla_minutes,overdue_count"
+      "id,status,priority,category_id,agent_email,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,billing_started_at,billing_seconds,overdue_flagged_at,overdue_reminded_at,due_soon_notified_at,sla_minutes,overdue_count"
     )
     .eq("status", "in_progress")
     .is("archived_at", null)
@@ -97,6 +97,8 @@ async function runReminderSweep(): Promise<NextResponse> {
     | "in_progress_seconds"
     | "waiting_started_at"
     | "waiting_seconds"
+    | "billing_started_at"
+    | "billing_seconds"
     | "overdue_flagged_at"
     | "overdue_reminded_at"
     | "due_soon_notified_at"
@@ -180,16 +182,33 @@ async function runReminderSweep(): Promise<NextResponse> {
       intervalDue(task.due_overdue_reminded_at, 24 * 3600_000, now)
   );
 
-  const { data: waitingRows, error: waitingError } = await supabase
-    .from("tasks")
-    .select("id,waiting_started_at,waiting_reminded_at")
-    .eq("status", "waiting")
-    .is("archived_at", null)
-    .not("waiting_started_at", "is", null)
-    .lte("waiting_started_at", waitingCutoffIso);
-  if (waitingError) return NextResponse.json({ error: waitingError.message }, { status: 500 });
+  // Billing is a more specific form of Waiting: both parked stages use the
+  // same threshold and notification type, while each keeps its own marker so
+  // a transition between them starts a fresh parked-stage reminder interval.
+  const [waitingResult, billingResult] = await Promise.all([
+    supabase
+      .from("tasks")
+      .select("id,waiting_started_at,waiting_reminded_at")
+      .eq("status", "waiting")
+      .is("archived_at", null)
+      .not("waiting_started_at", "is", null)
+      .lte("waiting_started_at", waitingCutoffIso),
+    supabase
+      .from("tasks")
+      .select("id,billing_started_at,billing_reminded_at")
+      .eq("status", "billing")
+      .is("archived_at", null)
+      .not("billing_started_at", "is", null)
+      .lte("billing_started_at", waitingCutoffIso),
+  ]);
+  if (waitingResult.error) {
+    return NextResponse.json({ error: waitingResult.error.message }, { status: 500 });
+  }
+  if (billingResult.error) {
+    return NextResponse.json({ error: billingResult.error.message }, { status: 500 });
+  }
   const waitingReminderTasks = (
-    (waitingRows ?? []) as Pick<
+    (waitingResult.data ?? []) as Pick<
       TaskRow,
       "id" | "waiting_started_at" | "waiting_reminded_at"
     >[]
@@ -197,11 +216,17 @@ async function runReminderSweep(): Promise<NextResponse> {
     (task) =>
       intervalDue(task.waiting_reminded_at, waitingReminderMs, now)
   );
+  const billingReminderTasks = (
+    (billingResult.data ?? []) as Pick<
+      TaskRow,
+      "id" | "billing_started_at" | "billing_reminded_at"
+    >[]
+  ).filter((task) => intervalDue(task.billing_reminded_at, waitingReminderMs, now));
 
   const { data: staleRows, error: staleError } = await supabase
     .from("tasks")
     .select("id,status,last_activity_at,stale_reminded_at")
-    .in("status", ["todo", "in_progress", "waiting"])
+    .in("status", ["todo", "in_progress", "waiting", "billing"])
     .is("archived_at", null);
   if (staleError) return NextResponse.json({ error: staleError.message }, { status: 500 });
   const staleReminderTasks = (
@@ -306,9 +331,13 @@ async function runReminderSweep(): Promise<NextResponse> {
     );
   }
 
-  if (waitingReminderTasks.length > 0) {
+  const parkedReminderTasks = [
+    ...waitingReminderTasks.map((task) => ({ id: task.id, status: "waiting" as const })),
+    ...billingReminderTasks.map((task) => ({ id: task.id, status: "billing" as const })),
+  ];
+  if (parkedReminderTasks.length > 0) {
     await Promise.all(
-      waitingReminderTasks.map(async (task) => {
+      parkedReminderTasks.map(async (task) => {
         const assignees = await fetchTaskAssigneeEmails(task.id, supabase);
         await insertNotifications(
           assignees.map((email) => ({
@@ -320,9 +349,13 @@ async function runReminderSweep(): Promise<NextResponse> {
         );
         const { error: updateError } = await supabase
           .from("tasks")
-          .update({ waiting_reminded_at: nowIso })
+          .update(
+            task.status === "billing"
+              ? { billing_reminded_at: nowIso }
+              : { waiting_reminded_at: nowIso }
+          )
           .eq("id", task.id)
-          .eq("status", "waiting");
+          .eq("status", task.status);
         if (updateError) throw new Error(updateError.message);
       })
     );
@@ -406,7 +439,7 @@ async function runReminderSweep(): Promise<NextResponse> {
           .from("tasks")
           .update({ stale_reminded_at: nowIso })
           .eq("id", task.id)
-          .in("status", ["todo", "in_progress", "waiting"]);
+          .in("status", ["todo", "in_progress", "waiting", "billing"]);
         if (updateError) throw new Error(updateError.message);
       })
     );
@@ -519,6 +552,7 @@ async function runReminderSweep(): Promise<NextResponse> {
     reminded: stillOverdue.length,
     todoReminded: todoReminderTasks.length,
     waitingReminded: waitingReminderTasks.length,
+    billingReminded: billingReminderTasks.length,
     dueSoon: dueSoonTasks.length,
     stale: staleReminderTasks.length,
     qcStale: qcStaleTasks.length,

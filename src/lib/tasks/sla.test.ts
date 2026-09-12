@@ -115,6 +115,24 @@ describe("isSlaActiveInProgress", () => {
       })
     ).toBe(false);
   });
+  it("inactive after the task has entered Billing", () => {
+    expect(
+      isSlaActiveInProgress({
+        status: "in_progress",
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        overdue_count: 0,
+        billing_seconds: 1,
+      })
+    ).toBe(false);
+    expect(
+      isSlaActiveInProgress({
+        status: "in_progress",
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        overdue_count: 0,
+        billing_started_at: "2026-07-04T00:00:00.000Z",
+      })
+    ).toBe(false);
+  });
   it("inactive outside In Progress", () => {
     expect(
       isSlaActiveInProgress({ status: "todo", in_progress_at: null, overdue_count: 0 })
@@ -179,6 +197,15 @@ describe("isTaskOverdue", () => {
     const now = new Date("2026-07-05T00:00:01.000Z");
     expect(isTaskOverdue(waitedTask, rules, now)).toBe(false);
   });
+  it("not overdue after Billing; later In Progress is plain count-up effort time", () => {
+    const billedTask = {
+      ...base,
+      in_progress_seconds: 60 * 60,
+      billing_seconds: 1,
+    };
+    const now = new Date("2026-07-05T00:00:01.000Z");
+    expect(isTaskOverdue(billedTask, rules, now)).toBe(false);
+  });
   it("NEVER overdue again once overdue_count > 0 — no matter how far over budget", () => {
     // This is the core anti-reset guarantee: once resolved, a task counts up
     // forever and can't be flagged overdue a second time.
@@ -242,6 +269,20 @@ describe("currentStintDueAt", () => {
         sla_minutes: 60,
         in_progress_seconds: 90 * 60,
         waiting_seconds: 1,
+      },
+      rules
+    );
+    expect(due).toBeNull();
+  });
+  it("has no due_at after Billing", () => {
+    const due = currentStintDueAt(
+      {
+        in_progress_at: "2026-07-05T00:00:00.000Z",
+        priority: "urgent",
+        category_id: null,
+        sla_minutes: 60,
+        in_progress_seconds: 90 * 60,
+        billing_seconds: 1,
       },
       rules
     );

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import { buildTaskActor } from "@/lib/tasks/access";
+import { hasBeenParked, isSlaActiveInProgress } from "@/lib/tasks/sla";
 
 const manager = buildTaskActor(["task.manage"], "mgr@x.com", { isAdmin: true });
 const cs = buildTaskActor(["task.work"], "cs@x.com");
@@ -527,5 +528,154 @@ describe("resolveTaskPatch", () => {
       resolveTaskPatch(manager, assigned, { position: 3.5 })
     ).toEqual({ ok: true, patch: { position: 3.5 } });
     expect(resolveTaskPatch(manager, assigned, { position: "x" }).ok).toBe(false);
+  });
+});
+
+describe("resolveTaskPatch — Billing stage", () => {
+  const inProgress = {
+    ...assigned,
+    status: "in_progress" as const,
+    in_progress_at: "2026-09-12T01:00:00.000Z",
+    in_progress_seconds: 0,
+    sla_minutes: 60,
+  };
+
+  it("banks In Progress and opens the Billing clock on entry", () => {
+    const r = resolveTaskPatch(
+      manager,
+      inProgress,
+      { status: "billing" },
+      { nowIso: "2026-09-12T01:10:00.000Z" }
+    );
+    expect(r).toEqual({
+      ok: true,
+      patch: {
+        status: "billing",
+        done_reviewed_by_email: null,
+        done_reviewed_at: null,
+        in_progress_seconds: 10 * 60,
+        in_progress_at: null,
+        billing_started_at: "2026-09-12T01:10:00.000Z",
+        billing_reminded_at: null,
+      },
+    });
+  });
+
+  it("banks the Billing clock on the way out and leaves no open stint behind", () => {
+    const billing = {
+      ...assigned,
+      status: "billing" as const,
+      billing_started_at: "2026-09-12T01:10:00.000Z",
+      billing_seconds: 0,
+      in_progress_seconds: 600,
+      sla_minutes: 60,
+    };
+    const r = resolveTaskPatch(
+      manager,
+      billing,
+      { status: "in_progress" },
+      { nowIso: "2026-09-12T02:10:00.000Z" }
+    );
+    expect(r.ok).toBe(true);
+    const { patch } = r as { ok: true; patch: Record<string, unknown> };
+    expect(patch.billing_seconds).toBe(60 * 60);
+    expect(patch.billing_started_at).toBeNull();
+  });
+
+  // A park-and-bounce must still leave a non-zero accumulator: billing_seconds
+  // doubles as the "has been parked" marker that stops the SLA re-arming.
+  it("records at least one second even when Billing is left immediately", () => {
+    const billing = {
+      ...assigned,
+      status: "billing" as const,
+      billing_started_at: "2026-09-12T01:10:00.000Z",
+      billing_seconds: 0,
+      in_progress_seconds: 600,
+    };
+    const r = resolveTaskPatch(
+      manager,
+      billing,
+      { status: "in_progress" },
+      { nowIso: "2026-09-12T01:10:00.000Z" }
+    );
+    const { patch } = r as { ok: true; patch: Record<string, unknown> };
+    expect(patch.billing_seconds).toBe(1);
+  });
+
+  it("allows Billing -> Done because the task has already been In Progress", () => {
+    const billing = {
+      ...assigned,
+      status: "billing" as const,
+      billing_started_at: "2026-09-12T01:10:00.000Z",
+      billing_seconds: 0,
+      in_progress_at: null,
+      in_progress_seconds: 600,
+    };
+    const r = resolveTaskPatch(
+      manager,
+      billing,
+      { status: "done" },
+      { nowIso: "2026-09-12T02:10:00.000Z" }
+    );
+    expect(r.ok).toBe(true);
+    const { patch } = r as { ok: true; patch: Record<string, unknown> };
+    expect(patch.status).toBe("done");
+    expect(patch.closed_at).toBe("2026-09-12T02:10:00.000Z");
+  });
+
+  // The journey the Billing rollout exists to get right: Billing must pause the
+  // SLA exactly the way Waiting does. In Progress burns 10 of its 60 SLA
+  // minutes, Billing holds the task for an hour, and coming back must NOT have
+  // consumed any more of the budget — nor re-arm a countdown that would
+  // instantly report the task overdue.
+  it("pauses the SLA across In Progress -> Billing -> In Progress -> Done", () => {
+    // overdue_count MUST be present and 0. isSlaActiveInProgress also checks
+    // it, so leaving it undefined would make the assertions below pass no
+    // matter what Billing did.
+    let current: Record<string, unknown> = {
+      ...assigned,
+      status: "in_progress",
+      in_progress_at: "2026-09-12T01:00:00.000Z",
+      in_progress_seconds: 0,
+      waiting_seconds: 0,
+      waiting_started_at: null,
+      billing_seconds: 0,
+      billing_started_at: null,
+      overdue_count: 0,
+      sla_minutes: 60,
+    };
+    // Control: before any parking the SLA really is running, so the assertions
+    // after the Billing trip are measuring the change, not a constant false.
+    expect(isSlaActiveInProgress(current as never)).toBe(true);
+    expect(hasBeenParked(current as never)).toBe(false);
+    const apply = (next: string, nowIso: string) => {
+      const r = resolveTaskPatch(
+        manager,
+        current as Parameters<typeof resolveTaskPatch>[1],
+        { status: next },
+        { nowIso }
+      );
+      expect(r.ok).toBe(true);
+      const { patch } = r as { ok: true; patch: Record<string, unknown> };
+      current = { ...current, ...patch };
+      return patch;
+    };
+
+    apply("billing", "2026-09-12T01:10:00.000Z");
+    expect(current.in_progress_seconds).toBe(10 * 60);
+
+    apply("in_progress", "2026-09-12T02:10:00.000Z");
+    // The whole hour landed in Billing, not In Progress.
+    expect(current.billing_seconds).toBe(60 * 60);
+    expect(current.in_progress_seconds).toBe(10 * 60);
+
+    // Budget spent is still only the 10 real working minutes.
+    expect(isSlaActiveInProgress(current as never)).toBe(false);
+    expect(hasBeenParked(current as never)).toBe(true);
+
+    const donePatch = apply("done", "2026-09-12T02:15:00.000Z");
+    expect(donePatch.closed_at).toBe("2026-09-12T02:15:00.000Z");
+    expect(current.in_progress_seconds).toBe(15 * 60);
+    expect(current.billing_seconds).toBe(60 * 60);
   });
 });

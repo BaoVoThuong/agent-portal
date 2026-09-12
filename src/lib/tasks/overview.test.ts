@@ -38,11 +38,13 @@ function task(overrides: Partial<OverviewTaskInput> = {}): OverviewTaskInput {
     todo_started_at: "2026-07-18T11:00:00.000Z",
     in_progress_at: null,
     waiting_started_at: null,
+    billing_started_at: null,
     last_activity_at: "2026-07-18T11:30:00.000Z",
     sla_minutes: null,
     overdue_count: 0,
     in_progress_seconds: 0,
     waiting_seconds: 0,
+    billing_seconds: 0,
     closed_at: null,
     done_reviewed_at: null,
     created_at: "2026-07-18T10:00:00.000Z",
@@ -251,6 +253,36 @@ describe("aggregateOverview", () => {
     expect(snapshot.workMix.stagePriority.in_progress_overdue.urgent).toBe(1);
     expect(snapshot.workMix.stagePriority.in_progress.urgent).toBe(0);
     expect(snapshot.workMix.stagePriority.in_progress.high).toBe(1);
+  });
+
+  it("treats Billing as the same parked workload and attention class as Waiting", () => {
+    const snapshot = aggregateOverview(
+      input({
+        reminderSettings: {
+          todoHours: 24,
+          waitingHours: 1,
+          staleHours: 48,
+          dueSoonMinutes: 15,
+        },
+        tasks: [
+          task({
+            id: "billing",
+            status: "billing",
+            priority: "low",
+            billing_started_at: "2026-07-18T10:00:00.000Z",
+            sla_minutes: 120,
+          }),
+        ],
+      })
+    );
+
+    const alice = snapshot.csRows.find((row) => row.email === "alice@example.com");
+    const billing = alice?.tasks.find((item) => item.id === "billing");
+    expect(billing?.slaLoadMinutes).toBe(40);
+    expect(billing?.riskFlags).toEqual(["waiting_stuck"]);
+    expect(alice?.stageCounts.billing).toBe(1);
+    expect(snapshot.workMix.stagePriority.billing.low).toBe(1);
+    expect(snapshot.attention.find((item) => item.key === "waiting_stuck")?.taskCount).toBe(1);
   });
 
   it("separates todo and in-progress overdue work from normal stage rows", () => {

@@ -69,7 +69,7 @@ export const REMINDER_FIELDS: ReadonlyArray<{
   { key: "dueSoonMinutes", label: "Due soon", unit: "min" },
   { key: "todoHours", label: "To Do reminders", unit: "h" },
   { key: "overdueReminderHours", label: "Overdue reminders", unit: "h" },
-  { key: "waitingHours", label: "Waiting reminders", unit: "h" },
+  { key: "waitingHours", label: "Waiting / Billing reminders", unit: "h" },
   { key: "staleHours", label: "Stale reminders", unit: "h" },
   { key: "qcHours", label: "QC reminders", unit: "h" },
 ];

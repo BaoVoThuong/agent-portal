@@ -268,9 +268,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
     category_id: r.task.category_id,
     todo_started_at: r.task.todo_started_at,
     waiting_started_at: r.task.waiting_started_at,
+    billing_started_at: r.task.billing_started_at,
     todo_seconds: r.task.todo_seconds,
     in_progress_seconds: r.task.in_progress_seconds,
     waiting_seconds: r.task.waiting_seconds,
+    billing_seconds: r.task.billing_seconds,
     sla_minutes: r.task.sla_minutes,
   };
   const reassigning = bodyRecord.assignee_email !== undefined;

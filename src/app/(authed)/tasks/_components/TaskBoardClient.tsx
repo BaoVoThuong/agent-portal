@@ -2394,11 +2394,17 @@ function optimisticElapsedSeconds(startIso: string | null | undefined, nowIso: s
   return Math.max(0, Math.round((new Date(nowIso).getTime() - new Date(startIso).getTime()) / 1000));
 }
 
-function optimisticBankWaitingSeconds(before: TaskRow, nowIso: string): number {
-  const elapsed = before.waiting_started_at
-    ? optimisticElapsedSeconds(before.waiting_started_at, nowIso)
-    : 0;
-  return Math.max(1, (before.waiting_seconds ?? 0) + elapsed);
+// Mirror of bankParkedSeconds in transitions.ts, for the two parked stages
+// (Waiting and Billing). The Math.max(1) floor matters here too: it is the
+// "has been parked" marker the SLA rules read, so an immediate bounce out of
+// the stage must still leave a non-zero accumulator.
+function optimisticBankParkedSeconds(
+  bankedSeconds: number | null | undefined,
+  startedAt: string | null | undefined,
+  nowIso: string
+): number {
+  const elapsed = startedAt ? optimisticElapsedSeconds(startedAt, nowIso) : 0;
+  return Math.max(1, (bankedSeconds ?? 0) + elapsed);
 }
 
 function applyOptimisticAssigneeChange(
@@ -2445,7 +2451,8 @@ function buildOptimisticTaskPatch(
   // Mirror transitions.ts so the card doesn't flicker before the server
   // responds: bank the leaving stage's seconds into its accumulator for
   // history/KPI, clear its start, then open the new stage. Entering In Progress
-  // clears stale active-overdue markers; SLA itself is disabled after Waiting.
+  // clears stale active-overdue markers; SLA itself stays disabled once the
+  // task has been parked in Waiting or Billing.
   if (typeof optimistic.status === "string" && before && optimistic.status !== before.status) {
     const nowIso = new Date().toISOString();
     optimistic.done_reviewed_by_email = null;
@@ -2461,8 +2468,19 @@ function buildOptimisticTaskPatch(
         optimisticElapsedSeconds(before.in_progress_at, nowIso);
       optimistic.in_progress_at = null;
     } else if (before.status === "waiting") {
-      optimistic.waiting_seconds = optimisticBankWaitingSeconds(before, nowIso);
+      optimistic.waiting_seconds = optimisticBankParkedSeconds(
+        before.waiting_seconds,
+        before.waiting_started_at,
+        nowIso
+      );
       optimistic.waiting_started_at = null;
+    } else if (before.status === "billing") {
+      optimistic.billing_seconds = optimisticBankParkedSeconds(
+        before.billing_seconds,
+        before.billing_started_at,
+        nowIso
+      );
+      optimistic.billing_started_at = null;
     }
 
     if (optimistic.status === "todo") {
@@ -2475,6 +2493,9 @@ function buildOptimisticTaskPatch(
     } else if (optimistic.status === "waiting") {
       optimistic.waiting_started_at = nowIso;
       optimistic.waiting_reminded_at = null;
+    } else if (optimistic.status === "billing") {
+      optimistic.billing_started_at = nowIso;
+      optimistic.billing_reminded_at = null;
     }
 
     if (optimistic.status === "done" || optimistic.status === "cancel") {

@@ -65,11 +65,14 @@ type InProgressMeter = Pick<TaskRow, "status" | "in_progress_at"> & {
 type SlaWindowTask = Pick<TaskRow, "status" | "in_progress_at" | "overdue_count"> & {
   waiting_started_at?: string | null;
   waiting_seconds?: number | null;
+  billing_started_at?: string | null;
+  billing_seconds?: number | null;
 };
 
 // Total seconds the task has spent In Progress across ALL stints: the banked
 // accumulator plus the current open stint. While the SLA is active, this is the
-// budget meter. After Waiting, the same value is plain effort time for display.
+// budget meter. After a parked stage (Waiting or Billing), the same value is
+// plain effort time for display.
 export function inProgressConsumedSeconds(
   task: InProgressMeter,
   now: Date = new Date()
@@ -81,21 +84,38 @@ export function inProgressConsumedSeconds(
   return base;
 }
 
-export function hasEnteredWaiting(task: {
+// Has the task ever been PARKED — left open with nobody actively working it?
+//
+// Waiting and Billing are both parked stages and both stop the SLA the same
+// way, so one predicate answers for both. The moment a task is parked its
+// remaining budget stops being measurable from a single In Progress stint, and
+// the active SLA window closes for good; it never re-arms on return.
+//
+// Reads the accumulators as well as the live *_started_at because a task that
+// parked and came back has a null start but a non-zero accumulator — checking
+// only the start would treat it as never parked and re-open a stale window.
+export function hasBeenParked(task: {
   waiting_started_at?: string | null;
   waiting_seconds?: number | null;
+  billing_started_at?: string | null;
+  billing_seconds?: number | null;
 }): boolean {
-  return Boolean(task.waiting_started_at) || (task.waiting_seconds ?? 0) > 0;
+  return (
+    Boolean(task.waiting_started_at) ||
+    (task.waiting_seconds ?? 0) > 0 ||
+    Boolean(task.billing_started_at) ||
+    (task.billing_seconds ?? 0) > 0
+  );
 }
 
-// A task can only be in the ACTIVE SLA countdown before it has ever entered
-// Waiting, and before its first overdue incident has already been resolved.
+// A task can only be in the ACTIVE SLA countdown before it has ever been
+// parked, and before its first overdue incident has already been resolved.
 export function isSlaActiveInProgress(task: SlaWindowTask): boolean {
   return (
     task.status === "in_progress" &&
     Boolean(task.in_progress_at) &&
     task.overdue_count === 0 &&
-    !hasEnteredWaiting(task)
+    !hasBeenParked(task)
   );
 }
 
@@ -128,8 +148,8 @@ export function slaRemainingSeconds(
 }
 
 // "Overdue" = the task is in its (one-time-only) active SLA window and has
-// burned the whole budget. After Waiting or after the first overdue resolution,
-// isSlaActiveInProgress is false, so this cannot fire again.
+// burned the whole budget. Once parked (Waiting or Billing), or after the first
+// overdue resolution, isSlaActiveInProgress is false, so this cannot fire again.
 export function isTaskOverdue(
   task: Pick<
     TaskRow,
@@ -139,6 +159,8 @@ export function isTaskOverdue(
     in_progress_seconds?: number | null;
     waiting_started_at?: string | null;
     waiting_seconds?: number | null;
+    billing_started_at?: string | null;
+    billing_seconds?: number | null;
   },
   rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[],
   now: Date = new Date()
@@ -156,11 +178,13 @@ export function currentStintDueAt(
     in_progress_seconds?: number | null;
     waiting_started_at?: string | null;
     waiting_seconds?: number | null;
+    billing_started_at?: string | null;
+    billing_seconds?: number | null;
   },
   rules: Pick<TaskSlaRule, "priority" | "category_id" | "duration_minutes">[]
 ): Date | null {
   if (!task.in_progress_at) return null;
-  if (hasEnteredWaiting(task)) return null;
+  if (hasBeenParked(task)) return null;
   const budgetSeconds = effectiveSlaMinutes(
     { priority: task.priority, category_id: task.category_id, sla_minutes: task.sla_minutes ?? null },
     rules

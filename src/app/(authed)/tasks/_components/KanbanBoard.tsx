@@ -46,7 +46,7 @@ type ManualOrderState = {
 function findContainer(
   id: string,
   items: TaskRow[],
-  columnOf: (task: TaskRow) => BoardColumn
+  columnOf: (task: TaskRow) => BoardColumn | null
 ): BoardColumn | null {
   if (id.startsWith("col:")) return id.slice(4) as BoardColumn;
   const task = items.find((t) => t.id === id);
@@ -66,10 +66,21 @@ function statusForDropColumn(column: BoardColumn): TaskStatus {
   return column;
 }
 
-// Kanban never receives backlog tasks (Backlog is a separate view), but
-// TaskStatus includes it — narrow it away so the fallback return type-checks.
-function columnOf(task: TaskRow): BoardColumn {
+// Which board column a task belongs in, or null when it belongs in none.
+//
+// Two statuses have no column of their own. Backlog is folded into To Do
+// because Backlog is a separate view and the board never receives those tasks
+// anyway. Cancel returns null: it is still a perfectly valid stage with its own
+// history, it simply lost its board column — cancelled work is reached through
+// the list view's Stage filter instead of occupying a column that was
+// permanently empty.
+//
+// Returning null rather than defaulting to some column is the point: every
+// caller now has to decide what a column-less task means to it, instead of a
+// cancelled card quietly materialising in To Do.
+function columnOf(task: TaskRow): BoardColumn | null {
   if (task.status === "backlog") return "todo";
+  if (task.status === "cancel") return null;
   return task.status;
 }
 
@@ -94,6 +105,10 @@ function applyManualOrder(
   rankedTasks: TaskRow[],
   manualOrder: Record<string, string[]>
 ): TaskRow[] {
+  // Iterating the COLUMNS (not the tasks) means a task whose columnOf() is
+  // null is absent from the result by construction — which is exactly what we
+  // want for cancelled tasks, and is safe because the only thing ever
+  // persisted from this ordering is the single card the user dropped.
   return KANBAN_COLUMNS.flatMap((column) => {
     const inColumn = rankedTasks.filter((task) => columnOf(task) === column);
     const manual = manualOrder[column];
@@ -264,7 +279,8 @@ function Column({
   visibleColumnKeys: ReadonlySet<string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `col:${column}` });
-  const isTerminalColumn = column === "done" || column === "cancel";
+  // Cancel used to be the other terminal column; it no longer has one.
+  const isTerminalColumn = column === "done";
 
   return (
     <section
@@ -478,6 +494,10 @@ export function KanbanBoard({
     if (!overContainer) return;
 
     const originalColumn = columnOf(original);
+    // A column-less (cancelled) task is never rendered, so it cannot be the
+    // card being dragged. Bail out rather than let a null fall through and
+    // become the string "null" as a manual-order key.
+    if (!originalColumn) return;
     if (overContainer === originalColumn) {
       if (overId.startsWith("col:")) return;
 
@@ -542,9 +562,11 @@ export function KanbanBoard({
       >
         {/* Bỏ items-start, để grid dùng items-stretch mặc định: mọi cột cao
             bằng cột cao nhất nên nền chạy suốt và đều nhau. Với items-start,
-            cột chỉ cao bằng nội dung — cột rỗng như WAITING/CANCEL co lại
+            cột chỉ cao bằng nội dung — cột rỗng như WAITING/BILLING co lại
             thành một hộp tí xíu và trông như mất nền. min-h trên từng cột giữ
-            cho cả bàn vẫn có nền khi CHƯA có task nào. */}
+            cho cả bàn vẫn có nền khi CHƯA có task nào.
+
+            Vẫn là 5 cột: Billing thế chỗ Cancel vừa bỏ. */}
         <div className="grid min-w-0 grid-cols-5 gap-3">
           {KANBAN_COLUMNS.map((column) => renderColumn(column))}
         </div>

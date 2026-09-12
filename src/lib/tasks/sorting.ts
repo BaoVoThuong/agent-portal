@@ -110,13 +110,16 @@ const PRIORITY_RANK: Record<TaskPriority, number> = {
   high: 2,
   urgent: 3,
 };
+// Board order, left to right. Billing sits between Waiting and Done, so every
+// rank from Done onward shifts up by one.
 const STATUS_RANK: Record<TaskStatus, number> = {
   backlog: 0,
   todo: 1,
   in_progress: 2,
   waiting: 3,
-  done: 4,
-  cancel: 5,
+  billing: 4,
+  done: 5,
+  cancel: 6,
 };
 const ATTENTION_PRIORITY_RANK = Object.fromEntries(
   TASK_PRIORITIES.map((priority, index) => [
@@ -319,17 +322,20 @@ const OPEN_STATUSES = new Set<TaskStatus>([
   "todo",
   "in_progress",
   "waiting",
+  "billing",
 ]);
 
 function timeInStateMs(task: TaskRow, now: Date): number {
   const started =
     task.status === "waiting"
       ? task.waiting_started_at
-      : task.status === "todo"
-        ? task.todo_started_at
-        : task.status === "in_progress"
-          ? task.in_progress_at
-          : null;
+      : task.status === "billing"
+        ? task.billing_started_at
+        : task.status === "todo"
+          ? task.todo_started_at
+          : task.status === "in_progress"
+            ? task.in_progress_at
+            : null;
 
   return started ? Math.max(0, now.getTime() - timestamp(started)) : 0;
 }
@@ -355,8 +361,12 @@ function managerRankTuple(
     return [1, timestamp(task.created_at), 0];
   }
 
+  // Parked work is what a manager most needs to see: it is open, assigned, and
+  // moving only if someone pushes it. Billing parks a task the same way
+  // Waiting does, so it earns the same attention band.
   const stalled =
     task.status === "waiting" ||
+    task.status === "billing" ||
     (task.status === "todo" &&
       (task.priority === "urgent" || task.priority === "high"));
   if (stalled) {

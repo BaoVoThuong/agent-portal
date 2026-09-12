@@ -85,6 +85,11 @@ export function TaskCard({
     task.in_progress_at,
     now
   );
+  const billingElapsedSeconds = stageElapsedSeconds(
+    task.billing_seconds,
+    task.billing_started_at,
+    now
+  );
   return (
     <div
       role="button"
@@ -154,6 +159,9 @@ export function TaskCard({
         ) : null}
         {task.status === "waiting" ? (
           <StageElapsedBadge label="Waiting" seconds={waitingElapsedSeconds} />
+        ) : null}
+        {task.status === "billing" ? (
+          <StageElapsedBadge label="Billing" seconds={billingElapsedSeconds} />
         ) : null}
         {task.status === "in_progress" && slaRemainingSeconds === null ? (
           <StageElapsedBadge label="In progress" seconds={inProgressElapsedSeconds} />
@@ -407,6 +415,7 @@ const STATUS_ACCENT: Record<TaskRow["status"], string> = {
   todo: "#4c9aff",
   in_progress: "#6554c0",
   waiting: "#ffab00",
+  billing: "#00a3bf",
   done: "#36b37e",
   cancel: "#5e6c84",
 };

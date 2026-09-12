@@ -52,7 +52,7 @@ const RISK_LABEL: Record<OverviewRiskFlag, string> = {
   previously_overdue: "Was overdue",
   unassigned_urgent: "Unassigned urgent/high",
   todo_stuck: "Todo stuck",
-  waiting_stuck: "Waiting stuck",
+  waiting_stuck: "Waiting/Billing stuck",
   stale: "Stale",
   qc_needed: "QC needed",
 };
@@ -63,7 +63,7 @@ const RISK_HELP: Record<OverviewRiskFlag, string> = {
   previously_overdue: "Open task broke SLA before, even if it is not currently overdue.",
   unassigned_urgent: "Urgent or high-priority backlog task has no assignee.",
   todo_stuck: "Todo task has waited past the Todo reminder threshold.",
-  waiting_stuck: "Waiting task has waited past the Waiting reminder threshold.",
+  waiting_stuck: "Waiting or Billing task has passed the parked-stage reminder threshold.",
   stale: "Open task has no recent activity past the stale reminder threshold.",
   qc_needed: "Done or Cancel task is waiting for QC review.",
 };
@@ -92,6 +92,7 @@ const WORK_MIX_STAGES = [
   { key: "in_progress_overdue", label: "In progress overdue", color: "#b42318", urgent: true },
   { key: "in_progress", label: "In progress", color: "#0c66e4", urgent: false },
   { key: "waiting", label: "Waiting", color: "#d97706", urgent: false },
+  { key: "billing", label: "Billing", color: "#0891b2", urgent: false },
 ] as const;
 
 const WORK_MIX_PRIORITIES = [
@@ -105,6 +106,7 @@ const BOARD_STAGE_COLORS = {
   todo: "#4c9aff",
   inProgress: "#6554c0",
   waiting: "#ffab00",
+  billing: "#00a3bf",
   overdue: "#dc2626",
 } as const;
 
@@ -404,6 +406,12 @@ function WorkloadSummary({ row }: { row: CsOverviewRow }) {
       value: row.stageCounts.waiting,
       color: BOARD_STAGE_COLORS.waiting,
       title: "Waiting tasks",
+    },
+    {
+      label: "billing",
+      value: row.stageCounts.billing,
+      color: BOARD_STAGE_COLORS.billing,
+      title: "Billing tasks",
     },
     {
       label: "overdue",
@@ -1107,7 +1115,7 @@ export function CSWorkloadOverview({
         <section className="border border-[#dbe2eb] bg-white px-4 py-1 shadow-[0_1px_2px_rgba(22,35,58,0.04)] sm:px-5" aria-label="Workload totals">
           <div className="grid grid-cols-2 divide-x divide-[#e6eaf0] sm:grid-cols-3 lg:grid-cols-5">
             <MetricTile label="CS pool" value={snapshot.kpis.csPoolCount} detail={`${snapshot.kpis.zeroLoadCsCount} with zero load`} tone="accent" />
-            <MetricTile label="Open tasks" value={snapshot.kpis.openTaskCount} detail="todo + in progress + waiting" />
+            <MetricTile label="Open tasks" value={snapshot.kpis.openTaskCount} detail="todo + in progress + waiting + billing" />
             <MetricTile label="Urgent / high" value={snapshot.kpis.urgentHighTaskCount} detail="open priority load" tone={snapshot.kpis.urgentHighTaskCount ? "warning" : "default"} />
             <MetricTile label="Needs attention" value={snapshot.kpis.needsAttentionTaskCount} detail="tasks needing review" tone={snapshot.kpis.needsAttentionTaskCount ? "danger" : "default"} />
             <MetricTile label="Unassigned" value={snapshot.kpis.unassignedTaskCount} detail="backlog tasks" tone={snapshot.kpis.unassignedTaskCount ? "accent" : "default"} />

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { hasEnteredWaiting, slaDeadline } from "./sla";
+import { hasBeenParked, slaDeadline } from "./sla";
 import type { TaskRow, TaskStatus } from "./types";
 
 type TaskTimingRow = Pick<
@@ -10,6 +10,8 @@ type TaskTimingRow = Pick<
   | "in_progress_at"
   | "waiting_started_at"
   | "waiting_seconds"
+  | "billing_started_at"
+  | "billing_seconds"
   | "closed_at"
   | "sla_minutes"
   | "overdue_count"
@@ -19,12 +21,13 @@ type TaskTimingRow = Pick<
 >;
 
 // Whether an In Progress stint of `task` runs under an ACTIVE SLA — same rule
-// as sla.ts isSlaActiveInProgress (first run, before any Waiting, before the
-// one overdue resolution). Used to decide whether a stage-cycle carries an
-// enforceable deadline; a stint with no active SLA must not record a fake
-// due_at that a downstream dashboard would treat as a missed deadline.
+// as sla.ts isSlaActiveInProgress (first run, before the task was ever parked
+// in Waiting or Billing, before the one overdue resolution). Used to decide
+// whether a stage-cycle carries an enforceable deadline; a stint with no active
+// SLA must not record a fake due_at that a downstream dashboard would treat as
+// a missed deadline.
 function stintSlaActive(task: TaskTimingRow): boolean {
-  return (task.overdue_count ?? 0) === 0 && !hasEnteredWaiting(task);
+  return (task.overdue_count ?? 0) === 0 && !hasBeenParked(task);
 }
 
 type OpenStageCycle = { id: string; started_at: string };
@@ -52,6 +55,9 @@ function stageStartedAt(task: TaskTimingRow, stage: TaskStatus = task.status): s
   if (stage === "waiting") {
     return task.waiting_started_at ?? task.updated_at ?? task.created_at;
   }
+  if (stage === "billing") {
+    return task.billing_started_at ?? task.updated_at ?? task.created_at;
+  }
   if (stage === "done" || stage === "cancel") {
     return task.closed_at ?? task.updated_at ?? task.created_at;
   }
@@ -72,6 +78,9 @@ function stageStartedAtFromPatch(
   }
   if (stage === "waiting" && typeof patch.waiting_started_at === "string") {
     return patch.waiting_started_at;
+  }
+  if (stage === "billing" && typeof patch.billing_started_at === "string") {
+    return patch.billing_started_at;
   }
   if ((stage === "done" || stage === "cancel") && typeof patch.closed_at === "string") {
     return patch.closed_at;

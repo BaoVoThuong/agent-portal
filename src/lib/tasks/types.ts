@@ -6,6 +6,7 @@ export const TASK_STATUSES = [
   "todo",
   "in_progress",
   "waiting",
+  "billing",
   "done",
   "cancel",
 ] as const;
@@ -15,12 +16,19 @@ export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
 // Columns shown on the Kanban (Backlog is a separate view, not a Kanban column).
+//
+// Cancel is deliberately ABSENT while remaining a perfectly valid TaskStatus.
+// It stays reachable from the status dropdown and keeps its own stage history;
+// it just no longer earns a permanent column on a board where it was always
+// empty. Because BoardColumn is derived from this list, the compiler now
+// forces every board-side consumer to say what it does with a cancelled task
+// rather than silently assuming one column per status.
 export const KANBAN_STATUSES = [
   "todo",
   "in_progress",
   "waiting",
+  "billing",
   "done",
-  "cancel",
 ] as const satisfies readonly TaskStatus[];
 
 // "Overdue" isn't a stored status or a column — it's an SLA state of an
@@ -53,6 +61,8 @@ export type TaskRow = {
   overdue_flagged_at: string | null;
   waiting_started_at: string | null;
   waiting_reminded_at: string | null;
+  billing_started_at: string | null;
+  billing_reminded_at: string | null;
   overdue_reminded_at: string | null;
   overdue_unlocked_at: string | null;
   due_soon_notified_at: string | null;
@@ -69,6 +79,7 @@ export type TaskRow = {
   todo_seconds: number;
   in_progress_seconds: number;
   waiting_seconds: number;
+  billing_seconds: number;
   done_reviewed_by_email: string | null;
   done_reviewed_at: string | null;
   closed_at: string | null;
@@ -112,6 +123,7 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: "To Do",
   in_progress: "In Progress",
   waiting: "Waiting",
+  billing: "Billing",
   done: "Done",
   cancel: "Cancel",
 };
@@ -120,6 +132,6 @@ export const BOARD_COLUMN_LABEL: Record<BoardColumn, string> = {
   todo: "To Do",
   in_progress: "In Progress",
   waiting: "Waiting",
+  billing: "Billing",
   done: "Done",
-  cancel: "Cancel",
 };
