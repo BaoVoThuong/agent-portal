@@ -32,6 +32,14 @@ export type OverviewAccount = {
   isActive: boolean;
   canWork: boolean;
   isAdmin: boolean;
+  /**
+   * Phụ tá của ít nhất một agent (`agent_members.is_assistant`).
+   *
+   * Bảng workload CS không hiển thị phụ tá: khối lượng của họ thuộc về agent mà
+   * họ phụ giúp, không phải hàng đợi CS chung, nên để chung bảng thì cột tải
+   * việc đọc ra sai.
+   */
+  isAssistant: boolean;
   queueDueAt: string | null;
   queueLastAssignedAt: string | null;
   queueEnabled: boolean;

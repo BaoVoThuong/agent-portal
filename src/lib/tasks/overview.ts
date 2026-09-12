@@ -372,14 +372,22 @@ function rowFromAccumulator(accumulator: PersonAccumulator, thresholds: Overview
   };
 }
 
+// Task giao cho người NGOÀI pool — ví dụ một agent hay một admin — là bất
+// thường đáng nêu, nên mục này hiện kèm biểu tượng cảnh báo.
+//
+// Phụ tá thì không: họ bị loại khỏi pool có chủ ý, và việc họ ôm task là công
+// việc bình thường của họ. Không loại họ ở đây nữa thì bỏ họ khỏi pool chỉ đổi
+// chỗ chứ không giấu đi — cả 11 người sẽ đổ vào khung "Assignments outside the
+// CS pool" và biến việc bình thường thành một đống cảnh báo giả.
 function buildOutOfPool(
   tasks: DerivedOpenTask[],
-  poolEmails: Set<string>
+  poolEmails: Set<string>,
+  hiddenEmails: Set<string>
 ): OutOfPoolOverviewException[] {
   const byEmail = new Map<string, Set<string>>();
   for (const derived of tasks) {
     for (const email of derived.assignees) {
-      if (poolEmails.has(email)) continue;
+      if (poolEmails.has(email) || hiddenEmails.has(email)) continue;
       const ids = byEmail.get(email) ?? new Set<string>();
       ids.add(derived.task.id);
       byEmail.set(email, ids);
@@ -449,11 +457,17 @@ function workMixStageKey(derived: DerivedOpenTask): OverviewWorkMixStage {
 
 export function aggregateOverview(input: OverviewInput): OverviewSnapshot {
   const thresholds = OVERVIEW_THRESHOLDS;
+  // Phụ tá không có mặt trên bảng workload CS: khối lượng của họ thuộc về agent
+  // mà họ phụ giúp chứ không phải hàng đợi CS chung.
+  const assistantEmails = new Set(
+    input.accounts.filter((account) => account.isAssistant).map((account) => account.email)
+  );
   const pool = input.accounts.filter(
     (account) =>
       account.isActive &&
       account.canWork &&
       !account.isAdmin &&
+      !account.isAssistant &&
       !input.taskAgents.includes(account.email)
   );
   const poolEmails = new Set(pool.map((account) => account.email));
@@ -597,7 +611,7 @@ export function aggregateOverview(input: OverviewInput): OverviewSnapshot {
         a.ageSeconds - b.ageSeconds ||
         a.id.localeCompare(b.id)
     ),
-    outOfPool: buildOutOfPool(openDerived, poolEmails),
+    outOfPool: buildOutOfPool(openDerived, poolEmails, assistantEmails),
   };
 }
 

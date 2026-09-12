@@ -175,18 +175,20 @@ export async function fetchTaskOverview(
     const email = normalizeEmail(account.email);
     const rotation = rotationByEmail.get(email);
     const isAdmin = account.role === "admin" || adminUserIds.has(account.id);
+    const assistantAgents = assistantAgentsByEmail.get(email) ?? [];
     return {
       email,
       name: account.name,
       roleLabel: overviewRoleLabel({
         isAdmin,
         isAgent: taskAgentSet.has(email),
-        assistantAgentEmails: assistantAgentsByEmail.get(email) ?? [],
+        assistantAgentEmails: assistantAgents,
         nameByEmail,
       }),
       isActive: account.is_active,
       canWork: workUserIds.has(account.id),
       isAdmin,
+      isAssistant: assistantAgents.length > 0,
       queueDueAt: rotation?.queueDueAt ?? null,
       queueLastAssignedAt: rotation?.queueLastAssignedAt ?? null,
       queueEnabled: queueMemberByEmail.get(email) ?? true,

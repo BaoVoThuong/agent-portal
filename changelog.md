@@ -6,6 +6,32 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-12 — Bỏ phụ tá khỏi bảng CS workload overview
+
+Phụ tá (`agent_members.is_assistant`) không còn là một dòng trên bảng workload
+CS. Khối lượng của họ thuộc về agent mà họ phụ giúp, không phải hàng đợi CS
+chung, nên để lẫn thì cột tải việc đọc ra sai.
+
+**Phải lọc ở HAI chỗ, không phải một.** `buildOutOfPool` gom task của mọi người
+ngoài pool vào khung cảnh báo "Assignments outside the CS pool". Nếu chỉ bỏ phụ
+tá khỏi pool thì họ không biến mất — cả 11 người trên production sẽ đổ vào khung
+cảnh báo đó, biến công việc bình thường thành một đống báo động giả. Nên phụ tá
+bị loại khỏi cả pool lẫn khung ngoại lệ. Agent thì VẪN nằm trong khung ngoại lệ,
+vì task giao thẳng cho agent mới thật sự là bất thường.
+
+**Hệ quả ngoài phạm vi yêu cầu:** panel gợi ý giao việc (`rankRecommendation`)
+chạy trên `csRows`, nên phụ tá cũng không còn được gợi ý khi giao task. Điều này
+nhất quán với quyết định trên — ai không thuộc hàng đợi CS thì không nên được
+gợi ý nhận việc từ hàng đợi đó — nhưng là thay đổi hành vi thật, cần biết. Cơ
+chế xoay vòng phía server (`task_assignment_rotation`) KHÔNG bị ảnh hưởng:
+`rankRecommendation` chỉ dùng cho gợi ý trên giao diện.
+
+`csPoolCount` và "N of M CS shown" sẽ giảm tương ứng.
+
+Đảo ngược một quyết định cũ: có sẵn test tên "keeps assistants in the workload
+pool but excludes agent owners" khoá đúng hành vi ngược lại. Test đó đã được
+viết lại theo hành vi mới, kèm một test riêng cho vế khung ngoại lệ.
+
 ## 2026-09-12 — Trần đính kèm mỗi bình luận: 10 tệp / 50MB → 50 tệp / 250MB
 
 Yêu cầu là "cho đính kèm 50 ảnh trong một bình luận". Nâng mỗi `maxFiles` thì

@@ -11,7 +11,8 @@ function account(
   queueDueAt: string | null = null,
   queueLastAssignedAt: string | null = null,
   queueEnabled = true,
-  roleLabel = "Customer Service"
+  roleLabel = "Customer Service",
+  isAssistant = false
 ): OverviewAccount {
   return {
     email,
@@ -20,6 +21,7 @@ function account(
     isActive: true,
     canWork: true,
     isAdmin: false,
+    isAssistant,
     queueDueAt,
     queueLastAssignedAt,
     queueEnabled,
@@ -174,19 +176,46 @@ describe("aggregateOverview", () => {
     );
   });
 
-  it("keeps assistants in the workload pool but excludes agent owners", () => {
+  it("excludes both assistants and agent owners from the workload pool", () => {
     const snapshot = aggregateOverview(
       input({
         accounts: [
           account("agent@example.com", "Agent", null, null, true, "Agent"),
-          account("assistant@example.com", "Assistant", null, null, true, "Assistant to An"),
+          account("assistant@example.com", "Assistant", null, null, true, "Assistant to An", true),
+          account("cs@example.com", "CS"),
         ],
         taskAgents: ["agent@example.com"],
       })
     );
 
-    expect(snapshot.csRows.map((row) => row.email)).toEqual(["assistant@example.com"]);
-    expect(snapshot.csRows[0].roleLabel).toBe("Assistant to An");
+    expect(snapshot.csRows.map((row) => row.email)).toEqual(["cs@example.com"]);
+  });
+
+  // Bỏ phụ tá khỏi pool mà quên chỗ này thì không phải là giấu đi — chỉ là đổi
+  // chỗ: task của họ đổ hết vào khung cảnh báo "Assignments outside the CS
+  // pool". Agent thì vẫn phải nằm trong khung đó, vì task giao cho agent mới
+  // thật sự là bất thường.
+  it("hides assistant work entirely instead of moving it into the exceptions panel", () => {
+    const snapshot = aggregateOverview(
+      input({
+        accounts: [
+          account("agent@example.com", "Agent", null, null, true, "Agent"),
+          account("assistant@example.com", "Assistant", null, null, true, "Assistant to An", true),
+          account("cs@example.com", "CS"),
+        ],
+        taskAgents: ["agent@example.com"],
+        tasks: [
+          task({ id: "t-assistant", assignee_email: "assistant@example.com" }),
+          task({ id: "t-agent", assignee_email: "agent@example.com" }),
+        ],
+        assigneesByTask: new Map([
+          ["t-assistant", ["assistant@example.com"]],
+          ["t-agent", ["agent@example.com"]],
+        ]),
+      })
+    );
+
+    expect(snapshot.outOfPool.map((item) => item.email)).toEqual(["agent@example.com"]);
   });
 
   it("adds category display data to unassigned tasks", () => {
