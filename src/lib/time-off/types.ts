@@ -81,8 +81,23 @@ export type TimeOffMonthlyAccrualRule = {
   updated_at: string;
 };
 
+/** Một người có thể được chọn làm nơi gửi đơn tới. */
+export type TimeOffManagerOption = {
+  id: string;
+  name: string | null;
+  email: string;
+};
+
 export type TimeOffDashboardData = {
   policies: TimeOffPolicy[];
+  /**
+   * Danh bạ để chọn người nhận tin khi nộp đơn; đã loại chính người đang xem.
+   *
+   * Không có giá trị mặc định: hệ thống KHÔNG biết ai là quản lý của ai. Từng
+   * có ý định dựng sơ đồ tổ chức để suy ra, nhưng đội đã bỏ hướng đó, nên người
+   * nộp tự chọn mỗi lần.
+   */
+  manager_options: TimeOffManagerOption[];
   balances: TimeOffBalance[];
   holidays: TimeOffHoliday[];
   calendar_requests: TimeOffCalendarEvent[];

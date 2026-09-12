@@ -346,6 +346,15 @@ export async function fetchTimeOffDashboard(
 
   return {
     policies,
+    // Ai cũng chọn được bất kỳ đồng nghiệp nào đang hoạt động: đây là ô "gửi tin
+    // cho ai", không phải ô phân quyền. Chỉ loại chính mình — tự gửi đơn cho
+    // bản thân thì vô nghĩa, và server cũng từ chối.
+    manager_options: ((accountsResult.data ?? []) as AccountRow[])
+      .filter((account) => account.id !== params.accountId)
+      .map((account) => ({ id: account.id, name: account.name, email: account.email }))
+      .sort((a, b) =>
+        (a.name?.trim() || a.email).localeCompare(b.name?.trim() || b.email)
+      ),
     balances,
     holidays: [...holidayByDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
     calendar_requests: ((calendarResult.data ?? []) as RequestRow[]).map(asCalendarEvent),

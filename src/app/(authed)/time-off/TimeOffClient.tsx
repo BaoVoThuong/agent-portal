@@ -205,6 +205,10 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   const [requestStart, setRequestStart] = useState("");
   const [requestEnd, setRequestEnd] = useState("");
   const [requestReason, setRequestReason] = useState("");
+  // Không có mặc định: hệ thống không biết ai là quản lý của ai. Để trống thì
+  // đơn vẫn gửi được, chỉ là không báo riêng cho ai ngoài những người có quyền
+  // duyệt.
+  const [requestManagerId, setRequestManagerId] = useState("");
   const [requestBalancePreview, setRequestBalancePreview] = useState<RequestBalancePreview | null>(null);
   const [requestBalancePreviewError, setRequestBalancePreviewError] = useState<string | null>(null);
   const [requestBalancePreviewLoading, setRequestBalancePreviewLoading] = useState(false);
@@ -366,6 +370,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     setRequestStart(date ?? "");
     setRequestEnd(date ?? "");
     setRequestReason("");
+    setRequestManagerId("");
     setRequestBalancePreview(null);
     setRequestBalancePreviewError(null);
     setShowRequest(true);
@@ -527,6 +532,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
           start_date: requestStart,
           end_date: requestEnd,
           reason: requestReason,
+          manager_id: requestManagerId || null,
         }),
       }));
       setShowRequest(false);
@@ -809,6 +815,24 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
             <PolicyPicker label="Time-off type" policies={initialData.policies} value={requestPolicy} onChange={setRequestPolicy} />
             <div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-semibold text-[#304767]">Start date<input required type="date" value={requestStart} onChange={(event) => setRequestStart(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><label className="block text-sm font-semibold text-[#304767]">End date<input required type="date" min={requestStart || undefined} value={requestEnd} onChange={(event) => setRequestEnd(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div>
             {requestPolicyInfo && <section aria-live="polite" className="rounded-xl border border-blue-100 bg-blue-50/60 p-3.5"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold text-[#1e355c]">Leave balance</p><p className="mt-0.5 text-xs text-slate-500">{requestPolicyInfo.label}</p></div>{requestBalancePreviewLoading && <span className="text-xs font-medium text-[#1769e8]">Calculating…</span>}</div><div className="mt-3 grid grid-cols-3 divide-x divide-blue-100"><div className="pr-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Available now</p><p className="mt-1 text-lg font-bold text-[#172e55]">{requestTracksBalance ? `${requestPreviewAvailable ?? 0} d` : "—"}</p></div><div className="px-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">This request</p><p className="mt-1 text-lg font-bold text-[#172e55]">{requestPreviewRequested === null ? "—" : `${requestPreviewRequested} d`}</p></div><div className="pl-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">After request</p><p className={`mt-1 text-lg font-bold ${requestExceedsBalance ? "text-rose-600" : "text-[#1769e8]"}`}>{requestTracksBalance ? requestPreviewRemaining === null ? "—" : `${requestPreviewRemaining} d` : "—"}</p></div></div>{requestTracksBalance && <p className="mt-3 text-xs text-slate-500">{requestUsedDays} used of {requestAllowance ?? 0} days this year.</p>}{requestBalancePreviewError && <p className="mt-3 text-xs font-medium text-rose-700">{requestBalancePreviewError}</p>}{requestExceedsBalance && <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5"><p className="text-xs font-semibold text-rose-700">This request is {requestShortfallDays} day{requestShortfallDays === 1 ? "" : "s"} over the available balance, so it cannot be submitted.</p>{unpaidFallbackPolicy && <button type="button" onClick={() => setRequestPolicy(unpaidFallbackPolicy.code)} className="mt-2 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">Switch to {unpaidFallbackPolicy.label}</button>}</div>}</section>}
+            <label className="block text-sm font-semibold text-[#304767]">Send to
+              <select
+                value={requestManagerId}
+                onChange={(event) => setRequestManagerId(event.target.value)}
+                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">No specific manager</option>
+                {initialData.manager_options.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name?.trim() || option.email}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs font-normal text-slate-500">
+                They are notified about this request. Everyone who can approve
+                time off is notified either way.
+              </span>
+            </label>
             <label className="block text-sm font-semibold text-[#304767]">Note <span className="font-normal text-slate-400">(optional)</span><textarea value={requestReason} onChange={(event) => setRequestReason(event.target.value)} maxLength={1000} rows={3} placeholder="Anything your manager should know?" className="mt-2 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label>
             <div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowRequest(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "request" || requestBalancePreviewLoading || requestExceedsBalance} type="submit" className="inline-flex items-center gap-2 rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "request" ? "Sending…" : "Send request"}</button></div>
           </form>

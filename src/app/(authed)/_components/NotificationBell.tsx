@@ -23,6 +23,7 @@ import {
   notificationEntityLabel,
   notificationHref as sharedNotificationHref,
   type NotificationCopyType,
+  type NotificationEntityKind,
 } from "@/lib/notifications/copy";
 
 type Notif = {
@@ -80,7 +81,7 @@ function commentPreview(n: Notif): string | null {
   return cleaned.length > 180 ? `${cleaned.slice(0, 177)}...` : cleaned;
 }
 
-function entityKind(n: Notif): "task" | "enrollment" {
+function entityKind(n: Notif): NotificationEntityKind {
   return notificationEntityKind(n);
 }
 

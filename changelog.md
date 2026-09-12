@@ -6,6 +6,48 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-12 — Time Off: chọn người nhận tin khi nộp đơn, và báo cho họ
+
+Modal xin nghỉ có thêm ô **Send to**: chọn một đồng nghiệp để báo tin về đơn
+này. **Không có giá trị mặc định** — hệ thống không biết ai là quản lý của ai.
+Từng có ý định dựng sơ đồ tổ chức để suy ra, nhưng đội đã bỏ hướng đó, nên
+người nộp tự chọn mỗi lần. Để trống vẫn gửi được: khi đó chỉ những người có
+quyền duyệt nhận tin.
+
+`manager_id` lưu thành **bản chụp trên chính đơn**, không tra lại lúc hiển thị:
+người đó có thể đổi vai trò hoặc rời công ty, nhưng đơn cũ phải mãi mãi cho
+thấy nó đã gửi cho ai.
+
+Theo quyết định của đội: chọn người nhận là để **BÁO TIN, không giới hạn ai
+được duyệt**. Người nhận = người được chọn + mọi người có `timeoff.admin`.
+Quyền duyệt giữ nguyên toàn cục như trước.
+
+Thông báo đi **bảng riêng `time_off_notifications`**, đúng khuôn
+`enrollment_notifications`: mỗi module một bảng, chuông đọc hết rồi trộn.
+Không nhồi vào `task_notifications` vì bảng đó có `task_id not null references
+tasks(id)` — dùng chung phải nới cột thành nullable, tức đụng vào đường thông
+báo bận nhất của ứng dụng để phục vụ một module phụ.
+
+Ba chỗ dễ sót đã xử:
+* `isMissingEnrollmentTableError` đổi thành `isMissingOptionalTableError` và
+  nhận thêm tên bảng mới. Luôn có quãng giữa lúc code lên và lúc rollout chạy;
+  không bỏ qua lỗi này thì một bảng còn thiếu làm **chết cả cái chuông** của
+  mọi người, kể cả thông báo task bình thường.
+* "Đánh dấu đã đọc tất cả" phải quét đủ **ba** bảng. Phần đếm đã cộng ba nguồn,
+  nên phần ghi bỏ sót một bảng là chuông không bao giờ về 0.
+* Gộp trùng theo (đơn, người nhận, loại): người vừa được chọn vừa có quyền
+  duyệt sẽ lọt vào cả hai danh sách người nhận, và index duy nhất dưới database
+  sẽ làm cả lượt insert thất bại.
+
+`resolveNotificationInvalidation` nới kiểu để nhận `time_off` nhưng vẫn lọc bỏ
+— thông báo nghỉ phép không được làm mới drawer task đang mở.
+
+`fetchEmailsWithPermission` tách ra dùng chung. `fetchTaskManagerEmails` làm
+đúng việc này nhưng viết cứng cho `task.manage` — đáng gộp, nhưng đó là việc
+dọn dẹp bên bảng task.
+
+Rollout `supabase/rollouts/2026-09-12-time-off-manager-notifications.sql` — CHƯA CHẠY.
+
 ## 2026-09-12 — Ngưng loại nghỉ Sick Leave
 
 Đội không dùng Sick Leave nữa. Không tạo đơn Sick mới được, và loại này biến

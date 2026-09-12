@@ -9,7 +9,7 @@
  * Toàn bộ file thuần: không I/O, không đụng DOM, import được từ cả hai phía.
  */
 
-export type NotificationEntityKind = "task" | "enrollment";
+export type NotificationEntityKind = "task" | "enrollment" | "time_off";
 
 /**
  * Danh sách loại thông báo mà giao diện biết cách diễn đạt.
@@ -42,6 +42,8 @@ export const NOTIFICATION_COPY_TYPES = [
   "backlog_attention",
   "task_created",
   "stage_changed",
+  // Time Off: đơn xin nghỉ vừa được nộp.
+  "submitted",
 ] as const;
 
 export type NotificationCopyType = (typeof NOTIFICATION_COPY_TYPES)[number];
@@ -63,7 +65,9 @@ export type NotificationCopySource = {
 export function notificationEntityKind(
   notification: NotificationCopySource
 ): NotificationEntityKind {
-  return notification.entity_type === "enrollment" ? "enrollment" : "task";
+  if (notification.entity_type === "enrollment") return "enrollment";
+  if (notification.entity_type === "time_off") return "time_off";
+  return "task";
 }
 
 export function notificationEntityId(notification: NotificationCopySource): string {
@@ -71,19 +75,35 @@ export function notificationEntityId(notification: NotificationCopySource): stri
 }
 
 export function notificationEntityLabel(notification: NotificationCopySource): string {
-  return notificationEntityKind(notification) === "enrollment" ? "Enrollment" : "Task";
+  switch (notificationEntityKind(notification)) {
+    case "enrollment":
+      return "Enrollment";
+    case "time_off":
+      return "Time off";
+    default:
+      return "Task";
+  }
 }
 
 /** Đường dẫn mở đúng bản ghi. Service worker dùng nguyên chuỗi này khi người dùng bấm. */
 export function notificationHref(notification: NotificationCopySource): string {
-  return notificationEntityKind(notification) === "enrollment"
-    ? `/enrollment?record=${notificationEntityId(notification)}`
-    : `/tasks?task=${notificationEntityId(notification)}`;
+  switch (notificationEntityKind(notification)) {
+    case "enrollment":
+      return `/enrollment?record=${notificationEntityId(notification)}`;
+    // Đơn nghỉ chờ duyệt nằm ở tab Approvals; đưa thẳng người duyệt tới đó
+    // thay vì thả họ xuống màn hình "My leave" rồi tự đi tìm.
+    case "time_off":
+      return `/time-off?tab=approvals&request=${notificationEntityId(notification)}`;
+    default:
+      return `/tasks?task=${notificationEntityId(notification)}`;
+  }
 }
 
 export function notificationActionText(notification: NotificationCopySource): string {
   const kind = notificationEntityKind(notification);
   switch (notification.type) {
+    case "submitted":
+      return "gửi một đơn xin nghỉ";
     case "assigned":
       return kind === "enrollment"
         ? "assigned you to an enrollment record"
