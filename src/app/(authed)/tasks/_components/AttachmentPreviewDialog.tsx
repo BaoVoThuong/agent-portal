@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileText, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import { toAttachmentDownloadUrl } from "@/lib/tasks/attachment-download";
 
 export type AttachmentPreview = {
   url: string;
@@ -322,7 +323,7 @@ export function AttachmentPreviewDialog({
               Open
             </a>
             <a
-              href={preview.url}
+              href={toAttachmentDownloadUrl(preview.url, preview.fileName)}
               download={preview.fileName}
               className="rounded bg-[#0c66e4] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0055cc]"
             >

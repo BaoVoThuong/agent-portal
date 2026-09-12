@@ -2,6 +2,7 @@
 
 import { ExternalLink, Paperclip } from "lucide-react";
 import type { SignedAttachment } from "@/lib/tasks/detail";
+import { toAttachmentDownloadUrl } from "@/lib/tasks/attachment-download";
 import {
   canPreviewAttachment,
   type AttachmentPreview,
@@ -53,7 +54,7 @@ export function AttachmentStrip({
               </button>
             ) : (
               <a
-                href={attachment.url}
+                href={toAttachmentDownloadUrl(attachment.url, attachment.file_name)}
                 download={attachment.file_name}
                 className="inline-flex max-w-full items-center gap-1 rounded bg-[#e9f2ff] px-2 py-1 text-xs font-semibold text-[#0c66e4] hover:bg-[#deebff]"
                 title={attachment.file_name}

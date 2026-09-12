@@ -53,6 +53,7 @@ import {
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
 import { filesFromClipboard } from "@/lib/tasks/clipboard-files";
+import { toAttachmentDownloadUrl } from "@/lib/tasks/attachment-download";
 import {
   AttachmentPreviewDialog,
   isInlinePreview,
@@ -193,7 +194,7 @@ function AttachmentLink({
   if (!onPreview) {
     return (
       <a
-        href={attachment.url}
+        href={toAttachmentDownloadUrl(attachment.url, attachment.file_name)}
         download={attachment.file_name}
         aria-label={`Download ${attachment.file_name}`}
         title={`${attachment.file_name} · ${size}`}
