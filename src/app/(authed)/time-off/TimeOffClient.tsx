@@ -20,6 +20,7 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { SearchableListboxPanel } from "../_shared/SearchableListboxPanel";
 import { useAnchoredMenu } from "../tasks/_components/use-anchored-menu";
+import { Initials } from "../tasks/_components/board-ui";
 import type {
   TimeOffDashboardData,
   TimeOffBalanceAdjustment,
@@ -1124,9 +1125,19 @@ function ApprovalByPicker({
         aria-expanded={isOpen}
         className="mt-2 flex w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left outline-none transition hover:border-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100"
       >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#1769e8]">
-          <UserRound className="h-4 w-4" />
-        </span>
+        {/* Đã chọn người thì hiện avatar của họ — ảnh thật nếu có, không thì chữ
+            viết tắt — giống mọi chỗ khác hiện người trong app. */}
+        {selected ? (
+          <Initials
+            email={selected.email}
+            label={selected.name?.trim() || selected.email}
+            size="md"
+          />
+        ) : (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#1769e8]">
+            <UserRound className="h-4 w-4" />
+          </span>
+        )}
         <span className="min-w-0 flex-1">
           {selected ? (
             <>
@@ -1188,9 +1199,10 @@ function ApprovalByPicker({
                 const name = option.name?.trim() || option.email;
                 return (
                   <>
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-[#1769e8]">
-                      {initials(name)}
-                    </span>
+                    {/* Avatar dùng chung: ảnh thật nếu người đó đã đặt, không thì chữ viết
+                        tắt cùng màu với bảng task. Trước đây là vòng chữ tự vẽ nên
+                        không bao giờ hiện ảnh. */}
+                    <Initials email={option.email} label={name} size="md" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold leading-5">{name}</span>
                       {option.name?.trim() ? (

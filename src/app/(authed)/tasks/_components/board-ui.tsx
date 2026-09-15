@@ -148,12 +148,24 @@ export function SlaTimer({
   );
 }
 
+/**
+ * Cỡ của avatar. `sm` (24px) là cỡ gốc, dùng ở bảng, thẻ board, ô chọn nhỏ —
+ * mặc định để mọi chỗ đang dùng không đổi gì. `md` (32px) cho các danh sách
+ * chọn người có tên + email hai dòng, nơi 24px trông lọt thỏm.
+ */
+const INITIALS_SIZE = {
+  sm: { box: "h-6 w-6", text: "text-[10px]", px: 24 },
+  md: { box: "h-8 w-8", text: "text-xs", px: 32 },
+} as const;
+
 export function Initials({
   email,
   label,
+  size = "sm",
 }: {
   email: string | null;
   label?: string | null;
+  size?: keyof typeof INITIALS_SIZE;
 }) {
   const avatarUrl = useAvatarUrl(email);
   // Tệp bị xoá khỏi bucket mà cột còn URL là chuyện sẽ xảy ra. Khi đó phải quay
@@ -164,6 +176,7 @@ export function Initials({
   // lần là kẹt ở chữ viết tắt cho tới khi component bị dựng lại.
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   if (!email) return null;
+  const dims = INITIALS_SIZE[size];
   const displayName = label?.trim() || email.split("@")[0];
   const initials = displayName
     .split(/[._-]+/)
@@ -198,17 +211,17 @@ export function Initials({
         title={displayName}
         loading="lazy"
         decoding="async"
-        width={24}
-        height={24}
+        width={dims.px}
+        height={dims.px}
         onError={() => setFailedUrl(avatarUrl)}
-        className="h-6 w-6 shrink-0 rounded-full object-cover ring-2 ring-white"
+        className={`${dims.box} shrink-0 rounded-full object-cover ring-2 ring-white`}
       />
     );
   }
 
   return (
     <span
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-white"
+      className={`flex ${dims.box} shrink-0 items-center justify-center rounded-full ${dims.text} font-bold text-white ring-2 ring-white`}
       style={{ backgroundColor: colors[hash] }}
       title={displayName}
     >
