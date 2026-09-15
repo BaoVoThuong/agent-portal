@@ -16,7 +16,7 @@ export default async function SettingsPage() {
   const { data } = email
     ? await getSupabaseAdmin()
         .from(PORTAL_ACCOUNT_TABLE)
-        .select("email,name,agent_id,password_hash")
+        .select("email,name,agent_id,password_hash,avatar_url")
         .eq("email", email)
         .maybeSingle()
     : { data: null };
@@ -26,6 +26,7 @@ export default async function SettingsPage() {
     name?: string | null;
     agent_id?: string | null;
     password_hash?: string | null;
+    avatar_url?: string | null;
   } | null;
   return (
     <SettingsClient
@@ -34,6 +35,7 @@ export default async function SettingsPage() {
         name: profile?.name ?? session?.user?.name ?? "",
         agentId: profile?.agent_id ?? session?.user?.agentId ?? null,
         hasLocalPassword: isLocalPasswordHash(profile?.password_hash),
+        avatarUrl: profile?.avatar_url ?? null,
       }}
       // Khoá CÔNG của VAPID — đưa xuống trình duyệt là đúng thiết kế; khoá tư
       // nằm ở server và không bao giờ rời khỏi đó.

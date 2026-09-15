@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useAvatarUrl } from "@/lib/people/AvatarProvider";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import styles from "./topbar.module.css";
@@ -14,6 +15,12 @@ type TopBarProps = {
 };
 
 export default function TopBar({ userName, userEmail, agentId, canUseTasks }: TopBarProps) {
+  // Đọc từ cùng một danh bạ mà mọi avatar khác dùng, nên đổi ảnh ở Settings là
+  // chỗ này đổi theo, không cần đường dữ liệu riêng.
+  const ownAvatarUrl = useAvatarUrl(userEmail);
+  // Nhớ URL nào đã hỏng (xem Initials): ảnh mới có URL mới nên hiện lại ngay.
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
+  const avatarUrl = ownAvatarUrl !== failedAvatarUrl ? ownAvatarUrl : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -57,7 +64,22 @@ export default function TopBar({ userName, userEmail, agentId, canUseTasks }: To
           aria-expanded={menuOpen}
           aria-label="User menu"
         >
-          <UserIcon />
+          {avatarUrl ? (
+            // <img> thường thay cho next/image: ảnh đã thu về 256px webp ở trình
+            // duyệt, ô hiển thị chỉ 43px — đẩy qua /_next/image chỉ thêm một chặng
+            // proxy và chi phí, không giảm được byte nào.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarUrl}
+              alt={userName ?? userEmail}
+              width={43}
+              height={43}
+              className={styles.avatarImage}
+              onError={() => setFailedAvatarUrl(ownAvatarUrl)}
+            />
+          ) : (
+            <UserIcon />
+          )}
           <span
             className={`${styles.chevron} ${
               menuOpen ? styles.chevronOpen : ""

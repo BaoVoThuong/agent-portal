@@ -4,13 +4,22 @@ import Sidebar from "./_components/Sidebar";
 import TopBar from "./_components/TopBar";
 import { canAny } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { fetchAvatarDirectory } from "@/lib/people/avatar-directory";
+import { AvatarProvider } from "@/lib/people/AvatarProvider";
 
 export default async function AuthedLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  // SONG SONG, không nối tiếp. Layout này chạy trên MỌI trang, nên một lượt
+  // await thêm ở đây là cộng thẳng vào thời gian mở của cả ứng dụng. Danh bạ
+  // avatar không phụ thuộc phiên đăng nhập, nên nó đi cùng chuyến với `auth()`
+  // — vốn đã phải đợi một vòng tới database — và tốn thêm gần như bằng không.
+  const [session, avatarEntries] = await Promise.all([
+    auth(),
+    fetchAvatarDirectory(),
+  ]);
   if (!session?.user?.email) {
     redirect("/signin");
   }
@@ -21,6 +30,7 @@ export default async function AuthedLayout({
     // This lets frame-style pages (e.g. the Task Board root, which is
     // `h-full min-h-0 flex-col`) fill the remaining height and scroll their
     // own table body internally instead of pushing the page taller.
+    <AvatarProvider entries={avatarEntries}>
     <div className="flex h-screen overflow-hidden bg-[#f7f9fc]">
       <Sidebar
         permissions={session.user.permissions ?? []}
@@ -42,5 +52,6 @@ export default async function AuthedLayout({
         </main>
       </div>
     </div>
+    </AvatarProvider>
   );
 }

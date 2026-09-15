@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { Badge, CheckCircle2, LockKeyhole, Mail, UserRound } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
+import { resizeImageToSquare } from "@/lib/people/resize-avatar";
 import PushNotificationCard from "./PushNotificationCard";
 
 type SettingsClientProps = {
@@ -11,6 +12,7 @@ type SettingsClientProps = {
     name: string;
     agentId: string | null;
     hasLocalPassword: boolean;
+    avatarUrl: string | null;
   };
   vapidPublicKey: string;
 };
@@ -28,6 +30,12 @@ export default function SettingsClient({
 }: SettingsClientProps) {
   const router = useRouter();
   const [displayName, setDisplayName] = useState(profile.name);
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  // Ảnh vỡ thì về lại chữ viết tắt; nhớ theo URL để ảnh mới vẫn hiện được.
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [hasLocalPassword, setHasLocalPassword] = useState(profile.hasLocalPassword);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -110,6 +118,55 @@ export default function SettingsClient({
     }
   }
 
+  async function uploadAvatar(file: File) {
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      // Thu nhỏ ở TRÌNH DUYỆT trước khi gửi. Ảnh điện thoại 3-5MB mà lưu nguyên
+      // cỡ thì mỗi dòng bảng task tải về một tệp như vậy.
+      const resized = await resizeImageToSquare(file);
+      if (!resized.ok) {
+        setAvatarError(resized.error);
+        return;
+      }
+      const body = new FormData();
+      body.append("file", resized.file);
+      const response = await fetch("/api/settings/avatar", { method: "POST", body });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setAvatarError(payload?.error ?? "Couldn't upload the photo. Please try again.");
+        return;
+      }
+      setAvatarUrl(payload?.avatar_url ?? null);
+      // Layout nạp danh bạ avatar ở phía server, nên phải làm mới thì ảnh mới
+      // đổi ở TopBar và các bảng khác.
+      router.refresh();
+    } catch {
+      setAvatarError("Couldn't upload the photo. Please try again.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      const response = await fetch("/api/settings/avatar", { method: "DELETE" });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setAvatarError(payload?.error ?? "Couldn't remove the photo. Please try again.");
+        return;
+      }
+      setAvatarUrl(null);
+      router.refresh();
+    } catch {
+      setAvatarError("Couldn't remove the photo. Please try again.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
   return (
     <div className="px-8 py-8">
       <div className="max-w-6xl">
@@ -129,10 +186,63 @@ export default function SettingsClient({
             </div>
 
             <div className="grid gap-6 px-6 py-6 lg:grid-cols-[150px_minmax(0,1fr)]">
-              <div className="flex items-center justify-center rounded-lg border border-[#e6eaf0] bg-[#f7f8fa] px-5 py-6">
-                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#deebff] text-2xl font-bold text-[#0c66e4] ring-8 ring-white">
-                  {initials(displayName, profile.email)}
+              <div className="flex flex-col items-center gap-3 rounded-lg border border-[#e6eaf0] bg-[#f7f8fa] px-5 py-6">
+                {avatarUrl && avatarUrl !== failedAvatarUrl ? (
+                  // <img> thường thay cho next/image: ảnh đã thu về 256px webp ở trình
+                  // duyệt, ô hiển thị chỉ 96px — đẩy qua /_next/image chỉ thêm một chặng
+                  // proxy và chi phí, không giảm được byte nào.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={avatarUrl}
+                    alt={displayName || profile.email}
+                    width={96}
+                    height={96}
+                    className="h-24 w-24 rounded-full object-cover ring-8 ring-white"
+                    onError={() => setFailedAvatarUrl(avatarUrl)}
+                  />
+                ) : (
+                  <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#deebff] text-2xl font-bold text-[#0c66e4] ring-8 ring-white">
+                    {initials(displayName, profile.email)}
+                  </div>
+                )}
+
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    // Xoá giá trị của input NGAY: không xoá thì chọn lại đúng
+                    // tệp vừa chọn sẽ không kích hoạt onChange lần nữa, và
+                    // người dùng tưởng nút hỏng.
+                    event.target.value = "";
+                    if (file) void uploadAvatar(file);
+                  }}
+                />
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    onClick={() => avatarInputRef.current?.click()}
+                    className="rounded-md border border-[#cfd8e5] bg-white px-3 py-1.5 text-xs font-semibold text-[#172b4d] transition hover:bg-[#f4f7fb] disabled:opacity-60"
+                  >
+                    {avatarBusy ? "Saving…" : avatarUrl ? "Change photo" : "Upload photo"}
+                  </button>
+                  {avatarUrl ? (
+                    <button
+                      type="button"
+                      disabled={avatarBusy}
+                      onClick={() => void removeAvatar()}
+                      className="rounded-md px-3 py-1 text-xs font-semibold text-[#6b778c] transition hover:bg-[#f4f7fb] hover:text-[#bf2600] disabled:opacity-60"
+                    >
+                      Remove photo
+                    </button>
+                  ) : null}
                 </div>
+                {avatarError ? (
+                  <p className="text-center text-xs font-semibold text-red-700">{avatarError}</p>
+                ) : null}
               </div>
 
               <div className="min-w-0 space-y-4">
