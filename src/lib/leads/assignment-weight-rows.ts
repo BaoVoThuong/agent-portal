@@ -21,9 +21,11 @@ export type AssignmentWeightRowView = {
 /**
  * Bật/tắt một agent, đúng như server sẽ làm.
  *
- * Đã có dòng thì chỉ lật `is_active` — không đụng trọng số hay vị trí, người
- * nghỉ phép quay lại phải về đúng chỗ cũ. Chưa có dòng mà bật thì thêm với
- * trọng số 1, vị trí = số dòng + 1, khớp PATCH /api/leads/assignment-weights.
+ * Tick vào là THÊM agent vào vòng chia, nên hệ số luôn bắt đầu từ 1 — kể cả
+ * agent từng có dòng cũ với hệ số khác (0, 5...), vì với người đang bấm thì đó
+ * cũng là thêm vào. Con trỏ vòng xoay về 0 theo. Chưa có dòng thì thêm vào cuối,
+ * vị trí = số dòng + 1. Tắt thì chỉ lật `is_active`, không xoá dòng.
+ * Khớp PATCH /api/leads/assignment-weights.
  */
 export function applyAgentToggle<T extends AssignmentWeightRowView>(
   rows: T[],
@@ -34,7 +36,9 @@ export function applyAgentToggle<T extends AssignmentWeightRowView>(
   if (index !== -1) {
     if (rows[index].is_active === next) return rows;
     const copy: (T | AssignmentWeightRowView)[] = rows.slice();
-    copy[index] = { ...rows[index], is_active: next };
+    copy[index] = next
+      ? { ...rows[index], is_active: true, weight: 1, current_weight: 0 }
+      : { ...rows[index], is_active: false };
     return copy;
   }
   if (!next) return rows;
@@ -80,7 +84,12 @@ export function draftRowAfterSave(
   serverRow: AssignmentWeightRowView,
   previousDraftRow: AssignmentWeightRowView | undefined
 ): AssignmentWeightRowView {
-  if (!previousDraftRow) return serverRow;
+  // Chỉ có gì để giữ khi agent ĐANG nhận lead ở cả trước lẫn sau: tab tỉ lệ chỉ
+  // hiện dòng đang bật, nên dòng đang tắt không thể có hệ số gõ dở. Tick lại thì
+  // lấy hệ số 1 của server; tắt thì lấy nguyên dòng server.
+  if (!previousDraftRow || !previousDraftRow.is_active || !serverRow.is_active) {
+    return serverRow;
+  }
   return {
     ...serverRow,
     weight: previousDraftRow.weight,

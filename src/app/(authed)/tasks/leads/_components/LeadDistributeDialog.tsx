@@ -401,7 +401,8 @@ export function LeadDistributeDialog({
    * Optimistic: ô tick đổi ngay, request chạy nền, hỏng thì trả lại. Bản trước
    * làm ba vòng mạng cho một cú tick (GET cả danh sách → PUT cả danh sách → GET
    * lại) và khoá TOÀN BỘ bảng suốt thời gian đó — bật năm agent là ngồi chờ năm
-   * lần. Giờ là một request, và chỉ đúng dòng đang lưu bị khoá.
+   * lần. Giờ là một request; dòng đang lưu chỉ bị khoá về mặt logic (bấm thêm
+   * trong lúc chờ thì bỏ qua), không bị làm xám.
    *
    * `is_active` là cờ duy nhất; dòng không bị xoá khi tắt nên trọng số và vị
    * trí trong vòng xoay được giữ nguyên.
@@ -698,8 +699,13 @@ export function LeadDistributeDialog({
                           <input
                             type="checkbox"
                             aria-label={`${label} covers ${PRODUCT_LABEL[key]}`}
-                            disabled={pendingAgents.has(`${key}:${agent.email}`)}
-                            className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4] disabled:opacity-50"
+                            /* KHÔNG disabled trong lúc lưu: disabled kéo theo
+                               opacity-50, nên ô vừa tick hiện XÁM gần một giây
+                               rồi mới xanh. Ô đã đổi ngay (optimistic); bấm
+                               thêm trong lúc chờ thì toggleAgentProduct tự bỏ
+                               qua, và ô là controlled nên không đổi theo. */
+                            aria-busy={pendingAgents.has(`${key}:${agent.email}`)}
+                            className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]"
                             checked={agent.products.includes(key)}
                             onChange={(event) =>
                               void toggleAgentProduct(agent.email, key, event.target.checked)

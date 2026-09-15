@@ -175,8 +175,8 @@ export async function PUT(request: Request) {
  * phải GET cả danh sách, PUT lại cả danh sách, rồi GET lần nữa — ba vòng mạng
  * cho một cú tick, và cả bảng bị khoá suốt thời gian đó.
  *
- * KHÔNG xoá dòng khi tắt và không đụng `weight`/`current_weight`: người nghỉ
- * phép quay lại phải về đúng chỗ cũ với đúng tỉ lệ cũ.
+ * KHÔNG xoá dòng khi tắt. Tick lại một agent đang tắt thì hệ số về 1 và con
+ * trỏ về 0 — đội chốt: thêm vào, dù mới hay cũ, thì hệ số luôn bắt đầu từ 1.
  */
 export async function PATCH(request: Request) {
   const session = await auth();
@@ -213,7 +213,7 @@ export async function PATCH(request: Request) {
   const [existingResult, countResult] = await Promise.all([
     supabase
       .from("lead_assignment_weights")
-      .select("agent_email")
+      .select("agent_email,is_active")
       .eq("product", product)
       .eq("agent_email", agentEmail)
       .maybeSingle(),
@@ -233,9 +233,17 @@ export async function PATCH(request: Request) {
   // cập nhật chậm. `row: null` nghĩa là tắt một agent vốn chưa có dòng nào.
   let row: unknown = null;
   if (existingResult.data) {
+    // Tick vào một agent đang TẮT là thêm lại vào vòng chia: hệ số về 1 và con
+    // trỏ về 0, như một agent mới. Tắt thì chỉ lật cờ, giữ nguyên dòng.
+    const reAdding = body.is_active && existingResult.data.is_active === false;
     const { data, error } = await supabase
       .from("lead_assignment_weights")
-      .update({ is_active: body.is_active, updated_by_email: actorEmail, updated_at: nowIso })
+      .update({
+        is_active: body.is_active,
+        ...(reAdding ? { weight: 1, current_weight: 0 } : {}),
+        updated_by_email: actorEmail,
+        updated_at: nowIso,
+      })
       .eq("product", product)
       .eq("agent_email", agentEmail)
       .select(WEIGHT_ROW_COLUMNS)

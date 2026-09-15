@@ -40,6 +40,17 @@ describe("applyAgentToggle", () => {
     });
   });
 
+  // Đội chốt: tick vào thì hệ số LUÔN là 1, kể cả agent từng có dòng cũ.
+  it("starts a re-ticked agent at weight 1 again, whatever their old weight was", () => {
+    const rows = [row("a@x.com", { is_active: false, weight: 5, current_weight: 3, position: 2 })];
+    expect(applyAgentToggle(rows, "a@x.com", true)[0]).toMatchObject({
+      is_active: true,
+      weight: 1,
+      current_weight: 0,
+      position: 2,
+    });
+  });
+
   it("does nothing when turning off an agent that has no row", () => {
     const rows = [row("a@x.com")];
     expect(applyAgentToggle(rows, "ghost@x.com", false)).toBe(rows);
@@ -75,15 +86,29 @@ describe("setAgentRow", () => {
 });
 
 describe("draftRowAfterSave", () => {
-  it("takes the server's active state but keeps an unsaved weight edit", () => {
-    const server = row("a@x.com", { is_active: false, weight: 1, current_weight: 3 });
+  it("keeps an unsaved weight edit on an agent that stays active", () => {
+    const server = row("a@x.com", { is_active: true, weight: 1, current_weight: 3 });
     const draft = row("a@x.com", { is_active: true, weight: 9, position: 4 });
     expect(draftRowAfterSave(server, draft)).toMatchObject({
-      is_active: false,
+      is_active: true,
       weight: 9,
       position: 4,
       current_weight: 3,
     });
+  });
+
+  // Dòng đang tắt không hiện ở tab tỉ lệ nên không thể có hệ số gõ dở; giữ số
+  // cũ ở đây là hiện lại đúng con số mà đội muốn bỏ.
+  it("takes the server's weight 1 when an inactive agent is ticked back on", () => {
+    const server = row("a@x.com", { is_active: true, weight: 1 });
+    const draft = row("a@x.com", { is_active: false, weight: 5 });
+    expect(draftRowAfterSave(server, draft).weight).toBe(1);
+  });
+
+  it("takes the whole server row when an agent is turned off", () => {
+    const server = row("a@x.com", { is_active: false, weight: 3 });
+    const draft = row("a@x.com", { is_active: true, weight: 9 });
+    expect(draftRowAfterSave(server, draft)).toBe(server);
   });
 
   it("uses the server row as-is for an agent that was not in the draft", () => {

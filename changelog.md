@@ -6,6 +6,26 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-15 — Distribute pool: tick agent thì hệ số luôn bằng 1, ô tick xanh ngay
+
+**Hệ số luôn bắt đầu từ 1.** Trước đây chỉ agent chưa từng có dòng mới được gán
+1; agent từng có dòng cũ rồi bị tắt thì tick lại giữ nguyên hệ số cũ (thiết kế cũ:
+"người nghỉ phép quay lại về đúng tỉ lệ cũ"). Đội chốt đổi luật: tick vào — dù mới
+hay tick lại — thì hệ số về **1** và con trỏ vòng xoay về **0**. Tắt thì vẫn chỉ
+lật `is_active`, không xoá dòng. Áp ở cả PATCH /api/leads/assignment-weights lẫn
+cập nhật optimistic phía hộp thoại, nên màn hình và database không lệch nhau.
+Trên production lúc sửa có đúng một dòng dính: Ann Strambler (Health), đang tắt
+với hệ số 2.
+
+`draftRowAfterSave` nay chỉ giữ hệ số đang gõ dở khi agent đang bật ở CẢ trước lẫn
+sau cú tick — tab tỉ lệ chỉ hiện dòng đang bật, nên dòng đang tắt không thể có số
+gõ dở; giữ lại số cũ ở đó là hiện lại đúng con số đội muốn bỏ.
+
+**Ô tick không còn xám một giây rồi mới xanh.** Ô đã đổi ngay (optimistic), nhưng
+đang lưu thì bị `disabled`, và class `disabled:opacity-50` làm nó mờ thành xám
+suốt thời gian gọi API. Bỏ `disabled`; bấm thêm trong lúc chờ vẫn bị chặn vì
+`toggleAgentProduct` tự bỏ qua, và ô là controlled nên không đổi theo.
+
 ## 2026-09-15 — Distribute pool: tick agent ở Agent config là tab tỉ lệ đổi ngay
 
 **Triệu chứng:** trong hộp thoại *Distribute pool by ratio*, tick một agent ở tab
