@@ -16,7 +16,10 @@ import {
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { SearchableListboxPanel } from "../_shared/SearchableListboxPanel";
+import { useAnchoredMenu } from "../tasks/_components/use-anchored-menu";
 import type {
   TimeOffDashboardData,
   TimeOffBalanceAdjustment,
@@ -811,29 +814,100 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
       {showRequest && (
         <Modal title="Request time off" onClose={() => setShowRequest(false)}>
           <form onSubmit={submitRequest} className="space-y-5">
-            <p className="-mt-2 text-sm leading-6 text-slate-500">Your request excludes weekends, US federal holidays, and company days off automatically.</p>
             <PolicyPicker label="Time-off type" policies={initialData.policies} value={requestPolicy} onChange={setRequestPolicy} />
             <div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-semibold text-[#304767]">Start date<input required type="date" value={requestStart} onChange={(event) => setRequestStart(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label><label className="block text-sm font-semibold text-[#304767]">End date<input required type="date" min={requestStart || undefined} value={requestEnd} onChange={(event) => setRequestEnd(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label></div>
-            {requestPolicyInfo && <section aria-live="polite" className="rounded-xl border border-blue-100 bg-blue-50/60 p-3.5"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold text-[#1e355c]">Leave balance</p><p className="mt-0.5 text-xs text-slate-500">{requestPolicyInfo.label}</p></div>{requestBalancePreviewLoading && <span className="text-xs font-medium text-[#1769e8]">Calculating…</span>}</div><div className="mt-3 grid grid-cols-3 divide-x divide-blue-100"><div className="pr-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Available now</p><p className="mt-1 text-lg font-bold text-[#172e55]">{requestTracksBalance ? `${requestPreviewAvailable ?? 0} d` : "—"}</p></div><div className="px-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">This request</p><p className="mt-1 text-lg font-bold text-[#172e55]">{requestPreviewRequested === null ? "—" : `${requestPreviewRequested} d`}</p></div><div className="pl-3"><p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">After request</p><p className={`mt-1 text-lg font-bold ${requestExceedsBalance ? "text-rose-600" : "text-[#1769e8]"}`}>{requestTracksBalance ? requestPreviewRemaining === null ? "—" : `${requestPreviewRemaining} d` : "—"}</p></div></div>{requestTracksBalance && <p className="mt-3 text-xs text-slate-500">{requestUsedDays} used of {requestAllowance ?? 0} days this year.</p>}{requestBalancePreviewError && <p className="mt-3 text-xs font-medium text-rose-700">{requestBalancePreviewError}</p>}{requestExceedsBalance && <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5"><p className="text-xs font-semibold text-rose-700">This request is {requestShortfallDays} day{requestShortfallDays === 1 ? "" : "s"} over the available balance, so it cannot be submitted.</p>{unpaidFallbackPolicy && <button type="button" onClick={() => setRequestPolicy(unpaidFallbackPolicy.code)} className="mt-2 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">Switch to {unpaidFallbackPolicy.label}</button>}</div>}</section>}
-            <label className="block text-sm font-semibold text-[#304767]">Send to
-              <select
-                value={requestManagerId}
-                onChange={(event) => setRequestManagerId(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100"
+            {requestPolicyInfo && (
+              <section
+                aria-live="polite"
+                className={`rounded-xl border bg-white p-4 ${
+                  requestExceedsBalance ? "border-rose-200" : "border-slate-200"
+                }`}
               >
-                <option value="">No specific manager</option>
-                {initialData.manager_options.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name?.trim() || option.email}
-                  </option>
-                ))}
-              </select>
-              <span className="mt-1 block text-xs font-normal text-slate-500">
-                They are notified about this request. Everyone who can approve
-                time off is notified either way.
-              </span>
-            </label>
-            <label className="block text-sm font-semibold text-[#304767]">Note <span className="font-normal text-slate-400">(optional)</span><textarea value={requestReason} onChange={(event) => setRequestReason(event.target.value)} maxLength={1000} rows={3} placeholder="Anything your manager should know?" className="mt-2 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                      style={{
+                        backgroundColor: `${requestPolicyInfo.color}18`,
+                        color: requestPolicyInfo.color,
+                      }}
+                    >
+                      <PolicyIcon code={requestPolicyInfo.code} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-[#1e355c]">
+                        {requestPolicyInfo.label}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">Leave balance</p>
+                    </div>
+                  </div>
+                  {requestBalancePreviewLoading ? (
+                    <span className="text-xs font-medium text-[#1769e8]">Calculating…</span>
+                  ) : requestTracksBalance ? (
+                    <div className="shrink-0 text-right">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                        Available now
+                      </p>
+                      <p className="mt-0.5 text-2xl font-bold leading-7 tracking-tight text-[#172e55]">
+                        {requestPreviewAvailable ?? 0}
+                        <span className="ml-1 text-xs font-semibold text-slate-400">days</span>
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+
+                {requestTracksBalance ? (
+                  <>
+                    <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-3.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-medium text-slate-500">This request</p>
+                        <p className="mt-0.5 text-lg font-bold text-[#172e55]">
+                          {requestPreviewRequested === null ? "—" : `${requestPreviewRequested} d`}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                      <div className="min-w-0 flex-1 text-right">
+                        <p className="text-[11px] font-medium text-slate-500">After request</p>
+                        <p className={`mt-0.5 text-lg font-bold ${requestExceedsBalance ? "text-rose-600" : "text-[#1769e8]"}`}>
+                          {requestPreviewRemaining === null ? "—" : `${requestPreviewRemaining} d`}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-500">
+                      {requestUsedDays} used of {requestAllowance ?? 0} days this year.
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-500">
+                    This leave type does not use an annual leave balance.
+                  </p>
+                )}
+
+                {requestBalancePreviewError ? (
+                  <p className="mt-3 text-xs font-medium text-rose-700">
+                    {requestBalancePreviewError}
+                  </p>
+                ) : null}
+                {requestExceedsBalance ? (
+                  <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5">
+                    <p className="text-xs font-semibold text-rose-700">
+                      This request is {requestShortfallDays} day{requestShortfallDays === 1 ? "" : "s"} over the available balance, so it cannot be submitted.
+                    </p>
+                    {unpaidFallbackPolicy ? (
+                      <button type="button" onClick={() => setRequestPolicy(unpaidFallbackPolicy.code)} className="mt-2 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">
+                        Switch to {unpaidFallbackPolicy.label}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+            )}
+            <ApprovalByPicker
+              options={initialData.manager_options}
+              value={requestManagerId}
+              onChange={setRequestManagerId}
+            />
+            <label className="block text-sm font-semibold text-[#304767]">Reason<textarea value={requestReason} onChange={(event) => setRequestReason(event.target.value)} maxLength={1000} rows={3} placeholder="Share a reason for your request" className="mt-2 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label>
             <div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" onClick={() => setShowRequest(false)} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={busy === "request" || requestBalancePreviewLoading || requestExceedsBalance} type="submit" className="inline-flex items-center gap-2 rounded-lg bg-[#1769e8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-60">{busy === "request" ? "Sending…" : "Send request"}</button></div>
           </form>
         </Modal>
@@ -990,6 +1064,153 @@ function TeamLeaveLog({
     </div>
     {filteredRequests.length === 0 ? <EmptyState message={emptyMessage} /> : <div className="min-h-0 flex-1 overflow-auto"><table className="w-full min-w-[820px] text-left"><thead className="sticky top-0 z-10 bg-slate-50 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500"><tr><th className="px-4 py-3">Member</th><th className="px-4 py-3">Leave type</th><th className="px-4 py-3">Dates</th><th className="px-4 py-3">Days</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Reviewed by</th></tr></thead><tbody>{filteredRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); return <tr key={request.id} className="border-t border-slate-100 text-sm"><td className="px-4 py-3"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p><p className="mt-0.5 text-xs text-slate-500">{request.requester_email}</p></td><td className="px-4 py-3"><span className="inline-flex items-center gap-2 font-medium text-[#304767]"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: policy?.color ?? "#94a3b8" }} />{policy?.label ?? request.policy_code}</span></td><td className="px-4 py-3 text-slate-600">{formatDateRange(request.start_date, request.end_date)}</td><td className="px-4 py-3 text-slate-600">{request.total_days} day{request.total_days === 1 ? "" : "s"}</td><td className="px-4 py-3"><StatusBadge status={request.status} /></td><td className="px-4 py-3 text-slate-500">{request.reviewer_name ?? "—"}</td></tr>; })}</tbody></table></div>}
   </section>;
+}
+
+/**
+ * Chọn người nhận request theo kiểu tìm kiếm, thay cho native <select> dài và
+ * khó quét. SearchableListboxPanel đã lo luôn keyboard, Escape và click ngoài
+ * qua useAnchoredMenu, nên danh sách vẫn dễ dùng khi số nhân sự tăng lên.
+ */
+function ApprovalByPicker({
+  options,
+  value,
+  onChange,
+}: {
+  options: TimeOffDashboardData["manager_options"];
+  value: string;
+  onChange: (managerId: string) => void;
+}) {
+  const {
+    isOpen,
+    toggle,
+    triggerRef,
+    menuRef,
+    menuStyle,
+    closeMenu,
+    closeMenuForTab,
+  } = useAnchoredMenu({ estimatedHeight: 360 });
+  const sortedOptions = useMemo(
+    () =>
+      [...options].sort((first, second) => {
+        const firstLabel = first.name?.trim() || first.email;
+        const secondLabel = second.name?.trim() || second.email;
+        return firstLabel.localeCompare(secondLabel);
+      }),
+    [options]
+  );
+  const selected = sortedOptions.find((option) => option.id === value) ?? null;
+  const optionById = useMemo(
+    () => new Map(sortedOptions.map((option) => [option.id, option])),
+    [sortedOptions]
+  );
+  const choices = useMemo(
+    () =>
+      sortedOptions.map((option) => ({
+        value: option.id,
+        label: option.name?.trim() || option.email,
+        keywords: [option.email],
+      })),
+    [sortedOptions]
+  );
+
+  return (
+    <div className="relative">
+      <p className="text-sm font-semibold text-[#304767]">Approval by</p>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggle}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        className="mt-2 flex w-full items-center gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left outline-none transition hover:border-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#1769e8]">
+          <UserRound className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          {selected ? (
+            <>
+              <span className="block truncate text-sm font-semibold text-[#1e355c]">
+                {selected.name?.trim() || selected.email}
+              </span>
+              {selected.name?.trim() ? (
+                <span className="block truncate text-xs text-slate-500">
+                  {selected.email}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span className="block truncate text-sm text-slate-400">
+              Search a person
+            </span>
+          )}
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-slate-500 transition ${
+            isOpen ? "rotate-180" : ""
+          }`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {isOpen
+        ? createPortal(
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              className="min-w-[18rem] max-w-[calc(100vw-2rem)]"
+              ariaLabel="Approval by"
+              queryPlaceholder="Type a name or email…"
+              emptyMessage="No people match that search."
+              pinnedChoices={[{ value: "", label: "No preferred approver" }]}
+              choices={choices}
+              selectedValue={value}
+              onSelect={(managerId) => {
+                onChange(managerId);
+                closeMenu({ restoreFocus: true });
+              }}
+              onTabExit={closeMenuForTab}
+              renderChoice={(choice, state) => {
+                const option = optionById.get(choice.value);
+                if (!option) {
+                  return (
+                    <>
+                      <span className="min-w-0 flex-1 truncate font-medium leading-5">
+                        {choice.label}
+                      </span>
+                      {state.selected ? (
+                        <Check className="h-4 w-4 shrink-0 text-[#1769e8]" />
+                      ) : null}
+                    </>
+                  );
+                }
+
+                const name = option.name?.trim() || option.email;
+                return (
+                  <>
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-[#1769e8]">
+                      {initials(name)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold leading-5">{name}</span>
+                      {option.name?.trim() ? (
+                        <span className="block truncate text-xs font-normal text-slate-500">
+                          {option.email}
+                        </span>
+                      ) : null}
+                    </span>
+                    {state.selected ? (
+                      <Check className="h-4 w-4 shrink-0 text-[#1769e8]" />
+                    ) : null}
+                  </>
+                );
+              }}
+            />,
+            document.body
+          )
+        : null}
+    </div>
+  );
 }
 
 function EmployeePicker({ members, value, onChange, label = "Employee", placeholder = "Choose an employee" }: { members: TimeOffTeamMember[]; value: string; onChange: (accountId: string) => void; label?: string; placeholder?: string }) {
