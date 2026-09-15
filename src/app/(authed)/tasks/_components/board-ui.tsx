@@ -1,3 +1,5 @@
+"use client";
+
 import {
   ArrowDown,
   ArrowUp,
@@ -7,7 +9,9 @@ import {
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
+import { useState } from "react";
 import type { TaskPriority } from "@/lib/tasks/types";
+import { useAvatarUrl } from "@/lib/people/AvatarProvider";
 import { formatDurationSeconds, formatSlaRemaining } from "@/lib/tasks/sla";
 
 export const PRIORITY_META: Record<
@@ -151,6 +155,10 @@ export function Initials({
   email: string | null;
   label?: string | null;
 }) {
+  const avatarUrl = useAvatarUrl(email);
+  // Tệp bị xoá khỏi bucket mà cột còn URL là chuyện sẽ xảy ra. Khi đó phải quay
+  // về hai chữ viết tắt, không được để lại một ô trống.
+  const [imageFailed, setImageFailed] = useState(false);
   if (!email) return null;
   const displayName = label?.trim() || email.split("@")[0];
   const initials = displayName
@@ -167,6 +175,31 @@ export function Initials({
 
   for (const character of email) {
     hash = (hash + character.charCodeAt(0)) % colors.length;
+  }
+
+  // Cùng hình dạng với ô chữ viết tắt: 24px, bo tròn, viền trắng để các avatar
+  // chồng lên nhau trong AvatarStack vẫn tách bạch. `object-cover` là bắt buộc —
+  // thiếu nó thì ảnh không vuông bị bóp méo.
+  if (avatarUrl && !imageFailed) {
+    // Cố ý dùng <img> thường, không phải next/image: ảnh đã được thu về 256px webp
+    // (~20KB) ngay ở trình duyệt trước khi tải lên, còn ô hiển thị chỉ 24px.
+    // next/image sẽ đẩy mỗi ảnh qua /_next/image — thêm một chặng proxy và một dòng
+    // chi phí tối ưu hoá trên Vercel, đổi lại gần như không giảm được byte nào. Đi
+    // thẳng CDN công khai của Supabase thì trình duyệt cache luôn.
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={avatarUrl}
+        alt={displayName}
+        title={displayName}
+        loading="lazy"
+        decoding="async"
+        width={24}
+        height={24}
+        onError={() => setImageFailed(true)}
+        className="h-6 w-6 shrink-0 rounded-full object-cover ring-2 ring-white"
+      />
+    );
   }
 
   return (

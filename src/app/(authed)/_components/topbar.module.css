@@ -47,6 +47,16 @@
   transition: background-color 0.15s ease;
 }
 
+/* Ảnh lấp đầy nút tròn. object-fit: cover là bắt buộc — thiếu nó thì ảnh chân
+   dung (thường là dọc) bị bóp cho vừa hình vuông và mặt người trông dẹt. */
+.avatarImage {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
 .avatarButton:hover {
   background: #c5ccda;
 }
