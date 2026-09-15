@@ -178,26 +178,52 @@ function hasItemAccess(item: MenuItem, permissions: string[]) {
   return true;
 }
 
+/** The one sidebar group that owns the current route, if there is one. */
+function groupForPath(pathname: string): string | null {
+  if (pathname === "/" || pathname.startsWith("/customer-registration")) {
+    return "Customer Registration";
+  }
+  if (pathname.startsWith("/automation")) return "Automation Tool";
+  if (
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/sales-dashboard")
+  ) {
+    return "Dashboard";
+  }
+  if (
+    pathname.startsWith("/tasks") ||
+    pathname.startsWith("/enrollment") ||
+    pathname.startsWith("/config")
+  ) {
+    return "Task Management";
+  }
+  if (
+    pathname.startsWith("/account-manager") ||
+    pathname.startsWith("/role-manager") ||
+    pathname.startsWith("/management")
+  ) {
+    return "Account Management";
+  }
+  return null;
+}
+
 export default function Sidebar({
   permissions = [],
 }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({
-    "Customer Registration": true,
-    "Automation Tool": pathname.startsWith("/automation"),
-    Dashboard:
-      pathname.startsWith("/dashboard") ||
-      pathname.startsWith("/sales-dashboard"),
-    "Task Management":
-      pathname.startsWith("/tasks") ||
-      pathname.startsWith("/enrollment") ||
-      pathname.startsWith("/config"),
-    Management:
-      pathname.startsWith("/account-manager") ||
-      pathname.startsWith("/role-manager") ||
-      pathname.startsWith("/management"),
-  });
+  const [dropdownState, setDropdownState] = useState(() => ({
+    pathname,
+    openDropdown: groupForPath(pathname),
+  }));
+
+  // Route đổi bằng Link/back/forward thì nhóm chứa route mới là nhóm DUY NHẤT
+  // được mở. Có ý dùng payload server hiện tại để suy ra state ở đây, thay vì
+  // setState trong effect (React lint chặn vì nó tạo thêm một render).
+  const openDropdown =
+    dropdownState.pathname === pathname
+      ? dropdownState.openDropdown
+      : groupForPath(pathname);
   const menuItems = menuData
     .map((item) => {
       if (!item.children) return item;
@@ -212,7 +238,16 @@ export default function Sidebar({
     });
 
   const toggleDropdown = (title: string) => {
-    setOpenDropdowns((prev) => ({ ...prev, [title]: !prev[title] }));
+    setDropdownState((current) => {
+      const currentOpenDropdown =
+        current.pathname === pathname
+          ? current.openDropdown
+          : groupForPath(pathname);
+      return {
+        pathname,
+        openDropdown: currentOpenDropdown === title ? null : title,
+      };
+    });
   };
 
   // Every leaf, so a nested route can outrank its parent below.
@@ -266,13 +301,14 @@ export default function Sidebar({
       <nav className={styles.nav}>
         {menuItems.map((item, idx) => {
           if (item.children && item.title) {
-            const isOpen = openDropdowns[item.title];
+            const isOpen = openDropdown === item.title;
             return (
               <div key={item.title} className="mb-1 flex flex-col">
                 <button
                   onClick={() => toggleDropdown(item.title ?? "")}
                   className={`${styles.navItem} flex w-full items-center justify-between text-left font-semibold`}
                   type="button"
+                  aria-expanded={isOpen}
                 >
                   {item.title}
                   <svg
