@@ -6,6 +6,34 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-15 — Distribute pool: tick agent ở Agent config là tab tỉ lệ đổi ngay
+
+**Triệu chứng:** trong hộp thoại *Distribute pool by ratio*, tick một agent ở tab
+Agent config thì rất lâu sau tab tỉ lệ mới thấy — với P&C là không bao giờ, tới
+khi đóng mở lại hộp thoại.
+
+**Nguyên nhân gốc:** sau khi lưu, code chỉ nạp lại tỉ lệ khi `forProduct ===
+product`, mà `product = tab === "agents" ? "health" : tab`. Đang đứng ở tab
+Agent config thì `product` luôn là `"health"`, nên tick agent cho P&C không bao
+giờ nạp lại tab P&C. Tick cho Health thì có, nhưng tốn hai vòng mạng nối tiếp
+(PATCH rồi GET).
+
+Sửa kèm hai lỗi ngầm sẽ lộ ra ngay khi sửa lỗi trên:
+* **Bộ đếm request dùng chung cho cả hai product.** Nạp lại Health làm rơi mất
+  response P&C đang bay, và tab P&C kẹt số cũ. Nay mỗi product một bộ đếm.
+* **`loadWeights` ghi đè cả bản nháp**, nên đang sửa dở tỉ lệ mà sang tick agent
+  là mất phần đang sửa. Nay chỉ ghép đúng dòng của agent vừa tick
+  (`draftRowAfterSave` giữ trọng số đang gõ).
+
+Cách làm mới: cập nhật optimistic cả tab Agent config lẫn tab tỉ lệ của đúng
+product vừa tick; PATCH trả về dòng vừa ghi để đối chiếu tại chỗ — không còn GET
+lại cả danh sách. Tab tỉ lệ vốn tự tính share, hàng chờ lead và `dirty` từ bản
+nháp, nên sửa một dòng là màn hình đổi ngay. Một lượt GET đang bay lúc tick thì bị
+bỏ (nó mang dữ liệu trước khi ghi) và được nạp lại sau khi ghi. Lưu hỏng thì trả
+lại đúng dòng cũ. Phía server, câu đọc dòng hiện có và câu đếm chạy song song.
+
+Các thao tác trên dòng tách vào `src/lib/leads/assignment-weight-rows.ts`, có test.
+
 ## 2026-09-15 — Ảnh đại diện người dùng, đổi được ở Settings
 
 Mỗi người tự tải ảnh ở `/settings`; ảnh thay hai chữ viết tắt ở mọi nơi đang hiện

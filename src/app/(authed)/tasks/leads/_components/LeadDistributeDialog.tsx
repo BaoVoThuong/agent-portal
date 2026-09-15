@@ -4,20 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcw, Shuffle, X } from "lucide-react";
 import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { pickWeighted } from "@/lib/leads/round-robin";
+import {
+  applyAgentToggle,
+  draftRowAfterSave,
+  parseAssignmentWeightRow,
+  setAgentRow,
+  type AssignmentWeightRowView,
+} from "@/lib/leads/assignment-weight-rows";
 import { personLabel } from "@/lib/tasks/people";
 import { Initials } from "../../_components/board-ui";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
-type WeightRow = {
-  agent_email: string;
-  weight: number;
-  position: number;
-  is_active: boolean;
-  /** Computed by the API from the live totals — never stored. */
-  share: number;
-  /** Vị trí hiện tại trong vòng xoay; dãy xem trước phải bắt đầu từ đây. */
-  current_weight: number;
-};
+type WeightRow = AssignmentWeightRowView;
 
 type WeightsPayload = {
   /** API trả kèm; dùng để biết payload đang giữ là của product nào. */
@@ -162,17 +160,21 @@ export function LeadDistributeDialog({
   const [pendingAgents, setPendingAgents] = useState<ReadonlySet<string>>(new Set());
 
   const [rosterError, setRosterError] = useState(false);
-  // Mỗi lần đổi product là một request mới. Response của product cũ về sau
-  // response của product mới thì phải bị bỏ, nếu không bảng hiện tỉ lệ của
-  // product mày vừa rời khỏi.
-  const weightsRequest = useRef(0);
+  // Số thứ tự request RIÊNG cho từng product: response về trễ chỉ bị bỏ khi có
+  // request MỚI HƠN của CÙNG product. Trước đây dùng chung một bộ đếm cho cả
+  // hai, nên nạp lại Health làm rơi mất response P&C đang bay, và tab P&C kẹt số
+  // cũ tới khi đóng mở lại hộp thoại.
+  const weightsRequest = useRef<Record<LeadProduct, number>>({ pc: 0, health: 0 });
+  /** Số lượt GET tỉ lệ đang bay cho từng product. */
+  const weightsInFlight = useRef<Record<LeadProduct, number>>({ pc: 0, health: 0 });
 
   const loadWeights = useCallback(async (forProduct: LeadProduct) => {
-    const seq = weightsRequest.current + 1;
-    weightsRequest.current = seq;
+    const seq = weightsRequest.current[forProduct] + 1;
+    weightsRequest.current[forProduct] = seq;
+    weightsInFlight.current[forProduct] += 1;
     try {
       const next = await fetchWeights(forProduct);
-      if (seq !== weightsRequest.current) return;
+      if (seq !== weightsRequest.current[forProduct]) return;
       cacheWeights(forProduct, next);
       setWeightsByProduct((current) => ({ ...current, [forProduct]: next }));
       setDraftByProduct((current) => ({
@@ -184,8 +186,10 @@ export function LeadDistributeDialog({
       setEnabledByProduct((current) => ({ ...current, [forProduct]: next.enabled }));
       setError(null);
     } catch (loadError) {
-      if (seq !== weightsRequest.current) return;
+      if (seq !== weightsRequest.current[forProduct]) return;
       setError(loadError instanceof Error ? loadError.message : "Could not load the ratios.");
+    } finally {
+      weightsInFlight.current[forProduct] -= 1;
     }
   }, []);
 
@@ -243,13 +247,14 @@ export function LeadDistributeDialog({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const seq = weightsRequest.current + 1;
-    weightsRequest.current = seq;
 
     for (const key of LEAD_PRODUCTS) {
+      const seq = weightsRequest.current[key] + 1;
+      weightsRequest.current[key] = seq;
+      weightsInFlight.current[key] += 1;
       void fetchWeights(key)
         .then((next) => {
-          if (cancelled || seq !== weightsRequest.current) return;
+          if (cancelled || seq !== weightsRequest.current[key]) return;
           cacheWeights(key, next);
           setWeightsByProduct((current) => ({ ...current, [key]: next }));
           setDraftByProduct((current) => ({
@@ -259,10 +264,13 @@ export function LeadDistributeDialog({
           setEnabledByProduct((current) => ({ ...current, [key]: next.enabled }));
         })
         .catch((loadError: unknown) => {
-          if (cancelled || seq !== weightsRequest.current) return;
+          if (cancelled || seq !== weightsRequest.current[key]) return;
           setError(
             loadError instanceof Error ? loadError.message : "Could not load the ratios."
           );
+        })
+        .finally(() => {
+          weightsInFlight.current[key] -= 1;
         });
 
       void fetch(`/api/leads/distribute?product=${key}`, { cache: "no-store" })
@@ -420,7 +428,43 @@ export function LeadDistributeDialog({
         )
       );
 
+    // Dòng của agent này TRƯỚC khi đổi, để lưu hỏng thì trả lại đúng dòng đó.
+    // Chỉ đụng một dòng: tỉ lệ đang sửa dở của những agent khác giữ nguyên.
+    const previousBaselineRow = weightsByProduct[forProduct]?.weights.find(
+      (row) => row.agent_email === agentEmail
+    );
+    const previousDraftRow = draftByProduct[forProduct].find(
+      (row) => row.agent_email === agentEmail
+    );
+    const patchBaseline = (change: (rows: WeightRow[]) => WeightRow[]) => {
+      // Cache module và state đi qua CÙNG một phép đổi thuần, nên không lệch nhau.
+      const cached = weightsCache[forProduct];
+      if (cached) cacheWeights(forProduct, { ...cached, weights: change(cached.weights) });
+      setWeightsByProduct((current) => {
+        const payload = current[forProduct];
+        return payload
+          ? { ...current, [forProduct]: { ...payload, weights: change(payload.weights) } }
+          : current;
+      });
+    };
+    const patchDraft = (change: (rows: WeightRow[]) => WeightRow[]) =>
+      setDraftByProduct((current) => ({
+        ...current,
+        [forProduct]: change(current[forProduct]),
+      }));
+
+    // Một lượt GET đang bay lúc này được gửi TRƯỚC khi ghi, nên mang dữ liệu cũ:
+    // để nó về sau thì nó đè mất cú tick. Bỏ nó đi, rồi nạp lại sau khi ghi.
+    const refreshWasInFlight = weightsInFlight.current[forProduct] > 0;
+    if (refreshWasInFlight) weightsRequest.current[forProduct] += 1;
+
+    // Optimistic ở CẢ tab Agent config lẫn tab tỉ lệ của ĐÚNG product vừa tick.
+    // Trước đây tab tỉ lệ chỉ được nạp lại khi `forProduct === product` — mà
+    // đang đứng ở tab Agent config thì `product` luôn là "health", nên tick agent
+    // cho P&C thì tab P&C không bao giờ thấy, cho tới khi đóng mở lại hộp thoại.
     apply(next);
+    patchBaseline((rows) => applyAgentToggle(rows, agentEmail, next));
+    patchDraft((rows) => applyAgentToggle(rows, agentEmail, next));
     setPendingAgents((current) => new Set(current).add(key));
     setError(null);
     try {
@@ -433,15 +477,31 @@ export function LeadDistributeDialog({
           is_active: next,
         }),
       });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error ?? "Could not save.");
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Could not save.");
+
+      // Đối chiếu với đúng dòng server vừa ghi — không GET lại cả danh sách.
+      const rawRow = payload?.row;
+      const serverRow = parseAssignmentWeightRow(rawRow);
+      if (serverRow || rawRow === null) {
+        patchBaseline((rows) => setAgentRow(rows, agentEmail, serverRow ?? undefined));
+        patchDraft((rows) =>
+          setAgentRow(
+            rows,
+            agentEmail,
+            serverRow ? draftRowAfterSave(serverRow, previousDraftRow) : undefined
+          )
+        );
+        if (refreshWasInFlight || !weightsCache[forProduct]) void loadWeights(forProduct);
+      } else {
+        // Không đọc được dòng trả về: nạp lại cả danh sách, còn hơn xoá nhầm.
+        void loadWeights(forProduct);
       }
-      // Tab tỉ lệ đang mở phải thấy người vừa bật/tắt, nhưng không chặn cú tick
-      // tiếp theo trong lúc chờ.
-      if (forProduct === product) void loadWeights(product);
     } catch (toggleError) {
       apply(!next);
+      patchBaseline((rows) => setAgentRow(rows, agentEmail, previousBaselineRow));
+      patchDraft((rows) => setAgentRow(rows, agentEmail, previousDraftRow));
+      if (refreshWasInFlight) void loadWeights(forProduct);
       setError(toggleError instanceof Error ? toggleError.message : "Could not save.");
     } finally {
       setPendingAgents((current) => {

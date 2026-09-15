@@ -19,6 +19,9 @@ export const dynamic = "force-dynamic";
 /** How far ahead the preview looks. Ten is what people can hold in their head. */
 const PREVIEW_SIZE = 10;
 
+/** Những cột PATCH trả về — đúng những gì bảng tỉ lệ trong hộp thoại cần. */
+const WEIGHT_ROW_COLUMNS = "agent_email,weight,position,is_active,current_weight";
+
 /**
  * GET is deliberately open to any lead worker, not just a manager: the import
  * dialog shows the split before someone commits 2,000 rows to it, and the
@@ -202,44 +205,64 @@ export async function PATCH(request: Request) {
   const supabase = getSupabaseAdmin();
   const actorEmail = actor.email.trim().toLowerCase();
   const nowIso = new Date().toISOString();
+  const product: LeadProduct = body.product;
 
-  const { data: existing, error: readError } = await supabase
-    .from("lead_assignment_weights")
-    .select("agent_email")
-    .eq("product", body.product)
-    .eq("agent_email", agentEmail)
-    .maybeSingle();
-  if (readError) {
-    return NextResponse.json({ error: readError.message }, { status: 500 });
+  // Đọc dòng hiện có và (khi bật) đếm số dòng SONG SONG: hai câu không phụ thuộc
+  // nhau. Trước đây chạy nối tiếp, nên cú tick thêm một agent mới tốn thêm một
+  // vòng tới database.
+  const [existingResult, countResult] = await Promise.all([
+    supabase
+      .from("lead_assignment_weights")
+      .select("agent_email")
+      .eq("product", product)
+      .eq("agent_email", agentEmail)
+      .maybeSingle(),
+    body.is_active
+      ? supabase
+          .from("lead_assignment_weights")
+          .select("agent_email", { count: "exact", head: true })
+          .eq("product", product)
+      : Promise.resolve({ count: null as number | null, error: null }),
+  ]);
+  if (existingResult.error) {
+    return NextResponse.json({ error: existingResult.error.message }, { status: 500 });
   }
 
-  if (existing) {
-    const { error } = await supabase
+  // Trả về ĐÚNG DÒNG vừa ghi để hộp thoại đối chiếu tại chỗ. Trước đây nó phải
+  // GET lại cả danh sách sau mỗi cú tick — vòng mạng thứ hai khiến tab tỉ lệ
+  // cập nhật chậm. `row: null` nghĩa là tắt một agent vốn chưa có dòng nào.
+  let row: unknown = null;
+  if (existingResult.data) {
+    const { data, error } = await supabase
       .from("lead_assignment_weights")
       .update({ is_active: body.is_active, updated_by_email: actorEmail, updated_at: nowIso })
-      .eq("product", body.product)
-      .eq("agent_email", agentEmail);
+      .eq("product", product)
+      .eq("agent_email", agentEmail)
+      .select(WEIGHT_ROW_COLUMNS)
+      .maybeSingle();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    row = data;
   } else if (body.is_active) {
     // Người mới: trọng số 1 để họ có mặt trong vòng xoay ngay, admin chỉnh sau
     // ở tab product.
-    const { count } = await supabase
+    const { data, error } = await supabase
       .from("lead_assignment_weights")
-      .select("agent_email", { count: "exact", head: true })
-      .eq("product", body.product);
-    const { error } = await supabase.from("lead_assignment_weights").insert({
-      product: body.product,
-      agent_email: agentEmail,
-      weight: 1,
-      position: (count ?? 0) + 1,
-      is_active: true,
-      updated_by_email: actorEmail,
-      updated_at: nowIso,
-    });
+      .insert({
+        product,
+        agent_email: agentEmail,
+        weight: 1,
+        position: (countResult.count ?? 0) + 1,
+        is_active: true,
+        updated_by_email: actorEmail,
+        updated_at: nowIso,
+      })
+      .select(WEIGHT_ROW_COLUMNS)
+      .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    row = data;
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, row });
 }
 
 /**
