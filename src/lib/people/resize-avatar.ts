@@ -15,6 +15,20 @@
 export const AVATAR_EDGE_PX = 256;
 const AVATAR_QUALITY = 0.85;
 
+/**
+ * Tên tệp gửi lên, suy từ kiểu THẬT của blob mà canvas trả về.
+ *
+ * `canvas.toBlob(cb, "image/webp")` chỉ là lời đề nghị: trình duyệt không mã hoá
+ * được webp (Safari) sẽ âm thầm trả về PNG. Server suy kiểu mong đợi từ phần mở
+ * rộng rồi kiểm chữ ký byte, nên đặt cứng tên `avatar.webp` cho một blob PNG là
+ * MỌI lượt tải lên từ Safari đều bị từ chối.
+ */
+export function avatarUploadFileName(blobType: string): string {
+  if (blobType === "image/webp") return "avatar.webp";
+  if (blobType === "image/jpeg") return "avatar.jpg";
+  return "avatar.png";
+}
+
 export type ResizeResult =
   | { ok: true; file: File }
   | { ok: false; error: string };
@@ -31,7 +45,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("Không đọc được ảnh."));
+      reject(new Error("This image couldn't be read. Try a JPG or PNG."));
     };
     image.src = url;
   });
@@ -39,7 +53,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
 
 export async function resizeImageToSquare(file: File): Promise<ResizeResult> {
   if (!file.type.startsWith("image/")) {
-    return { ok: false, error: "Chỉ nhận tệp ảnh." };
+    return { ok: false, error: "Please choose an image file." };
   }
 
   let image: HTMLImageElement;
@@ -48,18 +62,18 @@ export async function resizeImageToSquare(file: File): Promise<ResizeResult> {
   } catch (caught) {
     return {
       ok: false,
-      error: caught instanceof Error ? caught.message : "Không đọc được ảnh.",
+      error: caught instanceof Error ? caught.message : "This image couldn't be read. Try a JPG or PNG.",
     };
   }
 
   const source = Math.min(image.naturalWidth, image.naturalHeight);
-  if (source === 0) return { ok: false, error: "Ảnh không hợp lệ." };
+  if (source === 0) return { ok: false, error: "This image couldn't be read. Try a JPG or PNG." };
 
   const canvas = document.createElement("canvas");
   canvas.width = AVATAR_EDGE_PX;
   canvas.height = AVATAR_EDGE_PX;
   const context = canvas.getContext("2d");
-  if (!context) return { ok: false, error: "Trình duyệt không dựng được ảnh." };
+  if (!context) return { ok: false, error: "Your browser couldn't process this image." };
 
   context.drawImage(
     image,
@@ -77,12 +91,13 @@ export async function resizeImageToSquare(file: File): Promise<ResizeResult> {
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, "image/webp", AVATAR_QUALITY)
   );
-  if (!blob) return { ok: false, error: "Không nén được ảnh." };
+  if (!blob) return { ok: false, error: "Your browser couldn't process this image." };
 
+  // Đặt tên theo kiểu THẬT của blob, không theo kiểu đã yêu cầu — xem
+  // avatarUploadFileName.
+  const type = blob.type || "image/png";
   return {
     ok: true,
-    // Tên tệp phải có đuôi .webp: server kiểm kiểu bằng chữ ký byte nhưng suy
-    // kiểu mong đợi từ phần mở rộng, nên hai vế phải khớp nhau.
-    file: new File([blob], "avatar.webp", { type: "image/webp" }),
+    file: new File([blob], avatarUploadFileName(type), { type }),
   };
 }

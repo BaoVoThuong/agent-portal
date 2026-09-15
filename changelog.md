@@ -6,6 +6,39 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-15 — Ảnh đại diện người dùng, đổi được ở Settings
+
+Mỗi người tự tải ảnh ở `/settings`; ảnh thay hai chữ viết tắt ở mọi nơi đang hiện
+người — bảng task, thẻ board, comment, ô chọn người, danh sách lead, TopBar.
+Admin **không** đổi hộ được: API lấy email từ phiên, không nhận tham số email.
+
+**Cả 34 chỗ hiện avatar đi qua một component `Initials`**, và cả 15 file dùng nó
+đều ở cây client. Nên ảnh đi qua React context nạp ở layout (`AvatarProvider`)
+thay vì nới mọi `labelByEmail` thành object — không call site nào phải đổi.
+
+**Latency:** danh bạ avatar chạy trên mọi trang, nên đi `Promise.all` cùng `auth()`
+vốn đã phải đợi một vòng tới database. Lỗi truy vấn (hoặc cột chưa migrate) thì
+trả rỗng, mọi người về chữ viết tắt, không làm chết layout.
+
+**Bucket `avatars` công khai**, ngược với `task-attachments`: signed URL là ký lại
+từng ảnh ở mọi dòng mọi danh sách mỗi giờ. Đường dẫn chứa UUID nên không đoán
+được. Ảnh thu về 256×256 ở trình duyệt trước khi gửi; server kiểm chữ ký byte và
+chặn 512KB. Mỗi lần đổi ghi UUID mới rồi xoá ảnh cũ — sau khi cột đã cập nhật.
+
+Sửa khi rà trước lúc merge:
+* **Safari không tải lên được.** `canvas.toBlob(..., "image/webp")` trên Safari âm
+  thầm trả PNG, mà tên tệp đặt cứng `avatar.webp` → server kiểm chữ ký byte và từ
+  chối. Nay đặt tên theo kiểu thật của blob (`avatarUploadFileName`), có test khoá.
+* **Ảnh lỗi một lần là kẹt ở chữ viết tắt vĩnh viễn**, kể cả sau khi tải ảnh mới.
+  `Initials`, TopBar và Settings giờ nhớ URL NÀO đã hỏng thay vì một cờ boolean.
+* **Chặn tệp lớn chỉ là trên giấy.** `request.formData()` đọc hết body vào bộ nhớ
+  rồi mới tới bước kiểm `file.size`. Nay chặn thô bằng `Content-Length` trước khi
+  parse.
+* Chữ trên giao diện và thông báo lỗi chuyển sang tiếng Anh cho khớp trang Settings.
+
+Rollout `supabase/rollouts/2026-09-13-user-avatar.sql` — **CHƯA CHẠY**, phải chạy
+trước khi deploy.
+
 ## 2026-09-12 — Time Off: chọn người nhận tin khi nộp đơn, và báo cho họ
 
 Modal xin nghỉ có thêm ô **Send to**: chọn một đồng nghiệp để báo tin về đơn

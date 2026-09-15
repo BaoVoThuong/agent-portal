@@ -158,7 +158,11 @@ export function Initials({
   const avatarUrl = useAvatarUrl(email);
   // Tệp bị xoá khỏi bucket mà cột còn URL là chuyện sẽ xảy ra. Khi đó phải quay
   // về hai chữ viết tắt, không được để lại một ô trống.
-  const [imageFailed, setImageFailed] = useState(false);
+  //
+  // Nhớ URL NÀO đã hỏng, không phải một cờ true/false: người đó tải ảnh mới lên
+  // thì URL đổi (UUID mới), và ảnh mới phải hiện ngay. Cờ boolean thì hỏng một
+  // lần là kẹt ở chữ viết tắt cho tới khi component bị dựng lại.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   if (!email) return null;
   const displayName = label?.trim() || email.split("@")[0];
   const initials = displayName
@@ -180,7 +184,7 @@ export function Initials({
   // Cùng hình dạng với ô chữ viết tắt: 24px, bo tròn, viền trắng để các avatar
   // chồng lên nhau trong AvatarStack vẫn tách bạch. `object-cover` là bắt buộc —
   // thiếu nó thì ảnh không vuông bị bóp méo.
-  if (avatarUrl && !imageFailed) {
+  if (avatarUrl && avatarUrl !== failedUrl) {
     // Cố ý dùng <img> thường, không phải next/image: ảnh đã được thu về 256px webp
     // (~20KB) ngay ở trình duyệt trước khi tải lên, còn ô hiển thị chỉ 24px.
     // next/image sẽ đẩy mỗi ảnh qua /_next/image — thêm một chặng proxy và một dòng
@@ -196,7 +200,7 @@ export function Initials({
         decoding="async"
         width={24}
         height={24}
-        onError={() => setImageFailed(true)}
+        onError={() => setFailedUrl(avatarUrl)}
         className="h-6 w-6 shrink-0 rounded-full object-cover ring-2 ring-white"
       />
     );

@@ -18,8 +18,9 @@ export default function TopBar({ userName, userEmail, agentId, canUseTasks }: To
   // Đọc từ cùng một danh bạ mà mọi avatar khác dùng, nên đổi ảnh ở Settings là
   // chỗ này đổi theo, không cần đường dữ liệu riêng.
   const ownAvatarUrl = useAvatarUrl(userEmail);
-  const [avatarFailed, setAvatarFailed] = useState(false);
-  const avatarUrl = avatarFailed ? null : ownAvatarUrl;
+  // Nhớ URL nào đã hỏng (xem Initials): ảnh mới có URL mới nên hiện lại ngay.
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
+  const avatarUrl = ownAvatarUrl !== failedAvatarUrl ? ownAvatarUrl : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -74,7 +75,7 @@ export default function TopBar({ userName, userEmail, agentId, canUseTasks }: To
               width={43}
               height={43}
               className={styles.avatarImage}
-              onError={() => setAvatarFailed(true)}
+              onError={() => setFailedAvatarUrl(ownAvatarUrl)}
             />
           ) : (
             <UserIcon />

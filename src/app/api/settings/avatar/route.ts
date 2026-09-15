@@ -42,16 +42,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // `request.formData()` đọc TOÀN BỘ thân request vào bộ nhớ rồi mới trả về, nên
+  // kiểm `file.size` sau đó không chặn được một tệp khổng lồ. Chặn thô bằng
+  // Content-Length TRƯỚC khi parse; nới thêm 64KB cho phần vỏ multipart. Kiểm
+  // chính xác vẫn là file.size bên dưới. Thiếu header (chunked) thì trần body của
+  // nền tảng vẫn là lớp chặn cuối.
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (declaredLength > AVATAR_MAX_BYTES + 64 * 1024) {
+    return NextResponse.json(
+      { error: "This photo is too large (max 512 KB after resizing)." },
+      { status: 413 }
+    );
+  }
+
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File)) {
-    return NextResponse.json({ error: "Chưa chọn ảnh." }, { status: 400 });
+    return NextResponse.json({ error: "Choose a photo to upload." }, { status: 400 });
   }
-  // Chặn theo kích thước đã khai TRƯỚC khi đọc vào bộ nhớ: đọc hết rồi mới từ
-  // chối nghĩa là một tệp 500MB vẫn kịp chiếm sạch RAM của tiến trình.
+  // Kiểm chính xác kích thước tệp; Content-Length ở trên chỉ là chặn thô.
   if (file.size > AVATAR_MAX_BYTES) {
     return NextResponse.json(
-      { error: "Ảnh quá lớn (tối đa 512KB sau khi thu nhỏ)." },
+      { error: "This photo is too large (max 512 KB after resizing)." },
       { status: 400 }
     );
   }
@@ -67,7 +79,7 @@ export async function POST(request: Request) {
     uploaded = await uploadAvatar(data, validated.contentType, validated.extension);
   } catch (caught) {
     return NextResponse.json(
-      { error: caught instanceof Error ? caught.message : "Không tải được ảnh lên." },
+      { error: caught instanceof Error ? caught.message : "Couldn't upload the photo. Please try again." },
       { status: 500 }
     );
   }

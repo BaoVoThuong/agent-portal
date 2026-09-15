@@ -96,15 +96,15 @@ export function validateAvatarFile(
   fileName: string,
   data: ArrayBuffer
 ): AvatarValidation {
-  if (data.byteLength === 0) return { ok: false, error: "Tệp rỗng." };
+  if (data.byteLength === 0) return { ok: false, error: "This file is empty." };
   if (data.byteLength > AVATAR_MAX_BYTES) {
-    return { ok: false, error: "Ảnh quá lớn (tối đa 512KB sau khi thu nhỏ)." };
+    return { ok: false, error: "This photo is too large (max 512 KB after resizing)." };
   }
 
   const validated = validateAttachmentFile(fileName, data);
   if (!validated.ok) return { ok: false, error: validated.error };
   if (!AVATAR_ALLOWED_MIME_TYPES.includes(validated.contentType)) {
-    return { ok: false, error: "Chỉ nhận ảnh JPG, PNG hoặc WEBP." };
+    return { ok: false, error: "Only JPG, PNG or WEBP photos are supported." };
   }
 
   const extension = validated.contentType === "image/png"
