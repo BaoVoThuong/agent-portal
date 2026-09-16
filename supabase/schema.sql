@@ -3876,7 +3876,7 @@ create table if not exists table_column (
   key text not null,
   label text not null,
   type text not null
-    check (type in ('text','number','dropdown','date','checkbox','link','person')),
+    check (type in ('text','number','dropdown','multiselect','date','checkbox','link','person')),
   is_system boolean not null default false,
   position integer not null default 0,
   pinned boolean not null default false,
@@ -4201,6 +4201,15 @@ revoke all on function table_config_write_context(text, text, text[], text[], js
 grant execute on function table_config_write_context(text, text, text[], text[], jsonb)
   to service_role;
 
+create or replace function is_admin_managed_system_column(p_scope text, p_key text)
+returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  select (p_scope, p_key) in (('provider', 'obamacare'), ('provider', 'medicare'));
+$$;
+
 create or replace function create_table_column_option(
   p_column_id uuid,
   p_label text,
@@ -4233,7 +4242,10 @@ begin
   where id = p_column_id
   for update;
   if not found then raise exception 'COLUMN_NOT_FOUND'; end if;
-  if column_row.type <> 'dropdown' or column_row.is_system or column_row.archived_at is not null then
+  if column_row.type not in ('dropdown', 'multiselect')
+    or (column_row.is_system
+        and not is_admin_managed_system_column(column_row.scope, column_row.key))
+    or column_row.archived_at is not null then
     raise exception 'CUSTOM_DROPDOWN_REQUIRED';
   end if;
 
@@ -4454,39 +4466,71 @@ set search_path = public, pg_temp
 as $$
 declare
   column_row table_column%rowtype;
+  option_label text;
   usage_count bigint;
 begin
   select * into column_row
   from table_column
   where id = p_column_id
     and archived_at is null
-    and not is_system
-    and type = 'dropdown';
+    and type in ('dropdown', 'multiselect')
+    and (not is_system or is_admin_managed_system_column(scope, key));
   if not found then
     raise exception 'CONFIG_OPTION_NOT_FOUND';
   end if;
 
-  if not exists (
-    select 1
-    from table_column_option option_row
-    where option_row.id = p_option_id
-      and option_row.column_id = p_column_id
-      and option_row.archived_at is null
-  ) then
+  select option_row.label into option_label
+  from table_column_option option_row
+  where option_row.id = p_option_id
+    and option_row.column_id = p_column_id
+    and option_row.archived_at is null;
+  if not found then
     raise exception 'CONFIG_OPTION_NOT_FOUND';
   end if;
 
-  if column_row.scope = 'cs' then
+  if column_row.scope = 'provider' then
+    select count(*)::bigint into usage_count
+    from provider_address provider_row
+    where provider_row.archived_at is null
+      and exists (
+        select 1
+        from unnest(
+          string_to_array(
+            coalesce(
+              case column_row.key
+                when 'obamacare' then provider_row.obamacare
+                when 'medicare' then provider_row.medicare
+              end,
+              ''
+            ),
+            ','
+          )
+        ) as item
+        where btrim(item) = option_label
+      );
+  elsif column_row.scope = 'cs' then
     select count(*)::bigint into usage_count
     from tasks
     where archived_at is null
-      and custom_values @> jsonb_build_object(column_row.key, p_option_id::text);
+      and custom_values @> jsonb_build_object(
+        column_row.key,
+        case
+          when column_row.type = 'multiselect' then jsonb_build_array(p_option_id::text)
+          else to_jsonb(p_option_id::text)
+        end
+      );
   else
     select count(*)::bigint into usage_count
     from enrollment_records
     where archived_at is null
       and program = column_row.scope
-      and custom_values @> jsonb_build_object(column_row.key, p_option_id::text);
+      and custom_values @> jsonb_build_object(
+        column_row.key,
+        case
+          when column_row.type = 'multiselect' then jsonb_build_array(p_option_id::text)
+          else to_jsonb(p_option_id::text)
+        end
+      );
   end if;
   return usage_count;
 end;
