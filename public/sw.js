@@ -8,7 +8,7 @@
  * tab đóng hết. Tăng SW_VERSION mỗi lần sửa file này — vừa để thấy bản nào đang
  * chạy trong DevTools, vừa buộc trình duyệt coi đây là file khác.
  */
-const SW_VERSION = "2026-09-10.1";
+const SW_VERSION = "2026-09-16.1";
 
 // Nhận quyền điều khiển ngay, không chờ mọi tab đóng.
 self.addEventListener("install", () => {
@@ -20,20 +20,22 @@ self.addEventListener("activate", (event) => {
 });
 
 /**
- * Người dùng có đang MỞ và NHÌN portal không.
+ * Người dùng có đang THAO TÁC trên portal không.
  *
- * Đang mở thì chuông + toast trong web đã báo rồi; bắn thêm thông báo hệ điều
- * hành là kêu hai lần cho cùng một việc.
+ * Đang thao tác thì chuông + toast trong web đã báo rồi; bắn thêm thông báo hệ
+ * điều hành là kêu hai lần cho cùng một việc.
  *
- * Chỉ tính tab đang `visible`: một tab bị ẩn sau cửa sổ khác thì người dùng
- * không nhìn thấy gì, nên vẫn đáng báo ra ngoài.
+ * Trước 16/09/2026 hàm này hỏi `visible`: cửa sổ portal mở ở màn hình phụ, hoặc
+ * nằm cạnh cửa sổ khác, vẫn tính là "đang nhìn" nên push bị nuốt — mà cái chuông
+ * của máy có push cũng không bật popup. Chỉ `focused` mới chắc người dùng thấy
+ * toast trong trang.
  */
-async function hasVisibleWindow() {
+async function hasFocusedWindow() {
   const windows = await self.clients.matchAll({
     type: "window",
     includeUncontrolled: true,
   });
-  return windows.some((client) => client.visibilityState === "visible");
+  return windows.some((client) => client.focused);
 }
 
 self.addEventListener("push", (event) => {
@@ -47,7 +49,7 @@ self.addEventListener("push", (event) => {
         payload = {};
       }
 
-      if (await hasVisibleWindow()) return;
+      if (await hasFocusedWindow()) return;
 
       const title = payload.title || "Agent Portal";
       await self.registration.showNotification(title, {
@@ -55,6 +57,8 @@ self.addEventListener("push", (event) => {
         // Cùng `tag` thì thông báo mới thay thế cái cũ thay vì chồng đống —
         // ví dụ 5 bình luận trong một task chỉ để lại một dòng.
         tag: payload.tag || "agent-portal",
+        // Thay popup cùng tag mà vẫn kêu — server chỉ bật cho loại gọi đích danh.
+        renotify: Boolean(payload.renotify),
         data: { url: payload.url || "/" },
         // Cố ý KHÔNG khai `icon`/`badge`: trỏ vào file không tồn tại thì Chrome
         // im lặng bỏ qua, còn thêm một cặp PNG chỉ để trang trí là thêm thứ phải

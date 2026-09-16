@@ -12,9 +12,18 @@ import { getBrowserSupabase } from "@/lib/supabase-browser";
 import {
   dispatchOpenTask,
   publishTaskDataInvalidation,
+  subscribeNotificationsRead,
 } from "@/lib/tasks/client-events";
 import { resolveNotificationInvalidation } from "@/lib/tasks/notification-invalidation";
 import { playNotificationChime, primeNotificationSound } from "@/lib/tasks/sound";
+import { claimNotificationAlert } from "@/lib/notifications/alert-lock";
+import {
+  alertClaimDelayMs,
+  notificationAlertTag,
+  shouldRenotify,
+  shouldShowNativePopup,
+} from "@/lib/notifications/alert-policy";
+import { isPushEnabledOnThisDevice } from "@/lib/notifications/push-client";
 import {
   isSystemNotification,
   notificationActionText,
@@ -49,6 +58,9 @@ type Notif = {
 const POLL_REALTIME_MS = 120000;
 const POLL_FALLBACK_MS = 30000;
 const TOAST_MS = 7000;
+// Cron gửi một ping cho mỗi task mỗi loại — có lượt 12 ping cho cùng một người.
+// Gom lại thành một lần tải để một đợt chỉ kêu một tiếng.
+const REALTIME_PING_DEBOUNCE_MS = 1500;
 const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
 
 function timeAgo(iso: string): string {
@@ -136,6 +148,49 @@ function nativeNotificationBody(n: Notif): string {
     .join("\n");
 }
 
+/**
+ * Tiếng chuông + popup hệ điều hành cho các thông báo MỚI — đúng một lần cho cả
+ * trình duyệt, dù mở bao nhiêu tab. Toast không đi qua đây: nó nằm trong trang,
+ * người dùng chỉ thấy toast của tab đang nhìn.
+ */
+async function alertFreshNotifications(
+  fresh: Notif[],
+  pushSubscribedOnThisDevice: boolean
+): Promise<void> {
+  const delay = alertClaimDelayMs(document.visibilityState);
+  if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+
+  const claimed = (
+    await Promise.all(
+      fresh.map(async (n) => ((await claimNotificationAlert(n.id)) ? n : null))
+    )
+  ).filter((n): n is Notif => n !== null);
+  if (claimed.length === 0) return;
+
+  // Một tiếng cho cả đợt, không phải mỗi dòng một tiếng.
+  playNotificationChime();
+
+  const permission = "Notification" in window ? Notification.permission : null;
+  if (
+    !shouldShowNativePopup({
+      permission,
+      documentHasFocus: document.hasFocus(),
+      pushSubscribedOnThisDevice,
+    })
+  ) {
+    return;
+  }
+  for (const n of [...claimed].reverse()) {
+    // lib.dom của TypeScript 5.9 chưa khai `renotify`, dù Chrome có hỗ trợ.
+    const options: NotificationOptions & { renotify?: boolean } = {
+      body: nativeNotificationBody(n),
+      tag: notificationAlertTag(n),
+      renotify: shouldRenotify(n),
+    };
+    new Notification(`${entityKey(n)} · ${notificationHeading(n)}`, options);
+  }
+}
+
 export function NotificationBell() {
   const [items, setItems] = useState<Notif[]>([]);
   const [unread, setUnread] = useState(0);
@@ -148,6 +203,10 @@ export function NotificationBell() {
   // Notification ids we have already processed, so a poll never re-pops a toast.
   const seenIds = useRef<Set<string>>(new Set());
   const initialized = useRef(false);
+  // Máy này có đăng ký Web Push không. Có thì popup ngoài trình duyệt là việc
+  // của service worker, chuông không bật thêm cái thứ hai.
+  const pushSubscribedRef = useRef(false);
+  const pingTimerRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -191,9 +250,9 @@ export function NotificationBell() {
       );
       if (invalidation) publishTaskDataInvalidation(invalidation);
 
-      // One chime per batch, not per item, so a burst doesn't overlap tones.
-      if (fresh.length > 0) playNotificationChime();
-
+      // Toast nằm trong trang nên tab nào cũng dựng được — người dùng chỉ thấy
+      // toast của tab đang nhìn. Tiếng chuông và popup hệ điều hành thì thoát ra
+      // ngoài tab, nên chỉ MỘT tab được phát (xem alertFreshNotifications).
       // Oldest first so the newest toast ends up on top of the stack.
       for (const n of [...fresh].reverse()) {
         setToasts((cur) => [n, ...cur].slice(0, 4));
@@ -202,18 +261,9 @@ export function NotificationBell() {
           () => setToasts((cur) => cur.filter((t) => t.id !== id)),
           TOAST_MS
         );
-
-        // Native OS popup too — fires regardless of whether the tab is
-        // focused, not just when it's hidden.
-        if (
-          typeof window !== "undefined" &&
-          "Notification" in window &&
-          Notification.permission === "granted"
-        ) {
-          new Notification(`${entityKey(n)} · ${notificationHeading(n)}`, {
-            body: nativeNotificationBody(n),
-          });
-        }
+      }
+      if (fresh.length > 0) {
+        void alertFreshNotifications(fresh, pushSubscribedRef.current);
       }
     } catch {
       // Transient network error (HMR reload, offline, navigation abort) —
@@ -268,6 +318,39 @@ export function NotificationBell() {
     };
   }, [load, loadSummary, open]);
 
+  // Máy có push thì service worker lo popup. Đọc lại mỗi lần cửa sổ được focus,
+  // vì người dùng có thể vừa bật/tắt push ở Settings trong tab khác.
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void isPushEnabledOnThisDevice()
+        .then((enabled) => {
+          if (active) pushSubscribedRef.current = enabled;
+        })
+        .catch(() => {});
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+
+  // Mở task trên board là đã đọc mọi thông báo của task đó (TaskBoardClient).
+  useEffect(
+    () =>
+      subscribeNotificationsRead((taskId) => {
+        setItems((cur) =>
+          cur.map((n) =>
+            entityKind(n) === "task" && entityId(n) === taskId ? { ...n, is_read: true } : n
+          )
+        );
+        void loadSummary();
+      }),
+    [loadSummary]
+  );
+
   // Ask once for OS-notification permission (so background toasts can fire).
   useEffect(() => {
     if (
@@ -299,7 +382,15 @@ export function NotificationBell() {
     let active = true;
     const channel = sb
       .channel(topic)
-      .on("broadcast", { event: "new" }, () => void load())
+      .on("broadcast", { event: "new" }, () => {
+        // Gom các ping liền nhau: một lượt cron có thể ping hàng chục lần cho
+        // cùng một người, mỗi ping là một lần tải và một tiếng chuông.
+        if (pingTimerRef.current !== null) window.clearTimeout(pingTimerRef.current);
+        pingTimerRef.current = window.setTimeout(() => {
+          pingTimerRef.current = null;
+          void load();
+        }, REALTIME_PING_DEBOUNCE_MS);
+      })
       .subscribe((status) => {
         if (!active) return;
         if (status === "SUBSCRIBED") {
@@ -314,6 +405,10 @@ export function NotificationBell() {
       });
     return () => {
       active = false;
+      if (pingTimerRef.current !== null) {
+        window.clearTimeout(pingTimerRef.current);
+        pingTimerRef.current = null;
+      }
       setRealtimeLive(false);
       void sb.removeChannel(channel);
     };
@@ -512,7 +607,9 @@ function NotifContent({ n }: { n: Notif }) {
           &quot;{commentPreview(n)}&quot;
         </p>
       )}
-      {n.detail && (
+      {/* waiting_reminder dùng detail để phân biệt Waiting với Billing, và câu
+          chữ đã nói rõ chặng — in thêm "Detail: billing" chỉ là lặp lại. */}
+      {n.detail && n.type !== "waiting_reminder" && (
         <p
           className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500"
           title={n.detail}

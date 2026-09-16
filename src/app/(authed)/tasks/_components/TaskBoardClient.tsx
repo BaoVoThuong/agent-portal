@@ -12,6 +12,7 @@ import { getBrowserSupabase } from "@/lib/supabase-browser";
 import {
   createTaskDataInvalidationSourceId,
   OPEN_TASK_EVENT,
+  publishNotificationsRead,
   publishTaskDataInvalidation,
   subscribeTaskDataInvalidation,
   writeTaskDeepLink,
@@ -498,35 +499,52 @@ export function TaskBoardClient({
     }
   }, []);
 
-  const markAssignedNotificationRead = useCallback(async (taskId: string) => {
-    await fetch("/api/tasks/notifications/read", {
+  // Mở task = đã thấy MỌI thông báo của task đó (bình luận, nhắc tên, lời
+  // nhắc...), không riêng thông báo được giao việc. Trước 16/09/2026 chỉ
+  // `assigned` được xoá, nên người hay mở task từ board vẫn ôm hàng nghìn dòng
+  // chưa đọc (khang: 2.575) và cái chuông mất tác dụng.
+  const markTaskNotificationsRead = useCallback(async (taskId: string) => {
+    const res = await fetch("/api/tasks/notifications/read", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId, type: "assigned" }),
-    }).catch(() => {});
+      body: JSON.stringify({ taskId }),
+    }).catch(() => null);
+    if (res?.ok) publishNotificationsRead(taskId);
   }, []);
 
+  // Một lần mở chỉ gửi một yêu cầu, dù openTaskById và effect bên dưới cùng gọi.
+  const lastMarkedTaskIdRef = useRef<string | null>(null);
+
   const markNewAssignedTaskSeen = useCallback((taskId: string) => {
-    if (!newAssignedTaskIds.has(taskId)) return;
-    setNewAssignedTaskIds((current) => {
-      if (!current.has(taskId)) return current;
-      const next = new Set(current);
-      next.delete(taskId);
-      return next;
-    });
-    void markAssignedNotificationRead(taskId);
-  }, [markAssignedNotificationRead, newAssignedTaskIds]);
+    if (newAssignedTaskIds.has(taskId)) {
+      setNewAssignedTaskIds((current) => {
+        if (!current.has(taskId)) return current;
+        const next = new Set(current);
+        next.delete(taskId);
+        return next;
+      });
+    }
+    if (lastMarkedTaskIdRef.current === taskId) return;
+    lastMarkedTaskIdRef.current = taskId;
+    void markTaskNotificationsRead(taskId);
+  }, [markTaskNotificationsRead, newAssignedTaskIds]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadUnreadAssignedTaskIds(), 0);
     return () => window.clearTimeout(timer);
   }, [loadUnreadAssignedTaskIds]);
 
+  // Mọi đường mở task (bấm thẻ, deep link, bấm từ chuông) đều đi qua openId.
+  // Đóng task thì quên id vừa đánh dấu, để lần mở sau vẫn xoá được thông báo
+  // mới đến trong lúc task đang đóng.
   useEffect(() => {
-    if (!openId || !newAssignedTaskIds.has(openId)) return;
+    if (!openId) {
+      lastMarkedTaskIdRef.current = null;
+      return;
+    }
     const timer = window.setTimeout(() => markNewAssignedTaskSeen(openId), 0);
     return () => window.clearTimeout(timer);
-  }, [markNewAssignedTaskSeen, newAssignedTaskIds, openId]);
+  }, [markNewAssignedTaskSeen, openId]);
 
   // Live board: refetch the role-filtered list when the server pings that tasks
   // changed. Reconnect, foreground revalidation, and a low-frequency reconcile
