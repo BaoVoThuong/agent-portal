@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   PROVIDER_LIST_LOCKED_COLUMN_KEYS,
+  initialHiddenProviderColumnKeys,
   toggleHiddenProviderListColumn,
   visibleProviderListColumns,
 } from "@/lib/providers/list-columns";
@@ -45,9 +46,32 @@ describe("toggleHiddenProviderListColumn", () => {
 });
 
 describe("visibleProviderListColumns", () => {
-  it("cấu hình chung thắng: hidden_default luôn bị loại", () => {
+  // Đổi luật 17/09/2026: `hidden_default` chỉ là giá trị khởi đầu. Bảng này có
+  // nhiều cột thưa dữ liệu nên mặc định ẩn; bắt người dùng nhờ admin mới xem
+  // được là sai với một lựa chọn thuần cá nhân.
+  it("cột hidden_default vẫn hiện được khi người dùng bỏ tick ẩn", () => {
     const columns = [column("city"), column("date", { hidden_default: true })];
-    expect(visibleProviderListColumns(columns, new Set()).map((c) => c.key)).toEqual(["city"]);
+    expect(visibleProviderListColumns(columns, new Set()).map((c) => c.key)).toEqual([
+      "city",
+      "date",
+    ]);
+  });
+
+  it("mới mở bảng thì cột hidden_default nằm sẵn trong tập ẩn", () => {
+    const columns = [
+      column("city"),
+      column("date", { hidden_default: true }),
+      column("npi", { hidden_default: true, pinned: true }),
+      column("doctors", { hidden_default: true }),
+    ];
+    const initial = initialHiddenProviderColumnKeys(columns);
+    expect([...initial]).toEqual(["date"]);
+    // Cột ghim và cột định danh không bao giờ bị nhét vào tập ẩn.
+    expect(visibleProviderListColumns(columns, initial).map((c) => c.key)).toEqual([
+      "city",
+      "npi",
+      "doctors",
+    ]);
   });
 
   it("lựa chọn cá nhân ẩn được cột thường", () => {

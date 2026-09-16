@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveLayout, serializeLayout, type LayoutEntry } from "@/lib/table-config/layout";
 import {
+  initialHiddenProviderColumnKeys,
   toggleHiddenProviderListColumn,
   visibleProviderListColumns,
 } from "@/lib/providers/list-columns";
@@ -51,7 +52,11 @@ export function ProviderListClient({
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<ProviderSortDir>("asc");
   const [layoutColumns, setLayoutColumns] = useState<TableColumn[]>(columns);
-  const [hiddenColumnKeys, setHiddenColumnKeys] = useState<Set<string>>(() => new Set());
+  // Mới mở bảng: ẩn đúng những cột admin đánh `hidden_default`. Từ đó trở đi
+  // người dùng tự bật/tắt được, kể cả những cột đó — xem list-columns.ts.
+  const [hiddenColumnKeys, setHiddenColumnKeys] = useState<Set<string>>(() =>
+    initialHiddenProviderColumnKeys(columns)
+  );
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [addOpen, setAddOpen] = useState(false);
   // Tab nằm trong state, không phải điều hướng: đổi tab mà chạy lại server
@@ -85,10 +90,12 @@ export function ProviderListClient({
         setLayoutColumns(
           resolved.map((column, index) => ({ ...column, position: (index + 1) * 10 }))
         );
+        // Lấy nguyên trạng thái đã lưu: cột `hidden_default` mà người này từng
+        // bật lên phải ở lại bật sau khi tải lại trang.
         setHiddenColumnKeys(
           new Set(
             resolved
-              .filter((column) => column.hidden && !column.hidden_default && !column.pinned)
+              .filter((column) => column.hidden && !column.pinned)
               .map((column) => column.key)
           )
         );
@@ -111,7 +118,9 @@ export function ProviderListClient({
           layoutColumns.map((column) => ({
             ...column,
             width: null,
-            hidden: !column.hidden_default && !column.pinned && hiddenKeys.has(column.key),
+            // Ghi đúng lựa chọn hiện tại, kể cả khi nó ngược `hidden_default`:
+            // đó chính là thứ phải sống sót qua lần tải trang sau.
+            hidden: !column.pinned && hiddenKeys.has(column.key),
           }))
         );
         const response = await fetch("/api/config/layout", {

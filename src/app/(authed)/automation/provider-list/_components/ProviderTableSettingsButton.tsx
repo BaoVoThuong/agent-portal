@@ -17,14 +17,13 @@ export function ProviderTableSettingsButton({
   onToggleColumn: (key: string) => void;
 }) {
   const { isOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
-  // `hidden_default` là cài đặt cấp admin. Cố ý vắng mặt trong menu cá nhân
-  // này: không ai được dùng lựa chọn riêng để lôi lại một cột mà cấu hình bảng
-  // đã ẩn cho tất cả mọi người.
+  // Khác Task List và Event Leads: ở đây `hidden_default` KHÔNG bị loại khỏi
+  // menu. Bảng provider có những cột thưa dữ liệu nên mặc định ẩn (Other plans,
+  // Verified by, ngày xác minh, nhóm siêu dữ liệu) — nếu menu cũng không bật
+  // lại được thì người cần tới chúng bế tắc, phải nhờ admin vào /config. Cột
+  // định danh và cột admin ghim vẫn không tắt được.
   const toggleableColumns = columns.filter(
-    (column) =>
-      !column.hidden_default &&
-      !column.pinned &&
-      !PROVIDER_LIST_LOCKED_COLUMN_KEYS.has(column.key)
+    (column) => !column.pinned && !PROVIDER_LIST_LOCKED_COLUMN_KEYS.has(column.key)
   );
   const hiddenCount = toggleableColumns.filter((column) =>
     hiddenColumnKeys.has(column.key)

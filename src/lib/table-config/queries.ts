@@ -24,11 +24,15 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("provider", "zip_code", "ZIP", "text", 90),
     col("provider", "accepting_new_patients", "Accepting new patients", "text", 100),
     col("provider", "source", "Source", "text", 110),
-    // Ẩn mặc định: dữ liệu thưa (verified_by chỉ 1% dòng có giá trị, date 21%)
-    // hoặc quá dài để đứng trong bảng.
-    col("provider", "business_hours", "Business hours", "text", 120, true),
-    col("provider", "obamacare", "ACA plans", "text", 130, true),
-    col("provider", "medicare", "Medicare plans", "text", 140, true),
+    // Hiện mặc định: "nhận hãng bảo hiểm nào" chính là câu hỏi nghiệp vụ của cả
+    // màn này. Thưa (ACA 14%, Medicare 22% dòng có giá trị) nhưng thưa vì dữ
+    // liệu chưa nhập đủ, không phải vì ít ai cần — giấu đi thì không ai biết là
+    // đang thiếu. Business hours 38%, cao hơn cả Specialty đang hiện.
+    col("provider", "obamacare", "ACA plans", "text", 120),
+    col("provider", "medicare", "Medicare plans", "text", 130),
+    col("provider", "business_hours", "Business hours", "text", 140),
+    // Ẩn mặc định: other_plans chưa dòng nào có dữ liệu (0/889), verified_by 1%,
+    // date 21%. Bật lại được trong menu Table settings.
     col("provider", "other_plans", "Other plans", "text", 150, true),
     col("provider", "verified_by", "Verified by", "text", 160, true),
     col("provider", "date", "Verified date", "text", 170, true),

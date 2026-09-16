@@ -21,6 +21,19 @@ mọi cột văn bản lẫn cột tuỳ chỉnh, bấm tiêu đề để sắp 
 cuối ở cả hai chiều — dữ liệu provider rỗng gần một nửa), và sửa ô tại chỗ bằng
 chính `EditableCustomCell` mà Task List và Event Leads đang dùng.
 
+**ACA plans, Medicare plans và Business hours hiện mặc định.** Ba cột này ban
+đầu bị ẩn vì dữ liệu thưa, nhưng "provider nhận hãng bảo hiểm nào" chính là câu
+hỏi nghiệp vụ của cả màn hình — thưa là do chưa nhập đủ, không phải vì ít ai
+cần, và giấu đi thì không ai biết là đang thiếu. Số liệu 889 dòng: Business
+hours 38% (cao hơn Specialty đang hiện), Medicare 22%, ACA 14%. Vẫn ẩn mặc
+định: Other plans (**0/889 dòng có dữ liệu**), Verified by (1%), Verified date
+(21%), và nhóm siêu dữ liệu.
+
+**Menu Table settings của Provider List cho bật lại cả cột ẩn mặc định** — khác
+Task List và Event Leads. Bảng này có nhiều cột thưa nên mặc định ẩn; nếu menu
+cá nhân cũng không bật lại được thì người cần tới chúng bế tắc, phải nhờ admin
+vào `/config`. Cột định danh và cột admin ghim vẫn không tắt được.
+
 **Gộp Provider Finder vào cùng trang.** Provider List có hai tab: **List** (bảng)
 và **Find nearby** (tìm theo địa chỉ khách — đúng phần Provider Finder đang chạy).
 Tab thứ hai dựng lại **chính** `ProviderFinderClient`, không chép code sang: sửa

@@ -26,8 +26,10 @@ const COLUMN_WIDTHS: Record<string, number> = {
   accepting_new_patients: 180,
   source: 100,
   business_hours: 220,
-  obamacare: 220,
-  medicare: 220,
+  // Giá trị dạng "Oscar HMO, Ambetter EPO, CHC Premier" — cắt ngắn là mất đúng
+  // phần người đọc cần.
+  obamacare: 280,
+  medicare: 280,
   other_plans: 220,
   verified_by: 140,
   date: 130,
