@@ -21,6 +21,15 @@ mọi cột văn bản lẫn cột tuỳ chỉnh, bấm tiêu đề để sắp 
 cuối ở cả hai chiều — dữ liệu provider rỗng gần một nửa), và sửa ô tại chỗ bằng
 chính `EditableCustomCell` mà Task List và Event Leads đang dùng.
 
+**Gộp Provider Finder vào cùng trang.** Provider List có hai tab: **List** (bảng)
+và **Find nearby** (tìm theo địa chỉ khách — đúng phần Provider Finder đang chạy).
+Tab thứ hai dựng lại **chính** `ProviderFinderClient`, không chép code sang: sửa
+một chỗ thì cả hai nơi cùng đổi. Trang `/automation/provider-finder` **giữ
+nguyên**, không xoá, mục sidebar của nó cũng vậy. Tab nằm trong state chứ không
+phải điều hướng — đổi tab mà chạy lại server component thì phải nạp lại cả 889
+dòng chỉ để xem ô tìm theo địa chỉ. Nút Table settings và Add address chỉ hiện ở
+tab List.
+
 **Thanh lọc giống Health CS task:** ô tìm kiếm cộng năm dropdown — **State, City,
 Specialty, Accepting patients** và **Source** (Sheet / thêm tay) — dựng bằng chính
 `TaskSelect` của Task board, nên thao tác và hình thức y hệt. Provider không có

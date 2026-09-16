@@ -22,6 +22,14 @@ import { AddProviderDialog } from "./AddProviderDialog";
 import { ProviderTable } from "./ProviderTable";
 import { ProviderTableSettingsButton } from "./ProviderTableSettingsButton";
 import { ProviderToolbar } from "./ProviderToolbar";
+// Dựng lại CHÍNH component của Provider Finder, không chép code sang đây: sửa
+// một chỗ thì cả trang /automation/provider-finder lẫn tab này cùng đổi.
+import ProviderFinderClient from "../../provider-finder/ProviderFinderClient";
+
+const VIEWS = [
+  { key: "list" as const, label: "List" },
+  { key: "finder" as const, label: "Find nearby" },
+];
 
 /** Dựng dần: 889 dòng × hơn chục cột là quá nhiều nút DOM cho một lần vẽ. */
 const PAGE_SIZE = 200;
@@ -46,6 +54,9 @@ export function ProviderListClient({
   const [hiddenColumnKeys, setHiddenColumnKeys] = useState<Set<string>>(() => new Set());
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [addOpen, setAddOpen] = useState(false);
+  // Tab nằm trong state, không phải điều hướng: đổi tab mà chạy lại server
+  // component thì phải nạp lại cả 889 dòng chỉ để xem ô tìm kiếm theo địa chỉ.
+  const [view, setView] = useState<"list" | "finder">("list");
   const [notice, setNotice] = useState<{ tone: "error" | "info"; text: string } | null>(
     loadError ? { tone: "error", text: loadError } : null
   );
@@ -210,21 +221,46 @@ export function ProviderListClient({
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <ProviderTableSettingsButton
-                columns={layoutColumns}
-                hiddenColumnKeys={hiddenColumnKeys}
-                onToggleColumn={toggleColumn}
-              />
-              <button
-                type="button"
-                onClick={() => setAddOpen(true)}
-                className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc]"
-              >
-                <Plus className="h-4 w-4" /> Add address
-              </button>
+              <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
+                {VIEWS.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => setView(option.key)}
+                    aria-current={view === option.key ? "page" : undefined}
+                    className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                      view === option.key
+                        ? "bg-white text-[#0c66e4] shadow-sm"
+                        : "text-[#5e6c84] hover:text-[#172b4d]"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Hai nút này chỉ có nghĩa với bảng; tab tìm theo địa chỉ không
+                  có cột để ẩn và không thêm dòng. */}
+              {view === "list" ? (
+                <>
+                  <ProviderTableSettingsButton
+                    columns={layoutColumns}
+                    hiddenColumnKeys={hiddenColumnKeys}
+                    onToggleColumn={toggleColumn}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setAddOpen(true)}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc]"
+                  >
+                    <Plus className="h-4 w-4" /> Add address
+                  </button>
+                </>
+              ) : null}
             </div>
           </header>
 
+          {view === "list" ? (
           <ProviderToolbar
             query={query}
             onQuery={(value) => {
@@ -240,6 +276,7 @@ export function ProviderListClient({
             resultCount={rows.length}
             totalCount={providers.length}
           />
+          ) : null}
 
           {notice ? (
             <p
@@ -255,26 +292,38 @@ export function ProviderListClient({
         </div>
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1 px-6 pb-6">
+      <div
+        className={`min-h-0 min-w-0 flex-1 px-6 pb-6 ${
+          // Bảng tự cuộn bên trong khung của nó; tab tìm theo địa chỉ thì dài
+          // hơn màn hình nên cần khung ngoài cuộn được.
+          view === "list" ? "" : "overflow-auto"
+        }`}
+      >
         <div className="mx-auto flex h-full min-h-0 max-w-[1760px] flex-col gap-2">
-          <ProviderTable
-            providers={rows.slice(0, visibleCount)}
-            columns={visibleColumns}
-            columnOptions={columnOptions}
-            sortKey={sortKey}
-            sortDir={sortDir}
-            onSort={toggleSort}
-            onPatch={patchProvider}
-          />
-          {rows.length > visibleCount ? (
-            <button
-              type="button"
-              onClick={() => setVisibleCount((current) => current + PAGE_SIZE)}
-              className="mx-auto rounded-lg border border-[#dfe1e6] bg-white px-4 py-2 text-sm font-bold text-[#42526e] transition hover:border-[#b8c5d6] hover:bg-[#f8fafc]"
-            >
-              Show more · {visibleCount} of {rows.length}
-            </button>
-          ) : null}
+          {view === "list" ? (
+            <>
+              <ProviderTable
+                providers={rows.slice(0, visibleCount)}
+                columns={visibleColumns}
+                columnOptions={columnOptions}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+                onPatch={patchProvider}
+              />
+              {rows.length > visibleCount ? (
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((current) => current + PAGE_SIZE)}
+                  className="mx-auto rounded-lg border border-[#dfe1e6] bg-white px-4 py-2 text-sm font-bold text-[#42526e] transition hover:border-[#b8c5d6] hover:bg-[#f8fafc]"
+                >
+                  Show more · {visibleCount} of {rows.length}
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <ProviderFinderClient />
+          )}
         </div>
       </div>
 
