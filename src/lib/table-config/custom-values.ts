@@ -43,6 +43,8 @@ function isValueValidForType(type: ColumnType, value: unknown): boolean {
     case "person":
     case "dropdown":
       return typeof value === "string";
+    case "multiselect":
+      return Array.isArray(value) && value.every((item) => typeof item === "string");
     case "number":
       return isFiniteNumber(value);
     case "checkbox":
@@ -95,6 +97,14 @@ export function validateCustomValues(
     if (value !== null && column.type === "dropdown") {
       const optionIds = optionsByColumn.get(column.id);
       if (!optionIds?.has(value as string)) {
+        issues.push({ key, label: column.label, reason: "invalid-option" });
+        continue;
+      }
+    }
+    if (value !== null && column.type === "multiselect") {
+      const optionIds = optionsByColumn.get(column.id);
+      const invalid = (value as string[]).some((item) => !optionIds?.has(item));
+      if (invalid) {
         issues.push({ key, label: column.label, reason: "invalid-option" });
         continue;
       }

@@ -14,6 +14,9 @@ export const COLUMN_TYPES = [
   "text",
   "number",
   "dropdown",
+  // Chọn nhiều giá trị từ cùng một danh sách; xem multiselect.ts về hai dạng
+  // lưu là mảng id và chuỗi nhãn.
+  "multiselect",
   "date",
   "checkbox",
   "link",

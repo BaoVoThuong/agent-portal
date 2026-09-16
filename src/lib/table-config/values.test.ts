@@ -39,6 +39,12 @@ describe("normalizedValueEquals", () => {
     expect(normalizedValueEquals("dropdown", "opt-1", "opt-1")).toBe(true);
     expect(normalizedValueEquals("dropdown", "opt-1", "OPT-1")).toBe(false);
   });
+
+  it("compares multiselect values by contents and supports null as empty", () => {
+    expect(normalizedValueEquals("multiselect", ["a", "b"], ["a", "b"])).toBe(true);
+    expect(normalizedValueEquals("multiselect", null, [])).toBe(true);
+    expect(normalizedValueEquals("multiselect", ["a"], ["b"])).toBe(false);
+  });
 });
 
 describe("coerceCustomValue", () => {
@@ -70,6 +76,15 @@ describe("coerceCustomValue", () => {
       })
     ).toEqual({ ok: true, value: "good@example.com" });
   });
+
+  it("coerces multiselect labels to option ids", () => {
+    expect(
+      coerceCustomValue("multiselect", ["Open", "opt-2"], {
+        optionIds: new Set(["opt-1", "opt-2"]),
+        optionIdByLabel: new Map([["open", "opt-1"]]),
+      })
+    ).toEqual({ ok: true, value: ["opt-1", "opt-2"] });
+  });
 });
 
 describe("formatCustomValue", () => {
@@ -84,5 +99,13 @@ describe("formatCustomValue", () => {
         personLabelByEmail: new Map([["a@example.com", "Agent A"]]),
       })
     ).toBe("Agent A");
+  });
+
+  it("formats multiselect labels and preserves unknown ids", () => {
+    expect(
+      formatCustomValue("multiselect", ["opt-1", "unknown"], {
+        optionLabelById: new Map([["opt-1", "Open"]]),
+      })
+    ).toBe("Open, unknown");
   });
 });

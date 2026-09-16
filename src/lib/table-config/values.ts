@@ -1,4 +1,5 @@
 import type { ColumnType } from "./types";
+import { multiselectEquals, parseMultiselectValue } from "./multiselect";
 
 export type CustomValueContext = {
   optionIds?: ReadonlySet<string>;
@@ -46,6 +47,7 @@ export function normalizedValueEquals(
   if (type === "person" && typeof current === "string" && typeof next === "string") {
     return current.trim().toLowerCase() === next.trim().toLowerCase();
   }
+  if (type === "multiselect") return multiselectEquals(current, next);
   return current === next;
 }
 
@@ -101,6 +103,19 @@ export function coerceCustomValue(
         return { ok: false, error: "Select a valid option." };
       }
       return { ok: true, value: optionId };
+    }
+    case "multiselect": {
+      if (!Array.isArray(raw) && typeof raw !== "string") {
+        return { ok: false, error: "Select valid options." };
+      }
+      const parsed = parseMultiselectValue(raw);
+      const ids = parsed.map(
+        (item) => ctx.optionIdByLabel?.get(item.toLowerCase()) ?? item
+      );
+      if (ctx.optionIds && ids.some((id) => !ctx.optionIds?.has(id))) {
+        return { ok: false, error: "Select valid options." };
+      }
+      return { ok: true, value: ids };
     }
     case "person": {
       const text = String(raw).trim();
@@ -158,6 +173,11 @@ export function formatCustomValue(
     case "dropdown": {
       const id = String(value);
       return ctx.optionLabelById?.get(id) ?? id;
+    }
+    case "multiselect": {
+      return parseMultiselectValue(value)
+        .map((item) => ctx.optionLabelById?.get(item) ?? item)
+        .join(", ");
     }
     case "person": {
       const email = String(value).toLowerCase();

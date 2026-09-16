@@ -15,13 +15,20 @@ const context: WriteValidationContext = {
       show_in_detail: true, required: false, archived_at: null,
     },
     {
-      id: "col-person", scope: "cs", key: "owner", label: "Owner", type: "person",
+      id: "col-multi", scope: "cs", key: "multi", label: "Multi", type: "multiselect",
       is_system: false, position: 3, pinned: false, hidden_default: false,
+      show_in_detail: true, required: false, archived_at: null,
+    },
+    {
+      id: "col-person", scope: "cs", key: "owner", label: "Owner", type: "person",
+      is_system: false, position: 4, pinned: false, hidden_default: false,
       show_in_detail: true, required: false, archived_at: null,
     },
   ],
   options: [
     { id: "choice-a", column_id: "col-choice", label: "A", color: null, position: 1, archived_at: null },
+    { id: "multi-a", column_id: "col-multi", label: "A", color: null, position: 1, archived_at: null },
+    { id: "multi-b", column_id: "col-multi", label: "B", color: null, position: 2, archived_at: null },
   ],
   matchedPersonEmails: ["person@example.com"],
 };
@@ -38,6 +45,14 @@ describe("validateCustomValues", () => {
     const result = validateCustomValues({ missing: "x", choice: "wrong" }, context);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.issues.map((issue) => issue.reason)).toEqual(["unknown-column", "invalid-option"]);
+  });
+
+  it("accepts multiple valid option ids and rejects one invalid id", () => {
+    expect(validateCustomValues({ multi: ["multi-a", "multi-b"] }, context)).toEqual({
+      ok: true,
+      values: { multi: ["multi-a", "multi-b"] },
+    });
+    expect(validateCustomValues({ multi: ["multi-a", "wrong"] }, context).ok).toBe(false);
   });
 
   it("requires a matched Person email and keeps the message safe", () => {
