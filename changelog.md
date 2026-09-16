@@ -21,6 +21,15 @@ mọi cột văn bản lẫn cột tuỳ chỉnh, bấm tiêu đề để sắp 
 cuối ở cả hai chiều — dữ liệu provider rỗng gần một nửa), và sửa ô tại chỗ bằng
 chính `EditableCustomCell` mà Task List và Event Leads đang dùng.
 
+**Thanh lọc giống Health CS task:** ô tìm kiếm cộng năm dropdown — **State, City,
+Specialty, Accepting patients** và **Source** (Sheet / thêm tay) — dựng bằng chính
+`TaskSelect` của Task board, nên thao tác và hình thức y hệt. Provider không có
+cột dropdown nào (mọi cột là văn bản tự do từ Sheet), nên danh sách lựa chọn
+**rút từ chính dữ liệu đang có**: gộp theo bản chữ thường để "TX" và "tx" không
+thành hai mục, nhưng hiển thị theo cách viết gặp đầu tiên. Nhiều giá trị trong
+một dropdown là HOẶC, hai dropdown khác nhau là VÀ. Có nút Clear và số dòng còn
+lại khi đang lọc.
+
 **Dòng thêm tay không bị sync xoá.** `promote_sheet_sync_run` xoá theo đúng cặp
 `(source_sheet_id, source_gid)` của Sheet rồi chèn lại; dòng thêm trong portal
 mang phân vùng riêng `('portal','manual')` nên nằm ngoài vùng đó. Ngược lại, sửa

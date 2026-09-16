@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { filterProviders, sortProviders } from "@/lib/providers/search";
+import {
+  EMPTY_PROVIDER_FILTERS,
+  applyProviderFilters,
+  filterProviders,
+  providerFilterOptions,
+  sortProviders,
+} from "@/lib/providers/search";
 import type { ProviderRow } from "@/lib/providers/types";
 
 function row(overrides: Partial<ProviderRow> = {}): ProviderRow {
@@ -75,5 +81,71 @@ describe("sortProviders", () => {
     const rows = [row({ id: "a", city: "Katy" }), row({ id: "b", city: "Austin" })];
     sortProviders(rows, "city", "asc");
     expect(rows.map((r) => r.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("applyProviderFilters", () => {
+  const rows = [
+    row({ id: "a", state: "TX", city: "Houston", practices_as: "PCP - Adults", accepting_new_patients: "Yes" }),
+    row({ id: "b", state: "tx", city: "Katy", practices_as: "Cardiology", accepting_new_patients: "No" }),
+    row({ id: "c", state: "CA", city: "Irvine", practices_as: null, accepting_new_patients: null, source_sheet_id: "portal" }),
+  ];
+
+  it("không có bộ lọc nào thì trả NGUYÊN mảng cũ", () => {
+    expect(applyProviderFilters(rows, EMPTY_PROVIDER_FILTERS)).toBe(rows);
+  });
+
+  it("lọc theo bang, không phân biệt hoa thường", () => {
+    // Dữ liệu Sheet lẫn cả "TX" lẫn "tx"; chọn một mục phải ra cả hai dòng.
+    expect(
+      applyProviderFilters(rows, { ...EMPTY_PROVIDER_FILTERS, state: ["TX"] }).map((r) => r.id)
+    ).toEqual(["a", "b"]);
+  });
+
+  it("nhiều giá trị trong cùng một bộ lọc là HOẶC", () => {
+    expect(
+      applyProviderFilters(rows, { ...EMPTY_PROVIDER_FILTERS, city: ["Houston", "Irvine"] }).map(
+        (r) => r.id
+      )
+    ).toEqual(["a", "c"]);
+  });
+
+  it("hai bộ lọc khác nhau là VÀ", () => {
+    expect(
+      applyProviderFilters(rows, {
+        ...EMPTY_PROVIDER_FILTERS,
+        state: ["TX"],
+        specialty: ["Cardiology"],
+      }).map((r) => r.id)
+    ).toEqual(["b"]);
+  });
+
+  it("lọc theo nguồn dòng", () => {
+    expect(
+      applyProviderFilters(rows, { ...EMPTY_PROVIDER_FILTERS, source: "manual" }).map((r) => r.id)
+    ).toEqual(["c"]);
+    expect(
+      applyProviderFilters(rows, { ...EMPTY_PROVIDER_FILTERS, source: "sheet" }).map((r) => r.id)
+    ).toEqual(["a", "b"]);
+  });
+
+  it("dòng có ô trống bị loại khi lọc theo ô đó", () => {
+    expect(
+      applyProviderFilters(rows, { ...EMPTY_PROVIDER_FILTERS, specialty: ["Cardiology"] }).map(
+        (r) => r.id
+      )
+    ).toEqual(["b"]);
+  });
+});
+
+describe("providerFilterOptions", () => {
+  it("gộp theo bản chuẩn hoá nhưng giữ cách viết đầu tiên, và bỏ ô trống", () => {
+    const options = providerFilterOptions([
+      row({ id: "a", state: "TX", city: "Houston" }),
+      row({ id: "b", state: "tx", city: "  " }),
+      row({ id: "c", state: "CA", city: "Irvine" }),
+    ]);
+    expect(options.state).toEqual(["CA", "TX"]);
+    expect(options.city).toEqual(["Houston", "Irvine"]);
   });
 });

@@ -1,18 +1,27 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveLayout, serializeLayout, type LayoutEntry } from "@/lib/table-config/layout";
 import {
   toggleHiddenProviderListColumn,
   visibleProviderListColumns,
 } from "@/lib/providers/list-columns";
-import { filterProviders, sortProviders, type ProviderSortDir } from "@/lib/providers/search";
+import {
+  EMPTY_PROVIDER_FILTERS,
+  applyProviderFilters,
+  filterProviders,
+  providerFilterOptions,
+  sortProviders,
+  type ProviderFilters,
+  type ProviderSortDir,
+} from "@/lib/providers/search";
 import { isPortalRow, type ProviderRow } from "@/lib/providers/types";
 import { AddProviderDialog } from "./AddProviderDialog";
 import { ProviderTable } from "./ProviderTable";
 import { ProviderTableSettingsButton } from "./ProviderTableSettingsButton";
+import { ProviderToolbar } from "./ProviderToolbar";
 
 /** Dựng dần: 889 dòng × hơn chục cột là quá nhiều nút DOM cho một lần vẽ. */
 const PAGE_SIZE = 200;
@@ -30,6 +39,7 @@ export function ProviderListClient({
 }) {
   const [providers, setProviders] = useState<ProviderRow[]>(initialProviders);
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<ProviderFilters>(EMPTY_PROVIDER_FILTERS);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<ProviderSortDir>("asc");
   const [layoutColumns, setLayoutColumns] = useState<TableColumn[]>(columns);
@@ -136,10 +146,14 @@ export function ProviderListClient({
     [layoutColumns, hiddenColumnKeys]
   );
 
+  // Lựa chọn của bộ lọc rút từ chính dữ liệu: provider không có cột dropdown
+  // nào, mọi cột đều là văn bản tự do đến từ Sheet.
+  const filterOptions = useMemo(() => providerFilterOptions(providers), [providers]);
+
   const rows = useMemo(() => {
-    const filtered = filterProviders(providers, query);
+    const filtered = filterProviders(applyProviderFilters(providers, filters), query);
     return sortKey ? sortProviders(filtered, sortKey, sortDir) : filtered;
-  }, [providers, query, sortKey, sortDir]);
+  }, [providers, filters, query, sortKey, sortDir]);
 
   const manualCount = useMemo(
     () => providers.filter((provider) => isPortalRow(provider)).length,
@@ -196,19 +210,6 @@ export function ProviderListClient({
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b778c]" />
-                <input
-                  value={query}
-                  onChange={(event) => {
-                    setQuery(event.target.value);
-                    setVisibleCount(PAGE_SIZE);
-                  }}
-                  placeholder="Search doctor, clinic, NPI, city, ZIP…"
-                  aria-label="Search providers"
-                  className="h-9 w-[320px] max-w-[60vw] rounded-lg border border-[#dfe1e6] bg-white pl-9 pr-3 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]"
-                />
-              </div>
               <ProviderTableSettingsButton
                 columns={layoutColumns}
                 hiddenColumnKeys={hiddenColumnKeys}
@@ -223,6 +224,22 @@ export function ProviderListClient({
               </button>
             </div>
           </header>
+
+          <ProviderToolbar
+            query={query}
+            onQuery={(value) => {
+              setQuery(value);
+              setVisibleCount(PAGE_SIZE);
+            }}
+            filters={filters}
+            onFilters={(next) => {
+              setFilters(next);
+              setVisibleCount(PAGE_SIZE);
+            }}
+            options={filterOptions}
+            resultCount={rows.length}
+            totalCount={providers.length}
+          />
 
           {notice ? (
             <p
