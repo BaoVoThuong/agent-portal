@@ -68,7 +68,11 @@ begin
       'qc_stale', 'sla_escalated', 'qc_reviewed', 'cancelled',
       'attachment_added', 'backlog_attention',
       -- Mới: hạn cứng theo Due Date.
-      'due_date_overdue', 'due_date_overdue_reminder'
+      'due_date_overdue', 'due_date_overdue_reminder',
+      -- Thêm 16/09/2026: bản đầu của file này quên 'task_created' (có từ rollout
+      -- 2026-09-03). Chạy lại bản cũ là mọi insert thông báo tạo task nổ, kéo
+      -- theo cả dòng 'assigned' trong cùng lượt insert.
+      'task_created'
     )
   );
 end $$;

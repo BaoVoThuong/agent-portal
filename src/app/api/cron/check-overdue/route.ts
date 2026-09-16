@@ -14,10 +14,11 @@ import {
   type NotificationInsertInput,
 } from "@/lib/tasks/notifications";
 import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
-import { intervalDue, isDueSoon, isStale } from "@/lib/tasks/reminders";
+import { intervalDue, isDueSoon, shouldSendStaleReminder } from "@/lib/tasks/reminders";
 import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { checkCronAuthorization } from "@/lib/cron-auth";
 import { isTaskRowDueDateOverdue, readTaskDueDate } from "@/lib/tasks/due-date";
+import { WAITING_REMINDER_BILLING_DETAIL } from "@/lib/notifications/copy";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,6 @@ async function runReminderSweep(): Promise<NextResponse> {
   const todoReminderMs = settings.todoHours * 3600_000;
   const overdueReminderMs = settings.overdueReminderHours * 3600_000;
   const waitingReminderMs = settings.waitingHours * 3600_000;
-  const staleReminderMs = settings.staleHours * 3600_000;
   const qcReminderMs = settings.qcHours * 3600_000;
   const todoCutoffIso = new Date(now.getTime() - todoReminderMs).toISOString();
   const waitingCutoffIso = new Date(now.getTime() - waitingReminderMs).toISOString();
@@ -223,22 +223,23 @@ async function runReminderSweep(): Promise<NextResponse> {
     >[]
   ).filter((task) => intervalDue(task.billing_reminded_at, waitingReminderMs, now));
 
+  // Chỉ In Progress — To Do, Waiting, Billing đã có lời nhắc riêng (xem
+  // shouldSendStaleReminder). Lấy thêm cột SLA để loại task đang quá hạn.
   const { data: staleRows, error: staleError } = await supabase
     .from("tasks")
-    .select("id,status,last_activity_at,stale_reminded_at")
-    .in("status", ["todo", "in_progress", "waiting", "billing"])
+    .select(
+      "id,status,priority,category_id,sla_minutes,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,billing_started_at,billing_seconds,overdue_count,last_activity_at,stale_reminded_at"
+    )
+    .eq("status", "in_progress")
     .is("archived_at", null);
   if (staleError) return NextResponse.json({ error: staleError.message }, { status: 500 });
+  // `rules` chỉ được nạp khi `tasks` (In Progress có in_progress_at) không rỗng.
+  // Khi rỗng, mọi dòng ở đây đều thiếu in_progress_at nên không thể quá hạn —
+  // rules rỗng vẫn cho kết quả đúng.
   const staleReminderTasks = (
-    (staleRows ?? []) as Pick<
-      TaskRow,
-      "id" | "status" | "last_activity_at" | "stale_reminded_at"
-    >[]
-  ).filter(
-    (task) =>
-      isStale(task, settings.staleHours, now) &&
-      intervalDue(task.stale_reminded_at, staleReminderMs, now)
-  );
+    (staleRows ?? []) as (Pick<TaskRow, "id"> &
+      Parameters<typeof shouldSendStaleReminder>[0])[]
+  ).filter((task) => shouldSendStaleReminder(task, rules, settings.staleHours, now));
 
   // Tasks that have been Done/Cancelled for longer than qcHours without a QC
   // review yet — nudge the agent owner/assistants (config in SLA settings).
@@ -345,6 +346,8 @@ async function runReminderSweep(): Promise<NextResponse> {
             task_id: task.id,
             type: "waiting_reminder",
             actor_email: "system",
+            // Billing dùng chung loại với Waiting; detail cho câu chữ biết chặng.
+            detail: task.status === "billing" ? WAITING_REMINDER_BILLING_DETAIL : null,
           }))
         );
         const { error: updateError } = await supabase
@@ -439,7 +442,7 @@ async function runReminderSweep(): Promise<NextResponse> {
           .from("tasks")
           .update({ stale_reminded_at: nowIso })
           .eq("id", task.id)
-          .in("status", ["todo", "in_progress", "waiting", "billing"]);
+          .eq("status", "in_progress");
         if (updateError) throw new Error(updateError.message);
       })
     );

@@ -30,12 +30,8 @@ import {
   isAgentOwnerOrAssistant,
   fetchTaskManagerEmails,
 } from "@/lib/tasks/membership";
-import {
-  insertNotifications,
-  uniqueNotificationRecipients,
-  uniqueNotificationRows,
-  type NotificationInsertInput,
-} from "@/lib/tasks/notifications";
+import { insertNotifications } from "@/lib/tasks/notifications";
+import { buildCreateTaskNotificationRows } from "@/lib/tasks/create-notifications";
 import { isPriorityEnabledForCategory } from "@/lib/tasks/priority-availability";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
@@ -394,21 +390,15 @@ export async function POST(request: Request) {
           code: "notification_failed",
           message: "The task was saved but some people may not have been notified.",
           run: async () => {
-            const assignedRecipients = assignedEmails.filter(
-              (assigneeEmail) => assigneeEmail !== email
-            );
             const backlogNeedsAttention =
               assignedEmails.length === 0 &&
               assignment.status === "backlog" &&
               (priority === "urgent" || priority === "high");
             const backlogAttentionRecipients = backlogNeedsAttention
-              ? uniqueNotificationRecipients(
-                  [
-                    ...(await fetchAgentOwnerAndAssistantEmails(agentEmail)),
-                    ...(await fetchAdminEmails()),
-                  ],
-                  [email]
-                )
+              ? [
+                  ...(await fetchAgentOwnerAndAssistantEmails(agentEmail)),
+                  ...(await fetchAdminEmails()),
+                ]
               : [];
             // An Agent Assistant is normally the one creating a task, so the
             // people who can act on it are its Task Admins (they hold
@@ -416,34 +406,20 @@ export async function POST(request: Request) {
             // adjust) and the task's own agent. RBAC, not the legacy
             // `portal_account.role`, defines the manager list. Nobody else needs
             // this notification.
-            const taskCreatedRecipients = uniqueNotificationRecipients(
-              [
-                ...(await fetchTaskManagerEmails()),
-                ...(agentEmail ? [agentEmail] : []),
-              ],
-              [email]
-            );
-            const notificationRows: NotificationInsertInput[] = uniqueNotificationRows([
-              ...taskCreatedRecipients.map((recipient) => ({
-                recipient_email: recipient,
-                task_id: taskId,
-                type: "task_created" as const,
-                actor_email: email,
-              })),
-              ...assignedRecipients.map((assigneeEmail) => ({
-                recipient_email: assigneeEmail,
-                task_id: taskId,
-                type: "assigned" as const,
-                actor_email: email,
-              })),
-              ...backlogAttentionRecipients.map((recipient) => ({
-                recipient_email: recipient,
-                task_id: taskId,
-                type: "backlog_attention" as const,
-                actor_email: email,
-                detail: `${priority} backlog task needs assignment`,
-              })),
-            ]);
+            const createdRecipients = [
+              ...(await fetchTaskManagerEmails()),
+              ...(agentEmail ? [agentEmail] : []),
+            ];
+            // Một người chỉ nhận MỘT dòng, loại cụ thể hơn thắng: ai đã nhận
+            // backlog_attention thì không nhận thêm task_created.
+            const notificationRows = buildCreateTaskNotificationRows({
+              taskId,
+              actorEmail: email,
+              assignees: assignedEmails,
+              createdRecipients,
+              backlogAttentionRecipients,
+              priority,
+            });
             if (notificationRows.length === 0) return true;
             return insertNotifications(notificationRows);
           },

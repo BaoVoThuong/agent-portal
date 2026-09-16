@@ -6,6 +6,7 @@ import {
   notificationSentence,
   type NotificationCopySource,
 } from "./copy";
+import { notificationAlertTag, shouldRenotify } from "./alert-policy";
 
 /**
  * Phía server của Web Push — xem docs/2026-09-10-web-push-notifications.md.
@@ -22,6 +23,8 @@ export type PushPayload = {
   url: string;
   /** Thông báo cùng `tag` sẽ thay thế nhau thay vì chồng đống. */
   tag: string;
+  /** Thay thế popup cùng tag có kêu lại không — chỉ loại gọi đích danh. */
+  renotify: boolean;
 };
 
 type SubscriptionRow = {
@@ -185,7 +188,9 @@ export function buildPushPayload(
     title,
     body: sentence,
     url: notificationHref(notification),
-    // Gộp theo bản ghi: 5 bình luận trong một task chỉ để lại một dòng.
-    tag: `${notification.entity_type ?? "task"}:${notification.entity_id ?? notification.task_id}`,
+    // Hai họ tag theo bản ghi (xem alert-policy): 5 bình luận trong một task chỉ
+    // để lại một dòng, nhưng một lần bị @ vẫn kêu thay vì bị thay im lặng.
+    tag: notificationAlertTag(notification),
+    renotify: shouldRenotify(notification),
   };
 }
