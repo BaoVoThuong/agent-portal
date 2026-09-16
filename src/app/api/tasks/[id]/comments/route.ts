@@ -213,7 +213,6 @@ export async function POST(req: Request, { params }: Ctx) {
                 assignee_email: activeOnly(r.task.assignee_email),
                 participants: participantEmails.filter(isActionable),
                 reporter_email: activeOnly(r.task.reporter_email),
-                agent_email: activeOnly(r.task.agent_email),
               },
               r.actor.email,
               validMentions

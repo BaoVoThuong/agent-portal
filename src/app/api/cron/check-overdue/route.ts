@@ -5,6 +5,7 @@ import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchTaskAssigneeEmails } from "@/lib/tasks/assignees";
 import {
   fetchAdminEmails,
+  fetchAgentAssistantEmails,
   fetchAgentOwnerAndAssistantEmails,
 } from "@/lib/tasks/membership";
 import {
@@ -277,8 +278,9 @@ async function runReminderSweep(): Promise<NextResponse> {
         if (transitioned !== true) return;
         const [assignees, agentRecipients, adminRecipients] = await Promise.all([
           fetchTaskAssigneeEmails(task.id, supabase),
+          // Phụ tá, không gồm agent: agent thôi nhận thông báo tự động.
           task.priority === "urgent" || task.priority === "high"
-            ? fetchAgentOwnerAndAssistantEmails(task.agent_email)
+            ? fetchAgentAssistantEmails(task.agent_email)
             : Promise.resolve([]),
           task.priority === "urgent" || task.priority === "high"
             ? fetchAdminEmails()
@@ -391,8 +393,9 @@ async function runReminderSweep(): Promise<NextResponse> {
       dueSoonTasks.map(async (task) => {
         const [assignees, agentRecipients] = await Promise.all([
           fetchTaskAssigneeEmails(task.id, supabase),
+          // Phụ tá, không gồm agent.
           task.priority === "urgent" || task.priority === "high"
-            ? fetchAgentOwnerAndAssistantEmails(task.agent_email)
+            ? fetchAgentAssistantEmails(task.agent_email)
             : Promise.resolve([]),
         ]);
         const escalationRecipients = uniqueNotificationRecipients(
@@ -451,9 +454,9 @@ async function runReminderSweep(): Promise<NextResponse> {
   if (qcStaleTasks.length > 0) {
     await Promise.all(
       qcStaleTasks.map(async (task) => {
-        const recipients = await fetchAgentOwnerAndAssistantEmails(
-          task.agent_email
-        );
+        // Phụ tá làm QC; agent thôi nhận thông báo tự động (152 dòng QC trong
+        // 14 ngày, đọc 0%).
+        const recipients = await fetchAgentAssistantEmails(task.agent_email);
         await insertNotifications(
           recipients.map((email) => ({
             recipient_email: email,

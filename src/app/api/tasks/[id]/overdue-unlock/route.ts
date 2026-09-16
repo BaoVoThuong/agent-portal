@@ -5,7 +5,7 @@ import { buildTaskActor, isTaskViewAdmin, canChangeTaskStatus } from "@/lib/task
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import {
   fetchAdminEmails,
-  fetchAgentOwnerAndAssistantEmails,
+  fetchAgentAssistantEmails,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
@@ -154,7 +154,8 @@ export async function POST(req: Request, { params }: Ctx) {
   let overdueRecipients: string[] = [];
   try {
     const [agentRecipients, adminRecipients] = await Promise.all([
-      fetchAgentOwnerAndAssistantEmails(task.agent_email),
+      // Phụ tá, không gồm agent: agent thôi nhận thông báo tự động.
+      fetchAgentAssistantEmails(task.agent_email),
       fetchAdminEmails(),
     ]);
     overdueRecipients = [...new Set([...agentRecipients, ...adminRecipients])].filter(

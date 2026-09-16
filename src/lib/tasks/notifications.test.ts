@@ -54,22 +54,39 @@ describe("resolveCommentRecipients", () => {
     const r = resolveCommentRecipients({ assignee_email: "cs@x.com" }, "mgr@x.com", ["cs@x.com"]);
     expect(r).toEqual([{ email: "cs@x.com", type: "mentioned" }]);
   });
-  it("notifies task participants, reporter, and agent on comments", () => {
+  it("notifies task participants and reporter on comments", () => {
     const r = resolveCommentRecipients(
       {
         assignee_email: null,
-        participants: ["participant@x.com", "agent@x.com"],
+        participants: ["participant@x.com"],
         reporter_email: "reporter@x.com",
-        agent_email: "agent@x.com",
       },
       "author@x.com",
       []
     );
     expect(r).toEqual([
       { email: "participant@x.com", type: "commented" },
-      { email: "agent@x.com", type: "commented" },
       { email: "reporter@x.com", type: "commented" },
     ]);
+  });
+
+  // Đội chốt 16/09/2026: agent thôi nhận thông báo tự động — họ đọc 0% trong
+  // 2.019 dòng `commented` của 14 ngày. Là participant thì vẫn nhận, vì lúc đó
+  // họ đã được nhắc tên hoặc được thêm vào task.
+  it("does NOT notify the task's agent on comments unless they are a participant", () => {
+    const withoutAgent = resolveCommentRecipients(
+      { assignee_email: null, participants: [], reporter_email: null },
+      "author@x.com",
+      []
+    );
+    expect(withoutAgent).toEqual([]);
+
+    const agentAsParticipant = resolveCommentRecipients(
+      { assignee_email: null, participants: ["agent@x.com"], reporter_email: null },
+      "author@x.com",
+      []
+    );
+    expect(agentAsParticipant).toEqual([{ email: "agent@x.com", type: "commented" }]);
   });
   it("no assignee, no mentions -> no notifications", () => {
     expect(resolveCommentRecipients({ assignee_email: null }, "a@x.com", [])).toEqual([]);

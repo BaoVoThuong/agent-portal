@@ -6,6 +6,37 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-16 — Agent thôi nhận thông báo tự động của task
+
+**Quyết định của đội (16/09/2026)**, dựa trên số liệu 14 ngày: mọi agent đọc **0%**
+những gì họ nhận với tư cách agent của task — `commented` 2.019 dòng, QC 152 dòng,
+`task_created` 83 dòng (đọc 1%). Đây là luồng ồn nhất hệ thống mà không ai đọc.
+
+**Agent không còn nhận:** `commented`, `task_created`, `backlog_attention`,
+`attachment_added`, `qc_needed`, `qc_stale`, `sla_escalated`, `overdue_unlocked`.
+
+**Agent vẫn nhận:** khi bị **@ đích danh**; khi là **participant** của task (đã từng
+được nhắc tên hoặc được thêm vào); khi là **người được giao**; và **thông báo quá
+Due Date** — đội chốt giữ nguyên báo cho cả bốn nhóm mỗi 24 giờ.
+
+**Không đổi theo quyết định của đội:** `task_created` vẫn báo cho cả 9 người có
+`task.manage`; người bị @ một lần vẫn nhận mọi bình luận sau đó của task; **không
+dọn** 9.198 dòng chưa đọc và không tự xoá thông báo cũ.
+
+**Cách làm:** thêm `fetchAgentAssistantEmails` (chỉ phụ tá) bên cạnh
+`fetchAgentOwnerAndAssistantEmails` (agent + phụ tá, nay chỉ còn đường Due Date
+dùng). Phụ tá **không** bị đụng tới — họ đọc ~50%. `resolveCommentRecipients` bỏ
+`agent_email` khỏi danh sách nhận.
+
+**File**: `src/lib/tasks/membership.ts`, `src/lib/tasks/notifications.ts`,
+`src/app/api/tasks/route.ts`, `src/app/api/tasks/[id]/route.ts`,
+`src/app/api/tasks/[id]/comments/route.ts`,
+`src/app/api/tasks/[id]/attachments/route.ts`,
+`src/app/api/tasks/[id]/overdue-unlock/route.ts`,
+`src/app/api/cron/check-overdue/route.ts`.
+
+**Không đụng database.**
+
 ## 2026-09-16 — Thông báo Task CS: mỗi việc chỉ báo một lần
 
 **Tạo task không còn ra hai thông báo cho cùng người.** Task Backlog Urgent/High

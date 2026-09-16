@@ -154,6 +154,33 @@ export async function fetchAgentOwnerAndAssistantEmails(
   ];
 }
 
+/**
+ * CHỈ phụ tá của agent, không gồm chính agent.
+ *
+ * Đội chốt 16/09/2026: agent thôi nhận thông báo tự động. Số liệu 14 ngày: mọi
+ * agent đọc **0%** những gì họ nhận với tư cách agent của task — khang 1.321
+ * dòng, ann 66 dòng/ngày. Họ vẫn nhận khi bị @ đích danh, và (theo quyết định
+ * riêng về Due Date) vẫn nhận thông báo quá Due Date.
+ *
+ * Lỗi đọc trả về mảng rỗng: thà thiếu một lời nhắc còn hơn ném lỗi giữa luồng
+ * ghi thông báo, vốn chạy sau khi thao tác của người dùng đã commit.
+ */
+export async function fetchAgentAssistantEmails(
+  agentEmail: string | null
+): Promise<string[]> {
+  if (!agentEmail) return [];
+  const { data, error } = await getSupabaseAdmin()
+    .from("agent_members")
+    .select("cs_email")
+    .eq("agent_email", agentEmail)
+    .eq("is_assistant", true);
+  if (error) return [];
+
+  return [
+    ...new Set((data ?? []).map((row) => (row as { cs_email: string }).cs_email)),
+  ];
+}
+
 // All admin accounts — recipients for oversight notifications (e.g. an overdue
 // resolved with a reason). Role lives on portal_account.
 export async function fetchAdminEmails(): Promise<string[]> {

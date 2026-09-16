@@ -44,13 +44,17 @@ export type NotificationInsertInput = {
 
 // Who to notify for a new comment: mentioned users (minus the author), plus the
 // task's assignees as 'commented' (unless they are the author or already mentioned).
+//
+// Agent của task KHÔNG nằm trong danh sách này từ 16/09/2026: agent đọc 0% trong
+// 2.019 dòng `commented` họ nhận suốt 14 ngày, mà đó là luồng ồn nhất hệ thống.
+// Agent vẫn nhận khi bị @ đích danh, và vẫn nhận nếu họ là participant — tức đã
+// từng được nhắc tên hoặc được thêm vào task.
 export function resolveCommentRecipients(
   task: {
     assignees?: string[];
     assignee_email?: string | null;
     participants?: string[];
     reporter_email?: string | null;
-    agent_email?: string | null;
   },
   authorEmail: string,
   mentions: string[]
@@ -73,7 +77,6 @@ export function resolveCommentRecipients(
     ...assignees,
     ...(task.participants ?? []),
     task.reporter_email ?? "",
-    task.agent_email ?? "",
   ];
   for (const email of [...new Set(commentTargets)]) {
     if (email && email !== authorEmail && !mentionSet.has(email)) {

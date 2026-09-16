@@ -25,7 +25,7 @@ import {
 } from "@/lib/tasks/realtime";
 import {
   fetchAdminEmails,
-  fetchAgentOwnerAndAssistantEmails,
+  fetchAgentAssistantEmails,
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
   fetchTaskManagerEmails,
@@ -396,7 +396,8 @@ export async function POST(request: Request) {
               (priority === "urgent" || priority === "high");
             const backlogAttentionRecipients = backlogNeedsAttention
               ? [
-                  ...(await fetchAgentOwnerAndAssistantEmails(agentEmail)),
+                  // Phụ tá, không gồm agent: agent thôi nhận thông báo tự động.
+                  ...(await fetchAgentAssistantEmails(agentEmail)),
                   ...(await fetchAdminEmails()),
                 ]
               : [];
@@ -406,10 +407,10 @@ export async function POST(request: Request) {
             // adjust) and the task's own agent. RBAC, not the legacy
             // `portal_account.role`, defines the manager list. Nobody else needs
             // this notification.
-            const createdRecipients = [
-              ...(await fetchTaskManagerEmails()),
-              ...(agentEmail ? [agentEmail] : []),
-            ];
+            // Chỉ người có task.manage (đội chốt giữ nguyên nhóm này). Agent
+            // của task không còn nhận `task_created`: 83 dòng trong 14 ngày,
+            // đọc 1%.
+            const createdRecipients = await fetchTaskManagerEmails();
             // Một người chỉ nhận MỘT dòng, loại cụ thể hơn thắng: ai đã nhận
             // backlog_attention thì không nhận thêm task_created.
             const notificationRows = buildCreateTaskNotificationRows({

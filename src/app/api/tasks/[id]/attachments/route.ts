@@ -12,7 +12,7 @@ import {
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
   actorSeesAllTasks,
-  fetchAgentOwnerAndAssistantEmails,
+  fetchAgentAssistantEmails,
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
@@ -336,7 +336,8 @@ export async function POST(req: Request, { params }: Ctx) {
       run: async () => {
         const [assignees, agentRecipients] = await Promise.all([
           fetchTaskAssigneeEmails(id, r.supabase),
-          fetchAgentOwnerAndAssistantEmails(r.task.agent_email),
+          // Phụ tá, không gồm agent: agent thôi nhận thông báo tự động.
+          fetchAgentAssistantEmails(r.task.agent_email),
         ]);
         const recipients = uniqueNotificationRecipients(
           [...assignees, r.task.reporter_email, ...agentRecipients],

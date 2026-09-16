@@ -26,7 +26,7 @@ import {
   readTaskMutationSourceId,
 } from "@/lib/tasks/realtime";
 import {
-  fetchAgentOwnerAndAssistantEmails,
+  fetchAgentAssistantEmails,
   isAgentOwnerOrAssistant,
   resolveTaskQueueScope,
 } from "@/lib/tasks/membership";
@@ -527,7 +527,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   let qcRecipients: string[] = [];
   if (shouldNotifyQcNeeded) {
     try {
-      qcRecipients = (await fetchAgentOwnerAndAssistantEmails(qcAgentEmail)).filter(
+      // Phụ tá làm QC; agent thôi nhận thông báo tự động (đội chốt 16/09/2026).
+      qcRecipients = (await fetchAgentAssistantEmails(qcAgentEmail)).filter(
         (recipient) => recipient !== r.actor.email
       );
     } catch (error) {
