@@ -1,4 +1,5 @@
 import { PORTAL_SOURCE, PROVIDER_TEXT_FIELDS, type ProviderTextField } from "./types";
+import { isProviderPlanField, parsePlanCell, serializePlanCell } from "./plans";
 
 const MAX_TEXT_LENGTH = 500;
 const MAX_CUSTOM_FIELDS = 100;
@@ -20,6 +21,20 @@ function text(value: unknown, label: string): string | null | { error: string } 
   return trimmed;
 }
 
+function planText(value: unknown, label: string): string | null | { error: string } {
+  if (value === undefined || value === null || value === "") return null;
+  if (
+    typeof value !== "string" &&
+    (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
+  ) {
+    return { error: `${label} must be text or a list.` };
+  }
+  const serialized = serializePlanCell(parsePlanCell(value));
+  if (serialized === null) return null;
+  if (serialized.length > MAX_TEXT_LENGTH) return { error: `${label} is too long.` };
+  return serialized;
+}
+
 export function parseCreateProviderInput(body: unknown): CreateProviderParseResult {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, error: "Invalid request body." };
@@ -28,7 +43,9 @@ export function parseCreateProviderInput(body: unknown): CreateProviderParseResu
   const value = {} as CreateProviderInput;
 
   for (const field of PROVIDER_TEXT_FIELDS) {
-    const parsed = text(raw[field], field);
+    const parsed = isProviderPlanField(field)
+      ? planText(raw[field], field)
+      : text(raw[field], field);
     if (parsed !== null && typeof parsed === "object") {
       return { ok: false, error: parsed.error };
     }

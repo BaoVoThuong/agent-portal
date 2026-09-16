@@ -38,6 +38,18 @@ describe("parseCreateProviderInput", () => {
     });
   });
 
+  it("chuẩn hoá plan thành chuỗi nhãn để tương thích Sheet", () => {
+    expect(
+      parseCreateProviderInput({
+        doctors: "A",
+        obamacare: ["UHC", "Oscar HMO", "UHC"],
+      })
+    ).toMatchObject({
+      ok: true,
+      value: { obamacare: "UHC, Oscar HMO" },
+    });
+  });
+
   it("từ chối custom_values không phải object", () => {
     expect(parseCreateProviderInput({ doctors: "A", custom_values: [1, 2] })).toEqual({
       ok: false,

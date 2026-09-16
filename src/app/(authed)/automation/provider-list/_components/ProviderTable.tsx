@@ -10,6 +10,7 @@ import {
   type ProviderMetaField,
   type ProviderRow,
 } from "@/lib/providers/types";
+import { isProviderPlanField, parsePlanCell } from "@/lib/providers/plans";
 import type { ProviderSortDir } from "@/lib/providers/search";
 
 const DEFAULT_COLUMN_WIDTH = 160;
@@ -213,6 +214,21 @@ function ProviderCell({
   // nên sửa thẳng bằng chính component mà Task List và Event Leads dùng — cùng
   // một lối bấm-để-sửa, không phải học lại.
   if (isEditableTextColumn(column)) {
+    if (isProviderPlanField(column.key)) {
+      return (
+        <EditableCustomCell
+          column={column}
+          value={parsePlanCell(
+            provider[column.key as (typeof PROVIDER_TEXT_FIELDS)[number]]
+          )}
+          options={options}
+          optionValue="label"
+          canEdit
+          onSave={(next) => onPatch({ [column.key]: next })}
+          className="w-full"
+        />
+      );
+    }
     return (
       <EditableCustomCell
         column={column}

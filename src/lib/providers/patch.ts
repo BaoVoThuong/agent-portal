@@ -1,4 +1,9 @@
 import { PROVIDER_TEXT_FIELDS } from "./types";
+import {
+  isProviderPlanField,
+  parsePlanCell,
+  serializePlanCell,
+} from "./plans";
 
 const MAX_TEXT_LENGTH = 500;
 
@@ -34,6 +39,28 @@ export function buildProviderPatch(body: unknown): ProviderPatchResult {
     }
     if (!(PROVIDER_TEXT_FIELDS as readonly string[]).includes(key)) {
       return { ok: false, error: `${key} cannot be edited here.` };
+    }
+    if (isProviderPlanField(key)) {
+      if (value === null || value === "") {
+        patch[key] = null;
+        continue;
+      }
+      if (
+        typeof value !== "string" &&
+        (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
+      ) {
+        return { ok: false, error: `${key} must be text or a list.` };
+      }
+      const serialized = serializePlanCell(parsePlanCell(value));
+      if (serialized === null) {
+        patch[key] = null;
+        continue;
+      }
+      if (serialized.length > MAX_TEXT_LENGTH) {
+        return { ok: false, error: `${key} is too long.` };
+      }
+      patch[key] = serialized;
+      continue;
     }
     if (value === null || value === "") {
       // Ô để trống nghĩa là XOÁ giá trị. Bỏ qua thì người dùng không bao giờ

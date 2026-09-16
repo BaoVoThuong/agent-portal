@@ -28,8 +28,8 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     // màn này. Thưa (ACA 14%, Medicare 22% dòng có giá trị) nhưng thưa vì dữ
     // liệu chưa nhập đủ, không phải vì ít ai cần — giấu đi thì không ai biết là
     // đang thiếu. Business hours 38%, cao hơn cả Specialty đang hiện.
-    col("provider", "obamacare", "ACA plans", "text", 120),
-    col("provider", "medicare", "Medicare plans", "text", 130),
+    col("provider", "obamacare", "ACA plans", "multiselect", 120),
+    col("provider", "medicare", "Medicare plans", "multiselect", 130),
     col("provider", "business_hours", "Business hours", "text", 140),
     // Ẩn mặc định: other_plans chưa dòng nào có dữ liệu (0/889), verified_by 1%,
     // date 21%. Bật lại được trong menu Table settings.

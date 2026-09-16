@@ -9,6 +9,24 @@ describe("buildProviderPatch", () => {
     });
   });
 
+  it("nhận mảng plan và ghi nhãn dạng chuỗi cho provider_address", () => {
+    expect(buildProviderPatch({ obamacare: ["UHC", "Oscar HMO", "UHC"] })).toMatchObject({
+      ok: true,
+      patch: { obamacare: "UHC, Oscar HMO" },
+    });
+  });
+
+  it("vẫn nhận chuỗi plan cũ và cho phép xoá bằng mảng rỗng", () => {
+    expect(buildProviderPatch({ medicare: " UHC, Aetna " })).toMatchObject({
+      ok: true,
+      patch: { medicare: "UHC, Aetna" },
+    });
+    expect(buildProviderPatch({ medicare: [] })).toMatchObject({
+      ok: true,
+      patch: { medicare: null },
+    });
+  });
+
   it("viết hoa bang, giống hệt đường tạo mới", () => {
     expect(buildProviderPatch({ state: "tx" })).toMatchObject({
       ok: true,
