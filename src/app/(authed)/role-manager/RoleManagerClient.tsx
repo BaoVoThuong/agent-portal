@@ -92,6 +92,7 @@ export default function RoleManagerClient({
   const [form, setForm] = useState<RoleFormState | null>(null);
 
   useBodyScrollLock(Boolean(form));
+  const [roleSearch, setRoleSearch] = useState("");
   const [permissionSearch, setPermissionSearch] = useState("");
   const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
   const [roleToDelete, setRoleToDelete] = useState<RoleRecord | null>(null);
@@ -104,6 +105,27 @@ export default function RoleManagerClient({
   const canEdit = canManageRoles;
   const canDelete = canManageRoles;
   const canAssignPermissions = canManageRoles;
+
+  const filteredRoles = useMemo(() => {
+    const query = roleSearch.trim().toLowerCase();
+    if (!query) return roles;
+
+    return roles.filter((role) => {
+      const searchableValues = [
+        role.name,
+        role.description,
+        ...role.permissions.flatMap((permission) => [
+          permission.label,
+          permission.key,
+          permission.group_label,
+        ]),
+      ];
+
+      return searchableValues.some((value) =>
+        value?.toLowerCase().includes(query)
+      );
+    });
+  }, [roleSearch, roles]);
 
   const filteredPermissionGroups = useMemo(() => {
     const query = permissionSearch.trim().toLowerCase();
@@ -296,14 +318,29 @@ export default function RoleManagerClient({
       </header>
 
       <section className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white">
-        <div className="border-b border-[#e4e9f2] px-5 py-4">
-          <h2 className="text-base font-semibold text-[#16233a]">Roles</h2>
-          <p className="mt-1 text-xs text-[#667085]">
-            {roles.length} role{roles.length === 1 ? "" : "s"} configured
-          </p>
+        <div className="flex flex-col gap-4 border-b border-[#e4e9f2] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-[#16233a]">Roles</h2>
+            <p className="mt-1 text-xs text-[#667085]">
+              {roleSearch.trim()
+                ? `${filteredRoles.length} matching role${filteredRoles.length === 1 ? "" : "s"} of ${roles.length} total`
+                : `${roles.length} role${roles.length === 1 ? "" : "s"} configured`}
+            </p>
+          </div>
+          <label className="block sm:w-72">
+            <span className="sr-only">Search roles</span>
+            <input
+              aria-label="Search roles"
+              className="w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none placeholder:text-[#98a2b3] focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
+              onChange={(event) => setRoleSearch(event.target.value)}
+              placeholder="Search roles..."
+              type="search"
+              value={roleSearch}
+            />
+          </label>
         </div>
         <div className="divide-y divide-[#edf1f7]">
-          {roles.map((role) => {
+          {filteredRoles.map((role) => {
             const isBusy = busyRoleId === role.id;
             const protectedRole = isProtectedRole(role);
 
@@ -406,6 +443,13 @@ export default function RoleManagerClient({
               </div>
             );
           })}
+          {filteredRoles.length === 0 && (
+            <div className="px-5 py-12 text-center text-sm text-[#667085]">
+              {roleSearch.trim()
+                ? "No roles match your search."
+                : "No roles configured yet."}
+            </div>
+          )}
         </div>
       </section>
 
