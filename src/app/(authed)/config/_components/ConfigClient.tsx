@@ -32,6 +32,14 @@ import {
   Trash2,
   UserRoundCog,
 } from "lucide-react";
+import {
+  describeArchivedColumnRestore,
+  describeArchivedColumnTypeMismatch,
+} from "@/lib/table-config/archived-column-copy";
+import {
+  CONFIG_ARCHIVED_COLUMN_EXISTS,
+  CONFIG_ARCHIVED_COLUMN_TYPE_MISMATCH,
+} from "@/lib/table-config/mutation-errors";
 import { Toast, type ToastTone } from "../../_shared/Toast";
 import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
@@ -694,10 +702,18 @@ function ConfigTableSection({
   const [newType, setNewType] = useState<ColumnType>("text");
   const [dragReady, setDragReady] = useState(false);
   const [confirmArchiveColumnId, setConfirmArchiveColumnId] = useState<string | null>(null);
+  // Cột cũ trùng tên vừa chặn một lần thêm cột. Giữ cả số liệu server đếm được
+  // để hộp thoại nói thật (bao nhiêu option, bao nhiêu layout bị reset) thay vì
+  // hứa chung chung, và giữ kiểu người dùng vừa chọn để mời lối "tạo cột mới".
   const [restoreColumnCandidate, setRestoreColumnCandidate] = useState<{
     id: string;
     label: string;
     type: ColumnType;
+    archivedAt: string | null;
+    optionCount: number;
+    layoutCount: number;
+    requestedType: ColumnType;
+    typeMismatch: boolean;
   } | null>(null);
   // Counts column PATCHes still in flight. Only the last one to settle
   // refreshes from the server — see patchColumn for why.
@@ -858,21 +874,35 @@ function ConfigTableSection({
                 body: JSON.stringify({ scope, label: newLabel, type: newType }),
               });
             } catch (error) {
-              if (
-                error instanceof Error &&
-                (error as RequestJsonError).code === "CONFIG_ARCHIVED_COLUMN_EXISTS" &&
-                isColumnType((error as RequestJsonError).payload?.archived_column?.type) &&
-                typeof (error as RequestJsonError).payload?.archived_column?.id === "string" &&
-                typeof (error as RequestJsonError).payload?.archived_column?.label === "string"
-              ) {
-                const archived = (error as RequestJsonError).payload!.archived_column!;
+              const failure = error instanceof Error ? (error as RequestJsonError) : null;
+              const archived = failure?.payload?.archived_column;
+              // Sai kiểu cũng vào đây: trước kia nó chỉ hiện một câu lỗi thô và
+              // người dùng tắc hẳn — không khôi phục được vì sai kiểu, không tạo
+              // mới được vì trùng tên.
+              const conflict =
+                (failure?.code === CONFIG_ARCHIVED_COLUMN_EXISTS ||
+                  failure?.code === CONFIG_ARCHIVED_COLUMN_TYPE_MISMATCH) &&
+                isColumnType(archived?.type) &&
+                typeof archived?.id === "string" &&
+                typeof archived?.label === "string";
+              if (conflict && archived) {
                 setRestoreColumnCandidate({
                   id: archived.id as string,
                   label: archived.label as string,
                   type: archived.type as ColumnType,
+                  archivedAt:
+                    typeof archived.archived_at === "string" ? archived.archived_at : null,
+                  optionCount:
+                    typeof archived.option_count === "number" ? archived.option_count : 0,
+                  layoutCount:
+                    typeof archived.layout_count === "number" ? archived.layout_count : 0,
+                  requestedType: newType,
+                  typeMismatch: failure?.code === CONFIG_ARCHIVED_COLUMN_TYPE_MISMATCH,
                 });
+                // Chi tiết nằm trong hộp thoại vừa mở; câu này chỉ để `run`
+                // không báo "Column added."
                 throw new Error(
-                  `An archived column named "${archived.label}" already exists. Confirm restore to bring back its saved options and settings.`
+                  `A column named "${archived.label}" was archived before. Choose what to do.`
                 );
               }
               throw error;
@@ -975,11 +1005,55 @@ function ConfigTableSection({
     ) : null}
     {restoreColumnCandidate ? (
       <ConfirmDialog
-        title={`Restore "${restoreColumnCandidate.label}"?`}
-        description={`This restores the archived ${restoreColumnCandidate.type} column with its existing options and settings. Saved table layouts will be reset so every user can see the restored column.`}
-        confirmLabel="Restore column"
+        title={
+          restoreColumnCandidate.typeMismatch
+            ? `"${restoreColumnCandidate.label}" was archived as ${restoreColumnCandidate.type}`
+            : `Restore "${restoreColumnCandidate.label}"?`
+        }
+        description={
+          restoreColumnCandidate.typeMismatch
+            ? describeArchivedColumnTypeMismatch(
+                restoreColumnCandidate,
+                restoreColumnCandidate.requestedType
+              )
+            : describeArchivedColumnRestore({
+                label: restoreColumnCandidate.label,
+                type: restoreColumnCandidate.type,
+                archivedAt: restoreColumnCandidate.archivedAt,
+                optionCount: restoreColumnCandidate.optionCount,
+                layoutCount: restoreColumnCandidate.layoutCount,
+              })
+        }
+        confirmLabel={
+          restoreColumnCandidate.typeMismatch
+            ? `Restore as ${restoreColumnCandidate.type}`
+            : "Restore column"
+        }
+        secondaryLabel={`Create new ${restoreColumnCandidate.requestedType} column`}
         busy={busy}
         onCancel={() => setRestoreColumnCandidate(null)}
+        onSecondary={() => {
+          const candidate = restoreColumnCandidate;
+          setRestoreColumnCandidate(null);
+          void run(
+            () =>
+              requestJson("/api/config/columns", {
+                method: "POST",
+                body: JSON.stringify({
+                  scope,
+                  label: candidate.label,
+                  type: candidate.requestedType,
+                  // Cột cũ ở yên trong kho; server tự tách key (`year_2`).
+                  create_new: true,
+                }),
+              }).then(async (payload) => {
+                setNewLabel("");
+                await refreshScope(scope);
+                return payload;
+              }),
+            "Column added."
+          );
+        }}
         onConfirm={() => {
           const candidate = restoreColumnCandidate;
           setRestoreColumnCandidate(null);
@@ -2255,16 +2329,21 @@ function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  secondaryLabel,
   busy = false,
   onCancel,
   onConfirm,
+  onSecondary,
 }: {
   title: string;
   description: string;
   confirmLabel: string;
+  /** Lối đi thứ hai, ví dụ "tạo cột mới" thay vì khôi phục cột cũ. */
+  secondaryLabel?: string;
   busy?: boolean;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
+  onSecondary?: () => void | Promise<void>;
 }) {
   // ConfirmDialog chỉ được mount khi đang mở, nên khoá vô điều kiện.
   useBodyScrollLock(true);
@@ -2354,6 +2433,21 @@ function ConfirmDialog({
           >
             Cancel
           </button>
+          {secondaryLabel && onSecondary ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (busy || submitting) return;
+                submittingRef.current = true;
+                setSubmitting(true);
+                void onSecondary();
+              }}
+              disabled={busy || submitting}
+              className="rounded border border-[#dfe1e6] px-3 py-2 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {secondaryLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleConfirm}
@@ -2695,6 +2789,9 @@ type RequestJsonPayload = {
     id?: unknown;
     label?: unknown;
     type?: unknown;
+    archived_at?: unknown;
+    option_count?: unknown;
+    layout_count?: unknown;
   };
 };
 

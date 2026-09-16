@@ -6,6 +6,37 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-16 — Thêm cột trùng tên một cột đã archive: hết ngõ cụt
+
+**Triệu chứng.** Thêm cột `Year` ở Health ACA thì hiện hộp thoại `Restore "Year"?`,
+không có cách nào tạo một cột mới. Chọn kiểu khác kiểu cột cũ thì còn tệ hơn:
+chỉ hiện một câu lỗi thô, không khôi phục được mà cũng không tạo mới được.
+
+**Hộp thoại còn nói sai.** Nó hứa khôi phục "options and settings" và doạ reset
+layout của mọi người — trong khi cột Year cũ là text (không có option nào), không
+hồ sơ ACA nào còn giá trị ở key `year`, và scope đó **không ai lưu layout** (toàn
+hệ thống chỉ có 2 dòng `user_table_layout`, thuộc CS và Lead).
+
+**Sửa.**
+- Hộp thoại nay có **ba lối**: khôi phục cột cũ, **tạo cột mới cùng tên**, hoặc huỷ.
+  Lối tạo mới gửi cờ `create_new` để bỏ qua bước kiểm cột archive; server dùng luôn
+  `uniqueKey` sẵn có nên key mới là `year_2`, còn cột cũ nằm yên trong kho.
+- **Sai kiểu không còn là ngõ cụt**: cùng hộp thoại đó, "Restore as text" hoặc
+  tạo cột mới theo kiểu vừa chọn. Kiểu cột tự thêm sửa được sau khi khôi phục.
+- **Câu chữ nói thật**: server đếm tại chỗ số option còn dùng được và số layout sẽ
+  bị reset, hộp thoại nêu đúng con số cùng ngày archive; chỉ nhắc option khi cột là
+  dropdown, và chỉ cảnh báo reset layout khi thật sự có layout.
+
+**File**: `src/lib/table-config/archived-column-copy.ts` (mới, thuần + test),
+`src/lib/table-config/mutation-errors.ts`, `src/app/api/config/columns/route.ts`,
+`src/app/(authed)/config/_components/ConfigClient.tsx`.
+
+**Không đụng database.** Không có rollout nào phải chạy.
+
+**Chưa làm, để sau**: cột đã archive vẫn vô hình trong tab Columns (37 cột trên
+toàn hệ thống), nên cách duy nhất để biết cột cũ tồn tại vẫn là gõ trúng tên nó.
+Mục "Archived columns" có nút Restore sẽ là bản sửa gốc rễ.
+
 ## 2026-09-16 — Unlock task quá hạn hỏng lần thứ hai: `overdue_at` mơ hồ (42702)
 
 **Triệu chứng.** Bấm Unlock trên một task quá hạn thì hiện toast

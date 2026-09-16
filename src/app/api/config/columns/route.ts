@@ -22,7 +22,11 @@ import {
   type ColumnType,
   type TableScope,
 } from "@/lib/table-config/types";
-import { archivedColumnConflictResponse } from "@/lib/table-config/mutation-errors";
+import {
+  archivedColumnConflictResponse,
+  archivedColumnTypeMismatchResponse,
+} from "@/lib/table-config/mutation-errors";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   layoutResetFailedWarning,
   type ConfigMutationWarning,
@@ -90,8 +94,13 @@ export async function POST(request: Request) {
       );
     }
     if (archivedColumn.type !== type) {
+      // Trả kèm cột cũ: màn hình mời được cả hai lối đi (khôi phục theo kiểu cũ,
+      // hoặc tạo cột mới), thay vì ngõ cụt chỉ có một câu lỗi.
       return NextResponse.json(
-        { error: "The archived column has a different type. Choose that type to restore it.", code: "CONFIG_ARCHIVED_COLUMN_TYPE_MISMATCH" },
+        archivedColumnTypeMismatchResponse(
+          archivedColumn,
+          await archivedColumnFacts(supabase, scope, archivedColumn.id)
+        ),
         { status: 409 }
       );
     }
@@ -148,15 +157,28 @@ export async function POST(request: Request) {
     position: number;
     archived_at: string | null;
   }>;
+  // `create_new` là câu trả lời "không, tôi muốn một cột khác" cho hộp thoại
+  // khôi phục. Thiếu nó thì trùng tên một cột đã archive là ngõ cụt: chỉ khôi
+  // phục hoặc huỷ — kể cả khi cột cũ rỗng và người ta cần đúng tên đó với kiểu
+  // khác. `uniqueKey` bên dưới vốn đã biết tách key (`year_2`).
+  const createNew = body?.create_new === true;
   const normalizedLabel = label.toLocaleLowerCase();
-  const archivedColumn = columns.find(
-    (column) =>
-      Boolean(column.archived_at) &&
-      (column.label.trim().toLocaleLowerCase() === normalizedLabel ||
-        column.key === slugifyColumnKey(label))
-  );
+  const archivedColumn = createNew
+    ? undefined
+    : columns.find(
+        (column) =>
+          Boolean(column.archived_at) &&
+          (column.label.trim().toLocaleLowerCase() === normalizedLabel ||
+            column.key === slugifyColumnKey(label))
+      );
   if (archivedColumn) {
-    return NextResponse.json(archivedColumnConflictResponse(archivedColumn), { status: 409 });
+    return NextResponse.json(
+      archivedColumnConflictResponse(
+        archivedColumn,
+        await archivedColumnFacts(supabase, scope, archivedColumn.id)
+      ),
+      { status: 409 }
+    );
   }
   const activeColumns = columns.filter((column) => !column.archived_at);
   const key = uniqueKey(slugifyColumnKey(label), new Set(columns.map((column) => column.key)));
@@ -198,6 +220,30 @@ export async function POST(request: Request) {
 
 const TABLE_COLUMN_SELECT =
   "id,scope,key,label,type,is_system,position,pinned,hidden_default,show_in_detail,required,created_by_email,created_at,updated_at,archived_at";
+
+/**
+ * Đếm những gì hộp thoại khôi phục cần nói thật: option còn dùng được của cột
+ * cũ, và số layout người dùng sẽ bị xoá. Đếm hỏng thì trả 0 — một con số thiếu
+ * không được phép biến thành lỗi chặn người quản trị.
+ */
+async function archivedColumnFacts(
+  supabase: SupabaseClient,
+  scope: TableScope,
+  columnId: string
+): Promise<{ option_count: number; layout_count: number }> {
+  const [options, layouts] = await Promise.all([
+    supabase
+      .from("table_column_option")
+      .select("id", { count: "exact", head: true })
+      .eq("column_id", columnId)
+      .is("archived_at", null),
+    supabase
+      .from("user_table_layout")
+      .select("id", { count: "exact", head: true })
+      .eq("scope", scope),
+  ]);
+  return { option_count: options.count ?? 0, layout_count: layouts.count ?? 0 };
+}
 
 function uniqueKey(baseKey: string, existing: ReadonlySet<string>): string {
   if (!existing.has(baseKey)) return baseKey;
