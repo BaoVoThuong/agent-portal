@@ -6,6 +6,19 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-17 — Table config: kiểu Multi dropdown cho plan của Provider List
+
+Thêm kiểu cột `multiselect` dùng chung: cột tuỳ chỉnh lưu mảng option id trong
+`custom_values`, còn `provider:obamacare` và `provider:medicare` lưu chuỗi nhãn
+phân tách bằng dấu phẩy trong `provider_address` để luồng Google Sheet hiện tại
+vẫn đọc/ghi được. Nhãn từ Sheet chưa có trong danh sách cấu hình không bị xoá;
+UI giữ chúng thành chip "Not in the list".
+
+Chỉ đúng hai system column provider này được mở quản lý options. Các system
+column khác vẫn bị chặn ở cả API lẫn database RPC. Rollout phải chạy sau
+`2026-09-16-provider-list.sql`, rồi reload PostgREST schema. Chưa làm bộ lọc
+insurer trên toolbar và chưa đổi `other_plans` sang multiselect.
+
 ## 2026-09-16 — Provider List: bảng provider trong Automation Tool, thêm được địa chỉ
 
 **Mục đích:** để portal dần thay chỗ luồng sync từ Google Sheet. Đây là bước đầu —
