@@ -6,6 +6,55 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-16 — Thông báo Task CS: mỗi việc chỉ báo một lần
+
+**Tạo task không còn ra hai thông báo cho cùng người.** Task Backlog Urgent/High
+chưa ai nhận từng bắn cả `task_created` lẫn `backlog_attention`; ai có `task.manage`
+và là admin cũ, hoặc là agent của task, nhận cả hai (CS-237: 4/12 người; 47 lần
+trong 21 ngày). Giờ loại cụ thể hơn thắng — được giao > `backlog_attention` >
+`task_created` — qua `buildCreateTaskNotificationRows`.
+
+**Một thông báo chỉ kêu và bật popup một lần cho cả trình duyệt.** Mỗi tab portal
+có một cái chuông, và tab nào cũng tự kêu + tự bật popup hệ điều hành, kể cả tab
+đang focus. Giờ các tab giành quyền qua Web Locks theo id thông báo; toast vẫn
+hiện ở mọi tab vì nó nằm trong trang. Chuông chỉ bật popup khi cửa sổ **không
+focus** VÀ máy **chưa đăng ký Web Push** — chỉ 6/30 người nhận có push, nên bỏ hẳn
+popup của chuông là 24 người mất cảnh báo. Ping realtime liền nhau gom thành một
+lần tải sau 1,5 giây (có lượt cron ping 12 lần cho cùng một người).
+
+**Service worker xét `focused` thay `visible`**, nên cửa sổ portal mở ở màn hình
+phụ mà không focus vẫn nhận được push. Tag chia hai họ: `<kind>:<id>:direct`
+(mentioned, assigned, unassigned, reopened — `renotify`, kêu lại khi thay thế) và
+`<kind>:<id>:activity` (thay im lặng). Trước đây mọi thứ chung tag `task:<id>` nên
+bị @ ngay sau một bình luận cùng task là không có tiếng nào. Áp cho cả thông báo
+enrollment và time off vì dùng chung chuông và service worker. `SW_VERSION` tăng
+lên `2026-09-16.1`.
+
+**`stale` chỉ nhắc task In Progress chưa quá hạn SLA.** To Do, Waiting, Billing đã
+có lời nhắc riêng; In Progress quá hạn đã có `overdue_reminder`. Hết cảnh một task
+nhận hai lời nhắc trong cùng lượt cron (stale + waiting_reminder 28 lần,
+stale + todo_reminder 3 lần trong 14 ngày).
+
+**Mở task là đánh dấu đã đọc mọi thông báo của task đó**, không riêng `assigned`,
+và chuông cập nhật số ngay trong tab qua sự kiện `notifications-read`. Toàn hệ
+thống đang có 9.198 dòng chưa đọc, riêng khang 2.575.
+
+**Câu chữ:** hai loại Due Date được nhận là thông báo hệ thống (hết "system Task
+passed its due date"); bình luận ghi "commented on a task" thay vì khẳng định sai
+là task được giao cho người nhận; lời nhắc của Billing ghi "Task is still in
+Billing — reminder" nhờ cron ghi `detail = "billing"` — không thêm loại mới nên
+không cần rollout CHECK constraint.
+
+**Rollout `2026-09-04-task-due-date-overdue.sql`** được bổ sung `'task_created'`
+vào danh sách CHECK: bản cũ dựng lại constraint mà thiếu giá trị này, chạy lại là
+mọi insert thông báo tạo task nổ.
+
+**Không đụng database.** Không có SQL nào phải chạy.
+
+**Chưa làm, để sau**: gom thông báo theo task trong chuông (đang chỉ tải 30 dòng
+mới nhất), tự dọn dòng cũ, tắt từng loại thông báo, và xem lại danh sách người
+nhận (agent + 3 admin cũ đang đọc ~0% nhưng nhận nhiều nhất).
+
 ## 2026-09-16 — Thêm cột trùng tên một cột đã archive: hết ngõ cụt
 
 **Triệu chứng.** Thêm cột `Year` ở Health ACA thì hiện hộp thoại `Restore "Year"?`,
