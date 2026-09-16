@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ExternalLink } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
+import {
+  parseMultiselectValue,
+  toggleMultiselectValue,
+} from "@/lib/table-config/multiselect";
 import { formatCustomValue, normalizedValueEquals } from "@/lib/table-config/values";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { SearchableListboxPanel } from "./SearchableListboxPanel";
@@ -19,6 +23,7 @@ export function EditableCustomCell({
   people = [],
   optionLabelById,
   personLabelByEmail,
+  optionValue = "id",
   canEdit,
   onSave,
   className = "",
@@ -31,6 +36,7 @@ export function EditableCustomCell({
   people?: readonly Person[];
   optionLabelById?: ReadonlyMap<string, string>;
   personLabelByEmail?: ReadonlyMap<string, string>;
+  optionValue?: "id" | "label";
   canEdit: boolean;
   onSave: (next: unknown) => void | Promise<void>;
   className?: string;
@@ -48,29 +54,54 @@ export function EditableCustomCell({
   } = useAnchoredMenu();
   const [editing, setEditing] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [multiselectDraft, setMultiselectDraft] = useState<string[] | null>(null);
+  const optionByValue = new Map(
+    options.map((option) => [optionValue === "label" ? option.label : option.id, option])
+  );
+  const multiselectValues =
+    column.type === "multiselect"
+      ? multiselectDraft ?? parseMultiselectValue(value)
+      : [];
+  useEffect(() => {
+    if (!isOpen) setMultiselectDraft(null);
+  }, [isOpen]);
   const display = formatCustomValue(column.type, value, {
     optionLabelById,
     personLabelByEmail,
   });
-  const empty = value === null || value === undefined || value === "";
+  const empty =
+    column.type === "multiselect"
+      ? multiselectValues.length === 0
+      : value === null || value === undefined || value === "";
   const optionLabel = optionLabelById?.get(String(value));
   const selectedOption =
     column.type === "dropdown"
       ? options.find((option) => option.id === String(value)) ?? null
       : null;
   const label = column.type === "dropdown" && optionLabel ? optionLabel : display;
+  const multiselectLabels = multiselectValues.map(
+    (item) => optionByValue.get(item)?.label ?? item
+  );
   const personEmptyLabel = column.type === "person" ? "Unassigned" : emptyLabel;
   const title = label || personEmptyLabel || column.label;
   const displayTitle = saveError ? "Save failed. Try again." : title;
   const saveErrorClass = saveError ? "ring-2 ring-[#ff5630] ring-offset-1" : "";
-  const isChoiceField = column.type === "dropdown" || column.type === "person";
+  const isChoiceField =
+    column.type === "dropdown" ||
+    column.type === "multiselect" ||
+    column.type === "person";
   const baseInputClass =
     inputClassName ??
     "h-8 w-full rounded border border-[#dfe1e6] bg-white px-2 text-xs font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]";
 
   async function commit(next: unknown) {
     setEditing(false);
-    if (isChoiceField) closeMenu({ restoreFocus: true });
+    if (column.type === "multiselect") {
+      setMultiselectDraft(parseMultiselectValue(next));
+    }
+    if (column.type === "dropdown" || column.type === "person") {
+      closeMenu({ restoreFocus: true });
+    }
     if (normalizedValueEquals(column.type, value, next)) return;
     setSaveError(false);
     try {
@@ -160,11 +191,17 @@ export function EditableCustomCell({
             value: option.id,
             label: option.label,
           }))
-        : people.map((person) => ({
-            value: person.email.toLowerCase(),
-            label: person.name?.trim() || person.email,
-            keywords: [person.email],
-          }));
+        : column.type === "multiselect"
+          ? options.map((option) => ({
+              value: optionValue === "label" ? option.label : option.id,
+              label: option.label,
+              keywords: [option.id],
+            }))
+          : people.map((person) => ({
+              value: person.email.toLowerCase(),
+              label: person.name?.trim() || person.email,
+              keywords: [person.email],
+            }));
     const selectedValue = empty
       ? ""
       : column.type === "person"
@@ -177,7 +214,6 @@ export function EditableCustomCell({
       ])
     );
     const menuLabel = column.label;
-    const optionById = new Map(options.map((option) => [option.id, option]));
 
     return (
       <span className={`relative block min-w-0 ${className}`}>
@@ -192,7 +228,7 @@ export function EditableCustomCell({
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           title={displayTitle}
-          className={`flex min-w-0 max-w-full items-center gap-2 truncate rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass}`}
+          className={`flex min-w-0 max-w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass}`}
         >
           {column.type === "person" ? (
             <AvatarStack
@@ -201,7 +237,49 @@ export function EditableCustomCell({
               max={1}
             />
           ) : null}
-          {selectedOption ? (
+          {column.type === "multiselect" ? (
+            <span className="flex min-w-0 flex-wrap items-center gap-1">
+              {multiselectValues.length === 0 ? (
+                <span className="truncate text-[#97a0af]">{emptyLabel}</span>
+              ) : (
+                <>
+                  {multiselectValues.slice(0, 3).map((item, index) => {
+                    const option = optionByValue.get(item);
+                    const palette = option
+                      ? tableColumnOptionBadgePalette(option)
+                      : null;
+                    const itemLabel = multiselectLabels[index] ?? item;
+                    return (
+                      <span
+                        key={`${item}-${index}`}
+                        className={`inline-flex min-w-0 max-w-[12rem] items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em] ${
+                          palette
+                            ? ""
+                            : "border border-[#c1c7d0] bg-[#f4f5f7] text-[#6b778c]"
+                        }`}
+                        style={
+                          palette
+                            ? {
+                                backgroundColor: palette.background,
+                                color: palette.foreground,
+                              }
+                            : undefined
+                        }
+                        title={option ? itemLabel : "Not in the list"}
+                      >
+                        <span className="truncate">{itemLabel}</span>
+                      </span>
+                    );
+                  })}
+                  {multiselectValues.length > 3 ? (
+                    <span className="shrink-0 rounded bg-[#f4f5f7] px-1.5 py-0.5 text-[11px] font-semibold text-[#6b778c]">
+                      +{multiselectValues.length - 3}
+                    </span>
+                  ) : null}
+                </>
+              )}
+            </span>
+          ) : selectedOption ? (
             <span
               className="inline-flex min-w-0 max-w-full items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
               style={(() => {
@@ -227,10 +305,24 @@ export function EditableCustomCell({
                 ariaLabel={menuLabel}
                 queryPlaceholder={`Search ${menuLabel}…`}
                 emptyMessage={`No matching ${menuLabel.toLowerCase()}.`}
-                pinnedChoices={[{ value: "", label: personEmptyLabel }]}
+                pinnedChoices={
+                  column.type === "multiselect"
+                    ? []
+                    : [{ value: "", label: personEmptyLabel }]
+                }
                 choices={choiceOptions}
                 selectedValue={selectedValue}
-                onSelect={(nextValue) => void commit(nextValue || null)}
+                selectedValues={multiselectValues}
+                multi={column.type === "multiselect"}
+                onSelect={(nextValue) => {
+                  if (column.type === "multiselect") {
+                    void commit(
+                      toggleMultiselectValue(multiselectValues, nextValue)
+                    );
+                    return;
+                  }
+                  void commit(nextValue || null);
+                }}
                 onTabExit={closeMenuForTab}
                 renderChoice={
                   column.type === "person"
@@ -250,7 +342,7 @@ export function EditableCustomCell({
                         </>
                       )
                     : (choice, state) => {
-                        const option = optionById.get(choice.value);
+                        const option = optionByValue.get(choice.value);
                         const palette = option
                           ? tableColumnOptionBadgePalette(option)
                           : null;
