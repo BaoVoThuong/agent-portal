@@ -1,218 +1,39 @@
 -- =====================================================================
--- Stage Billing — xem kế hoạch docs/2026-09-12-billing-stage.md
+-- Fix: "column reference \"overdue_at\" is ambiguous" (SQLSTATE 42702) khi bấm
+-- Unlock một task quá hạn.
 --
--- Billing nằm giữa Waiting và Done trên board, là stage TUỲ CHỌN (In Progress →
--- Done thẳng vẫn hợp lệ), tính là việc ĐANG CHẠY chưa xong, và TẠM DỪNG SLA
--- y hệt Waiting.
+-- LẦN THỨ HAI. Lần đầu sửa ngày 2026-08-27 (commit ff648b4) nhưng bản sửa nằm
+-- trên nhánh `fix/patch-task-atomic-ambiguity` KHÔNG BAO GIỜ được merge, nên
+-- `supabase/schema.sql` trên main vẫn giữ nguyên thân hàm hỏng. Ngày 2026-09-12
+-- rollout billing-stage chép thân hàm từ chính schema.sql đó và `create or
+-- replace` đè lên production — bản sửa chỉ sống trên database bị ghi đè mất.
 --
--- `cancel` GIỮ NGUYÊN là trạng thái hợp lệ. Đợt này chỉ bỏ CỘT Cancel trên
--- board, mà đó là việc của phía code — database không đổi gì cho Cancel.
+-- Bằng chứng trên production: sự kiện quá hạn cuối cùng được resolve là
+-- 2026-09-10T14:27Z; từ đó tới 2026-09-16 có 51 sự kiện còn mở và 0 lần mở khoá
+-- thành công.
 --
--- ⚠ Chạy TRƯỚC khi deploy code. Rollout chỉ nới ràng buộc và thêm cột; code
---   đang chạy không bao giờ sinh ra 'billing' nên chạy trước là an toàn tuyệt
---   đối, không có cửa sổ hỏng.
--- ⚠ Sau khi chạy: notify pgrst, 'reload schema';
+-- `patch_task_atomic` khai biến cục bộ tên `overdue_at` trong khi truy vấn
+-- `task_overdue_events` — bảng có cột cùng tên. PL/pgSQL mặc định
+-- variable_conflict = error nên câu
+--
+--     select id, overdue_at into open_overdue
+--     from task_overdue_events ... order by overdue_at desc
+--
+-- không phân giải được và cả hàm bị huỷ. Nhánh này chỉ chạy khi có `p_overdue`,
+-- tức chỉ từ POST /api/tasks/[id]/overdue-unlock và từ PATCH khi task rời In
+-- Progress lúc đang quá hạn — nên mọi lời gọi khác của RPC vẫn chạy bình thường
+-- và lỗi nằm im.
+--
+-- Sửa hai lớp như lần trước: đổi tên biến ra khỏi không gian tên cột, VÀ đặt bí
+-- danh cho bảng để tham chiếu cột là tường minh.
+--
+-- Thân hàm dưới đây lấy từ `supabase/schema.sql` SAU billing-stage, nên vẫn giữ
+-- đủ billing_started_at / billing_seconds / nhánh 'billing'. Chạy file này
+-- KHÔNG làm mất Billing.
+--
+-- Forward-only, chạy lại được. Chạy TRƯỚC khi deploy code (thật ra không cần
+-- deploy code gì cho riêng lỗi này — hàm nằm trong database).
 -- =====================================================================
-
--- ---------------------------------------------------------------------
--- 1. Nới hai ràng buộc trạng thái
---
--- `task_stage_cycles` được tạo bằng `create table if not exists`, nghĩa là trên
--- database đã có, sửa dòng check trong schema.sql KHÔNG có tác dụng gì. Phải
--- drop/add tường minh ở đây thì ràng buộc mới thật sự đổi.
--- ---------------------------------------------------------------------
-alter table tasks drop constraint if exists tasks_status_check;
-alter table tasks
-  add constraint tasks_status_check
-  check (status in ('backlog','todo','in_progress','waiting','billing','done','cancel'));
-
-alter table task_stage_cycles drop constraint if exists task_stage_cycles_stage_check;
-alter table task_stage_cycles
-  add constraint task_stage_cycles_stage_check
-  check (stage in ('backlog','todo','in_progress','waiting','billing','done','cancel'));
-
--- ---------------------------------------------------------------------
--- 2. Đồng hồ của stage mới
---
--- Đúng khuôn todo/in_progress/waiting:
---   billing_started_at  chỉ khác null KHI task đang ở Billing; xoá khi rời.
---   billing_seconds     tổng tích luỹ của mọi lượt đã đóng.
---
--- `billing_reminded_at` thêm sẵn cho đủ bộ như waiting. Chưa cron nào đọc nó;
--- hôm nào muốn "nằm Billing quá N giờ thì nhắc" thì cột đã có sẵn, khỏi phải
--- migrate lần nữa.
---
--- Không cần backfill: chưa task nào từng ở Billing, nên mặc định 0 / null đã
--- đúng cho toàn bộ bảng.
--- ---------------------------------------------------------------------
-alter table tasks add column if not exists billing_started_at timestamptz;
-alter table tasks add column if not exists billing_reminded_at timestamptz;
-alter table tasks add column if not exists billing_seconds integer not null default 0;
-
--- ---------------------------------------------------------------------
--- 3. Hai RPC ghi task
---
--- ⚠ ĐÂY LÀ CHỖ DỄ SÓT NHẤT CỦA CẢ ĐỢT.
---
--- `resolveTaskPatch()` bên TypeScript không tự ghi database — nó chỉ dựng ra
--- một object patch rồi giao cho `patch_task_atomic`. Mà hàm đó liệt kê TỪNG CỘT
--- MỘT trong khối SET. Sửa mỗi TypeScript thì patch vẫn mang theo
--- `billing_seconds`, còn SQL lặng lẽ vứt đi: không lỗi, không cảnh báo, chỉ là
--- giờ Billing mãi mãi bằng 0 và không ai biết cho tới lúc xem báo cáo.
---
--- Hai thân hàm dưới đây được TRÍCH NGUYÊN VĂN từ supabase/schema.sql sau khi
--- sửa, không gõ lại tay, nên hai file chắc chắn khớp nhau. So với bản cũ chỉ
--- khác đúng những chỗ có chữ `billing`.
---
--- Chữ ký hàm không đổi, nên `create or replace` giữ nguyên quyền đã cấp —
--- không cần revoke/grant lại.
--- ---------------------------------------------------------------------
-
-create or replace function create_task_atomic(
-  p_task jsonb,
-  p_assignees text[] default '{}'::text[],
-  p_actor_email text default null,
-  p_client_request_id uuid default null
-)
-returns table (task jsonb, was_created boolean)
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_task tasks%rowtype;
-  v_now timestamptz := clock_timestamp();
-  v_actor text := lower(trim(p_actor_email));
-  v_assignees text[];
-  v_status text;
-  v_started_at timestamptz;
-  v_sla_minutes integer;
-begin
-  if v_actor is null or v_actor = '' then
-    raise exception 'TASK_ACTOR_REQUIRED';
-  end if;
-  if p_task is null or jsonb_typeof(p_task) <> 'object' then
-    raise exception 'TASK_PAYLOAD_INVALID';
-  end if;
-  if btrim(coalesce(p_task->>'title', '')) = '' then
-    raise exception 'TASK_TITLE_REQUIRED';
-  end if;
-
-  select coalesce(array_agg(distinct lower(trim(input_email.email)) order by lower(trim(input_email.email))), '{}'::text[])
-    into v_assignees
-  from unnest(coalesce(p_assignees, '{}'::text[])) as input_email(email)
-  where btrim(input_email.email) <> '';
-
-  v_status := coalesce(nullif(p_task->>'status', ''), 'backlog');
-  if v_status not in ('backlog', 'todo', 'in_progress', 'waiting', 'billing', 'done', 'cancel') then
-    raise exception 'TASK_STATUS_INVALID';
-  end if;
-  v_sla_minutes := nullif(p_task->>'sla_minutes', '')::integer;
-
-  -- ON CONFLICT waits for a concurrent creator to commit, then the replay
-  -- SELECT below returns its canonical row. No second activity/cycle is made.
-  insert into tasks (
-    title, description, fub_link, status, priority, category_id,
-    agent_email, assignee_email, reporter_email, custom_values, position,
-    last_activity_at, last_activity_by_email, client_request_id,
-    todo_started_at, in_progress_at, waiting_started_at, billing_started_at, closed_at,
-    sla_minutes, stale_reminded_at, created_at, updated_at
-  ) values (
-    btrim(p_task->>'title'),
-    nullif(btrim(p_task->>'description'), ''),
-    nullif(btrim(p_task->>'fub_link'), ''),
-    v_status,
-    coalesce(nullif(p_task->>'priority', ''), 'medium'),
-    nullif(p_task->>'category_id', '')::uuid,
-    nullif(lower(trim(p_task->>'agent_email')), ''),
-    case when v_status = 'backlog' then null else nullif(lower(trim(p_task->>'assignee_email')), '') end,
-    v_actor,
-    coalesce(p_task->'custom_values', '{}'::jsonb),
-    coalesce(nullif(p_task->>'position', '')::double precision, 0),
-    v_now,
-    v_actor,
-    p_client_request_id,
-    nullif(p_task->>'todo_started_at', '')::timestamptz,
-    nullif(p_task->>'in_progress_at', '')::timestamptz,
-    nullif(p_task->>'waiting_started_at', '')::timestamptz,
-    nullif(p_task->>'billing_started_at', '')::timestamptz,
-    nullif(p_task->>'closed_at', '')::timestamptz,
-    case when v_status = 'in_progress' then v_sla_minutes else null end,
-    null,
-    v_now,
-    v_now
-  )
-  on conflict (reporter_email, client_request_id) where client_request_id is not null
-  do nothing
-  returning * into v_task;
-
-  if not found then
-    select * into v_task
-    from tasks
-    where reporter_email = v_actor
-      and client_request_id = p_client_request_id
-    for update;
-    if not found then
-      raise exception 'TASK_CREATE_REPLAY_NOT_FOUND';
-    end if;
-    task := to_jsonb(v_task);
-    was_created := false;
-    return next;
-    return;
-  end if;
-
-  if array_length(v_assignees, 1) is not null then
-    insert into task_assignees (task_id, email, created_at)
-    select v_task.id, assignee_email, v_now
-    from unnest(v_assignees) as assignee_email;
-
-    insert into task_assignment_cycles (
-      task_id, email, assigned_at, assigned_by_email, source
-    )
-    select v_task.id, assignee_email, v_now, v_actor, 'create'
-    from unnest(v_assignees) as assignee_email;
-  end if;
-
-  v_started_at := case v_task.status
-    when 'todo' then coalesce(v_task.todo_started_at, v_now)
-    when 'in_progress' then coalesce(v_task.in_progress_at, v_now)
-    when 'waiting' then coalesce(v_task.waiting_started_at, v_now)
-    when 'billing' then coalesce(v_task.billing_started_at, v_now)
-    when 'done' then coalesce(v_task.closed_at, v_now)
-    when 'cancel' then coalesce(v_task.closed_at, v_now)
-    else v_task.created_at
-  end;
-  insert into task_stage_cycles (
-    task_id, stage, started_at, started_by_email, from_status,
-    sla_minutes, due_at, meta
-  ) values (
-    v_task.id,
-    v_task.status,
-    v_started_at,
-    v_actor,
-    null,
-    case when v_task.status = 'in_progress' then v_task.sla_minutes else null end,
-    case when v_task.status = 'in_progress' and v_task.sla_minutes is not null
-      then v_started_at + make_interval(mins => v_task.sla_minutes)
-      else null end,
-    jsonb_build_object('source', 'create')
-  );
-
-  insert into task_activity (task_id, actor_email, type, meta)
-  values (
-    v_task.id,
-    v_actor,
-    'created',
-    case when array_length(v_assignees, 1) is not null
-      then jsonb_build_object('assignees', to_jsonb(v_assignees))
-      else null end
-  );
-
-  task := to_jsonb(v_task);
-  was_created := true;
-  return next;
-end;
-$$;
 
 create or replace function patch_task_atomic(
   p_task_id uuid,
@@ -526,57 +347,37 @@ begin
 end;
 $$;
 
+revoke all on function patch_task_atomic(uuid, timestamptz, jsonb, text[], text[], text, jsonb, jsonb, timestamptz)
+  from public, anon, authenticated;
+grant execute on function patch_task_atomic(uuid, timestamptz, jsonb, text[], text[], text, jsonb, jsonb, timestamptz)
+  to service_role;
+
 -- ---------------------------------------------------------------------
--- Kiểm chứng — chạy hết rồi đọc bằng mắt
+-- Kiểm chứng. Supabase Studio không hiện RAISE NOTICE nên trả về bảng.
+-- Kỳ vọng: đúng một dòng, cả bốn cột đều 'ok'.
+-- Dấu hiệu viết theo kiểu khẳng định ("có bí danh") chứ không phải phủ định
+-- ("không còn chữ cũ"), để một comment nhắc tới code cũ không làm bản hỏng
+-- trông như đã lành.
 -- ---------------------------------------------------------------------
-
--- (a) Ba cột đồng hồ đã có mặt. Cả ba phải ra 1.
 select
-  count(*) filter (where column_name = 'billing_started_at') as co_started_at,
-  count(*) filter (where column_name = 'billing_reminded_at') as co_reminded_at,
-  count(*) filter (where column_name = 'billing_seconds') as co_seconds
-from information_schema.columns
-where table_schema = 'public' and table_name = 'tasks';
+  case when prosrc like '%from task_overdue_events as event%'
+       then 'ok' else 'FAIL: truy vấn chưa có bí danh' end        as bi_danh,
+  case when prosrc like '%overdue_at_value timestamptz;%'
+       then 'ok' else 'FAIL: biến vẫn che cột' end                as doi_ten_overdue,
+  case when prosrc like '%due_at_value timestamptz;%'
+       then 'ok' else 'FAIL: biến vẫn che cột' end                as doi_ten_due,
+  -- Billing phải còn nguyên: file này chép đè cả hàm, nên nếu ai đó dựng nó từ
+  -- một bản cũ hơn billing-stage thì giờ Billing sẽ im lặng về 0.
+  case when prosrc like '%billing_started_at =%'
+        and prosrc like '%billing_seconds =%'
+       then 'ok' else 'FAIL: mất hỗ trợ Billing' end              as con_billing
+from pg_proc
+where proname = 'patch_task_atomic';
 
--- (b) Hai ràng buộc đã nhận 'billing' và VẪN CÒN 'cancel'.
---     Hai bảng, bốn cột true. Cột `con_cancel` là chốt chặn cho hiểu nhầm
---     "bỏ Cancel" — Cancel chỉ rời board chứ không rời database.
+-- Sau khi chạy: mở một task quá hạn trên board, bấm Unlock và nhập lý do. Nút
+-- phải chạy, và dòng dưới đây phải tăng thêm một sự kiện được resolve.
 select
-  rel.relname as bang,
-  pg_get_constraintdef(con.oid) like '%billing%' as co_billing,
-  pg_get_constraintdef(con.oid) like '%cancel%' as con_cancel
-from pg_constraint con
-join pg_class rel on rel.oid = con.conrelid
-join pg_namespace nsp on nsp.oid = rel.relnamespace
-where nsp.nspname = 'public'
-  and con.conname in ('tasks_status_check', 'task_stage_cycles_stage_check');
-
--- (c) Chốt chặn cho đúng cái bẫy ở mục 3: thân hàm ĐANG CHẠY trên database có
---     thật sự nhận cột billing không. Cả hai dòng phải ra true.
---     Nếu patch_task_atomic ra false thì giờ Billing sẽ vĩnh viễn bằng 0 mà
---     không có một dòng lỗi nào báo cho biết.
---
---     Kỳ vọng khác nhau giữa hai hàm, nên không so cùng một điều kiện:
---       patch  — phải ghi được cả billing_started_at lẫn billing_seconds, và
---                phải có nhánh `when 'billing'` cho mốc bắt đầu stage.
---       create — chỉ cần nhận billing_started_at và chấp nhận status
---                'billing'. Nó KHÔNG ghi billing_seconds, và như vậy là đúng:
---                task vừa tạo thì thời gian tích luỹ phải là 0.
-select
-  p.proname as ham,
-  case p.proname
-    when 'patch_task_atomic' then
-      pg_get_functiondef(p.oid) like '%billing_started_at =%'
-      and pg_get_functiondef(p.oid) like '%billing_seconds =%'
-      and pg_get_functiondef(p.oid) like '%when ''billing'' then%'
-    when 'create_task_atomic' then
-      pg_get_functiondef(p.oid) like '%billing_started_at%'
-      and pg_get_functiondef(p.oid) like '%''billing''%'
-  end as dat_yeu_cau
-from pg_proc p
-join pg_namespace n on n.oid = p.pronamespace
-where n.nspname = 'public'
-  and p.proname in ('patch_task_atomic', 'create_task_atomic');
-
--- (d) Chưa task nào ở Billing — đúng như kỳ vọng ngay sau rollout.
-select count(*) as task_dang_o_billing from tasks where status = 'billing';
+  count(*) filter (where resolved_at is null) as con_mo,
+  count(*) filter (where resolved_at is not null) as da_resolve,
+  max(resolved_at) as lan_resolve_gan_nhat
+from task_overdue_events;

@@ -6,6 +6,44 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-16 — Unlock task quá hạn hỏng lần thứ hai: `overdue_at` mơ hồ (42702)
+
+**Triệu chứng.** Bấm Unlock trên một task quá hạn thì hiện toast
+`column reference "overdue_at" is ambiguous`, task không mở khoá được.
+
+**Nguyên nhân.** `patch_task_atomic` khai biến cục bộ `overdue_at` (và `due_at`)
+trong khi truy vấn `task_overdue_events` — bảng có cột cùng tên. PL/pgSQL mặc
+định `variable_conflict = error` nên câu `select id, overdue_at into open_overdue
+... order by overdue_at desc` không phân giải được và cả hàm bị huỷ. Nhánh này
+chỉ chạy khi có `p_overdue`, tức chỉ từ `POST /api/tasks/[id]/overdue-unlock` và
+từ PATCH khi task rời In Progress lúc đang quá hạn — nên mọi lời gọi khác của
+RPC vẫn chạy và lỗi nằm im.
+
+**Vì sao tái diễn.** Lỗi sinh ra 08/08, đã sửa 27/08 (commit ff648b4) — nhưng bản
+sửa nằm trên nhánh `fix/patch-task-atomic-ambiguity` **không bao giờ được merge**.
+`schema.sql` trên main vẫn giữ thân hàm hỏng; production lành vì file SQL của
+nhánh đó đã được chạy tay. Ngày 12/09 rollout billing-stage chép thân hàm từ
+chính `schema.sql` và `create or replace` đè lên production, xoá mất bản sửa chỉ
+còn sống trong database. Bằng chứng: sự kiện quá hạn cuối cùng được resolve là
+10/09 lúc 14:27Z; tới 16/09 có 51 sự kiện còn mở và 0 lần mở khoá thành công.
+
+**Sửa.** Đổi tên biến thành `overdue_at_value` / `due_at_value` (theo đúng quy ước
+sẵn có của `resolved_at_value`, `overdue_seconds_value`) **và** đặt bí danh
+`task_overdue_events as event` để tham chiếu cột tường minh. Áp vào cả
+`supabase/schema.sql` lẫn bản chép trong `supabase/rollouts/2026-09-12-billing-stage.sql`,
+để chạy lại rollout cũ không dựng lại bug. Thân hàm lấy từ bản SAU billing-stage
+nên giữ nguyên `billing_started_at` / `billing_seconds` / nhánh `'billing'`.
+
+**Phải chạy trên production:** `supabase/rollouts/2026-09-16-fix-patch-task-atomic-overdue-ambiguity.sql`
+(forward-only, chạy lại được). Code ứng dụng không cần deploy cho riêng lỗi này —
+hàm nằm trong database. File có sẵn truy vấn kiểm chứng: bốn cột phải ra `ok`,
+trong đó một cột khẳng định Billing còn nguyên.
+
+**Chặn tái diễn lần ba:** `src/lib/tasks/patch-task-atomic-shadowing.test.ts` quét
+**mọi** file `.sql` trong `supabase/` và bắt buộc từng bản chép của hàm phải đổi
+tên biến và có bí danh. Bản sửa chỉ sống trong database thì mong manh — bất kỳ
+file SQL nào chép lại thân hàm cũng ghi đè được nó.
+
 ## 2026-09-15 — Distribute pool: tick agent thì hệ số luôn bằng 1, ô tick xanh ngay
 
 **Hệ số luôn bắt đầu từ 1.** Trước đây chỉ agent chưa từng có dòng mới được gán
