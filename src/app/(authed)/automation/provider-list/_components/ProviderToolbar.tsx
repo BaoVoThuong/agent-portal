@@ -51,8 +51,11 @@ export function ProviderToolbar({
   const active = hasActiveProviderFilters(filters) || query.trim() !== "";
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <div className="relative min-w-[18rem] flex-1">
+    <div className="flex min-w-0 flex-col gap-2">
+      {/* Ô tìm kiếm chiếm trọn một hàng: nó là thứ được dùng nhiều nhất, và
+          đứng chung hàng với năm dropdown thì bị bóp lại còn một mẩu ở màn
+          hình hẹp. */}
+      <div className="relative w-full">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b778c]" />
         <input
           value={query}
@@ -63,82 +66,84 @@ export function ProviderToolbar({
         />
       </div>
 
-      <TaskSelect
-        multi
-        searchable
-        values={filters.state}
-        options={toOptions(options.state)}
-        placeholder="State"
-        summaryLabel="states"
-        className="w-max min-w-[8rem]"
-        buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-        onValuesChange={(values) => onFilters({ ...filters, state: values })}
-      />
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <TaskSelect
+          multi
+          searchable
+          values={filters.state}
+          options={toOptions(options.state)}
+          placeholder="State"
+          summaryLabel="states"
+          className="w-max min-w-[8rem]"
+          buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+          onValuesChange={(values) => onFilters({ ...filters, state: values })}
+        />
 
-      <TaskSelect
-        multi
-        searchable
-        values={filters.city}
-        options={toOptions(options.city)}
-        placeholder="City"
-        summaryLabel="cities"
-        className="w-max min-w-[9rem]"
-        buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-        onValuesChange={(values) => onFilters({ ...filters, city: values })}
-      />
+        <TaskSelect
+          multi
+          searchable
+          values={filters.city}
+          options={toOptions(options.city)}
+          placeholder="City"
+          summaryLabel="cities"
+          className="w-max min-w-[9rem]"
+          buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+          onValuesChange={(values) => onFilters({ ...filters, city: values })}
+        />
 
-      <TaskSelect
-        multi
-        searchable
-        values={filters.specialty}
-        options={toOptions(options.specialty)}
-        placeholder="Specialty"
-        summaryLabel="specialties"
-        className="w-max min-w-[10rem]"
-        buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-        onValuesChange={(values) => onFilters({ ...filters, specialty: values })}
-      />
+        <TaskSelect
+          multi
+          searchable
+          values={filters.specialty}
+          options={toOptions(options.specialty)}
+          placeholder="Specialty"
+          summaryLabel="specialties"
+          className="w-max min-w-[10rem]"
+          buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+          onValuesChange={(values) => onFilters({ ...filters, specialty: values })}
+        />
 
-      <TaskSelect
-        multi
-        values={filters.accepting}
-        options={toOptions(options.accepting)}
-        placeholder="Accepting patients"
-        summaryLabel="answers"
-        className="w-max min-w-[11rem]"
-        buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-        onValuesChange={(values) => onFilters({ ...filters, accepting: values })}
-      />
+        <TaskSelect
+          multi
+          values={filters.accepting}
+          options={toOptions(options.accepting)}
+          placeholder="Accepting patients"
+          summaryLabel="answers"
+          className="w-max min-w-[11rem]"
+          buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+          onValuesChange={(values) => onFilters({ ...filters, accepting: values })}
+        />
 
-      <TaskSelect
-        value={filters.source}
-        options={SOURCE_OPTIONS}
-        placeholder="All sources"
-        className="w-max min-w-[9rem]"
-        buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-        onChange={(value) =>
-          onFilters({ ...filters, source: value as ProviderFilters["source"] })
-        }
-      />
+        <TaskSelect
+          value={filters.source}
+          options={SOURCE_OPTIONS}
+          placeholder="All sources"
+          className="w-max min-w-[9rem]"
+          buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+          onChange={(value) =>
+            onFilters({ ...filters, source: value as ProviderFilters["source"] })
+          }
+        />
 
-      {active ? (
-        <button
-          type="button"
-          onClick={() => {
-            onQuery("");
-            onFilters(EMPTY_PROVIDER_FILTERS);
-          }}
-          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-        >
-          <X className="h-3.5 w-3.5" /> Clear
-        </button>
-      ) : null}
+        {active ? (
+          <button
+            type="button"
+            onClick={() => {
+              onQuery("");
+              onFilters(EMPTY_PROVIDER_FILTERS);
+            }}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+          >
+            <X className="h-3.5 w-3.5" /> Clear
+          </button>
+        ) : null}
 
-      {active ? (
-        <span className="text-xs font-semibold text-[#6b778c]">
-          {resultCount} of {totalCount}
-        </span>
-      ) : null}
+        {active ? (
+          <span className="text-xs font-semibold text-[#6b778c]">
+            {resultCount} of {totalCount}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
