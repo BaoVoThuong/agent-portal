@@ -133,6 +133,7 @@ const SCOPE_LABEL: Record<TableScope, string> = {
   medicare: "Health Medicare Enrollment",
   medicaid: "Health Medicaid Enrollment",
   lead: "Event Leads",
+  provider: "Provider List",
 };
 
 // Each page passes the scopes it owns. Sharing one screen across every scope

@@ -82,6 +82,14 @@ export const REQUIRED_CAPABLE_SYSTEM_KEYS: Record<TableScope, ReadonlySet<string
     "client", "description", "fub", "due", "stage", "carrier", "pcp2025", "agent", "responsible",
   ]),
   lead: new Set(["name", "product", "phone", "email", "assignee", "status"]),
+  // Mọi cột văn bản của provider đều có ô nhập thật trong hộp thoại Add
+  // address, nên đều đánh Required được. Riêng "source" thì không: nó là cột
+  // dẫn xuất chỉ để đọc, nói dòng này đến từ Sheet hay do người dùng tự thêm.
+  provider: new Set([
+    "doctors", "facility", "npi", "practices_as", "phone", "street", "city",
+    "state", "zip_code", "accepting_new_patients", "business_hours",
+    "obamacare", "medicare", "other_plans", "verified_by", "date",
+  ]),
   // "assignee" (cs) is deliberately absent from that set: an unassigned task
   // is a valid, intentional state in this system (unassigning is what sends
   // a task back to Backlog — see StatusPill's comment in TaskRowItem.tsx),
@@ -98,6 +106,7 @@ const OPTIONAL_SYSTEM_DETAIL_KEYS: Record<TableScope, ReadonlySet<string>> = {
   aca: new Set(),
   medicare: new Set(),
   medicaid: new Set(),
+  provider: new Set(),
   lead: new Set(["createdAt"]),
 };
 

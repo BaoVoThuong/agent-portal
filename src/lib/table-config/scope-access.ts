@@ -3,6 +3,8 @@ import type { TableScope } from "./types";
 /** Bảng Health do quyền task quản; bảng lead do quyền lead quản. */
 const TASK_SCOPES: readonly TableScope[] = ["cs", "aca", "medicare", "medicaid"];
 const LEAD_SCOPES: readonly TableScope[] = ["lead"];
+/** Bảng Provider List do quyền Automation Tool quản. */
+const PROVIDER_SCOPES: readonly TableScope[] = ["provider"];
 
 /**
  * Người này được sửa cấu hình bảng của những scope nào.
@@ -23,9 +25,13 @@ const LEAD_SCOPES: readonly TableScope[] = ["lead"];
 export function configScopesFor(input: {
   isTaskAdmin: boolean;
   isLeadManager: boolean;
+  isProviderManager: boolean;
 }): TableScope[] {
   const scopes: TableScope[] = [];
   if (input.isTaskAdmin) scopes.push(...TASK_SCOPES);
   if (input.isLeadManager) scopes.push(...LEAD_SCOPES);
+  // Provider List đứng CUỐI: thêm vào giữa sẽ đẩy vị trí của Event Leads trong
+  // dropdown, mà người dùng bấm theo trí nhớ vị trí.
+  if (input.isProviderManager) scopes.push(...PROVIDER_SCOPES);
   return scopes;
 }

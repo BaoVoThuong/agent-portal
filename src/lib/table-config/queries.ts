@@ -9,6 +9,30 @@ const TABLE_COLUMN_SELECT =
   "id,scope,key,label,type,is_system,position,pinned,hidden_default,show_in_detail,required,created_by_email,created_at,updated_at,archived_at";
 
 const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
+  // Provider List: khoá cột phải TRÙNG tên cột trong bảng provider_address, vì
+  // màn hình đọc/ghi thẳng các cột đó. Riêng `source` là cột dẫn xuất chỉ để
+  // đọc — nó nói dòng này đến từ Sheet hay do người dùng tự thêm.
+  provider: [
+    col("provider", "doctors", "Doctor", "text", 10, false, true),
+    col("provider", "facility", "Facility", "text", 20),
+    col("provider", "npi", "NPI", "text", 30),
+    col("provider", "practices_as", "Specialty", "text", 40),
+    col("provider", "phone", "Phone", "text", 50),
+    col("provider", "street", "Street", "text", 60),
+    col("provider", "city", "City", "text", 70),
+    col("provider", "state", "State", "text", 80),
+    col("provider", "zip_code", "ZIP", "text", 90),
+    col("provider", "accepting_new_patients", "Accepting new patients", "text", 100),
+    col("provider", "source", "Source", "text", 110),
+    // Ẩn mặc định: dữ liệu thưa (verified_by chỉ 1% dòng có giá trị, date 21%)
+    // hoặc quá dài để đứng trong bảng.
+    col("provider", "business_hours", "Business hours", "text", 120, true),
+    col("provider", "obamacare", "ACA plans", "text", 130, true),
+    col("provider", "medicare", "Medicare plans", "text", 140, true),
+    col("provider", "other_plans", "Other plans", "text", 150, true),
+    col("provider", "verified_by", "Verified by", "text", 160, true),
+    col("provider", "date", "Verified date", "text", 170, true),
+  ],
   cs: [
     col("cs", "key", "Key", "text", 10, false, true),
     col("cs", "summary", "Client Name", "text", 20, false, true),

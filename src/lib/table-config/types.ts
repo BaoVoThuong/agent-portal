@@ -4,6 +4,9 @@ export const TABLE_SCOPES = [
   "medicare",
   "medicaid",
   "lead",
+  // Provider List: bảng tra cứu bác sĩ/cơ sở trong Automation Tool. Dùng chung
+  // quyền `automation.provider_finder` với Provider Finder.
+  "provider",
 ] as const;
 export type TableScope = (typeof TABLE_SCOPES)[number];
 

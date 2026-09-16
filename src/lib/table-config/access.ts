@@ -10,6 +10,8 @@ import {
   canWorkLeads,
   isLeadViewAdmin,
 } from "@/lib/leads/access";
+import { can } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 import type { TableScope } from "./types";
 
 export async function loadConfigActor() {
@@ -61,8 +63,27 @@ async function loadLeadConfigGate(need: "work" | "manage"): Promise<ScopeGateRes
  * production chỉ có quyền lead **chưa bao giờ** sửa được cấu hình bảng lead —
  * kể cả ở `/leads/config`, màn hình dựng riêng cho họ.
  */
+/**
+ * Bảng Provider List đi theo quyền của Automation Tool.
+ *
+ * Một cổng duy nhất cho cả đọc lẫn ghi: ai mở được màn Provider List thì cũng
+ * tự thêm/sửa cột của bảng đó. Tách hai mức ở đây là dựng một bậc quyền thứ hai
+ * mà sidebar và route registry không hề biết tới.
+ */
+async function loadProviderConfigGate(): Promise<ScopeGateResult> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return { ok: false, error: "Unauthorized", status: 401 };
+  if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+    return { ok: false, error: "Forbidden", status: 403 };
+  }
+  return { ok: true, actor: { email } };
+}
+
 export async function loadConfigAdminForScope(scope: TableScope): Promise<ScopeGateResult> {
-  return scope === "lead" ? loadLeadConfigGate("manage") : loadConfigAdmin();
+  if (scope === "lead") return loadLeadConfigGate("manage");
+  if (scope === "provider") return loadProviderConfigGate();
+  return loadConfigAdmin();
 }
 
 /**
@@ -74,5 +95,7 @@ export async function loadConfigAdminForScope(scope: TableScope): Promise<ScopeG
  * lưu được nhưng màn hình không bao giờ cập nhật.
  */
 export async function loadConfigActorForScope(scope: TableScope): Promise<ScopeGateResult> {
-  return scope === "lead" ? loadLeadConfigGate("work") : loadConfigActor();
+  if (scope === "lead") return loadLeadConfigGate("work");
+  if (scope === "provider") return loadProviderConfigGate();
+  return loadConfigActor();
 }

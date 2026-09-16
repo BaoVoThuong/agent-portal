@@ -11,6 +11,8 @@ import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/acc
 import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { configScopesFor } from "@/lib/table-config/scope-access";
+import { can } from "@/lib/rbac/client";
+import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   fetchAllTableColumnOptions,
   fetchAllTableColumns,
@@ -77,7 +79,18 @@ export default async function ConfigPage() {
       )
     : false;
 
-  const scopes = configScopesFor({ isTaskAdmin: admin.ok, isLeadManager });
+  // Provider List dùng chung quyền với Provider Finder: ai mở được màn đó thì
+  // cũng tự thêm/sửa cột của bảng provider.
+  const isProviderManager = can(
+    session?.user?.permissions,
+    PERMISSIONS.AUTOMATION_PROVIDER_FINDER
+  );
+
+  const scopes = configScopesFor({
+    isTaskAdmin: admin.ok,
+    isLeadManager,
+    isProviderManager,
+  });
   if (scopes.length === 0) {
     // 401 khi chưa đăng nhập, 403 khi đăng nhập rồi mà không quản bảng nào.
     redirect(!email ? "/api/auth/signin" : "/unauthorized");
@@ -87,7 +100,11 @@ export default async function ConfigPage() {
   // (`fetchTaskAgentCandidates` đọc mọi tài khoản đang hoạt động) rồi truyền
   // xuống client. Người chỉ có quyền lead phải nhận đúng mức mà `/leads/config`
   // gửi cho họ hôm qua: rỗng.
-  const needsTaskData = scopes.some((scope) => scope !== "lead");
+  // Người chỉ có quyền Automation cũng không được kéo theo danh bạ công ty và
+  // dữ liệu Health mà họ không có quyền đọc — cùng lý do với scope lead.
+  const needsTaskData = scopes.some(
+    (scope) => scope !== "lead" && scope !== "provider"
+  );
   const needsLeadData = scopes.includes("lead");
 
   const supabase = getSupabaseAdmin();
@@ -260,6 +277,9 @@ export default async function ConfigPage() {
         enrollmentOptions: {
           cs: { available: true },
           lead: { available: true },
+          // Provider List không có bộ tuỳ chọn riêng như enrollment; ô này chỉ
+          // để bản đồ đủ khoá cho mọi scope.
+          provider: { available: true },
           ...(Object.fromEntries(
             ENROLLMENT_PROGRAMS.map((program, index) => {
               const result = enrollmentOptionResults[index];
