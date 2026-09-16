@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   NOTIFICATION_COPY_TYPES,
+  WAITING_REMINDER_BILLING_DETAIL,
   isSystemNotification,
   notificationActionText,
   notificationEntityId,
@@ -60,6 +61,8 @@ describe("thông báo hệ thống không có người thực hiện", () => {
     "overdue",
     "todo_reminder",
     "overdue_reminder",
+    "due_date_overdue",
+    "due_date_overdue_reminder",
     "waiting_reminder",
     "due_soon",
     "stale",
@@ -90,6 +93,35 @@ describe("thông báo hệ thống không có người thực hiện", () => {
   it("không có tên người thì vẫn ra câu đọc được", () => {
     expect(notificationSentence(notif({ type: "mentioned" }), "   ")).toBe(
       "tagged you in a comment"
+    );
+  });
+
+  it("thông báo quá Due Date không bị ghép chữ 'system' vào đầu", () => {
+    // Cron ghi actor_email = "system"; không nhận diện là hệ thống thì chuông
+    // và push hiện "system Task passed its due date".
+    expect(notificationSentence(notif({ type: "due_date_overdue" }), "system")).toBe(
+      "Task passed its due date"
+    );
+    expect(
+      notificationSentence(notif({ type: "due_date_overdue_reminder" }), "system")
+    ).toBe("Task is still past its due date — reminder");
+  });
+});
+
+describe("câu chữ không nói sai hoàn cảnh", () => {
+  it("bình luận không khẳng định task được giao cho người nhận", () => {
+    // Người nhận gồm cả agent, participant, reporter — không phải ai cũng là assignee.
+    expect(notificationActionText(notif({ type: "commented" }))).toBe("commented on a task");
+  });
+
+  it("lời nhắc của Billing nói đúng chặng Billing", () => {
+    expect(
+      notificationActionText(
+        notif({ type: "waiting_reminder", detail: WAITING_REMINDER_BILLING_DETAIL })
+      )
+    ).toBe("Task is still in Billing — reminder");
+    expect(notificationActionText(notif({ type: "waiting_reminder" }))).toBe(
+      "Task is still waiting for follow-up"
     );
   });
 });

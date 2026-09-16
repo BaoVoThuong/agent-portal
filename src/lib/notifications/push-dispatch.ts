@@ -24,6 +24,7 @@ export type DispatchRow = {
   actor_email: string;
   type: string;
   entity_id: string;
+  detail?: string | null;
 };
 
 /** Tên hiển thị của người gây ra thông báo; không tra được thì dùng chính email. */
@@ -78,7 +79,9 @@ export function groupPushRows(
 ): PushGroup[] {
   const groups = new Map<string, PushGroup>();
   for (const row of rows) {
-    const key = `${row.type}|${row.entity_id}|${row.actor_email}`;
+    // `detail` nằm trong khoá vì câu chữ đọc nó (Waiting hay Billing): gộp hai
+    // detail khác nhau là một nửa người nhận đọc sai chặng.
+    const key = `${row.type}|${row.entity_id}|${row.actor_email}|${row.detail ?? ""}`;
     const existing = groups.get(key);
     if (existing) {
       if (!existing.emails.includes(row.recipient_email)) {
@@ -92,6 +95,7 @@ export function groupPushRows(
         entity_type: entityType,
         entity_id: row.entity_id,
         task_id: row.entity_id,
+        detail: row.detail ?? null,
       },
       actorEmail: row.actor_email,
       emails: [row.recipient_email],
@@ -132,6 +136,7 @@ export async function pushForTaskNotifications(
     task_id: string;
     type: string;
     actor_email: string;
+    detail?: string | null;
   }[]
 ): Promise<void> {
   try {

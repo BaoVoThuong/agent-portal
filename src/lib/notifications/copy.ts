@@ -49,6 +49,15 @@ export const NOTIFICATION_COPY_TYPES = [
 export type NotificationCopyType = (typeof NOTIFICATION_COPY_TYPES)[number];
 
 /**
+ * `detail` mà cron ghi lên `waiting_reminder` khi task đang ở Billing.
+ *
+ * Billing dùng chung loại thông báo với Waiting (chung ngưỡng giờ trong Reminder
+ * Setup). Thêm hẳn một loại mới nghĩa là một rollout sửa CHECK constraint trước
+ * khi deploy — không đáng cho một câu chữ; một giá trị `detail` là đủ.
+ */
+export const WAITING_REMINDER_BILLING_DETAIL = "billing";
+
+/**
  * Phần tối thiểu của một thông báo cần để dựng câu chữ và đường dẫn.
  *
  * Cố ý KHÔNG đòi cả bản ghi: người gửi push chỉ có bấy nhiêu trường trong tay
@@ -60,6 +69,8 @@ export type NotificationCopySource = {
   entity_type?: NotificationEntityKind | null;
   entity_id?: string | null;
   task_id: string;
+  /** Chi tiết của dòng thông báo. Hiện chỉ `waiting_reminder` đọc nó (Waiting hay Billing). */
+  detail?: string | null;
 };
 
 export function notificationEntityKind(
@@ -113,7 +124,9 @@ export function notificationActionText(notification: NotificationCopySource): st
     case "commented":
       return kind === "enrollment"
         ? "commented on an enrollment record"
-        : "commented on a task assigned to you";
+        // KHÔNG nói "assigned to you": người nhận gồm cả agent, participant và
+        // reporter — phần lớn không phải người được giao task.
+        : "commented on a task";
     case "reacted":
       return kind === "enrollment"
         ? "reacted to your enrollment comment"
@@ -151,7 +164,9 @@ export function notificationActionText(notification: NotificationCopySource): st
     case "due_date_overdue_reminder":
       return "Task is still past its due date — reminder";
     case "waiting_reminder":
-      return "Task is still waiting for follow-up";
+      return notification.detail === WAITING_REMINDER_BILLING_DETAIL
+        ? "Task is still in Billing — reminder"
+        : "Task is still waiting for follow-up";
     case "due_soon":
       return kind === "enrollment" ? "Enrollment is due soon" : "Task is due soon";
     case "stale":
@@ -179,6 +194,10 @@ export function isSystemNotification(notification: NotificationCopySource): bool
     case "overdue":
     case "todo_reminder":
     case "overdue_reminder":
+    // Hai loại Due Date cũng do cron ghi (actor_email = "system"). Thiếu chúng ở
+    // đây thì chuông và push hiện "system Task passed its due date".
+    case "due_date_overdue":
+    case "due_date_overdue_reminder":
     case "waiting_reminder":
     case "due_soon":
     case "stale":

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { intervalDue, isDueSoon, isStale } from "@/lib/tasks/reminders";
+import {
+  intervalDue,
+  isDueSoon,
+  isStale,
+  shouldSendStaleReminder,
+} from "@/lib/tasks/reminders";
 
 const rules = [
   {
@@ -97,6 +102,49 @@ describe("isStale", () => {
     expect(
       isStale(
         { status: "todo", last_activity_at: "2026-07-04T18:00:00.000Z" },
+        48,
+        now
+      )
+    ).toBe(false);
+  });
+});
+
+describe("shouldSendStaleReminder", () => {
+  const now = new Date("2026-07-10T00:00:00.000Z");
+  // SLA 7 ngày: task đang làm, CHƯA quá hạn, nhưng im lặng 3 ngày.
+  const idle = {
+    ...base,
+    sla_minutes: 7 * 24 * 60,
+    in_progress_at: "2026-07-06T00:00:00.000Z",
+    last_activity_at: "2026-07-07T00:00:00.000Z",
+    stale_reminded_at: null,
+  };
+
+  it("nhắc task In Progress chưa quá hạn mà im lặng quá ngưỡng", () => {
+    expect(shouldSendStaleReminder(idle, rules, 48, now)).toBe(true);
+  });
+
+  it("không nhắc To Do, Waiting, Billing — mỗi chặng đã có lời nhắc riêng", () => {
+    for (const status of ["todo", "waiting", "billing"] as const) {
+      expect(shouldSendStaleReminder({ ...idle, status }, rules, 48, now), status).toBe(false);
+    }
+  });
+
+  it("không nhắc task đang quá hạn SLA — overdue_reminder đã lo", () => {
+    expect(shouldSendStaleReminder({ ...idle, sla_minutes: 60 }, rules, 48, now)).toBe(false);
+  });
+
+  it("vẫn nhắc task đã mở khoá quá hạn, vì SLA không còn chạy nên không ai khác nhắc", () => {
+    expect(
+      shouldSendStaleReminder({ ...idle, sla_minutes: 60, overdue_count: 1 }, rules, 48, now)
+    ).toBe(true);
+  });
+
+  it("không nhắc lại khi chưa hết khoảng", () => {
+    expect(
+      shouldSendStaleReminder(
+        { ...idle, stale_reminded_at: "2026-07-09T00:00:00.000Z" },
+        rules,
         48,
         now
       )

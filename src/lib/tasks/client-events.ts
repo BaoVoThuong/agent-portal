@@ -138,3 +138,34 @@ export function writeTaskDeepLink(
 
   window.history.replaceState(window.history.state, "", nextHref);
 }
+
+export const NOTIFICATIONS_READ_EVENT = "agent-portal:notifications-read";
+
+type NotificationsReadDetail = { taskId: string };
+
+/**
+ * Báo cho cái chuông trong CÙNG tab rằng thông báo của một task vừa được đánh
+ * dấu đã đọc ở chỗ khác (mở task trên board). Không có tín hiệu này thì số trên
+ * chuông đứng yên tới lượt hỏi tóm tắt kế tiếp — tới 2 phút. Tab khác tự sửa ở
+ * lượt hỏi hoặc lần focus kế tiếp.
+ */
+export function publishNotificationsRead(taskId: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<NotificationsReadDetail>(NOTIFICATIONS_READ_EVENT, {
+      detail: { taskId },
+    })
+  );
+}
+
+export function subscribeNotificationsRead(
+  listener: (taskId: string) => void
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  const handler = (event: Event) => {
+    const taskId = (event as CustomEvent<NotificationsReadDetail>).detail?.taskId;
+    if (taskId) listener(taskId);
+  };
+  window.addEventListener(NOTIFICATIONS_READ_EVENT, handler);
+  return () => window.removeEventListener(NOTIFICATIONS_READ_EVENT, handler);
+}

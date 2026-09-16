@@ -64,6 +64,20 @@ describe("gom thông báo trước khi đẩy", () => {
     expect(groups[0].emails).toEqual(["a@x.com"]);
   });
 
+  it("khác detail thì tách riêng, và câu chữ nhận được detail", () => {
+    // Waiting và Billing dùng chung loại waiting_reminder; câu chữ đọc detail,
+    // nên gộp hai detail khác nhau là một nửa người nhận đọc sai chặng.
+    const groups = groupPushRows(
+      [
+        row({ type: "waiting_reminder", detail: "billing" }),
+        row({ type: "waiting_reminder", recipient_email: "b@x.com", detail: null }),
+      ],
+      "task"
+    );
+    expect(groups).toHaveLength(2);
+    expect(groups.map((group) => group.source.detail)).toEqual(["billing", null]);
+  });
+
   it("gắn đúng loại bản ghi để dựng đường dẫn", () => {
     const [taskGroup] = groupPushRows([row()], "task");
     const [enrollmentGroup] = groupPushRows([row({ entity_id: "rec-1" })], "enrollment");
