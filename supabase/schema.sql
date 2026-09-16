@@ -547,11 +547,28 @@ create table if not exists provider_address (
   raw_row jsonb not null,
   synced_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
+  -- Provider List (16/09/2026) ghi thẳng vào bảng này. Dòng thêm tay mang phân
+  -- vùng ('portal', 'manual') nên lượt sync — vốn xoá theo đúng cặp
+  -- (source_sheet_id, source_gid) của Sheet rồi chèn lại — không chạm tới được.
+  -- Dòng đến từ Sheet thì ngược lại: `id` đổi mỗi đêm và sửa tay sẽ mất, cho
+  -- tới khi luồng sync được tắt.
+  id uuid not null default gen_random_uuid(),
+  custom_values jsonb not null default '{}'::jsonb,
+  created_by_email text,
+  updated_by_email text,
+  updated_at timestamptz not null default now(),
+  archived_at timestamptz,
   unique (source_sheet_id, source_gid, source_row_number)
 );
 
 create index if not exists provider_address_npi_idx
   on provider_address (npi);
+
+create unique index if not exists provider_address_id_idx
+  on provider_address (id);
+
+create index if not exists provider_address_active_idx
+  on provider_address (archived_at, updated_at desc);
 
 create index if not exists provider_address_city_idx
   on provider_address (city);
@@ -3855,7 +3872,7 @@ create index if not exists enrollment_options_set_position_idx
 
 create table if not exists table_column (
   id uuid primary key default gen_random_uuid(),
-  scope text not null check (scope in ('cs','aca','medicare','medicaid','lead_pc','lead_health','lead')),
+  scope text not null check (scope in ('cs','aca','medicare','medicaid','lead_pc','lead_health','lead','provider')),
   key text not null,
   label text not null,
   type text not null
@@ -3898,7 +3915,7 @@ language sql
 immutable
 set search_path = public
 as $$
-  select p_scope in ('cs', 'aca', 'medicare', 'medicaid', 'lead');
+  select p_scope in ('cs', 'aca', 'medicare', 'medicaid', 'lead', 'provider');
 $$;
 
 create or replace function reorder_table_columns_atomic(
@@ -4255,7 +4272,7 @@ alter table table_column
 create table if not exists user_table_layout (
   id uuid primary key default gen_random_uuid(),
   user_email text not null,
-  scope text not null check (scope in ('cs','aca','medicare','medicaid','lead_pc','lead_health','lead')),
+  scope text not null check (scope in ('cs','aca','medicare','medicaid','lead_pc','lead_health','lead','provider')),
   layout jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now(),
   unique (user_email, scope)
