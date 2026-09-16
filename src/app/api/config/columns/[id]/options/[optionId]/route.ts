@@ -5,6 +5,7 @@ import { fetchTableColumnById } from "@/lib/table-config/queries";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
 import { duplicateOptionLabelResponse, inactiveConfigValueResponse, isUniqueViolation } from "@/lib/table-config/mutation-errors";
 import { parseConfiguredColor } from "@/lib/table-config/value-colors";
+import { canManageColumnOptions } from "@/lib/table-config/system-option-columns";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
   if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
-  if (column.type !== "dropdown" || column.is_system) {
+  if (!canManageColumnOptions(column)) {
     return NextResponse.json(
       { error: "Only custom dropdown columns can use custom options." },
       { status: 400 }
@@ -80,7 +81,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
   if (!column) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
-  if (column.type !== "dropdown" || column.is_system) {
+  if (!canManageColumnOptions(column)) {
     return NextResponse.json(
       { error: "Only custom dropdown columns can use custom options." },
       { status: 400 }

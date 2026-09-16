@@ -94,6 +94,7 @@ import { ConfigSlaSection } from "./ConfigSlaSection";
 import ConfigAlertSection from "./ConfigAlertSection";
 import { isConfigMutationWarning } from "@/lib/table-config/partial-success";
 import { isLatestRefresh, readRefreshResponse } from "@/lib/table-config/refresh-state";
+import { canManageColumnOptions } from "@/lib/table-config/system-option-columns";
 
 type AssistantMember = {
   agent_email: string;
@@ -152,6 +153,7 @@ const COLUMN_TYPE_LABEL: Record<ColumnType, string> = {
   text: "Text",
   number: "Number",
   dropdown: "Dropdown",
+  multiselect: "Multi dropdown",
   date: "Date",
   checkbox: "Yes/No",
   link: "Link",
@@ -1582,7 +1584,11 @@ function ConfigDropdownValuesSection({
   const isEnrollmentScope = isEnrollmentProgram(scope);
   // KHÔNG nhận Status/Priority (CS) — cũng is_system+dropdown nhưng giá trị
   // hardcode trong TASK_STATUSES/TASK_PRIORITIES (TS enum), không có bảng để sửa.
-  const customDropdownColumns = columns.filter((column) => column.type === "dropdown" && !column.is_system);
+  const customDropdownColumns = columns.filter(
+    (column) =>
+      canManageColumnOptions(column) &&
+      !FIXED_VALUE_SET_COLUMN_KEYS[scope]?.includes(column.key),
+  );
   // Lead's Product is a system dropdown, but unlike CS Status/Priority its
   // values are rows in table_column_option rather than a TS enum — so its
   // colours belong here with everything else. The value set stays fixed: it is
@@ -1590,7 +1596,7 @@ function ConfigDropdownValuesSection({
   // on to find the colour.
   const fixedValueSetColumns = columns.filter(
     (column) =>
-      column.type === "dropdown" &&
+      canManageColumnOptions(column) &&
       column.is_system &&
       FIXED_VALUE_SET_COLUMN_KEYS[scope]?.includes(column.key),
   );
