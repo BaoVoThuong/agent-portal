@@ -32,6 +32,13 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("provider", "other_plans", "Other plans", "text", 150, true),
     col("provider", "verified_by", "Verified by", "text", 160, true),
     col("provider", "date", "Verified date", "text", 170, true),
+    // Siêu dữ liệu: chỉ đọc, ẩn mặc định. Trả lời "ai thêm/sửa dòng này" và
+    // "bản Sheet này cũ tới đâu" mà không chiếm chỗ trong bảng.
+    col("provider", "created_at", "Added on", "date", 180, true),
+    col("provider", "created_by_email", "Added by", "text", 190, true),
+    col("provider", "updated_at", "Last updated", "date", 200, true),
+    col("provider", "updated_by_email", "Updated by", "text", 210, true),
+    col("provider", "synced_at", "Last synced", "date", 220, true),
   ],
   cs: [
     col("cs", "key", "Key", "text", 10, false, true),

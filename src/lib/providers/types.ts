@@ -45,11 +45,29 @@ export const PROVIDER_SELECT = [
   "source_row_number",
   ...PROVIDER_TEXT_FIELDS,
   "custom_values",
+  "created_at",
+  "synced_at",
   "created_by_email",
   "updated_by_email",
   "updated_at",
   "archived_at",
 ].join(",");
+
+/**
+ * Cột siêu dữ liệu: chỉ đọc, ẩn mặc định.
+ *
+ * Không ai gõ tay vào những cột này, nhưng chúng trả lời được hai câu hỏi hay
+ * gặp: "dòng này ai thêm / sửa lần cuối" và "bản Sheet này cũ tới đâu".
+ */
+export const PROVIDER_META_FIELDS = [
+  "created_at",
+  "synced_at",
+  "updated_at",
+  "created_by_email",
+  "updated_by_email",
+] as const;
+
+export type ProviderMetaField = (typeof PROVIDER_META_FIELDS)[number];
 
 export type ProviderRow = {
   id: string;
@@ -57,6 +75,8 @@ export type ProviderRow = {
   source_gid: string;
   source_row_number: number;
   custom_values: Record<string, unknown>;
+  created_at: string | null;
+  synced_at: string | null;
   created_by_email: string | null;
   updated_by_email: string | null;
   updated_at: string;

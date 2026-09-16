@@ -3,7 +3,13 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
-import { PROVIDER_TEXT_FIELDS, isPortalRow, type ProviderRow } from "@/lib/providers/types";
+import {
+  PROVIDER_META_FIELDS,
+  PROVIDER_TEXT_FIELDS,
+  isPortalRow,
+  type ProviderMetaField,
+  type ProviderRow,
+} from "@/lib/providers/types";
 import type { ProviderSortDir } from "@/lib/providers/search";
 
 const DEFAULT_COLUMN_WIDTH = 160;
@@ -25,6 +31,11 @@ const COLUMN_WIDTHS: Record<string, number> = {
   other_plans: 220,
   verified_by: 140,
   date: 130,
+  created_at: 150,
+  created_by_email: 170,
+  updated_at: 150,
+  updated_by_email: 170,
+  synced_at: 150,
 };
 
 function columnWidth(column: TableColumn): number {
@@ -34,6 +45,22 @@ function columnWidth(column: TableColumn): number {
 /** `source` là cột dẫn xuất, không nằm trong database và không sửa được. */
 function isSourceColumn(column: TableColumn): boolean {
   return column.is_system && column.key === "source";
+}
+
+/** Cột siêu dữ liệu: do hệ thống ghi, người dùng chỉ đọc. */
+function isMetaColumn(column: TableColumn): boolean {
+  return (
+    column.is_system && (PROVIDER_META_FIELDS as readonly string[]).includes(column.key)
+  );
+}
+
+function formatMetaValue(value: string | null, type: TableColumn["type"]): string {
+  if (!value) return "—";
+  if (type !== "date") return value;
+  const date = new Date(value);
+  // Dữ liệu cũ có thể mang chuỗi không phải ngày; in nguyên văn còn hơn hiện
+  // "Invalid Date".
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function isEditableTextColumn(column: TableColumn): boolean {
@@ -168,9 +195,21 @@ function ProviderCell({
     );
   }
 
-  // Cột hệ thống của provider đều là cột văn bản có thật trong bảng, nên sửa
-  // thẳng bằng chính component mà Task List và Event Leads dùng — cùng một lối
-  // bấm-để-sửa, không phải học lại.
+  if (isMetaColumn(column)) {
+    const text = formatMetaValue(
+      provider[column.key as ProviderMetaField],
+      column.type
+    );
+    return (
+      <span className="truncate text-sm font-medium text-[#5e6c84]" title={text}>
+        {text}
+      </span>
+    );
+  }
+
+  // Cột hệ thống còn lại của provider đều là cột văn bản có thật trong bảng,
+  // nên sửa thẳng bằng chính component mà Task List và Event Leads dùng — cùng
+  // một lối bấm-để-sửa, không phải học lại.
   if (isEditableTextColumn(column)) {
     return (
       <EditableCustomCell

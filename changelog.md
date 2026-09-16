@@ -36,6 +36,13 @@ mang phân vùng riêng `('portal','manual')` nên nằm ngoài vùng đó. Ngư
 một dòng **đến từ Sheet** sẽ bị ghi đè lúc 02:00 CT — API trả `warning` và màn
 hình nói thẳng điều đó, cột `Source` đánh dấu từng dòng là `Sheet` hay `Manual`.
 
+**Đủ cột:** 16 cột dữ liệu của `provider_address` đều có mặt và cấu hình được.
+Thêm 5 cột siêu dữ liệu **chỉ đọc, ẩn mặc định** — Added on, Added by, Last
+updated, Updated by, Last synced — để tra "ai thêm/sửa dòng này" và "bản Sheet
+cũ tới đâu". Cố ý KHÔNG phơi ra: `raw_row`, `source_row_hash`, `id`,
+`source_gid`, `source_row_number` (ruột máy); `source_sheet_id` đã hiện gián
+tiếp qua cột `Source`.
+
 **Dữ liệu:** `provider_address` được thêm `id uuid` (khoá tra cứu của API — bảng
 này chưa từng có khoá ổn định; `source_row_number` chỉ là vị trí dòng trong
 Sheet), `custom_values`, `archived_at` và cột kiểm toán. `'provider'` được mở

@@ -15,6 +15,8 @@ function row(overrides: Partial<ProviderRow> = {}): ProviderRow {
     source_gid: "gid",
     source_row_number: 2,
     custom_values: {},
+    created_at: "2026-09-16T00:00:00.000Z",
+    synced_at: "2026-09-16T02:01:20.429Z",
     created_by_email: null,
     updated_by_email: null,
     updated_at: "2026-09-16T00:00:00.000Z",
