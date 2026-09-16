@@ -6,6 +6,41 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-16 — Provider List: bảng provider trong Automation Tool, thêm được địa chỉ
+
+**Mục đích:** để portal dần thay chỗ luồng sync từ Google Sheet. Đây là bước đầu —
+xem được, sửa được, thêm được ngay trong app.
+
+**Màn mới** `/automation/provider-list`, nằm trong nhóm Automation Tool, dùng
+**chung quyền** `automation.provider_finder` với Provider Finder. Không role nào
+phải sửa.
+
+**Bảng theo đúng lối List của Health CS:** cột cấu hình được ở `/config` (scope
+mới `provider`), ẩn/hiện theo từng người qua `user_table_layout`, tìm kiếm trên
+mọi cột văn bản lẫn cột tuỳ chỉnh, bấm tiêu đề để sắp xếp (ô trống luôn xuống
+cuối ở cả hai chiều — dữ liệu provider rỗng gần một nửa), và sửa ô tại chỗ bằng
+chính `EditableCustomCell` mà Task List và Event Leads đang dùng.
+
+**Dòng thêm tay không bị sync xoá.** `promote_sheet_sync_run` xoá theo đúng cặp
+`(source_sheet_id, source_gid)` của Sheet rồi chèn lại; dòng thêm trong portal
+mang phân vùng riêng `('portal','manual')` nên nằm ngoài vùng đó. Ngược lại, sửa
+một dòng **đến từ Sheet** sẽ bị ghi đè lúc 02:00 CT — API trả `warning` và màn
+hình nói thẳng điều đó, cột `Source` đánh dấu từng dòng là `Sheet` hay `Manual`.
+
+**Dữ liệu:** `provider_address` được thêm `id uuid` (khoá tra cứu của API — bảng
+này chưa từng có khoá ổn định; `source_row_number` chỉ là vị trí dòng trong
+Sheet), `custom_values`, `archived_at` và cột kiểm toán. `'provider'` được mở
+trong CHECK của **cả** `table_column` lẫn `user_table_layout`, cùng
+`is_table_scope`.
+
+**Phải chạy trên production:** `supabase/rollouts/2026-09-16-provider-list.sql`
+(idempotent), rồi `notify pgrst, 'reload schema';`. Kỳ vọng 4 cột `ok`.
+
+**Chưa làm:** tắt luồng sync (người dùng quyết thời điểm), gộp dòng trùng và
+chuẩn hoá bác sĩ/cơ sở/mạng lưới bảo hiểm, và Provider Finder vẫn đọc bảng cũ —
+nó tự thấy dòng thêm tay vì dùng chung bảng. Xoá vĩnh viễn chưa có; hiện chỉ
+archive.
+
 ## 2026-09-16 — Agent thôi nhận thông báo tự động của task
 
 **Quyết định của đội (16/09/2026)**, dựa trên số liệu 14 ngày: mọi agent đọc **0%**
