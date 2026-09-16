@@ -33,6 +33,24 @@ export const PROVIDER_TEXT_FIELDS = [
 
 export type ProviderTextField = (typeof PROVIDER_TEXT_FIELDS)[number];
 
+/**
+ * Cột mà API trả về. Một hằng duy nhất cho cả route danh sách, route sửa và
+ * trang server — ba nơi trả về hình dạng khác nhau là ba lần màn hình phải
+ * đoán xem trường nào có mặt.
+ */
+export const PROVIDER_SELECT = [
+  "id",
+  "source_sheet_id",
+  "source_gid",
+  "source_row_number",
+  ...PROVIDER_TEXT_FIELDS,
+  "custom_values",
+  "created_by_email",
+  "updated_by_email",
+  "updated_at",
+  "archived_at",
+].join(",");
+
 export type ProviderRow = {
   id: string;
   source_sheet_id: string;
