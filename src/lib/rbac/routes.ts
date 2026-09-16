@@ -29,6 +29,11 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
   },
   {
+    // Cùng quyền với Provider Finder: cùng dữ liệu, cùng nhóm người dùng.
+    href: "/automation/provider-list",
+    permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+  },
+  {
     href: "/dashboard/health",
     anyPermission: [
       PERMISSIONS.AGENT_DASHBOARD_HEALTH,

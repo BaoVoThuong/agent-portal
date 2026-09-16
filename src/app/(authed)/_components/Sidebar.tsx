@@ -66,6 +66,11 @@ const menuData: MenuItem[] = [
         label: "Provider Finder",
         permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
       },
+      {
+        href: "/automation/provider-list",
+        label: "Provider List",
+        permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+      },
     ],
   },
   {
