@@ -9,7 +9,7 @@ describe("buildProviderPatch", () => {
     });
   });
 
-  it("nhận mảng plan và ghi nhãn dạng chuỗi cho provider_address", () => {
+  it("nhận mảng plan và ghi nhãn dạng chuỗi cho provider_directory", () => {
     expect(buildProviderPatch({ obamacare: ["UHC", "Oscar HMO", "UHC"] })).toMatchObject({
       ok: true,
       patch: { obamacare: "UHC, Oscar HMO" },

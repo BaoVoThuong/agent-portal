@@ -18,7 +18,7 @@ import {
   type ProviderFilters,
   type ProviderSortDir,
 } from "@/lib/providers/search";
-import { isPortalRow, type ProviderRow } from "@/lib/providers/types";
+import type { ProviderRow } from "@/lib/providers/types";
 import { AddProviderDialog } from "./AddProviderDialog";
 import { ProviderTable } from "./ProviderTable";
 import { ProviderTableSettingsButton } from "./ProviderTableSettingsButton";
@@ -175,11 +175,6 @@ export function ProviderListClient({
     return sortKey ? sortProviders(filtered, sortKey, sortDir) : filtered;
   }, [providers, filters, query, sortKey, sortDir]);
 
-  const manualCount = useMemo(
-    () => providers.filter((provider) => isPortalRow(provider)).length,
-    [providers]
-  );
-
   async function patchProvider(id: string, patch: Record<string, unknown>) {
     const response = await fetch(`/api/automation/provider-list/${id}`, {
       method: "PATCH",
@@ -187,7 +182,7 @@ export function ProviderListClient({
       body: JSON.stringify(patch),
     }).catch(() => null);
     const payload = (await response?.json().catch(() => null)) as
-      | { provider?: ProviderRow; warning?: string; error?: string }
+      | { provider?: ProviderRow; error?: string }
       | null;
     if (!response?.ok || !payload?.provider) {
       setNotice({ tone: "error", text: payload?.error ?? "Could not save the change." });
@@ -196,7 +191,7 @@ export function ProviderListClient({
     }
     const saved = payload.provider;
     setProviders((current) => current.map((row) => (row.id === id ? saved : row)));
-    setNotice(payload.warning ? { tone: "info", text: payload.warning } : null);
+    setNotice(null);
   }
 
   async function createProvider(body: Record<string, unknown>) {
@@ -220,34 +215,13 @@ export function ProviderListClient({
     <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]">
       <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
-          <header className="flex flex-wrap items-end justify-between gap-3">
+          <header className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="text-xl font-bold">Provider List</h1>
-              <p className="mt-1 text-xs font-medium text-[#6b778c]">
-                {providers.length} providers · {manualCount} added in the portal ·{" "}
-                {providers.length - manualCount} from the Google Sheet, replaced every
-                night at 02:00 CT.
-              </p>
+              <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
+                Provider List
+              </h1>
             </div>
             <div className="flex items-center gap-2">
-              <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
-                {VIEWS.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => setView(option.key)}
-                    aria-current={view === option.key ? "page" : undefined}
-                    className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                      view === option.key
-                        ? "bg-white text-[#0c66e4] shadow-sm"
-                        : "text-[#5e6c84] hover:text-[#172b4d]"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-
               {/* Hai nút này chỉ có nghĩa với bảng; tab tìm theo địa chỉ không
                   có cột để ẩn và không thêm dòng. */}
               {view === "list" ? (
@@ -260,7 +234,7 @@ export function ProviderListClient({
                   <button
                     type="button"
                     onClick={() => setAddOpen(true)}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc]"
+                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
                   >
                     <Plus className="h-4 w-4" /> Add address
                   </button>
@@ -269,8 +243,10 @@ export function ProviderListClient({
             </div>
           </header>
 
-          {view === "list" ? (
           <ProviderToolbar
+            views={VIEWS}
+            view={view}
+            onViewChange={setView}
             query={query}
             onQuery={(value) => {
               setQuery(value);
@@ -285,7 +261,6 @@ export function ProviderListClient({
             resultCount={rows.length}
             totalCount={providers.length}
           />
-          ) : null}
 
           {notice ? (
             <p

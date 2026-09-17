@@ -11,12 +11,10 @@ import type { ProviderRow } from "@/lib/providers/types";
 function row(overrides: Partial<ProviderRow> = {}): ProviderRow {
   return {
     id: "p1",
-    source_sheet_id: "sheet",
-    source_gid: "gid",
     source_row_number: 2,
     custom_values: {},
+    needs_review: false,
     created_at: "2026-09-16T00:00:00.000Z",
-    synced_at: "2026-09-16T02:01:20.429Z",
     created_by_email: null,
     updated_by_email: null,
     updated_at: "2026-09-16T00:00:00.000Z",
@@ -90,7 +88,7 @@ describe("applyProviderFilters", () => {
   const rows = [
     row({ id: "a", state: "TX", city: "Houston", practices_as: "PCP - Adults", accepting_new_patients: "Yes" }),
     row({ id: "b", state: "tx", city: "Katy", practices_as: "Cardiology", accepting_new_patients: "No" }),
-    row({ id: "c", state: "CA", city: "Irvine", practices_as: null, accepting_new_patients: null, source_sheet_id: "portal" }),
+    row({ id: "c", state: "CA", city: "Irvine", practices_as: null, accepting_new_patients: null, needs_review: true }),
   ];
 
   it("không có bộ lọc nào thì trả NGUYÊN mảng cũ", () => {
@@ -122,12 +120,12 @@ describe("applyProviderFilters", () => {
     ).toEqual(["b"]);
   });
 
-  it("lọc theo nguồn dòng", () => {
+  it("lọc ra đúng những dòng còn phải sửa tay", () => {
     expect(
-      applyProviderFilters(rows, { ...EMPTY_PROVIDER_FILTERS, source: "manual" }).map((r) => r.id)
+      applyProviderFilters(rows, { ...EMPTY_PROVIDER_FILTERS, review: "needs" }).map((r) => r.id)
     ).toEqual(["c"]);
     expect(
-      applyProviderFilters(rows, { ...EMPTY_PROVIDER_FILTERS, source: "sheet" }).map((r) => r.id)
+      applyProviderFilters(rows, { ...EMPTY_PROVIDER_FILTERS, review: "ok" }).map((r) => r.id)
     ).toEqual(["a", "b"]);
   });
 

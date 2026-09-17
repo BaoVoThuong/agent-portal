@@ -1,6 +1,6 @@
 import {
   PROVIDER_TEXT_FIELDS,
-  isPortalRow,
+  needsReview,
   type ProviderRow,
   type ProviderTextField,
 } from "./types";
@@ -43,8 +43,8 @@ export type ProviderFilters = {
   city: string[];
   specialty: string[];
   accepting: string[];
-  /** "" = cả hai nguồn. */
-  source: "" | "sheet" | "manual";
+  /** "" = mọi dòng. Lọc ra đúng những dòng còn phải sửa tay. */
+  review: "" | "needs" | "ok";
 };
 
 export const EMPTY_PROVIDER_FILTERS: ProviderFilters = {
@@ -52,7 +52,7 @@ export const EMPTY_PROVIDER_FILTERS: ProviderFilters = {
   city: [],
   specialty: [],
   accepting: [],
-  source: "",
+  review: "",
 };
 
 const FILTER_FIELDS = {
@@ -72,7 +72,7 @@ export function hasActiveProviderFilters(filters: ProviderFilters): boolean {
     filters.city.length > 0 ||
     filters.specialty.length > 0 ||
     filters.accepting.length > 0 ||
-    filters.source !== ""
+    filters.review !== ""
   );
 }
 
@@ -93,8 +93,8 @@ export function applyProviderFilters(
       // "Houston" lẫn "houston ".
       if (!selected.some((candidate) => normalize(candidate) === value)) return false;
     }
-    if (filters.source === "manual" && !isPortalRow(row)) return false;
-    if (filters.source === "sheet" && isPortalRow(row)) return false;
+    if (filters.review === "needs" && !needsReview(row)) return false;
+    if (filters.review === "ok" && needsReview(row)) return false;
     return true;
   });
 }

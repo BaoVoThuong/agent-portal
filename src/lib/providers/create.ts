@@ -1,4 +1,4 @@
-import { PORTAL_SOURCE, PROVIDER_TEXT_FIELDS, type ProviderTextField } from "./types";
+import { PROVIDER_TEXT_FIELDS, type ProviderTextField } from "./types";
 import { isProviderPlanField, parsePlanCell, serializePlanCell } from "./plans";
 
 const MAX_TEXT_LENGTH = 500;
@@ -79,19 +79,18 @@ export function parseCreateProviderInput(body: unknown): CreateProviderParseResu
 
 export function buildProviderRow(
   input: CreateProviderInput,
-  ctx: { actorEmail: string; nextRowNumber: number }
+  ctx: { actorEmail: string }
 ): Record<string, unknown> {
   const actor = ctx.actorEmail.trim().toLowerCase();
   const row: Record<string, unknown> = {
-    source_sheet_id: PORTAL_SOURCE.sheetId,
-    source_gid: PORTAL_SOURCE.gid,
-    source_row_number: ctx.nextRowNumber,
-    // Bảng đòi not null. Dòng thêm tay không đến từ ô Sheet nào, nên băm theo
-    // chính vị trí trong phân vùng portal: đủ để phân biệt và không bao giờ
-    // đụng hàng với băm nội dung mà sync sinh ra.
-    source_row_hash: `portal:${ctx.nextRowNumber}:${actor}`,
-    raw_row: {},
+    // Dòng gõ tay trong portal không đến từ dòng Sheet nào, nên không có vết
+    // dẫn ngược. Để trống chứ không bịa số: một số giả ở đây sẽ khiến người tra
+    // nguồn mở nhầm dòng Sheet của người khác.
+    source_row_number: null,
     custom_values: input.customValues,
+    // Người gõ tay thì đã nhìn thấy dữ liệu mình nhập; chỉ dữ liệu chuyển từ
+    // Sheet sang mới cần người soát lại.
+    needs_review: false,
     created_by_email: actor,
     updated_by_email: actor,
   };

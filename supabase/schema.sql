@@ -6172,6 +6172,9 @@ declare
     'dashboard_filter_defaults',
     'health_payment_summary',
     'provider_address',
+    -- Bản dữ liệu provider đã làm sạch, nằm ngoài tầm với của luồng sync Sheet.
+    -- Portal đọc/ghi bảng này qua service role, nên không cần policy nào.
+    'provider_directory',
     'pc_raw_data',
     'pc_mart',
     'health_raw_data',

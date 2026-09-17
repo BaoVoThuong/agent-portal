@@ -3,7 +3,7 @@ import {
   serializeMultiselectValue,
 } from "@/lib/table-config/multiselect";
 
-/** Hai cột này nằm trong provider_address thật, nên lưu nhãn để Sheet sync đọc/ghi được. */
+/** Hai cột này là cột text thật trong provider_directory, nên lưu chuỗi nhãn. */
 export const PROVIDER_PLAN_FIELDS = ["obamacare", "medicare"] as const;
 export type ProviderPlanField = (typeof PROVIDER_PLAN_FIELDS)[number];
 

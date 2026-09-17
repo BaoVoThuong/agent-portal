@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
-import { PORTAL_SOURCE, PROVIDER_TEXT_FIELDS } from "@/lib/providers/types";
+import { PROVIDER_TEXT_FIELDS } from "@/lib/providers/types";
 
 function emptyInput() {
   const value = Object.fromEntries(PROVIDER_TEXT_FIELDS.map((field) => [field, null]));
@@ -66,29 +66,38 @@ describe("parseCreateProviderInput", () => {
 });
 
 describe("buildProviderRow", () => {
-  // Đây là điều giữ cho dòng thêm tay sống sót qua lượt sync: sync chỉ xoá đúng
-  // phân vùng (source_sheet_id, source_gid) của Sheet.
-  it("ghi dòng vào phân vùng riêng của portal, không phải phân vùng Sheet", () => {
+  // Dòng gõ tay không đến từ dòng Sheet nào. Bịa một số ở đây sẽ khiến người
+  // tra nguồn mở nhầm dòng Sheet của người khác.
+  it("để trống vết dẫn ngược về Sheet, và không đánh dấu cần soát", () => {
     const row = buildProviderRow(
       { ...emptyInput(), doctors: "A" },
-      { actorEmail: "Bao@X.com", nextRowNumber: 5 }
+      { actorEmail: "Bao@X.com" }
     );
     expect(row).toMatchObject({
-      source_sheet_id: PORTAL_SOURCE.sheetId,
-      source_gid: PORTAL_SOURCE.gid,
-      source_row_number: 5,
+      source_row_number: null,
+      needs_review: false,
       doctors: "A",
       created_by_email: "bao@x.com",
       updated_by_email: "bao@x.com",
     });
-    expect(typeof row.source_row_hash).toBe("string");
-    expect(row.raw_row).toEqual({});
+  });
+
+  // Bảng sạch không còn các cột của luồng sync; gửi kèm chúng là PostgREST
+  // trả lỗi "column does not exist" và người dùng không thêm được dòng nào.
+  it("không gửi cột nào của luồng sync cũ", () => {
+    const row = buildProviderRow(
+      { ...emptyInput(), doctors: "A" },
+      { actorEmail: "bao@x.com" }
+    );
+    for (const dead of ["source_sheet_id", "source_gid", "source_row_hash", "raw_row"]) {
+      expect(dead in row, dead).toBe(false);
+    }
   });
 
   it("ghi đủ mọi cột văn bản, kể cả cột để trống", () => {
     const row = buildProviderRow(
       { ...emptyInput(), facility: "Clinic" },
-      { actorEmail: "bao@x.com", nextRowNumber: 1 }
+      { actorEmail: "bao@x.com" }
     );
     for (const field of PROVIDER_TEXT_FIELDS) {
       expect(field in row, field).toBe(true);

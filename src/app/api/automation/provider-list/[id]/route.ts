@@ -4,7 +4,7 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderPatch } from "@/lib/providers/patch";
-import { PROVIDER_SELECT, isPortalRow } from "@/lib/providers/types";
+import { PROVIDER_SELECT, PROVIDER_TABLE } from "@/lib/providers/types";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
 import { findMissingRequiredFieldsFromContext } from "@/lib/table-config/required";
 import {
@@ -34,8 +34,8 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   const supabase = getSupabaseAdmin();
   const { data: current, error: currentError } = await supabase
-    .from("provider_address")
-    .select("id,source_sheet_id,custom_values")
+    .from(PROVIDER_TABLE)
+    .select("id,custom_values")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
@@ -44,7 +44,6 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const currentRow = current as {
-    source_sheet_id: string;
     custom_values?: Record<string, unknown> | null;
   };
 
@@ -104,7 +103,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   const { data: provider, error: updateError } = await supabase
-    .from("provider_address")
+    .from(PROVIDER_TABLE)
     .update({
       ...patch,
       updated_at: new Date().toISOString(),
@@ -117,13 +116,5 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  return NextResponse.json({
-    provider,
-    // Dòng đến từ Sheet bị thay mới mỗi đêm, nên chỉnh sửa tay trên nó chỉ sống
-    // tới 02:00 CT. Nói ngay lúc lưu, chứ không để người dùng phát hiện vào
-    // sáng hôm sau.
-    warning: isPortalRow(currentRow)
-      ? undefined
-      : "This row comes from the Google Sheet. The nightly sync will overwrite this edit until the sync is turned off.",
-  });
+  return NextResponse.json({ provider });
 }

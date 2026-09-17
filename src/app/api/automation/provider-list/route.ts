@@ -4,7 +4,7 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
-import { PORTAL_SOURCE, PROVIDER_SELECT, PROVIDER_TEXT_FIELDS } from "@/lib/providers/types";
+import { PROVIDER_SELECT, PROVIDER_TABLE, PROVIDER_TEXT_FIELDS } from "@/lib/providers/types";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
 import { findMissingRequiredFieldsFromContext } from "@/lib/table-config/required";
 import {
@@ -32,10 +32,10 @@ export async function GET() {
   const actor = await gate();
   if (!actor.ok) return NextResponse.json({ error: actor.error }, { status: actor.status });
 
-  // 889 dòng trên production: nạp hết một lần rồi lọc/sắp xếp ngay trong trình
+  // 458 dòng sau khi làm sạch: nạp hết một lần rồi lọc/sắp xếp ngay trong trình
   // duyệt. Thêm phân trang khi bảng thật sự lớn, không phải trước đó.
   const { data, error } = await getSupabaseAdmin()
-    .from("provider_address")
+    .from(PROVIDER_TABLE)
     .select(PROVIDER_SELECT)
     .is("archived_at", null)
     .order("updated_at", { ascending: false })
@@ -96,38 +96,18 @@ export async function POST(request: Request) {
     );
   }
 
-  // Số dòng kế tiếp TRONG phân vùng portal. Không đụng số của Sheet: hai phân
-  // vùng độc lập, và khoá duy nhất chỉ đòi duy nhất trong cùng phân vùng.
-  const { data: last, error: lastError } = await supabase
-    .from("provider_address")
-    .select("source_row_number")
-    .eq("source_sheet_id", PORTAL_SOURCE.sheetId)
-    .eq("source_gid", PORTAL_SOURCE.gid)
-    .order("source_row_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (lastError) return NextResponse.json({ error: lastError.message }, { status: 500 });
-
-  const nextRowNumber =
-    ((last as { source_row_number?: number } | null)?.source_row_number ?? 0) + 1;
-
+  // Khoá của bảng sạch là uuid do database sinh, nên hai người thêm cùng lúc
+  // không còn giành nhau con số nào — bỏ hẳn vòng truy vấn "số dòng kế tiếp"
+  // và nhánh xử lý trùng khoá đi kèm nó.
   const { data: provider, error: insertError } = await supabase
-    .from("provider_address")
+    .from(PROVIDER_TABLE)
     .insert({
-      ...buildProviderRow(input, { actorEmail: actor.email, nextRowNumber }),
+      ...buildProviderRow(input, { actorEmail: actor.email }),
       custom_values: validated.values,
     })
     .select(PROVIDER_SELECT)
     .single();
   if (insertError) {
-    // 23505: hai người thêm cùng lúc và giành cùng một số dòng. Bảo họ thử lại
-    // là đủ — lần sau số kế tiếp đã khác.
-    if (insertError.code === "23505") {
-      return NextResponse.json(
-        { error: "Someone added a row at the same time. Try again." },
-        { status: 409 }
-      );
-    }
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 

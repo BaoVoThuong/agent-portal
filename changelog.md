@@ -6,6 +6,47 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-17 — Provider List + Finder đọc bảng sạch `provider_directory`
+
+**Vì sao tách bảng:** `provider_address` bị `promote_sheet_sync_run` xoá theo cặp
+`(source_sheet_id, source_gid)` rồi chèn lại từ Google Sheet mỗi đêm, nên mọi
+chỉnh sửa tay trên đó sống không quá một đêm. Bảng mới nằm ngoài tầm với của
+sync, nên vừa sửa được vừa không phải tắt sync ngay.
+
+**Dữ liệu đã làm sạch khi chuyển sang:** bỏ 437 dòng rỗng hoàn toàn (đuôi trống
+của Sheet, chỉ có "Yes" ở cột Accepting new patients); tách 6 dòng nhiều cơ sở
+thành 13 bản ghi theo địa chỉ/điện thoại/ZIP khớp số; gộp 10 dòng nhiều số điện
+thoại về một ô; chuẩn hoá điện thoại về `(XXX) XXX-XXXX` (60 ô đổi, gồm 2 ô dùng
+dấu gạch nối lạ U+2011), bang về mã 2 chữ, ZIP+4 còn 5 số. **451 dòng thật → 458
+bản ghi**, trong đó 24 dòng máy không tự sửa được nên đánh cờ `needs_review`.
+
+Một ô trong database vốn đã mất ký tự xuống dòng ngay từ lượt kéo dữ liệu
+(`facility` và `business_hours` của dòng Sheet 2 dính thành một chuỗi, trong khi
+`street`/`phone` cùng dòng vẫn còn) — sửa tay trong rollout, gán đúng tên cơ sở
+cho từng chi nhánh.
+
+**Cột `Source` bị thay bằng `Needs review`.** Một bảng một nguồn thì "đến từ
+Sheet hay thêm tay" không còn nghĩa; thứ người dùng cần lọc ra là 24 dòng còn
+phải sửa. Bộ lọc trên toolbar đổi theo: All rows / Needs review / Reviewed.
+
+**Provider Finder cũng chuyển sang bảng này.** Hai tab nằm trên cùng một màn
+hình — đọc hai bảng khác nhau là thấy dữ liệu vênh nhau ngay tại chỗ. Finder
+đổi khoá phân trang sang `id` (vì `source_row_number` nay cho phép trống, mà giá
+trị rỗng thì Postgres xếp cuối và không phân định được thứ tự, làm các trang
+trùng/sót dòng) và loại dòng đã archive.
+
+**Đường thêm dòng bỏ vòng truy vấn "số dòng kế tiếp"** cùng nhánh xử lý trùng
+khoá 23505: bảng mới dùng uuid do database sinh nên hai người thêm cùng lúc
+không còn giành nhau con số nào. Dòng gõ tay để trống `source_row_number` thay
+vì bịa số — bịa số sẽ khiến người tra nguồn mở nhầm dòng Sheet của người khác.
+
+Hai cột plan `obamacare`/`medicare` vẫn lưu chuỗi nhãn, nay nằm trong
+`provider_directory`. Chưa xoá `provider_address` và chưa tắt sync.
+
+⚠ Thứ tự chạy rollout: `2026-09-16-provider-list.sql` (mở scope `provider` cho
+hệ table-config) **trước**, rồi `2026-09-17-provider-directory-temp.sql`, sau đó
+`notify pgrst, 'reload schema';`
+
 ## 2026-09-17 — Table config: kiểu Multi dropdown cho plan của Provider List
 
 Thêm kiểu cột `multiselect` dùng chung: cột tuỳ chỉnh lưu mảng option id trong
@@ -67,9 +108,9 @@ lại khi đang lọc.
 
 **Dòng thêm tay không bị sync xoá.** `promote_sheet_sync_run` xoá theo đúng cặp
 `(source_sheet_id, source_gid)` của Sheet rồi chèn lại; dòng thêm trong portal
-mang phân vùng riêng `('portal','manual')` nên nằm ngoài vùng đó. Ngược lại, sửa
-một dòng **đến từ Sheet** sẽ bị ghi đè lúc 02:00 CT — API trả `warning` và màn
-hình nói thẳng điều đó, cột `Source` đánh dấu từng dòng là `Sheet` hay `Manual`.
+mang phân vùng riêng `('portal','manual')` nên nằm ngoài vùng đó. Dòng từ Sheet
+vẫn bị ghi đè lúc 02:00 CT, nhưng không còn hiện cảnh báo lúc lưu; cột `Source`
+vẫn đánh dấu từng dòng là `Sheet` hay `Manual`.
 
 **Đủ cột:** 16 cột dữ liệu của `provider_address` đều có mặt và cấu hình được.
 Thêm 5 cột siêu dữ liệu **chỉ đọc, ẩn mặc định** — Added on, Added by, Last

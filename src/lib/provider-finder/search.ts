@@ -1,6 +1,7 @@
 // Lõi nghiệp vụ Provider Finder: lọc/scoring candidate, gọi maps service,
 // dựng kết quả. Tách nguyên văn từ route handler (behavior + payload không đổi).
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { PROVIDER_TABLE } from "@/lib/providers/types";
 import { getMapsService, isMapsProviderConfigError } from "./maps-service";
 import type {
   Candidate,
@@ -121,8 +122,11 @@ async function fetchProviderRows() {
   const rows: ProviderAddressRow[] = [];
 
   for (let from = 0; ; from += pageSize) {
+    // Cùng bảng với Provider List. Hai tab nằm trên CÙNG một màn hình: đọc hai
+    // bảng khác nhau là người dùng thấy hai bộ dữ liệu vênh nhau ngay tại chỗ —
+    // và bảng cũ còn 437 dòng rỗng cùng số điện thoại chưa chuẩn hoá.
     const { data, error } = await supabase
-      .from("provider_address")
+      .from(PROVIDER_TABLE)
       .select(
         [
           "source_row_number",
@@ -142,7 +146,11 @@ async function fetchProviderRows() {
           "other_plans",
         ].join(", ")
       )
-      .order("source_row_number", { ascending: true })
+      // Phân trang phải bám một cột KHÔNG rỗng và duy nhất. `source_row_number`
+      // giờ để trống với dòng gõ tay trong portal, mà giá trị rỗng thì Postgres
+      // xếp cuối và không phân định được thứ tự — các trang sẽ trùng/sót dòng.
+      .is("archived_at", null)
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
 
     if (error) throw new Error(error.message);

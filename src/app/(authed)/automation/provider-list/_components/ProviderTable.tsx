@@ -6,7 +6,7 @@ import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
 import {
   PROVIDER_META_FIELDS,
   PROVIDER_TEXT_FIELDS,
-  isPortalRow,
+  needsReview,
   type ProviderMetaField,
   type ProviderRow,
 } from "@/lib/providers/types";
@@ -25,7 +25,7 @@ const COLUMN_WIDTHS: Record<string, number> = {
   state: 80,
   zip_code: 100,
   accepting_new_patients: 180,
-  source: 100,
+  needs_review: 130,
   business_hours: 220,
   // Giá trị dạng "Oscar HMO, Ambetter EPO, CHC Premier" — cắt ngắn là mất đúng
   // phần người đọc cần.
@@ -38,16 +38,15 @@ const COLUMN_WIDTHS: Record<string, number> = {
   created_by_email: 170,
   updated_at: 150,
   updated_by_email: 170,
-  synced_at: 150,
 };
 
 function columnWidth(column: TableColumn): number {
   return COLUMN_WIDTHS[column.key] ?? DEFAULT_COLUMN_WIDTH;
 }
 
-/** `source` là cột dẫn xuất, không nằm trong database và không sửa được. */
-function isSourceColumn(column: TableColumn): boolean {
-  return column.is_system && column.key === "source";
+/** `needs_review` là cờ do bước làm sạch dữ liệu đặt, chỉ đọc trên bảng. */
+function isReviewColumn(column: TableColumn): boolean {
+  return column.is_system && column.key === "needs_review";
 }
 
 /** Cột siêu dữ liệu: do hệ thống ghi, người dùng chỉ đọc. */
@@ -180,20 +179,20 @@ function ProviderCell({
   options: TableColumnOption[];
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
 }) {
-  if (isSourceColumn(column)) {
-    const manual = isPortalRow(provider);
+  if (isReviewColumn(column)) {
+    const flagged = needsReview(provider);
     return (
       <span
         title={
-          manual
-            ? "Added in the portal. The Google Sheet sync never touches this row."
-            : "Came from the Google Sheet. The nightly sync replaces this row."
+          flagged
+            ? "Chuyển từ Sheet sang nhưng máy không tự sửa được: địa chỉ thiếu, ZIP bị che, hoặc nhiều cơ sở trong một dòng. Sửa xong thì bỏ cờ này."
+            : "Không còn vấn đề nào phải xử."
         }
         className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold ${
-          manual ? "bg-[#e3fcef] text-[#006644]" : "bg-[#eef2f8] text-[#5e6c84]"
+          flagged ? "bg-[#fffae6] text-[#974f0c]" : "bg-[#e3fcef] text-[#006644]"
         }`}
       >
-        {manual ? "Manual" : "Sheet"}
+        {flagged ? "Review" : "OK"}
       </span>
     );
   }
@@ -223,6 +222,7 @@ function ProviderCell({
           )}
           options={options}
           optionValue="label"
+          maxVisibleMultiselectValues={null}
           canEdit
           onSave={(next) => onPatch({ [column.key]: next })}
           className="w-full"

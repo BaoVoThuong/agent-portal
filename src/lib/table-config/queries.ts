@@ -9,9 +9,9 @@ const TABLE_COLUMN_SELECT =
   "id,scope,key,label,type,is_system,position,pinned,hidden_default,show_in_detail,required,created_by_email,created_at,updated_at,archived_at";
 
 const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
-  // Provider List: khoá cột phải TRÙNG tên cột trong bảng provider_address, vì
-  // màn hình đọc/ghi thẳng các cột đó. Riêng `source` là cột dẫn xuất chỉ để
-  // đọc — nó nói dòng này đến từ Sheet hay do người dùng tự thêm.
+  // Provider List: khoá cột phải TRÙNG tên cột trong bảng provider_directory,
+  // vì màn hình đọc/ghi thẳng các cột đó. Riêng `needs_review` chỉ để đọc — nó
+  // nói dòng này còn vấn đề cần người xử hay không.
   provider: [
     col("provider", "doctors", "Doctor", "text", 10, false, true),
     col("provider", "facility", "Facility", "text", 20),
@@ -23,7 +23,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("provider", "state", "State", "text", 80),
     col("provider", "zip_code", "ZIP", "text", 90),
     col("provider", "accepting_new_patients", "Accepting new patients", "text", 100),
-    col("provider", "source", "Source", "text", 110),
+    col("provider", "needs_review", "Needs review", "text", 110),
     // Hiện mặc định: "nhận hãng bảo hiểm nào" chính là câu hỏi nghiệp vụ của cả
     // màn này. Thưa (ACA 14%, Medicare 22% dòng có giá trị) nhưng thưa vì dữ
     // liệu chưa nhập đủ, không phải vì ít ai cần — giấu đi thì không ai biết là
@@ -36,13 +36,12 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("provider", "other_plans", "Other plans", "text", 150, true),
     col("provider", "verified_by", "Verified by", "text", 160, true),
     col("provider", "date", "Verified date", "text", 170, true),
-    // Siêu dữ liệu: chỉ đọc, ẩn mặc định. Trả lời "ai thêm/sửa dòng này" và
-    // "bản Sheet này cũ tới đâu" mà không chiếm chỗ trong bảng.
+    // Siêu dữ liệu: chỉ đọc, ẩn mặc định. Trả lời "ai thêm/sửa dòng này" mà
+    // không chiếm chỗ trong bảng.
     col("provider", "created_at", "Added on", "date", 180, true),
     col("provider", "created_by_email", "Added by", "text", 190, true),
     col("provider", "updated_at", "Last updated", "date", 200, true),
     col("provider", "updated_by_email", "Updated by", "text", 210, true),
-    col("provider", "synced_at", "Last synced", "date", 220, true),
   ],
   cs: [
     col("cs", "key", "Key", "text", 10, false, true),

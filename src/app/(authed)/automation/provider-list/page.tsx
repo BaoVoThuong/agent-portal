@@ -3,7 +3,7 @@ import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
-import { PROVIDER_SELECT, type ProviderRow } from "@/lib/providers/types";
+import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
 import { ProviderListClient } from "./_components/ProviderListClient";
 
 export const dynamic = "force-dynamic";
@@ -15,12 +15,12 @@ export default async function ProviderListPage() {
   await requireAnyPermission([PERMISSIONS.AUTOMATION_PROVIDER_FINDER]);
 
   const supabase = getSupabaseAdmin();
-  // Nạp ngay trên server để màn hình không chớp trống một nhịp: 889 dòng là
+  // Nạp ngay trên server để màn hình không chớp trống một nhịp: 458 dòng là
   // một truy vấn duy nhất, rẻ hơn nhiều so với vòng gọi API sau khi mount.
   const [config, providersResult] = await Promise.all([
     fetchTableColumnsWithOptions("provider", supabase),
     supabase
-      .from("provider_address")
+      .from(PROVIDER_TABLE)
       .select(PROVIDER_SELECT)
       .is("archived_at", null)
       .order("updated_at", { ascending: false })

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ExternalLink } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
@@ -24,6 +24,7 @@ export function EditableCustomCell({
   optionLabelById,
   personLabelByEmail,
   optionValue = "id",
+  maxVisibleMultiselectValues = 3,
   canEdit,
   onSave,
   className = "",
@@ -37,6 +38,8 @@ export function EditableCustomCell({
   optionLabelById?: ReadonlyMap<string, string>;
   personLabelByEmail?: ReadonlyMap<string, string>;
   optionValue?: "id" | "label";
+  /** `null` keeps every chip visible; provider plan columns use this. */
+  maxVisibleMultiselectValues?: number | null;
   canEdit: boolean;
   onSave: (next: unknown) => void | Promise<void>;
   className?: string;
@@ -62,9 +65,6 @@ export function EditableCustomCell({
     column.type === "multiselect"
       ? multiselectDraft ?? parseMultiselectValue(value)
       : [];
-  useEffect(() => {
-    if (!isOpen) setMultiselectDraft(null);
-  }, [isOpen]);
   const display = formatCustomValue(column.type, value, {
     optionLabelById,
     personLabelByEmail,
@@ -82,6 +82,10 @@ export function EditableCustomCell({
   const multiselectLabels = multiselectValues.map(
     (item) => optionByValue.get(item)?.label ?? item
   );
+  const visibleMultiselectValues =
+    maxVisibleMultiselectValues === null
+      ? multiselectValues
+      : multiselectValues.slice(0, maxVisibleMultiselectValues);
   const personEmptyLabel = column.type === "person" ? "Unassigned" : emptyLabel;
   const title = label || personEmptyLabel || column.label;
   const displayTitle = saveError ? "Save failed. Try again." : title;
@@ -223,6 +227,11 @@ export function EditableCustomCell({
           disabled={!canEdit}
           onClick={(event) => {
             event.stopPropagation();
+            // Lần mở mới luôn lấy giá trị đã lưu từ parent. Nếu menu vừa đóng
+            // bằng click ngoài/Escape thì draft cũ không được sống sang lượt sau.
+            if (!isOpen && column.type === "multiselect") {
+              setMultiselectDraft(null);
+            }
             toggle();
           }}
           aria-haspopup="listbox"
@@ -243,7 +252,7 @@ export function EditableCustomCell({
                 <span className="truncate text-[#97a0af]">{emptyLabel}</span>
               ) : (
                 <>
-                  {multiselectValues.slice(0, 3).map((item, index) => {
+                  {visibleMultiselectValues.map((item, index) => {
                     const option = optionByValue.get(item);
                     const palette = option
                       ? tableColumnOptionBadgePalette(option)
@@ -271,9 +280,10 @@ export function EditableCustomCell({
                       </span>
                     );
                   })}
-                  {multiselectValues.length > 3 ? (
+                  {maxVisibleMultiselectValues !== null &&
+                  multiselectValues.length > maxVisibleMultiselectValues ? (
                     <span className="shrink-0 rounded bg-[#f4f5f7] px-1.5 py-0.5 text-[11px] font-semibold text-[#6b778c]">
-                      +{multiselectValues.length - 3}
+                      +{multiselectValues.length - maxVisibleMultiselectValues}
                     </span>
                   ) : null}
                 </>
