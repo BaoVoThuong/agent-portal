@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Search, X } from "lucide-react";
 import { TaskSelect } from "../../../tasks/_components/TaskSelect";
 import {
@@ -37,6 +38,7 @@ export function ProviderToolbar({
   options,
   resultCount,
   totalCount,
+  settingsSlot,
 }: {
   views: readonly { key: "list" | "finder"; label: string }[];
   view: "list" | "finder";
@@ -53,6 +55,12 @@ export function ProviderToolbar({
   };
   resultCount: number;
   totalCount: number;
+  /**
+   * Nút chọn cột, đứng cuối hàng lọc. Nhận vào dạng chỗ cắm thay vì ba tham số
+   * cấu hình cột: thanh công cụ không cần biết gì về chuyện ẩn/hiện cột, và
+   * hàng lọc này vốn đã tự ẩn ở tab tìm theo địa chỉ nên nút cũng ẩn theo.
+   */
+  settingsSlot?: ReactNode;
 }) {
   const active = hasActiveProviderFilters(filters) || query.trim() !== "";
 
@@ -179,6 +187,8 @@ export function ProviderToolbar({
         >
           {resultCount} of {totalCount} providers
         </span>
+
+        {settingsSlot ? <div className="shrink-0">{settingsSlot}</div> : null}
         </div>
       ) : null}
     </div>

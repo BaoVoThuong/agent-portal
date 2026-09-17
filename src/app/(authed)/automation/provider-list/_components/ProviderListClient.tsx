@@ -222,23 +222,16 @@ export function ProviderListClient({
               </h1>
             </div>
             <div className="flex items-center gap-2">
-              {/* Hai nút này chỉ có nghĩa với bảng; tab tìm theo địa chỉ không
-                  có cột để ẩn và không thêm dòng. */}
+              {/* Nút này chỉ có nghĩa với bảng; tab tìm theo địa chỉ không thêm
+                  dòng. Nút chọn cột đã xuống cuối hàng lọc bên dưới. */}
               {view === "list" ? (
-                <>
-                  <ProviderTableSettingsButton
-                    columns={layoutColumns}
-                    hiddenColumnKeys={hiddenColumnKeys}
-                    onToggleColumn={toggleColumn}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setAddOpen(true)}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
-                  >
-                    <Plus className="h-4 w-4" /> Add address
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => setAddOpen(true)}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                >
+                  <Plus className="h-4 w-4" /> Add address
+                </button>
               ) : null}
             </div>
           </header>
@@ -260,6 +253,13 @@ export function ProviderListClient({
             options={filterOptions}
             resultCount={rows.length}
             totalCount={providers.length}
+            settingsSlot={
+              <ProviderTableSettingsButton
+                columns={layoutColumns}
+                hiddenColumnKeys={hiddenColumnKeys}
+                onToggleColumn={toggleColumn}
+              />
+            }
           />
 
           {notice ? (
