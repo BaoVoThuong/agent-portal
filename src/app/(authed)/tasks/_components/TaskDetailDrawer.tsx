@@ -72,23 +72,18 @@ const CUSTOM_FIELD_INPUT_CLASS =
   "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4]";
 const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
-// shrink-0: these sit above the comment thread in a flex column, so they must
-// keep their natural height and let the thread absorb the leftover space.
 const COMPACT_DETAIL_FIELD_CLASS = "block shrink-0 space-y-1";
 const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
-// The drawer is a fixed 760px column and the description field is shrink-0, so
-// every pixel it grows is a pixel taken from the comment thread below it. Cap
-// it at 5 lines and let it scroll internally instead. max-h mirrors
-// DESCRIPTION_MAX_HEIGHT — Tailwind cannot read the constant, so keep them in
-// sync — and is the fallback ceiling if autosizeTextarea never runs.
-const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] max-h-[138px] resize-none overflow-x-hidden !px-2 !py-2 leading-6`;
+// Description remains capped when collapsed so the details pane stays scannable.
+// Its height no longer steals space from the independently scrolling comment rail.
+const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[88px] max-h-[168px] resize-none overflow-x-hidden !px-2 !py-2 leading-6`;
 const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
 const REQUIRED_MARK = <span className="text-[#bf2600]"> *</span>;
 
-/** Collapsed: 2 lines at leading-6 (24px) plus the 16px of !py-2 padding. */
-const DESCRIPTION_MIN_HEIGHT = 72;
-/** Expanded: 5 lines plus the same padding. Mirrors max-h-[138px] in the class. */
-const DESCRIPTION_MAX_HEIGHT = 138;
+/** Collapsed: three readable lines plus the textarea padding and borders. */
+const DESCRIPTION_MIN_HEIGHT = 88;
+/** Expanded: six readable lines plus the textarea padding. */
+const DESCRIPTION_MAX_HEIGHT = 168;
 
 /**
  * Returns the untruncated content height so the caller can decide whether a
@@ -647,6 +642,12 @@ export function TaskDetailDrawer({
     Boolean(task.in_progress_at) ||
     task.in_progress_seconds > 0;
   const visibleDetailColumns = detailColumns;
+  const dueDateDetailColumn = visibleDetailColumns.find(
+    (column) => column.key === TASK_DUE_DATE_KEY
+  );
+  const remainingDetailColumns = visibleDetailColumns.filter(
+    (column) => column.key !== TASK_DUE_DATE_KEY
+  );
 
   function markInvalid(key: string) {
     setInvalidKeys((current) => new Set([...current, key]));
@@ -688,10 +689,10 @@ export function TaskDetailDrawer({
       <div
         role="dialog"
         aria-modal="true"
-        className="flex h-[calc(100vh-2rem)] max-h-[760px] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+        className="flex h-[calc(100dvh-5rem)] max-h-[760px] w-full max-w-[1160px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
+        <header className="flex items-center justify-between border-b border-[#dfe1e6] px-4 py-2.5">
           <span className="font-mono text-sm font-bold text-[#97a0af]">
             {taskDisplayKey(task.display_number)}
           </span>
@@ -705,12 +706,11 @@ export function TaskDetailDrawer({
           </button>
         </header>
 
-        {/* On wide screens each column owns its scrolling, which is what keeps
-            the comment composer docked at the bottom no matter how long the
-            thread gets. Narrow screens keep the simpler single-scroll layout. */}
-        <div className="flex-1 overflow-y-auto lg:overflow-hidden">
-          <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
-            <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
+        {/* Desktop uses a 6:4 split: task information on the left, and a wide,
+            independently scrolling discussion rail on the right. */}
+        <div className="flex-1 overflow-y-auto xl:overflow-hidden">
+          <div className="grid min-h-full grid-cols-1 xl:h-full xl:grid-cols-[minmax(0,3fr)_minmax(440px,2fr)]">
+            <main className="flex min-w-0 flex-col gap-2.5 p-4 xl:min-h-0 xl:overflow-y-auto">
               {showTitle || showFub ? (
                 <>
                 {showTitle ? (
@@ -857,7 +857,7 @@ export function TaskDetailDrawer({
                       }
                       finishDraft("description");
                     }}
-                    rows={2}
+                    rows={3}
                     placeholder="Add a description…"
                     className={`${COMPACT_DESCRIPTION_CLASS} ${isInvalid("description") ? INVALID_RING_CLASS : ""}`}
                   />
@@ -874,7 +874,223 @@ export function TaskDetailDrawer({
                 onPreviewAttachment={setAttachmentPreview}
               />
 
-              <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
+              <section className="border-t border-[#dfe1e6] pt-3">
+                <h2 className="text-sm font-bold text-[#172b4d]">Task details</h2>
+                <div className="mt-2 grid gap-x-3 gap-y-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                  {showStage ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("status")?.label ?? "Stage"}
+                    </span>
+                    <StatusPill
+                      size="field"
+                      status={task.status}
+                      assigned={task.assignees.length > 0}
+                      canChangeStatus={canChangeStatus}
+                      hasBeenInProgress={hasBeenInProgress}
+                      isOverdueLocked={isOverdue}
+                      onChange={(nextStatus) => onPatch({ status: nextStatus })}
+                      onUnlockOverdueRequest={onUnlockOverdueRequest}
+                      onReopenRequest={onReopenRequest}
+                    />
+                  </div>
+                  ) : null}
+
+                  {showPriority ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("priority")?.label ?? "Priority"}
+                      {requiredColumnKeys.has("priority") ? REQUIRED_MARK : null}
+                    </span>
+                    <TaskPrioritySelect
+                      value={task.priority}
+                      // Ẩn mức đã bị tắt cho loại việc này. Mức task đang mang
+                      // vẫn hiện — task cũ phải đọc được đúng thứ nó có.
+                      availablePriorities={enabledPrioritiesForCategory(
+                        task.category_id ?? null,
+                        slaRules
+                      )}
+                      disabled={!canEdit}
+                      buttonClassName="!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none"
+                      onChange={(nextPriority) =>
+                        onPatch({ priority: nextPriority as TaskPriority })
+                      }
+                    />
+                  </div>
+                  ) : null}
+
+                  {dueDateDetailColumn ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      {dueDateDetailColumn.label}
+                      {dueDateDetailColumn.required ? REQUIRED_MARK : null}
+                    </span>
+                    <DetailCustomFieldControl
+                      column={dueDateDetailColumn}
+                      value={task.custom_values?.[dueDateDetailColumn.key]}
+                      options={optionsByColumnId.get(dueDateDetailColumn.id) ?? []}
+                      people={assignees}
+                      optionLabelById={optionLabelById}
+                      personLabelByEmail={personLabelByEmail}
+                      canEdit={canEditDueDate}
+                      onSave={(next) =>
+                        onPatch({ custom_values: { [dueDateDetailColumn.key]: next } })
+                      }
+                    />
+                  </div>
+                  ) : null}
+
+                  {showCategory ? (
+                  <div className="space-y-1.5 sm:col-span-2 xl:col-span-2">
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("category")?.label ?? "Category"}
+                      {requiredColumnKeys.has("category") ? REQUIRED_MARK : null}
+                    </span>
+                    <TaskSelect
+                      label={columnByKey.get("category")?.label ?? "Category"}
+                      value={task.category_id ?? ""}
+                      searchable
+                      disabled={!canEdit}
+                      options={categoryOptions}
+                      renderOption={(option) => {
+                        const category = categoryById.get(option.value);
+                        return category ? <TaskCategoryBadge category={category} /> : option.label;
+                      }}
+                      placeholder="Select category"
+                      buttonClassName={SIDE_SELECT_BUTTON_CLASS}
+                      onChange={(nextCategoryId) => onPatch({ category_id: nextCategoryId })}
+                    />
+                  </div>
+                  ) : null}
+
+                  {showQcReview ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("review")?.label ?? "QC Review"}
+                    </span>
+                    <DoneReviewPanel
+                      task={task}
+                      canReviewDone={canReviewDone}
+                      onReviewDone={onReviewDone}
+                    />
+                  </div>
+                  ) : null}
+
+                  {showAgent ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("agent")?.label ?? "Agent"}
+                      {requiredColumnKeys.has("agent") ? REQUIRED_MARK : null}
+                    </span>
+                    <TaskSelect
+                      label={columnByKey.get("agent")?.label ?? "Agent"}
+                      value={task.agent_email ?? ""}
+                      searchable
+                      personValue
+                      disabled={!canEdit}
+                      options={agentOptions}
+                      placeholder="Select agent"
+                      onChange={(nextAgent) => onPatch({ agent_email: nextAgent })}
+                    />
+                  </div>
+                  ) : null}
+
+                  {showAssignees ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("assignee")?.label ?? "Assignees"}
+                    </span>
+                    {canAssign ? (
+                      <TaskAssigneeDropdown
+                        assignees={assignees}
+                        selectedEmails={task.assignees}
+                        agentEmail={task.agent_email}
+                        agentMembersByAgent={agentMembersByAgent}
+                        onToggle={onAssigneeChange}
+                      />
+                    ) : (
+                      <div className="flex min-h-10 items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-sm font-medium text-[#172b4d]">
+                        <AvatarStack emails={task.assignees} labelByEmail={personLabelByEmail} />
+                        <span className="min-w-0 truncate">
+                          {task.assignees.length > 0
+                            ? task.assignees
+                                .map(
+                                  (email) =>
+                                    personLabelByEmail.get(email) ??
+                                    formatEmailAsName(email)
+                                )
+                                .join(", ")
+                            : "Unassigned"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  ) : null}
+
+                  {showCreatedBy ? (
+                  <div className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      {columnByKey.get("reporter")?.label ?? "Created by"}
+                    </span>
+                    <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
+                      {task.reporter_email
+                        ? personLabelByEmail.get(task.reporter_email) ??
+                          formatEmailAsName(task.reporter_email)
+                        : "—"}
+                    </div>
+                  </div>
+                  ) : null}
+
+                  {remainingDetailColumns.map((column) => (
+                  <div key={column.id} className="space-y-1.5">
+                    <span className={LABEL_CLASS}>
+                      {column.label}
+                      {column.required ? REQUIRED_MARK : null}
+                    </span>
+                    <DetailCustomFieldControl
+                      column={column}
+                      value={task.custom_values?.[column.key]}
+                      options={optionsByColumnId.get(column.id) ?? []}
+                      people={assignees}
+                      optionLabelById={optionLabelById}
+                      personLabelByEmail={personLabelByEmail}
+                      canEdit={canEdit}
+                      onSave={(next) =>
+                        onPatch({ custom_values: { [column.key]: next } })
+                      }
+                    />
+                  </div>
+                  ))}
+                </div>
+
+              {canReopen && (
+                <div className="mt-4 border-t border-[#dfe1e6] pt-3">
+                  <button
+                    type="button"
+                    onClick={onReopenRequest}
+                    className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  >
+                    Reopen (reason required)
+                  </button>
+                </div>
+              )}
+
+              {canDelete && (
+                <div className="mt-4 flex justify-end border-t border-[#dfe1e6] pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(true)}
+                    className="inline-flex h-8 items-center rounded px-2 text-sm font-semibold text-[#bf2600] transition hover:bg-[#ffebe6]"
+                  >
+                    Archive task
+                  </button>
+                </div>
+              )}
+              </section>
+            </main>
+
+            <aside className="flex min-h-[34rem] min-w-0 flex-col border-t border-[#dfe1e6] bg-white p-4 xl:min-h-0 xl:overflow-hidden xl:border-l xl:border-t-0">
+              <section className="flex min-h-0 flex-1 flex-col gap-3">
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
                   <DetailTabButton
                     label="Comments"
@@ -943,215 +1159,29 @@ export function TaskDetailDrawer({
                       />
                     )}
                     {tab === "activity" && canViewNonCommentDetail && (
-                      <ActivityFeed
-                        activity={detail.activity}
-                        personLabelByEmail={personLabelByEmail}
-                      />
+                      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                        {showStageTime ? (
+                          <div className="mb-3">
+                            <StageTimeBreakdown task={task} />
+                          </div>
+                        ) : null}
+                        <ActivityFeed
+                          activity={detail.activity}
+                          personLabelByEmail={personLabelByEmail}
+                        />
+                      </div>
                     )}
                     {tab === "overdue" && canViewNonCommentDetail && (
-                      <OverdueLog
-                        entries={overdueLog}
-                        personLabelByEmail={personLabelByEmail}
-                      />
+                      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                        <OverdueLog
+                          entries={overdueLog}
+                          personLabelByEmail={personLabelByEmail}
+                        />
+                      </div>
                     )}
                   </>
                 )}
               </section>
-            </main>
-
-            <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
-              {showStageTime ? <StageTimeBreakdown task={task} /> : null}
-              <div className="space-y-3">
-                {showPriority ? (
-                  <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>
-                      {columnByKey.get("priority")?.label ?? "Priority"}
-                      {requiredColumnKeys.has("priority") ? REQUIRED_MARK : null}
-                    </span>
-                    <TaskPrioritySelect
-                      value={task.priority}
-                      // Ẩn mức đã bị tắt cho loại việc này. Mức task đang mang
-                      // vẫn hiện — task cũ phải đọc được đúng thứ nó có.
-                      availablePriorities={enabledPrioritiesForCategory(
-                        task.category_id ?? null,
-                        slaRules
-                      )}
-                      disabled={!canEdit}
-                      buttonClassName="!h-9 !rounded-lg !px-2 !text-sm !font-semibold !shadow-none"
-                      onChange={(nextPriority) =>
-                        onPatch({ priority: nextPriority as TaskPriority })
-                      }
-                    />
-                  </div>
-                ) : null}
-
-                {showCategory ? (
-                  <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>
-                      {columnByKey.get("category")?.label ?? "Category"}
-                      {requiredColumnKeys.has("category") ? REQUIRED_MARK : null}
-                    </span>
-                    <TaskSelect
-                      label={columnByKey.get("category")?.label ?? "Category"}
-                      value={task.category_id ?? ""}
-                      searchable
-                      disabled={!canEdit}
-                      options={categoryOptions}
-                      renderOption={(option) => {
-                        const category = categoryById.get(option.value);
-                        return category ? <TaskCategoryBadge category={category} /> : option.label;
-                      }}
-                      placeholder="Select category"
-                      buttonClassName={SIDE_SELECT_BUTTON_CLASS}
-                      onChange={(nextCategoryId) => onPatch({ category_id: nextCategoryId })}
-                    />
-                  </div>
-                ) : null}
-
-                {showAgent ? (
-                  <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>
-                      {columnByKey.get("agent")?.label ?? "Agent"}
-                      {requiredColumnKeys.has("agent") ? REQUIRED_MARK : null}
-                    </span>
-                    <TaskSelect
-                      label={columnByKey.get("agent")?.label ?? "Agent"}
-                      value={task.agent_email ?? ""}
-                      searchable
-                      personValue
-                      disabled={!canEdit}
-                      options={agentOptions}
-                      placeholder="Select agent"
-                      onChange={(nextAgent) => onPatch({ agent_email: nextAgent })}
-                    />
-                  </div>
-                ) : null}
-
-                {showCreatedBy ? (
-                  <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>
-                      {columnByKey.get("reporter")?.label ?? "Created by"}
-                    </span>
-                    <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
-                      {task.reporter_email
-                        ? personLabelByEmail.get(task.reporter_email) ??
-                          formatEmailAsName(task.reporter_email)
-                        : "—"}
-                    </div>
-                  </div>
-                ) : null}
-
-                {showAssignees ? (
-                  <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>
-                      {columnByKey.get("assignee")?.label ?? "Assignees"}
-                    </span>
-                    {canAssign ? (
-                      <TaskAssigneeDropdown
-                        assignees={assignees}
-                        selectedEmails={task.assignees}
-                        agentEmail={task.agent_email}
-                        agentMembersByAgent={agentMembersByAgent}
-                        onToggle={onAssigneeChange}
-                      />
-                    ) : (
-                      <div className="flex min-h-10 items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-sm font-medium text-[#172b4d]">
-                        <AvatarStack emails={task.assignees} labelByEmail={personLabelByEmail} />
-                        <span className="min-w-0 truncate">
-                          {task.assignees.length > 0
-                            ? task.assignees
-                                .map(
-                                  (email) =>
-                                    personLabelByEmail.get(email) ??
-                                    formatEmailAsName(email)
-                                )
-                                .join(", ")
-                            : "Unassigned"}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-
-                {showStage ? (
-                  <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>
-                      {columnByKey.get("status")?.label ?? "Stage"}
-                    </span>
-                    <StatusPill
-                      size="field"
-                      status={task.status}
-                      assigned={task.assignees.length > 0}
-                      canChangeStatus={canChangeStatus}
-                      hasBeenInProgress={hasBeenInProgress}
-                      isOverdueLocked={isOverdue}
-                      onChange={(nextStatus) => onPatch({ status: nextStatus })}
-                      onUnlockOverdueRequest={onUnlockOverdueRequest}
-                      onReopenRequest={onReopenRequest}
-                    />
-                  </div>
-                ) : null}
-
-                {visibleDetailColumns.map((column) => (
-                  <div key={column.id} className="space-y-1.5">
-                    <span className={LABEL_CLASS}>
-                      {column.label}
-                      {column.required ? REQUIRED_MARK : null}
-                    </span>
-                    <DetailCustomFieldControl
-                      column={column}
-                      value={task.custom_values?.[column.key]}
-                      options={optionsByColumnId.get(column.id) ?? []}
-                      people={assignees}
-                      optionLabelById={optionLabelById}
-                      personLabelByEmail={personLabelByEmail}
-                      canEdit={
-                        column.key === TASK_DUE_DATE_KEY ? canEditDueDate : canEdit
-                      }
-                      onSave={(next) =>
-                        onPatch({ custom_values: { [column.key]: next } })
-                      }
-                    />
-                  </div>
-                ))}
-
-                {showQcReview ? (
-                  <div className="space-y-1.5">
-                    <span className={LABEL_CLASS}>
-                      {columnByKey.get("review")?.label ?? "QC Review"}
-                    </span>
-                    <DoneReviewPanel
-                      task={task}
-                      canReviewDone={canReviewDone}
-                      onReviewDone={onReviewDone}
-                    />
-                  </div>
-                ) : null}
-              </div>
-
-              {canReopen && (
-                <div className="border-t border-[#dfe1e6] pt-3">
-                  <button
-                    type="button"
-                    onClick={onReopenRequest}
-                    className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white text-sm font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                  >
-                    Reopen (reason required)
-                  </button>
-                </div>
-              )}
-
-              {canDelete && (
-                <div className="border-t border-[#dfe1e6] pt-3">
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingDelete(true)}
-                    className="text-sm font-semibold text-[#bf2600] transition hover:underline"
-                  >
-                    Archive task
-                  </button>
-                </div>
-              )}
             </aside>
           </div>
         </div>

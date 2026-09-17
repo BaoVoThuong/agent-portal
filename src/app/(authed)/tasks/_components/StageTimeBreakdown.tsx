@@ -30,36 +30,43 @@ export function StageTimeBreakdown({ task }: { task: TaskRow }) {
   ];
 
   return (
-    <div className="space-y-1.5">
-      <span className="text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-        Time in stage
-      </span>
-      <dl className="space-y-1 rounded border border-[#dfe1e6] bg-white px-3 py-2">
+    <section className="rounded-lg border border-[#dfe1e6] bg-[#f7f8fa] p-3">
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+          Time in stage
+        </span>
+        {task.overdue_count > 0 || task.reopened_at ? (
+          <div className="flex flex-wrap gap-1.5">
+            {task.overdue_count > 0 ? (
+              <span className="inline-flex items-center gap-1 rounded bg-[#fff7d6] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]">
+                <AlertTriangle className="h-3 w-3" />
+                Went overdue {task.overdue_count}×
+              </span>
+            ) : null}
+            {task.reopened_at ? (
+              <span className="inline-flex items-center gap-1 rounded bg-[#deebff] px-1.5 py-0.5 text-[11px] font-bold text-[#0055cc]">
+                <RotateCcw className="h-3 w-3" />
+                Reopened
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </header>
+      <dl className="mt-2 grid grid-cols-2 gap-2">
         {rows.map((row) => (
-          <div key={row.label} className="flex items-center justify-between text-sm">
-            <dt className="text-[#44546f]">{row.label}</dt>
-            <dd className="font-semibold text-[#172b4d]">
+          <div
+            key={row.label}
+            className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[#e6eaf0] bg-white px-2.5 py-2"
+          >
+            <dt className="min-w-0 truncate text-[10px] font-bold uppercase tracking-wide text-[#6b778c]">
+              {row.label}
+            </dt>
+            <dd className="shrink-0 text-sm font-semibold tabular-nums text-[#172b4d]">
               {formatDurationSeconds(row.seconds)}
             </dd>
           </div>
         ))}
       </dl>
-      {task.overdue_count > 0 || task.reopened_at ? (
-        <div className="flex flex-wrap gap-1.5">
-          {task.overdue_count > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded bg-[#fff7d6] px-1.5 py-0.5 text-[11px] font-bold text-[#7f5f01]">
-              <AlertTriangle className="h-3 w-3" />
-              Went overdue {task.overdue_count}×
-            </span>
-          ) : null}
-          {task.reopened_at ? (
-            <span className="inline-flex items-center gap-1 rounded bg-[#deebff] px-1.5 py-0.5 text-[11px] font-bold text-[#0055cc]">
-              <RotateCcw className="h-3 w-3" />
-              Reopened
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    </section>
   );
 }
