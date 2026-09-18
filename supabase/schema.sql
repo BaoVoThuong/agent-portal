@@ -6343,6 +6343,26 @@ create table if not exists lead_interactions (
   created_at timestamptz not null default now()
 );
 
+-- Regular Event Lead comments share the detail rail with interaction logs.
+create table if not exists lead_comments (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid not null references leads(id) on delete cascade,
+  parent_id uuid references lead_comments(id) on delete cascade,
+  author_email text not null,
+  body text not null check (btrim(body) <> ''),
+  client_request_id uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+create unique index if not exists lead_comments_client_request_id_key
+  on lead_comments (lead_id, author_email, client_request_id)
+  where client_request_id is not null;
+
+create index if not exists lead_comments_lead_idx
+  on lead_comments (lead_id, created_at);
+
 create table if not exists lead_assignment_history (
   id uuid primary key default gen_random_uuid(),
   lead_id uuid not null references leads(id) on delete cascade,
@@ -6490,6 +6510,7 @@ alter table lead_statuses enable row level security;
 alter table lead_interaction_types enable row level security;
 alter table leads enable row level security;
 alter table lead_interactions enable row level security;
+alter table lead_comments enable row level security;
 alter table lead_assignment_history enable row level security;
 alter table lead_alert_settings enable row level security;
 alter table lead_assignment_weights enable row level security;
@@ -6615,6 +6636,73 @@ $$;
 revoke all on function log_lead_interaction_atomic(uuid, uuid, uuid, text, text, timestamptz, uuid, timestamptz)
   from public, anon, authenticated;
 grant execute on function log_lead_interaction_atomic(uuid, uuid, uuid, text, text, timestamptz, uuid, timestamptz)
+  to service_role;
+
+create or replace function create_lead_comment_atomic(
+  p_lead_id uuid,
+  p_author_email text,
+  p_body text,
+  p_parent_id uuid default null,
+  p_client_request_id uuid default null
+) returns table (comment jsonb, lead_updated_at timestamptz, was_created boolean)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_lead leads%rowtype;
+  v_comment lead_comments%rowtype;
+  v_now timestamptz;
+begin
+  select * into v_lead
+  from leads
+  where id = p_lead_id and archived_at is null
+  for update;
+  if not found then raise exception 'LEAD_NOT_FOUND'; end if;
+
+  if p_client_request_id is not null then
+    select * into v_comment
+    from lead_comments
+    where lead_id = p_lead_id
+      and author_email = p_author_email
+      and client_request_id = p_client_request_id;
+    if found then
+      comment := to_jsonb(v_comment);
+      lead_updated_at := v_lead.updated_at;
+      was_created := false;
+      return next;
+      return;
+    end if;
+  end if;
+
+  if p_parent_id is not null then
+    perform 1
+    from lead_comments
+    where id = p_parent_id
+      and lead_id = p_lead_id
+      and parent_id is null
+      and deleted_at is null;
+    if not found then raise exception 'INVALID_PARENT'; end if;
+  end if;
+
+  insert into lead_comments (
+    lead_id, parent_id, author_email, body, client_request_id
+  ) values (
+    p_lead_id, p_parent_id, p_author_email, btrim(p_body), p_client_request_id
+  ) returning * into v_comment;
+
+  v_now := greatest(clock_timestamp(), v_lead.updated_at + interval '1 microsecond');
+  update leads
+  set updated_at = v_now, updated_by_email = p_author_email
+  where id = p_lead_id;
+
+  comment := to_jsonb(v_comment);
+  lead_updated_at := v_now;
+  was_created := true;
+  return next;
+end;
+$$;
+
+revoke all on function create_lead_comment_atomic(uuid, text, text, uuid, uuid)
+  from public, anon, authenticated;
+grant execute on function create_lead_comment_atomic(uuid, text, text, uuid, uuid)
   to service_role;
 
 -- ---------------------------------------------------------------------------

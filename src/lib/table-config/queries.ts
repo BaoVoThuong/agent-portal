@@ -127,7 +127,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("lead", "phone", "Phone", "text", 30, false, false, true),
     customCol("lead", "secondary_phone", "Secondary Phone", "text", 35),
     col("lead", "email", "Email", "text", 40, false, false, true),
-    col("lead", "assignee", "Assigned to", "person", 50, false, false, true),
+    col("lead", "assignee", "Agent", "person", 50, false, false, true),
     col("lead", "status", "Status", "dropdown", 60, false, false, true),
     col("lead", "interactionHistory", "Interaction history", "text", 65),
     col("lead", "attempts", "Attempts", "number", 70),

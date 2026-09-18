@@ -3,6 +3,7 @@
 import { Plus, X } from "lucide-react";
 import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
+  LeadComment,
   LeadInteraction,
   LeadInteractionType,
   LeadStatus,
@@ -19,7 +20,7 @@ const INTERACTION_SELECT_BUTTON_CLASS =
   "!h-10 !rounded !border-2 !border-[#dfe1e6] !bg-white !px-3 !text-sm !font-medium !shadow-none hover:!border-[#cfd8e5] hover:!shadow-none focus-visible:!border-[#0c66e4] focus-visible:!shadow-none";
 
 type InteractionLogProps = {
-  /** The Lead detail tab, so its action lives in the same toolbar. */
+  /** The shared activity-feed header. Interaction is one feed item, not a separate tab. */
   toolbar: ReactNode;
   /** Loading/error feedback that belongs directly below the toolbar. */
   notice?: ReactNode;
@@ -32,9 +33,11 @@ type InteractionLogProps = {
    * nguồn, danh sách đọc nguồn khác. Cái tên là thứ đã mời gọi lỗi đó.
    */
   interactions: LeadInteraction[];
+  comments: LeadComment[];
   /** Đang tải lịch sử — để KHÔNG hiện "chưa có tương tác nào" khi chưa biết. */
   loading?: boolean;
   canLog: boolean;
+  canComment: boolean;
   /** Who owns the lead, so a locked composer can say why rather than just look broken. */
   ownerLabel: string | null;
   sourceId: string;
@@ -47,7 +50,16 @@ type InteractionLogProps = {
   }) => Promise<{ interaction: LeadInteraction }>;
   /** Keeps the parent tab counter in sync after this composer saves. */
   onInteractionSaved?: (interaction: LeadInteraction) => void;
+  onSaveComment: (payload: {
+    body: string;
+    client_request_id: string;
+  }) => Promise<{ comment: LeadComment }>;
+  onCommentSaved?: (comment: LeadComment) => void;
 };
+
+type FeedItem =
+  | { kind: "comment"; timestamp: string; comment: LeadComment }
+  | { kind: "interaction"; timestamp: string; interaction: LeadInteraction };
 
 function relativeTime(value: string): string {
   const timestamp = Date.parse(value);
@@ -93,11 +105,15 @@ export function InteractionLog({
   statuses,
   interactionTypes,
   interactions,
+  comments,
   loading = false,
   canLog,
+  canComment,
   ownerLabel,
   onSave,
   onInteractionSaved,
+  onSaveComment,
+  onCommentSaved,
 }: InteractionLogProps) {
   const [composerOpen, setComposerOpen] = useState(false);
   const [typeId, setTypeId] = useState("");
@@ -106,7 +122,32 @@ export function InteractionLog({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [commentBody, setCommentBody] = useState("");
+  const [commentSaving, setCommentSaving] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
   const requestIdRef = useRef<string | null>(null);
+
+  const feedItems = useMemo<FeedItem[]>(
+    () =>
+      [
+        ...comments
+          .filter((comment) => !comment.deleted_at)
+          .map((comment) => ({
+            kind: "comment" as const,
+            timestamp: comment.created_at,
+            comment,
+          })),
+        ...interactions.map((interaction) => ({
+          kind: "interaction" as const,
+          timestamp: interaction.occurred_at,
+          interaction,
+        })),
+      ].sort(
+        (left, right) =>
+          Date.parse(left.timestamp) - Date.parse(right.timestamp),
+      ),
+    [comments, interactions],
+  );
 
   const status = useMemo(
     () => statuses.find((candidate) => candidate.id === statusId) ?? null,
@@ -169,22 +210,36 @@ export function InteractionLog({
     }
   }
 
+  async function submitComment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const body = commentBody.trim();
+    if (!body || !canComment || commentSaving) return;
+    setCommentSaving(true);
+    setCommentError(null);
+    try {
+      const result = await onSaveComment({
+        body,
+        client_request_id: crypto.randomUUID(),
+      });
+      onCommentSaved?.(result.comment);
+      setCommentBody("");
+    } catch (saveError) {
+      setCommentError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not save comment.",
+      );
+    } finally {
+      setCommentSaving(false);
+    }
+  }
+
 
   useBodyScrollLock(composerOpen);
   return (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between gap-3 border-b border-[#dfe1e6] pb-3">
+    <section className="flex h-full min-h-0 flex-col gap-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#dfe1e6] pb-3">
         {toolbar}
-        {canLog ? (
-          <button
-            type="button"
-            onClick={openComposer}
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded bg-[#0c66e4] px-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            Add interaction
-          </button>
-        ) : null}
       </div>
       {notice}
       {composerOpen ? (
@@ -334,7 +389,7 @@ export function InteractionLog({
         // the lead and what to do about it instead.
         <div className="rounded border border-[#dbe2eb] bg-[#f7f9fc] px-4 py-5 text-sm text-[#42526e]">
           <p className="font-semibold text-[#172b4d]">
-            Only the agent holding this lead can log an interaction.
+            Only the agent holding this lead can add activity.
           </p>
           <p className="mt-1">
             {ownerLabel
@@ -343,8 +398,8 @@ export function InteractionLog({
           </p>
         </div>
       ) : null}
-      <div className="space-y-2.5">
-        {loading && interactions.length === 0 ? (
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
+        {loading && feedItems.length === 0 ? (
           // Chưa tải xong thì CHƯA biết lead có tương tác hay không. Hiện
           // "No interactions yet." lúc này là nói một điều chưa chắc đúng, rồi
           // một nhịp sau lại thay bằng danh sách — người đọc tưởng mình nhìn nhầm.
@@ -352,14 +407,43 @@ export function InteractionLog({
             className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]"
             role="status"
           >
-            Loading interactions…
+            Loading activity…
           </p>
-        ) : interactions.length === 0 ? (
-          <p className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]">
-            No interactions yet.
-          </p>
-        ) : (
-          interactions.map((interaction) => {
+        ) : feedItems.length === 0 ? null : (
+          feedItems.map((item) => {
+            if (item.kind === "comment") {
+              const comment = item.comment;
+              return (
+                <article key={`comment:${comment.id}`} className="group flex gap-2.5">
+                  <div className="shrink-0 pt-0.5">
+                    <Initials
+                      email={comment.author_email}
+                      label={personLabel(comment.author_email)}
+                      size="md"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-sm font-semibold text-[#172b4d]">
+                        {personLabel(comment.author_email)}
+                      </span>
+                      <time
+                        dateTime={comment.created_at}
+                        title={new Date(comment.created_at).toLocaleString()}
+                        className="text-xs font-medium text-[#6b778c]"
+                      >
+                        {relativeTime(comment.created_at)}
+                      </time>
+                    </div>
+                    <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 text-[#172b4d] [overflow-wrap:anywhere]">
+                      {comment.body}
+                    </p>
+                  </div>
+                </article>
+              );
+            }
+
+            const interaction = item.interaction;
             const interactionType = interactionTypes.find(
               (candidate) => candidate.id === interaction.type_id,
             );
@@ -368,7 +452,7 @@ export function InteractionLog({
             );
             return (
               <article
-                key={interaction.id}
+                key={`interaction:${interaction.id}`}
                 className="group flex gap-2.5"
               >
                 <div className="shrink-0 pt-0.5">
@@ -433,6 +517,53 @@ export function InteractionLog({
           })
         )}
       </div>
+      {canComment ? (
+        <form
+          className="shrink-0 border-t border-[#dfe1e6] bg-white pt-3"
+          onSubmit={submitComment}
+        >
+          <textarea
+            value={commentBody}
+            onChange={(event) => {
+              setCommentBody(event.target.value);
+              if (commentError) setCommentError(null);
+            }}
+            disabled={commentSaving}
+            maxLength={4000}
+            placeholder="Add a comment…"
+            className="min-h-20 w-full resize-y rounded border border-[#cfd8e5] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none placeholder:text-[#8993a4] focus:border-[#0c66e4] disabled:bg-[#f4f5f7]"
+          />
+          {commentError ? (
+            <p className="mt-2 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
+              {commentError}
+            </p>
+          ) : null}
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="text-xs text-[#8993a4]">
+              {commentBody.length > 0 ? `${commentBody.length}/4000` : " "}
+            </span>
+            <div className="flex items-center gap-2">
+              {canLog ? (
+                <button
+                  type="button"
+                  onClick={openComposer}
+                  className="inline-flex h-8 items-center gap-1.5 rounded border border-[#cfd8e5] bg-white px-2.5 text-xs font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  Add interaction
+                </button>
+              ) : null}
+              <button
+                type="submit"
+                disabled={!commentBody.trim() || commentSaving}
+                className="inline-flex h-8 items-center rounded bg-[#0c66e4] px-3 text-xs font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {commentSaving ? "Sending…" : "Send comment"}
+              </button>
+            </div>
+          </div>
+        </form>
+      ) : null}
     </section>
   );
 }

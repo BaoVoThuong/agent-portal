@@ -102,6 +102,19 @@ export type LeadInteraction = LeadInteractionPreview & {
   created_at: string;
 };
 
+/** A regular discussion message in an Event Lead's shared activity feed. */
+export type LeadComment = {
+  id: string;
+  lead_id: string;
+  parent_id: string | null;
+  author_email: string;
+  body: string;
+  client_request_id: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
 export type LeadAlertSettings = {
   product: LeadProduct;
   no_contact_hours: number;

@@ -3,6 +3,7 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  LeadComment,
   LeadInteraction,
   LeadInteractionType,
   LeadRow,
@@ -135,6 +136,7 @@ type LeadDetailDrawerProps = {
  * mảng lịch sử nào sau khi người ta đã đi qua nó từ lâu.
  */
 const interactionCache = new Map<string, LeadInteraction[]>();
+const commentCache = new Map<string, LeadComment[]>();
 const INTERACTION_CACHE_LIMIT = 50;
 
 function rememberInteractions(leadId: string, rows: LeadInteraction[]) {
@@ -143,6 +145,15 @@ function rememberInteractions(leadId: string, rows: LeadInteraction[]) {
   if (interactionCache.size > INTERACTION_CACHE_LIMIT) {
     const oldest = interactionCache.keys().next().value;
     if (oldest !== undefined) interactionCache.delete(oldest);
+  }
+}
+
+function rememberComments(leadId: string, rows: LeadComment[]) {
+  commentCache.delete(leadId);
+  commentCache.set(leadId, rows);
+  if (commentCache.size > INTERACTION_CACHE_LIMIT) {
+    const oldest = commentCache.keys().next().value;
+    if (oldest !== undefined) commentCache.delete(oldest);
   }
 }
 
@@ -164,7 +175,9 @@ export function LeadDetailDrawer({
   onLeadUpdated,
 }: LeadDetailDrawerProps) {
   const [interactions, setInteractions] = useState<LeadInteraction[]>([]);
+  const [comments, setComments] = useState<LeadComment[]>([]);
   const cachedInteractions = lead ? interactionCache.get(lead.id) : undefined;
+  const cachedComments = lead ? commentCache.get(lead.id) : undefined;
   const [loadedLeadId, setLoadedLeadId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editError, setEditError] = useState<{
@@ -179,16 +192,38 @@ export function LeadDetailDrawer({
   useEffect(() => {
     if (!leadId) return;
     let cancelled = false;
-    void fetch(`/api/leads/${leadId}/interactions`, { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok)
-          throw new Error(payload?.error ?? "Could not load interactions.");
-        if (!Array.isArray(payload?.interactions))
-          throw new Error("Could not load interactions.");
-        rememberInteractions(leadId, payload.interactions as LeadInteraction[]);
+    void Promise.all([
+      fetch(`/api/leads/${leadId}/interactions`, { cache: "no-store" }),
+      fetch(`/api/leads/${leadId}/comments`, { cache: "no-store" }),
+    ])
+      .then(async ([interactionResponse, commentResponse]) => {
+        const [interactionPayload, commentPayload] = await Promise.all([
+          interactionResponse.json().catch(() => null),
+          commentResponse.json().catch(() => null),
+        ]);
+        if (!interactionResponse.ok) {
+          throw new Error(
+            interactionPayload?.error ?? "Could not load lead activity.",
+          );
+        }
+        if (!commentResponse.ok) {
+          throw new Error(
+            commentPayload?.error ?? "Could not load lead activity.",
+          );
+        }
+        if (
+          !Array.isArray(interactionPayload?.interactions) ||
+          !Array.isArray(commentPayload?.comments)
+        ) {
+          throw new Error("Could not load lead activity.");
+        }
+        const nextInteractions = interactionPayload.interactions as LeadInteraction[];
+        const nextComments = commentPayload.comments as LeadComment[];
+        rememberInteractions(leadId, nextInteractions);
+        rememberComments(leadId, nextComments);
         if (!cancelled) {
-          setInteractions(payload.interactions as LeadInteraction[]);
+          setInteractions(nextInteractions);
+          setComments(nextComments);
           setLoadError(null);
           setLoadedLeadId(leadId);
         }
@@ -198,7 +233,7 @@ export function LeadDetailDrawer({
           setLoadError(
             error instanceof Error
               ? error.message
-              : "Could not load interactions.",
+              : "Could not load lead activity.",
           );
           setLoadedLeadId(leadId);
         }
@@ -280,13 +315,16 @@ export function LeadDetailDrawer({
   // Có bản đã tải lần trước thì hiện luôn và tải lại ở nền. Mở lại đúng lead
   // vừa xem mà vẫn thấy khung "Loading" là một bước lùi không cần thiết — lịch
   // sử tương tác gần như không đổi giữa hai lần mở cách nhau vài giây.
-  const loading = loadedLeadId !== currentLead.id && !cachedInteractions;
+  const loading =
+    loadedLeadId !== currentLead.id && (!cachedInteractions || !cachedComments);
   const visibleInteractions = resolveVisibleInteractions({
     currentLeadId: currentLead.id,
     loadedLeadId,
     fetched: interactions,
     cached: cachedInteractions,
   }) as LeadInteraction[];
+  const visibleComments =
+    loadedLeadId === currentLead.id ? comments : cachedComments ?? [];
   const visibleError = loadedLeadId === currentLead.id ? loadError : null;
   // Same reach as editing: a manager (null scope) on any lead, a worker on
   // their own and on the leads of agents they assist. Assignment stays a
@@ -379,10 +417,28 @@ export function LeadDetailDrawer({
     return { interaction };
   }
 
+  async function saveComment(payload: {
+    body: string;
+    client_request_id: string;
+  }) {
+    const response = await fetch(`/api/leads/${currentLead.id}/comments`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(result?.error ?? "Could not save comment.");
+    }
+    return { comment: result.comment as LeadComment };
+  }
+
 
   return (
     // Matches the task-detail shell: editable lead data on the left and a
-    // dedicated, independently scrolling interaction rail on the right.
+    // shared Comments-style activity rail on the right.
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6"
       onClick={onClose}
@@ -584,7 +640,7 @@ export function LeadDetailDrawer({
                     ) : null}
 
                     {showAssignee ? (
-                      <RailField label="Assigned to">
+                      <RailField label="Agent">
                         {canAssign ? (
                           <LeadChoiceField
                             label={assigneeLabel}
@@ -655,13 +711,13 @@ export function LeadDetailDrawer({
             </main>
 
             <aside className="flex min-h-[28rem] min-w-0 flex-col border-t border-[#dfe1e6] bg-white p-4 xl:min-h-0 xl:overflow-hidden xl:border-l xl:border-t-0">
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="min-h-0 flex-1 overflow-hidden pr-1">
                 <InteractionLog
                   key={currentLead.id}
                   toolbar={
                     <LeadDetailTabButton
-                      label="Interactions"
-                      count={visibleInteractions.length}
+                      label="Comments"
+                      count={visibleComments.length + visibleInteractions.length}
                     />
                   }
                   notice={
@@ -674,8 +730,10 @@ export function LeadDetailDrawer({
                   statuses={statuses}
                   interactionTypes={interactionTypes}
                   interactions={visibleInteractions}
+                  comments={visibleComments}
                   loading={loading}
                   canLog={canLog}
+                  canComment={canLog}
                   ownerLabel={
                     currentLead.assigned_to_email
                       ? personLabel(currentLead.assigned_to_email, nameByEmail)
@@ -683,11 +741,18 @@ export function LeadDetailDrawer({
                   }
                   sourceId={sourceId}
                   onSave={saveInteraction}
+                  onSaveComment={saveComment}
                   onInteractionSaved={(interaction) => {
                     const next = appendInteraction(visibleInteractions, interaction);
                     setInteractions(next as LeadInteraction[]);
                     setLoadedLeadId(currentLead.id);
                     rememberInteractions(currentLead.id, next as LeadInteraction[]);
+                  }}
+                  onCommentSaved={(comment) => {
+                    const next = [...visibleComments, comment];
+                    setComments(next);
+                    setLoadedLeadId(currentLead.id);
+                    rememberComments(currentLead.id, next);
                   }}
                 />
               </div>

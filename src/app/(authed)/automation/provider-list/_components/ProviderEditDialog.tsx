@@ -20,8 +20,8 @@ import {
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
 const INPUT_CLASS =
-  "h-11 w-full rounded-xl border border-[#d8dee7] bg-white px-3.5 text-sm font-semibold text-[#172b4d] shadow-[0_1px_2px_rgba(9,30,66,0.04)] outline-none transition placeholder:text-[#98a2b3] focus:border-[#0c66e4] focus:ring-4 focus:ring-[#deebff]";
-const TEXTAREA_CLASS = `${INPUT_CLASS} min-h-28 resize-y py-3`;
+  "h-9 w-full rounded-lg border border-[#d8dee7] bg-white px-3 text-sm font-semibold text-[#172b4d] shadow-none outline-none transition placeholder:text-[#98a2b3] focus:border-[#0c66e4] focus:ring-4 focus:ring-[#deebff]";
+const TEXTAREA_CLASS = `${INPUT_CLASS} min-h-20 resize-y py-2.5`;
 const LABEL_CLASS = "mb-1.5 block text-[10px] font-bold uppercase tracking-[0.08em] text-[#667085]";
 
 function isPlanColumn(key: string): boolean {
@@ -163,13 +163,6 @@ export function ProviderEditDialog({
   const readOnlyColumns = columns.filter(
     (column) => !column.archived_at && isReadOnlyColumn(column)
   );
-  const compactColumns = editableColumns.filter(
-    (column) => !isWideEditField(column, values[column.key])
-  );
-  const wideColumns = editableColumns.filter((column) =>
-    isWideEditField(column, values[column.key])
-  );
-
   function optionsFor(column: TableColumn): TableColumnOption[] {
     if (isProviderSpecialtyField(column.key)) {
       return specialtyOptions(column, optionsByColumn.get(column.id) ?? []);
@@ -231,92 +224,74 @@ export function ProviderEditDialog({
         role="dialog"
         aria-modal="true"
         aria-label={`Edit provider ${provider.doctors || provider.facility || provider.id}`}
-        className="flex max-h-[min(56rem,calc(100vh-2rem))] w-full max-w-[1120px] flex-col overflow-hidden rounded-2xl border border-[#d9e0ea] bg-white shadow-[0_28px_90px_rgba(9,30,66,0.34)]"
+        className="flex h-[calc(100dvh-5rem)] max-h-[760px] w-full max-w-[1160px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-[#e6ebf2] bg-white px-5 py-4 sm:px-7">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#7a869a]">
-                Provider directory
-              </p>
-              <span className="rounded-full bg-[#edf4ff] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#0c66e4]">
-                Edit record
-              </span>
-            </div>
-            <h2 className="mt-1 truncate text-xl font-bold text-[#172b4d] sm:text-[22px]">
+        <header className="flex min-h-14 items-center justify-between gap-3 border-b border-[#dfe1e6] px-4 py-2.5 sm:px-5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 font-mono text-sm font-bold text-[#97a0af]">
+              Provider
+            </span>
+            <span className="shrink-0 rounded-full bg-[#edf4ff] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#0c66e4]">
+              Edit
+            </span>
+            <span className="shrink-0 text-[#c1c7d0]">·</span>
+            <h2 className="min-w-0 truncate text-base font-bold text-[#172b4d] sm:text-lg">
               {provider.doctors || provider.facility || "Edit provider"}
             </h2>
-            <p className="mt-1 text-xs text-[#7a869a]">
-              Update provider details and save them to the directory.
-            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
             aria-label="Close"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent text-[#6b778c] transition hover:border-[#d8dee7] hover:bg-[#f7f9fc] hover:text-[#172b4d]"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#42526e] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
-        </div>
+        </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f9fc] px-4 py-4 sm:px-7 sm:py-5">
-          <div className="mx-auto max-w-[1040px] space-y-4">
-            <section className="rounded-2xl border border-[#e1e7ef] bg-white p-4 shadow-[0_1px_3px_rgba(9,30,66,0.05)] sm:p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+          <div className="mx-auto max-w-[1120px]">
+            <section className="border-b border-[#dfe1e6] pb-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-bold text-[#172b4d]">Provider details</h3>
-                  <p className="mt-0.5 text-xs text-[#7a869a]">Core contact and location information</p>
                 </div>
-                <span className="rounded-full bg-[#f2f4f7] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#667085]">
-                  {compactColumns.length} fields
+                <span className="text-[11px] font-semibold text-[#97a0af]">
+                  {editableColumns.length} editable fields
                 </span>
               </div>
-              <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
-                {compactColumns.map((column) => (
-                  <ProviderEditField
+              <div className="grid gap-x-3 gap-y-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                {editableColumns.map((column) => (
+                  <div
                     key={column.id}
-                    column={column}
-                    value={values[column.key]}
-                    options={optionsFor(column)}
-                    onChange={(value) => setValue(column.key, value)}
-                  />
-                ))}
-              </div>
-            </section>
-
-            {wideColumns.length > 0 ? (
-              <section className="rounded-2xl border border-[#e1e7ef] bg-white p-4 shadow-[0_1px_3px_rgba(9,30,66,0.05)] sm:p-5">
-                <div className="mb-4">
-                  <h3 className="text-sm font-bold text-[#172b4d]">Specialties and additional details</h3>
-                  <p className="mt-0.5 text-xs text-[#7a869a]">Select all values that apply to this provider.</p>
-                </div>
-                <div className="space-y-4">
-                  {wideColumns.map((column) => (
+                    className={
+                      isWideEditField(column, values[column.key])
+                        ? "sm:col-span-2 xl:col-span-3"
+                        : "min-w-0"
+                    }
+                  >
                     <ProviderEditField
-                      key={column.id}
                       column={column}
                       value={values[column.key]}
                       options={optionsFor(column)}
                       onChange={(value) => setValue(column.key, value)}
                     />
-                  ))}
-                </div>
-              </section>
-            ) : null}
+                  </div>
+                ))}
+              </div>
+            </section>
 
             {readOnlyColumns.length > 0 ? (
-              <section className="rounded-2xl border border-[#e1e7ef] bg-[#f2f4f7] p-4 sm:p-5">
-                <div className="mb-3">
+              <section className="border-b border-[#dfe1e6] py-4">
+                <div className="mb-2">
                   <h3 className="text-sm font-bold text-[#172b4d]">System information</h3>
-                  <p className="mt-0.5 text-xs text-[#7a869a]">Read-only fields managed by the system</p>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                   {readOnlyColumns.map((column) => (
-                    <div key={column.id} className="rounded-xl border border-[#e1e7ef] bg-white px-3.5 py-3">
+                    <div key={column.id} className="min-w-0 rounded-lg border border-[#dfe1e6] bg-[#f7f9fc] px-3 py-2">
                       <div className={LABEL_CLASS}>{column.label}</div>
-                      <div className="truncate text-sm font-semibold text-[#5e6c84]" title={displayValue(values[column.key])}>
+                      <div className="truncate text-xs font-semibold text-[#5e6c84]" title={displayValue(values[column.key])}>
                         {displayValue(values[column.key])}
                       </div>
                     </div>
@@ -333,14 +308,14 @@ export function ProviderEditDialog({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[#e1e7ef] bg-white px-5 py-3.5 sm:px-7">
+        <footer className="flex items-center justify-between gap-3 border-t border-[#dfe1e6] bg-white px-4 py-2.5 sm:px-5">
           <p className="hidden text-xs text-[#7a869a] sm:block">Changes are saved to the provider directory.</p>
           <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-xl px-4 py-2.5 text-sm font-bold text-[#42526e] transition hover:bg-[#f2f4f7]"
+            className="rounded px-3 py-2 text-sm font-bold text-[#42526e] transition hover:bg-[#f2f4f7]"
           >
             Cancel
           </button>
@@ -348,12 +323,12 @@ export function ProviderEditDialog({
             type="button"
             onClick={() => void save()}
             disabled={saving}
-            className="rounded-xl bg-[#0c66e4] px-5 py-2.5 text-sm font-bold text-white shadow-[0_4px_10px_rgba(12,102,228,0.2)] transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-lg bg-[#0c66e4] px-4 py-2 text-sm font-bold text-white shadow-[0_2px_5px_rgba(9,30,66,0.16)] transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Save changes"}
           </button>
           </div>
-        </div>
+        </footer>
       </div>
     </div>,
     document.body
@@ -397,7 +372,7 @@ function ProviderEditField({
           role="switch"
           aria-checked={checked}
           onClick={() => onChange(!checked)}
-          className={`flex h-11 w-full items-center justify-between rounded-xl border px-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.04)] transition focus:outline-none focus:ring-4 focus:ring-[#deebff] ${
+          className={`flex h-9 w-full items-center justify-between rounded-lg border px-3 text-left shadow-none transition focus:outline-none focus:ring-4 focus:ring-[#deebff] ${
             checked
               ? "border-[#b7e4d0] bg-[#f0fbf5]"
               : "border-[#d8dee7] bg-white hover:border-[#b8c4d4]"
@@ -447,7 +422,7 @@ function ProviderEditField({
 
   if (column.type === "checkbox") {
     return (
-      <label className="flex h-10 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#344054]">
+      <label className="flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#344054]">
         <input
           type="checkbox"
           checked={value === true}
@@ -499,7 +474,7 @@ function ProviderEditField({
               href={/^https?:\/\//i.test(stringValue) ? stringValue : `https://${stringValue}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#b3d4ff] bg-[#deebff] text-[#0055cc] transition hover:bg-[#cce0ff]"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#b3d4ff] bg-[#deebff] text-[#0055cc] transition hover:bg-[#cce0ff]"
               aria-label={`Open ${column.label}`}
             >
               <ExternalLink className="h-4 w-4" />
@@ -577,7 +552,7 @@ function MultiSelectField({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2 text-left shadow-[0_1px_2px_rgba(9,30,66,0.04)] outline-none transition focus:ring-4 focus:ring-[#deebff] ${
+        className={`flex min-h-9 w-full items-center justify-between gap-3 rounded-lg border bg-white px-3 py-1.5 text-left shadow-none outline-none transition focus:ring-4 focus:ring-[#deebff] ${
           open ? "border-[#0c66e4]" : "border-[#d8dee7] hover:border-[#b8c4d4]"
         }`}
       >
@@ -605,7 +580,7 @@ function MultiSelectField({
         </span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-[#667085] transition ${open ? "rotate-180" : ""}`} />
       </button>
-      <div className="mt-1 flex items-center justify-between text-[11px] font-medium text-[#7a869a]">
+      <div className="mt-0.5 flex items-center justify-between text-[10px] font-medium text-[#7a869a]">
         <span>{selected.length} selected</span>
         {selected.length > 0 ? (
           <button type="button" className="font-bold text-[#0c66e4] hover:underline" onClick={() => onChange([])}>

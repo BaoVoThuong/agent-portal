@@ -77,3 +77,15 @@ describe("lead alert tag column", () => {
     );
   });
 });
+
+describe("lead assignee column", () => {
+  it("uses Agent as the user-facing label", () => {
+    expect(defaultTableColumns("lead")).toContainEqual(
+      expect.objectContaining({
+        key: "assignee",
+        label: "Agent",
+        type: "person",
+      }),
+    );
+  });
+});

@@ -165,6 +165,7 @@ export default function ProviderFinderClient({
   const [mapSelection, setMapSelection] = useState<"all" | number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [columnWidths, setColumnWidths] = useState(defaultNearbyColumnWidths);
+  const [isColumnResizing, setIsColumnResizing] = useState(false);
 
   const canRun = useMemo(
     () => hasAddress(form) || form.contract.trim() !== "",
@@ -196,6 +197,20 @@ export default function ProviderFinderClient({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [mapSelection]);
 
+  useEffect(() => {
+    if (!isColumnResizing) return;
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isColumnResizing]);
+
   const updateField = <K extends keyof FormState>(
     key: K,
     value: FormState[K]
@@ -213,11 +228,7 @@ export default function ProviderFinderClient({
 
     const startX = event.clientX;
     const startWidth = columnWidths[key];
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+    setIsColumnResizing(true);
 
     const handleMove = (moveEvent: PointerEvent) => {
       const nextWidth = Math.max(
@@ -231,8 +242,7 @@ export default function ProviderFinderClient({
       document.removeEventListener("pointermove", handleMove);
       document.removeEventListener("pointerup", handleEnd);
       document.removeEventListener("pointercancel", handleEnd);
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
+      setIsColumnResizing(false);
     };
 
     document.addEventListener("pointermove", handleMove);
