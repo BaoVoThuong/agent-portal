@@ -1,726 +1,473 @@
-# Provider Finder → Doctor Directory & Nearby Search — Implementation Plan
+# Provider Directory — Implementation Plan (viết lại 2026-09-18)
 
-> Status: draft for implementation. This is a plan only; it does not authorize a
-> production data migration, manual data edit UI, or a change to existing role grants.
+> **Bản này thay thế toàn bộ bản viết ngày 2026-09-16.** Bản cũ nằm ở commit
+> `4d9d19f` nếu cần đọc lại.
 >
-> Written against HEAD `2fd701a` on 2026-09-16. Re-read the current branch and
-> re-profile the source Sheet immediately before implementing: the directory is
-> refreshed daily and its contents are not static.
+> Lý do viết lại: bản cũ viết dựa trên commit `2fd701a`, nay đã cách HEAD **26
+> commit**. Trong khoảng đó tụi mình đã dựng và đẩy lên production một thứ
+> **khác hẳn** thiết kế bản cũ đề xuất — và nó chiếm đúng cái tên mà bản cũ
+> định dùng.
+>
+> Mọi số liệu dưới đây đo trực tiếp trên production ngày **2026-09-18**, không
+> phải chép lại từ bản cũ.
 
-## 1. Product outcome and scope
+---
 
-Turn the current Provider Finder into an internal **Provider Directory**:
+## 0. Bản cũ còn đúng bao nhiêu
 
-- Agents can look up a doctor or medical office without entering a customer address.
-- They can search by doctor name, NPI, clinic/facility, phone, specialty, city,
-  state, ZIP, and supported insurance carrier.
-- A doctor detail view presents every confidently-associated office, contact
-  information, specialty, network coverage, accepting-new-patient status, and
-  source freshness.
-- The existing “find care near a customer” workflow remains available as a
-  separate **Nearby** mode. It becomes a real proximity search rather than a
-  text-ranked Top 10 that happens to be routed afterward.
-
-The route stays `/automation/provider-finder` and the existing
-`automation.provider_finder` permission remains the access gate. The visible
-page/sidebar label changes to **Provider Directory** so that the product promise
-matches what it does. No existing role needs to be edited.
-
-Version 1 is a read-only, Sheet-backed internal directory. It deliberately does
-not add:
-
-- provider appointment booking, availability, credential verification, or
-  insurance eligibility guarantees;
-- user-entered doctor records, manual corrections, favorites, or a CRM workflow;
-- customer-address history or analytics;
-- automatic merging of people solely because their names look alike.
-
-Manual overrides and saved providers can be added later on top of this model, but
-must not be silently inferred from the request.
-
-## 2. Current pipeline audit
-
-### 2.1 Current end-to-end flow
-
-~~~text
-Google Sheet (one heterogeneous row at a time)
-        │ CSV export
-        ▼
-datasync/configs/provider-address.js
-        │ rowToRecord() + raw_row + source row hash
-        ▼
-sheet_sync_staging ──► finalize_sheet_sync()
-        │                 (delete/reinsert one source partition atomically)
-        ▼
-provider_address (raw, location-oriented source table)
-        │ every user search loads all rows through service role
-        ▼
-runProviderSearch()
-        │ string filters → source-order/text-score Top 10
-        ▼
-Apps Script Maps proxy or Google REST
-        │ routes/geocodes only those ten candidates
-        ▼
-ProviderFinderClient table + on-demand Leaflet map
-~~~
-
-The daily Vercel Cron calls `/api/cron/sync-data`, which defaults to every
-configured sync job, including `provider-address`. The current source refresh
-has a useful atomic raw-table swap, but no normalized doctor layer.
-
-### 2.2 Source profile observed on 2026-09-16
-
-The following is a read-only profile of the configured Sheet. It is a baseline,
-not a permanent data contract:
-
-| Signal | Observed value | Consequence |
-| --- | ---: | --- |
-| Physical Sheet rows | 889 | Small today, but the API still must not load all rows per search. |
-| Rows with Doctors | 452 | A directory cannot assume every row identifies a doctor. |
-| Rows with Street | 445 | Some rows are provider/facility facts without a usable location. |
-| Rows with Specialty | 340 | “Unknown specialty” must be represented honestly, not filtered away accidentally. |
-| Rows with Obamacare / Medicare data | 125 / 193 | Network filters are sparse; no-result copy must distinguish “not known” from “does not accept.” |
-| Rows with Verified By / Date | 6 / 189 | Freshness must be optional and visibly unknown for most records. |
-| Distinct doctor text / distinct NPI text | 409 / 355 | NPI and display name are not one-to-one keys. |
-| Duplicate doctor-text groups / duplicate-NPI groups | 20 / 35 | Do not deduplicate by either field alone. |
-| Multi-line street cells | 14 | One raw row can contain several offices. |
-| Rows whose facility/street/phone/ZIP line counts disagree | 25 | Blind line-by-line expansion would create false doctor-to-office associations. |
-
-One inspected row contains one doctor and several numbered facilities, addresses,
-ZIPs, and phone numbers in separate multi-line cells. The current search takes
-only the first line of each location field, so it silently drops the additional
-offices.
-
-### 2.3 Findings that must be fixed as part of this work
-
-| Area | Evidence in current code | Product/operational impact | Plan response |
-| --- | --- | --- | --- |
-| Data model | `provider_address` has raw Sheet columns, no doctor/location/listing identity. | It is a source mirror, not a doctor directory. | Keep it as raw source; create a conservative normalized projection. |
-| Multi-value cells | `buildProviderAddress()` uses `firstLine()`. | Extra offices are invisible; multi-line values render inconsistently. | Parse and classify lines before publishing listings; retain unresolved facts for review. |
-| “Nearest” ranking | `buildCandidates()` scores only matching ZIP/city/state and slices to `maxResults = 10` before routing. | The returned Top 10 is not the ten nearest providers. A closer office outside the preselected ten is never considered. | Use persisted office coordinates plus a geographic prefilter, then route only a bounded candidate set. |
-| Database work | `fetchProviderRows()` reads the entire `provider_address` table for every request. | Existing indexes are bypassed; latency and memory grow with the directory. | Move query/filter/ranking/pagination to indexed SQL/RPC. |
-| Search surface | Page form requires address or carrier; it has no doctor-name/NPI/facility search. | The requested lookup workflow does not exist. | Add a standalone Directory search API and UI. |
-| Filter vocabulary | Carrier and specialty choices are hard-coded in `ProviderFinderClient.tsx`. | New source values require deploys; values missing from the fixed list are hard to discover. | Serve directory facets from normalized data, with a curated carrier-alias catalog. |
-| Radius | `SearchRequest` and server validation support `radius`, but the current UI has no radius control. | Documentation promises a capability that users cannot select. | Put an explicit radius control in Nearby mode and test it. |
-| Other plans | Blank insurance type is normalized to “both”; the branch that searches/displays `other_plans` is unreachable. The current source profile also has no populated Other Plans rows. | Filter meaning is ambiguous and can drift. | Give each network a market/source field; show “unknown” rather than invent a third filter. |
-| Maps dependency | Contract-only searches geocode results despite not needing distance. The modal refuses to render a map without an origin even when result coordinates exist. | Directory lookup incurs external Maps work and contract-only Map actions do not work. | Directory never calls Maps by default; map is optional and consumes stored office geocodes. |
-| Map cost/reliability | Google REST path routes candidates serially; Apps Script does the same in its loop. There is no request-level result cache or throttle. | Repeated searches spend quota and can make the entire result fail on map configuration errors. | Pre-geocode offices after sync; only call driving directions for a narrow Nearby set; gracefully retain non-map directory results. |
-| Input/API validation | The route casts JSON directly to `SearchRequest`; tests cover only three early validation paths. | Malformed requests and new filter rules lack a durable contract. | Add parsers, bounds, typed responses, permission tests, and search/normalizer tests. |
-| Source refresh semantics | `finalize_sheet_sync()` deletes and reinserts a source partition. `source_row_number` is physical Sheet position, not a durable doctor identifier. | A child table tied directly to raw rows would break or churn every refresh. | Preserve source provenance as data; do not foreign-key/cascade directory identities to raw rows. Promote raw and derived data atomically. |
-| Direct table protection | The canonical RLS sweep in `supabase/schema.sql` does not list `provider_address`. | The Next route checks RBAC, but production database grants/RLS must be verified rather than assumed. | Explicitly enable RLS/revoke direct client access for raw and new directory tables; use server/service-role access only. |
-
-## 3. Architecture decisions
-
-### 3.1 Raw source remains raw
-
-`provider_address` stays the audited source mirror. It continues to retain:
-
-- source Sheet/GID/row number and source row hash;
-- the original fields and `raw_row`;
-- the source refresh timestamp.
-
-It is not renamed and the current Nearby route remains functional while the
-directory is built. No future UI reads this raw table directly.
-
-### 3.2 Use a safe directory projection, not optimistic “canonical people”
-
-The source cannot currently prove that every NPI is one individual doctor, nor
-that same-name rows represent the same person. The directory must therefore
-separate:
-
-1. **Directory profile** — the searchable doctor or facility identity shown to a
-   user.
-2. **Office/location** — one physical address that may be associated with one
-   or more profiles.
-3. **Listing** — one source-backed assertion that a profile practices at an
-   office, with specialty, hours, phone, network, source timestamp, and
-   confidence.
-
-Identity policy:
-
-- If a usable NPI and normalized doctor name occur together, their pair is the
-  conservative automatic profile key. The NPI is still displayed as
-  source-provided; it is not labelled a verified individual NPI.
-- With no usable NPI, create a source-scoped profile key instead of merging
-  same-name rows globally. This may show two records for a common name, which
-  is safer than telling an agent that two people are one doctor.
-- Never merge on NPI alone, name alone, facility alone, phone alone, or
-  address alone.
-- A later manual merge/override feature must be an explicit, audited layer on
-  top of these source profiles; it must not change the raw import.
-
-### 3.3 Parsing policy: publish certainty, surface ambiguity
-
-Create a pure normalizer that turns one source row into zero or more listings.
-It must be deterministic, tested, and shared by initial backfill and future
-syncs.
-
-- Split multi-value cells only on explicit line breaks, semicolon-separated
-  items, or clearly numbered list items. Do **not** split doctor names on a
-  comma because “Last, First” is ambiguous.
-- Strip presentation-only numbering such as “1.” only after retaining original
-  raw values for provenance.
-- A singleton doctor/specialty/network value may be inherited by several
-  unambiguous office lines and is marked inherited in the listing metadata.
-- Fields whose cardinality matches the number of office addresses may be
-  aligned by index.
-- If facility, phone, address, ZIP, or doctor cardinalities conflict, do not
-  guess a doctor-to-office relationship. Publish the doctor/facility record
-  only at the confidence the source supports, exclude ambiguous locations from
-  Nearby ranking, and insert an import issue with the exact source row and
-  reason.
-- Rows without a usable doctor name may become a `facility` profile if they
-  have enough facility/location data. They do not pretend to be a physician.
-- Treat blank values as `unknown`, not false/no. In particular, blank
-  “Accepting New Patients” and missing insurance data must not eliminate a
-  record from an unfiltered directory.
-
-## 4. Target data model
-
-The names below are proposed names; use the same names in the rollout,
-canonical schemas, TypeScript/JavaScript types, and APIs once implementation
-begins.
-
-### 4.1 Tables
-
-| Table | Purpose | Important columns |
+| Phần bản cũ | Trạng thái | Ghi chú |
 | --- | --- | --- |
-| `provider_directory_profiles` | Stable searchable profile for a physician or facility. | `id uuid`, unique `identity_key`, `profile_kind` (`doctor` / `facility`), `display_name`, normalized name, source NPI, first/last seen timestamps, active flag. |
-| `provider_directory_locations` | A deduplicated physical office and its geocode state. | `id uuid`, unique normalized `location_key`, facility/address components, normalized city/state/ZIP, normalized phone, latitude/longitude, geocode status/error/timestamps/address hash. |
-| `provider_directory_listings` | Current source-backed association between profile and office. | `id uuid`, unique `listing_key`, doctor/profile ID, nullable location ID, specialty, accepting-new-patients enum, business hours, source Sheet/GID/row/hash, confidence, raw verification date, last seen timestamp, active flag. |
-| `provider_directory_networks` | A normalized network assertion belonging to a listing. | listing ID, market (`obamacare` / `medicare` / `other`), canonical carrier key when known, display/raw token, resolution status. |
-| `provider_directory_import_issues` | Data-quality exceptions created by the parser, not a silent discard pile. | run ID, source tuple/hash, severity, machine-readable code, detail, first/last seen, resolved-at only if a future admin workflow is authorized. |
-| `provider_directory_sync_runs` | Directory-specific health and freshness record. | Sheet-sync run ID, source tuple, parser version, input/profile/location/listing/network/issue counts, status, error, started/finalized timestamps. |
-| `provider_directory_sync_staging` | Batch staging for normalized output under the same source refresh run. | run ID, entity type/key, JSON payload, source tuple; service-role-only. |
-
-The raw table intentionally does not need a new UUID key for directory
-relationships. Listings retain source provenance as columns, rather than a
-foreign key to a row which the current sync deletes and reinserts.
-
-### 4.2 Constraints and indexes
-
-- Make identity, location, listing, and network keys deterministic and unique.
-  They must be reproducible across an unchanged daily Sheet import.
-- Add btree indexes for exact NPI, normalized state/city/ZIP, active listing
-  filters, listing-to-profile/location joins, and carrier-filter joins.
-- `pg_trgm` already exists in the canonical schema. Add GIN trigram indexes
-  for normalized profile name and normalized facility/search text so partial
-  doctor-name and clinic-name searches do not scan all data.
-- Keep source raw text for explainability, but search normalized fields and
-  return only the UI-safe fields from APIs.
-- Enable RLS on `provider_address` and every new provider-directory/staging
-  table. Do not add browser-readable policies. The app’s authenticated Next
-  APIs use `getSupabaseAdmin()` after the existing RBAC check.
-- Update the canonical protected-table/RLS list as well as the versioned
-  production rollout. Before applying, inspect production grants/policies so
-  hardening does not unexpectedly break an existing integration.
-
-### 4.3 Carrier catalog and facets
-
-Move the current 24 hard-coded carrier labels into one provider-directory
-carrier catalog with:
-
-- canonical key and display name;
-- aliases found in source cells, including historical variations;
-- allowed markets where known.
-
-The parser tokenizes comma/newline/slash-delimited network text, preserves the
-raw token, and resolves only known aliases. An unknown token remains searchable
-as raw text and appears in data-quality reporting; it is not silently mapped to
-the nearest-looking carrier. Specialty, city, state, and carrier facet values
-come from active normalized data rather than a second hard-coded UI list.
-
-## 5. Query and API contract
-
-### 5.1 Directory search
-
-Add server-only directory functions under `src/lib/provider-finder/` and
-these authenticated endpoints:
-
-~~~text
-GET /api/automation/provider-finder/directory
-GET /api/automation/provider-finder/directory/:profileId
-GET /api/automation/provider-finder/directory/facets
-~~~
-
-All three require `automation.provider_finder`, return 401/403 consistently
-with the module’s existing convention, and never expose raw Sheet rows or map
-service logs.
-
-The list endpoint accepts a bounded, parsed contract:
-
-~~~text
-q                    doctor name, NPI, facility, phone, or free text
-specialty            normalized facet value(s)
-carrier              canonical carrier key(s)
-market               obamacare | medicare | other
-city, state, zip
-acceptingNewPatients yes | no | unknown
-verified             any | dated | recent
-kind                 doctor | facility | all
-sort                 relevance | name | recently_verified
-limit                default 25, maximum 50
-offset               non-negative bounded integer for v1
-~~~
-
-An empty query is valid for browsing and returns a paginated, stable
-alphabetical/default sort. Text search ranks exact NPI first, then exact/prefix
-profile name, then facility/phone/location matches, then trigram similarity.
-Ties use normalized name and stable profile ID. Filtering and ranking happen in
-Postgres through a narrow query/RPC; the server must never download the entire
-directory and filter it in Node.
-
-The list response contains:
-
-~~~text
-results, total (on first page), offset, limit, hasMore,
-appliedFilters, dataFreshness, and facetVersion
-~~~
-
-The detail response contains one profile and its current listings, networks,
-locations, confidence labels, and source freshness. “Not provided” and “Needs
-verification” are explicit display states.
-
-### 5.2 Nearby search
-
-Split the current geographic workflow from directory browsing:
-
-~~~text
-POST /api/automation/provider-finder/nearby
-~~~
-
-Keep the current `/search` route as a small compatibility wrapper during the
-cutover, then remove it only after consumers are confirmed migrated.
-
-Nearby input has a validated geocodable customer location, radius, specialty,
-carrier/market, accepting-new-patient choice, and maximum result count. A
-street address is preferred; a ZIP/city/state-only search may be offered only
-with UI copy that says distance is approximate. The UI must finally expose the
-radius field documented today.
-
-Algorithm:
-
-1. Geocode the customer location once. Do not persist it or return it in
-   diagnostic logs.
-2. Query active, confidently located offices using a latitude/longitude
-   bounding box plus Haversine distance in SQL. This is the cheap candidate
-   superset and honors non-geographic filters first.
-3. Take a bounded set of closest straight-line candidates (for example 20),
-   then request driving routes only for that set.
-4. Apply driving-distance radius and sort by driving distance. Return the
-   requested Top 10 only after that sort.
-5. If a Maps route fails for one office, retain it as an explicitly
-   “distance unavailable” directory result rather than failing the whole
-   search. A missing map configuration is a Nearby-specific error, never a
-   directory-search error.
-
-This removes the current “Top 10 before distance” bug and limits map quota to
-the part of the feature that actually needs Maps.
-
-## 6. User experience
-
-### 6.1 Information architecture
-
-Retain the URL, but make the page:
-
-~~~text
-Provider Directory
-├─ Directory (default)
-│  ├─ universal doctor/clinic/NPI/phone search
-│  ├─ filters and active-filter chips
-│  ├─ paginated results
-│  └─ profile detail drawer
-└─ Nearby
-   ├─ customer location + actual radius
-   ├─ same specialty/network filters
-   ├─ distance-ranked results
-   └─ map / route view
-~~~
-
-The sidebar label, page heading, access inventory, and user guide call the
-module **Provider Directory**. The URL and permission preserve existing
-bookmarks and grants.
-
-### 6.2 Directory tab
-
-- Search box placeholder: “Search doctor, NPI, clinic, phone, city, or ZIP”.
-- Show filter controls for specialty, carrier, market, state/city, accepts new
-  patients, profile kind, and verification status. Facets are searchable when
-  large and reflect available normalized data.
-- Return a table or responsive cards with name, kind, specialty, NPI when
-  provided, primary clinic/location, phone, carrier summary, accepts-new status,
-  source verification date, and a “multiple locations” indicator.
-- Clicking a result opens a detail drawer. The drawer lists all safe
-  locations, hours, phones, individual network rows, source freshness, and any
-  qualification such as “location association needs verification.”
-- A missing value is a muted “Not provided,” not an empty-looking cell that can
-  be mistaken for a negative answer.
-- Show the latest successful directory refresh and a non-alarming stale-data
-  warning if the newest raw sync did not produce a directory refresh.
-- Do not call Google/Apps Script Maps merely to render this tab.
-
-### 6.3 Nearby tab
-
-- Preserve the existing familiar address/insurance/specialty flow, but make the
-  location and radius explicit and validate them before request.
-- Explain whether each result is driving distance, straight-line fallback, or
-  unavailable. Do not show a bare “-” that implies zero distance.
-- “Map all” works for a nearby search. A profile detail can show its stored
-  office map even when there is no customer origin; the current origin-only
-  modal guard must be removed.
-- A user can click a nearby result into the same directory detail drawer, so
-  search-by-distance and search-by-doctor converge on one source of facts.
-
-### 6.4 Accessibility and failure states
-
-- Form labels, keyboard-usable tabs, accessible result count, and a labelled
-  detail dialog/drawer are required.
-- Loading states preserve the previous results until a new response succeeds or
-  clearly identify that results are being refreshed.
-- Empty states distinguish “no records match these filters,” “records exist but
-  location is not verified,” and “directory data has not completed its first
-  refresh.”
-- Never display raw parser/map exception text to users. Log a correlation ID
-  server-side where observability exists and return actionable generic copy.
-
-## 7. Sync, normalization, and geocoding design
-
-### 7.1 Atomic promotion
-
-Do not implement the directory as an after-the-fact best-effort job. If raw
-source data changes but normalized listings do not, agents will see a stale
-directory with no way to tell which facts are current.
-
-Extend the current sync sequence as follows:
-
-1. Fetch and parse the Sheet as today into raw records.
-2. Run the pure provider-directory normalizer in Node over those raw records.
-   It produces profiles, locations, listings, networks, and issues, all tagged
-   with the same sync run ID and parser version.
-3. Batch-stage normalized output in `provider_directory_sync_staging` while
-   retaining the current `sheet_sync_staging` raw rows.
-4. Call a dedicated `finalize_provider_directory_sync()` RPC. Under the same
-   source-partition advisory lock, it validates staging, replaces raw source
-   rows, upserts deterministic profiles/locations, replaces source-owned
-   listings/networks/issues, writes the directory run status, and clears both
-   staging sets.
-5. If any step in the promotion transaction fails, neither the raw partition
-   nor the directory projection changes. The old directory remains usable.
-
-Use the existing `sheet_sync_runs` run ID/status as the parent audit record.
-The specialized finalizer must preserve the existing empty-Sheet behavior:
-an intentionally empty source clears that source’s active listings and records
-a successful zero-row directory run. It must not leave stale doctors active.
-
-Keep the generic finalizer unchanged for Health and P&C. Dispatch only the
-`provider-address` configuration to this specialized path in
-`datasync/lib/sync-runner.js`. Remove or document the currently unused
-`clearBeforeSync` config field so its behavior is not misleading.
-
-### 7.2 Geocode office locations outside user searches
-
-Store normalized latitude/longitude on `provider_directory_locations`, but
-do not geocode every directory search.
-
-- On a successful directory promotion, changed/un-geocoded valid addresses are
-  queued by address hash.
-- Add a bounded, authenticated provider-location geocode worker. It reuses the
-  existing Apps Script/Google Maps abstraction, processes a limited batch, and
-  records success/failure/attempt time without replacing a known good coordinate
-  on a transient failure.
-- Trigger it only at a Vercel Cron cadence supported by the deployed plan, or
-  through an explicit authenticated maintenance invocation. Confirm the Vercel
-  Cron frequency allowance before writing a schedule into `vercel.json`.
-- Deduplicate by normalized address hash; an unchanged office is not geocoded
-  every day.
-- Store no customer origin in this worker. Customer geocoding remains an
-  ephemeral Nearby request concern.
-
-The current Apps Script proxy already accepts batches for geocoding. Add
-timeouts, batch-size limits, and redacted operational logging in the server
-worker; only modify the Apps Script contract if its current quota/error
-behavior cannot support the bounded batch.
-
-## 8. Implementation tasks
-
-### Task 1 — Freeze the data contract and pure normalization behavior
-
-Files:
-
-- Add `datasync/lib/provider-directory/normalize.js`
-- Add `datasync/lib/provider-directory/normalize.test.js` or the repository’s
-  established Vitest location/configuration
-- Add redacted/synthetic fixtures under `datasync/fixtures/provider-directory/`
-- Add a non-writing profile command or dry-run summary to `datasync/sync.js`
-
-Work:
-
-1. Implement text, phone, state, ZIP, date, carrier-token, and list-item
-   normalizers without source-specific UI code.
-2. Implement the conservative line-alignment and issue-generation policy from
-   section 3.3.
-3. Create deterministic identity/location/listing keys and document their
-   exact ingredients.
-4. Produce a machine-readable count summary with no raw provider values by
-   default: input rows, published profiles/listings, unresolved locations,
-   missing name/specialty/network fields, carrier token resolution, and issues
-   by code.
-5. Add fixtures for one office, one doctor/multiple offices, multiple doctors,
-   mismatched line counts, blank fields, duplicate NPI/name combinations,
-   carrier aliases, bad dates, and intentionally empty Sheet input.
-
-Acceptance:
-
-- Every source row has an outcome: published, published-with-warning, or
-  represented by a recorded issue; no row disappears silently.
-- Tests prove a mismatched multi-line row cannot fabricate an office
-  association.
-- The profile command is read-only and does not emit sensitive row contents
-  unless an explicit local debug option is used.
-
-### Task 2 — Add forward-only schema, RLS, and atomic staging
-
-Files:
-
-- Add `supabase/rollouts/2026-09-xx-provider-directory.sql`
-- Update `supabase/schema.sql`
-- Update `datasync/schema.sql`
-- Add a focused SQL verification script under `supabase/rollouts/`
-
-Work:
-
-1. Create the tables, constraints, enum/check semantics, indexes, and
-   service-role grants in section 4.
-2. Add `provider_address` and every new provider table to the RLS hardening
-   list. Verify policies/grants in the deployed database before and after.
-3. Create `finalize_provider_directory_sync()` and its staging validation,
-   source-partition advisory lock, atomic replacement logic, run accounting,
-   and cleanup.
-4. Keep all changes idempotent and forward-only. Do not drop
-   `provider_address`, existing map configuration, or raw data.
-5. Add a rollout verification block that proves tables/functions/indexes/RLS
-   exist and that a fixture source refresh is atomic, including a failed
-   promotion and an empty source refresh.
-
-Acceptance:
-
-- Old application code can run safely after the SQL rollout and before the new
-  deploy.
-- A failed directory promotion leaves both old raw and old directory snapshots
-  visible.
-- No browser role can query raw/directory/staging tables directly.
-
-### Task 3 — Wire the provider Sheet sync to the normalized projection
-
-Files:
-
-- Modify `datasync/lib/sync-runner.js`
-- Modify `datasync/configs/provider-address.js`
-- Add/modify provider-directory staging helpers under `datasync/lib/`
-- Extend `datasync/README.md` and relevant package scripts if needed
-
-Work:
-
-1. Route only the provider configuration through the normalizer and specialized
-   staging/finalization path.
-2. Preserve raw `provider_address` import semantics and source metadata.
-3. Batch normalized staging safely; validate counts/keys before finalization.
-4. Mark directory run success/failure with an actionable non-secret error.
-5. Ensure a retry with the same finalized run is idempotent and a concurrent
-   provider sync serializes at promotion.
-6. Make the existing daily `config=all` Cron include the new behavior without
-   changing Health/P&C refreshes.
-
-Acceptance:
-
-- A local dry run reports raw and normalized counts without writes.
-- A test refresh creates searchable profiles/listings from synthetic input and
-  removes listings when their source data disappears.
-- A simulated malformed normalized payload fails before replacing production
-  data.
-
-### Task 4 — Implement indexed directory search and detail APIs
-
-Files:
-
-- Add `src/lib/provider-finder/directory-search.ts`
-- Add `src/lib/provider-finder/directory-query.ts` or a small parser module
-- Add tests beside these modules
-- Add `src/app/api/automation/provider-finder/directory/route.ts`
-- Add `src/app/api/automation/provider-finder/directory/[profileId]/route.ts`
-- Add `src/app/api/automation/provider-finder/directory/facets/route.ts`
-
-Work:
-
-1. Parse and bound all search parameters before querying.
-2. Implement DB-side query/filter/ranking/pagination with deterministic order.
-3. Return display-safe DTOs only; do not return `raw_row`, source secrets,
-   maps logs, or unbounded fields.
-4. Check `automation.provider_finder` at every endpoint, including detail
-   and facets.
-5. Return directory freshness from the latest successful run and distinguish an
-   unavailable directory from an empty query result.
-6. Centralize carrier alias/catalog behavior so API and sync agree.
-
-Acceptance:
-
-- Name, partial-name, exact NPI, facility, phone, city, ZIP, specialty, carrier,
-  and combined-filter searches have unit/integration coverage.
-- A list request never loads all rows in application memory.
-- Unauthorized callers cannot access list, facets, or detail.
-
-### Task 5 — Rebuild Nearby as a geographic search
-
-Files:
-
-- Split/refactor `src/lib/provider-finder/search.ts` into nearby-specific code
-- Add `src/lib/provider-finder/nearby-search.ts` and tests
-- Add `src/app/api/automation/provider-finder/nearby/route.ts`
-- Keep a compatibility path in
-  `src/app/api/automation/provider-finder/search/route.ts` during cutover
-- Update `src/lib/provider-finder/maps-service.ts` only as required for
-  bounded routes, retry policy, and redacted failures
-
-Work:
-
-1. Implement SQL geographic prefiltering against stored office coordinates and
-   an explicit radius.
-2. Geocode the request origin once, route only a fixed candidate cap, then sort
-   and radius-filter by actual driving distance.
-3. Preserve partial results when one candidate fails; make unavailable distance
-   a result state, not an unhandled failure.
-4. Enforce request size, location/radius constraints, and Maps timeouts.
-5. Verify that contract-only Directory searches never invoke Maps.
-
-Acceptance:
-
-- A known closer office outside the old text Top 10 is considered and can win.
-- The radius control changes returned results.
-- Maps failures do not break Directory search and cannot expose raw exception
-  payloads to the UI.
-
-### Task 6 — Build the Provider Directory UI and preserve Nearby
-
-Files:
-
-- Refactor `src/app/(authed)/automation/provider-finder/ProviderFinderClient.tsx`
-  into focused Directory/Nearby components as appropriate
-- Add directory list, filters, pagination, and detail drawer components
-- Update `ProviderFinderMap.tsx` for profile-only maps and Nearby routes
-- Update `page.tsx`, Sidebar label, user guide, RBAC access inventory, and
-  module copy
-
-Work:
-
-1. Make Directory the default tab and keep Nearby as a first-class tab.
-2. Replace hard-coded specialty/carrier discovery with facet-backed controls,
-   while allowing source-value search where appropriate.
-3. Implement responsive result list/detail behavior and all state copy in
-   section 6.
-4. Add a real radius input and accurate distance labels to Nearby.
-5. Keep existing page/server permission checks; do not add new role grants.
-6. Ensure map rendering works with an office-only location and with a customer
-   origin/route.
-
-Acceptance:
-
-- A user can search a doctor by name/NPI without entering a customer address.
-- A user can discover all safely associated offices from the result detail.
-- The old nearby workflow still works after the page redesign.
-- Keyboard, loading, empty, error, and mobile-width checks are completed
-  manually in addition to type/lint checks.
-
-### Task 7 — Geocode changed offices and add operational visibility
-
-Files:
-
-- Add provider geocode worker/library and tests
-- Add an authenticated cron/maintenance route if needed
-- Update `vercel.json` only after confirming allowed Cron cadence
-- Update maps/service documentation and operational runbook
-
-Work:
-
-1. Queue only changed/un-geocoded valid normalized locations.
-2. Process bounded batches with durable status and backoff-friendly failure
-   recording.
-3. Add a small operational status endpoint/view restricted to existing
-   administrative infrastructure or expose only the safe freshness summary on
-   the Directory page.
-4. Record sync lag, parse issue counts, geocode backlog/success/error counts,
-   Directory API latency/error rate, and Nearby Maps failures.
-
-Acceptance:
-
-- A normal daily refresh does not repeatedly geocode unchanged addresses.
-- A failed geocode retry never erases a previous good coordinate.
-- Operations can identify stale directory data without reading raw Sheet rows.
-
-## 9. Test matrix
-
-| Layer | Required coverage |
+| §1 Phạm vi sản phẩm | **Lỗi thời** | Bản cũ tuyên bố v1 "cố ý không thêm sửa tay, không thêm bản ghi do người dùng nhập". Production **đã có cả hai**. |
+| §2.2 Hồ sơ dữ liệu nguồn | **Gần đúng, thiếu phát hiện lớn nhất** | Xem §2. |
+| §2.3 Danh sách lỗi | **Phần giá trị nhất — phần lớn vẫn chưa sửa** | Xem §3. |
+| §3.2 Mô hình 3 lớp profile/office/listing | **Bỏ** | Xem §4. |
+| §4.1 Bảy bảng `provider_directory_*` | **Bỏ, và đụng tên** | Xem cảnh báo ngay dưới. |
+| §5 Hợp đồng API | **Bỏ** | Tìm kiếm đã có ở Provider List. |
+| §7 Normalizer trong luồng sync | **Ngược hướng** | Đích hiện tại là **xoá** luồng sync. |
+| §10 Rollout | **Đã xảy ra theo cách khác** | Bảng đã tạo và seed xong. |
+
+### ⚠ Đụng tên — đọc trước khi viết bất kỳ file SQL nào
+
+Bản cũ đề xuất bảy bảng tên `provider_directory_profiles`,
+`provider_directory_locations`, `provider_directory_listings`,
+`provider_directory_networks`, `provider_directory_import_issues`,
+`provider_directory_sync_runs`, `provider_directory_sync_staging`.
+
+Đo trên production hôm nay:
+
+| Bảng | Thực tế |
 | --- | --- |
-| Pure normalization | Line splitting/alignment, source issue codes, key stability, dates, state/ZIP/phone cleanup, carrier aliases, no accidental comma-splitting of names. |
-| Sync | Read-only profile, batch staging, atomic promotion, empty source, retry/idempotency, concurrent promotion lock, malformed payload rollback, stale listing removal. |
-| SQL | Constraints, RLS/grants, trigram/filter indexes, latest refresh state, raw-plus-directory transaction behavior. |
-| Directory API | RBAC, malformed/bounded input, exact/fuzzy name/NPI search, combined filters, pagination/order, no raw fields, detail visibility. |
-| Nearby API | Origin/radius validation, geographic candidate inclusion, route sorting, partial map failures, no Maps call for directory requests. |
-| UI | Search/filter state, request cancellation/race handling, pagination, detail rendering for unknown facts, map with/without origin, tabs, keyboard/focus, narrow viewport. |
-| Regression | Existing provider search validation tests, all TypeScript, lint, production build, and a manual deployed smoke test after first sync. |
+| `provider_directory` | **ĐANG CÓ — 458 dòng, đang phục vụ người dùng** |
+| `provider_directory_profiles` | chưa có (`PGRST205`) |
+| `provider_directory_locations` | chưa có |
+| `provider_directory_listings` | chưa có |
+| `provider_directory_networks` | chưa có |
+| `provider_directory_import_issues` | chưa có |
+| `provider_directory_sync_runs` | chưa có |
 
-Use redacted/synthetic fixtures in Git. Do not commit copied Sheet rows, customer
-addresses, map secrets, or production responses.
+Ai cầm bản cũ đi làm sẽ tạo một họ bảng `provider_directory_*` vây quanh một
+cái tên **đã bị chiếm bởi thứ có ngữ nghĩa hoàn toàn khác** (bảng phẳng, sửa
+tay được). Đó là cái bẫy nguy hiểm nhất của bản cũ.
 
-## 10. Rollout and rollback
+---
 
-1. **Preflight:** Re-run the non-writing Sheet profile; compare counts with the
-   baseline in section 2.2 and inspect a sampled set of parser issues with an
-   authorized data owner.
-2. **Schema first:** Apply and verify the forward-only rollout in a safe
-   environment. It must leave old Nearby code working.
-3. **Deploy sync/API code:** Deploy the specialized sync and server endpoints
-   while the current UI remains usable. Do not expose Directory as ready until
-   one successful normalized refresh exists.
-4. **Initial refresh:** Run the authorized provider sync once, verify raw versus
-   normalized counts, issue rate, random doctor/office lookups, RLS, and
-   freshness. Start the bounded geocode backlog.
-5. **UI release:** Enable the Directory tab/label and run smoke tests for
-   doctor lookup, filter, detail, Nearby radius, map, and an account with/without
-   the module permission.
-6. **Observe:** Monitor daily sync success, directory staleness, parser issue
-   trends, zero-result rate, Maps failures, and performance for at least a
-   full refresh cycle.
+## 1. Thực tế đang chạy trên production
 
-Rollback is non-destructive:
+### 1.1 `provider_directory` — bảng đang phục vụ
 
-- Keep `provider_address`, the old Nearby logic, and the old URL/permission
-  until the new flow is proven.
-- If normalized promotion/search is unhealthy, hide Directory and direct users
-  to the existing Nearby path; do not delete raw data.
-- Fix parser/schema issues with a new forward-only rollout, rerun the source
-  refresh, and compare directory-run metrics before re-enabling the tab.
+Một bảng phẳng, mỗi dòng là **một cơ sở của một bác sĩ**, người dùng sửa trực
+tiếp trên lưới.
 
-## 11. Explicit assumptions to confirm before implementation
+```
+id uuid pk · doctors · facility · npi · practices_as · phone · street
+city · state · zip_code · accepting_new_patients · business_hours
+obamacare · medicare · other_plans · verified_by · date
+custom_values jsonb · needs_review bool · source_row_number int
+created_by_email · updated_by_email · created_at · updated_at · archived_at
+```
 
-This plan intentionally makes the following conservative choices:
+- **458 bản ghi**, **24 dòng** mang cờ `needs_review`.
+- Điện thoại sai chuẩn: **0**. Bang sai chuẩn: **0**.
+- Row level security **đang bật**, không policy nào → chỉ service role vào được.
+- Nằm ngoài tầm với của luồng sync Sheet.
 
-1. The existing Google Sheet remains the source of truth for version 1.
-2. “Store doctors” means maintaining a normalized, searchable internal
-   directory synchronized from that source, not allowing arbitrary user CRUD.
-3. Existing users who have `automation.provider_finder` should be able to
-   browse the directory; no new permission split is required.
-4. An uncertain doctor-to-location relationship is safer to label/withhold from
-   Nearby than to fabricate.
-5. A future administrative correction workflow, profile merge, favorites list,
-   external NPI enrichment, or booking integration is a separate authorization
-   and data-governance decision.
+### 1.2 Hai màn hình
 
-If any of those assumptions change, revisit the identity/override model before
-writing the migration; changing it after a directory is populated is much more
-expensive than settling it up front.
+| Màn | Đường dẫn | Đọc bảng | Quyền |
+| --- | --- | --- | --- |
+| Provider List | `/automation/provider-list` | `provider_directory` | `automation.provider_finder` |
+| Provider Finder | `/automation/provider-finder` | `provider_directory` | `automation.provider_finder` |
 
-## 12. Execution log
+Finder cũng là một tab bên trong Provider List. **Không còn dòng mã ứng dụng
+nào đọc `provider_address`** — chỉ `datasync/` còn ghi vào nó.
 
-| Task | Owner | Commit | Verification | Notes |
-| --- | --- | --- | --- | --- |
-| Plan only | Codex | — | Source/UI/API/sync audit completed 2026-09-16 | No production code or data was changed. |
+> **[Claude]** Bản cũ §6.1 muốn đổi nhãn `/automation/provider-finder` thành
+> "Provider Directory" và giữ nguyên URL. Tôi **không đồng ý** và thực tế đã đi
+> đường khác: Finder là *một cách tra cứu* (theo khoảng cách), không phải cả
+> danh bạ. Đặt tên "Directory" cho nó rồi nhét tìm-theo-khoảng-cách vào trong là
+> ngược. Hiện tại List là nhà, Finder là một tab — đúng hơn. Không cần sửa gì.
+
+### 1.3 Nguồn cũ `provider_address` — hồ sơ thật
+
+| Chỉ số | Đo được | Bản cũ ghi |
+| --- | ---: | ---: |
+| Tổng dòng vật lý | 888 | 889 |
+| **Dòng rỗng hoàn toàn** | **437** | *không nhắc* |
+| Dòng có dữ liệu thật | 451 | — |
+| Có Doctors | 451 | 452 |
+| Có Street | 444 | 445 |
+| Có Specialty | 346 | 340 |
+| Có Obamacare / Medicare | 125 / 192 | 125 / 193 |
+| Có Verified / Date | 6 / 189 | 6 / 189 |
+| Có Other plans | **0** | 0 |
+
+> **[Claude]** Đây là chỗ tôi **không đồng ý mạnh nhất với bản cũ**, và nó không
+> phải lỗi số học — số của bản cũ gần đúng. Lỗi nằm ở kết luận rút ra.
+>
+> Bản cũ có sẵn dữ kiện `889 − 452 = 437` ngay trong bảng của nó, nhưng diễn giải
+> 437 dòng đó thành *"một số dòng là dữ kiện về cơ sở mà không có địa chỉ dùng
+> được"*, rồi thiết kế hẳn một loại hồ sơ `profile_kind = 'facility'` để phục vụ
+> chúng. Thực tế: **437 dòng đó rỗng tuếch** — đuôi trống của Google Sheet, chỉ
+> có chữ "Yes" ở cột Accepting new patients. Và **cả 451 dòng thật đều có tên bác
+> sĩ**, tức **không tồn tại dòng nào chỉ-có-cơ-sở**.
+>
+> Hậu quả nếu làm theo bản cũ: thêm một nhánh `profile_kind`, một lối hiển thị
+> riêng, và test cho một trường hợp **chưa từng xuất hiện trong dữ liệu**. Bài
+> học: khi gần một nửa bảng là rỗng, phải tách "rỗng" khỏi "thiếu" **trước** khi
+> suy ra bất cứ điều gì về hình dạng dữ liệu.
+
+---
+
+## 2. Đính chính một khẳng định sai của bản cũ
+
+Bản cũ §2.3, dòng "Direct table protection", viết:
+
+> *"The canonical RLS sweep in `supabase/schema.sql` does not list
+> `provider_address`."*
+
+**Sai, và sai ngay tại commit mà bản cũ tự khai là viết dựa trên.**
+
+```
+git show 2fd701a:supabase/schema.sql | grep "'provider_address'"
+→ 6113:    'provider_address',
+```
+
+`provider_address` đã nằm trong mảng `protected_tables` từ trước. Khẳng định này
+đẻ ra một hạng mục trong Task 2 và một phần §4.2 của bản cũ — cả hai đều thừa.
+
+> **[Claude]** Không có impact xấu (bật RLS hai lần thì vô hại), nhưng đáng ghi
+> lại như một lời nhắc: bản cũ tự dặn *"verify rather than assume"* ở đúng dòng
+> nó không verify. Bản viết lại này kiểm mọi con số bằng lệnh thật.
+
+---
+
+## 3. Lỗi bản cũ nêu đúng — trạng thái hôm nay
+
+| # | Lỗi | Trạng thái | Bằng chứng |
+| --- | --- | --- | --- |
+| 1 | Top 10 cắt **trước** khi tính quãng đường | **ĐÃ SỬA** | `search.ts` giữ 20 ứng viên cho Maps, chỉ cắt 10 sau khi sort theo route |
+| 2 | Nạp cả bảng mỗi lần tìm | **CÒN** (nhẹ đi) | `fetchProviderRows()` — nay 458 dòng thay vì 888; cần RPC/index nếu directory tăng lớn |
+| 3 | `firstLine()` cắt mất dòng sau | **CÒN** | 10 chỗ gọi trong `search.ts` |
+| 4 | Nhánh `other_plans` không bao giờ chạy tới | **ĐÃ DỌN** | Finder không query/render `other_plans`; kết quả vẫn giữ field tương thích nhưng luôn rỗng |
+| 5 | Danh sách hãng ghi cứng | **ĐÃ SỬA** | carrier suggestions lấy plan labels từ dữ liệu thật |
+| 6 | Giao diện không có ô bán kính | **ĐÃ SỬA** | Provider Finder đã có radius và API validate số dương |
+| 7 | `clearBeforeSync` là trường chết | **ĐÃ DỌN** | xoá khỏi cả 3 config có khai báo |
+| 8 | Không tìm được theo tên/NPI | **ĐÃ XONG** | Provider List tìm trên mọi cột văn bản |
+| 9 | `provider_address` chưa bật RLS | **Khẳng định sai** | §2 |
+| 10 | Maps proxy xử lý route tuần tự; contract-only vẫn gọi geocode | **ĐÃ CẢI THIỆN, CẦN ĐO LẠI PRODUCTION** | Contract-only đã bỏ toàn bộ Maps call; Provider Finder giữ một Apps Script POST cho tối đa 20 route (không fan-out vì Apps Script nhân geocode/cold-start); client không còn chấp nhận health-check 200 thiếu `results`; proxy source lấy origin từ `start_location` để bỏ geocode dư sau khi redeploy |
+
+### 3.1 Danh sách ghi cứng — vấn đề thật nặng hơn "ghi cứng thì xấu"
+
+`ProviderFinderClient.tsx:20` có đúng **24** nhãn hãng (bản cũ ghi đúng con số).
+Nhưng đối chiếu với dữ liệu thật mới thấy vấn đề:
+
+**Danh sách ghi cứng dùng tên hãng chung viết hoa, dữ liệu ghi tên gói cụ thể:**
+
+| Ghi cứng | Dữ liệu thật |
+| --- | --- |
+| `OSCAR` | `Oscar EPO`, `Oscar HMO` |
+| `CHC` | `CHC Premier`, `CHC Select`, `CHC D-SNP`, `CHC Dualcare` |
+| `UHC` | `UHC`, `UHC Kelsey Seybold`, `UHC Sanitas` |
+| `BCBS` | `BCBS`, `BCBS Advantage`, `BCBS MyBlue Health` |
+| `AMBETTER` | `Ambetter EPO`, `Ambetter HMO` |
+
+**8 lựa chọn không có một dòng dữ liệu nào:** `ANTHEM`, `ANTIDOTE`,
+`HARBOR HEALTH`, `HEALTHFIRST`, `HIGHMARK`, `MCLAREN`, `PRIORITY HEALTH`, `SCAN`.
+
+**2 hãng có dữ liệu nhưng không lọc ra được:** `Verda`, `Wellmed`.
+
+**Chuyên khoa thì đã được xử lý rồi** (cập nhật 2026-09-18): danh sách 12 mục
+ghi cứng cũ đã dời ra `src/lib/providers/specialties.ts` thành
+`PROVIDER_SPECIALTY_OPTIONS` — một bộ nhãn chuẩn hoá từ chính `provider_directory`,
+dùng chung ở ba nơi (Provider Finder, ProviderTable, `provider-finder/search.ts`).
+Cột `practices_as` cũng đã chuyển sang kiểu `multiselect` trong database.
+`carrierOptions` cũng đã bỏ ghi cứng: Provider List lấy plan labels từ dữ liệu đã
+nạp sẵn, còn trang Finder độc lập chỉ đọc hai cột `obamacare,medicare`.
+
+> **[codex]** `Does not take ACA` đã được xác nhận là trạng thái bảo hiểm, không
+> phải Specialty: 4 token live đã được loại khỏi `practices_as`, option config đã
+> archive. `Hospital` và `Location Closed` vẫn cần nghiệp vụ chốt có coi là
+> loại cơ sở/trạng thái hay giữ trong bộ tìm kiếm Specialty.
+
+---
+
+## 4. Vì sao bỏ mô hình 3 lớp của bản cũ
+
+Bản cũ §3.2 đề xuất tách `profile` / `location` / `listing` với khoá định danh
+suy ra tự động, cộng bảng `import_issues` và `sync_runs` riêng.
+
+Lý do bỏ:
+
+1. **Vấn đề nó giải đã được giải theo cách rẻ hơn.** Nó tồn tại để xử lý dòng
+   nhiều cơ sở mà máy không tách an toàn được. Tụi mình đã tách **bằng tay**: 6
+   dòng nhiều cơ sở → 13 bản ghi, 10 dòng gộp, 24 dòng còn lại gắn cờ
+   `needs_review` cho người xử. 458 dòng thì làm tay một lần là xong.
+2. **Nó phục vụ một luồng sync sắp bị xoá.** Toàn bộ bộ máy normalizer + staging
+   + promotion chỉ có nghĩa nếu dữ liệu còn chảy từ Sheet vào mỗi đêm. Đích hiện
+   tại là cắt hẳn dòng chảy đó.
+3. **Quy mô không biện minh nổi.** Bảy bảng, một RPC promotion, một worker
+   geocode có nhịp cron riêng — cho 458 dòng thay đổi vài lần một tuần.
+
+> **[Claude]** Tôi giữ lại đúng **một** ý của mô hình cũ, vì nó đúng bất kể quy
+> mô: *"thà hiện hai bản ghi cho một cái tên phổ biến còn hơn nói với nhân viên
+> rằng hai người là một bác sĩ"*. Cột `needs_review` đang làm đúng vai đó — công
+> khai chỗ chưa chắc thay vì đoán bừa. Nếu sau này dữ liệu phình lên hàng chục
+> nghìn dòng thì mở lại bản cũ ở commit `4d9d19f`; thiết kế của nó không sai, chỉ
+> là sai quy mô.
+
+---
+
+## 5. Việc triển khai và phần còn lại
+
+Xếp theo **tác động lên người dùng thật**, không theo thứ tự bản cũ.
+
+### Task 1 — Sửa lỗi "Top 10 trước khi tính khoảng cách" — ĐÃ THỰC HIỆN
+
+Lỗi nặng nhất còn sống: một phòng khám gần hơn nhưng không khớp ZIP/city/state
+sẽ **không bao giờ** được xét, vì bị loại trước khi gọi Maps.
+
+**Đã làm:** `search.ts` giữ tối đa 20 ứng viên cho Maps, chỉ cắt còn 10 sau
+khi đã sort theo khoảng cách lái xe thật. Thêm test bảo đảm ứng viên đứng sau
+Top 10 cũ vẫn được route.
+
+**Kiểm chứng:** `src/lib/provider-finder/search.test.ts` và provider tests; 32
+targeted tests
+đang xanh, `tsc` và lint sạch.
+
+> **[Claude]** Bản cũ giải lỗi này bằng bounding box + Haversine trong SQL, tức
+> phải có `latitude`/`longitude` lưu sẵn — mà bảng hiện **không có**, và thêm
+> chúng kéo theo cả worker geocode của Task 7 bản cũ. Với 458 dòng thì thừa:
+> nâng hạn mức ứng viên rồi sắp lại sau khi routing đã sửa đúng lỗi, trong một
+> file, không cần cột mới. Nếu sau này vượt vài nghìn dòng thì mới quay lại
+> hướng SQL.
+
+### Task 2 — Lựa chọn lọc lấy từ dữ liệu thật — ĐÃ THỰC HIỆN
+
+**Files:**
+- Sửa: `src/app/(authed)/automation/provider-finder/ProviderFinderClient.tsx`
+- Thêm: `src/lib/providers/carriers.ts`
+
+> **[Claude]** Đã có sẵn khuôn mẫu để theo: `src/lib/providers/specialties.ts`.
+> Làm hãng bảo hiểm theo **đúng lối đó** — một hằng chuẩn hoá dùng chung — chứ
+> đừng đẻ ra cơ chế facet thứ hai chạy song song. Hai lối làm cùng một việc là
+> thứ người sau phải đoán xem cái nào mới đúng.
+
+> **[Claude]** **Không đụng `insuranceOptions`** (dòng 65–69: Both / Obamacare /
+> Medicare). Nhìn qua thì nó cũng là "mảng ghi cứng", nhưng nó là bộ chọn *thị
+> trường bảo hiểm* — một tập cố định theo nghiệp vụ, không phải danh sách rút từ
+> dữ liệu. Lấy nó từ dữ liệu là sai hẳn về ngữ nghĩa.
+
+**Đã làm:** carrier suggestions lấy plan labels cụ thể từ `obamacare` và
+`medicare`; Finder trong Provider List dùng lại dữ liệu đã load, không phát sinh
+request thứ hai. Finder độc lập chỉ query hai cột cần thiết. `insuranceOptions`
+vẫn là tập cố định Both/Obamacare/Medicare.
+
+> **[Claude]** Bản cũ muốn kèm cả một "carrier alias catalog" có khoá chuẩn và
+> bí danh lịch sử. Tôi **không đồng ý làm bây giờ**: dữ liệu hiện có **0 biến thể
+> hoa/thường hay khoảng trắng** ở cả 28 nhãn — đã kiểm khi làm sạch. Danh mục bí
+> danh là giải pháp cho một bệnh chưa mắc. Lấy thẳng từ dữ liệu; khi nào xuất
+> hiện nhãn trùng nghĩa thật thì thêm sau, lúc đó còn biết bí danh thật trông
+> thế nào.
+
+### Task 3 — Ô nhập bán kính + dọn mã chết — ĐÃ THỰC HIỆN
+
+Gộp chung một task: cùng file, cùng một lượt kiểm thử.
+
+**Files:**
+- Sửa: `src/app/(authed)/automation/provider-finder/ProviderFinderClient.tsx`
+- Sửa: `src/lib/provider-finder/search.ts` (bỏ nhánh `insuranceType === ""`)
+- Sửa: `datasync/configs/{provider-address,health-mart,pc-raw-data}.js`
+
+**Đã làm:** thêm ô Radius (miles), bỏ nhánh `other_plans` không thể chạy, và xoá
+`clearBeforeSync` khỏi cả ba config sync. API vẫn validate bán kính dương.
+
+> **[Claude]** Bản cũ xếp `clearBeforeSync` vào Task 3 như việc của riêng
+> provider. Thực tế nó chết ở **cả ba** config. Xoá một chỗ để lại hai chỗ y hệt
+> cho người sau vấp — dọn cả ba, hết 2 phút.
+
+### Task 4 — Tắt luồng sync Sheet và cho `provider_address` nghỉ — ĐÃ THỰC HIỆN
+
+Đã tắt job legacy sau khi Provider List/Finder chuyển sang
+`provider_directory`. Bảng cũ vẫn giữ nguyên để đối chiếu và rollback; không
+xoá bảng, không xoá các allowlist SQL legacy để tránh làm hỏng lịch sử rollout.
+
+**Files:**
+- Sửa: `datasync/lib/sync-runner.js` (bỏ `provider_address` khỏi target hợp lệ)
+- Sửa: `datasync/lib/configs.js` (bỏ config khỏi `config=all`)
+- Xoá: `datasync/configs/provider-address.js`
+- Sửa: `datasync/README.md`, `package.json`, `changelog.md`
+
+**Kết quả:**
+
+1. `config=all` chỉ còn Health và P&C.
+2. `provider_address` vẫn tồn tại nguyên trạng làm snapshot lịch sử.
+3. Health/P&C vẫn giữ nguyên target và after-sync RPC.
+4. Luồng cũ không còn được gọi từ CLI hoặc Vercel Cron.
+
+> **[Claude]** Tôi **phản đối xoá bảng `provider_address`** ở bước này, kể cả khi
+> nó đã thành vô dụng. Nó là bản gốc duy nhất để đối chiếu nếu ai đó phát hiện
+> bước làm sạch của tụi mình sai ở đâu — 888 dòng gần như không tốn gì. Chỉ xoá
+> khi đã sống ổn qua vài tháng và có người thật sự yêu cầu.
+
+### Task 5 — Archive cột provider cũ trong `table_column` — ĐÃ THỰC HIỆN
+
+**File:** `supabase/rollouts/2026-09-18-provider-columns-cleanup.sql`
+
+Đã review và chỉnh rollout theo hướng an toàn/idempotent: chạy trong transaction,
+archive đúng `source` và `synced_at`, kiểm tra hai key không còn active, kiểm tra
+`doctors` và `needs_review` vẫn tồn tại, không đếm cứng tổng số cột vì admin có
+thể có custom column, rồi `NOTIFY pgrst` sau commit. Live production cũng đã
+được archive tương đương; không xoá dữ liệu lịch sử.
+
+## 6. Đo latency và cách chứng minh tối ưu
+
+### Số đo đã có
+
+Đo production ngày 2026-09-18 bằng 15 mẫu/query, bỏ 2 mẫu warm-up, cùng filter
+`archived_at is null`. Đây là timing database/REST, chưa bao gồm auth, React
+render hoặc Maps:
+
+| Query | P50 | P95 | Average | Payload |
+| --- | ---: | ---: | ---: | ---: |
+| Provider List exact selector | 679 ms | 1.188 s | 711 ms | 314 KB |
+| Provider Finder exact selector | 502 ms | 579 ms | 505 ms | 177 KB |
+| `table_column` provider | 291 ms | 408 ms | 312 ms | 7.8 KB |
+| `table_column_option` provider | 307 ms | 408 ms | 316 ms | 17.2 KB |
+
+Page Provider List chạy provider query song song với config. Vì vậy không cộng
+cứng 679 + 291 + 307; critical path hiện bị provider query chi phối ở P50/P95,
+trong khi config vẫn tạo một chuỗi hai query tuần tự.
+
+Maps proxy synthetic batch đúng 20 candidate: **16.354s**, trả 20/20 route
+thành công. Đây mới là bottleneck lớn nhất của Nearby, không phải query DB.
+Không gửi địa chỉ provider thật sang proxy khi benchmark; chỉ dùng địa chỉ
+synthetic để đo overhead.
+
+**Kết luận:** archive hai dòng cấu hình `table_column` không làm query
+`provider_directory` nhanh hơn một cách có ý nghĩa, vì nó không nằm trên đường
+đọc dữ liệu Finder. Không được ghi nhận đó là “giảm latency” của sản phẩm.
+
+### Tối ưu đã thực sự đưa vào code
+
+- Finder độc lập chỉ đọc `obamacare,medicare` để dựng carrier suggestions; tab
+  Finder trong Provider List tái sử dụng rows đã load, không gọi thêm query.
+- Finder không còn lấy `other_plans`, giảm payload và bỏ nhánh mã chết.
+- Contract-only search không còn khởi tạo Maps hoặc geocode 20 provider. Đây là
+  nhánh không có origin nên chỉ trả kết quả theo điều kiện lọc; log rõ
+  `maps skipped: no customer address`.
+- **Production vẫn dùng Apps Script built-in Maps service**, không cần Google Maps
+  API key. Proxy gom thành một POST cho cả batch; thử fan-out 4 request x 5
+  route cho thấy wall time tăng lên 26.9s vì mỗi execution geocode lại origin và
+  Apps Script có thể xếp hàng execution, nên đã rollback về một POST.
+- Apps Script source mới lấy `start_location` từ route đầu tiên để tránh một
+  geocode origin riêng; nếu route không có tọa độ thì mới fallback geocode. Phải
+  redeploy Web App rồi mới tính latency tối ưu này vào số đo production.
+- ContentService của Apps Script redirect output sang `script.googleusercontent.com`;
+  client server-side đã follow redirect có kiểm soát và giữ POST, đồng thời reject
+  body health-check `doGet()` nếu thiếu `results`. Source proxy đổi `jsonOut_()`
+  sang `HtmlOutput` JSON để deployment mới trả body trực tiếp, không biến POST
+  thành GET/405.
+- Apps Script đã thêm `CacheService` cho geocode và directions trong 6 giờ, cùng
+  log `directions batch total`/`geocode batch total`. Các lần tìm lại cùng địa
+  chỉ sẽ bỏ qua Maps call; lỗi cache không làm hỏng request.
+- Google REST fallback vẫn có thể chạy tối đa 5 request song song mỗi batch khi
+  có `GOOGLE_MAPS_API_KEY`, nhưng **không phải dependency của production hiện
+  tại** và không được dùng để ghi nhận latency nếu key chưa được cấp.
+- Route candidate cap tăng từ 10 lên 20 để sửa tính đúng của Nearby. Đây là
+  trade-off có thể làm Maps tốn thêm request; Apps Script vẫn gửi một batch.
+  Phải đo riêng chi phí/thời gian Maps, không gộp vào DB latency.
+- API log `db query`, `candidate filter`, `maps route total`, `search breakdown`
+  và `search total` để lấy thời gian thật ở production, thay vì đoán từ UI.
+  Route cũng trả header `Server-Timing` cho `auth`, `parse_body`, `search` và
+  `route_total`; log server có dòng `[perf:provider-finder-search:stages]`.
+- Provider List page/API cũng có structured timing: `auth`, `columns`,
+  `provider_query`, `write_context`, `provider_insert`, `route_total`; API trả
+  thêm header `Server-Timing`. Bật `ROUTE_PERF_LOGS=1` trên Vercel để
+  xem log production theo format `[perf:provider-list-page] ...`.
+
+### Plan tối ưu tiếp theo — ưu tiên theo số đo
+
+1. **ĐÃ SỬA — bỏ Maps không cần thiết cho contract-only.** Khi không có địa chỉ
+   khách, search trả kết quả không có distance/coordinates và không gọi
+   `geocodeCandidates()`. Nhánh này không còn tiêu quota/latency Maps.
+2. **P0 còn lại — đo lại cold/warm sau khi redeploy proxy.** Giữ Apps Script
+   built-in Maps service làm provider chính; cache đã xử lý repeat search và
+   `start_location` bỏ một geocode cold. Không dùng fan-out, Distance Matrix/
+   Routes REST hoặc `UrlFetchApp.fetchAll` khi chưa có credential Google Maps
+   Platform. Nếu P95 cold batch 20 vẫn trên 5s, phải cân nhắc giảm candidate cap
+   hoặc cấp API key/billing/chọn routing provider khác; đó là quyết định hạ tầng,
+   không tự bật trong code.
+3. **P1 — pre-geocode directory.** Thêm `latitude/longitude/geocode_status` cho
+   `provider_directory`, chạy geocode khi thêm/sửa địa chỉ. Khi đó Nearby chỉ
+   geocode origin một lần và có thể bounding-box/Haversine trước khi gọi Maps.
+4. **P1 — không tải cả directory khi quy mô tăng.** Khi vượt 1.000 active rows,
+   chuyển filter specialty/carrier/state/city/ZIP vào RPC/indexed query; Finder
+   chỉ nhận candidate bounded thay vì 458 dòng rồi lọc trong Node. Hiện DB P50
+   502ms vẫn chấp nhận được ở 458 dòng, chưa nên thêm migration chỉ để tối ưu
+   sớm.
+5. **P2 — Provider List payload.** Lazy-load detail khi mở modal hoặc thêm
+   server-side pagination; hiện initial payload 314KB và P95 query 1.188s là
+   vấn đề riêng của List, không gộp với Nearby.
+
+### Cách đo sau deploy
+
+Chạy tối thiểu 30–50 lần cho từng scenario: contract-only, address + route,
+address + radius; đo Apps Script theo hai nhóm cold cache/warm cache. Ghi P50/P95
+của DB load, candidate filter, Maps, tổng request, số candidate route, tỷ lệ
+route lỗi và số request Maps. Đối chiếu `Server-Timing`/`search breakdown` với
+log Apps Script `directions batch total`; Google REST chỉ là scenario phụ nếu
+sau này có credential hợp lệ.
+So sánh cùng input, cùng dataset, cùng provider Maps. Nếu P95 tăng sau khi cap
+20, hạ candidate cap hoặc chuyển sang pre-geocoded/bounding-box khi directory
+vượt quy mô hiện tại; không tự tối ưu bằng cách cắt lại trước khi route.
+
+---
+
+## 7. Ma trận kiểm thử
+
+| Lớp | Phải phủ |
+| --- | --- |
+| Xếp hạng Nearby | Cơ sở gần hơn ngoài Top 10 cũ phải thắng; bán kính đổi thì kết quả đổi; một tuyến đường lỗi không làm hỏng cả lượt tìm |
+| Facet | Tách theo dấu phẩy, gộp hoa/thường, bỏ ô trống, giữ tên gói cụ thể |
+| Hồi quy | full `npm run test:run` hiện **1.387 bài đạt hết**, `npx tsc --noEmit`, lint/build |
+
+Dùng dữ liệu giả trong Git. Không commit dòng Sheet thật, địa chỉ khách, hay
+khoá Maps.
+
+> **[Claude]** Bản cũ §9 đòi thêm cả tầng kiểm thử SQL cho RLS, ràng buộc, chỉ
+> mục. Repo **chưa có hạ tầng test database** — đây chính là thứ đã chặn Phase B
+> của việc mở rộng task board trước đây. Ghi một dòng "SQL test layer" vào kế
+> hoạch mà không có chỗ chạy thì nó chỉ là dòng chữ. Bỏ, cho tới khi có hạ tầng.
+
+---
+
+## 8. Giả định cần xác nhận
+
+1. `provider_directory` là nguồn sự thật từ nay; Google Sheet thành lịch sử.
+2. Nhân viên **được** sửa dữ liệu trực tiếp — đã là thực tế, không còn là câu hỏi.
+3. Không tách quyền mới; `automation.provider_finder` vẫn là cổng duy nhất.
+4. 24 dòng `needs_review` do người xử, không do máy đoán.
+
+> **[Claude]** Về 24 dòng `needs_review`: **8 dòng trong đó (Sheet 262–270:
+> Memorial Hermann, St. Luke's, HCA, Houston Methodist, Baylor, UT Physician,
+> Texas Children's, CHRISTUS) tôi cho là không hỏng.** Chúng là mục tổng của cả
+> hệ thống bệnh viện, `street` ghi "X's Locations" là cố ý. Đề xuất **cứ để cờ**
+> — vô hại, và người xem sẽ tự quyết. 16 dòng còn lại mới là hỏng thật. Chưa có
+> ai chốt việc này.
+
+---
+
+## 9. Nhật ký thực hiện
+
+| Việc | Commit | Kiểm chứng |
+| --- | --- | --- |
+| Tạo `provider_directory` + seed 458 dòng | `b4a5242` | 458 bản ghi, 24 cần xem, điện thoại/bang 0 lỗi, RLS bật |
+| Provider List + Finder đọc bảng sạch | `b4a5242` | 1.380 test đạt, tsc sạch |
+| Nút chọn cột xuống cuối hàng lọc | `9982332` | tsc sạch |
+| Viết lại kế hoạch này | *(bản hiện tại)* | Mọi số liệu đo trên production 2026-09-18 |
+| Task 1–4 | đã làm | full tests, typecheck, lint/build sạch |
+| Task 5 — archive provider columns | đã làm | SQL invariant review; live `source`/`synced_at` không còn active |
+| Performance production timing | đã đo | 15 mẫu/query: List P50 679ms/P95 1.188s; Finder P50 502ms/P95 579ms; Apps Script synthetic 20 route 16.354s |
+| Provider List timing | đã làm | page/API có breakdown và API có `Server-Timing` |
+| Contract-only Maps skip + Apps Script cache | đã làm | Không gọi Maps khi thiếu địa chỉ; cache geocode/directions 6h; batch có timing log |
+| Provider Finder timing + proxy retry | đã làm | Route có `Server-Timing`/stage breakdown; fan-out 4x5 bị loại sau mẫu 26.9s; live probe proxy 20 route ~12.3s nhưng nhận health-check do redirect; đã giữ một POST, validate `results`, và sửa Apps Script output/skip geocode origin dư sau redeploy |

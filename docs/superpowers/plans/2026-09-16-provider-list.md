@@ -26,7 +26,7 @@
 
 | Câu hỏi | Chốt | Hệ quả |
 | --- | --- | --- |
-| Lưu ở đâu | **Giữ `provider_address`** | Không dựng hệ bảng mới; bản nháp `2026-09-16-provider-directory.md` (Doctor Directory) **không** được thực hiện trong plan này. |
+| Lưu ở đâu | **Giữ `provider_address`** | Không dựng hệ bảng mới; bản nháp `2026-09-18-provider-directory-cleanup.md` (Doctor Directory; đã đổi tên và viết lại toàn bộ ngày 2026-09-18) **không** được thực hiện trong plan này. |
 | Mục đích | **Để bỏ luồng sync từ Sheet** | Portal thành nguồn dữ liệu chính. Sync vẫn chạy song song cho tới khi người dùng tắt. |
 | Chức năng | **Add address như Add task**, cộng sửa ô tại chỗ | Cần `custom_values`, cần khoá `id` ổn định. |
 | UI | **Giống List của Health CS** | Cột cấu hình ở `/config`, layout theo từng người, tìm kiếm, sắp xếp. |
