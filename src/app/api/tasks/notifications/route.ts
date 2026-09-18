@@ -3,13 +3,21 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifTopic } from "@/lib/tasks/realtime";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
+import { RouteTiming } from "@/lib/server-timing";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const session = await auth();
+  const timing = new RouteTiming("task-notifications");
+  const respond = (body: unknown, status = 200) => {
+    const response = NextResponse.json(body, { status });
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(status);
+    return response;
+  };
+  const session = await timing.measure("auth", async () => auth());
   const email = session?.user?.email;
-  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!email) return respond({ error: "Unauthorized" }, 401);
 
   const supabase = getSupabaseAdmin();
   const mode = new URL(req.url).searchParams.get("mode");
@@ -19,6 +27,7 @@ export async function GET(req: Request) {
   // and enrichment queries makes polling cheap; the full list is loaded when
   // the user opens the dropdown or a realtime signal arrives.
   if (mode === "summary") {
+    const tCounts = performance.now();
     const [unreadRes, enrollmentUnreadRes, timeOffUnreadRes, unreadAssignedRes] =
       await Promise.all([
       supabase
@@ -43,32 +52,33 @@ export async function GET(req: Request) {
         .eq("type", "assigned")
         .eq("is_read", false),
     ]);
+    timing.record("counts", performance.now() - tCounts);
 
     if (unreadRes.error) {
-      return NextResponse.json({ error: unreadRes.error.message }, { status: 500 });
+      return respond({ error: unreadRes.error.message }, 500);
     }
     if (
       enrollmentUnreadRes.error &&
       !isMissingOptionalTableError(enrollmentUnreadRes.error)
     ) {
-      return NextResponse.json(
+      return respond(
         { error: enrollmentUnreadRes.error.message },
-        { status: 500 },
+        500,
       );
     }
     if (
       timeOffUnreadRes.error &&
       !isMissingOptionalTableError(timeOffUnreadRes.error)
     ) {
-      return NextResponse.json(
+      return respond(
         { error: timeOffUnreadRes.error.message },
-        { status: 500 },
+        500,
       );
     }
     if (unreadAssignedRes.error) {
-      return NextResponse.json(
+      return respond(
         { error: unreadAssignedRes.error.message },
-        { status: 500 },
+        500,
       );
     }
 
@@ -79,7 +89,7 @@ export async function GET(req: Request) {
         ),
       ),
     ];
-    return NextResponse.json({
+    return respond({
       unread:
         (unreadRes.count ?? 0) +
         (enrollmentUnreadRes.count ?? 0) +
@@ -89,6 +99,7 @@ export async function GET(req: Request) {
     });
   }
 
+  const tLists = performance.now();
   const [
     { data, error },
     enrollmentRes,
@@ -138,36 +149,37 @@ export async function GET(req: Request) {
       .eq("type", "assigned")
       .eq("is_read", false),
   ]);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  timing.record("lists", performance.now() - tLists);
+  if (error) return respond({ error: error.message }, 500);
   if (enrollmentRes.error && !isMissingOptionalTableError(enrollmentRes.error)) {
-    return NextResponse.json({ error: enrollmentRes.error.message }, { status: 500 });
+    return respond({ error: enrollmentRes.error.message }, 500);
   }
   if (unreadRes.error) {
-    return NextResponse.json({ error: unreadRes.error.message }, { status: 500 });
+    return respond({ error: unreadRes.error.message }, 500);
   }
   if (
     enrollmentUnreadRes.error &&
     !isMissingOptionalTableError(enrollmentUnreadRes.error)
   ) {
-    return NextResponse.json(
+    return respond(
       { error: enrollmentUnreadRes.error.message },
-      { status: 500 }
+      500
     );
   }
   if (timeOffRes.error && !isMissingOptionalTableError(timeOffRes.error)) {
-    return NextResponse.json({ error: timeOffRes.error.message }, { status: 500 });
+    return respond({ error: timeOffRes.error.message }, 500);
   }
   if (
     timeOffUnreadRes.error &&
     !isMissingOptionalTableError(timeOffUnreadRes.error)
   ) {
-    return NextResponse.json(
+    return respond(
       { error: timeOffUnreadRes.error.message },
-      { status: 500 }
+      500
     );
   }
   if (unreadAssignedRes.error) {
-    return NextResponse.json({ error: unreadAssignedRes.error.message }, { status: 500 });
+    return respond({ error: unreadAssignedRes.error.message }, 500);
   }
 
   const taskBase = ((data ?? []) as {
@@ -255,6 +267,7 @@ export async function GET(req: Request) {
         .filter((id): id is string => Boolean(id))
     ),
   ];
+  const tEnrich = performance.now();
   const [
     titlesRes,
     enrollmentTitlesRes,
@@ -296,6 +309,7 @@ export async function GET(req: Request) {
           .in("id", enrollmentCommentIds)
       : Promise.resolve({ data: [] as { id: string; body: string }[], error: null }),
   ]);
+  timing.record("enrich", performance.now() - tEnrich);
   reportOptionalEnrichmentFailures([
     ["task_titles", titlesRes],
     ["enrollment_titles", enrollmentTitlesRes],
@@ -386,7 +400,7 @@ export async function GET(req: Request) {
       ((unreadAssignedRes.data ?? []) as { task_id: string }[]).map((n) => n.task_id)
     ),
   ];
-  return NextResponse.json({
+  return respond({
     notifications,
     unread,
     unreadAssignedTaskIds,
