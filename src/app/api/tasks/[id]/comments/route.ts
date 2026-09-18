@@ -15,7 +15,6 @@ import { settleSideEffects } from "@/lib/tasks/mutation-result";
 import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
 import {
   broadcastTaskRoom,
-  broadcastTasksChanged,
   readTaskMutationSourceId,
 } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
@@ -232,14 +231,21 @@ export async function POST(req: Request, { params }: Ctx) {
           code: "broadcast_failed",
           message: "Other open tabs may need a refresh to see this comment.",
           run: async () => {
-            const delivered = await Promise.all([
-              // Pass the caller's source id so the originating tab can skip its
-              // own tasks-only echo. Missing source ids also remain tasks-only;
-              // comments and attachments never change task categories.
-              broadcastTasksChanged(sourceId),
-              broadcastTaskRoom(id, sourceId),
-            ]);
-            return delivered.every(Boolean);
+            // CỐ Ý chỉ bắn vào room của ĐÚNG task này, không bắn `tasks-stream`
+            // toàn cục.
+            //
+            // Ping toàn cục khiến MỌI board đang mở phải `clearCachedTaskDetails()`
+            // rồi nạp lại cả danh sách — đo được 400 KB và 1,5–2,5 giây mỗi lần.
+            // Với ~250 comment/ngày thường (15/09: 368), đó là hàng trăm lượt
+            // nạp lại mỗi ngày cho mỗi tab đang mở, mà người xem thường không
+            // quan tâm tới task vừa bị comment.
+            //
+            // Thứ duy nhất mất đi: cột "Last activity" không nhảy tức thì nữa.
+            // Nó vẫn đúng trong vòng 60 giây nhờ vòng làm tươi định kỳ
+            // (`taskLivePollInterval` -> TASK_LIVE_RECONCILE_MS trong
+            // TaskBoardClient). Drawer và luồng comment KHÔNG bị ảnh hưởng: cả
+            // hai đã subscribe `taskRoomTopic(taskId)` từ trước.
+            return broadcastTaskRoom(id, sourceId);
           },
         },
       ]);

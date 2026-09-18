@@ -6,6 +6,28 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Comment không còn bắt mọi board nạp lại cả danh sách
+
+Đăng một comment trước đây bắn vào topic toàn cục `tasks-stream`. Mọi board đang
+mở nhận được là `clearCachedTaskDetails()` rồi nạp lại toàn bộ `/api/tasks` —
+**400 KB, 1,5–2,5 giây** mỗi lần. Với **~186 comment/ngày** (15/09: 368), đó là
+hàng trăm lượt nạp lại mỗi ngày cho MỖI tab đang mở, phần lớn cho những task
+người xem không quan tâm.
+
+Nay đường comment chỉ bắn vào room của đúng task đó (`taskRoomTopic`), thứ vốn
+đã được bắn song song từ trước.
+
+**Không mất gì ở drawer**: `TaskDetailDrawer` và `CommentThread` đều đã subscribe
+room riêng, nên comment mới vẫn hiện tức thì cho người đang mở task đó.
+
+**Thứ duy nhất chậm đi**: cột "Last activity" trên bảng cập nhật trong vòng 60
+giây thay vì tức thì, nhờ vòng làm tươi định kỳ có sẵn (`taskLivePollInterval`
+-> `TASK_LIVE_RECONCILE_MS`). Số comment/đính kèm KHÔNG bị ảnh hưởng vì scope
+`cs` không có hai cột đó.
+
+Đường sửa/xoá comment vẫn giữ ping toàn cục — khối lượng nhỏ hơn nhiều và việc
+xoá có đổi số đếm.
+
 ## 2026-09-19 — Gộp `auth()` trùng lặp trong lượt dựng trang
 
 Layout và `rbac/server.ts` đều gọi `auth()`, nên mỗi lượt dựng trang giải mã
