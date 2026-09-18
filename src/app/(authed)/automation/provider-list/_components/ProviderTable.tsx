@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Check } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { parseMultiselectValue } from "@/lib/table-config/multiselect";
@@ -8,7 +8,6 @@ import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import {
   PROVIDER_META_FIELDS,
   PROVIDER_TEXT_FIELDS,
-  needsReview,
   type ProviderMetaField,
   type ProviderRow,
 } from "@/lib/providers/types";
@@ -17,6 +16,7 @@ import {
   isProviderSpecialtyField,
   parseSpecialtyCell,
 } from "@/lib/providers/specialties";
+import { PROVIDER_LIST_LOCKED_COLUMN_KEYS } from "@/lib/providers/list-columns";
 import type { ProviderSortDir } from "@/lib/providers/search";
 
 const DEFAULT_COLUMN_WIDTH = 160;
@@ -50,11 +50,6 @@ function columnWidth(column: TableColumn): number {
   return COLUMN_WIDTHS[column.key] ?? DEFAULT_COLUMN_WIDTH;
 }
 
-/** `needs_review` là cờ do bước làm sạch dữ liệu đặt, chỉ đọc trên bảng. */
-function isReviewColumn(column: TableColumn): boolean {
-  return column.is_system && column.key === "needs_review";
-}
-
 /** Cột siêu dữ liệu: do hệ thống ghi, người dùng chỉ đọc. */
 function isMetaColumn(column: TableColumn): boolean {
   return (
@@ -73,6 +68,10 @@ function formatMetaValue(value: string | null, type: TableColumn["type"]): strin
 
 function isProviderTextKey(key: string): key is (typeof PROVIDER_TEXT_FIELDS)[number] {
   return (PROVIDER_TEXT_FIELDS as readonly string[]).includes(key);
+}
+
+function isCheckedValue(value: unknown): boolean {
+  return value === true || ["yes", "true", "1", "y"].includes(String(value ?? "").trim().toLowerCase());
 }
 
 export function ProviderTable({
@@ -97,6 +96,13 @@ export function ProviderTable({
   onEndReached?: () => void;
 }) {
   const minWidth = columns.reduce((total, column) => total + columnWidth(column), 0);
+  const pinnedOffsetByKey = new Map<string, number>();
+  let pinnedWidth = 0;
+  for (const column of columns) {
+    if (!PROVIDER_LIST_LOCKED_COLUMN_KEYS.has(column.key)) continue;
+    pinnedOffsetByKey.set(column.key, pinnedWidth);
+    pinnedWidth += columnWidth(column);
+  }
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const endSentinelRef = useRef<HTMLLIElement | null>(null);
 
@@ -127,17 +133,25 @@ export function ProviderTable({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto">
         <div style={{ minWidth }}>
           <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
             {columns.map((column) => {
               const active = sortKey === column.key;
+              const pinned = pinnedOffsetByKey.has(column.key);
               return (
                 <div
                   key={column.id}
-                  style={{ width: columnWidth(column) }}
-                  className="flex shrink-0 items-center px-3 py-2"
+                  style={{
+                    width: columnWidth(column),
+                    ...(pinned ? { left: pinnedOffsetByKey.get(column.key) } : {}),
+                  }}
+                  className={`flex shrink-0 items-center px-3 py-2 ${
+                    pinned
+                      ? "sticky z-30 border-r border-[#dfe1e6] bg-[#fafbfc]"
+                      : ""
+                  }`}
                 >
                   <button
                     type="button"
@@ -179,23 +193,33 @@ export function ProviderTable({
                     onOpenProvider(provider);
                   }
                 }}
-                className="group flex cursor-pointer items-stretch border-b border-[#f0f1f4] outline-none hover:bg-[#f7f8f9] focus-visible:bg-[#e9f2ff]"
+                className="group flex min-h-11 cursor-pointer items-stretch border-b border-[#ebecf0] bg-white outline-none transition hover:bg-[#f7f8f9] focus-visible:bg-[#e9f2ff]"
               >
-                {columns.map((column) => (
-                  <div
-                    key={column.id}
-                    style={{ width: columnWidth(column) }}
-                    className="flex shrink-0 items-center px-3 py-1.5"
-                  >
-                    <ProviderCell
-                      provider={provider}
-                      column={column}
-                      options={columnOptions.filter(
-                        (option) => option.column_id === column.id
-                      )}
-                    />
-                  </div>
-                ))}
+                {columns.map((column) => {
+                  const pinned = pinnedOffsetByKey.has(column.key);
+                  return (
+                    <div
+                      key={column.id}
+                      style={{
+                        width: columnWidth(column),
+                        ...(pinned ? { left: pinnedOffsetByKey.get(column.key) } : {}),
+                      }}
+                      className={`flex min-w-0 shrink-0 items-center px-3 py-2.5 ${
+                        pinned
+                          ? "sticky z-10 border-r border-[#ebecf0] bg-white group-hover:bg-[#f7f8f9] group-focus-visible:bg-[#e9f2ff]"
+                          : ""
+                      }`}
+                    >
+                      <ProviderCell
+                        provider={provider}
+                        column={column}
+                        options={columnOptions.filter(
+                          (option) => option.column_id === column.id
+                        )}
+                      />
+                    </div>
+                  );
+                })}
               </li>
             ))}
             {hasMore ? <li ref={endSentinelRef} aria-hidden="true" className="h-2" /> : null}
@@ -215,24 +239,6 @@ function ProviderCell({
   column: TableColumn;
   options: TableColumnOption[];
 }) {
-  if (isReviewColumn(column)) {
-    const flagged = needsReview(provider);
-    return (
-      <span
-        title={
-          flagged
-            ? "Chuyển từ Sheet sang nhưng máy không tự sửa được: địa chỉ thiếu, ZIP bị che, hoặc nhiều cơ sở trong một dòng. Sửa xong thì bỏ cờ này."
-            : "Không còn vấn đề nào phải xử."
-        }
-        className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold ${
-          flagged ? "bg-[#fffae6] text-[#974f0c]" : "bg-[#e3fcef] text-[#006644]"
-        }`}
-      >
-        {flagged ? "Review" : "OK"}
-      </span>
-    );
-  }
-
   if (isMetaColumn(column)) {
     const text = formatMetaValue(
       provider[column.key as ProviderMetaField],
@@ -291,7 +297,21 @@ function ProviderCell({
   }
 
   if (column.type === "checkbox") {
-    return <span className="text-sm font-medium text-[#5e6c84]">{value ? "Yes" : "No"}</span>;
+    const checked =
+      column.key === "needs_review" ? !isCheckedValue(value) : isCheckedValue(value);
+    return (
+      <span
+        title={checked ? "Checked" : "Not checked"}
+        aria-label={checked ? "Checked" : "Not checked"}
+        className={`inline-flex h-6 w-6 items-center justify-center rounded-md border ${
+          checked
+            ? "border-[#16a66a] bg-[#e8f8ef] text-[#168653]"
+            : "border-[#c7d1e0] bg-white text-transparent"
+        }`}
+      >
+        <Check className="h-4 w-4" />
+      </span>
+    );
   }
 
   const text = isMetaColumn(column)

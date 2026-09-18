@@ -62,11 +62,9 @@ const menuData: MenuItem[] = [
         permission: PERMISSIONS.AUTOMATION_PC_STATEMENT,
       },
       {
-        href: "/automation/provider-finder",
-        label: "Provider Finder",
-        permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
-      },
-      {
+        // Provider Finder không còn mục riêng: nó đã là tab "Find nearby" bên
+        // trong Provider List, dùng chung một bộ dữ liệu và một bộ lọc. Để hai
+        // mục cạnh nhau chỉ khiến người dùng phải đoán xem nên bấm cái nào.
         href: "/automation/provider-list",
         label: "Provider List",
         permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,

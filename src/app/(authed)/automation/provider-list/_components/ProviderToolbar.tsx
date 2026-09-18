@@ -60,13 +60,13 @@ export function ProviderToolbar({
   const active = hasActiveProviderFilters(filters) || query.trim() !== "";
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
+    <section className="mt-2 flex min-w-0 flex-col gap-3">
       {/* Theo bố cục CS Tasks: view switcher đứng cố định bên trái search,
           không bị cuốn theo dãy filter hoặc đổi chỗ khi bảng co chiều ngang. */}
       <div className="flex min-w-0 items-center gap-3">
         <nav
           aria-label="Provider List view"
-          className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5"
+          className="inline-flex shrink-0 rounded-lg bg-[#f4f5f7] p-0.5"
         >
           {views.map((option) => (
             <button
@@ -74,7 +74,7 @@ export function ProviderToolbar({
               type="button"
               onClick={() => onViewChange(option.key)}
               aria-current={view === option.key ? "page" : undefined}
-              className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+              className={`rounded-md px-3 py-1.5 text-sm font-semibold transition ${
                 view === option.key
                   ? "bg-white text-[#0c66e4] shadow-sm"
                   : "text-[#5e6c84] hover:text-[#172b4d]"
@@ -93,7 +93,7 @@ export function ProviderToolbar({
               onChange={(event) => onQuery(event.target.value)}
               placeholder="Search doctor, clinic, NPI, phone, city, ZIP…"
               aria-label="Search providers"
-              className="h-10 w-full rounded border-2 border-transparent bg-[#f4f5f7] pl-10 pr-9 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#44546f] hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white"
+              className="h-10 w-full rounded-lg border-2 border-transparent bg-[#f4f5f7] pl-10 pr-9 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#44546f] hover:bg-[#ebecf0] focus:border-[#0c66e4] focus:bg-white"
             />
           </div>
         ) : (
@@ -102,7 +102,7 @@ export function ProviderToolbar({
       </div>
 
       {view === "list" ? (
-        <div className="flex min-w-0 items-start gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <TaskSelect
               multi
@@ -165,7 +165,7 @@ export function ProviderToolbar({
             />
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
             {settingsSlot ? <div className="shrink-0">{settingsSlot}</div> : null}
 
             <span
@@ -190,6 +190,6 @@ export function ProviderToolbar({
           </div>
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }

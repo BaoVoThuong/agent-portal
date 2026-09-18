@@ -1,43 +1,18 @@
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { requirePermission } from "@/lib/rbac/server";
-import { getSupabaseAdmin } from "@/lib/supabase";
-import { providerCarrierOptions } from "@/lib/providers/carriers";
-import { providerLocationOptions } from "@/lib/providers/carriers";
-import ProviderFinderClient from "./ProviderFinderClient";
+import { redirect } from "next/navigation";
 
-export default async function ProviderFinderPage() {
-  await requirePermission(PERMISSIONS.AUTOMATION_PROVIDER_FINDER);
-
-  const { data } = await getSupabaseAdmin()
-    .from("provider_directory")
-    .select("obamacare,medicare,state,city")
-    .is("archived_at", null)
-    .limit(5000);
-  const rows = (data ?? []) as Array<{
-    obamacare: string | null;
-    medicare: string | null;
-    state: string | null;
-    city: string | null;
-  }>;
-  const carrierOptions = providerCarrierOptions(rows);
-  const stateOptions = providerLocationOptions(rows, "state");
-  const cityOptions = providerLocationOptions(rows, "city");
-
-  return (
-    <div className="px-8 py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#16233a]">
-          Provider Finder
-        </h1>
-        <p className="mt-1 text-sm text-[#667085]">
-          Search nearby providers by address, insurance, and specialty.
-        </p>
-      </header>
-      <ProviderFinderClient
-        carrierOptions={carrierOptions}
-        stateOptions={stateOptions}
-        cityOptions={cityOptions}
-      />
-    </div>
-  );
+/**
+ * Trang Provider Finder riêng đã bị ẩn.
+ *
+ * Tính năng KHÔNG bị xoá: `ProviderFinderClient` trong cùng thư mục vẫn là thứ
+ * dựng nên tab "Find nearby" của Provider List, và `ProviderListClient` import
+ * thẳng component đó. Chỉ có đường dẫn riêng này là không còn lối vào.
+ *
+ * Chuyển hướng thay vì xoá file: người đã bookmark `/automation/provider-finder`
+ * vẫn tới đúng chỗ chứa tính năng đó, thay vì gặp 404 rồi đi hỏi.
+ *
+ * Không cần kiểm quyền ở đây — trang đích tự kiểm bằng
+ * `requireAnyPermission([AUTOMATION_PROVIDER_FINDER])`.
+ */
+export default function ProviderFinderPage() {
+  redirect("/automation/provider-list");
 }

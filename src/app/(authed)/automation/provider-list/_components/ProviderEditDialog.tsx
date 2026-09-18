@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Check, ExternalLink, X } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, Search, X } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { parseMultiselectValue } from "@/lib/table-config/multiselect";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
@@ -20,9 +20,9 @@ import {
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
 const INPUT_CLASS =
-  "h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none transition focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]";
-const TEXTAREA_CLASS = `${INPUT_CLASS} min-h-24 resize-y py-2.5`;
-const LABEL_CLASS = "mb-1.5 block text-[11px] font-bold uppercase tracking-[0.06em] text-[#667085]";
+  "h-11 w-full rounded-xl border border-[#d8dee7] bg-white px-3.5 text-sm font-semibold text-[#172b4d] shadow-[0_1px_2px_rgba(9,30,66,0.04)] outline-none transition placeholder:text-[#98a2b3] focus:border-[#0c66e4] focus:ring-4 focus:ring-[#deebff]";
+const TEXTAREA_CLASS = `${INPUT_CLASS} min-h-28 resize-y py-3`;
+const LABEL_CLASS = "mb-1.5 block text-[10px] font-bold uppercase tracking-[0.08em] text-[#667085]";
 
 function isPlanColumn(key: string): boolean {
   return key === "obamacare" || key === "medicare";
@@ -36,11 +36,22 @@ function isProviderTextKey(key: string): key is (typeof PROVIDER_TEXT_FIELDS)[nu
   return (PROVIDER_TEXT_FIELDS as readonly string[]).includes(key);
 }
 
+function isNewPatientColumn(column: TableColumn): boolean {
+  return column.key === "accepting_new_patients";
+}
+
+function isReviewedColumn(column: TableColumn): boolean {
+  return column.key === "needs_review";
+}
+
+function isTruthyProviderValue(value: unknown): boolean {
+  return ["yes", "true", "1", "y"].includes(String(value ?? "").trim().toLowerCase());
+}
+
 function isReadOnlyColumn(column: TableColumn): boolean {
   return (
-    column.key === "needs_review" ||
-    (column.is_system &&
-      (PROVIDER_META_FIELDS as readonly string[]).includes(column.key))
+    column.is_system &&
+    (PROVIDER_META_FIELDS as readonly string[]).includes(column.key)
   );
 }
 
@@ -62,6 +73,12 @@ function initialValues(provider: ProviderRow, columns: readonly TableColumn[]) {
       .filter((column) => !column.archived_at)
       .map((column) => {
         const raw = valueForColumn(provider, column);
+        if (isNewPatientColumn(column)) {
+          return [column.key, isTruthyProviderValue(raw)];
+        }
+        if (isReviewedColumn(column)) {
+          return [column.key, !isTruthyProviderValue(raw)];
+        }
         if (isMultiselectColumn(column)) {
           const values = isProviderSpecialtyField(column.key)
             ? parseSpecialtyCell(raw)
@@ -94,6 +111,15 @@ function displayValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   return String(value);
+}
+
+function isLongTextColumn(column: TableColumn, value: unknown): boolean {
+  const stringValue = value === null || value === undefined ? "" : String(value);
+  return column.key === "business_hours" || stringValue.length > 120;
+}
+
+function isWideEditField(column: TableColumn, value: unknown): boolean {
+  return isMultiselectColumn(column) || isLongTextColumn(column, value);
 }
 
 export function ProviderEditDialog({
@@ -137,6 +163,12 @@ export function ProviderEditDialog({
   const readOnlyColumns = columns.filter(
     (column) => !column.archived_at && isReadOnlyColumn(column)
   );
+  const compactColumns = editableColumns.filter(
+    (column) => !isWideEditField(column, values[column.key])
+  );
+  const wideColumns = editableColumns.filter((column) =>
+    isWideEditField(column, values[column.key])
+  );
 
   function optionsFor(column: TableColumn): TableColumnOption[] {
     if (isProviderSpecialtyField(column.key)) {
@@ -161,9 +193,18 @@ export function ProviderEditDialog({
 
       for (const column of editableColumns) {
         const value = values[column.key];
-        if (isProviderTextKey(column.key)) {
-          systemPatch[column.key] =
-            isMultiselectColumn(column) ? value : value === "" ? null : value;
+        if (isReviewedColumn(column)) {
+          systemPatch[column.key] = value !== true;
+        } else if (isProviderTextKey(column.key)) {
+          systemPatch[column.key] = isNewPatientColumn(column)
+            ? value === true
+              ? "Yes"
+              : "No"
+            : isMultiselectColumn(column)
+              ? value
+              : value === ""
+                ? null
+                : value;
         } else if (!column.is_system) {
           customValues[column.key] = value === "" ? null : value;
         }
@@ -180,7 +221,7 @@ export function ProviderEditDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[180] flex items-center justify-center bg-[#091e42]/55 p-4"
+      className="fixed inset-0 z-[180] flex items-center justify-center bg-[#091e42]/60 p-3 backdrop-blur-[2px] sm:p-6"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !saving) onClose();
@@ -190,74 +231,116 @@ export function ProviderEditDialog({
         role="dialog"
         aria-modal="true"
         aria-label={`Edit provider ${provider.doctors || provider.facility || provider.id}`}
-        className="flex max-h-[min(54rem,calc(100vh-2rem))] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[#dfe1e6] bg-white shadow-[0_24px_80px_rgba(9,30,66,0.3)]"
+        className="flex max-h-[min(56rem,calc(100vh-2rem))] w-full max-w-[1120px] flex-col overflow-hidden rounded-2xl border border-[#d9e0ea] bg-white shadow-[0_28px_90px_rgba(9,30,66,0.34)]"
       >
-        <div className="flex items-center justify-between border-b border-[#dfe1e6] px-6 py-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#7a869a]">
-              Provider record
-            </p>
-            <h2 className="mt-1 text-xl font-bold text-[#172b4d]">
+        <div className="flex items-start justify-between gap-4 border-b border-[#e6ebf2] bg-white px-5 py-4 sm:px-7">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#7a869a]">
+                Provider directory
+              </p>
+              <span className="rounded-full bg-[#edf4ff] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#0c66e4]">
+                Edit record
+              </span>
+            </div>
+            <h2 className="mt-1 truncate text-xl font-bold text-[#172b4d] sm:text-[22px]">
               {provider.doctors || provider.facility || "Edit provider"}
             </h2>
+            <p className="mt-1 text-xs text-[#7a869a]">
+              Update provider details and save them to the directory.
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
             aria-label="Close"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[#6b778c] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-transparent text-[#6b778c] transition hover:border-[#d8dee7] hover:bg-[#f7f9fc] hover:text-[#172b4d]"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <div className="mb-5 rounded-lg border border-[#deebff] bg-[#f7faff] px-4 py-3 text-sm text-[#42526e]">
-            Click any provider row to edit the complete record. Changes are saved to the provider directory.
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            {editableColumns.map((column) => (
-              <ProviderEditField
-                key={column.id}
-                column={column}
-                value={values[column.key]}
-                options={optionsFor(column)}
-                onChange={(value) => setValue(column.key, value)}
-              />
-            ))}
-          </div>
-
-          {readOnlyColumns.length > 0 ? (
-            <div className="mt-6 border-t border-[#ebecf0] pt-5">
-              <h3 className="mb-3 text-sm font-bold text-[#172b4d]">System information</h3>
-              <div className="grid gap-3 md:grid-cols-3">
-                {readOnlyColumns.map((column) => (
-                  <div key={column.id} className="rounded-lg border border-[#ebecf0] bg-[#f7f9fc] px-3 py-2.5">
-                    <div className={LABEL_CLASS}>{column.label}</div>
-                    <div className="truncate text-sm font-semibold text-[#5e6c84]" title={displayValue(values[column.key])}>
-                      {displayValue(values[column.key])}
-                    </div>
-                  </div>
+        <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f9fc] px-4 py-4 sm:px-7 sm:py-5">
+          <div className="mx-auto max-w-[1040px] space-y-4">
+            <section className="rounded-2xl border border-[#e1e7ef] bg-white p-4 shadow-[0_1px_3px_rgba(9,30,66,0.05)] sm:p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-[#172b4d]">Provider details</h3>
+                  <p className="mt-0.5 text-xs text-[#7a869a]">Core contact and location information</p>
+                </div>
+                <span className="rounded-full bg-[#f2f4f7] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[#667085]">
+                  {compactColumns.length} fields
+                </span>
+              </div>
+              <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
+                {compactColumns.map((column) => (
+                  <ProviderEditField
+                    key={column.id}
+                    column={column}
+                    value={values[column.key]}
+                    options={optionsFor(column)}
+                    onChange={(value) => setValue(column.key, value)}
+                  />
                 ))}
               </div>
-            </div>
-          ) : null}
+            </section>
 
-          {error ? (
-            <p className="mt-5 rounded-lg border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-sm font-semibold text-[#bf2600]">
-              {error}
-            </p>
-          ) : null}
+            {wideColumns.length > 0 ? (
+              <section className="rounded-2xl border border-[#e1e7ef] bg-white p-4 shadow-[0_1px_3px_rgba(9,30,66,0.05)] sm:p-5">
+                <div className="mb-4">
+                  <h3 className="text-sm font-bold text-[#172b4d]">Specialties and additional details</h3>
+                  <p className="mt-0.5 text-xs text-[#7a869a]">Select all values that apply to this provider.</p>
+                </div>
+                <div className="space-y-4">
+                  {wideColumns.map((column) => (
+                    <ProviderEditField
+                      key={column.id}
+                      column={column}
+                      value={values[column.key]}
+                      options={optionsFor(column)}
+                      onChange={(value) => setValue(column.key, value)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {readOnlyColumns.length > 0 ? (
+              <section className="rounded-2xl border border-[#e1e7ef] bg-[#f2f4f7] p-4 sm:p-5">
+                <div className="mb-3">
+                  <h3 className="text-sm font-bold text-[#172b4d]">System information</h3>
+                  <p className="mt-0.5 text-xs text-[#7a869a]">Read-only fields managed by the system</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {readOnlyColumns.map((column) => (
+                    <div key={column.id} className="rounded-xl border border-[#e1e7ef] bg-white px-3.5 py-3">
+                      <div className={LABEL_CLASS}>{column.label}</div>
+                      <div className="truncate text-sm font-semibold text-[#5e6c84]" title={displayValue(values[column.key])}>
+                        {displayValue(values[column.key])}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {error ? (
+              <p className="rounded-xl border border-[#ffbdad] bg-[#ffebe6] px-4 py-3 text-sm font-semibold text-[#bf2600]">
+                {error}
+              </p>
+            ) : null}
+          </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-[#dfe1e6] px-6 py-4">
+        <div className="flex items-center justify-between gap-3 border-t border-[#e1e7ef] bg-white px-5 py-3.5 sm:px-7">
+          <p className="hidden text-xs text-[#7a869a] sm:block">Changes are saved to the provider directory.</p>
+          <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-lg px-4 py-2 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
+            className="rounded-xl px-4 py-2.5 text-sm font-bold text-[#42526e] transition hover:bg-[#f2f4f7]"
           >
             Cancel
           </button>
@@ -265,10 +348,11 @@ export function ProviderEditDialog({
             type="button"
             onClick={() => void save()}
             disabled={saving}
-            className="rounded-lg bg-[#0c66e4] px-5 py-2 text-sm font-bold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-xl bg-[#0c66e4] px-5 py-2.5 text-sm font-bold text-white shadow-[0_4px_10px_rgba(12,102,228,0.2)] transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Save changes"}
           </button>
+          </div>
         </div>
       </div>
     </div>,
@@ -289,10 +373,59 @@ function ProviderEditField({
 }) {
   const label = (
     <span className={LABEL_CLASS}>
-      {column.label}
+      {isNewPatientColumn(column)
+        ? "New Patient"
+        : isReviewedColumn(column)
+          ? "Reviewed"
+          : column.label}
       {column.required ? <span className="text-[#bf2600]"> *</span> : null}
     </span>
   );
+
+  if (isNewPatientColumn(column) || isReviewedColumn(column)) {
+    const checked = isReviewedColumn(column)
+      ? value === true
+      : value === true || isTruthyProviderValue(value);
+    const toggleLabel = isReviewedColumn(column)
+      ? "Record has been checked"
+      : "Accepting new patients";
+    return (
+      <div>
+        {label}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          onClick={() => onChange(!checked)}
+          className={`flex h-11 w-full items-center justify-between rounded-xl border px-3.5 text-left shadow-[0_1px_2px_rgba(9,30,66,0.04)] transition focus:outline-none focus:ring-4 focus:ring-[#deebff] ${
+            checked
+              ? "border-[#b7e4d0] bg-[#f0fbf5]"
+              : "border-[#d8dee7] bg-white hover:border-[#b8c4d4]"
+          }`}
+        >
+          <span className="flex items-center gap-2.5">
+            <span
+              className={`flex h-5 w-5 items-center justify-center rounded-md border transition ${
+                checked
+                  ? "border-[#16a66a] bg-[#16a66a] text-white"
+                  : "border-[#c7d1e0] bg-white"
+              }`}
+            >
+              {checked ? <Check className="h-3.5 w-3.5" /> : null}
+            </span>
+            <span className="text-sm font-semibold text-[#172b4d]">{toggleLabel}</span>
+          </span>
+          <span
+            className={`text-[10px] font-bold uppercase tracking-[0.08em] ${
+              checked ? "text-[#168653]" : "text-[#98a2b3]"
+            }`}
+          >
+            {checked ? "Yes" : "No"}
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   if (isMultiselectColumn(column)) {
     const selected = Array.isArray(value)
@@ -302,52 +435,13 @@ function ProviderEditField({
         : isPlanColumn(column.key)
           ? parsePlanCell(value as string | null)
           : parseMultiselectValue(value);
-    const selectedSet = new Set(selected.map((item) => item.toLowerCase()));
     return (
-      <label className="block min-w-0 md:col-span-2">
-        {label}
-        <div className="max-h-36 overflow-y-auto rounded-lg border border-[#dfe1e6] bg-white p-2">
-          <div className="grid gap-1 sm:grid-cols-2">
-            {options.map((option) => {
-              const checked = selectedSet.has(option.label.toLowerCase());
-              const palette = tableColumnOptionBadgePalette(option);
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() =>
-                    onChange(
-                      checked
-                        ? selected.filter((item) => item.toLowerCase() !== option.label.toLowerCase())
-                        : [...selected, option.label]
-                    )
-                  }
-                  className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left transition ${
-                    checked ? "bg-[#e9f2ff]" : "hover:bg-[#f4f5f7]"
-                  }`}
-                >
-                  <span
-                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                      checked ? "border-[#0c66e4] bg-[#0c66e4] text-white" : "border-[#c7d1e0]"
-                    }`}
-                  >
-                    {checked ? <Check className="h-3 w-3" /> : null}
-                  </span>
-                  <span
-                    className="min-w-0 truncate rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.025em]"
-                    style={{ backgroundColor: palette.background, color: palette.foreground }}
-                  >
-                    {option.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <span className="mt-1 block text-xs font-medium text-[#7a869a]">
-          {selected.length} selected
-        </span>
-      </label>
+      <MultiSelectField
+        label={label}
+        selected={selected}
+        options={options}
+        onChange={onChange}
+      />
     );
   }
 
@@ -380,7 +474,7 @@ function ProviderEditField({
   }
 
   const stringValue = value === null || value === undefined ? "" : String(value);
-  const isLongText = column.key === "business_hours" || stringValue.length > 120;
+  const isLongText = isLongTextColumn(column, value);
   return (
     <label className="block min-w-0">
       {label}
@@ -405,7 +499,7 @@ function ProviderEditField({
               href={/^https?:\/\//i.test(stringValue) ? stringValue : `https://${stringValue}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#b3d4ff] bg-[#deebff] text-[#0055cc]"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#b3d4ff] bg-[#deebff] text-[#0055cc] transition hover:bg-[#cce0ff]"
               aria-label={`Open ${column.label}`}
             >
               <ExternalLink className="h-4 w-4" />
@@ -414,5 +508,167 @@ function ProviderEditField({
         </div>
       )}
     </label>
+  );
+}
+
+function MultiSelectField({
+  label,
+  selected,
+  options,
+  onChange,
+}: {
+  label: ReactNode;
+  selected: string[];
+  options: readonly TableColumnOption[];
+  onChange: (value: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const selectedSet = new Set(selected.map((item) => item.toLowerCase()));
+
+  const filteredOptions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return options;
+    return options.filter((option) => option.label.toLowerCase().includes(normalizedQuery));
+  }, [options, query]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  function toggleOption(option: TableColumnOption) {
+    const normalizedLabel = option.label.toLowerCase();
+    onChange(
+      selectedSet.has(normalizedLabel)
+        ? selected.filter((item) => item.toLowerCase() !== normalizedLabel)
+        : [...selected, option.label]
+    );
+  }
+
+  function chipStyle(value: string) {
+    const option = options.find((item) => item.label.toLowerCase() === value.toLowerCase());
+    if (!option) return { backgroundColor: "#eef2f6", color: "#475467" };
+    const palette = tableColumnOptionBadgePalette(option);
+    return { backgroundColor: palette.background, color: palette.foreground };
+  }
+
+  return (
+    <div ref={rootRef} className="relative min-w-0">
+      {label}
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border bg-white px-3 py-2 text-left shadow-[0_1px_2px_rgba(9,30,66,0.04)] outline-none transition focus:ring-4 focus:ring-[#deebff] ${
+          open ? "border-[#0c66e4]" : "border-[#d8dee7] hover:border-[#b8c4d4]"
+        }`}
+      >
+        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {selected.length === 0 ? (
+            <span className="text-sm font-medium text-[#98a2b3]">Choose values</span>
+          ) : (
+            <>
+              {selected.slice(0, 3).map((item) => (
+                <span
+                  key={item}
+                  className="max-w-[220px] truncate rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-[0.04em]"
+                  style={chipStyle(item)}
+                >
+                  {item}
+                </span>
+              ))}
+              {selected.length > 3 ? (
+                <span className="rounded-md bg-[#f2f4f7] px-2 py-1 text-[10px] font-bold text-[#667085]">
+                  +{selected.length - 3} more
+                </span>
+              ) : null}
+            </>
+          )}
+        </span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-[#667085] transition ${open ? "rotate-180" : ""}`} />
+      </button>
+      <div className="mt-1 flex items-center justify-between text-[11px] font-medium text-[#7a869a]">
+        <span>{selected.length} selected</span>
+        {selected.length > 0 ? (
+          <button type="button" className="font-bold text-[#0c66e4] hover:underline" onClick={() => onChange([])}>
+            Clear
+          </button>
+        ) : null}
+      </div>
+
+      {open ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+28px)] z-50 overflow-hidden rounded-xl border border-[#d8dee7] bg-white shadow-[0_14px_36px_rgba(9,30,66,0.18)]">
+          <div className="border-b border-[#edf0f4] p-2">
+            <div className="flex h-9 items-center gap-2 rounded-lg bg-[#f7f9fc] px-2.5">
+              <Search className="h-4 w-4 text-[#98a2b3]" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search values..."
+                className="min-w-0 flex-1 bg-transparent text-sm text-[#172b4d] outline-none placeholder:text-[#98a2b3]"
+              />
+            </div>
+          </div>
+          <div role="listbox" className="max-h-56 overflow-y-auto p-1.5">
+            {filteredOptions.length === 0 ? (
+              <p className="px-3 py-5 text-center text-xs text-[#7a869a]">No matching values</p>
+            ) : (
+              filteredOptions.map((option) => {
+                const checked = selectedSet.has(option.label.toLowerCase());
+                const palette = tableColumnOptionBadgePalette(option);
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role="option"
+                    aria-selected={checked}
+                    onClick={() => toggleOption(option)}
+                    className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition ${
+                      checked ? "bg-[#edf4ff]" : "hover:bg-[#f7f9fc]"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                        checked ? "border-[#0c66e4] bg-[#0c66e4] text-white" : "border-[#c7d1e0] bg-white"
+                      }`}
+                    >
+                      {checked ? <Check className="h-3 w-3" /> : null}
+                    </span>
+                    <span
+                      className="truncate rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-[0.04em]"
+                      style={{ backgroundColor: palette.background, color: palette.foreground }}
+                    >
+                      {option.label}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <div className="border-t border-[#edf0f4] bg-[#fbfcfe] px-3 py-2 text-[11px] text-[#667085]">
+            Select one or more values
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

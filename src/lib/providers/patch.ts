@@ -38,6 +38,13 @@ export function buildProviderPatch(body: unknown): ProviderPatchResult {
       patch.archived_at = new Date().toISOString();
       continue;
     }
+    if (key === "needs_review") {
+      if (typeof value !== "boolean") {
+        return { ok: false, error: "needs_review must be a boolean." };
+      }
+      patch[key] = value;
+      continue;
+    }
     if (!(PROVIDER_TEXT_FIELDS as readonly string[]).includes(key)) {
       return { ok: false, error: `${key} cannot be edited here.` };
     }

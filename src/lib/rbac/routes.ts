@@ -25,11 +25,10 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     permission: PERMISSIONS.AUTOMATION_PC_STATEMENT,
   },
   {
-    href: "/automation/provider-finder",
-    permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
-  },
-  {
-    // Cùng quyền với Provider Finder: cùng dữ liệu, cùng nhóm người dùng.
+    // Provider Finder đã gộp thành tab bên trong Provider List, nên chỉ còn một
+    // đích cho quyền này. Bỏ mục cũ khỏi đây là cần thiết, không chỉ để dọn:
+    // `getFirstAccessiblePath` lấy mục ĐẦU TIÊN khớp quyền, nên nếu để lại thì
+    // người chỉ có quyền này sẽ bị đưa về đúng trang vừa bị ẩn.
     href: "/automation/provider-list",
     permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
   },

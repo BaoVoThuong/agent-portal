@@ -1,6 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  PointerEvent as ReactPointerEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ProviderFinderMap } from "./ProviderFinderMap";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 import { PROVIDER_SPECIALTY_OPTIONS } from "@/lib/providers/specialties";
@@ -9,20 +17,63 @@ const specialtyOptions = PROVIDER_SPECIALTY_OPTIONS.filter(
   (value) => value !== "Location Closed"
 );
 
-type InsuranceType = "" | "obamacare" | "medicare" | "both";
 type InsuranceColumn = { key: "obamacare" | "medicare"; label: string };
 
-const insuranceOptions = [
-  { value: "both", label: "Both" },
-  { value: "obamacare", label: "Obamacare" },
-  { value: "medicare", label: "Medicare" },
-] satisfies Array<{ value: Exclude<InsuranceType, "">; label: string }>;
+type NearbyColumnKey =
+  | "map"
+  | "distance"
+  | "name"
+  | "specialty"
+  | "npi"
+  | "street"
+  | "city"
+  | "phone"
+  | "obamacare"
+  | "medicare";
 
-const insuranceTypeLabels: Record<Exclude<InsuranceType, "">, string> = {
-  both: "Both",
-  obamacare: "Obamacare",
-  medicare: "Medicare",
+const nearbyColumnKeys: NearbyColumnKey[] = [
+  "map",
+  "distance",
+  "name",
+  "specialty",
+  "npi",
+  "street",
+  "city",
+  "phone",
+  "obamacare",
+  "medicare",
+];
+
+const defaultNearbyColumnWidths: Record<NearbyColumnKey, number> = {
+  map: 72,
+  distance: 100,
+  name: 180,
+  specialty: 150,
+  npi: 145,
+  street: 230,
+  city: 140,
+  phone: 150,
+  obamacare: 250,
+  medicare: 220,
 };
+
+const minimumNearbyColumnWidths: Record<NearbyColumnKey, number> = {
+  map: 64,
+  distance: 82,
+  name: 120,
+  specialty: 110,
+  npi: 120,
+  street: 150,
+  city: 110,
+  phone: 120,
+  obamacare: 160,
+  medicare: 160,
+};
+
+const visibleInsuranceColumns: InsuranceColumn[] = [
+  { key: "obamacare", label: "Obamacare" },
+  { key: "medicare", label: "Medicare" },
+];
 
 type FormState = {
   street: string;
@@ -31,8 +82,6 @@ type FormState = {
   zipcode: string;
   contract: string;
   specialty: string;
-  radius: string;
-  insuranceType: InsuranceType;
 };
 
 type ProviderResult = {
@@ -74,12 +123,24 @@ const initialForm: FormState = {
   zipcode: "",
   contract: "",
   specialty: "",
-  radius: "",
-  insuranceType: "",
 };
 
 function formatDistance(value: number | null) {
   return value == null ? "-" : value.toFixed(2);
+}
+
+const planChipPalettes = [
+  { background: "#d9f0f7", color: "#174b64" },
+  { background: "#ffe1dc", color: "#7a2f2a" },
+  { background: "#d9f1e5", color: "#1f5a43" },
+  { background: "#e9e2f8", color: "#4b3b78" },
+];
+
+function splitPlans(value: string) {
+  return value
+    .split(",")
+    .map((plan) => plan.trim())
+    .filter(Boolean);
 }
 
 function hasAddress(form: FormState) {
@@ -97,37 +158,23 @@ export default function ProviderFinderClient({
   stateOptions?: readonly string[];
   cityOptions?: readonly string[];
 }) {
-  const insuranceMenuRef = useRef<HTMLDivElement | null>(null);
   const [form, setForm] = useState<FormState>(initialForm);
   const [isRunning, setIsRunning] = useState(false);
   const [results, setResults] = useState<ProviderResult[]>([]);
-  const [resultInsuranceType, setResultInsuranceType] =
-    useState<InsuranceType>("");
   const [origin, setOrigin] = useState<SearchResponse["origin"]>(undefined);
   const [mapSelection, setMapSelection] = useState<"all" | number | null>(null);
-  const [isInsuranceMenuOpen, setIsInsuranceMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [columnWidths, setColumnWidths] = useState(defaultNearbyColumnWidths);
 
   const canRun = useMemo(
     () => hasAddress(form) || form.contract.trim() !== "",
     [form]
   );
-  const visibleInsuranceColumns = useMemo<InsuranceColumn[]>(() => {
-    if (resultInsuranceType === "obamacare") {
-      return [{ key: "obamacare", label: "Obamacare" }];
-    }
-
-    if (resultInsuranceType === "medicare") {
-      return [{ key: "medicare", label: "Medicare" }];
-    }
-
-    return [
-      { key: "obamacare", label: "Obamacare" },
-      { key: "medicare", label: "Medicare" },
-    ];
-  }, [resultInsuranceType]);
   const tableColumnCount = 8 + visibleInsuranceColumns.length;
-  const hasSingleInsuranceColumn = visibleInsuranceColumns.length === 1;
+  const nearbyTableWidth = nearbyColumnKeys.reduce(
+    (total, key) => total + columnWidths[key],
+    0
+  );
 
   const selectedProvider =
     typeof mapSelection === "number" ? results[mapSelection] ?? null : null;
@@ -149,32 +196,6 @@ export default function ProviderFinderClient({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [mapSelection]);
 
-  useEffect(() => {
-    if (!isInsuranceMenuOpen) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (
-        insuranceMenuRef.current &&
-        !insuranceMenuRef.current.contains(event.target as Node)
-      ) {
-        setIsInsuranceMenuOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsInsuranceMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isInsuranceMenuOpen]);
-
   const updateField = <K extends keyof FormState>(
     key: K,
     value: FormState[K]
@@ -183,6 +204,51 @@ export default function ProviderFinderClient({
     setForm((current) => ({ ...current, [key]: value }));
   };
 
+  const beginColumnResize = (
+    key: NearbyColumnKey,
+    event: ReactPointerEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startX = event.clientX;
+    const startWidth = columnWidths[key];
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.max(
+        minimumNearbyColumnWidths[key],
+        startWidth + moveEvent.clientX - startX
+      );
+      setColumnWidths((current) => ({ ...current, [key]: nextWidth }));
+    };
+
+    const handleEnd = () => {
+      document.removeEventListener("pointermove", handleMove);
+      document.removeEventListener("pointerup", handleEnd);
+      document.removeEventListener("pointercancel", handleEnd);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+
+    document.addEventListener("pointermove", handleMove);
+    document.addEventListener("pointerup", handleEnd);
+    document.addEventListener("pointercancel", handleEnd);
+  };
+
+  const renderResizeHandle = (key: NearbyColumnKey, label: string) => (
+    <button
+      type="button"
+      aria-label={`Resize ${label} column`}
+      onPointerDown={(event) => beginColumnResize(key, event)}
+      className="absolute inset-y-0 right-0 z-10 w-2 cursor-col-resize touch-none border-0 bg-transparent p-0 transition hover:bg-[#0c66e4]/20 focus:bg-[#0c66e4]/20 focus:outline-none"
+    />
+  );
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canRun) return;
@@ -190,7 +256,6 @@ export default function ProviderFinderClient({
     setIsRunning(true);
     setError(null);
     setResults([]);
-    setResultInsuranceType(form.insuranceType);
     setOrigin(undefined);
     setMapSelection(null);
 
@@ -209,7 +274,6 @@ export default function ProviderFinderClient({
       const nextResults = payload.results ?? [];
       setOrigin(payload.origin);
       setResults(nextResults);
-      setResultInsuranceType(form.insuranceType);
       if (nextResults.length === 0) {
         setError(payload.error ?? "No provider found matching the criteria");
       }
@@ -223,17 +287,16 @@ export default function ProviderFinderClient({
 
   useBodyScrollLock(mapSelection !== null);
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <form
         onSubmit={handleSubmit}
-        className="relative z-20 min-w-0 rounded-lg border border-[#d8dee7] bg-white shadow-sm"
+        autoComplete="off"
+        className="relative z-20 min-w-0 overflow-visible rounded-lg border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
       >
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-[#e6ebf2] px-4 py-3">
-          <h2 className="text-base font-semibold text-[#16233a]">
-            Search Criteria
-          </h2>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-[#ebecf0] px-5 py-4">
+          <h2 className="text-lg font-semibold text-[#172b4d]">Search Criteria</h2>
           <div className="flex items-center gap-3">
-            <p className="text-sm text-[#667085]">
+            <p className="text-sm font-medium text-[#6b778c]">
               {results.length
                 ? `${results.length} provider(s)`
                 : "Ready to search"}
@@ -241,22 +304,26 @@ export default function ProviderFinderClient({
             <button
               type="submit"
               disabled={!canRun || isRunning}
-              className="h-8 rounded-md bg-[#245a94] px-4 text-sm font-semibold text-white transition hover:bg-[#1f4c7d] disabled:cursor-not-allowed disabled:bg-[#b8c4d4]"
+              className="h-9 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:bg-[#b8c4d4]"
             >
               {isRunning ? "Running..." : "Run"}
             </button>
           </div>
         </div>
 
-        <div className="grid min-w-0 grid-cols-1 gap-3 overflow-visible px-4 py-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 overflow-visible px-5 py-4 sm:grid-cols-2 xl:grid-cols-6">
           <label className="min-w-0">
-            <span className="mb-1 block text-xs font-medium text-[#344054]">
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
               Street
             </span>
             <input
+              name="provider-finder-street"
+              autoComplete="new-password"
+              autoCorrect="off"
+              spellCheck={false}
               value={form.street}
               onChange={(event) => updateField("street", event.target.value)}
-              className="h-9 w-full rounded-md border border-[#cfd7e3] px-2.5 text-sm text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
+              className="h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
             />
           </label>
 
@@ -276,13 +343,17 @@ export default function ProviderFinderClient({
           />
 
           <label className="min-w-0">
-            <span className="mb-1 block text-xs font-medium text-[#344054]">
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
               Zipcode
             </span>
             <input
+              name="provider-finder-zipcode"
+              autoComplete="new-password"
+              autoCorrect="off"
+              spellCheck={false}
               value={form.zipcode}
               onChange={(event) => updateField("zipcode", event.target.value)}
-              className="h-9 w-full rounded-md border border-[#cfd7e3] px-2.5 text-sm text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
+              className="h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
               inputMode="numeric"
             />
           </label>
@@ -302,145 +373,71 @@ export default function ProviderFinderClient({
             onChange={(value) => updateField("specialty", value)}
           />
 
-          <label className="min-w-0">
-            <span className="mb-1 block text-xs font-medium text-[#344054]">
-              Radius (miles)
-            </span>
-            <input
-              value={form.radius}
-              onChange={(event) => updateField("radius", event.target.value)}
-              className="h-9 w-full rounded-md border border-[#cfd7e3] px-2.5 text-sm text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
-              inputMode="decimal"
-              min="0.1"
-              step="0.1"
-              placeholder="Any"
-            />
-          </label>
-
-          <div ref={insuranceMenuRef} className="relative min-w-0">
-            <span className="mb-1 block text-xs font-medium text-[#344054]">
-              Insurance Type
-            </span>
-            <button
-              type="button"
-              aria-haspopup="listbox"
-              aria-expanded={isInsuranceMenuOpen}
-              onClick={() => setIsInsuranceMenuOpen((current) => !current)}
-              className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-[#cfd7e3] bg-white px-2.5 text-left text-sm text-[#16233a] outline-none transition hover:border-[#b8c4d4] focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
-            >
-              <span className="truncate">
-                {form.insuranceType ? insuranceTypeLabels[form.insuranceType] : ""}
-              </span>
-              <span
-                aria-hidden="true"
-                className={`h-2 w-2 shrink-0 border-b-2 border-r-2 border-[#667085] transition ${
-                  isInsuranceMenuOpen ? "rotate-[225deg]" : "rotate-45"
-                }`}
-              />
-            </button>
-            {isInsuranceMenuOpen && (
-              <div
-                role="listbox"
-                className="absolute left-0 top-[calc(100%+6px)] z-50 w-full min-w-[160px] overflow-hidden rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg"
-              >
-                {insuranceOptions.map((option) => {
-                  const isSelected = form.insuranceType === option.value;
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="option"
-                      aria-selected={isSelected}
-                      onClick={() => {
-                        updateField("insuranceType", option.value);
-                        setIsInsuranceMenuOpen(false);
-                      }}
-                      className={`flex h-9 w-full items-center justify-between px-3 text-left text-sm transition ${
-                        isSelected
-                          ? "bg-[#edf6ff] font-semibold text-[#245a94]"
-                          : "text-[#16233a] hover:bg-[#f3f6fa]"
-                      }`}
-                    >
-                      <span>{option.label}</span>
-                      {isSelected && (
-                        <span
-                          aria-hidden="true"
-                          className="h-2.5 w-1.5 rotate-45 border-b-2 border-r-2 border-[#245a94]"
-                        />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       </form>
 
       <section className="space-y-4">
-        <div className="rounded-lg border border-[#d8dee7] bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6ebf2] px-6 py-5">
-            <h2 className="text-base font-semibold text-[#16233a]">
-              Top 10 Providers
-            </h2>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                disabled={results.length === 0}
-                onClick={() => setMapSelection("all")}
-                className="h-9 rounded-md border border-[#cfd7e3] px-4 text-sm font-semibold text-[#245a94] transition hover:bg-[#f3f6fa] disabled:cursor-not-allowed disabled:text-[#98a2b3]"
-              >
-                Map all
-              </button>
-            </div>
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebecf0] px-5 py-4">
+            <h2 className="text-lg font-semibold text-[#172b4d]">Top 10 Providers</h2>
+            <button
+              type="button"
+              disabled={results.length === 0}
+              onClick={() => setMapSelection("all")}
+              className="h-9 rounded-lg border border-[#dfe1e6] bg-white px-4 text-sm font-bold text-[#0055cc] transition hover:bg-[#f7f8f9] disabled:cursor-not-allowed disabled:text-[#98a2b3]"
+            >
+              Map all
+            </button>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] table-fixed border-collapse border border-[#d8dee7] text-left text-[13px] leading-5 [&_td]:border [&_td]:border-[#e1e7ef] [&_th]:border [&_th]:border-[#d8dee7]">
+            <table
+              className="table-fixed border-collapse text-left text-[13px] leading-5 [&_td]:border-b [&_td]:border-[#ebecf0] [&_td+td]:border-l [&_td+td]:border-[#ebecf0] [&_th]:border-b [&_th]:border-[#dfe1e6] [&_th+th]:border-l [&_th+th]:border-[#dfe1e6]"
+              style={{ width: `${nearbyTableWidth}px`, minWidth: "100%" }}
+            >
               <colgroup>
-                {hasSingleInsuranceColumn ? (
-                  <>
-                    <col className="w-[5%]" />
-                    <col className="w-[7%]" />
-                    <col className="w-[12%]" />
-                    <col className="w-[9%]" />
-                    <col className="w-[9%]" />
-                    <col className="w-[15%]" />
-                    <col className="w-[9%]" />
-                    <col className="w-[10%]" />
-                    <col className="w-[24%]" />
-                  </>
-                ) : (
-                  <>
-                    <col className="w-[5%]" />
-                    <col className="w-[7%]" />
-                    <col className="w-[11%]" />
-                    <col className="w-[9%]" />
-                    <col className="w-[9%]" />
-                    <col className="w-[14%]" />
-                    <col className="w-[9%]" />
-                    <col className="w-[10%]" />
-                    <col className="w-[16%]" />
-                    <col className="w-[10%]" />
-                  </>
-                )}
+                {nearbyColumnKeys.map((key) => (
+                  <col key={key} style={{ width: `${columnWidths[key]}px` }} />
+                ))}
               </colgroup>
-              <thead className="bg-[#edf2f7] text-[11px] font-semibold uppercase tracking-wide text-[#344054]">
+              <thead className="bg-[#fafbfc] text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
                 <tr>
-                  <th className="px-2 py-2.5">
+                  <th className="relative px-2 py-3">
                     <span className="sr-only">Map</span>
+                    {renderResizeHandle("map", "Map")}
                   </th>
-                  <th className="px-2 py-2.5 text-right">Distance</th>
-                  <th className="px-3 py-2.5">Name</th>
-                  <th className="px-3 py-2.5">Specialty</th>
-                  <th className="px-3 py-2.5">NPI</th>
-                  <th className="px-3 py-2.5">Street</th>
-                  <th className="px-3 py-2.5">City</th>
-                  <th className="px-3 py-2.5">Phone</th>
+                  <th className="relative px-2 py-3 text-right">
+                    Distance
+                    {renderResizeHandle("distance", "Distance")}
+                  </th>
+                  <th className="relative px-3 py-3">
+                    Name
+                    {renderResizeHandle("name", "Name")}
+                  </th>
+                  <th className="relative px-3 py-3">
+                    Specialty
+                    {renderResizeHandle("specialty", "Specialty")}
+                  </th>
+                  <th className="relative px-3 py-3">
+                    NPI
+                    {renderResizeHandle("npi", "NPI")}
+                  </th>
+                  <th className="relative px-3 py-3">
+                    Street
+                    {renderResizeHandle("street", "Street")}
+                  </th>
+                  <th className="relative px-3 py-3">
+                    City
+                    {renderResizeHandle("city", "City")}
+                  </th>
+                  <th className="relative px-3 py-3">
+                    Phone
+                    {renderResizeHandle("phone", "Phone")}
+                  </th>
                   {visibleInsuranceColumns.map((column) => (
-                    <th key={column.key} className="px-3 py-2.5">
+                    <th key={column.key} className="relative px-3 py-3">
                       {column.label}
+                      {renderResizeHandle(column.key, column.label)}
                     </th>
                   ))}
                 </tr>
@@ -448,9 +445,9 @@ export default function ProviderFinderClient({
               <tbody className="text-[#16233a]">
                 {results.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={tableColumnCount}
-                      className="px-4 py-10 text-center text-sm text-[#667085]"
+                      <td
+                        colSpan={tableColumnCount}
+                      className="px-4 py-12 text-center text-sm font-semibold text-[#6b778c]"
                     >
                       Results will appear here after the provider search runs.
                     </td>
@@ -459,46 +456,67 @@ export default function ProviderFinderClient({
                   results.map((provider, index) => (
                     <tr
                       key={`${provider.npi}-${index}`}
-                      className={`transition hover:bg-[#f8fafc] ${
-                        mapSelection === index ? "bg-[#edf6ff]" : ""
+                      className={`transition hover:bg-[#f7f8f9] ${
+                        mapSelection === index ? "bg-[#edf6ff]" : "bg-white"
                       }`}
                     >
-                      <td className="px-2 py-3 text-center align-top">
+                      <td className="px-2 py-2.5 text-center align-middle">
                         <button
                           type="button"
                           onClick={() => setMapSelection(index)}
-                          className="h-7 rounded-md border border-[#cfd7e3] px-2 text-xs font-semibold text-[#245a94] transition hover:bg-[#f3f6fa]"
+                          className="h-7 rounded-lg border border-[#b3d4ff] bg-[#deebff] px-2 text-xs font-bold text-[#0055cc] transition hover:bg-[#cce0ff]"
                         >
                           Map
                         </button>
                       </td>
-                      <td className="whitespace-nowrap px-2 py-3 text-right align-top font-semibold">
+                      <td className="whitespace-nowrap px-2 py-2.5 text-right align-middle font-semibold text-[#172b4d]">
                         {formatDistance(provider.distanceMiles)}
                       </td>
-                      <td className="break-words px-3 py-3 align-top font-semibold">
-                        {provider.name}
+                      <td className="break-words px-3 py-2.5 align-middle font-semibold text-[#172b4d]">
+                        {provider.name || "-"}
                       </td>
-                      <td className="break-words px-3 py-3 align-top">
-                        {provider.specialty}
+                      <td className="break-words px-3 py-2.5 align-middle font-medium text-[#42526e]">
+                        {provider.specialty || "-"}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-3 align-top">
+                      <td className="whitespace-nowrap px-3 py-2.5 align-middle font-medium text-[#42526e]">
                         {provider.npi}
                       </td>
-                      <td className="break-words px-3 py-3 align-top">
-                        {provider.street}
+                      <td className="break-words px-3 py-2.5 align-middle font-medium text-[#42526e]">
+                        {provider.street || "-"}
                       </td>
-                      <td className="break-words px-3 py-3 align-top">
-                        {provider.city}
+                      <td className="break-words px-3 py-2.5 align-middle font-medium text-[#42526e]">
+                        {provider.city || "-"}
                       </td>
-                      <td className="break-words px-3 py-3 align-top">
-                        {provider.phone}
+                      <td className="break-words px-3 py-2.5 align-middle font-medium text-[#42526e]">
+                        {provider.phone || "-"}
                       </td>
                       {visibleInsuranceColumns.map((column) => (
                         <td
                           key={column.key}
-                          className="break-words px-3 py-3 align-top"
+                          className="px-3 py-2.5 align-middle"
                         >
-                          {provider[column.key]}
+                          <div className="flex min-w-0 flex-wrap gap-1">
+                            {splitPlans(provider[column.key]).length === 0 ? (
+                              <span className="text-sm font-medium text-[#97a0af]">—</span>
+                            ) : (
+                              splitPlans(provider[column.key]).map((plan, planIndex) => {
+                                const palette = planChipPalettes[planIndex % planChipPalettes.length];
+                                return (
+                                  <span
+                                    key={`${plan}-${planIndex}`}
+                                    title={plan}
+                                    className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.025em]"
+                                    style={{
+                                      backgroundColor: palette.background,
+                                      color: palette.color,
+                                    }}
+                                  >
+                                    {plan}
+                                  </span>
+                                );
+                              })
+                            )}
+                          </div>
                         </td>
                       ))}
                     </tr>
@@ -639,11 +657,15 @@ function SuggestionInput({
 
   return (
     <div ref={rootRef} className="relative min-w-0">
-      <span className="mb-1 block text-xs font-medium text-[#344054]">
+      <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
         {label}
       </span>
       <div className="relative">
         <input
+          name={`provider-finder-${label.toLowerCase().replace(/\s+/g, "-")}`}
+          autoComplete="new-password"
+          autoCorrect="off"
+          spellCheck={false}
           value={value}
           onChange={(event) => {
             updateValue(event.target.value);
@@ -677,7 +699,7 @@ function SuggestionInput({
           aria-expanded={isOpen}
           aria-controls={listboxId}
           aria-autocomplete="list"
-          className={`h-9 w-full rounded-md border border-[#cfd7e3] bg-white px-2.5 pr-8 text-sm text-[#16233a] outline-none transition hover:border-[#b8c4d4] focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15 ${
+          className={`h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 pr-8 text-sm font-medium text-[#172b4d] outline-none transition hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff] ${
             uppercase ? "uppercase" : ""
           }`}
         />
@@ -686,7 +708,7 @@ function SuggestionInput({
           tabIndex={-1}
           aria-label={`Show ${label} suggestions`}
           onClick={() => setIsOpen((current) => !current)}
-          className="absolute right-0 top-0 flex h-9 w-8 items-center justify-center"
+          className="absolute right-0 top-0 flex h-10 w-9 items-center justify-center"
         >
           <span
             aria-hidden="true"
@@ -701,7 +723,7 @@ function SuggestionInput({
         <div
           id={listboxId}
           role="listbox"
-          className="absolute left-0 top-[calc(100%+6px)] z-50 max-h-64 w-full min-w-[190px] overflow-y-auto rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg"
+          className="absolute left-0 top-[calc(100%+6px)] z-50 max-h-64 w-full min-w-[190px] overflow-y-auto rounded-lg border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.16)]"
         >
           {filteredOptions.length === 0 ? (
             <div className="px-3 py-2 text-sm text-[#667085]">
@@ -720,7 +742,7 @@ function SuggestionInput({
                   aria-selected={isSelected}
                   onMouseEnter={() => setActiveIndex(index)}
                   onClick={() => selectOption(option)}
-                  className={`flex min-h-9 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition ${
+                    className={`flex min-h-9 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition ${
                     isSelected
                       ? "bg-[#edf6ff] font-semibold text-[#245a94]"
                       : isActive

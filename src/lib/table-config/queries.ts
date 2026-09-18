@@ -10,8 +10,8 @@ const TABLE_COLUMN_SELECT =
 
 const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
   // Provider List: khoá cột phải TRÙNG tên cột trong bảng provider_directory,
-  // vì màn hình đọc/ghi thẳng các cột đó. Riêng `needs_review` chỉ để đọc — nó
-  // nói dòng này còn vấn đề cần người xử hay không.
+  // vì màn hình đọc/ghi thẳng các cột đó. Hai cờ boolean được biểu diễn bằng
+  // checkbox để form sửa và cấu hình cột dùng cùng một datatype.
   provider: [
     col("provider", "doctors", "Doctor", "text", 10, false, true),
     col("provider", "facility", "Facility", "text", 20),
@@ -22,8 +22,8 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("provider", "city", "City", "text", 70),
     col("provider", "state", "State", "text", 80),
     col("provider", "zip_code", "ZIP", "text", 90),
-    col("provider", "accepting_new_patients", "Accepting new patients", "text", 100),
-    col("provider", "needs_review", "Needs review", "text", 110),
+    col("provider", "accepting_new_patients", "New Patient", "checkbox", 100),
+    col("provider", "needs_review", "Reviewed", "checkbox", 110),
     // Hiện mặc định: "nhận hãng bảo hiểm nào" chính là câu hỏi nghiệp vụ của cả
     // màn này. Thưa (ACA 14%, Medicare 22% dòng có giá trị) nhưng thưa vì dữ
     // liệu chưa nhập đủ, không phải vì ít ai cần — giấu đi thì không ai biết là

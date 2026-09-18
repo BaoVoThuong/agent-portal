@@ -25,8 +25,10 @@ import { ProviderTable } from "./ProviderTable";
 import { ProviderEditDialog } from "./ProviderEditDialog";
 import { ProviderTableSettingsButton } from "./ProviderTableSettingsButton";
 import { ProviderToolbar } from "./ProviderToolbar";
-// Dựng lại CHÍNH component của Provider Finder, không chép code sang đây: sửa
-// một chỗ thì cả trang /automation/provider-finder lẫn tab này cùng đổi.
+// Dựng lại CHÍNH component của Provider Finder, không chép code sang đây.
+// Trang riêng `/automation/provider-finder` đã bị ẩn (chỉ còn chuyển hướng về
+// đây), nên tab này là lối vào DUY NHẤT của tính năng tìm theo khoảng cách —
+// component vẫn nằm ở thư mục cũ, đừng tưởng nó mồ côi mà xoá.
 import ProviderFinderClient from "../../provider-finder/ProviderFinderClient";
 
 const VIEWS = [
@@ -225,11 +227,11 @@ export function ProviderListClient({
 
   return (
     <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]">
-      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+      <div className="min-w-0 shrink-0 px-6 pb-3 pt-5">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
           <header className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
+              <h1 className="text-3xl font-bold leading-tight tracking-[-0.02em] text-[#172b4d]">
                 Provider List
               </h1>
             </div>
@@ -240,7 +242,7 @@ export function ProviderListClient({
                 <button
                   type="button"
                   onClick={() => setAddOpen(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-[0_2px_5px_rgba(9,30,66,0.16)] transition hover:bg-[#0055cc]"
                 >
                   <Plus className="h-4 w-4" /> Add address
                 </button>

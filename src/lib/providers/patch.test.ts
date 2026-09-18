@@ -45,6 +45,17 @@ describe("buildProviderPatch", () => {
     });
   });
 
+  it("nhận checkbox Reviewed và giữ đúng boolean needs_review", () => {
+    expect(buildProviderPatch({ needs_review: false })).toMatchObject({
+      ok: true,
+      patch: { needs_review: false },
+    });
+    expect(buildProviderPatch({ needs_review: "false" })).toEqual({
+      ok: false,
+      error: "needs_review must be a boolean.",
+    });
+  });
+
   it("ô để trống nghĩa là xoá giá trị, không phải bỏ qua", () => {
     expect(buildProviderPatch({ phone: "" })).toMatchObject({
       ok: true,
