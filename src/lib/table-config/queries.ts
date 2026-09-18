@@ -120,6 +120,9 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
   lead: [
     col("lead", "key", "Key", "text", 10, false, true),
     col("lead", "name", "Name", "text", 20, false, true, true),
+    // Derived from the lead alert settings; keeping it separate prevents a
+    // warning badge from truncating the customer's name.
+    col("lead", "tag", "Tag", "text", 22),
     col("lead", "product", "Product", "dropdown", 25, false, false, true),
     col("lead", "phone", "Phone", "text", 30, false, false, true),
     customCol("lead", "secondary_phone", "Secondary Phone", "text", 35),
@@ -130,6 +133,9 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("lead", "attempts", "Attempts", "number", 70),
     col("lead", "lastContact", "Last contact", "date", 80),
     col("lead", "followUp", "Follow up", "date", 90, false, false, true),
+    // Cùng vai với `aca:fub`: khoá ngắn `fub`, còn cột thật trong database là
+    // `leads.fub_link`. LeadTable ánh xạ giữa hai tên đó.
+    col("lead", "fub", "FUB Link", "link", 95),
     col("lead", "event", "Event", "text", 100, false, false, true),
     col("lead", "createdAt", "Imported", "date", 110, true),
   ],

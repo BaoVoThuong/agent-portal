@@ -59,7 +59,7 @@ async function fetchAllLeadsForSummary(
         display_number: 0,
         products,
         product: row.product ?? products[0] ?? null,
-        full_name: null, phone: null, email: null,
+        full_name: null, phone: null, email: null, fub_link: null,
         assigned_by_email: null, closed_at: null,
         created_by_email: "", created_at: "",
         updated_by_email: null, updated_at: "",

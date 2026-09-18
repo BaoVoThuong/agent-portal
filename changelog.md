@@ -6,6 +6,25 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-18 — Event Leads: FUB link
+
+Thêm cột `leads.fub_link` (cùng tên với `tasks.fub_link` — hai màn hình mở cùng
+một loại hồ sơ). Sửa được tại chỗ qua API patch, và có mặt ở form thêm lead lẫn
+drawer chi tiết.
+
+Trên bảng, FUB **cố ý không phải một cột riêng**: nó là mũi tên xanh đứng sát
+tên, giống hệt CS Task (scope `cs` cũng không có cột `fub`). `fub` nằm trong
+`LEAD_LIST_INLINE_COLUMN_KEYS` nên bị loại khỏi danh sách cột và không bật lại
+được trong Table settings — tránh hai chỗ hiển thị cùng một giá trị.
+
+Link lưu ĐÚNG chuỗi người dùng dán, không tự thêm `https://`; tiền tố chỉ được
+thêm lúc hiển thị. Chuẩn hoá lúc lưu sẽ khiến cùng một đường link nằm trong
+database ở hai dạng khác nhau tuỳ nó được nhập từ màn nào.
+
+⚠ `2026-09-18-lead-fub-link.sql` phải chạy TRƯỚC khi deploy: câu SELECT của
+Leads đã gồm `fub_link`, thiếu cột là PostgREST trả 42703 và cả trang Leads
+không tải được lead nào.
+
 ## 2026-09-18 — Đo và rollback tối ưu latency Provider Finder
 
 Provider Finder API nay đo riêng `auth`, parse body, DB query, candidate filter,

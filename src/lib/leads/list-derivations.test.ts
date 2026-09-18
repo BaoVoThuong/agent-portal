@@ -49,6 +49,7 @@ const lead = (over: Partial<LeadRow>): LeadRow => ({
   full_name: "A",
   phone: null,
   email: null,
+  fub_link: null,
   assigned_to_email: null,
   assigned_at: null,
   assigned_by_email: null,

@@ -7,7 +7,7 @@ function lead(patch: Partial<LeadRow>): LeadRow {
   return {
     id: Math.random().toString(36), display_number: 1, product: "health", products: ["health"],
     event_id: null, full_name: "Anh Nguyen", phone: "7145550123",
-    email: "anh@example.com", assigned_to_email: "cs@x.com", assigned_at: null,
+    email: "anh@example.com", fub_link: null, assigned_to_email: "cs@x.com", assigned_at: null,
     assigned_by_email: null, status_id: null, first_contacted_at: null,
     last_contacted_at: null, contact_attempt_count: 0, next_follow_up_at: null,
     closed_at: null, created_by_email: "m@x.com", created_at: "2026-08-01T00:00:00Z",

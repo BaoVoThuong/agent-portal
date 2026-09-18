@@ -3,7 +3,10 @@
 import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
 import type { TableColumn } from "@/lib/table-config/types";
-import { LEAD_LIST_LOCKED_COLUMN_KEYS } from "@/lib/leads/list-column-visibility";
+import {
+  LEAD_LIST_INLINE_COLUMN_KEYS,
+  LEAD_LIST_LOCKED_COLUMN_KEYS,
+} from "@/lib/leads/list-column-visibility";
 import { useAnchoredMenu } from "../../_components/use-anchored-menu";
 
 type LeadTableSettingsButtonProps = {
@@ -26,6 +29,7 @@ export function LeadTableSettingsButton({
     (column) =>
       !column.hidden_default &&
       !column.pinned &&
+      !LEAD_LIST_INLINE_COLUMN_KEYS.has(column.key) &&
       !LEAD_LIST_LOCKED_COLUMN_KEYS.has(column.key),
   );
   const hiddenCount = toggleableColumns.filter((column) =>

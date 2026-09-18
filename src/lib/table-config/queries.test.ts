@@ -63,3 +63,17 @@ describe("lead interaction-history columns", () => {
     },
   );
 });
+
+describe("lead alert tag column", () => {
+  it("seeds a visible system column for derived lead alerts", () => {
+    expect(defaultTableColumns("lead")).toContainEqual(
+      expect.objectContaining({
+        key: "tag",
+        label: "Tag",
+        is_system: true,
+        position: 22,
+        hidden_default: false,
+      }),
+    );
+  });
+});

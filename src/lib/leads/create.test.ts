@@ -26,6 +26,7 @@ describe("parseCreateLeadInput", () => {
         fullName: "Jane Doe",
         phone: "5551234567",
         email: "jane@example.com",
+        fubLink: null,
         eventId: UUID,
         eventName: null,
         statusId: UUID,
@@ -64,8 +65,18 @@ describe("parseCreateLeadInput", () => {
     if (empty.ok) {
       expect(empty.value.fullName).toBeNull();
       expect(empty.value.email).toBeNull();
+      expect(empty.value.fubLink).toBeNull();
       expect(empty.value.customValues).toEqual({});
     }
+
+    const withFub = parseCreateLeadInput({
+      product: "pc",
+      phone: "5551234567",
+      fub_link: " https://app.followupboss.com/2/people/view/1234 ",
+    });
+    expect(withFub.ok ? withFub.value.fubLink : null).toBe(
+      "https://app.followupboss.com/2/people/view/1234",
+    );
 
     expect(parseCreateLeadInput({
       product: "pc",
@@ -127,6 +138,7 @@ describe("buildNewLeadRow", () => {
     fullName: "An Nguyen",
     phone: "7145550123",
     email: "an@x.com",
+    fubLink: "https://app.followupboss.com/2/people/view/123",
     customValues: { secondary_phone: "7145550999" },
     actorEmail: "  Admin@Example.COM ",
     now: new Date("2026-09-02T10:00:00Z"),
@@ -142,6 +154,13 @@ describe("buildNewLeadRow", () => {
     const row = buildNewLeadRow(base);
     expect(row.created_by_email).toBe("admin@example.com");
     expect(row.updated_by_email).toBe("admin@example.com");
+  });
+
+  it("ghi FUB link vào cột hệ thống", () => {
+    expect(buildNewLeadRow(base).fub_link).toBe(
+      "https://app.followupboss.com/2/people/view/123",
+    );
+    expect(buildNewLeadRow({ ...base, fubLink: undefined }).fub_link).toBeNull();
   });
 
   it("luôn insert CHƯA GÁN", () => {

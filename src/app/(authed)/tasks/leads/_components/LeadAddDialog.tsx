@@ -6,6 +6,7 @@ import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveDialogProduct } from "@/lib/leads/create";
 import type { LeadProduct, LeadStatus } from "@/lib/leads/types";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
+import { TaskSelect } from "../../_components/TaskSelect";
 import {
   fetchLeadEvents,
   peekLeadEvents,
@@ -28,6 +29,8 @@ type LeadAddDialogProps = {
 
 const INPUT_CLASS =
   "h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
+const SELECT_BUTTON_CLASS =
+  "!h-10 !rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 const LABEL_CLASS = "block text-xs font-bold uppercase text-[#6b778c]";
 
 function formatEvent(event: LeadEvent): string {
@@ -83,22 +86,23 @@ function CustomLeadField({
 
   if (column.type === "dropdown") {
     return (
-      <select
-        className={INPUT_CLASS}
+      <TaskSelect
+        label={column.label}
         value={typeof value === "string" ? value : ""}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">Choose {column.label.toLowerCase()}</option>
-        {options
+        options={options
           .filter((option) => !option.archived_at)
-          .map((option) => (
+          .map((option) => ({
             // Giá trị là option.id, giống Task và Enrollment. Gửi label thì
             // ô inline edit (khớp theo id) sẽ hiện rỗng ngay sau khi tạo.
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-      </select>
+            value: option.id,
+            label: option.label,
+          }))}
+        placeholder={`Choose ${column.label.toLowerCase()}`}
+        className="w-full"
+        buttonClassName={SELECT_BUTTON_CLASS}
+        menuClassName="max-h-64 min-w-full"
+        onChange={onChange}
+      />
     );
   }
 
@@ -149,6 +153,7 @@ export function LeadAddDialog({
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [fubLink, setFubLink] = useState("");
   const [eventName, setEventName] = useState("");
   const [assignedToEmail, setAssignedToEmail] = useState("");
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
@@ -209,6 +214,7 @@ export function LeadAddDialog({
     setFullName("");
     setPhone("");
     setEmail("");
+    setFubLink("");
     setEventName("");
     setAssignedToEmail("");
     setCustomValues({});
@@ -229,6 +235,7 @@ export function LeadAddDialog({
       name: fullName,
       phone,
       email,
+      fub: fubLink,
       assignee: assignedToEmail,
       status: selectedStatusId,
     };
@@ -263,6 +270,7 @@ export function LeadAddDialog({
           full_name: fullName,
           phone,
           email,
+          fub_link: fubLink.trim() || null,
           event_name: eventName.trim() || null,
           status_id: selectedStatusId || null,
           assigned_to_email: assignedToEmail,
@@ -363,6 +371,18 @@ export function LeadAddDialog({
                     placeholder="client@example.com"
                   />
                 </label>
+                <label className="block space-y-1 sm:col-span-2">
+                  <span className={LABEL_CLASS}>
+                    {fieldLabel(columns, "fub", "FUB")}
+                  </span>
+                  <input
+                    className={INPUT_CLASS}
+                    type="url"
+                    value={fubLink}
+                    onChange={(event) => setFubLink(event.target.value)}
+                    placeholder="https://app.followupboss.com/..."
+                  />
+                </label>
               </div>
 
               {customColumns.length > 0 ? (
@@ -405,22 +425,23 @@ export function LeadAddDialog({
                   </span>
                 ) : (
                   // Bắt buộc chọn: đoán ở đây là xếp nhầm lead vào sổ khác.
-                  <select
-                    className="rounded border border-[#c1c7d0] bg-white px-2 py-1 text-xs font-bold text-[#172b4d] outline-none focus:border-[#0c66e4]"
-                    aria-label="Product"
+                  <TaskSelect
+                    label="Product"
                     value={chosenProduct ?? ""}
-                    onChange={(event) =>
+                    options={[
+                      { value: "pc", label: "P&C" },
+                      { value: "health", label: "Health" },
+                    ]}
+                    placeholder="Choose product…"
+                    className="w-[13rem] max-w-[calc(100vw-3rem)]"
+                    buttonClassName={SELECT_BUTTON_CLASS}
+                    menuClassName="min-w-[13rem]"
+                    onChange={(value) =>
                       setChosenProduct(
-                        event.target.value === "pc" || event.target.value === "health"
-                          ? event.target.value
-                          : null,
+                        value === "pc" || value === "health" ? value : null,
                       )
                     }
-                  >
-                    <option value="">Choose product…</option>
-                    <option value="pc">P&C</option>
-                    <option value="health">Health</option>
-                  </select>
+                  />
                 )}
               </div>
               <label className="block space-y-1">
@@ -472,18 +493,21 @@ export function LeadAddDialog({
                 {/* A roster, not a free-text address. The server rejects an
                     account that cannot hold a lead, but a manager should not
                     have to recall ~50 exact addresses to find that out. */}
-                <select
-                  className={INPUT_CLASS}
+                <TaskSelect
+                  label={fieldLabel(columns, "assignee", "Assign to")}
                   value={assignedToEmail}
-                  onChange={(event) => setAssignedToEmail(event.target.value)}
-                >
-                  <option value="">Unassigned</option>
-                  {assignees.map((person) => (
-                    <option key={person.email} value={person.email}>
-                      {person.name?.trim() || person.email}
-                    </option>
-                  ))}
-                </select>
+                  options={assignees.map((person) => ({
+                    value: person.email,
+                    label: person.name?.trim() || person.email,
+                    keywords: [person.email],
+                  }))}
+                  placeholder="Unassigned"
+                  searchable={assignees.length > 8}
+                  className="w-full"
+                  buttonClassName={SELECT_BUTTON_CLASS}
+                  menuClassName="max-h-64 min-w-full"
+                  onChange={setAssignedToEmail}
+                />
               </label>
               <p className="text-xs leading-5 text-[#667085]">
                 Phone numbers are normalized automatically. Duplicate phone

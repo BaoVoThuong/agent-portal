@@ -8,7 +8,14 @@ import type {
   ReactNode,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, UserPlus } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  ExternalLink,
+  UserPlus,
+} from "lucide-react";
 import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
 import { leadDisplayKey } from "@/lib/leads/display";
 import { ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
@@ -38,6 +45,9 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   // Use the same width rhythm as the configured Health Task List. A lead name
   // has no task-row flags beside it, so it can stay compact at 220px.
   name: 220,
+  // Derived alert badges live here instead of competing with the customer's
+  // name for width.
+  tag: 150,
   // Badge product nay XẾP DỌC, mỗi dòng một cái, nên chỉ cần đủ cho badge RỘNG
   // NHẤT: "HEALTH" (~64px) + padding nút 12px + padding ô 24px. Bề rộng 156 là
   // của bản xếp ngang; giữ nó lại là chiếm chỗ vô ích của Client Name và
@@ -553,7 +563,48 @@ const LeadDataCell = memo(function LeadDataCell({
             {lead.full_name ?? "Unnamed lead"}
           </span>
         </button>
-        <LeadAlertBadges alerts={alerts} />
+        <LeadFubLink href={lead.fub_link} />
+      </div>
+    );
+  }
+
+  if (column.key === "tag") {
+    return (
+      <div
+        style={style}
+        className={`${baseClassName} !whitespace-normal gap-1.5`}
+        onClick={stopPropagation}
+      >
+        <LeadAlertBadges alerts={alerts} wrap />
+      </div>
+    );
+  }
+
+  // Nhánh này HIỆN KHÔNG CHẠY TỚI: `fub` nằm trong LEAD_LIST_INLINE_COLUMN_KEYS
+  // nên `visibleLeadListColumns` lọc nó khỏi bảng — FUB cố ý chỉ là mũi tên cạnh
+  // tên, giống CS Task.
+  //
+  // Vẫn giữ lại, và đừng xoá: bỏ `fub` khỏi tập đó là cột hiện ra ngay, mà không
+  // có nhánh này nó rơi xuống nhánh mặc định — nơi đi tìm giá trị trong
+  // `custom_values`, chỗ không bao giờ chứa `fub_link`. Khi đó cột sẽ luôn trống
+  // mà không ai hiểu vì sao.
+  //
+  // Khoá cột là `fub`, cột trong database là `fub_link` — ánh xạ đúng ở đây.
+  if (column.key === "fub") {
+    return (
+      <div
+        style={style}
+        className={`${baseClassName} gap-1.5`}
+        onClick={stopPropagation}
+      >
+        <EditableCustomCell
+          column={{ id: column.id, key: column.key, label: column.label, type: "text" }}
+          value={lead.fub_link}
+          canEdit={canEdit}
+          onSave={(next) => onPatch({ fub_link: next })}
+          className="min-w-0 flex-1"
+        />
+        <LeadFubLink href={lead.fub_link} />
       </div>
     );
   }
@@ -807,10 +858,22 @@ const ALERT_TITLE: Record<LeadAlert, string> = {
  * times and got no answer exactly as much as the one who never dialled — which
  * is the distinction this whole module exists to make.
  */
-function LeadAlertBadges({ alerts }: { alerts: readonly LeadAlert[] }) {
-  if (alerts.length === 0) return null;
+function LeadAlertBadges({
+  alerts,
+  wrap = false,
+}: {
+  alerts: readonly LeadAlert[];
+  wrap?: boolean;
+}) {
+  if (alerts.length === 0) {
+    return <span className="text-xs font-semibold text-[#97a0af]">—</span>;
+  }
   return (
-    <span className="flex shrink-0 items-center gap-1">
+    <span
+      className={`flex items-center gap-1 ${
+        wrap ? "flex-wrap" : "shrink-0"
+      }`}
+    >
       {alerts.map((alert) => (
         <span
           key={alert}
@@ -1121,6 +1184,8 @@ function leadColumnValue(
       return displayDate(lead.created_at);
     case "name":
       return lead.full_name ?? "—";
+    case "fub":
+      return lead.fub_link ?? "—";
     case "assignee":
       return lead.assigned_to_email
         ? personLabel(lead.assigned_to_email, nameByEmail)
@@ -1219,4 +1284,46 @@ function StaticCell({
 
 function stopPropagation(event: MouseEvent<HTMLElement>) {
   event.stopPropagation();
+}
+
+/**
+ * Mũi tên mở hồ sơ FUB, đứng sát tên lead.
+ *
+ * Sao y `TaskFubLink` bên CS Task (TaskRowItem.tsx) — cùng kích thước, cùng màu,
+ * cùng hành vi — để hai bảng nhìn và bấm giống hệt nhau. Chép thay vì import
+ * chung vì component kia là nội bộ của module task và không được export; tách ra
+ * một chỗ dùng chung là việc dọn dẹp riêng, không nên gói vào thay đổi này.
+ *
+ * `stopPropagation` là bắt buộc: thiếu nó thì bấm mũi tên sẽ vừa mở FUB vừa mở
+ * luôn drawer của dòng đó.
+ */
+function LeadFubLink({ href }: { href: string | null | undefined }) {
+  if (!href || !href.trim()) return null;
+
+  return (
+    <a
+      href={formatLeadExternalLink(href)}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(event) => event.stopPropagation()}
+      title="Open FUB"
+      aria-label="Open FUB"
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[#b3d4ff] bg-[#deebff] text-[#0055cc] transition hover:bg-[#cce0ff]"
+    >
+      <ExternalLink className="h-3.5 w-3.5" />
+    </a>
+  );
+}
+
+/**
+ * Thêm "https://" khi người dùng dán thiếu.
+ *
+ * Cố ý chỉ làm lúc HIỂN THỊ, không làm lúc lưu: giữ nguyên chuỗi trong database
+ * để cùng một đường link không nằm ở hai dạng khác nhau tuỳ theo nó được nhập
+ * từ màn nào.
+ */
+function formatLeadExternalLink(value: string): string {
+  const trimmed = value.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
 }

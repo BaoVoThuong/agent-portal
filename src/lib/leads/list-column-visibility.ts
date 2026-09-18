@@ -5,12 +5,21 @@ import type { TableColumn } from "@/lib/table-config/types";
 // Task List's locked Key/Client Name pair.
 export const LEAD_LIST_LOCKED_COLUMN_KEYS = new Set(["key", "name"]);
 
+// FUB is an inline action on the Name cell, matching ACA/Medicare. Keep the
+// field available to the add/detail forms, but never expose a second list
+// column for the same value.
+export const LEAD_LIST_INLINE_COLUMN_KEYS = new Set(["fub"]);
+
 export function toggleHiddenLeadListColumn(
   current: ReadonlySet<string>,
   key: string,
 ): Set<string> {
   const next = new Set(current);
-  if (LEAD_LIST_LOCKED_COLUMN_KEYS.has(key)) return next;
+  if (
+    LEAD_LIST_LOCKED_COLUMN_KEYS.has(key) ||
+    LEAD_LIST_INLINE_COLUMN_KEYS.has(key)
+  )
+    return next;
   if (next.has(key)) next.delete(key);
   else next.add(key);
   return next;
@@ -27,6 +36,7 @@ export function visibleLeadListColumns(
 ): TableColumn[] {
   return columns.filter(
     (column) =>
+      !LEAD_LIST_INLINE_COLUMN_KEYS.has(column.key) &&
       !column.hidden_default &&
       (LEAD_LIST_LOCKED_COLUMN_KEYS.has(column.key) ||
         column.pinned ||

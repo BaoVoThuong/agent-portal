@@ -53,4 +53,14 @@ describe("lead list column visibility", () => {
     expect([...toggleHiddenLeadListColumn(new Set(["phone"]), "phone")]).toEqual([]);
     expect([...toggleHiddenLeadListColumn(new Set(), "phone")]).toEqual(["phone"]);
   });
+
+  it("keeps FUB inline with Name instead of exposing a separate list column", () => {
+    const columns = [column("name"), column("fub"), column("phone")];
+
+    expect(visibleLeadListColumns(columns, new Set()).map((item) => item.key)).toEqual([
+      "name",
+      "phone",
+    ]);
+    expect([...toggleHiddenLeadListColumn(new Set(), "fub")]).toEqual([]);
+  });
 });

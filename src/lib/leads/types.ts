@@ -72,6 +72,8 @@ export type LeadRow = {
   full_name: string | null;
   phone: string | null;
   email: string | null;
+  /** Cùng tên với `tasks.fub_link`: hai màn hình mở cùng một loại hồ sơ. */
+  fub_link: string | null;
   assigned_to_email: string | null;
   assigned_at: string | null;
   assigned_by_email: string | null;

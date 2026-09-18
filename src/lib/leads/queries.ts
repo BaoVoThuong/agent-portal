@@ -119,7 +119,7 @@ export function buildLeadListFilter(
 }
 
 const LEAD_COLUMNS =
-  "id,display_number,product,products,event_id,full_name,phone,email," +
+  "id,display_number,product,products,event_id,full_name,phone,email,fub_link," +
   "assigned_to_email,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +

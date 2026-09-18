@@ -320,6 +320,7 @@ export function LeadDetailDrawer({
   const showName = showField("name");
   const showPhone = showField("phone");
   const showEmail = showField("email");
+  const showFub = showField("fub");
   const showEvent = showField("event");
   const showProduct = showField("product");
   const showStatus = showField("status");
@@ -327,7 +328,7 @@ export function LeadDetailDrawer({
   const showFollowUp = showField("followUp");
   const showCreatedAt = Boolean(createdAtColumn?.show_in_detail);
   const hasRecordFields =
-    showPhone || showEmail || showEvent || detailColumns.length > 0;
+    showPhone || showEmail || showFub || showEvent || detailColumns.length > 0;
   const hasRailFields =
     showProduct || showStatus || showAssignee || showFollowUp || showCreatedAt;
 
@@ -463,6 +464,20 @@ export function LeadDetailDrawer({
                         className={COMPACT_DETAIL_INPUT_CLASS}
                         inputClassName={COMPACT_DETAIL_INPUT_CLASS}
                         emptyLabel="No email"
+                      />
+                    </div>
+                  ) : null}
+                  {showFub ? (
+                    <div className={`${COMPACT_DETAIL_FIELD_CLASS} sm:col-span-2`}>
+                      <span className={LABEL_CLASS}>FUB</span>
+                      <EditableCustomCell
+                        column={{ id: "fub", key: "fub", label: "FUB", type: "link" }}
+                        value={currentLead.fub_link}
+                        canEdit={canEdit}
+                        onSave={(next) => patchCurrentLead({ fub_link: next })}
+                        className={COMPACT_DETAIL_INPUT_CLASS}
+                        inputClassName={COMPACT_DETAIL_INPUT_CLASS}
+                        emptyLabel="No FUB link"
                       />
                     </div>
                   ) : null}

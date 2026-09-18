@@ -17,6 +17,7 @@ export const EDITABLE_LEAD_FIELDS = [
   "full_name",
   "phone",
   "email",
+  "fub_link",
   "product",
   "status_id",
   "next_follow_up_at",
@@ -132,6 +133,16 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
         const parsedEmail = normalizeLeadEmail(value);
         if (!parsedEmail.ok) return { ok: false, error: parsedEmail.error };
         patch.email = parsedEmail.value;
+        break;
+      }
+      case "fub_link": {
+        // Lưu ĐÚNG những gì người ta dán vào, không tự thêm "https://". Việc
+        // thêm tiền tố là chuyện của lúc hiển thị (`formatExternalLink`), giống
+        // hệt cách CS Task làm — nếu chuẩn hoá ở đây thì cùng một đường link sẽ
+        // nằm trong database ở hai dạng khác nhau tuỳ nó được nhập từ màn nào.
+        const parsedLink = text(value, "FUB link", MAX_TEXT_LENGTH);
+        if (!parsedLink.ok) return { ok: false, error: parsedLink.error };
+        patch.fub_link = parsedLink.value;
         break;
       }
       case "product":

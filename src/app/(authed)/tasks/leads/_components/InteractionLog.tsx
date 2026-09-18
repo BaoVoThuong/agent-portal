@@ -10,6 +10,7 @@ import type {
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { TaskSelect } from "../../_components/TaskSelect";
+import { Initials } from "../../_components/board-ui";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
 // Keep the compact form controls visually aligned with the editable Lead
@@ -342,19 +343,19 @@ export function InteractionLog({
           </p>
         </div>
       ) : null}
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {loading && interactions.length === 0 ? (
           // Chưa tải xong thì CHƯA biết lead có tương tác hay không. Hiện
           // "No interactions yet." lúc này là nói một điều chưa chắc đúng, rồi
           // một nhịp sau lại thay bằng danh sách — người đọc tưởng mình nhìn nhầm.
           <p
-            className="border border-dashed border-[#cfd8e5] bg-[#f4f5f7] px-3 py-8 text-center text-sm font-semibold text-[#6b778c]"
+            className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]"
             role="status"
           >
             Loading interactions…
           </p>
         ) : interactions.length === 0 ? (
-          <p className="border border-dashed border-[#cfd8e5] bg-[#f4f5f7] px-3 py-8 text-center text-sm font-semibold text-[#6b778c]">
+          <p className="rounded border border-dashed border-[#c1c7d0] bg-[#fafbfc] px-4 py-5 text-sm font-medium text-[#6b778c]">
             No interactions yet.
           </p>
         ) : (
@@ -368,48 +369,65 @@ export function InteractionLog({
             return (
               <article
                 key={interaction.id}
-                className="border border-[#e6eaf0] bg-white px-3 py-3 shadow-[0_1px_1px_rgba(22,35,58,0.03)]"
+                className="group flex gap-2.5"
               >
-                <div className="flex flex-wrap items-center gap-2 text-xs text-[#6b778c]">
-                  <span
-                    className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.04em]"
-                    style={badgeStyle(
-                      interactionType?.id ?? interaction.type_id,
-                      interactionType?.label ?? "Interaction",
-                      interactionType?.color,
-                    )}
-                  >
-                    {interactionType?.label ?? "Interaction"}
-                  </span>
-                  {interactionStatus ? (
+                <div className="shrink-0 pt-0.5">
+                  <Initials
+                    email={interaction.actor_email}
+                    label={personLabel(interaction.actor_email)}
+                    size="md"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-sm font-semibold text-[#172b4d]">
+                      {personLabel(interaction.actor_email)}
+                    </span>
+                    <time
+                      dateTime={interaction.occurred_at}
+                      title={new Date(interaction.occurred_at).toLocaleString()}
+                      className="text-xs font-medium text-[#6b778c]"
+                    >
+                      {relativeTime(interaction.occurred_at)}
+                    </time>
+                  </div>
+
+                  <div className="mt-1 flex flex-wrap gap-1.5">
                     <span
-                      className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold"
+                      className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.04em]"
                       style={badgeStyle(
-                        interactionStatus.id,
-                        interactionStatus.label,
-                        interactionStatus.color,
+                        interactionType?.id ?? interaction.type_id,
+                        interactionType?.label ?? "Interaction",
+                        interactionType?.color,
                       )}
                     >
-                      {interactionStatus.label}
+                      {interactionType?.label ?? "Interaction"}
                     </span>
+                    {interactionStatus ? (
+                      <span
+                        className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold"
+                        style={badgeStyle(
+                          interactionStatus.id,
+                          interactionStatus.label,
+                          interactionStatus.color,
+                        )}
+                      >
+                        {interactionStatus.label}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {interaction.note ? (
+                    <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 text-[#172b4d] [overflow-wrap:anywhere]">
+                      {interaction.note}
+                    </p>
                   ) : null}
-                  <span>{personLabel(interaction.actor_email)}</span>
-                  <span>·</span>
-                  <time dateTime={interaction.occurred_at}>
-                    {relativeTime(interaction.occurred_at)}
-                  </time>
+                  {interaction.follow_up_at ? (
+                    <p className="mt-1 text-xs font-semibold text-[#0c66e4]">
+                      Follow-up: {new Date(interaction.follow_up_at).toLocaleString()}
+                    </p>
+                  ) : null}
                 </div>
-                {interaction.note && (
-                  <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-[#172b4d]">
-                    {interaction.note}
-                  </p>
-                )}
-                {interaction.follow_up_at && (
-                  <p className="mt-1 text-xs font-semibold text-[#0c66e4]">
-                    Follow-up:{" "}
-                    {new Date(interaction.follow_up_at).toLocaleString()}
-                  </p>
-                )}
               </article>
             );
           })

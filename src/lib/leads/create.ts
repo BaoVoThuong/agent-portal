@@ -12,6 +12,7 @@ export type CreateLeadInput = {
   fullName: string | null;
   phone: string;
   email: string | null;
+  fubLink: string | null;
   eventId: string | null;
   /**
    * A typed event name. The dialog lets someone name an event that does not
@@ -102,6 +103,8 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
   if (fullName !== null && typeof fullName === "object") return { ok: false, error: fullName.error };
   const email = optionalEmail(input.email, "Email");
   if (email !== null && typeof email === "object") return { ok: false, error: email.error };
+  const fubLink = optionalText(input.fub_link, "FUB link", 500);
+  if (fubLink !== null && typeof fubLink === "object") return { ok: false, error: fubLink.error };
   const eventId = optionalUuid(input.event_id, "Event");
   if (eventId !== null && typeof eventId === "object") return { ok: false, error: eventId.error };
   const eventName = optionalText(input.event_name, "Event name", 200);
@@ -122,6 +125,7 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
       fullName,
       phone,
       email,
+      fubLink,
       eventId,
       eventName,
       statusId,
@@ -155,6 +159,8 @@ export type NewLeadRowInput = {
   fullName: string | null;
   phone: string;
   email: string | null;
+  /** Optional for imports, which may not provide a FUB URL. */
+  fubLink?: string | null;
   customValues: Record<string, unknown>;
   /** Người bấm nút — dùng cho cả `created_by_email` lẫn `updated_by_email`. */
   actorEmail: string;
@@ -189,6 +195,7 @@ export function buildNewLeadRow(input: NewLeadRowInput): Record<string, unknown>
     full_name: input.fullName,
     phone: input.phone,
     email: input.email,
+    fub_link: input.fubLink ?? null,
     assigned_to_email: null,
     assigned_at: null,
     assigned_by_email: null,
