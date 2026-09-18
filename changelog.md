@@ -6,6 +6,29 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Middleware không còn kéo cả NextAuth
+
+`src/proxy.ts` (middleware của Next 16) export thẳng `auth` từ `@/auth`, nên mọi
+trang và mọi `/api/*` đều kéo theo bcryptjs + supabase-js + lớp RBAC, và chạy cả
+nhánh làm mới quyền trong callback `jwt`. Tách `src/auth.config.ts` không
+provider, không callback chạm database; middleware dựng instance từ đó.
+
+Đo trên dev, token đã quá hạn 5 phút (trung vị 6 lượt, đã làm nóng):
+
+| | trước | sau |
+| --- | ---: | ---: |
+| chuông — phần trước khi vào route | 451 ms | **26 ms** |
+| /api/tasks — phần trước khi vào route | 320 ms | **22 ms** |
+| chuông — tổng wall | 1204 ms | 879 ms |
+
+Với token còn hạn thì phần đó vốn đã rẻ (36 ms), nay còn 19 ms. Nên đây là cú
+xóc mỗi 5 phút mỗi người, KHÔNG phải chi phí thường trực — bản plan đầu ghi
+"480–660 ms trên mọi request" là đo nhầm lúc dev server còn đang biên dịch.
+
+Không đổi hành vi bảo mật: middleware vẫn chỉ chặn người chưa đăng nhập, quyền
+theo màn vẫn do `requirePermission`/`requireAnyPermission` gác. Đã kiểm: chưa
+đăng nhập và cookie rác đều bị đẩy về `/signin`, đã đăng nhập vào được.
+
 ## 2026-09-18 — Event Leads: FUB link
 
 Thêm cột `leads.fub_link` (cùng tên với `tasks.fub_link` — hai màn hình mở cùng

@@ -1,4 +1,5 @@
 import NextAuth from "next-auth";
+import { authConfig } from "./auth.config";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -33,6 +34,9 @@ function getDummyPasswordHash(): string {
 const RBAC_REFRESH_TTL_MS = 5 * 60 * 1000;
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Nền chung với `proxy.ts`: pages + callback `authorized` khai một chỗ duy
+  // nhất. Bản đầy đủ này thêm providers và các callback có chạm database.
+  ...authConfig,
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
@@ -88,12 +92,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
     }),
   ],
-  pages: {
-    signIn: "/signin",
-    error: "/auth/error",
-  },
   callbacks: {
-    authorized: ({ auth }) => !!auth?.user?.email,
+    ...authConfig.callbacks,
     async signIn({ user, account }) {
       if (account?.provider === "google") {
         if (!user.email) return false;
