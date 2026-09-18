@@ -58,12 +58,14 @@ function displayDateTime(value: string | null | undefined): string {
 function RailField({
   label,
   children,
+  className = "",
 }: {
   label: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className={`space-y-1.5 ${className}`}>
       <span className={LABEL_CLASS}>{label}</span>
       {children}
     </div>
@@ -378,10 +380,8 @@ export function LeadDetailDrawer({
 
 
   return (
-    // The same shell as TaskDetailDrawer: a centred dialog rather than a side
-    // sheet, work on the left and metadata in a 280px rail. Each column owns
-    // its scrolling on wide screens, which is what keeps the composer docked at
-    // the bottom however long the history gets.
+    // Matches the task-detail shell: editable lead data on the left and a
+    // dedicated, independently scrolling interaction rail on the right.
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6"
       onClick={onClose}
@@ -390,10 +390,10 @@ export function LeadDetailDrawer({
         role="dialog"
         aria-modal="true"
         aria-label="Lead details"
-        className="flex h-[calc(100vh-2rem)] max-h-[760px] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+        className="flex h-[calc(100dvh-5rem)] max-h-[760px] w-full max-w-[1160px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
+        <header className="flex items-center justify-between border-b border-[#dfe1e6] px-4 py-2.5">
           <span className="font-mono text-sm font-bold text-[#97a0af]">
             {leadDisplayKey(currentLead.display_number)}
           </span>
@@ -407,13 +407,9 @@ export function LeadDetailDrawer({
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto lg:overflow-hidden">
-          <div
-            className={`grid min-h-full grid-cols-1 lg:h-full ${
-              hasRailFields ? "lg:grid-cols-[minmax(0,1fr)_280px]" : ""
-            }`}
-          >
-            <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
+        <div className="flex-1 overflow-y-auto xl:overflow-hidden">
+          <div className="grid min-h-full grid-cols-1 xl:h-full xl:grid-cols-[minmax(0,3fr)_minmax(440px,2fr)]">
+            <main className="flex min-w-0 flex-col gap-3 p-4 xl:min-h-0 xl:overflow-y-auto">
               {showName ? (
                 <div className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>Client name{REQUIRED_MARK}</span>
@@ -511,7 +507,140 @@ export function LeadDetailDrawer({
                 </div>
               ) : null}
 
-              <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
+              {hasRailFields ? (
+                <section className="border-t border-[#dfe1e6] pt-3">
+                  <h2 className="text-sm font-bold text-[#172b4d]">Lead details</h2>
+                  <div className="mt-2 grid gap-x-3 gap-y-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                    {showStatus ? (
+                      <RailField label="Status">
+                        <LeadChoiceField
+                          label={leadStatus?.label ?? "No status"}
+                          ariaLabel="Status"
+                          choices={statusChoices}
+                          selectedValue={currentLead.status_id ?? ""}
+                          canEdit={canEdit}
+                          onSelect={(statusId) =>
+                            patchCurrentLead({ status_id: statusId || null })
+                          }
+                          containerClassName="w-full"
+                          buttonClassName={RAIL_SELECT_BUTTON_CLASS}
+                          showChevron
+                          renderValue={
+                            leadStatus ? (
+                              <span
+                                className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+                                style={statusBadgeStyle(leadStatus)}
+                              >
+                                {leadStatus.label}
+                              </span>
+                            ) : (
+                              <span className="min-w-0 flex-1 truncate text-[#97a0af]">
+                                No status
+                              </span>
+                            )
+                          }
+                        />
+                      </RailField>
+                    ) : null}
+
+                    {showFollowUp ? (
+                      <RailField label="Follow-up">
+                        <EditableCustomCell
+                          column={{
+                            id: "next_follow_up_at",
+                            key: "next_follow_up_at",
+                            label: "Follow-up",
+                            type: "date",
+                          }}
+                          value={
+                            currentLead.next_follow_up_at
+                              ? currentLead.next_follow_up_at.slice(0, 10)
+                              : null
+                          }
+                          canEdit={canEdit}
+                          onSave={(next) =>
+                            patchCurrentLead({ next_follow_up_at: next })
+                          }
+                          className={`${COMPACT_DETAIL_INPUT_CLASS} !text-[#42526e]`}
+                          inputClassName={`${COMPACT_DETAIL_INPUT_CLASS} !text-[#42526e]`}
+                          emptyLabel="No follow-up"
+                        />
+                      </RailField>
+                    ) : null}
+
+                    {showAssignee ? (
+                      <RailField label="Assigned to">
+                        {canAssign ? (
+                          <LeadChoiceField
+                            label={assigneeLabel}
+                            ariaLabel="Assignee"
+                            choices={assigneeChoices}
+                            selectedValue={currentLead.assigned_to_email ?? ""}
+                            canEdit
+                            onSelect={(email) => assignCurrentLead(email || null)}
+                            containerClassName="w-full"
+                            buttonClassName={ASSIGNEE_SELECT_BUTTON_CLASS}
+                            renderValue={
+                              <>
+                                <AvatarStack
+                                  emails={assigneeEmails}
+                                  labelByEmail={nameByEmail}
+                                  max={1}
+                                />
+                                <span
+                                  className={`min-w-0 flex-1 truncate ${
+                                    isUnassigned
+                                      ? "font-normal text-[#97a0af]"
+                                      : "text-[#172b4d]"
+                                  }`}
+                                >
+                                  {assigneeLabel}
+                                </span>
+                              </>
+                            }
+                          />
+                        ) : (
+                          <div className={READ_ONLY_ASSIGNEE_FIELD_CLASS}>
+                            <AvatarStack
+                              emails={assigneeEmails}
+                              labelByEmail={nameByEmail}
+                              max={1}
+                            />
+                            <span className="min-w-0 truncate">{assigneeLabel}</span>
+                          </div>
+                        )}
+                      </RailField>
+                    ) : null}
+
+                    {showProduct ? (
+                      <RailField label="Product" className="sm:col-span-2 xl:col-span-2">
+                        <ProductMenu
+                          selected={currentLead.products ?? []}
+                          options={productOptions}
+                          canEdit={canEdit}
+                          onToggle={(products: LeadProduct[]) =>
+                            patchCurrentLead({ products })
+                          }
+                          showChevron
+                          buttonClassName={RAIL_SELECT_BUTTON_CLASS}
+                        />
+                      </RailField>
+                    ) : null}
+
+                    {showCreatedAt ? (
+                      <RailField label={createdAtColumn?.label ?? "Imported date"}>
+                        <div className={READ_ONLY_METADATA_FIELD_CLASS}>
+                          {displayDateTime(currentLead.created_at)}
+                        </div>
+                      </RailField>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
+            </main>
+
+            <aside className="flex min-h-[28rem] min-w-0 flex-col border-t border-[#dfe1e6] bg-white p-4 xl:min-h-0 xl:overflow-hidden xl:border-l xl:border-t-0">
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                 <InteractionLog
                   key={currentLead.id}
                   toolbar={
@@ -521,13 +650,11 @@ export function LeadDetailDrawer({
                     />
                   }
                   notice={
-                    <>
-                      {visibleError ? (
-                        <p className="shrink-0 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-                          {visibleError}
-                        </p>
-                      ) : null}
-                    </>
+                    visibleError ? (
+                      <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                        {visibleError}
+                      </p>
+                    ) : null
                   }
                   statuses={statuses}
                   interactionTypes={interactionTypes}
@@ -542,154 +669,14 @@ export function LeadDetailDrawer({
                   sourceId={sourceId}
                   onSave={saveInteraction}
                   onInteractionSaved={(interaction) => {
-                    // Dựng từ visibleInteractions, KHÔNG từ state `interactions`:
-                    // khi lượt tải đầu chưa về, state còn đang giữ lịch sử của
-                    // lead trước, và ghép dòng mới vào đó là trộn hai lead.
                     const next = appendInteraction(visibleInteractions, interaction);
                     setInteractions(next as LeadInteraction[]);
-                    // Chốt luôn là danh sách này thuộc lead đang mở, nếu không
-                    // dòng vừa ghi sẽ biến mất cho tới khi lượt tải đầu về.
                     setLoadedLeadId(currentLead.id);
                     rememberInteractions(currentLead.id, next as LeadInteraction[]);
                   }}
                 />
-              </section>
-            </main>
-
-            {hasRailFields ? (
-              <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
-                <div className="space-y-3">
-                  {showProduct ? (
-                    <RailField label="Product">
-                      {/* Cùng picker với ô Product ngoài bảng: một lead có thể
-                          mang nhiều product, nên đây là chọn-nhiều chứ không
-                          phải chọn-một. Hai màn hình, một cách bấm. */}
-                      <ProductMenu
-                        selected={currentLead.products ?? []}
-                        options={productOptions}
-                        canEdit={canEdit}
-                        onToggle={(products: LeadProduct[]) =>
-                          patchCurrentLead({ products })
-                        }
-                        showChevron
-                        buttonClassName={RAIL_SELECT_BUTTON_CLASS}
-                      />
-                    </RailField>
-                  ) : null}
-
-                  {showStatus ? (
-                    <RailField label="Status">
-                      <LeadChoiceField
-                        label={leadStatus?.label ?? "No status"}
-                        ariaLabel="Status"
-                        choices={statusChoices}
-                        selectedValue={currentLead.status_id ?? ""}
-                        canEdit={canEdit}
-                        onSelect={(statusId) =>
-                          patchCurrentLead({ status_id: statusId || null })
-                        }
-                        containerClassName="w-full"
-                        buttonClassName={RAIL_SELECT_BUTTON_CLASS}
-                        showChevron
-                        renderValue={
-                          leadStatus ? (
-                            <span
-                              className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
-                              style={statusBadgeStyle(leadStatus)}
-                            >
-                              {leadStatus.label}
-                            </span>
-                          ) : (
-                            <span className="min-w-0 flex-1 truncate text-[#97a0af]">
-                              No status
-                            </span>
-                          )
-                        }
-                      />
-                    </RailField>
-                  ) : null}
-
-                  {showAssignee ? (
-                    <RailField label="Assigned to">
-                      {canAssign ? (
-                        <LeadChoiceField
-                          label={assigneeLabel}
-                          ariaLabel="Assignee"
-                          choices={assigneeChoices}
-                          selectedValue={currentLead.assigned_to_email ?? ""}
-                          canEdit
-                          onSelect={(email) => assignCurrentLead(email || null)}
-                          containerClassName="w-full"
-                          buttonClassName={ASSIGNEE_SELECT_BUTTON_CLASS}
-                          renderValue={
-                            <>
-                              <AvatarStack
-                                emails={assigneeEmails}
-                                labelByEmail={nameByEmail}
-                                max={1}
-                              />
-                              <span
-                                className={`min-w-0 flex-1 truncate ${
-                                  isUnassigned
-                                    ? "font-normal text-[#97a0af]"
-                                    : "text-[#172b4d]"
-                                }`}
-                              >
-                                {assigneeLabel}
-                              </span>
-                            </>
-                          }
-                        />
-                      ) : (
-                        <div className={READ_ONLY_ASSIGNEE_FIELD_CLASS}>
-                          <AvatarStack
-                            emails={assigneeEmails}
-                            labelByEmail={nameByEmail}
-                            max={1}
-                          />
-                          <span className="min-w-0 truncate">
-                            {assigneeLabel}
-                          </span>
-                        </div>
-                      )}
-                    </RailField>
-                  ) : null}
-
-                  {showFollowUp ? (
-                    <RailField label="Follow-up">
-                      <EditableCustomCell
-                        column={{
-                          id: "next_follow_up_at",
-                          key: "next_follow_up_at",
-                          label: "Follow-up",
-                          type: "date",
-                        }}
-                        value={
-                          currentLead.next_follow_up_at
-                            ? currentLead.next_follow_up_at.slice(0, 10)
-                            : null
-                        }
-                        canEdit={canEdit}
-                        onSave={(next) =>
-                          patchCurrentLead({ next_follow_up_at: next })
-                        }
-                        className={`${COMPACT_DETAIL_INPUT_CLASS} !text-[#42526e]`}
-                        inputClassName={`${COMPACT_DETAIL_INPUT_CLASS} !text-[#42526e]`}
-                        emptyLabel="No follow-up"
-                      />
-                    </RailField>
-                  ) : null}
-
-                  {showCreatedAt ? (
-                    <RailField label={createdAtColumn?.label ?? "Imported date"}>
-                      <div className={READ_ONLY_METADATA_FIELD_CLASS}>
-                        {displayDateTime(currentLead.created_at)}
-                      </div>
-                    </RailField>
-                  ) : null}
-                </div>
-              </aside>
-            ) : null}
+              </div>
+            </aside>
           </div>
         </div>
       </div>

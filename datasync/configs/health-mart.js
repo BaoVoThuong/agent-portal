@@ -6,7 +6,6 @@ module.exports = {
   sheetId: "1tVJEcK-DIfaaOtH1ZYKovgKK-H6GBgeHIKPFgXSPjYk",
   gid: "167479012",
   onConflict: "source_sheet_id,source_gid,source_row_number",
-  clearBeforeSync: true,
   batchSize: 500,
   columns: [
     { source: "deal_name", target: "deal_name", aliases: ["Deal name"] },

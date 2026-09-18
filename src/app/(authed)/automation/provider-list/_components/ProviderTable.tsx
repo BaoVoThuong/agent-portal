@@ -1,8 +1,10 @@
 "use client";
 
 import { ArrowDown, ArrowUp } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
-import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
+import { parseMultiselectValue } from "@/lib/table-config/multiselect";
+import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import {
   PROVIDER_META_FIELDS,
   PROVIDER_TEXT_FIELDS,
@@ -11,6 +13,10 @@ import {
   type ProviderRow,
 } from "@/lib/providers/types";
 import { isProviderPlanField, parsePlanCell } from "@/lib/providers/plans";
+import {
+  isProviderSpecialtyField,
+  parseSpecialtyCell,
+} from "@/lib/providers/specialties";
 import type { ProviderSortDir } from "@/lib/providers/search";
 
 const DEFAULT_COLUMN_WIDTH = 160;
@@ -65,10 +71,8 @@ function formatMetaValue(value: string | null, type: TableColumn["type"]): strin
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function isEditableTextColumn(column: TableColumn): boolean {
-  return (
-    column.is_system && (PROVIDER_TEXT_FIELDS as readonly string[]).includes(column.key)
-  );
+function isProviderTextKey(key: string): key is (typeof PROVIDER_TEXT_FIELDS)[number] {
+  return (PROVIDER_TEXT_FIELDS as readonly string[]).includes(key);
 }
 
 export function ProviderTable({
@@ -78,7 +82,9 @@ export function ProviderTable({
   sortKey,
   sortDir,
   onSort,
-  onPatch,
+  onOpenProvider,
+  hasMore = false,
+  onEndReached,
 }: {
   providers: ProviderRow[];
   columns: TableColumn[];
@@ -86,9 +92,31 @@ export function ProviderTable({
   sortKey: string | null;
   sortDir: ProviderSortDir;
   onSort: (key: string) => void;
-  onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  onOpenProvider: (provider: ProviderRow) => void;
+  hasMore?: boolean;
+  onEndReached?: () => void;
 }) {
   const minWidth = columns.reduce((total, column) => total + columnWidth(column), 0);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const endSentinelRef = useRef<HTMLLIElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMore || !onEndReached) return;
+
+    const root = scrollContainerRef.current;
+    const sentinel = endSentinelRef.current;
+    if (!root || !sentinel || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onEndReached();
+      },
+      { root, rootMargin: "480px 0px" },
+    );
+    observer.observe(sentinel);
+
+    return () => observer.disconnect();
+  }, [hasMore, onEndReached]);
 
   if (providers.length === 0) {
     return (
@@ -100,7 +128,7 @@ export function ProviderTable({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto">
         <div style={{ minWidth }}>
           <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
             {columns.map((column) => {
@@ -141,7 +169,17 @@ export function ProviderTable({
             {providers.map((provider) => (
               <li
                 key={provider.id}
-                className="group flex items-stretch border-b border-[#f0f1f4] hover:bg-[#f7f8f9]"
+                role="button"
+                tabIndex={0}
+                aria-label={`Edit provider ${provider.doctors || provider.facility || provider.id}`}
+                onClick={() => onOpenProvider(provider)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpenProvider(provider);
+                  }
+                }}
+                className="group flex cursor-pointer items-stretch border-b border-[#f0f1f4] outline-none hover:bg-[#f7f8f9] focus-visible:bg-[#e9f2ff]"
               >
                 {columns.map((column) => (
                   <div
@@ -155,12 +193,12 @@ export function ProviderTable({
                       options={columnOptions.filter(
                         (option) => option.column_id === column.id
                       )}
-                      onPatch={(patch) => onPatch(provider.id, patch)}
                     />
                   </div>
                 ))}
               </li>
             ))}
+            {hasMore ? <li ref={endSentinelRef} aria-hidden="true" className="h-2" /> : null}
           </ul>
         </div>
       </div>
@@ -172,12 +210,10 @@ function ProviderCell({
   provider,
   column,
   options,
-  onPatch,
 }: {
   provider: ProviderRow;
   column: TableColumn;
   options: TableColumnOption[];
-  onPatch: (patch: Record<string, unknown>) => Promise<void>;
 }) {
   if (isReviewColumn(column)) {
     const flagged = needsReview(provider);
@@ -209,49 +245,63 @@ function ProviderCell({
     );
   }
 
-  // Cột hệ thống còn lại của provider đều là cột văn bản có thật trong bảng,
-  // nên sửa thẳng bằng chính component mà Task List và Event Leads dùng — cùng
-  // một lối bấm-để-sửa, không phải học lại.
-  if (isEditableTextColumn(column)) {
-    if (isProviderPlanField(column.key)) {
-      return (
-        <EditableCustomCell
-          column={column}
-          value={parsePlanCell(
-            provider[column.key as (typeof PROVIDER_TEXT_FIELDS)[number]]
-          )}
-          options={options}
-          optionValue="label"
-          maxVisibleMultiselectValues={null}
-          canEdit
-          onSave={(next) => onPatch({ [column.key]: next })}
-          className="w-full"
-        />
-      );
-    }
+  const value = isProviderTextKey(column.key)
+    ? provider[column.key]
+    : column.is_system
+      ? provider[column.key as keyof ProviderRow]
+    : provider.custom_values?.[column.key];
+
+  if (column.type === "multiselect") {
+    const values = isProviderSpecialtyField(column.key)
+      ? parseSpecialtyCell(value)
+      : isProviderPlanField(column.key)
+        ? parsePlanCell(value as string | null)
+        : parseMultiselectValue(value);
+    const labels = new Map(options.map((option) => [option.id, option.label]));
     return (
-      <EditableCustomCell
-        column={column}
-        value={provider[column.key as (typeof PROVIDER_TEXT_FIELDS)[number]]}
-        canEdit
-        onSave={(next) => onPatch({ [column.key]: next })}
-        className="w-full"
-      />
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
+        {values.length === 0 ? (
+          <span className="text-sm font-medium text-[#97a0af]">—</span>
+        ) : (
+          values.map((item, index) => {
+            const option = options.find(
+              (candidate) =>
+                candidate.label.toLowerCase() === item.toLowerCase() ||
+                candidate.id === item
+            );
+            const palette = option ? tableColumnOptionBadgePalette(option) : null;
+            return (
+              <span
+                key={`${item}-${index}`}
+                className="max-w-[12rem] truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+                style={
+                  palette
+                    ? { backgroundColor: palette.background, color: palette.foreground }
+                    : { backgroundColor: "#f4f5f7", color: "#6b778c" }
+                }
+                title={option?.label ?? labels.get(item) ?? item}
+              >
+                {option?.label ?? labels.get(item) ?? item}
+              </span>
+            );
+          })
+        )}
+      </div>
     );
   }
 
-  if (!column.is_system) {
-    return (
-      <EditableCustomCell
-        column={column}
-        value={provider.custom_values?.[column.key]}
-        options={options}
-        canEdit
-        onSave={(next) => onPatch({ custom_values: { [column.key]: next } })}
-        className={column.type === "checkbox" ? "" : "w-full"}
-      />
-    );
+  if (column.type === "checkbox") {
+    return <span className="text-sm font-medium text-[#5e6c84]">{value ? "Yes" : "No"}</span>;
   }
 
-  return <span className="truncate text-sm text-[#97a0af]">—</span>;
+  const text = isMetaColumn(column)
+    ? formatMetaValue(value as string | null, column.type)
+    : value === null || value === undefined || value === ""
+      ? "—"
+      : String(value);
+  return (
+    <span className="block min-w-0 truncate text-sm font-medium text-[#42526e]" title={text}>
+      {text}
+    </span>
+  );
 }

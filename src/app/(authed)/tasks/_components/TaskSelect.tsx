@@ -184,7 +184,7 @@ export function TaskSelect({
               </span>
             ) : (
               <span
-                className={`whitespace-nowrap leading-5 ${
+                className={`min-w-0 flex-1 truncate leading-5 ${
                   isPlaceholder ? "font-normal text-[#97a0af]" : "text-[#172b4d]"
                 }`}
               >

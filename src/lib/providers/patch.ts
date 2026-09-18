@@ -4,6 +4,7 @@ import {
   parsePlanCell,
   serializePlanCell,
 } from "./plans";
+import { isProviderSpecialtyField, parseSpecialtyCell, serializeSpecialtyCell } from "./specialties";
 
 const MAX_TEXT_LENGTH = 500;
 
@@ -40,7 +41,7 @@ export function buildProviderPatch(body: unknown): ProviderPatchResult {
     if (!(PROVIDER_TEXT_FIELDS as readonly string[]).includes(key)) {
       return { ok: false, error: `${key} cannot be edited here.` };
     }
-    if (isProviderPlanField(key)) {
+    if (isProviderPlanField(key) || isProviderSpecialtyField(key)) {
       if (value === null || value === "") {
         patch[key] = null;
         continue;
@@ -51,7 +52,9 @@ export function buildProviderPatch(body: unknown): ProviderPatchResult {
       ) {
         return { ok: false, error: `${key} must be text or a list.` };
       }
-      const serialized = serializePlanCell(parsePlanCell(value));
+      const serialized = isProviderSpecialtyField(key)
+        ? serializeSpecialtyCell(parseSpecialtyCell(value))
+        : serializePlanCell(parsePlanCell(value));
       if (serialized === null) {
         patch[key] = null;
         continue;

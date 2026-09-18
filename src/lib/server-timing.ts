@@ -17,11 +17,13 @@ function formatDuration(durationMs: number): string {
 export function shouldLogRouteTiming(
   env: {
     NODE_ENV?: string;
+    ROUTE_PERF_LOGS?: string;
     TASK_DETAIL_PERF_LOGS?: string;
   } = process.env,
 ): boolean {
-  if (env.TASK_DETAIL_PERF_LOGS === "1") return true;
-  if (env.TASK_DETAIL_PERF_LOGS === "0") return false;
+  const override = env.ROUTE_PERF_LOGS ?? env.TASK_DETAIL_PERF_LOGS;
+  if (override === "1") return true;
+  if (override === "0") return false;
   return env.NODE_ENV !== "production" && env.NODE_ENV !== "test";
 }
 

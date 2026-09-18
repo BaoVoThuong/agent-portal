@@ -3,61 +3,11 @@
 import { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ProviderFinderMap } from "./ProviderFinderMap";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import { PROVIDER_SPECIALTY_OPTIONS } from "@/lib/providers/specialties";
 
-/**
- * Danh sách hãng bảo hiểm cho ô Carrier.
- *
- * Viết cứng ở đây, không lấy từ dữ liệu provider: thêm hãng mới vẫn phải sửa
- * file này rồi deploy. Đổi lại, danh sách không phụ thuộc vào chất lượng dữ liệu
- * nhập vào — một dòng gõ sai tên hãng sẽ không tự chui lên thành một lựa chọn.
- *
- * Viết HOA toàn bộ chỉ để hiển thị cho đều. Việc lọc không phân biệt hoa thường:
- * `normalize()` trong lib/provider-finder/search.ts hạ cả hai vế về chữ thường
- * rồi mới so, nên "Harbor Health" trong dữ liệu vẫn khớp "HARBOR HEALTH" ở đây.
- *
- * Cập nhật 2026-09-11 theo danh sách nghiệp vụ: 9 → 24 hãng.
- */
-const carrierOptions = [
-  "AETNA",
-  "AMBETTER",
-  "ANTHEM",
-  "ANTIDOTE",
-  "BCBS",
-  "BSW",
-  "CHC",
-  "CHRISTUS",
-  "CIGNA",
-  "DEVOTED",
-  "HARBOR HEALTH",
-  "HEALTHFIRST",
-  "HEALTHSPRING",
-  "HIGHMARK",
-  "HUMANA",
-  "IMPERIAL",
-  "MCLAREN",
-  "MOLINA",
-  "OSCAR",
-  "PRIORITY HEALTH",
-  "SCAN",
-  "UHC",
-  "WELLCARE",
-  "WELLPOINT",
-];
-
-const specialtyOptions = [
-  "PCP - Adults",
-  "PCP - Children",
-  "PCP - Family",
-  "OBGYN",
-  "Cardiologist",
-  "Dermatology",
-  "Gastroenterology",
-  "Nephrology",
-  "Oncology",
-  "Orthopedic",
-  "Rheumatology",
-  "Specialists",
-];
+const specialtyOptions = PROVIDER_SPECIALTY_OPTIONS.filter(
+  (value) => value !== "Location Closed"
+);
 
 type InsuranceType = "" | "obamacare" | "medicare" | "both";
 type InsuranceColumn = { key: "obamacare" | "medicare"; label: string };
@@ -81,6 +31,7 @@ type FormState = {
   zipcode: string;
   contract: string;
   specialty: string;
+  radius: string;
   insuranceType: InsuranceType;
 };
 
@@ -123,6 +74,7 @@ const initialForm: FormState = {
   zipcode: "",
   contract: "",
   specialty: "",
+  radius: "",
   insuranceType: "",
 };
 
@@ -136,7 +88,15 @@ function hasAddress(form: FormState) {
   );
 }
 
-export default function ProviderFinderClient() {
+export default function ProviderFinderClient({
+  carrierOptions = [],
+  stateOptions = [],
+  cityOptions = [],
+}: {
+  carrierOptions?: readonly string[];
+  stateOptions?: readonly string[];
+  cityOptions?: readonly string[];
+}) {
   const insuranceMenuRef = useRef<HTMLDivElement | null>(null);
   const [form, setForm] = useState<FormState>(initialForm);
   const [isRunning, setIsRunning] = useState(false);
@@ -266,9 +226,9 @@ export default function ProviderFinderClient() {
     <div className="space-y-6">
       <form
         onSubmit={handleSubmit}
-        className="relative z-20 rounded-lg border border-[#d8dee7] bg-white shadow-sm"
+        className="relative z-20 min-w-0 rounded-lg border border-[#d8dee7] bg-white shadow-sm"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6ebf2] px-4 py-3">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-[#e6ebf2] px-4 py-3">
           <h2 className="text-base font-semibold text-[#16233a]">
             Search Criteria
           </h2>
@@ -288,7 +248,7 @@ export default function ProviderFinderClient() {
           </div>
         </div>
 
-        <div className="grid grid-cols-[minmax(220px,1.4fr)_minmax(120px,0.7fr)_72px_105px_135px_minmax(170px,1fr)_145px] gap-3 overflow-visible px-4 py-3">
+        <div className="grid min-w-0 grid-cols-1 gap-3 overflow-visible px-4 py-3 sm:grid-cols-2 xl:grid-cols-4">
           <label className="min-w-0">
             <span className="mb-1 block text-xs font-medium text-[#344054]">
               Street
@@ -300,30 +260,20 @@ export default function ProviderFinderClient() {
             />
           </label>
 
-          <label className="min-w-0">
-            <span className="mb-1 block text-xs font-medium text-[#344054]">
-              City
-            </span>
-            <input
-              value={form.city}
-              onChange={(event) => updateField("city", event.target.value)}
-              className="h-9 w-full rounded-md border border-[#cfd7e3] px-2.5 text-sm text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
-            />
-          </label>
+          <SuggestionInput
+            label="City"
+            value={form.city}
+            options={cityOptions}
+            onChange={(value) => updateField("city", value)}
+          />
 
-          <label className="min-w-0">
-            <span className="mb-1 block text-xs font-medium text-[#344054]">
-              State
-            </span>
-            <input
-              value={form.state}
-              onChange={(event) =>
-                updateField("state", event.target.value.toUpperCase())
-              }
-              className="h-9 w-full rounded-md border border-[#cfd7e3] px-2.5 text-sm uppercase text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
-              maxLength={2}
-            />
-          </label>
+          <SuggestionInput
+            label="State"
+            value={form.state}
+            options={stateOptions}
+            uppercase
+            onChange={(value) => updateField("state", value)}
+          />
 
           <label className="min-w-0">
             <span className="mb-1 block text-xs font-medium text-[#344054]">
@@ -351,6 +301,21 @@ export default function ProviderFinderClient() {
             options={specialtyOptions}
             onChange={(value) => updateField("specialty", value)}
           />
+
+          <label className="min-w-0">
+            <span className="mb-1 block text-xs font-medium text-[#344054]">
+              Radius (miles)
+            </span>
+            <input
+              value={form.radius}
+              onChange={(event) => updateField("radius", event.target.value)}
+              className="h-9 w-full rounded-md border border-[#cfd7e3] px-2.5 text-sm text-[#16233a] outline-none transition focus:border-[#245a94] focus:ring-2 focus:ring-[#245a94]/15"
+              inputMode="decimal"
+              min="0.1"
+              step="0.1"
+              placeholder="Any"
+            />
+          </label>
 
           <div ref={insuranceMenuRef} className="relative min-w-0">
             <span className="mb-1 block text-xs font-medium text-[#344054]">
@@ -612,7 +577,7 @@ function SuggestionInput({
 }: {
   label: string;
   value: string;
-  options: string[];
+  options: readonly string[];
   uppercase?: boolean;
   onChange: (value: string) => void;
 }) {

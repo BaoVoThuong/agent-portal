@@ -136,6 +136,52 @@ describe("applyProviderFilters", () => {
       )
     ).toEqual(["b"]);
   });
+
+  it("lọc theo từng plan trong ô multiselect, và kết hợp ACA + Medicare bằng VÀ", () => {
+    const planRows = [
+      row({
+        id: "a",
+        obamacare: "Ambetter HMO, BCBS Advantage",
+        medicare: "UHC, Healthspring/Cigna",
+      }),
+      row({ id: "b", obamacare: "Oscar HMO", medicare: "UHC" }),
+      row({ id: "c", obamacare: "BCBS Advantage", medicare: "Humana" }),
+    ];
+
+    expect(
+      applyProviderFilters(planRows, {
+        ...EMPTY_PROVIDER_FILTERS,
+        acaPlans: ["ambetter hmo"],
+      }).map((r) => r.id)
+    ).toEqual(["a"]);
+    expect(
+      applyProviderFilters(planRows, {
+        ...EMPTY_PROVIDER_FILTERS,
+        acaPlans: ["BCBS Advantage"],
+        medicarePlans: ["UHC"],
+      }).map((r) => r.id)
+    ).toEqual(["a"]);
+  });
+
+  it("lọc theo từng Specialty trong ô multiselect và nhận alias cũ", () => {
+    const specialtyRows = [
+      row({ id: "a", practices_as: "PCP - Family (Adults and Children), Opthamology" }),
+      row({ id: "b", practices_as: "Cardiologist" }),
+    ];
+
+    expect(
+      applyProviderFilters(specialtyRows, {
+        ...EMPTY_PROVIDER_FILTERS,
+        specialty: ["PCP - Family"],
+      }).map((r) => r.id)
+    ).toEqual(["a"]);
+    expect(
+      applyProviderFilters(specialtyRows, {
+        ...EMPTY_PROVIDER_FILTERS,
+        specialty: ["Ophthalmology"],
+      }).map((r) => r.id)
+    ).toEqual(["a"]);
+  });
 });
 
 describe("providerFilterOptions", () => {
@@ -147,5 +193,33 @@ describe("providerFilterOptions", () => {
     ]);
     expect(options.state).toEqual(["CA", "TX"]);
     expect(options.city).toEqual(["Houston", "Irvine"]);
+  });
+
+  it("tách ACA và Medicare thành từng option plan, không để nguyên cả chuỗi ô", () => {
+    const options = providerFilterOptions([
+      row({
+        id: "a",
+        obamacare: "Ambetter HMO, BCBS Advantage",
+        medicare: "UHC, Healthspring/Cigna",
+      }),
+      row({
+        id: "b",
+        obamacare: "ambetter hmo",
+        medicare: "UHC",
+      }),
+    ]);
+
+    expect(options.acaPlans).toEqual(["Ambetter HMO", "BCBS Advantage"]);
+    expect(options.medicarePlans).toEqual(["Healthspring/Cigna", "UHC"]);
+  });
+
+  it("chuẩn hoá option Specialty và tách từng nhãn trong ô", () => {
+    const options = providerFilterOptions([
+      row({
+        practices_as: "PCP - Family (Adults and Children), Opthamology",
+      }),
+    ]);
+
+    expect(options.specialty).toEqual(["Ophthalmology", "PCP - Family"]);
   });
 });

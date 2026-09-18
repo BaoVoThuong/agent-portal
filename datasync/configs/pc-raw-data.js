@@ -6,7 +6,6 @@ module.exports = {
   sheetId: "1ByO8MDhCUiBO_QVhxsDHR55ixw6AxL_gq-ghwgbgJXI",
   gid: "1247736899",
   onConflict: "source_sheet_id,source_gid,source_row_number",
-  clearBeforeSync: true,
   batchSize: 500,
   columns: [
     { source: "agent", target: "agent", aliases: ["Agent"] },

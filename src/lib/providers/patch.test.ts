@@ -27,6 +27,17 @@ describe("buildProviderPatch", () => {
     });
   });
 
+  it("chuẩn hoá Specialty thành chuỗi multiselect canonical", () => {
+    expect(
+      buildProviderPatch({
+        practices_as: ["PCP - Family (Adults and Children)", "Opthamology", "Opthamology"],
+      })
+    ).toMatchObject({
+      ok: true,
+      patch: { practices_as: "PCP - Family, Ophthalmology" },
+    });
+  });
+
   it("viết hoa bang, giống hệt đường tạo mới", () => {
     expect(buildProviderPatch({ state: "tx" })).toMatchObject({
       ok: true,

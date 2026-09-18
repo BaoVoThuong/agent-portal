@@ -6,6 +6,42 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-18 — Đo và rollback tối ưu latency Provider Finder
+
+Provider Finder API nay đo riêng `auth`, parse body, DB query, candidate filter,
+Maps route và tổng request; response có `Server-Timing`, còn server log dòng
+`[perf:provider-finder-search:stages]` để đối chiếu với log Apps Script.
+
+Thử chia 20 route thành 4 request Apps Script chạy song song làm wall time tăng
+lên **26.9s** vì mỗi execution geocode lại cùng một origin và Apps Script có thể
+xếp hàng execution. Đã rollback về một POST cho toàn bộ candidate set. Source
+Apps Script được tối ưu thêm để lấy origin từ `start_location` của route đầu tiên,
+fallback geocode chỉ khi thiếu tọa độ; cần redeploy Web App trước khi đo lại.
+
+Live probe còn phát hiện ContentService redirect làm server-side POST nhận body
+health-check từ `doGet()` (200 giả, không có `results`), còn cố giữ POST qua URL
+echo trả 405. Client nay validate response shape và Apps Script source dùng
+`HtmlOutput` JSON để deployment mới trả trực tiếp, tránh redirect method đổi.
+
+## 2026-09-18 — Tối ưu Provider Finder không cần Google Maps API key
+
+Provider Finder tiếp tục dùng Apps Script built-in Maps service làm provider
+chính. Khi người dùng chỉ lọc theo contract/carrier mà không nhập địa chỉ, hệ
+thống không còn gọi geocode cho 20 provider — kết quả trả ngay mà không tiêu
+quota Maps. Apps Script proxy thêm `CacheService` 6 giờ cho geocode và directions
+để các lần tìm lại cùng địa chỉ không gọi Maps lặp lại; cold batch vẫn được giữ
+đúng contract và có log timing riêng.
+
+## 2026-09-18 — Tắt sync legacy `provider_address`
+
+Provider List và Provider Finder đã dùng `provider_directory` làm nguồn chính,
+nên bỏ `provider-address` khỏi danh sách sync, khỏi `config=all`, và khỏi các
+script sync thủ công. Giữ nguyên bảng `provider_address` làm snapshot lịch sử
+để đối chiếu/rollback; không xoá dữ liệu và không tác động đến sync Health/P&C.
+
+Provider List page/API có structured performance timing cho auth, table config,
+provider query và các mutation; API trả `Server-Timing` để đo tiếp trên Vercel.
+
 ## 2026-09-17 — Provider List + Finder đọc bảng sạch `provider_directory`
 
 **Vì sao tách bảng:** `provider_address` bị `promote_sheet_sync_run` xoá theo cặp

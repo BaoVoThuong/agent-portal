@@ -31,7 +31,6 @@ node datasync/sync.js --list
 ```bash
 node datasync/sync.js --config health-mart --dry-run --limit 3
 node datasync/sync.js --config pc-raw-data --dry-run --limit 3
-node datasync/sync.js --config provider-address --dry-run --limit 3
 ```
 
 ## Sync all rows
@@ -39,7 +38,6 @@ node datasync/sync.js --config provider-address --dry-run --limit 3
 ```bash
 node datasync/sync.js --config health-mart
 node datasync/sync.js --config pc-raw-data
-node datasync/sync.js --config provider-address
 node datasync/sync.js --config all
 ```
 
@@ -49,8 +47,9 @@ runs `refresh_health_mart()` to rebuild the cleaned `health_mart` table.
 The `pc-raw-data` job upserts raw P&C rows into `pc_raw_data`, then runs
 `refresh_pc_mart()` to rebuild the cleaned `pc_mart` table.
 
-The `provider-address` job upserts provider directory rows into
-`provider_address`.
+The legacy `provider-address` job has been disabled. `provider_address` is kept
+as a read-only historical snapshot; Provider List and Provider Finder use the
+manually maintained `provider_directory` table instead.
 
 Run this command from VSCode/terminal whenever you want to update the data.
 This is the normal refresh flow after the schema already exists.

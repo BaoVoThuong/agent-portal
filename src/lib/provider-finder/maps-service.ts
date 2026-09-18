@@ -73,33 +73,116 @@ function isCoordinates(value: Coordinates | null | undefined): value is Coordina
   );
 }
 
+function parseAppsScriptHtmlResponse(responseText: string) {
+  const initMatch = responseText.match(
+    /goog\.script\.init\("((?:\\.|[^"\\])*)"/
+  );
+  if (!initMatch) return null;
+
+  const decodedConfig = initMatch[1]
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex: string) =>
+      String.fromCharCode(parseInt(hex, 16))
+    )
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
+      String.fromCharCode(parseInt(hex, 16))
+    )
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\");
+
+  try {
+    const config = JSON.parse(decodedConfig) as { userHtml?: unknown };
+    if (typeof config.userHtml !== "string") return null;
+    return JSON.parse(config.userHtml) as AppsScriptMapsResponse;
+  } catch {
+    return null;
+  }
+}
+
+function parseAppsScriptResponse(responseText: string) {
+  try {
+    return JSON.parse(responseText) as AppsScriptMapsResponse;
+  } catch {
+    return parseAppsScriptHtmlResponse(responseText);
+  }
+}
+
 async function postAppsScriptMaps(
   config: AppsScriptMapsConfig,
   action: string,
   payload: Record<string, unknown>,
   logs: string[]
 ) {
-  const response = await fetch(config.url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      secret: config.secret,
-      action,
-      ...payload,
-    }),
+  const body = JSON.stringify({
+    secret: config.secret,
+    action,
+    ...payload,
   });
+  const headers = { "Content-Type": "application/json" };
+  let response = await fetch(config.url, {
+    method: "POST",
+    redirect: "manual",
+    headers,
+    body,
+  });
+  let redirectCount = 0;
+
+  // Apps Script Web Apps commonly return 302 from script.google.com to
+  // script.googleusercontent.com. Node's automatic 302 handling changes a
+  // POST into a GET, which returns doGet() with HTTP 200 and silently drops
+  // the directions/geocode result. Follow only Google's HTTPS redirect and
+  // resend the original POST body.
+  while ([301, 302, 303, 307, 308].includes(response.status)) {
+    const location = response.headers.get("location");
+    if (!location || redirectCount >= 3) {
+      throw new Error("Apps Script maps redirect was invalid");
+    }
+
+    const redirectUrl = new URL(location, response.url || config.url);
+    if (
+      redirectUrl.protocol !== "https:" ||
+      !["script.google.com", "script.googleusercontent.com"].includes(
+        redirectUrl.hostname
+      )
+    ) {
+      throw new Error("Apps Script maps redirect was not a Google HTTPS URL");
+    }
+
+    redirectCount += 1;
+    response = await fetch(redirectUrl, {
+      method: "POST",
+      redirect: "manual",
+      headers,
+      body,
+    });
+  }
+  if (redirectCount > 0) {
+    logs.push(`apps script redirects: ${redirectCount}`);
+  }
+  const responseText = await response.text();
 
   if (!response.ok) {
-    throw new Error(`Apps Script maps request failed: ${response.status}`);
+    const responseHint = responseText.replace(/\s+/g, " ").trim().slice(0, 240);
+    throw new Error(
+      `Apps Script maps request failed: ${response.status}${
+        responseHint ? ` (${responseHint})` : ""
+      }`
+    );
   }
 
-  const data = (await response.json()) as AppsScriptMapsResponse;
+  const data = parseAppsScriptResponse(responseText);
+  if (!data) {
+    throw new Error("Apps Script maps returned a non-JSON response");
+  }
   if (Array.isArray(data.logs)) {
     logs.push(...data.logs.map((entry) => `apps script: ${entry}`));
   }
 
   if (data.ok === false) {
     throw new Error(`Apps Script maps ${data.error ?? "request failed"}`);
+  }
+
+  if ((action === "directions" || action === "geocode") && !Array.isArray(data.results)) {
+    throw new Error(`Apps Script maps ${action} returned an invalid response`);
   }
 
   return data;
@@ -118,18 +201,25 @@ function createAppsScriptMapsService(
         return { originCoordinates: null, routesById };
       }
 
-      const data = await postAppsScriptMaps(
+      // Apps Script's built-in Maps service is sequential inside one
+      // invocation. Calling the web app several times in parallel is slower
+      // in practice: every invocation geocodes the same origin and Apps
+      // Script may queue concurrent executions. Keep the whole candidate set
+      // in one request so the origin is geocoded once and the proxy cache can
+      // do its work without multiplying cold-start overhead.
+      const batchStartedAt = Date.now();
+      const response = await postAppsScriptMaps(
         config,
         "directions",
-        {
-          origin,
-          destinations: candidates,
-        },
-        logs
+        { origin, destinations: candidates },
+        logs,
+      );
+      logs.push(
+        `apps script directions request: ${Date.now() - batchStartedAt}ms`,
       );
       let successCount = 0;
 
-      for (const result of data.results ?? []) {
+      for (const result of response.results ?? []) {
         if (!result.id || !routesById.has(result.id)) continue;
 
         if (
@@ -148,7 +238,7 @@ function createAppsScriptMapsService(
             logs.push(
               `apps script directions ${result.id}: ${
                 result.error ?? result.status
-              }`
+              }`,
             );
           }
         }
@@ -157,7 +247,9 @@ function createAppsScriptMapsService(
       logs.push(`directions success count: ${successCount}`);
 
       return {
-        originCoordinates: isCoordinates(data.origin) ? data.origin : null,
+        originCoordinates: isCoordinates(response.origin)
+          ? response.origin
+          : null,
         routesById,
       };
     },
@@ -170,17 +262,15 @@ function createAppsScriptMapsService(
         return coordinatesById;
       }
 
-      const data = await postAppsScriptMaps(
+      const response = await postAppsScriptMaps(
         config,
         "geocode",
-        {
-          addresses: candidates,
-        },
-        logs
+        { addresses: candidates },
+        logs,
       );
       let successCount = 0;
 
-      for (const result of data.results ?? []) {
+      for (const result of response.results ?? []) {
         if (!result.id || !coordinatesById.has(result.id)) continue;
 
         if (isCoordinates(result.location)) {
@@ -190,7 +280,7 @@ function createAppsScriptMapsService(
           logs.push(
             `apps script geocode ${result.id}: ${
               result.error ?? result.status
-            }`
+            }`,
           );
         }
       }
@@ -202,6 +292,8 @@ function createAppsScriptMapsService(
 }
 
 function createGoogleMapsService(key: string): MapsService {
+  const maxConcurrentRequests = 5;
+
   return {
     async routeCandidates(origin, candidates, logs) {
       const routesById = new Map<string, RouteResult | null>(
@@ -209,21 +301,26 @@ function createGoogleMapsService(key: string): MapsService {
       );
       let successCount = 0;
 
-      for (const candidate of candidates) {
-        try {
-          const route = await fetchDirections(origin, candidate.address, key, logs);
-          if (route) {
-            successCount += 1;
-            routesById.set(candidate.id, route);
-          }
-        } catch (err) {
-          if (isGoogleConfigError(err)) throw err;
-          logs.push(
-            `directions error ${candidate.address}: ${
-              err instanceof Error ? err.message : "unknown"
-            }`
-          );
-        }
+      for (let start = 0; start < candidates.length; start += maxConcurrentRequests) {
+        const batch = candidates.slice(start, start + maxConcurrentRequests);
+        await Promise.all(
+          batch.map(async (candidate) => {
+            try {
+              const route = await fetchDirections(origin, candidate.address, key, logs);
+              if (route) {
+                successCount += 1;
+                routesById.set(candidate.id, route);
+              }
+            } catch (err) {
+              if (isGoogleConfigError(err)) throw err;
+              logs.push(
+                `directions error ${candidate.address}: ${
+                  err instanceof Error ? err.message : "unknown"
+                }`
+              );
+            }
+          })
+        );
       }
 
       logs.push(`directions success count: ${successCount}`);
@@ -244,21 +341,26 @@ function createGoogleMapsService(key: string): MapsService {
       );
       let successCount = 0;
 
-      for (const candidate of candidates) {
-        try {
-          const coordinates = await geocodeAddress(candidate.address, key, logs);
-          if (coordinates) {
-            successCount += 1;
-            coordinatesById.set(candidate.id, coordinates);
-          }
-        } catch (err) {
-          if (isGoogleConfigError(err)) throw err;
-          logs.push(
-            `provider geocode error ${candidate.address}: ${
-              err instanceof Error ? err.message : "unknown"
-            }`
-          );
-        }
+      for (let start = 0; start < candidates.length; start += maxConcurrentRequests) {
+        const batch = candidates.slice(start, start + maxConcurrentRequests);
+        await Promise.all(
+          batch.map(async (candidate) => {
+            try {
+              const coordinates = await geocodeAddress(candidate.address, key, logs);
+              if (coordinates) {
+                successCount += 1;
+                coordinatesById.set(candidate.id, coordinates);
+              }
+            } catch (err) {
+              if (isGoogleConfigError(err)) throw err;
+              logs.push(
+                `provider geocode error ${candidate.address}: ${
+                  err instanceof Error ? err.message : "unknown"
+                }`
+              );
+            }
+          })
+        );
       }
 
       logs.push(`provider geocode success count: ${successCount}`);

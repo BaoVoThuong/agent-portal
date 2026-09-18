@@ -15,13 +15,7 @@ import {
  * nhất để ba bảng trông giống nhau thật.
  */
 const FILTER_SELECT_BUTTON_CLASS =
-  "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
-
-const REVIEW_OPTIONS = [
-  { value: "", label: "All rows" },
-  { value: "needs", label: "Needs review" },
-  { value: "ok", label: "Reviewed" },
-];
+  "!h-9 !w-full !min-w-0 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 
 function toOptions(values: readonly string[]) {
   return values.map((value) => ({ value, label: value }));
@@ -51,12 +45,13 @@ export function ProviderToolbar({
     state: string[];
     city: string[];
     specialty: string[];
-    accepting: string[];
+    acaPlans: string[];
+    medicarePlans: string[];
   };
   resultCount: number;
   totalCount: number;
   /**
-   * Nút chọn cột, đứng cuối hàng lọc. Nhận vào dạng chỗ cắm thay vì ba tham số
+   * Nút chọn cột, đứng trước số lượng provider. Nhận vào dạng chỗ cắm thay vì ba tham số
    * cấu hình cột: thanh công cụ không cần biết gì về chuyện ẩn/hiện cột, và
    * hàng lọc này vốn đã tự ẩn ở tab tìm theo địa chỉ nên nút cũng ẩn theo.
    */
@@ -107,88 +102,92 @@ export function ProviderToolbar({
       </div>
 
       {view === "list" ? (
-        <div className="flex min-w-0 items-center gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
-          <TaskSelect
-            multi
-            searchable
-            values={filters.state}
-            options={toOptions(options.state)}
-            placeholder="State"
-            summaryLabel="states"
-            className="w-max shrink-0 min-w-[9rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={(values) => onFilters({ ...filters, state: values })}
-          />
+        <div className="flex min-w-0 items-start gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <TaskSelect
+              multi
+              searchable
+              values={filters.state}
+              options={toOptions(options.state)}
+              placeholder="State"
+              summaryLabel="states"
+              className="w-[7.5rem] shrink-0"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={(values) => onFilters({ ...filters, state: values })}
+            />
 
-          <TaskSelect
-            multi
-            searchable
-            values={filters.city}
-            options={toOptions(options.city)}
-            placeholder="City"
-            summaryLabel="cities"
-            className="w-max shrink-0 min-w-[9rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={(values) => onFilters({ ...filters, city: values })}
-          />
+            <TaskSelect
+              multi
+              searchable
+              values={filters.city}
+              options={toOptions(options.city)}
+              placeholder="City"
+              summaryLabel="cities"
+              className="w-[7.5rem] shrink-0"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={(values) => onFilters({ ...filters, city: values })}
+            />
 
-          <TaskSelect
-            multi
-            searchable
-            values={filters.specialty}
-            options={toOptions(options.specialty)}
-            placeholder="Specialty"
-            summaryLabel="specialties"
-            className="w-max shrink-0 min-w-[11rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={(values) => onFilters({ ...filters, specialty: values })}
-          />
+            <TaskSelect
+              multi
+              searchable
+              values={filters.specialty}
+              options={toOptions(options.specialty)}
+              placeholder="Specialty"
+              summaryLabel="specialties"
+              className="w-[9.5rem] shrink-0"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={(values) => onFilters({ ...filters, specialty: values })}
+            />
 
-          <TaskSelect
-            multi
-            values={filters.accepting}
-            options={toOptions(options.accepting)}
-            placeholder="Accepting patients"
-            summaryLabel="answers"
-            className="w-max shrink-0 min-w-[13rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onValuesChange={(values) => onFilters({ ...filters, accepting: values })}
-          />
+            <TaskSelect
+              multi
+              searchable
+              values={filters.acaPlans}
+              options={toOptions(options.acaPlans)}
+              placeholder="ACA plans"
+              summaryLabel="plans"
+              className="w-[10rem] shrink-0"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={(values) => onFilters({ ...filters, acaPlans: values })}
+            />
 
-          <TaskSelect
-            value={filters.review}
-            options={REVIEW_OPTIONS}
-            placeholder="All rows"
-            className="w-max shrink-0 min-w-[10rem]"
-            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-            onChange={(value) =>
-              onFilters({ ...filters, review: value as ProviderFilters["review"] })
-            }
-          />
+            <TaskSelect
+              multi
+              searchable
+              values={filters.medicarePlans}
+              options={toOptions(options.medicarePlans)}
+              placeholder="Medicare plans"
+              summaryLabel="plans"
+              className="w-[11rem] shrink-0"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onValuesChange={(values) => onFilters({ ...filters, medicarePlans: values })}
+            />
+          </div>
 
-          {active ? (
-            <button
-              type="button"
-              onClick={() => {
-                onQuery("");
-                onFilters(EMPTY_PROVIDER_FILTERS);
-              }}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {settingsSlot ? <div className="shrink-0">{settingsSlot}</div> : null}
+
+            <span
+              aria-live="polite"
+              className="whitespace-nowrap text-[13px] font-semibold text-[#6b778c]"
             >
-              <X className="h-3.5 w-3.5" /> Clear
-            </button>
-          ) : null}
-        </div>
+              {resultCount} of {totalCount} providers
+            </span>
 
-        <span
-          aria-live="polite"
-          className="shrink-0 whitespace-nowrap text-sm font-semibold text-[#6b778c]"
-        >
-          {resultCount} of {totalCount} providers
-        </span>
-
-        {settingsSlot ? <div className="shrink-0">{settingsSlot}</div> : null}
+            {active ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onQuery("");
+                  onFilters(EMPTY_PROVIDER_FILTERS);
+                }}
+                className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#dfe1e6] bg-white px-2.5 text-[13px] font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+              >
+                <X className="h-3.5 w-3.5" /> Clear
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

@@ -52,7 +52,7 @@ describe("shouldLogRouteTiming", () => {
     expect(
       shouldLogRouteTiming({
         NODE_ENV: "production",
-        TASK_DETAIL_PERF_LOGS: "1",
+        ROUTE_PERF_LOGS: "1",
       }),
     ).toBe(true);
     expect(

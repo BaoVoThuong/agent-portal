@@ -4,7 +4,9 @@ const { fetchSheetCsv } = require("./google-sheet");
 const { rowToRecord } = require("./transform");
 const { callSupabaseRpc, upsertSupabase } = require("./supabase");
 
-const TARGET_TABLES = new Set(["provider_address", "pc_raw_data", "health_raw_data"]);
+// provider_address is a retained legacy snapshot. Provider List/Finder now use
+// provider_directory, so the legacy provider Sheet must not be refreshed again.
+const TARGET_TABLES = new Set(["pc_raw_data", "health_raw_data"]);
 const AFTER_SYNC_RPCS = new Set(["refresh_pc_mart", "refresh_health_mart"]);
 
 function validateSyncConfig(config, batchSize) {

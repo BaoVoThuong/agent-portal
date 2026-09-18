@@ -2,6 +2,7 @@
 // dựng kết quả. Tách nguyên văn từ route handler (behavior + payload không đổi).
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PROVIDER_TABLE } from "@/lib/providers/types";
+import { parseSpecialtyCell } from "@/lib/providers/specialties";
 import { getMapsService, isMapsProviderConfigError } from "./maps-service";
 import type {
   Candidate,
@@ -14,6 +15,11 @@ import type {
 } from "./types";
 
 const maxResults = 10;
+// Routing/geocoding more than the displayed result count fixes the old bug
+// where a provider outside the score-based top 10 could never win by actual
+// driving distance. Keep the cap finite so one search does not fan out to the
+// whole directory or multiply Maps cost without a bound.
+export const routeCandidateCap = 20;
 const pageSize = 1000;
 const milesPerMeter = 0.000621371;
 
@@ -88,7 +94,7 @@ function getContractText(row: ProviderAddressRow, insuranceType: InsuranceType) 
     return [row.obamacare, row.medicare].map(cleanText).filter(Boolean).join(" ");
   }
 
-  return [row.obamacare, row.medicare, row.other_plans]
+  return [row.obamacare, row.medicare]
     .map(cleanText)
     .filter(Boolean)
     .join(" ");
@@ -98,7 +104,7 @@ function getDisplayInsurance(row: ProviderAddressRow, insuranceType: InsuranceTy
   return {
     obamacare: insuranceType === "medicare" ? "" : cleanText(row.obamacare),
     medicare: insuranceType === "obamacare" ? "" : cleanText(row.medicare),
-    otherPlans: insuranceType === "" ? cleanText(row.other_plans) : "",
+    otherPlans: "",
   };
 }
 
@@ -143,7 +149,6 @@ async function fetchProviderRows() {
           "zip_code",
           "obamacare",
           "medicare",
-          "other_plans",
         ].join(", ")
       )
       // Phân trang phải bám một cột KHÔNG rỗng và duy nhất. `source_row_number`
@@ -162,7 +167,7 @@ async function fetchProviderRows() {
   return rows;
 }
 
-function buildCandidates(
+export function buildCandidates(
   rows: ProviderAddressRow[],
   input: SearchRequest,
   insuranceType: InsuranceType,
@@ -176,7 +181,9 @@ function buildCandidates(
   const withAddress = rows.filter((row) => buildProviderAddress(row));
   const specialtyMatched = withAddress.filter((row) => {
     if (!specialty) return true;
-    return normalize(row.practices_as).includes(specialty);
+    return parseSpecialtyCell(row.practices_as).some(
+      (value) => normalize(value) === specialty
+    );
   });
   logs.push(`specialty matched count: ${specialtyMatched.length}`);
 
@@ -196,11 +203,12 @@ function buildCandidates(
     candidates.sort(
       (a, b) =>
         b.score - a.score ||
-        a.row.source_row_number - b.row.source_row_number
+        (a.row.source_row_number ?? Number.MAX_SAFE_INTEGER) -
+          (b.row.source_row_number ?? Number.MAX_SAFE_INTEGER)
     );
   }
 
-  return candidates.slice(0, maxResults);
+  return candidates.slice(0, routeCandidateCap);
 }
 
 function toMapCandidates(candidates: Candidate[]) {
@@ -256,6 +264,7 @@ export async function runProviderSearch(
   input: SearchRequest
 ): Promise<ProviderSearchOutcome> {
   const logs: string[] = [];
+  const startedAt = Date.now();
 
   try {
     const address = buildInputAddress(input);
@@ -283,9 +292,12 @@ export async function runProviderSearch(
       return { status: 400, body: { error: radiusError, logs } };
     }
 
+    const dbStartedAt = Date.now();
     const rows = await fetchProviderRows();
-    logs.push(`db rows loaded: ${rows.length}`);
+    const dbTotal = Date.now() - dbStartedAt;
+    logs.push(`db query: ${dbTotal}ms; rows loaded: ${rows.length}`);
 
+    const candidateStartedAt = Date.now();
     const candidates = buildCandidates(
       rows,
       input,
@@ -293,9 +305,16 @@ export async function runProviderSearch(
       hasAddress,
       logs
     );
-    logs.push(`top 10 selected: ${candidates.length}`);
+    const candidateTotal = Date.now() - candidateStartedAt;
+    logs.push(`candidate filter: ${candidateTotal}ms`);
+    logs.push(`route candidates selected: ${candidates.length}`);
 
     if (candidates.length === 0) {
+      logs.push(
+        `search breakdown: db=${dbTotal}ms candidates=${candidateTotal}ms maps=0ms total=${
+          Date.now() - startedAt
+        }ms`,
+      );
       return {
         status: 200,
         body: {
@@ -306,14 +325,18 @@ export async function runProviderSearch(
       };
     }
 
-    const mapsService = getMapsService(logs);
     const mapCandidates = toMapCandidates(candidates);
     let results: ProviderResult[] = [];
     let origin: { address: string; lat: number | null; lng: number | null } | undefined;
+    let mapsTotal = 0;
 
     if (hasAddress) {
+      const mapsService = getMapsService(logs);
+      const mapsStartedAt = Date.now();
       const { originCoordinates, routesById } =
         await mapsService.routeCandidates(address, mapCandidates, logs);
+      mapsTotal = Date.now() - mapsStartedAt;
+      logs.push(`maps route total: ${mapsTotal}ms`);
 
       results = candidates.map((candidate, index) =>
         toProviderResult(
@@ -339,28 +362,38 @@ export async function runProviderSearch(
         logs.push(`radius kept count: ${results.length}`);
       }
 
+      results = results.slice(0, maxResults);
+      logs.push(`top 10 returned: ${results.length}`);
+
       origin = {
         address,
         lat: originCoordinates?.lat ?? null,
         lng: originCoordinates?.lng ?? null,
       };
     } else {
-      const coordinatesById = await mapsService.geocodeCandidates(
-        mapCandidates,
-        logs
-      );
-
-      results = candidates.map((candidate, index) =>
+      // Contract-only searches do not have an origin to map against. Geocoding
+      // every provider here only spent Apps Script quota and made a non-map
+      // search wait for up to 20 sequential Maps calls.
+      logs.push("maps skipped: no customer address");
+      results = candidates.map((candidate) =>
         toProviderResult(
           candidate,
           insuranceType,
           null,
-          coordinatesById.get(String(index)) ?? null
+          null
         )
       );
+      results = results.slice(0, maxResults);
+      logs.push(`top 10 returned: ${results.length}`);
 
       origin = undefined;
     }
+
+    logs.push(
+      `search breakdown: db=${dbTotal}ms candidates=${candidateTotal}ms maps=${mapsTotal}ms total=${
+        Date.now() - startedAt
+      }ms`,
+    );
 
     return {
       status: 200,

@@ -19,8 +19,10 @@ import {
   type ProviderSortDir,
 } from "@/lib/providers/search";
 import type { ProviderRow } from "@/lib/providers/types";
+import { providerCarrierOptions } from "@/lib/providers/carriers";
 import { AddProviderDialog } from "./AddProviderDialog";
 import { ProviderTable } from "./ProviderTable";
+import { ProviderEditDialog } from "./ProviderEditDialog";
 import { ProviderTableSettingsButton } from "./ProviderTableSettingsButton";
 import { ProviderToolbar } from "./ProviderToolbar";
 // Dựng lại CHÍNH component của Provider Finder, không chép code sang đây: sửa
@@ -59,6 +61,7 @@ export function ProviderListClient({
   );
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [addOpen, setAddOpen] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<ProviderRow | null>(null);
   // Tab nằm trong state, không phải điều hướng: đổi tab mà chạy lại server
   // component thì phải nạp lại cả 889 dòng chỉ để xem ô tìm kiếm theo địa chỉ.
   const [view, setView] = useState<"list" | "finder">("list");
@@ -169,11 +172,20 @@ export function ProviderListClient({
   // Lựa chọn của bộ lọc rút từ chính dữ liệu: provider không có cột dropdown
   // nào, mọi cột đều là văn bản tự do đến từ Sheet.
   const filterOptions = useMemo(() => providerFilterOptions(providers), [providers]);
+  const finderCarrierOptions = useMemo(
+    () => providerCarrierOptions(providers),
+    [providers]
+  );
 
   const rows = useMemo(() => {
     const filtered = filterProviders(applyProviderFilters(providers, filters), query);
     return sortKey ? sortProviders(filtered, sortKey, sortDir) : filtered;
   }, [providers, filters, query, sortKey, sortDir]);
+
+  const hasMoreRows = visibleCount < rows.length;
+  const renderNextRows = useCallback(() => {
+    setVisibleCount((current) => Math.min(current + PAGE_SIZE, rows.length));
+  }, [rows.length]);
 
   async function patchProvider(id: string, patch: Record<string, unknown>) {
     const response = await fetch(`/api/automation/provider-list/${id}`, {
@@ -293,20 +305,17 @@ export function ProviderListClient({
                 sortKey={sortKey}
                 sortDir={sortDir}
                 onSort={toggleSort}
-                onPatch={patchProvider}
+                onOpenProvider={setEditingProvider}
+                hasMore={hasMoreRows}
+                onEndReached={renderNextRows}
               />
-              {rows.length > visibleCount ? (
-                <button
-                  type="button"
-                  onClick={() => setVisibleCount((current) => current + PAGE_SIZE)}
-                  className="mx-auto rounded-lg border border-[#dfe1e6] bg-white px-4 py-2 text-sm font-bold text-[#42526e] transition hover:border-[#b8c5d6] hover:bg-[#f8fafc]"
-                >
-                  Show more · {visibleCount} of {rows.length}
-                </button>
-              ) : null}
             </>
           ) : (
-            <ProviderFinderClient />
+            <ProviderFinderClient
+              carrierOptions={finderCarrierOptions}
+              stateOptions={filterOptions.state}
+              cityOptions={filterOptions.city}
+            />
           )}
         </div>
       </div>
@@ -317,6 +326,17 @@ export function ProviderListClient({
         columnOptions={columnOptions}
         onClose={() => setAddOpen(false)}
         onCreate={createProvider}
+      />
+
+      <ProviderEditDialog
+        key={editingProvider?.id ?? "provider-edit-closed"}
+        provider={editingProvider}
+        columns={columns}
+        columnOptions={columnOptions}
+        onClose={() => setEditingProvider(null)}
+        onSave={(patch) =>
+          editingProvider ? patchProvider(editingProvider.id, patch) : Promise.resolve()
+        }
       />
     </main>
   );

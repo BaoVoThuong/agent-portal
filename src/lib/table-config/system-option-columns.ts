@@ -6,6 +6,7 @@
  * chặn cuối cùng vẫn nằm ở server.
  */
 const ADMIN_MANAGED_SYSTEM_COLUMNS = new Set([
+  "provider:practices_as",
   "provider:obamacare",
   "provider:medicare",
 ]);

@@ -16,7 +16,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("provider", "doctors", "Doctor", "text", 10, false, true),
     col("provider", "facility", "Facility", "text", 20),
     col("provider", "npi", "NPI", "text", 30),
-    col("provider", "practices_as", "Specialty", "text", 40),
+    col("provider", "practices_as", "Specialty", "multiselect", 40),
     col("provider", "phone", "Phone", "text", 50),
     col("provider", "street", "Street", "text", 60),
     col("provider", "city", "City", "text", 70),

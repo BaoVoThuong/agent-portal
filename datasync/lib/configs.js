@@ -1,7 +1,6 @@
 const configs = {
   "health-mart": () => require("../configs/health-mart"),
   "pc-raw-data": () => require("../configs/pc-raw-data"),
-  "provider-address": () => require("../configs/provider-address"),
 };
 
 function listConfigs() {

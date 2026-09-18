@@ -271,11 +271,9 @@ const DETAIL_FIELD_DISPLAY_CLASS =
   "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-left text-sm font-semibold text-[#172b4d] hover:border-[#c1c7d0] hover:bg-white disabled:bg-[#f4f5f7]";
 const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
-// shrink-0: these sit above the comment thread in a flex column, so they must
-// keep their natural height and let the thread absorb the leftover space.
 const COMPACT_DETAIL_FIELD_CLASS = "block shrink-0 space-y-1";
 const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
-const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[72px] max-h-[138px] resize-none overflow-x-hidden !px-2 !py-2 leading-6`;
+const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[88px] max-h-[168px] resize-none overflow-x-hidden !px-2 !py-2 leading-6`;
 const CREATE_DESCRIPTION_CLASS =
   "min-h-[21rem] w-full resize-none rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
 const INVALID_RING_CLASS = "!ring-2 !ring-[#ff5630] !ring-offset-1";
@@ -293,8 +291,8 @@ function autosizeTextarea(textarea: HTMLTextAreaElement | null): number {
   textarea.style.overflowY = "hidden";
   textarea.style.height = "auto";
   const contentHeight = textarea.scrollHeight;
-  textarea.style.height = `${Math.min(138, Math.max(72, contentHeight))}px`;
-  if (contentHeight > 138) textarea.style.overflowY = "auto";
+  textarea.style.height = `${Math.min(168, Math.max(88, contentHeight))}px`;
+  if (contentHeight > 168) textarea.style.overflowY = "auto";
   return contentHeight;
 }
 
@@ -3792,10 +3790,10 @@ function EnrollmentDrawer({
       <div
         role="dialog"
         aria-modal="true"
-        className="flex h-[calc(100vh-2rem)] max-h-[760px] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+        className="flex h-[calc(100dvh-5rem)] max-h-[760px] w-full max-w-[1160px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
+        <header className="flex items-center justify-between border-b border-[#dfe1e6] px-4 py-2.5">
           <span className="font-mono text-sm font-bold text-[#97a0af]">
             {enrollmentDisplayKey(record.display_number, record.program)}
           </span>
@@ -3809,12 +3807,10 @@ function EnrollmentDrawer({
           </button>
         </header>
 
-        {/* On wide screens each column owns its scrolling, which is what keeps
-            the comment composer docked at the bottom no matter how long the
-            thread gets. Narrow screens keep the simpler single-scroll layout. */}
-        <div className="flex-1 overflow-y-auto lg:overflow-hidden">
-          <div className="grid min-h-full grid-cols-1 lg:h-full lg:grid-cols-[minmax(0,1fr)_280px]">
-            <main className="flex min-w-0 flex-col gap-3 p-4 lg:min-h-0 lg:overflow-hidden lg:p-5">
+        <div className="flex-1 overflow-y-auto xl:overflow-hidden">
+          <div className="grid min-h-full grid-cols-1 xl:h-full xl:grid-cols-[minmax(0,3fr)_minmax(440px,2fr)] xl:grid-rows-[auto_minmax(0,1fr)]">
+            <main className="contents">
+              <div className="order-1 flex min-w-0 flex-col gap-3 p-4 pb-0 xl:col-start-1 xl:row-start-1">
               {showClient ? (
                 <label className={COMPACT_DETAIL_FIELD_CLASS}>
                   <span className={LABEL_CLASS}>
@@ -3886,8 +3882,9 @@ function EnrollmentDrawer({
                 attachments={detail?.attachments ?? []}
                 onPreviewAttachment={setAttachmentPreview}
               />
+              </div>
 
-              <section className="flex min-h-0 flex-1 flex-col gap-3 border-t border-[#dfe1e6] pt-4">
+              <section className="order-3 flex min-h-[34rem] min-w-0 flex-col gap-3 border-t border-[#dfe1e6] bg-white p-4 xl:col-start-2 xl:row-span-2 xl:row-start-1 xl:h-full xl:min-h-0 xl:border-l xl:border-t-0">
                 <div className="flex shrink-0 flex-wrap items-center gap-5 border-b border-[#dfe1e6]">
                   <DrawerTab
                     label="Comments"
@@ -3950,21 +3947,24 @@ function EnrollmentDrawer({
                     onParentUpdatedAt={onParentUpdatedAt}
                       />
                     ) : (
-                      <ActivityFeed
-                        activity={detail.activity}
-                        personLabelByEmail={peopleByEmail}
-                      />
+                      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                        <ActivityFeed
+                          activity={detail.activity}
+                          personLabelByEmail={peopleByEmail}
+                        />
+                      </div>
                     )}
                   </>
                 )}
               </section>
             </main>
 
-          <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0 lg:overflow-y-auto">
-            <div className="flex flex-col gap-3">
+          <aside className="order-2 min-w-0 border-t border-[#dfe1e6] bg-white px-4 pb-4 pt-3 xl:col-start-1 xl:row-start-2 xl:min-h-0 xl:overflow-y-auto">
+            <section>
+              <h2 className="text-sm font-bold text-[#172b4d]">Enrollment details</h2>
+              <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-2 xl:grid-cols-3">
               {showStage ? (
                 <FieldBlock
-                  className="order-2"
                   label={columnByKey.get("stage")?.label ?? "Stage"}
                   required={requiredColumnKeys.has("stage")}
                 >
@@ -3980,7 +3980,6 @@ function EnrollmentDrawer({
 
               {showDue ? (
                 <FieldBlock
-                  className="order-3"
                   label={columnByKey.get("due")?.label ?? "Due date"}
                   required={requiredColumnKeys.has("due")}
                 >
@@ -4001,7 +4000,6 @@ function EnrollmentDrawer({
 
               {showPayment ? (
                 <FieldBlock
-                  className="order-4"
                   label={columnByKey.get("payment")?.label ?? "Payment"}
                   required={requiredColumnKeys.has("payment")}
                 >
@@ -4018,7 +4016,6 @@ function EnrollmentDrawer({
 
               {showCarrier ? (
                 <FieldBlock
-                  className="order-4"
                   label={columnByKey.get("carrier")?.label ?? "Carrier"}
                   required={requiredColumnKeys.has("carrier")}
                 >
@@ -4035,7 +4032,6 @@ function EnrollmentDrawer({
 
               {showAca ? (
                   <FieldBlock
-                    className="order-4"
                     label={columnByKey.get("aca")?.label ?? "AC"}
                     required={requiredColumnKeys.has("aca")}
                   >
@@ -4052,7 +4048,6 @@ function EnrollmentDrawer({
 
               {showConsent ? (
                   <FieldBlock
-                    className="order-4"
                     label={columnByKey.get("consent")?.label ?? "Consent"}
                     required={requiredColumnKeys.has("consent")}
                   >
@@ -4068,7 +4063,6 @@ function EnrollmentDrawer({
 
               {showPlatform ? (
                   <FieldBlock
-                    className="order-4"
                     label={columnByKey.get("platform")?.label ?? "Platform"}
                     required={requiredColumnKeys.has("platform")}
                   >
@@ -4085,7 +4079,6 @@ function EnrollmentDrawer({
 
               {showAgent ? (
                 <FieldBlock
-                  className="order-1"
                   label={columnByKey.get("agent")?.label ?? "Agent"}
                   required={requiredColumnKeys.has("agent")}
                   invalid={isInvalid("agent")}
@@ -4112,7 +4105,6 @@ function EnrollmentDrawer({
 
               {showCaller ? (
                 <FieldBlock
-                  className="order-1"
                   label={columnByKey.get("caller")?.label ?? "Caller"}
                   required={requiredColumnKeys.has("caller")}
                 >
@@ -4131,7 +4123,6 @@ function EnrollmentDrawer({
 
               {showResponsible ? (
                 <FieldBlock
-                  className="order-1"
                   label={
                     columnByKey.get("responsible")?.label ??
                     programColumnLabel(record.program, "responsible", "Responsible enroll")
@@ -4153,7 +4144,7 @@ function EnrollmentDrawer({
               ) : null}
 
               {showCreatedBy ? (
-                <FieldBlock className="order-5" label={columnByKey.get("createdBy")?.label ?? "Created by"}>
+                <FieldBlock label={columnByKey.get("createdBy")?.label ?? "Created by"}>
                   <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
                     {personLabel(record.created_by_email, peopleByEmail)}
                   </div>
@@ -4162,7 +4153,6 @@ function EnrollmentDrawer({
 
               {showPcp2025 ? (
                 <FieldBlock
-                  className="order-6"
                   label={
                     columnByKey.get("pcp2025")?.label ??
                     programColumnLabel(record.program, "pcp2025", "PCP 2025")
@@ -4185,7 +4175,6 @@ function EnrollmentDrawer({
 
               {showPcp2026 ? (
                 <FieldBlock
-                  className="order-6"
                   label={columnByKey.get("pcp2026")?.label ?? "PCP 2026"}
                   required={requiredColumnKeys.has("pcp2026")}
                 >
@@ -4204,7 +4193,7 @@ function EnrollmentDrawer({
               ) : null}
 
               {visibleDetailColumns.map((column) => (
-                <FieldBlock className="order-7" key={column.id} label={column.label} required={column.required}>
+                <FieldBlock key={column.id} label={column.label} required={column.required}>
                   <EnrollmentDetailCustomFieldControl
                     column={column}
                     value={record.custom_values?.[column.key]}
@@ -4221,7 +4210,7 @@ function EnrollmentDrawer({
               ))}
 
               {showQc ? (
-                <FieldBlock className="order-8" label={columnByKey.get("qc")?.label ?? "QC Review"}>
+                <FieldBlock label={columnByKey.get("qc")?.label ?? "QC Review"}>
                   <EnrollmentQCPanel
                     record={record}
                     stage={stage}
@@ -4233,7 +4222,7 @@ function EnrollmentDrawer({
             </div>
 
             {capabilities.canReopen && stage?.is_terminal && reopenTarget ? (
-              <div className="border-t border-[#dfe1e6] pt-3">
+              <div className="mt-4 border-t border-[#dfe1e6] pt-3">
                 <button
                   type="button"
                   onClick={reopen}
@@ -4245,16 +4234,17 @@ function EnrollmentDrawer({
             ) : null}
 
             {capabilities.canArchive && (
-              <div className="border-t border-[#dfe1e6] pt-3">
+              <div className="mt-4 flex justify-end border-t border-[#dfe1e6] pt-3">
                 <button
                   type="button"
                   onClick={() => setConfirmArchive(true)}
-                  className="text-sm font-semibold text-[#bf2600] transition hover:underline"
+                  className="inline-flex h-8 items-center rounded px-2 text-sm font-semibold text-[#bf2600] transition hover:bg-[#ffebe6]"
                 >
                   Archive record
                 </button>
               </div>
             )}
+            </section>
           </aside>
         </div>
       </div>
@@ -5088,14 +5078,14 @@ function EditableTextarea({
     const measuredHeight = autosizeTextarea(textarea);
     setContentHeight(measuredHeight);
     if (!expanded && textarea) {
-      textarea.style.height = "72px";
+      textarea.style.height = "88px";
       textarea.style.overflowY = "hidden";
     }
   }, [expanded, value]);
 
   return (
     <div className="space-y-1">
-      {contentHeight > 72 ? (
+      {contentHeight > 88 ? (
         <div className="flex justify-end">
           <button
             type="button"
@@ -5124,7 +5114,7 @@ function EditableTextarea({
           const next = event.currentTarget.value.trim();
           if (next !== value.trim()) void onSave(next || null);
         }}
-        rows={2}
+        rows={3}
         className={`${className} disabled:cursor-not-allowed disabled:bg-[#f4f5f7]`}
       />
     </div>

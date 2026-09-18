@@ -14,7 +14,7 @@ export type SearchRequest = {
 };
 
 export type ProviderAddressRow = {
-  source_row_number: number;
+  source_row_number: number | null;
   facility: string | null;
   doctors: string | null;
   npi: string | null;
@@ -28,7 +28,6 @@ export type ProviderAddressRow = {
   zip_code: string | null;
   obamacare: string | null;
   medicare: string | null;
-  other_plans: string | null;
 };
 
 export type Coordinates = {
