@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/auth/session";
 import Sidebar from "./_components/Sidebar";
 import TopBar from "./_components/TopBar";
 import { canAny } from "@/lib/rbac/client";
@@ -17,7 +17,7 @@ export default async function AuthedLayout({
   // avatar không phụ thuộc phiên đăng nhập, nên nó đi cùng chuyến với `auth()`
   // — vốn đã phải đợi một vòng tới database — và tốn thêm gần như bằng không.
   const [session, avatarEntries] = await Promise.all([
-    auth(),
+    getSession(),
     fetchAvatarDirectory(),
   ]);
   if (!session?.user?.email) {

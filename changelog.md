@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Gộp `auth()` trùng lặp trong lượt dựng trang
+
+Layout và `rbac/server.ts` đều gọi `auth()`, nên mỗi lượt dựng trang giải mã
+phiên hai lần. Thêm `src/lib/auth/session.ts` bọc `cache()` của React để gộp
+trong phạm vi MỘT request.
+
+**Đo được: gần như không đổi** — `/tasks` với token quá hạn 2487 ms -> 2473 ms,
+token còn hạn 2252 ms -> 2242 ms. Nằm trong nhiễu.
+
+Ghi lại để người sau khỏi thử lại: plan dự đoán tiết kiệm ~300 ms vì cho rằng
+lần gọi thứ hai cũng làm mới quyền từ database. Thực tế NextAuth đã tự gộp trong
+một request nên lần hai gần như miễn phí. Vẫn giữ thay đổi vì gộp phiên là đúng
+nguyên tắc và không tốn gì, nhưng ĐỪNG coi đây là một khoản tối ưu latency.
+
 ## 2026-09-19 — Middleware không còn kéo cả NextAuth
 
 `src/proxy.ts` (middleware của Next 16) export thẳng `auth` từ `@/auth`, nên mọi

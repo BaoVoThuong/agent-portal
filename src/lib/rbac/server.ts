@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/auth/session";
 import { can, canAny } from "@/lib/rbac/client";
 import { getFirstAccessiblePath } from "@/lib/rbac/routes";
 
 export async function getSessionPermissions() {
-  const session = await auth();
+  const session = await getSession();
   return session?.user?.permissions ?? [];
 }
 
@@ -17,7 +17,7 @@ export async function hasAnyPermission(permissions: string[]) {
 }
 
 export async function requirePermission(permission: string) {
-  const session = await auth();
+  const session = await getSession();
 
   if (!session?.user?.email) {
     redirect("/signin");
@@ -31,7 +31,7 @@ export async function requirePermission(permission: string) {
 }
 
 export async function requireAnyPermission(permissions: string[]) {
-  const session = await auth();
+  const session = await getSession();
 
   if (!session?.user?.email) {
     redirect("/signin");
