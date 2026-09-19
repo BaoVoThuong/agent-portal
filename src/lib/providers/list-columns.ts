@@ -62,3 +62,45 @@ export function initialHiddenProviderColumnKeys(
       .map((column) => column.key)
   );
 }
+
+const DEFAULT_COLUMN_WIDTH = 160;
+/**
+ * Bề ngang từng cột của bảng Provider List, tính bằng px.
+ *
+ * Để ở lib chứ không trong component vì bản xem trước của màn hình Import dùng
+ * CHUNG bảng này: hai nơi mà tự đặt độ rộng riêng thì người dùng xem trước một
+ * kiểu rồi nhập xong thấy một kiểu khác.
+ */
+const COLUMN_WIDTHS: Record<string, number> = {
+  doctors: 200,
+  facility: 240,
+  npi: 130,
+  practices_as: 170,
+  phone: 140,
+  // 280px phủ 95% địa chỉ thật (đo trên 451 dòng: trung vị 24 ký tự, 95% là 36).
+  // Bản cũ 200px chỉ phủ 59% nên hơn bốn trên mười dòng bị cắt. Không nới tới
+  // 381px để phủ nốt 5% cuối — mấy địa chỉ 46-51 ký tự kèm số toà nhà và tên
+  // bệnh viện trong ngoặc sẽ kéo cột nuốt mất chỗ của City/ZIP.
+  street: 280,
+  city: 140,
+  state: 80,
+  zip_code: 100,
+  accepting_new_patients: 180,
+  needs_review: 130,
+  business_hours: 220,
+  // Giá trị dạng "Oscar HMO, Ambetter EPO, CHC Premier" — cắt ngắn là mất đúng
+  // phần người đọc cần.
+  obamacare: 280,
+  medicare: 280,
+  other_plans: 220,
+  verified_by: 140,
+  date: 130,
+  created_at: 150,
+  created_by_email: 170,
+  updated_at: 150,
+  updated_by_email: 170,
+};
+
+export function providerColumnWidth(column: TableColumn): number {
+  return COLUMN_WIDTHS[column.key] ?? DEFAULT_COLUMN_WIDTH;
+}

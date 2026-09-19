@@ -17,43 +17,11 @@ import {
   isProviderSpecialtyField,
   parseSpecialtyCell,
 } from "@/lib/providers/specialties";
-import { PROVIDER_LIST_LOCKED_COLUMN_KEYS } from "@/lib/providers/list-columns";
+import {
+  PROVIDER_LIST_LOCKED_COLUMN_KEYS,
+  providerColumnWidth,
+} from "@/lib/providers/list-columns";
 import type { ProviderSortDir } from "@/lib/providers/search";
-
-const DEFAULT_COLUMN_WIDTH = 160;
-const COLUMN_WIDTHS: Record<string, number> = {
-  doctors: 200,
-  facility: 240,
-  npi: 130,
-  practices_as: 170,
-  phone: 140,
-  // 280px phủ 95% địa chỉ thật (đo trên 451 dòng: trung vị 24 ký tự, 95% là 36).
-  // Bản cũ 200px chỉ phủ 59% nên hơn bốn trên mười dòng bị cắt. Không nới tới
-  // 381px để phủ nốt 5% cuối — mấy địa chỉ 46-51 ký tự kèm số toà nhà và tên
-  // bệnh viện trong ngoặc sẽ kéo cột nuốt mất chỗ của City/ZIP.
-  street: 280,
-  city: 140,
-  state: 80,
-  zip_code: 100,
-  accepting_new_patients: 180,
-  needs_review: 130,
-  business_hours: 220,
-  // Giá trị dạng "Oscar HMO, Ambetter EPO, CHC Premier" — cắt ngắn là mất đúng
-  // phần người đọc cần.
-  obamacare: 280,
-  medicare: 280,
-  other_plans: 220,
-  verified_by: 140,
-  date: 130,
-  created_at: 150,
-  created_by_email: 170,
-  updated_at: 150,
-  updated_by_email: 170,
-};
-
-function columnWidth(column: TableColumn): number {
-  return COLUMN_WIDTHS[column.key] ?? DEFAULT_COLUMN_WIDTH;
-}
 
 /** Cột siêu dữ liệu: do hệ thống ghi, người dùng chỉ đọc. */
 function isMetaColumn(column: TableColumn): boolean {
@@ -100,13 +68,13 @@ export function ProviderTable({
   hasMore?: boolean;
   onEndReached?: () => void;
 }) {
-  const minWidth = columns.reduce((total, column) => total + columnWidth(column), 0);
+  const minWidth = columns.reduce((total, column) => total + providerColumnWidth(column), 0);
   const pinnedOffsetByKey = new Map<string, number>();
   let pinnedWidth = 0;
   for (const column of columns) {
     if (!PROVIDER_LIST_LOCKED_COLUMN_KEYS.has(column.key)) continue;
     pinnedOffsetByKey.set(column.key, pinnedWidth);
-    pinnedWidth += columnWidth(column);
+    pinnedWidth += providerColumnWidth(column);
   }
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const endSentinelRef = useRef<HTMLLIElement | null>(null);
@@ -149,7 +117,7 @@ export function ProviderTable({
                 <div
                   key={column.id}
                   style={{
-                    width: columnWidth(column),
+                    width: providerColumnWidth(column),
                     ...(pinned ? { left: pinnedOffsetByKey.get(column.key) } : {}),
                   }}
                   className={`flex shrink-0 items-center px-3 py-2 ${
@@ -215,7 +183,7 @@ export function ProviderTable({
                     <div
                       key={column.id}
                       style={{
-                        width: columnWidth(column),
+                        width: providerColumnWidth(column),
                         ...(pinned ? { left: pinnedOffsetByKey.get(column.key) } : {}),
                       }}
                       className={`flex min-w-0 shrink-0 items-center px-3 py-2.5 ${

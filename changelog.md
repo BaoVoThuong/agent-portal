@@ -6,6 +6,45 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Provider List: Export/Import Excel, khớp cột theo tên nên không có bước map
+
+**Export** (`POST /api/automation/provider-list/export`) xuất `.xlsx` đúng những
+cột đang hiện và đúng thứ tự dòng người dùng đang thấy sau khi lọc. Gửi `ids`
+trong thân request chứ không trên URL: 458 id trong query string là vượt giới
+hạn độ dài và server trả 431.
+
+**Cột `ID` luôn đứng đầu file.** Đây là thứ làm cho vòng Xuất → sửa trong Excel
+→ Nhập lại thành CẬP NHẬT thay vì nhân đôi cả bảng, và cũng là lý do màn hình
+nhập không phải hỏi map cột.
+
+**Import** khớp tiêu đề theo `label` của cột (bỏ hoa thường, khoảng trắng, dấu
+gạch), khớp cả theo `key` và vài alias hay gặp (`Doctors`, `Zip Code`,
+`Obamacare`). Kiểm trên file xuất thật: **15/15 tiêu đề khớp, 458/458 dòng đọc
+lại được, 0 dòng bị bỏ**.
+
+Luật ghi:
+- Dòng có `ID` hợp lệ → **cập nhật**; không có `ID` → **thêm mới**.
+- `ID` sai định dạng → **bỏ dòng và báo ra**, không lặng lẽ biến thành dòng mới;
+  nếu không người dùng gõ hỏng một ô sẽ có hai bản ghi trùng nhau.
+- `ID` không tìm thấy (dòng đã archive sau lúc xuất) → báo lỗi dòng đó, cũng
+  không biến thành dòng mới.
+- Tiêu đề không khớp cột nào → hiện ra ở bản xem trước. Bỏ im lặng là người dùng
+  tưởng đã nhập xong.
+- Cột siêu dữ liệu (`created_at`, `updated_by_email`…) không nhận giá trị nhập
+  vào — một file Excel không được viết lại lịch sử ai tạo dòng nào lúc nào.
+
+**`providerImportPayload` CHỈ gửi những cột có trong file** — khác hẳn
+`providerFormPayload` của form sửa, vốn gửi mọi cột nên ô trống nghĩa là xoá.
+Dùng nhầm hàm kia ở đây thì một file hai cột sẽ xoá sạch phần còn lại của mọi
+dòng nó chạm vào.
+
+Đường ghi vẫn là hai đường cũ: `parseCreateProviderInput` cho dòng mới,
+`buildProviderPatch` cho dòng cũ — không mở đường ghi thứ ba, để một luật kiểm
+tra chỉ sống ở một chỗ. Hệ quả có lợi: sửa địa chỉ qua file nhập cũng tự xoá
+toạ độ đã geocode, giống hệt sửa tay trên màn hình.
+
+Trần an toàn: 2.000 dòng và 5 MB mỗi lần nhập.
+
 ## 2026-09-19 — Provider Finder: chọn ứng viên bằng khoảng cách thật thay vì so chuỗi
 
 **Vấn đề.** `buildCandidates` chọn 20 nhà gửi sang Maps bằng `scoreProvider`:

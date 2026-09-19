@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Download, Plus, Upload } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveLayout, serializeLayout, type LayoutEntry } from "@/lib/table-config/layout";
 import {
@@ -21,6 +21,7 @@ import {
 import type { ProviderRow } from "@/lib/providers/types";
 import { providerCarrierOptions } from "@/lib/providers/carriers";
 import { AddProviderDialog } from "./AddProviderDialog";
+import { ProviderImportDialog } from "./ProviderImportDialog";
 import { ProviderTable } from "./ProviderTable";
 import { ProviderEditDialog } from "./ProviderEditDialog";
 import { ProviderTableSettingsButton } from "./ProviderTableSettingsButton";
@@ -66,6 +67,8 @@ export function ProviderListClient({
   );
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [addOpen, setAddOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderRow | null>(null);
   // Tab nằm trong state, không phải điều hướng: đổi tab mà chạy lại server
   // component thì phải nạp lại cả 889 dòng chỉ để xem ô tìm kiếm theo địa chỉ.
@@ -192,6 +195,55 @@ export function ProviderListClient({
     setVisibleCount((current) => Math.min(current + PAGE_SIZE, rows.length));
   }, [rows.length]);
 
+  async function exportRows() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      // Gửi id qua thân request chứ không trên URL: 458 id trong query string
+      // là vượt giới hạn độ dài và server trả 431.
+      const response = await fetch("/api/automation/provider-list/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          columns: visibleColumns.map((column) => column.key),
+          ids: rows.map((row) => row.id),
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error ?? "Could not export the file.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "provider-list.xlsx";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (exportError) {
+      setNotice({
+        tone: "error",
+        text: exportError instanceof Error ? exportError.message : "Could not export the file.",
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  /** Nhập xong thì nạp lại cả bảng: dòng mới và dòng vừa sửa không nằm trong state cũ. */
+  async function reloadProviders() {
+    const response = await fetch("/api/automation/provider-list").catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    if (!response?.ok || !payload?.providers) {
+      setNotice({
+        tone: "error",
+        text: "Import finished, but the table could not reload. Refresh the page.",
+      });
+      return;
+    }
+    setProviders(payload.providers as ProviderRow[]);
+  }
+
   async function patchProvider(id: string, patch: Record<string, unknown>) {
     const response = await fetch(`/api/automation/provider-list/${id}`, {
       method: "PATCH",
@@ -242,13 +294,31 @@ export function ProviderListClient({
               {/* Nút này chỉ có nghĩa với bảng; tab tìm theo địa chỉ không thêm
                   dòng. Nút chọn cột đã xuống cuối hàng lọc bên dưới. */}
               {view === "list" ? (
-                <button
-                  type="button"
-                  onClick={() => setAddOpen(true)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-[0_2px_5px_rgba(9,30,66,0.16)] transition hover:bg-[#0055cc]"
-                >
-                  <Plus className="h-4 w-4" /> Add address
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void exportRows()}
+                    disabled={exporting || rows.length === 0}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:text-[#98a2b3]"
+                  >
+                    <Download className="h-4 w-4" />
+                    {exporting ? "Exporting…" : "Export"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImportOpen(true)}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
+                  >
+                    <Upload className="h-4 w-4" /> Import
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddOpen(true)}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-[0_2px_5px_rgba(9,30,66,0.16)] transition hover:bg-[#0055cc]"
+                  >
+                    <Plus className="h-4 w-4" /> Add address
+                  </button>
+                </>
               ) : null}
             </div>
           </header>
@@ -324,6 +394,14 @@ export function ProviderListClient({
           )}
         </div>
       </div>
+
+      <ProviderImportDialog
+        key={importOpen ? "provider-import-open" : "provider-import-closed"}
+        open={importOpen}
+        columns={columns}
+        onClose={() => setImportOpen(false)}
+        onImported={() => void reloadProviders()}
+      />
 
       <AddProviderDialog
         // Dựng lại form mỗi lần mở: ngày trong ô Verified date phải là ngày mở
