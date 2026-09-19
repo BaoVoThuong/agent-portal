@@ -71,18 +71,6 @@ describe("runProviderSearch - validation", () => {
     expect(Array.isArray(out.body.logs)).toBe(true);
   });
 
-  it("radius không hợp lệ -> 400", async () => {
-    const out = await runProviderSearch({ contract: "BCBS", radius: "-5" });
-    expect(out.status).toBe(400);
-    expect(out.body.error).toBe("Radius must be a positive number");
-  });
-
-  it("radius không phải số -> 400", async () => {
-    const out = await runProviderSearch({ contract: "BCBS", radius: "abc" });
-    expect(out.status).toBe(400);
-    expect(out.body.error).toBe("Radius must be a positive number");
-  });
-
   it("contract-only không gọi Maps hoặc geocode provider", async () => {
     const query = {
       select: vi.fn(),

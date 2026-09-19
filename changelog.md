@@ -6,6 +6,26 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Dọn mã chết: bán kính và providerLocationOptions
+
+Ô nhập bán kính đã bị gỡ khỏi giao diện, nên toàn bộ phần xử lý phía sau thành
+mã không bao giờ chạy tới: `parseRadiusMiles`, nhánh trả 400 khi bán kính sai,
+bước lọc kết quả theo bán kính, câu "No provider found within N miles", trường
+`radius` trong `SearchRequest`, và hai bài test của chúng. Đã gỡ hết.
+
+Hệ quả: gửi kèm `radius` vào API giờ **không báo lỗi nữa mà bị bỏ qua**. Không
+ảnh hưởng ai vì chỉ ứng dụng này gọi endpoint đó, và nó không còn gửi tham số ấy.
+
+Xoá `providerLocationOptions` cùng kiểu `ProviderLocationRow` và bài test: nơi
+duy nhất từng gọi là trang `/automation/provider-finder`, mà trang đó nay chỉ
+còn chuyển hướng.
+
+Đã kiểm bằng cách gọi thật: tìm theo hãng bảo hiểm vẫn trả 10 kết quả.
+
+KHÔNG xoá `PROVIDER_PLAN_FIELDS`, `normalizeProviderSpecialty`, `routeCandidateCap`,
+`buildCandidates` — phép quét ban đầu báo chúng chết vì bỏ qua cách dùng trong
+chính file; kiểm lại thì cả bốn đều còn được gọi.
+
 ## 2026-09-19 — Comment không còn bắt mọi board nạp lại cả danh sách
 
 Đăng một comment trước đây bắn vào topic toàn cục `tasks-stream`. Mọi board đang

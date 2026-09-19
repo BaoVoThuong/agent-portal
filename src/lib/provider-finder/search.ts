@@ -75,18 +75,6 @@ function buildProviderAddress(row: ProviderAddressRow) {
   return [street, city, stateZip].filter(Boolean).join(", ");
 }
 
-function parseRadiusMiles(value: unknown) {
-  const text = cleanText(value);
-  if (!text) return { radiusMiles: null, error: null };
-
-  const radiusMiles = Number(text);
-  if (!Number.isFinite(radiusMiles) || radiusMiles <= 0) {
-    return { radiusMiles: null, error: "Radius must be a positive number" };
-  }
-
-  return { radiusMiles, error: null };
-}
-
 function getContractText(row: ProviderAddressRow, insuranceType: InsuranceType) {
   if (insuranceType === "obamacare") return cleanText(row.obamacare);
   if (insuranceType === "medicare") return cleanText(row.medicare);
@@ -271,14 +259,11 @@ export async function runProviderSearch(
     const hasAddress = getAddressParts(input).length > 0;
     const contract = cleanText(input.contract ?? input.carrier);
     const insuranceType = normalizeInsuranceType(input.insuranceType);
-    const { radiusMiles, error: radiusError } = parseRadiusMiles(input.radius);
 
     logs.push(
       `input parsed: address=${hasAddress ? "yes" : "no"}, contract=${
         contract ? "yes" : "no"
-      }, insurance=${insuranceType}, radius=${
-        radiusMiles ?? "none"
-      }`
+      }, insurance=${insuranceType}`
     );
 
     if (!hasAddress && !contract) {
@@ -286,10 +271,6 @@ export async function runProviderSearch(
         status: 400,
         body: { error: "Address or contract is required", logs },
       };
-    }
-
-    if (radiusError) {
-      return { status: 400, body: { error: radiusError, logs } };
     }
 
     const dbStartedAt = Date.now();
@@ -353,15 +334,6 @@ export async function runProviderSearch(
           (b.distanceMeters ?? Number.POSITIVE_INFINITY)
       );
 
-      if (radiusMiles != null) {
-        results = results.filter(
-          (result) =>
-            typeof result.distanceMiles === "number" &&
-            result.distanceMiles <= radiusMiles
-        );
-        logs.push(`radius kept count: ${results.length}`);
-      }
-
       results = results.slice(0, maxResults);
       logs.push(`top 10 returned: ${results.length}`);
 
@@ -400,10 +372,6 @@ export async function runProviderSearch(
       body: {
         origin,
         results,
-        error:
-          results.length === 0 && radiusMiles != null
-            ? `No provider found within ${radiusMiles} miles`
-            : undefined,
         logs,
       },
     };

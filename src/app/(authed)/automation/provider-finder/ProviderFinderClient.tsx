@@ -613,14 +613,18 @@ function SuggestionInput({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const normalizedValue = value.trim().toLowerCase();
+  // Keep the selected value visible in the field without using it as the
+  // dropdown search query. After selecting "FL", opening the menu again must
+  // still show the other states so the user can correct the choice.
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
   const filteredOptions = useMemo(() => {
-    if (!normalizedValue) return options;
+    if (!normalizedQuery) return options;
 
     return options.filter((option) =>
-      option.toLowerCase().includes(normalizedValue)
+      option.toLowerCase().includes(normalizedQuery)
     );
-  }, [normalizedValue, options]);
+  }, [normalizedQuery, options]);
   const selectedValue = options.find(
     (option) => option.toLowerCase() === value.trim().toLowerCase()
   );
@@ -657,11 +661,14 @@ function SuggestionInput({
 
   function updateValue(nextValue: string) {
     setActiveIndex(0);
+    setQuery(nextValue);
     onChange(uppercase ? nextValue.toUpperCase() : nextValue);
   }
 
   function selectOption(option: string) {
-    updateValue(option);
+    setActiveIndex(0);
+    setQuery("");
+    onChange(uppercase ? option.toUpperCase() : option);
     setIsOpen(false);
   }
 
@@ -681,7 +688,10 @@ function SuggestionInput({
             updateValue(event.target.value);
             setIsOpen(true);
           }}
-          onFocus={() => setIsOpen(true)}
+          onFocus={() => {
+            setQuery("");
+            setIsOpen(true);
+          }}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
               event.preventDefault();
@@ -717,7 +727,10 @@ function SuggestionInput({
           type="button"
           tabIndex={-1}
           aria-label={`Show ${label} suggestions`}
-          onClick={() => setIsOpen((current) => !current)}
+          onClick={() => {
+            setQuery("");
+            setIsOpen((current) => !current);
+          }}
           className="absolute right-0 top-0 flex h-10 w-9 items-center justify-center"
         >
           <span

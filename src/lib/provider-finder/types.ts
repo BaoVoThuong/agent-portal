@@ -9,7 +9,6 @@ export type SearchRequest = {
   contract?: string;
   carrier?: string;
   specialty?: string;
-  radius?: string;
   insuranceType?: InsuranceType;
 };
 
