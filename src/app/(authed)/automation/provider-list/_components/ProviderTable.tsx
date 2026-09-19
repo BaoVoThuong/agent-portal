@@ -27,7 +27,11 @@ const COLUMN_WIDTHS: Record<string, number> = {
   npi: 130,
   practices_as: 170,
   phone: 140,
-  street: 200,
+  // 280px phủ 95% địa chỉ thật (đo trên 451 dòng: trung vị 24 ký tự, 95% là 36).
+  // Bản cũ 200px chỉ phủ 59% nên hơn bốn trên mười dòng bị cắt. Không nới tới
+  // 381px để phủ nốt 5% cuối — mấy địa chỉ 46-51 ký tự kèm số toà nhà và tên
+  // bệnh viện trong ngoặc sẽ kéo cột nuốt mất chỗ của City/ZIP.
+  street: 280,
   city: 140,
   state: 80,
   zip_code: 100,
