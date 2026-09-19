@@ -44,11 +44,14 @@ export function ProviderListClient({
   loadError,
   columns,
   columnOptions,
+  viewerName,
 }: {
   initialProviders: ProviderRow[];
   loadError: string | null;
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
+  /** Tên người đang đăng nhập, để form điền sẵn Verified by khi đánh dấu đã soát. */
+  viewerName: string;
 }) {
   const [providers, setProviders] = useState<ProviderRow[]>(initialProviders);
   const [query, setQuery] = useState("");
@@ -323,9 +326,13 @@ export function ProviderListClient({
       </div>
 
       <AddProviderDialog
+        // Dựng lại form mỗi lần mở: ngày trong ô Verified date phải là ngày mở
+        // form, không phải ngày tab này được nạp lần đầu.
+        key={addOpen ? "provider-add-open" : "provider-add-closed"}
         open={addOpen}
         columns={columns}
         columnOptions={columnOptions}
+        viewerName={viewerName}
         onClose={() => setAddOpen(false)}
         onCreate={createProvider}
       />
@@ -335,6 +342,7 @@ export function ProviderListClient({
         provider={editingProvider}
         columns={columns}
         columnOptions={columnOptions}
+        viewerName={viewerName}
         onClose={() => setEditingProvider(null)}
         onSave={(patch) =>
           editingProvider ? patchProvider(editingProvider.id, patch) : Promise.resolve()

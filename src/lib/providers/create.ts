@@ -1,11 +1,18 @@
 import { PROVIDER_TEXT_FIELDS, type ProviderTextField } from "./types";
 import { isProviderPlanField, parsePlanCell, serializePlanCell } from "./plans";
+import {
+  isProviderSpecialtyField,
+  parseSpecialtyCell,
+  serializeSpecialtyCell,
+} from "./specialties";
 
 const MAX_TEXT_LENGTH = 500;
 const MAX_CUSTOM_FIELDS = 100;
 
 export type CreateProviderInput = Record<ProviderTextField, string | null> & {
   customValues: Record<string, unknown>;
+  /** Thiếu thì coi như false — xem `buildProviderRow`. */
+  needsReview?: boolean;
 };
 
 export type CreateProviderParseResult =
@@ -21,7 +28,17 @@ function text(value: unknown, label: string): string | null | { error: string } 
   return trimmed;
 }
 
-function planText(value: unknown, label: string): string | null | { error: string } {
+/**
+ * Ô nhiều lựa chọn: form gửi lên một MẢNG nhãn, bảng lưu một chuỗi ngăn bởi dấu
+ * phẩy để tương thích Google Sheet. Cùng luật với `buildProviderPatch` — form
+ * Thêm và form Sửa dùng chung một component, gửi hai định dạng khác nhau thì
+ * một trong hai đường luôn gãy.
+ */
+function listText(
+  value: unknown,
+  label: string,
+  field: string
+): string | null | { error: string } {
   if (value === undefined || value === null || value === "") return null;
   if (
     typeof value !== "string" &&
@@ -29,7 +46,9 @@ function planText(value: unknown, label: string): string | null | { error: strin
   ) {
     return { error: `${label} must be text or a list.` };
   }
-  const serialized = serializePlanCell(parsePlanCell(value));
+  const serialized = isProviderSpecialtyField(field)
+    ? serializeSpecialtyCell(parseSpecialtyCell(value))
+    : serializePlanCell(parsePlanCell(value));
   if (serialized === null) return null;
   if (serialized.length > MAX_TEXT_LENGTH) return { error: `${label} is too long.` };
   return serialized;
@@ -43,9 +62,10 @@ export function parseCreateProviderInput(body: unknown): CreateProviderParseResu
   const value = {} as CreateProviderInput;
 
   for (const field of PROVIDER_TEXT_FIELDS) {
-    const parsed = isProviderPlanField(field)
-      ? planText(raw[field], field)
-      : text(raw[field], field);
+    const parsed =
+      isProviderPlanField(field) || isProviderSpecialtyField(field)
+        ? listText(raw[field], field, field)
+        : text(raw[field], field);
     if (parsed !== null && typeof parsed === "object") {
       return { ok: false, error: parsed.error };
     }
@@ -59,6 +79,15 @@ export function parseCreateProviderInput(body: unknown): CreateProviderParseResu
   // và cũng không phân biệt nổi với dòng trống.
   if (!value.doctors && !value.facility) {
     return { ok: false, error: "Doctor or facility is required." };
+  }
+
+  // Form Thêm hiện cùng ô Reviewed như form Sửa, nên phải gửi được cờ đó lên.
+  // Thiếu khoá này thì `buildProviderRow` vẫn lấy mặc định false như trước.
+  if (raw.needs_review !== undefined) {
+    if (typeof raw.needs_review !== "boolean") {
+      return { ok: false, error: "needs_review must be a boolean." };
+    }
+    value.needsReview = raw.needs_review;
   }
 
   const customValues = raw.custom_values;
@@ -89,8 +118,9 @@ export function buildProviderRow(
     source_row_number: null,
     custom_values: input.customValues,
     // Người gõ tay thì đã nhìn thấy dữ liệu mình nhập; chỉ dữ liệu chuyển từ
-    // Sheet sang mới cần người soát lại.
-    needs_review: false,
+    // Sheet sang mới cần người soát lại. Form vẫn bỏ tick được nếu người nhập
+    // muốn nhờ người khác soát lại dòng vừa thêm.
+    needs_review: input.needsReview ?? false,
     created_by_email: actor,
     updated_by_email: actor,
   };

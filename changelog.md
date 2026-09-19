@@ -6,6 +6,37 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Provider: bật Reviewed tự ghi người soát + ngày soát; hai form dùng chung một thân
+
+**Logic mới.** Bật ô `Reviewed` trong form provider giờ vá luôn hai ô khác:
+`verified_by` = tên người đang đăng nhập, `date` = ngày bấm. Trước đó hai ô này
+phải gõ tay nên gần như không ai gõ — 6/458 dòng có `verified_by`.
+
+Hai quyết định đi kèm, cả hai đều có thể sai với ý người dùng nên ghi rõ ở đây:
+
+- **Ghi đè giá trị cũ**, không phải "chỉ điền khi trống". Bấm Reviewed là một
+  lần xác nhận mới; người xác nhận mới nhất mới là người chịu trách nhiệm.
+- **Bỏ tick thì KHÔNG xoá** hai ô kia. Nhiều dòng mang sẵn tên người soát từ
+  Google Sheet; bỏ tick nghĩa là "cần soát lại", không phải "xoá lịch sử".
+
+Ngày ghi theo kiểu cột: cột `date` đang là text nên ghi `MM/DD/YYYY` cho khớp
+dữ liệu sẵn có; admin đổi cột sang kiểu `date` trong /config thì ghi ISO, vì
+`<input type="date">` chỉ nhận ISO.
+
+**Form Thêm và form Sửa nay dùng chung một thân** (`ProviderFormBody`). Hệ quả
+về dữ liệu, không chỉ về giao diện:
+
+- Form Thêm trước đây gửi `practices_as`, `obamacare`, `medicare` dưới dạng
+  chuỗi thô gõ tay; nay gửi mảng như form Sửa. `parseCreateProviderInput` được
+  nới để nhận mảng cho cả Specialty (trước chỉ nhận cho hai cột plan).
+- Form Thêm trước đây bỏ qua cột `hidden_default`; nay hiện đủ mọi cột, kể cả
+  cột tuỳ chỉnh do admin thêm (khối "Other details").
+- Form Thêm có ô `Reviewed`, mặc định BẬT, và gửi `needs_review` lên server.
+  `buildProviderRow` nay theo cờ đó thay vì luôn ghi `false`. Mặc định không
+  đổi: thiếu khoá thì vẫn là `false`.
+- `accepting_new_patients` ở form Thêm từ ô chữ tự do thành ô tick, nên dòng
+  mới luôn có giá trị `"Yes"` hoặc `"No"` thay vì để trống.
+
 ## 2026-09-19 — Provider List: dồn bộ lọc về một hàng, bỏ nút Clear
 
 Hàng lọc bỏ `flex-wrap`, chuyển sang cuộn ngang khi chật — chiều cao thanh lọc

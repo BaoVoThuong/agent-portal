@@ -50,6 +50,30 @@ describe("parseCreateProviderInput", () => {
     });
   });
 
+  it("chuẩn hoá Specialty thành chuỗi nhãn, giống hệt đường sửa", () => {
+    // Form Thêm và form Sửa nay dùng chung một component ô nhiều lựa chọn, nên
+    // cả hai đều gửi mảng lên. Trước đây chỉ PATCH nhận mảng, POST thì từ chối.
+    expect(
+      parseCreateProviderInput({
+        doctors: "A",
+        practices_as: ["PCP - Adults", "Opthamology"],
+      })
+    ).toMatchObject({
+      ok: true,
+      value: { practices_as: "PCP - Adults, Ophthalmology" },
+    });
+  });
+
+  it("nhận cờ đã soát từ form, và từ chối kiểu khác boolean", () => {
+    expect(
+      parseCreateProviderInput({ doctors: "A", needs_review: true })
+    ).toMatchObject({ ok: true, value: { needsReview: true } });
+    expect(parseCreateProviderInput({ doctors: "A", needs_review: "yes" })).toEqual({
+      ok: false,
+      error: "needs_review must be a boolean.",
+    });
+  });
+
   it("từ chối custom_values không phải object", () => {
     expect(parseCreateProviderInput({ doctors: "A", custom_values: [1, 2] })).toEqual({
       ok: false,
@@ -92,6 +116,14 @@ describe("buildProviderRow", () => {
     for (const dead of ["source_sheet_id", "source_gid", "source_row_hash", "raw_row"]) {
       expect(dead in row, dead).toBe(false);
     }
+  });
+
+  it("theo cờ đã soát mà form gửi lên, mặc định vẫn là đã soát", () => {
+    expect(
+      buildProviderRow({ ...emptyInput(), doctors: "A", needsReview: true }, {
+        actorEmail: "bao@x.com",
+      }).needs_review
+    ).toBe(true);
   });
 
   it("ghi đủ mọi cột văn bản, kể cả cột để trống", () => {
