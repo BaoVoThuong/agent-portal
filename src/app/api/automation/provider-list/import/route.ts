@@ -4,7 +4,11 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
+import { todayForColumn } from "@/lib/providers/form";
+import { PROVIDER_IMPORT_MANAGED_KEYS } from "@/lib/providers/import";
 import { buildProviderPatch } from "@/lib/providers/patch";
+import { personLabel } from "@/lib/tasks/people";
+import { fetchTableColumns } from "@/lib/table-config/queries";
 import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +52,23 @@ export async function POST(request: Request) {
 
   const supabase = getSupabaseAdmin();
   const actor = email.trim().toLowerCase();
+
+  // Hai ô này do MÁY CHỦ đặt, không lấy từ thân request. Màn hình cũng đặt
+  // chúng để bản xem trước nói đúng, nhưng tin vào giá trị client gửi lên thì
+  // ai cũng khai được mình là người đã kiểm dòng đó.
+  const columns = await fetchTableColumns("provider");
+  const stamp: Record<string, unknown> = {
+    verified_by: personLabel(
+      email,
+      session.user.name ? new Map([[email, session.user.name]]) : undefined
+    ),
+    date: todayForColumn(columns.find((column) => column.key === "date")),
+  };
+  const applyStamp = (body: Record<string, unknown>) => {
+    const next = { ...body };
+    for (const key of PROVIDER_IMPORT_MANAGED_KEYS) next[key] = stamp[key];
+    return next;
+  };
   const failed: { row: number; error: string }[] = [];
   const created: ProviderRow[] = [];
   const updated: ProviderRow[] = [];
@@ -61,7 +82,7 @@ export async function POST(request: Request) {
     }
 
     if (typeof raw.id === "string" && raw.id) {
-      const parsed = buildProviderPatch(body);
+      const parsed = buildProviderPatch(applyStamp(body as Record<string, unknown>));
       if (!parsed.ok) {
         failed.push({ row: excelRow, error: parsed.error });
         continue;
@@ -108,7 +129,7 @@ export async function POST(request: Request) {
       continue;
     }
 
-    const parsed = parseCreateProviderInput(body);
+    const parsed = parseCreateProviderInput(applyStamp(body as Record<string, unknown>));
     if (!parsed.ok) {
       failed.push({ row: excelRow, error: parsed.error });
       continue;

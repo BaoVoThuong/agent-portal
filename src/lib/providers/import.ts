@@ -13,6 +13,59 @@ import { isProviderMultiselectColumn, isReadOnlyProviderColumn } from "./form";
 /** Cột định danh trong file xuất ra. Có ID = cập nhật, không có = thêm mới. */
 export const PROVIDER_IMPORT_ID_HEADER = "ID";
 
+/**
+ * Hai cột do LƯỢT NHẬP đặt, không lấy từ file.
+ *
+ * Nhập một dòng từ file là một lần xác nhận dữ liệu, y như bấm tay vào ô
+ * Reviewed trên form. Nên người nhập là người xác nhận, và ngày nhập là ngày
+ * xác nhận — để file tự khai hai ô này thì cột "ai đã kiểm dòng này" chỉ còn
+ * là thứ chép đi chép lại từ lần xuất trước.
+ *
+ * Còn một lý do thực tế: Excel trả ô ngày về dưới dạng số sê-ri
+ * (`46118.0003472`), nên nhận ngày từ file là lúc nào đó có dòng mang một con
+ * số như vậy trong cột Verified date.
+ */
+export const PROVIDER_IMPORT_MANAGED_KEYS = ["verified_by", "date"] as const;
+
+const MANAGED_KEYS = new Set<string>(PROVIDER_IMPORT_MANAGED_KEYS);
+
+/**
+ * Bộ cột của file mẫu — đúng tên và đúng thứ tự header của Google Sheet đội
+ * đang dùng, để dán dữ liệu từ đó sang là chạy được ngay.
+ *
+ * KHÔNG có cột `ID`: file mẫu là để THÊM dòng mới. Muốn sửa dòng có sẵn thì
+ * bấm Export, file xuất ra luôn mang sẵn ID.
+ *
+ * Cũng không có `Reviewed`, `Verified by`, `Verified date` — xem
+ * `PROVIDER_IMPORT_MANAGED_KEYS`.
+ *
+ * `matchProviderHeaders` phải khớp HẾT bộ này; có test khoá lại.
+ */
+export const PROVIDER_IMPORT_TEMPLATE_HEADERS = [
+  "Facility",
+  "Doctors",
+  "NPI",
+  "Practices As",
+  "Accepting New Patients",
+  "Business Hours",
+  "Phone",
+  "Street",
+  "City",
+  "State",
+  "Zip Code",
+  "ObamaCare",
+  "Medicare",
+  "Other Plans",
+] as const;
+
+/** Giá trị mà lượt nhập áp cho mọi dòng nó chạm vào. */
+export type ProviderImportStamp = {
+  /** Tên người đang nhập — tên hiển thị, không phải email. */
+  verifiedBy: string;
+  /** Ngày nhập, viết theo đúng kiểu cột `date` đang dùng. */
+  verifiedDate: string;
+};
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -50,6 +103,12 @@ export type ProviderHeaderMatch = {
   idHeader: string | null;
   /** Tiêu đề không khớp cột nào — phải hiện cho người dùng thấy. */
   ignored: string[];
+  /**
+   * Tiêu đề trỏ vào cột do lượt nhập tự đặt. Tách khỏi `ignored` một cách CÓ Ý:
+   * chúng không bị bỏ, chúng bị ghi đè — gộp chung là người dùng tưởng dữ liệu
+   * của mình biến mất.
+   */
+  managed: string[];
 };
 
 export type ParsedProviderRow = {
@@ -74,11 +133,17 @@ export function matchProviderHeaders(
   columns: readonly TableColumn[]
 ): ProviderHeaderMatch {
   const lookup = new Map<string, string>();
+  const managedLookup = new Set<string>();
   for (const column of columns) {
     if (column.archived_at) continue;
     // Cột siêu dữ liệu do hệ thống ghi. Nhận giá trị nhập vào cho chúng là để
     // một file Excel viết lại lịch sử "ai tạo dòng này, lúc nào".
     if (isReadOnlyProviderColumn(column)) continue;
+    if (MANAGED_KEYS.has(column.key)) {
+      managedLookup.add(normalizeHeader(column.label));
+      managedLookup.add(normalizeHeader(column.key));
+      continue;
+    }
     lookup.set(normalizeHeader(column.label), column.key);
     lookup.set(normalizeHeader(column.key), column.key);
   }
@@ -94,6 +159,7 @@ export function matchProviderHeaders(
   const byHeader = new Map<string, string>();
   const taken = new Set<string>();
   const ignored: string[] = [];
+  const managed: string[] = [];
   let idHeader: string | null = null;
 
   for (const header of headers) {
@@ -104,6 +170,10 @@ export function matchProviderHeaders(
         continue;
       }
       ignored.push(header);
+      continue;
+    }
+    if (managedLookup.has(normalized)) {
+      managed.push(header);
       continue;
     }
     const key = lookup.get(normalized);
@@ -117,7 +187,7 @@ export function matchProviderHeaders(
     byHeader.set(header, key);
   }
 
-  return { byHeader, idHeader, ignored };
+  return { byHeader, idHeader, ignored, managed };
 }
 
 /** Giá trị một ô Excel, đưa về đúng kiểu mà form provider đang dùng. */
@@ -153,7 +223,9 @@ function coerce(column: TableColumn, raw: unknown): unknown {
 export function parseProviderImportRows(
   records: readonly Record<string, unknown>[],
   matched: ProviderHeaderMatch,
-  columns: readonly TableColumn[]
+  columns: readonly TableColumn[],
+  /** Bỏ trống ở nơi chỉ cần đọc file; màn hình và server đều truyền vào. */
+  stamp?: ProviderImportStamp
 ): ProviderImportParse {
   const columnByKey = new Map(columns.map((column) => [column.key, column]));
   const rows: ParsedProviderRow[] = [];
@@ -184,6 +256,17 @@ export function parseProviderImportRows(
       values[key] = coerce(column, record[header]);
     }
 
+    // Đếm TRƯỚC khi đóng dấu: một file chỉ có cột ID thì không có gì để sửa, và
+    // hai ô do lượt nhập tự đặt không được tính là "có thay đổi".
+    const fileFieldCount = Object.keys(values).length;
+
+    // Đóng dấu SAU vòng đọc file để giá trị của lượt nhập luôn thắng, kể cả khi
+    // file có sẵn hai cột đó.
+    if (stamp) {
+      if (columnByKey.has("verified_by")) values.verified_by = stamp.verifiedBy;
+      if (columnByKey.has("date")) values.date = stamp.verifiedDate;
+    }
+
     const mode = id ? "update" : "create";
     if (mode === "create") {
       const hasName = Boolean(values.doctors) || Boolean(values.facility);
@@ -191,7 +274,7 @@ export function parseProviderImportRows(
         skipped.push({ row: excelRow, reason: "Missing both Doctor and Facility" });
         return;
       }
-    } else if (Object.keys(values).length === 0) {
+    } else if (fileFieldCount === 0) {
       skipped.push({ row: excelRow, reason: "No columns to update" });
       return;
     }

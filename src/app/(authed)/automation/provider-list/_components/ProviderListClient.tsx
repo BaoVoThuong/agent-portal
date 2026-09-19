@@ -399,6 +399,7 @@ export function ProviderListClient({
         key={importOpen ? "provider-import-open" : "provider-import-closed"}
         open={importOpen}
         columns={columns}
+        viewerName={viewerName}
         onClose={() => setImportOpen(false)}
         onImported={() => void reloadProviders()}
       />

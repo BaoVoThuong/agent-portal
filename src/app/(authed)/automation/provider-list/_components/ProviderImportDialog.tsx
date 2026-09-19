@@ -6,13 +6,14 @@ import * as XLSX from "xlsx";
 import { AlertTriangle, Download, FileSpreadsheet, X } from "lucide-react";
 import type { TableColumn } from "@/lib/table-config/types";
 import {
-  PROVIDER_IMPORT_ID_HEADER,
+  PROVIDER_IMPORT_TEMPLATE_HEADERS,
   matchProviderHeaders,
   parseProviderImportRows,
   providerImportPayload,
   type ProviderImportParse,
 } from "@/lib/providers/import";
 import { providerColumnWidth } from "@/lib/providers/list-columns";
+import { todayForColumn } from "@/lib/providers/form";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -33,11 +34,14 @@ type ImportResult = {
 export function ProviderImportDialog({
   open,
   columns,
+  viewerName,
   onClose,
   onImported,
 }: {
   open: boolean;
   columns: TableColumn[];
+  /** Tên người đang nhập — điền vào Verified by cho mọi dòng của lượt này. */
+  viewerName: string;
   onClose: () => void;
   /** Nhập xong thì bảng phải nạp lại — dòng mới/đã sửa không nằm trong state cũ. */
   onImported: () => void;
@@ -56,9 +60,18 @@ export function ProviderImportDialog({
     () => matchProviderHeaders(headers, columns),
     [headers, columns]
   );
+  // Một lượt nhập là MỘT lần xác nhận, nên cả lượt dùng chung một mốc thời gian
+  // — không để dòng đầu và dòng cuối lệch nhau vì file to.
+  const stamp = useMemo(
+    () => ({
+      verifiedBy: viewerName,
+      verifiedDate: todayForColumn(columns.find((column) => column.key === "date")),
+    }),
+    [viewerName, columns]
+  );
   const parsed: ProviderImportParse = useMemo(
-    () => parseProviderImportRows(records, matched, columns),
-    [records, matched, columns]
+    () => parseProviderImportRows(records, matched, columns, stamp),
+    [records, matched, columns, stamp]
   );
 
   const createCount = parsed.rows.filter((row) => row.mode === "create").length;
@@ -134,17 +147,11 @@ export function ProviderImportDialog({
   }
 
   function downloadTemplate() {
-    // File mẫu = đúng bộ tiêu đề mà bản Export dùng, cộng một dòng ví dụ để
-    // người dùng thấy ngay định dạng từng ô. Ô ID để trống nghĩa là thêm mới;
-    // muốn SỬA thì bấm Export rồi sửa thẳng trên file đó.
-    const templateColumns = columns.filter(
-      (column) => !column.archived_at && !column.hidden_default && !isMetaKey(column.key)
-    );
-    const header = [
-      PROVIDER_IMPORT_ID_HEADER,
-      ...templateColumns.map((column) => column.label),
-    ];
-    const example = ["", ...templateColumns.map((column) => exampleCell(column))];
+    // Đúng bộ cột và đúng thứ tự của Google Sheet đội đang dùng, kèm một dòng ví
+    // dụ để thấy ngay định dạng từng ô. Không có cột ID: file mẫu là để THÊM
+    // dòng mới — muốn sửa dòng có sẵn thì bấm Export, file đó mang sẵn ID.
+    const header = [...PROVIDER_IMPORT_TEMPLATE_HEADERS];
+    const example = header.map((name) => TEMPLATE_EXAMPLE[name] ?? "");
     const sheet = XLSX.utils.aoa_to_sheet([header, example]);
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, sheet, "Data");
@@ -313,6 +320,17 @@ export function ProviderImportDialog({
                   </p>
                 ) : null}
 
+                <p className="mt-3 text-xs text-[#626f86]">
+                  <strong className="font-bold text-[#42526e]">Verified by</strong> and{" "}
+                  <strong className="font-bold text-[#42526e]">Verified date</strong> are
+                  set for every row from this import: {stamp.verifiedBy} ·{" "}
+                  {stamp.verifiedDate}
+                  {matched.managed.length > 0
+                    ? ` (the file's ${matched.managed.join(", ")} is not used)`
+                    : ""}
+                  .
+                </p>
+
                 {previewColumns.length === 0 ? (
                   <p className="mt-3 rounded-lg border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
                     No header matched a column on this table. Download the template to
@@ -460,45 +478,23 @@ function Chip({
   );
 }
 
-/** Cột hệ thống tự ghi — không nhận giá trị nhập vào nên không có trong file mẫu. */
-function isMetaKey(key: string): boolean {
-  return ["created_at", "created_by_email", "updated_at", "updated_by_email"].includes(key);
-}
-
-/** Một ô ví dụ cho file mẫu, đúng định dạng mà bộ đọc file đang chấp nhận. */
-function exampleCell(column: TableColumn): string {
-  if (column.type === "checkbox") return "Yes";
-  switch (column.key) {
-    case "doctors":
-      return "Hoang Anh Phan";
-    case "facility":
-      return "Houston Methodist";
-    case "npi":
-      return "1407020035";
-    case "practices_as":
-      return "PCP - Adults, Cardiologist";
-    case "phone":
-      return "713-555-0123";
-    case "street":
-      return "7111 Harwin Dr, Ste 210";
-    case "city":
-      return "Houston";
-    case "state":
-      return "TX";
-    case "zip_code":
-      return "77036";
-    case "business_hours":
-      return "Mon - Fri: 8:00am - 5:00pm";
-    case "obamacare":
-      return "Ambetter HMO, Oscar HMO";
-    case "medicare":
-      return "UHC";
-    case "date":
-      return "09/19/2026";
-    default:
-      return "";
-  }
-}
+/** Một dòng ví dụ cho file mẫu, đúng định dạng mà bộ đọc file đang chấp nhận. */
+const TEMPLATE_EXAMPLE: Record<string, string> = {
+  Facility: "Houston Methodist",
+  Doctors: "Hoang Anh Phan",
+  NPI: "1407020035",
+  "Practices As": "PCP - Adults, Cardiologist",
+  "Accepting New Patients": "Yes",
+  "Business Hours": "Mon - Fri: 8:00am - 5:00pm",
+  Phone: "713-555-0123",
+  Street: "7111 Harwin Dr, Ste 210",
+  City: "Houston",
+  State: "TX",
+  "Zip Code": "77036",
+  ObamaCare: "Ambetter HMO, Oscar HMO",
+  Medicare: "UHC",
+  "Other Plans": "",
+};
 
 function formatPreview(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";

@@ -43,6 +43,30 @@ dòng nó chạm vào.
 tra chỉ sống ở một chỗ. Hệ quả có lợi: sửa địa chỉ qua file nhập cũng tự xoá
 toạ độ đã geocode, giống hệt sửa tay trên màn hình.
 
+**`Verified by` và `Verified date` do LƯỢT NHẬP đặt, không lấy từ file.** Nhập
+một dòng từ file là một lần xác nhận dữ liệu, y như bấm tay vào ô Reviewed trên
+form — nên người nhập là người xác nhận và ngày nhập là ngày xác nhận. Để file
+tự khai hai ô này thì cột "ai đã kiểm dòng này" chỉ còn là thứ chép đi chép lại
+từ lần xuất trước.
+
+Máy chủ tự đặt lại hai ô đó, KHÔNG tin giá trị client gửi lên — đã thử gửi
+`verified_by: "KE GIA MAO"` và bị bỏ đúng như mong đợi. Màn hình cũng đặt cùng
+giá trị để bản xem trước nói đúng thứ sắp xảy ra. Cả lượt nhập dùng chung một
+mốc thời gian, không để dòng đầu và dòng cuối lệch nhau vì file to.
+
+Việc này cũng dọn luôn một lỗi thật: Excel trả ô ngày về dưới dạng **số sê-ri**
+(`46118.0003472`), nên nhận ngày từ file là sớm muộn có dòng mang một con số
+như vậy trong cột Verified date.
+
+**File mẫu dùng đúng tên và thứ tự header của Google Sheet đội đang dùng**
+(`Facility, Doctors, NPI, Practices As, Accepting New Patients, Business Hours,
+Phone, Street, City, State, Zip Code, ObamaCare, Medicare, Other Plans`) để dán
+dữ liệu từ đó sang là chạy được ngay. Có test khoá lại: đổi cách đặt tên cột
+trong /config mà quên bộ alias thì file mẫu im lặng hỏng.
+
+File mẫu KHÔNG có cột `ID` — nó để THÊM dòng mới. Muốn sửa dòng có sẵn thì bấm
+Export, file xuất ra luôn mang sẵn ID.
+
 Trần an toàn: 2.000 dòng và 5 MB mỗi lần nhập.
 
 ## 2026-09-19 — Provider Finder: chọn ứng viên bằng khoảng cách thật thay vì so chuỗi

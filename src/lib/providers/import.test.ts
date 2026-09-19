@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   PROVIDER_IMPORT_ID_HEADER,
+  PROVIDER_IMPORT_MANAGED_KEYS,
+  PROVIDER_IMPORT_TEMPLATE_HEADERS,
   matchProviderHeaders,
   parseProviderImportRows,
   providerImportPayload,
@@ -233,5 +235,102 @@ describe("providerImportPayload", () => {
 
   it("bỏ qua khoá không phải cột nào", () => {
     expect(providerImportPayload({ khong_ton_tai: "x" }, columns)).toEqual({});
+  });
+});
+
+describe("Verified by / Verified date do hệ thống đặt", () => {
+  const COLS = [
+    column("doctors", "Doctor"),
+    column("verified_by", "Verified by"),
+    column("date", "Verified date"),
+  ];
+
+  it("hai cột đó không nhận giá trị từ file", () => {
+    expect([...PROVIDER_IMPORT_MANAGED_KEYS]).toEqual(["verified_by", "date"]);
+    const matched = matchProviderHeaders(["Doctor", "Verified by", "Verified date"], COLS);
+    expect(matched.byHeader.has("Verified by")).toBe(false);
+    expect(matched.byHeader.has("Verified date")).toBe(false);
+  });
+
+  // Không xếp vào `ignored`: chúng KHÔNG bị bỏ, chúng bị GHI ĐÈ. Báo là "đã bỏ
+  // qua" thì người dùng tưởng dữ liệu biến mất.
+  it("báo riêng là do hệ thống đặt, không lẫn vào danh sách bị bỏ", () => {
+    const matched = matchProviderHeaders(["Verified by", "Ghi chú riêng"], COLS);
+    expect(matched.managed).toEqual(["Verified by"]);
+    expect(matched.ignored).toEqual(["Ghi chú riêng"]);
+  });
+
+  it("mọi dòng đều nhận người nhập và ngày nhập, kể cả dòng cập nhật", () => {
+    const matched = matchProviderHeaders(["ID", "Doctor"], COLS);
+    const parsed = parseProviderImportRows(
+      [
+        { ID: "11111111-1111-4111-8111-111111111111", Doctor: "A" },
+        { ID: null, Doctor: "B" },
+      ],
+      matched,
+      COLS,
+      { verifiedBy: "Khang Nguyen", verifiedDate: "09/19/2026" }
+    );
+    for (const row of parsed.rows) {
+      expect(row.values.verified_by).toBe("Khang Nguyen");
+      expect(row.values.date).toBe("09/19/2026");
+    }
+  });
+
+  it("giá trị trong file bị ghi đè, kể cả số sê-ri ngày của Excel", () => {
+    const matched = matchProviderHeaders(["Doctor", "Verified date"], COLS);
+    const parsed = parseProviderImportRows(
+      [{ Doctor: "A", "Verified date": 46118.0003472 }],
+      matched,
+      COLS,
+      { verifiedBy: "Khang Nguyen", verifiedDate: "09/19/2026" }
+    );
+    expect(parsed.rows[0].values.date).toBe("09/19/2026");
+  });
+
+  it("không truyền thì không tự bịa giá trị", () => {
+    const matched = matchProviderHeaders(["Doctor"], COLS);
+    const parsed = parseProviderImportRows([{ Doctor: "A" }], matched, COLS);
+    expect("verified_by" in parsed.rows[0].values).toBe(false);
+    expect("date" in parsed.rows[0].values).toBe(false);
+  });
+});
+
+describe("file mẫu khớp được hết", () => {
+  // Đây là header thật của Google Sheet đội đang dùng. Đổi cách đặt tên cột
+  // trong /config mà quên bộ alias là file mẫu im lặng hỏng, nên khoá lại.
+  const ALL = [
+    column("facility", "Facility"),
+    column("doctors", "Doctor"),
+    column("npi", "NPI"),
+    column("practices_as", "Specialty", "multiselect"),
+    column("accepting_new_patients", "New Patient", "checkbox"),
+    column("business_hours", "Business hours"),
+    column("phone", "Phone"),
+    column("street", "Street"),
+    column("city", "City"),
+    column("state", "State"),
+    column("zip_code", "ZIP"),
+    column("obamacare", "ACA plans", "multiselect"),
+    column("medicare", "Medicare plans", "multiselect"),
+    column("other_plans", "Other plans"),
+  ];
+
+  it("mọi tiêu đề của file mẫu đều khớp một cột", () => {
+    const matched = matchProviderHeaders([...PROVIDER_IMPORT_TEMPLATE_HEADERS], ALL);
+    expect(matched.ignored).toEqual([]);
+    expect(matched.managed).toEqual([]);
+    expect(matched.byHeader.size).toBe(PROVIDER_IMPORT_TEMPLATE_HEADERS.length);
+  });
+
+  it("khớp đúng cột chứ không chỉ khớp số lượng", () => {
+    const matched = matchProviderHeaders([...PROVIDER_IMPORT_TEMPLATE_HEADERS], ALL);
+    expect(matched.byHeader.get("Doctors")).toBe("doctors");
+    expect(matched.byHeader.get("Practices As")).toBe("practices_as");
+    expect(matched.byHeader.get("Accepting New Patients")).toBe("accepting_new_patients");
+    expect(matched.byHeader.get("Zip Code")).toBe("zip_code");
+    expect(matched.byHeader.get("ObamaCare")).toBe("obamacare");
+    expect(matched.byHeader.get("Medicare")).toBe("medicare");
+    expect(matched.byHeader.get("Other Plans")).toBe("other_plans");
   });
 });
