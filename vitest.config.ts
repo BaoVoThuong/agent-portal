@@ -11,7 +11,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    // `scripts/` nằm trong danh sách vì logic của script backfill (băm địa chỉ,
+    // tính tâm ZIP) quyết định toạ độ ghi vào database — để nó ngoài tầm test
+    // là để phần dễ ghi sai dữ liệu nhất không ai kiểm.
+    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
     globals: false,
   },
 });
