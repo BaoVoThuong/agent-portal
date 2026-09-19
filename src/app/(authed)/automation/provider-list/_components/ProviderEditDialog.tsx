@@ -21,7 +21,9 @@ import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
 const INPUT_CLASS =
   "h-9 w-full rounded-lg border border-[#d8dee7] bg-white px-3 text-sm font-semibold text-[#172b4d] shadow-none outline-none transition placeholder:text-[#98a2b3] focus:border-[#0c66e4] focus:ring-4 focus:ring-[#deebff]";
-const TEXTAREA_CLASS = `${INPUT_CLASS} min-h-20 resize-y py-2.5`;
+// `h-9` của INPUT_CLASS là chiều cao CỐ ĐỊNH, phải ghi đè bằng `!h-auto` thì
+// textarea mới co giãn được. min-h-16 đủ cho 2 dòng; kéo tay nếu cần thêm.
+const TEXTAREA_CLASS = `${INPUT_CLASS} !h-auto min-h-16 resize-y py-2`;
 const LABEL_CLASS = "mb-1.5 block text-[10px] font-bold uppercase tracking-[0.08em] text-[#667085]";
 
 function isPlanColumn(key: string): boolean {
@@ -118,9 +120,33 @@ function isLongTextColumn(column: TableColumn, value: unknown): boolean {
   return column.key === "business_hours" || stringValue.length > 120;
 }
 
-function isWideEditField(column: TableColumn, value: unknown): boolean {
-  return isMultiselectColumn(column) || isLongTextColumn(column, value);
+/**
+ * Một ô chiếm mấy cột trong lưới 3 cột.
+ *
+ * Bản cũ chỉ có đúng/sai — hoặc 1 cột hoặc cả 3 — nên Specialty đang hiện MỘT
+ * chip vẫn ăn trọn một hàng, và `business_hours` một dòng chữ cũng vậy. Ba mức
+ * làm các ô xếp khít lại:
+ *
+ *   3 cột — ô nhiều lựa chọn có thể mang cả chục chip (ACA/Medicare plans) hoặc
+ *           đoạn văn dài; cắt hẹp là chip tràn xuống thành nhiều dòng.
+ *   2 cột — Specialty và giờ làm việc: cần rộng hơn ô thường nhưng không cần
+ *           cả hàng.
+ *   1 cột — còn lại.
+ */
+function editFieldSpan(column: TableColumn, value: unknown): 1 | 2 | 3 {
+  if (isPlanColumn(column.key)) return 3;
+  if (isProviderSpecialtyField(column.key)) return 2;
+  if (isMultiselectColumn(column)) return 3;
+  if (column.key === "business_hours") return 2;
+  if (isLongTextColumn(column, value)) return 3;
+  return 1;
 }
+
+const SPAN_CLASS: Record<1 | 2 | 3, string> = {
+  1: "min-w-0",
+  2: "min-w-0 sm:col-span-2 xl:col-span-2",
+  3: "min-w-0 sm:col-span-2 xl:col-span-3",
+};
 
 export function ProviderEditDialog({
   provider,
@@ -265,11 +291,7 @@ export function ProviderEditDialog({
                 {editableColumns.map((column) => (
                   <div
                     key={column.id}
-                    className={
-                      isWideEditField(column, values[column.key])
-                        ? "sm:col-span-2 xl:col-span-3"
-                        : "min-w-0"
-                    }
+                    className={SPAN_CLASS[editFieldSpan(column, values[column.key])]}
                   >
                     <ProviderEditField
                       column={column}
