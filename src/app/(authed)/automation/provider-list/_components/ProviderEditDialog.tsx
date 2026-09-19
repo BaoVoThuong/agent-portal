@@ -121,31 +121,34 @@ function isLongTextColumn(column: TableColumn, value: unknown): boolean {
 }
 
 /**
- * Một ô chiếm mấy cột trong lưới 3 cột.
+ * Một ô chiếm mấy cột trong lưới 6 cột.
  *
- * Bản cũ chỉ có đúng/sai — hoặc 1 cột hoặc cả 3 — nên Specialty đang hiện MỘT
- * chip vẫn ăn trọn một hàng, và `business_hours` một dòng chữ cũng vậy. Ba mức
- * làm các ô xếp khít lại:
+ * Lưới 6 thay vì 3: với 3 cột thì ô hẹp nhất vẫn ~360px, nên `TX` và `77036`
+ * trôi giữa một khoảng trống. Chia 6 cho phép State/ZIP chỉ lấy đúng 1/6 và cả
+ * dòng địa chỉ xếp gọn trên một hàng.
  *
- *   3 cột — ô nhiều lựa chọn có thể mang cả chục chip (ACA/Medicare plans) hoặc
- *           đoạn văn dài; cắt hẹp là chip tràn xuống thành nhiều dòng.
- *   2 cột — Specialty và giờ làm việc: cần rộng hơn ô thường nhưng không cần
- *           cả hàng.
- *   1 cột — còn lại.
+ *   6 — ACA/Medicare plans: mang được cả chục chip, hẹp lại là chip tràn dòng.
+ *   4 — Specialty, Business hours: cần rộng nhưng không cần trọn hàng.
+ *   2 — ô chữ thường (bằng đúng 1 cột của lưới 3 cũ).
+ *   1 — State, ZIP, và ô tick: nội dung chỉ vài ký tự.
  */
-function editFieldSpan(column: TableColumn, value: unknown): 1 | 2 | 3 {
-  if (isPlanColumn(column.key)) return 3;
-  if (isProviderSpecialtyField(column.key)) return 2;
-  if (isMultiselectColumn(column)) return 3;
-  if (column.key === "business_hours") return 2;
-  if (isLongTextColumn(column, value)) return 3;
-  return 1;
+function editFieldSpan(column: TableColumn, value: unknown): 1 | 2 | 4 | 6 {
+  if (isPlanColumn(column.key)) return 6;
+  if (isMultiselectColumn(column)) return isProviderSpecialtyField(column.key) ? 4 : 6;
+  if (column.key === "business_hours") return 4;
+  if (isLongTextColumn(column, value)) return 6;
+  if (column.type === "checkbox" || isNewPatientColumn(column) || isReviewedColumn(column)) return 1;
+  if (column.key === "state" || column.key === "zip_code") return 1;
+  return 2;
 }
 
-const SPAN_CLASS: Record<1 | 2 | 3, string> = {
-  1: "min-w-0",
-  2: "min-w-0 sm:col-span-2 xl:col-span-2",
-  3: "min-w-0 sm:col-span-2 xl:col-span-3",
+// Tailwind chỉ giữ được class viết nguyên văn, nên phải liệt kê đủ chứ không
+// ghép chuỗi. Dưới `md` lưới chỉ có 2 cột và mọi ô đều trải hết chiều ngang.
+const SPAN_CLASS: Record<1 | 2 | 4 | 6, string> = {
+  1: "col-span-2 min-w-0 md:col-span-1",
+  2: "col-span-2 min-w-0 md:col-span-2",
+  4: "col-span-2 min-w-0 md:col-span-4",
+  6: "col-span-2 min-w-0 md:col-span-6",
 };
 
 export function ProviderEditDialog({
@@ -287,7 +290,7 @@ export function ProviderEditDialog({
                   {editableColumns.length} editable fields
                 </span>
               </div>
-              <div className="grid gap-x-3 gap-y-2.5 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 md:grid-cols-6">
                 {editableColumns.map((column) => (
                   <div
                     key={column.id}
@@ -389,35 +392,31 @@ function ProviderEditField({
     return (
       <div>
         {label}
+        {/* Chỉ một ô tick. Bản cũ là nút to chiếm trọn chiều ngang, kèm câu mô
+            tả và huy hiệu Yes/No — ba cách nói cùng một giá trị đúng/sai, và
+            chiếm chỗ ngang bằng một ô nhập chữ. Nhãn cột ở trên đã nói rõ đây
+            là trường gì. */}
         <button
           type="button"
           role="switch"
           aria-checked={checked}
+          aria-label={toggleLabel}
+          title={toggleLabel}
           onClick={() => onChange(!checked)}
-          className={`flex h-9 w-full items-center justify-between rounded-lg border px-3 text-left shadow-none transition focus:outline-none focus:ring-4 focus:ring-[#deebff] ${
+          className={`flex h-9 w-full items-center justify-center rounded-lg border transition focus:outline-none focus:ring-4 focus:ring-[#deebff] ${
             checked
               ? "border-[#b7e4d0] bg-[#f0fbf5]"
               : "border-[#d8dee7] bg-white hover:border-[#b8c4d4]"
           }`}
         >
-          <span className="flex items-center gap-2.5">
-            <span
-              className={`flex h-5 w-5 items-center justify-center rounded-md border transition ${
-                checked
-                  ? "border-[#16a66a] bg-[#16a66a] text-white"
-                  : "border-[#c7d1e0] bg-white"
-              }`}
-            >
-              {checked ? <Check className="h-3.5 w-3.5" /> : null}
-            </span>
-            <span className="text-sm font-semibold text-[#172b4d]">{toggleLabel}</span>
-          </span>
           <span
-            className={`text-[10px] font-bold uppercase tracking-[0.08em] ${
-              checked ? "text-[#168653]" : "text-[#98a2b3]"
+            className={`flex h-5 w-5 items-center justify-center rounded-md border transition ${
+              checked
+                ? "border-[#16a66a] bg-[#16a66a] text-white"
+                : "border-[#c7d1e0] bg-white"
             }`}
           >
-            {checked ? "Yes" : "No"}
+            {checked ? <Check className="h-3.5 w-3.5" /> : null}
           </span>
         </button>
       </div>
