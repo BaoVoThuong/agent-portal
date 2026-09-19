@@ -10,7 +10,7 @@ import {
   visibleProviderListColumns,
 } from "@/lib/providers/list-columns";
 import {
-  EMPTY_PROVIDER_FILTERS,
+  DEFAULT_PROVIDER_FILTERS,
   applyProviderFilters,
   filterProviders,
   providerFilterOptions,
@@ -52,7 +52,7 @@ export function ProviderListClient({
 }) {
   const [providers, setProviders] = useState<ProviderRow[]>(initialProviders);
   const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState<ProviderFilters>(EMPTY_PROVIDER_FILTERS);
+  const [filters, setFilters] = useState<ProviderFilters>(DEFAULT_PROVIDER_FILTERS);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<ProviderSortDir>("asc");
   const [layoutColumns, setLayoutColumns] = useState<TableColumn[]>(columns);

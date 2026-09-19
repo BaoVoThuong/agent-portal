@@ -21,8 +21,8 @@ const FILTER_SELECT_BUTTON_CLASS =
  */
 const ADDRESS_OPTIONS = [
   { value: "", label: "All" },
-  { value: "valid", label: "Has address" },
-  { value: "invalid", label: "No address" },
+  { value: "valid", label: "Valid Address" },
+  { value: "invalid", label: "Invalid Address" },
 ];
 
 function toOptions(values: readonly string[]) {

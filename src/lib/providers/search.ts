@@ -69,6 +69,22 @@ export const EMPTY_PROVIDER_FILTERS: ProviderFilters = {
   address: "",
 };
 
+/**
+ * Bộ lọc lúc MỚI MỞ bảng — khác `EMPTY_PROVIDER_FILTERS`.
+ *
+ * Mặc định chỉ hiện provider có địa chỉ dùng được, vì đó là thứ tra cứu được
+ * trong Finder; 23 dòng thiếu địa chỉ chỉ gây nhiễu cho công việc hằng ngày.
+ * Vẫn xem được chúng bằng cách chọn "Invalid Address" hoặc "All".
+ *
+ * KHÔNG gộp vào `EMPTY_PROVIDER_FILTERS`: hằng đó nghĩa là "không ràng buộc gì"
+ * và `applyProviderFilters` dựa vào nó để trả thẳng mảng gốc. Đặt sẵn một bộ lọc
+ * vào đó là phá đường tắt ấy và làm "xoá hết bộ lọc" không còn xoá hết.
+ */
+export const DEFAULT_PROVIDER_FILTERS: ProviderFilters = {
+  ...EMPTY_PROVIDER_FILTERS,
+  address: "valid",
+};
+
 const FILTER_FIELDS = {
   state: "state",
   city: "city",

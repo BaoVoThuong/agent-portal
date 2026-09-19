@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_PROVIDER_FILTERS,
   EMPTY_PROVIDER_FILTERS,
   applyProviderFilters,
   filterProviders,
@@ -135,6 +136,19 @@ describe("applyProviderFilters", () => {
         (r) => r.id
       )
     ).toEqual(["b"]);
+  });
+
+  it("mặc định lúc mở bảng là chỉ hiện địa chỉ dùng được", () => {
+    // DEFAULT khác EMPTY một cách CỐ Ý: EMPTY phải giữ nghĩa "không ràng buộc
+    // gì", vì applyProviderFilters dựa vào nó để trả thẳng mảng gốc.
+    expect(DEFAULT_PROVIDER_FILTERS.address).toBe("valid");
+    expect(EMPTY_PROVIDER_FILTERS.address).toBe("");
+    const list = [
+      row({ id: "ok", street: "7111 Harwin Dr" }),
+      row({ id: "bad", street: null }),
+    ];
+    expect(applyProviderFilters(list, DEFAULT_PROVIDER_FILTERS).map((r) => r.id)).toEqual(["ok"]);
+    expect(applyProviderFilters(list, EMPTY_PROVIDER_FILTERS)).toBe(list);
   });
 
   it("lọc theo địa chỉ dùng được / không dùng được trong Finder", () => {
