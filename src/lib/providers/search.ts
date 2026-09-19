@@ -1,3 +1,4 @@
+import { isProviderAddressUsable } from "./address";
 import {
   PROVIDER_TEXT_FIELDS,
   needsReview,
@@ -49,6 +50,12 @@ export type ProviderFilters = {
   medicarePlans: string[];
   /** "" = mọi dòng. Lọc ra đúng những dòng còn phải sửa tay. */
   review: "" | "needs" | "ok";
+  /**
+   * "" = mọi dòng. Lọc theo việc địa chỉ có tra cứu được trong Provider Finder
+   * hay không — xem `isProviderAddressUsable`. Đây là câu hỏi KHÁC `review`:
+   * một dòng có thể địa chỉ hoàn hảo mà vẫn cần người soát vì lý do khác.
+   */
+  address: "" | "valid" | "invalid";
 };
 
 export const EMPTY_PROVIDER_FILTERS: ProviderFilters = {
@@ -59,6 +66,7 @@ export const EMPTY_PROVIDER_FILTERS: ProviderFilters = {
   acaPlans: [],
   medicarePlans: [],
   review: "",
+  address: "",
 };
 
 const FILTER_FIELDS = {
@@ -79,7 +87,8 @@ export function hasActiveProviderFilters(filters: ProviderFilters): boolean {
     filters.accepting.length > 0 ||
     filters.acaPlans.length > 0 ||
     filters.medicarePlans.length > 0 ||
-    filters.review !== ""
+    filters.review !== "" ||
+    filters.address !== ""
   );
 }
 
@@ -122,6 +131,11 @@ export function applyProviderFilters(
     if (!matchesPlanFilter(row.medicare, filters.medicarePlans)) return false;
     if (filters.review === "needs" && !needsReview(row)) return false;
     if (filters.review === "ok" && needsReview(row)) return false;
+    if (filters.address !== "") {
+      const usable = isProviderAddressUsable(row);
+      if (filters.address === "valid" && !usable) return false;
+      if (filters.address === "invalid" && usable) return false;
+    }
     return true;
   });
 }

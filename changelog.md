@@ -6,6 +6,21 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Provider List: bộ lọc địa chỉ dùng được / thiếu
+
+Thêm ô chọn `address` trên thanh lọc: All addresses / Address OK / Address
+missing. Dùng chung `isProviderAddressUsable` với phần tô nền cảnh báo, nên
+màu trên bảng và kết quả lọc luôn nói cùng một chuyện.
+
+Ô chọn ĐƠN chứ không multi: ba trạng thái loại trừ nhau, chọn cả "OK" lẫn
+"missing" thì bằng không lọc gì.
+
+Đây là câu hỏi KHÁC `needs_review`: một dòng có thể địa chỉ hoàn hảo mà vẫn cần
+người soát vì lý do khác, nên hai bộ lọc tồn tại song song chứ không thay nhau.
+
+Hiện trạng: 435 dòng địa chỉ dùng được, 23 dòng thiếu (7 chuỗi nhà thuốc + 16
+mục tổng hệ thống bệnh viện vừa khôi phục).
+
 ## 2026-09-19 — Provider List: tô nền cảnh báo cho địa chỉ không dùng được
 
 Dòng nào có địa chỉ Provider Finder không tra cứu được thì nền chuyển hồng cam

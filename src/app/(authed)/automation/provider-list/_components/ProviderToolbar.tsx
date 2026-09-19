@@ -17,6 +17,18 @@ import {
 const FILTER_SELECT_BUTTON_CLASS =
   "!h-9 !w-full !min-w-0 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 
+/**
+ * Lọc theo việc địa chỉ có tra cứu được trong Provider Finder không.
+ *
+ * Một ô chọn ĐƠN, không phải multi: ba trạng thái này loại trừ nhau, chọn cả
+ * "dùng được" lẫn "không dùng được" thì bằng không lọc gì.
+ */
+const ADDRESS_OPTIONS = [
+  { value: "", label: "All addresses" },
+  { value: "valid", label: "Address OK" },
+  { value: "invalid", label: "Address missing" },
+];
+
 function toOptions(values: readonly string[]) {
   return values.map((value) => ({ value, label: value }));
 }
@@ -162,6 +174,17 @@ export function ProviderToolbar({
               className="w-[11rem] shrink-0"
               buttonClassName={FILTER_SELECT_BUTTON_CLASS}
               onValuesChange={(values) => onFilters({ ...filters, medicarePlans: values })}
+            />
+
+            <TaskSelect
+              value={filters.address}
+              options={ADDRESS_OPTIONS}
+              placeholder="All addresses"
+              className="w-[10.5rem] shrink-0"
+              buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+              onChange={(value) =>
+                onFilters({ ...filters, address: value as ProviderFilters["address"] })
+              }
             />
           </div>
 

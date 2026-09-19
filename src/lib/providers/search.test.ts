@@ -137,6 +137,26 @@ describe("applyProviderFilters", () => {
     ).toEqual(["b"]);
   });
 
+  it("lọc theo địa chỉ dùng được / không dùng được trong Finder", () => {
+    const list = [
+      row({ id: "ok", street: "7111 Harwin Dr", zip_code: "77036" }),
+      // Mục tổng hệ thống: không có số nhà nên Finder không tra cứu được.
+      row({ id: "umbrella", street: "Baptist's Locations", zip_code: "78xxx" }),
+      // Chuỗi nhà thuốc: cố ý không có địa chỉ, hệ quả vẫn là không tra cứu được.
+      row({ id: "chain", street: null, zip_code: null }),
+    ];
+    expect(
+      applyProviderFilters(list, { ...EMPTY_PROVIDER_FILTERS, address: "valid" }).map((r) => r.id)
+    ).toEqual(["ok"]);
+    expect(
+      applyProviderFilters(list, { ...EMPTY_PROVIDER_FILTERS, address: "invalid" }).map((r) => r.id)
+    ).toEqual(["umbrella", "chain"]);
+    // "" nghĩa là không ràng buộc, không phải "không khớp gì".
+    expect(
+      applyProviderFilters(list, { ...EMPTY_PROVIDER_FILTERS, address: "" })
+    ).toBe(list);
+  });
+
   it("lọc theo từng plan trong ô multiselect, và kết hợp ACA + Medicare bằng VÀ", () => {
     const planRows = [
       row({
