@@ -1,13 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Search, X } from "lucide-react";
+import { Search } from "lucide-react";
 import { TaskSelect } from "../../../tasks/_components/TaskSelect";
-import {
-  EMPTY_PROVIDER_FILTERS,
-  hasActiveProviderFilters,
-  type ProviderFilters,
-} from "@/lib/providers/search";
+import type { ProviderFilters } from "@/lib/providers/search";
 
 /**
  * Cùng chuỗi lớp mà TaskToolbar và LeadsClient đang dùng cho nút filter. Hằng
@@ -24,9 +20,9 @@ const FILTER_SELECT_BUTTON_CLASS =
  * "dùng được" lẫn "không dùng được" thì bằng không lọc gì.
  */
 const ADDRESS_OPTIONS = [
-  { value: "", label: "All addresses" },
-  { value: "valid", label: "Address OK" },
-  { value: "invalid", label: "Address missing" },
+  { value: "", label: "All" },
+  { value: "valid", label: "Has address" },
+  { value: "invalid", label: "No address" },
 ];
 
 function toOptions(values: readonly string[]) {
@@ -69,8 +65,6 @@ export function ProviderToolbar({
    */
   settingsSlot?: ReactNode;
 }) {
-  const active = hasActiveProviderFilters(filters) || query.trim() !== "";
-
   return (
     <section className="mt-2 flex min-w-0 flex-col gap-3">
       {/* Theo bố cục CS Tasks: view switcher đứng cố định bên trái search,
@@ -114,8 +108,10 @@ export function ProviderToolbar({
       </div>
 
       {view === "list" ? (
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {/* Một hàng duy nhất: chật thì cuộn ngang chứ không xuống hàng, để
+              chiều cao thanh lọc không nhảy khi thu hẹp cửa sổ. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
             <TaskSelect
               multi
               searchable
@@ -123,7 +119,7 @@ export function ProviderToolbar({
               options={toOptions(options.state)}
               placeholder="State"
               summaryLabel="states"
-              className="w-[7.5rem] shrink-0"
+              className="w-[6.5rem] shrink-0"
               buttonClassName={FILTER_SELECT_BUTTON_CLASS}
               onValuesChange={(values) => onFilters({ ...filters, state: values })}
             />
@@ -135,7 +131,7 @@ export function ProviderToolbar({
               options={toOptions(options.city)}
               placeholder="City"
               summaryLabel="cities"
-              className="w-[7.5rem] shrink-0"
+              className="w-[6.5rem] shrink-0"
               buttonClassName={FILTER_SELECT_BUTTON_CLASS}
               onValuesChange={(values) => onFilters({ ...filters, city: values })}
             />
@@ -147,7 +143,7 @@ export function ProviderToolbar({
               options={toOptions(options.specialty)}
               placeholder="Specialty"
               summaryLabel="specialties"
-              className="w-[9.5rem] shrink-0"
+              className="w-[8rem] shrink-0"
               buttonClassName={FILTER_SELECT_BUTTON_CLASS}
               onValuesChange={(values) => onFilters({ ...filters, specialty: values })}
             />
@@ -159,7 +155,7 @@ export function ProviderToolbar({
               options={toOptions(options.acaPlans)}
               placeholder="ACA plans"
               summaryLabel="plans"
-              className="w-[10rem] shrink-0"
+              className="w-[8.5rem] shrink-0"
               buttonClassName={FILTER_SELECT_BUTTON_CLASS}
               onValuesChange={(values) => onFilters({ ...filters, acaPlans: values })}
             />
@@ -171,7 +167,7 @@ export function ProviderToolbar({
               options={toOptions(options.medicarePlans)}
               placeholder="Medicare plans"
               summaryLabel="plans"
-              className="w-[11rem] shrink-0"
+              className="w-[9.5rem] shrink-0"
               buttonClassName={FILTER_SELECT_BUTTON_CLASS}
               onValuesChange={(values) => onFilters({ ...filters, medicarePlans: values })}
             />
@@ -179,8 +175,8 @@ export function ProviderToolbar({
             <TaskSelect
               value={filters.address}
               options={ADDRESS_OPTIONS}
-              placeholder="All addresses"
-              className="w-[10.5rem] shrink-0"
+              placeholder="Address"
+              className="w-[7.5rem] shrink-0"
               buttonClassName={FILTER_SELECT_BUTTON_CLASS}
               onChange={(value) =>
                 onFilters({ ...filters, address: value as ProviderFilters["address"] })
@@ -188,7 +184,7 @@ export function ProviderToolbar({
             />
           </div>
 
-          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-2">
             {settingsSlot ? <div className="shrink-0">{settingsSlot}</div> : null}
 
             <span
@@ -197,19 +193,6 @@ export function ProviderToolbar({
             >
               {resultCount} of {totalCount} providers
             </span>
-
-            {active ? (
-              <button
-                type="button"
-                onClick={() => {
-                  onQuery("");
-                  onFilters(EMPTY_PROVIDER_FILTERS);
-                }}
-                className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#dfe1e6] bg-white px-2.5 text-[13px] font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
-              >
-                <X className="h-3.5 w-3.5" /> Clear
-              </button>
-            ) : null}
           </div>
         </div>
       ) : null}

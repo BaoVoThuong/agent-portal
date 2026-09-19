@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Provider List: dồn bộ lọc về một hàng, bỏ nút Clear
+
+Hàng lọc bỏ `flex-wrap`, chuyển sang cuộn ngang khi chật — chiều cao thanh lọc
+không nhảy nữa khi thu hẹp cửa sổ. Thu nhỏ từng ô: tổng bề rộng 56rem -> 46,5rem.
+
+**Bỏ nút Clear.** Ghi lại vì đây là mất một thao tác người dùng từng có: muốn
+xoá bộ lọc thì nay chọn lại "All" ở từng ô. Kéo theo `active`,
+`EMPTY_PROVIDER_FILTERS` và icon `X` không còn ai dùng trong file này — đã dọn.
+
 ## 2026-09-19 — Provider List: bộ lọc địa chỉ dùng được / thiếu
 
 Thêm ô chọn `address` trên thanh lọc: All addresses / Address OK / Address
