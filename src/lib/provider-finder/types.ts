@@ -27,6 +27,11 @@ export type ProviderAddressRow = {
   zip_code: string | null;
   obamacare: string | null;
   medicare: string | null;
+  // Toạ độ đã geocode sẵn (xem `scripts/geocode-providers.mjs`). `null` với dòng
+  // Census không khớp và ZIP không đủ mốc để suy tâm — những dòng đó vẫn vào
+  // được danh sách ứng viên qua hạn ngạch riêng, xem `buildCandidates`.
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type Coordinates = {

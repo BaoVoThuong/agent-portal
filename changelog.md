@@ -6,6 +6,61 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Provider Finder: chọn ứng viên bằng khoảng cách thật thay vì so chuỗi
+
+**Vấn đề.** `buildCandidates` chọn 20 nhà gửi sang Maps bằng `scoreProvider`:
++50 trùng ZIP, +20 trùng thành phố, +10 trùng bang, so bằng `includes()` trên
+chuỗi địa chỉ khách nhập. Đo thật (khách Houston 77036, lọc UHC, 75 nhà khớp
+hợp đồng): 3 nhà được 80 điểm, 18 nhà được 30, **52 nhà chỉ được 10** — hệ
+thống không biết gì về vị trí của chúng. 20 suất bị 20 nhà đầu lấp kín nên 52
+nhà đó **không bao giờ được tính khoảng cách**. Hệ quả: phòng khám Bellaire
+cách 3 dặm bị loại, phòng khám "cùng Houston" cách 30 dặm chắc chắn lọt.
+
+**Sửa.** `provider_directory` có thêm `latitude`/`longitude`/`geocode_source`/
+`geocoded_at`/`geocode_key` (rollout `2026-09-19-provider-geocode-columns.sql`),
+backfill bằng US Census Geocoder qua `scripts/geocode-providers.mjs`. Khi định
+vị được khách, 20 suất chọn theo khoảng cách Haversine thật.
+
+**Vị trí khách suy từ ZIP, không geocode địa chỉ khách.** `customerOriginFromZip`
+lấy trung bình toạ độ các phòng khám cùng ZIP với khách, từ dữ liệu đã nạp sẵn
+trong bộ nhớ. Địa chỉ khách là dữ liệu khách hàng, không gửi sang máy chủ bên
+thứ ba nào để geocode; Maps vẫn nhận nó như trước để tính quãng đường lái xe,
+và quãng đường hiển thị vẫn là con số của Maps chứ không phải Haversine.
+
+**Hạn ngạch `noCoordinateQuota = 3`.** Đây là phần dễ bỏ sót nhất: nếu chỉ xếp
+nhà không toạ độ ra sau nhóm có toạ độ thì nhóm có toạ độ lấp kín 20 suất trước
+khi chạm tới dòng đầu tiên của nhóm kia, và ~29 dòng không geocode được sẽ biến
+mất khỏi mọi kết quả — mất đúng lúc quan trọng nhất, là khi khách ở cùng ZIP với
+chúng (hôm nay chúng lọt được chính vì lý do đó). 20 suất = 17 gần nhất + 3 suất
+dành riêng, chọn bằng điểm chuỗi cũ. Suất không dùng đến trả lại cho nhóm khoảng
+cách nên khi mọi dòng đã có toạ độ thì hằng số này không lấy đi của ai cái gì.
+
+Vì sao ~29 dòng đó không lấp được: 69/143 ZIP chỉ có đúng 1 nhà, nên nhà đó
+Census trượt là không có anh em nào để suy tâm ZIP. Đã thử geocode ZIP đơn lẻ và
+thành phố đơn lẻ (`"77036"`, `"Houston, TX"`) — Census trả 0 match, nó chỉ khớp
+địa chỉ có số nhà.
+
+**Phá thế hoà bằng điểm chuỗi, không bằng `source_row_number`.** Tối đa 13 nhà
+trong cùng một ZIP dùng chung toạ độ tâm ZIP nên khoảng cách bằng nhau tuyệt
+đối; phá hoà bằng số dòng cố định thì luôn là đúng mấy nhà cuối thua, mọi lần
+tìm.
+
+**Lọc địa chỉ dùng `isProviderAddressUsable` thay cho "chuỗi địa chỉ không
+rỗng".** Loại 23 dòng không có số nhà ("Baptist's Locations") và dòng ZIP bị che
+("78xxx"). Trước đây chúng vẫn chiếm một suất trong 20 rồi trả về ô Distance
+trống. Đây cũng là đúng hàm đang tô nền cảnh báo trên bảng Provider List — người
+dùng thấy dòng tô cam "địa chỉ không dùng được" mà Finder vẫn gửi nó sang Maps
+là hai màn hình nói hai chuyện khác nhau về cùng một dòng.
+
+**Sửa địa chỉ thì xoá toạ độ cũ.** `buildProviderPatch` hễ thấy
+`street`/`city`/`state`/`zip_code` trong patch thì set cả năm cột geocode về
+`null`. Không có bước này thì giữa hai lần chạy script backfill, Finder tính
+khoảng cách tới ĐỊA CHỈ CŨ và không có gì trên màn hình nói ra điều đó. Dòng bị
+xoá toạ độ rơi về nhóm hạn ngạch nên vẫn vào được kết quả.
+
+Backfill chạy TAY sau mỗi đợt nhập liệu lớn, cố ý không dựng cron: bảng này sửa
+tay vài dòng mỗi tuần.
+
 ## 2026-09-19 — Provider: bật Reviewed tự ghi người soát + ngày soát; hai form dùng chung một thân
 
 **Logic mới.** Bật ô `Reviewed` trong form provider giờ vá luôn hai ô khác:

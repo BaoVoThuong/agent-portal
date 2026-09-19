@@ -8,6 +8,24 @@ import { isProviderSpecialtyField, parseSpecialtyCell, serializeSpecialtyCell } 
 
 const MAX_TEXT_LENGTH = 500;
 
+/**
+ * Sửa một trong bốn ô này là toạ độ đã geocode không còn trỏ đúng chỗ nữa.
+ *
+ * Xoá ngay thay vì chờ lần backfill kế tiếp: giữa hai lần chạy script, Finder
+ * sẽ tính khoảng cách tới ĐỊA CHỈ CŨ và không có gì trên màn hình nói ra điều
+ * đó. Xoá đi thì dòng đó rơi về nhóm "chưa có toạ độ" — vẫn vào được danh sách
+ * ứng viên qua hạn ngạch riêng, chỉ là xếp bằng điểm chuỗi cho tới khi có người
+ * chạy lại `scripts/geocode-providers.mjs`.
+ */
+const ADDRESS_KEYS = ["street", "city", "state", "zip_code"] as const;
+const GEOCODE_KEYS = [
+  "latitude",
+  "longitude",
+  "geocode_source",
+  "geocoded_at",
+  "geocode_key",
+] as const;
+
 export type ProviderPatchResult =
   | {
       ok: true;
@@ -91,5 +109,10 @@ export function buildProviderPatch(body: unknown): ProviderPatchResult {
   if (Object.keys(patch).length === 0 && customValues === null) {
     return { ok: false, error: "Nothing to update." };
   }
+
+  if (ADDRESS_KEYS.some((key) => key in patch)) {
+    for (const key of GEOCODE_KEYS) patch[key] = null;
+  }
+
   return { ok: true, patch, customValues };
 }

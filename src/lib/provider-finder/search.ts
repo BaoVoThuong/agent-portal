@@ -2,7 +2,14 @@
 // dựng kết quả. Tách nguyên văn từ route handler (behavior + payload không đổi).
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PROVIDER_TABLE } from "@/lib/providers/types";
+import { isProviderAddressUsable } from "@/lib/providers/address";
 import { parseSpecialtyCell } from "@/lib/providers/specialties";
+import {
+  customerOriginFromZip,
+  haversineMiles,
+  providerPoint,
+  type GeoPoint,
+} from "./distance";
 import { getMapsService, isMapsProviderConfigError } from "./maps-service";
 import type {
   Candidate,
@@ -20,6 +27,20 @@ const maxResults = 10;
 // driving distance. Keep the cap finite so one search does not fan out to the
 // whole directory or multiply Maps cost without a bound.
 export const routeCandidateCap = 20;
+/**
+ * Số suất trong `routeCandidateCap` dành riêng cho nhà CHƯA có toạ độ.
+ *
+ * Không có hạn ngạch này thì nhóm có toạ độ lấp kín 20 suất trước khi chạm tới
+ * dòng đầu tiên của nhóm kia — đo thật: Houston 77036 + UHC có 75 nhà khớp hợp
+ * đồng, khoảng 70 nhà có toạ độ. Khoảng 29 dòng trong bảng không geocode được
+ * (Census trượt và ZIP của chúng chỉ có đúng một nhà, nên không suy ra tâm), và
+ * chúng sẽ biến mất khỏi mọi kết quả tìm kiếm — mất đúng vào lúc quan trọng
+ * nhất, là khi khách ở cùng ZIP với chúng.
+ *
+ * Suất không dùng đến được trả lại cho nhóm khoảng cách, nên khi mọi dòng đã có
+ * toạ độ thì hằng số này không lấy đi của ai cái gì.
+ */
+export const noCoordinateQuota = 3;
 const pageSize = 1000;
 const milesPerMeter = 0.000621371;
 
@@ -137,6 +158,8 @@ async function fetchProviderRows() {
           "zip_code",
           "obamacare",
           "medicare",
+          "latitude",
+          "longitude",
         ].join(", ")
       )
       // Phân trang phải bám một cột KHÔNG rỗng và duy nhất. `source_row_number`
@@ -160,14 +183,23 @@ export function buildCandidates(
   input: SearchRequest,
   insuranceType: InsuranceType,
   hasAddress: boolean,
-  logs: string[]
+  logs: string[],
+  /**
+   * Vị trí ước lượng của khách. `null` = không định vị được, khi đó hàm này rơi
+   * về nguyên cách chấm điểm chuỗi cũ.
+   */
+  origin: GeoPoint | null = null
 ) {
   const specialty = normalize(input.specialty);
   const contract = normalize(input.contract ?? input.carrier);
   const inputAddressLower = normalize(buildInputAddress(input));
 
-  const withAddress = rows.filter((row) => buildProviderAddress(row));
-  const specialtyMatched = withAddress.filter((row) => {
+  // Cùng một luật với cột cảnh báo trên bảng Provider List: địa chỉ không có số
+  // nhà thì dịch vụ bản đồ không tìm ra chỗ. Trước đây chỉ cần chuỗi địa chỉ
+  // không rỗng, nên dòng kiểu "Baptist's Locations, Houston, TX" vẫn chiếm một
+  // suất trong 20 rồi trả về ô Distance trống.
+  const withUsableAddress = rows.filter((row) => isProviderAddressUsable(row));
+  const specialtyMatched = withUsableAddress.filter((row) => {
     if (!specialty) return true;
     return parseSpecialtyCell(row.practices_as).some(
       (value) => normalize(value) === specialty
@@ -187,16 +219,62 @@ export function buildCandidates(
     score: scoreProvider(row, inputAddressLower),
   }));
 
-  if (hasAddress) {
-    candidates.sort(
-      (a, b) =>
-        b.score - a.score ||
-        (a.row.source_row_number ?? Number.MAX_SAFE_INTEGER) -
-          (b.row.source_row_number ?? Number.MAX_SAFE_INTEGER)
+  if (!hasAddress) return candidates.slice(0, routeCandidateCap);
+
+  // Thứ tự dự phòng, dùng khi không có toạ độ để so: điểm chuỗi rồi tới số dòng
+  // cho ổn định giữa các lần chạy.
+  const byScore = (a: Candidate, b: Candidate) =>
+    b.score - a.score ||
+    (a.row.source_row_number ?? Number.MAX_SAFE_INTEGER) -
+      (b.row.source_row_number ?? Number.MAX_SAFE_INTEGER);
+
+  if (!origin) {
+    candidates.sort(byScore);
+    logs.push("candidate ranking: string score (customer location unknown)");
+    return candidates.slice(0, routeCandidateCap);
+  }
+
+  const located: Candidate[] = [];
+  const unlocated: Candidate[] = [];
+  const milesByRow = new Map<ProviderAddressRow, number>();
+  for (const candidate of candidates) {
+    const point = providerPoint(candidate.row);
+    if (point) {
+      milesByRow.set(candidate.row, haversineMiles(origin, point));
+      located.push(candidate);
+    } else {
+      unlocated.push(candidate);
+    }
+  }
+
+  located.sort(
+    (a, b) =>
+      // Tối đa 13 nhà cùng một ZIP dùng chung toạ độ tâm ZIP nên hoà tuyệt đối
+      // là chuyện thường. Phá hoà bằng điểm chuỗi chứ không bằng số dòng: số
+      // dòng cố định thì luôn đúng mấy nhà cuối thua, mọi lần tìm.
+      (milesByRow.get(a.row) ?? Infinity) - (milesByRow.get(b.row) ?? Infinity) ||
+      byScore(a, b)
+  );
+  unlocated.sort(byScore);
+
+  // Hạn ngạch chỉ giữ chỗ cho số nhà thật sự thiếu toạ độ; phần thừa trả lại
+  // cho nhóm khoảng cách.
+  const reserved = Math.min(noCoordinateQuota, unlocated.length);
+  const picked = located.slice(0, Math.max(0, routeCandidateCap - reserved));
+  const rest = unlocated.slice(0, routeCandidateCap - picked.length);
+  const selected = [...picked, ...rest];
+  // Nhóm thiếu toạ độ không lấp hết phần còn lại (ví dụ chỉ có 1 nhà mà còn 3
+  // suất) thì lấy tiếp nhà gần nhất chưa dùng.
+  if (selected.length < routeCandidateCap) {
+    selected.push(
+      ...located.slice(picked.length, picked.length + (routeCandidateCap - selected.length))
     );
   }
 
-  return candidates.slice(0, routeCandidateCap);
+  logs.push(
+    `candidate ranking: distance (located ${located.length}, unlocated ${unlocated.length}, reserved ${reserved})`
+  );
+  return selected;
 }
 
 function toMapCandidates(candidates: Candidate[]) {
@@ -279,12 +357,18 @@ export async function runProviderSearch(
     logs.push(`db query: ${dbTotal}ms; rows loaded: ${rows.length}`);
 
     const candidateStartedAt = Date.now();
+    // Vị trí khách suy từ ZIP, KHÔNG gửi địa chỉ khách đi đâu để geocode. Bước
+    // này chỉ chọn 20 ứng viên; quãng đường thật vẫn do Maps tính, và Maps vốn
+    // đã nhận địa chỉ đó rồi.
+    const customerOrigin = customerOriginFromZip(rows, input.zipcode ?? "");
+    logs.push(`customer origin: ${customerOrigin ? "zip centroid" : "unknown"}`);
     const candidates = buildCandidates(
       rows,
       input,
       insuranceType,
       hasAddress,
-      logs
+      logs,
+      customerOrigin
     );
     const candidateTotal = Date.now() - candidateStartedAt;
     logs.push(`candidate filter: ${candidateTotal}ms`);

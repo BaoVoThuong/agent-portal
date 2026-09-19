@@ -100,3 +100,42 @@ describe("buildProviderPatch", () => {
     expect(buildProviderPatch({})).toEqual({ ok: false, error: "Nothing to update." });
   });
 });
+
+describe("sửa địa chỉ thì xoá toạ độ cũ", () => {
+  // Không xoá thì Finder vẫn tính khoảng cách tới CHỖ CŨ cho tới lần backfill
+  // kế tiếp — sai một cách im lặng, và sai đúng ở thứ người dùng tin nhất.
+  it("đổi street/city/state/zip đều dọn sạch nhóm cột geocode", () => {
+    for (const key of ["street", "city", "state", "zip_code"]) {
+      const result = buildProviderPatch({ [key]: "gia tri moi" });
+      expect(result.ok, key).toBe(true);
+      if (!result.ok) continue;
+      expect(result.patch.latitude, key).toBeNull();
+      expect(result.patch.longitude, key).toBeNull();
+      expect(result.patch.geocode_source, key).toBeNull();
+      expect(result.patch.geocoded_at, key).toBeNull();
+      expect(result.patch.geocode_key, key).toBeNull();
+    }
+  });
+
+  it("xoá địa chỉ (gửi null) cũng phải xoá toạ độ", () => {
+    const result = buildProviderPatch({ street: null });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.patch.latitude).toBeNull();
+  });
+
+  it("sửa ô không liên quan thì KHÔNG đụng tới toạ độ", () => {
+    const result = buildProviderPatch({ phone: "713-555-0123" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect("latitude" in result.patch).toBe(false);
+    expect("geocode_key" in result.patch).toBe(false);
+  });
+
+  it("vẫn không cho gửi thẳng toạ độ từ ngoài vào", () => {
+    expect(buildProviderPatch({ latitude: 29.7 })).toEqual({
+      ok: false,
+      error: "latitude cannot be edited here.",
+    });
+  });
+});

@@ -134,7 +134,11 @@ async function main() {
   const centroids = zipAverages(rows);
   let filled = 0;
   for (const row of workable) {
-    if (row.latitude != null && row.longitude != null) continue;
+    // Dòng đã lấp bằng tâm ZIP thì tính LẠI: mỗi lượt chạy sau thường có thêm
+    // vài nhà cùng ZIP khớp được, và tâm mới sát hơn tâm cũ. Chỉ là một phép
+    // tính trong bộ nhớ, không tốn lượt gọi API nào.
+    const isEstimate = row.geocode_source === "zip_avg";
+    if (!isEstimate && row.latitude != null && row.longitude != null) continue;
     const centroid = centroids.get(String(row.zip_code ?? "").trim());
     if (!centroid) continue;
     filled += 1;
@@ -160,9 +164,11 @@ async function main() {
   console.log(`  lấp bằng tâm ZIP     : ${zipAvg}  (lần này: ${filled})`);
   console.log(`  KHÔNG có toạ độ      : ${rows.length - withCoords.length}`);
   console.log(`  độ phủ               : ${share}%`);
-  if (Number(share) < 70) {
-    console.log("\n⚠ Dưới 70%. Theo plan thì DỪNG ở đây và báo lại: lọc theo");
-    console.log("  khoảng cách sẽ bỏ sót quá nhiều, Task 3 lợi bất cập hại.");
+  if (LIMIT !== Infinity) {
+    console.log("\n(đang giới hạn --limit nên độ phủ chưa phản ánh cả bảng)");
+  } else if (Number(share) < 70) {
+    console.log("\n⚠ Dưới 70%: lọc theo khoảng cách sẽ bỏ sót quá nhiều.");
+    console.log("  Dừng lại và xem vì sao Census trượt trước khi dùng số này.");
   }
   if (!WRITE) console.log("\n(thử khan — chưa ghi gì vào database)");
 }
