@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Map as MapIcon, Search } from "lucide-react";
 import { ProviderFinderMap } from "./ProviderFinderMap";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 import { PROVIDER_SPECIALTY_OPTIONS } from "@/lib/providers/specialties";
@@ -297,16 +298,27 @@ export default function ProviderFinderClient({
 
   useBodyScrollLock(mapSelection !== null);
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <form
         onSubmit={handleSubmit}
         autoComplete="off"
-        className="relative z-20 min-w-0 overflow-visible rounded-lg border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
+        className="relative z-20 min-w-0 overflow-visible rounded-xl border border-[#dfe1e6] bg-white shadow-[0_2px_8px_rgba(9,30,66,0.08)]"
       >
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-[#ebecf0] px-5 py-4">
-          <h2 className="text-lg font-semibold text-[#172b4d]">Search Criteria</h2>
-          <div className="flex items-center gap-3">
-            <p className="text-sm font-medium text-[#6b778c]">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-[#ebecf0] bg-[#fbfcfe] px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e9f2ff] text-[#0c66e4]">
+              <Search className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold text-[#172b4d]">Find nearby providers</h2>
+              <p className="truncate text-xs text-[#7a869a]">Search by address, carrier, or specialty</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden rounded-full bg-[#f2f4f7] px-2.5 py-1 text-[11px] font-semibold text-[#667085] sm:inline-flex">
+              {isRunning ? "Searching" : results.length ? `${results.length} found` : "Ready"}
+            </span>
+            <p className="sr-only">
               {results.length
                 ? `${results.length} provider(s)`
                 : "Ready to search"}
@@ -314,14 +326,14 @@ export default function ProviderFinderClient({
             <button
               type="submit"
               disabled={!canRun || isRunning}
-              className="h-9 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:bg-[#b8c4d4]"
+              className="h-9 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-[0_2px_5px_rgba(9,30,66,0.16)] transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:bg-[#b8c4d4] disabled:shadow-none"
             >
               {isRunning ? "Running..." : "Run"}
             </button>
           </div>
         </div>
 
-        <div className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 overflow-visible px-5 py-4 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-3 overflow-visible px-4 py-4 sm:grid-cols-2 xl:grid-cols-6">
           <label className="min-w-0">
             <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
               Street
@@ -333,7 +345,8 @@ export default function ProviderFinderClient({
               spellCheck={false}
               value={form.street}
               onChange={(event) => updateField("street", event.target.value)}
-              className="h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
+              placeholder="Street address"
+              className="h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#98a2b3] hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
             />
           </label>
 
@@ -363,7 +376,8 @@ export default function ProviderFinderClient({
               spellCheck={false}
               value={form.zipcode}
               onChange={(event) => updateField("zipcode", event.target.value)}
-              className="h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
+              placeholder="ZIP code"
+              className="h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#98a2b3] hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
               inputMode="numeric"
             />
           </label>
@@ -387,22 +401,33 @@ export default function ProviderFinderClient({
       </form>
 
       <section className="space-y-4">
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebecf0] px-5 py-4">
-            <h2 className="text-lg font-semibold text-[#172b4d]">Top 10 Providers</h2>
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#dfe1e6] bg-white shadow-[0_2px_8px_rgba(9,30,66,0.08)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebecf0] px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#e9f2ff] text-[#0c66e4]">
+                <MapIcon className="h-4 w-4" />
+              </span>
+              <div>
+                <h2 className="text-sm font-bold text-[#172b4d]">Nearby providers</h2>
+                <p className="text-xs text-[#7a869a]">
+                  {results.length ? `Showing the closest ${Math.min(results.length, 10)}` : "Run a search to see matches"}
+                </p>
+              </div>
+            </div>
             <button
               type="button"
               disabled={results.length === 0}
               onClick={() => setMapSelection("all")}
-              className="h-9 rounded-lg border border-[#dfe1e6] bg-white px-4 text-sm font-bold text-[#0055cc] transition hover:bg-[#f7f8f9] disabled:cursor-not-allowed disabled:text-[#98a2b3]"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#b3d4ff] bg-[#f7fbff] px-3 text-sm font-bold text-[#0055cc] transition hover:bg-[#e9f2ff] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-white disabled:text-[#98a2b3]"
             >
+              <MapIcon className="h-4 w-4" />
               Map all
             </button>
           </div>
 
           <div className="overflow-x-auto">
             <table
-              className="table-fixed border-collapse text-left text-[13px] leading-5 [&_td]:border-b [&_td]:border-[#ebecf0] [&_td+td]:border-l [&_td+td]:border-[#ebecf0] [&_th]:border-b [&_th]:border-[#dfe1e6] [&_th+th]:border-l [&_th+th]:border-[#dfe1e6]"
+              className="table-fixed border-collapse text-left text-sm leading-5 [&_td]:border-b [&_td]:border-[#ebecf0] [&_td+td]:border-l [&_td+td]:border-[#ebecf0] [&_th]:border-b [&_th]:border-[#dfe1e6] [&_th+th]:border-l [&_th+th]:border-[#dfe1e6]"
               style={{ width: `${nearbyTableWidth}px`, minWidth: "100%" }}
             >
               <colgroup>
@@ -410,100 +435,103 @@ export default function ProviderFinderClient({
                   <col key={key} style={{ width: `${columnWidths[key]}px` }} />
                 ))}
               </colgroup>
-              <thead className="bg-[#fafbfc] text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
+              <thead className="sticky top-0 z-10 bg-[#fafbfc] text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
                 <tr>
-                  <th className="relative px-2 py-3">
+                  <th className="relative px-3 py-2.5">
                     <span className="sr-only">Map</span>
                     {renderResizeHandle("map", "Map")}
                   </th>
-                  <th className="relative px-2 py-3 text-right">
+                  <th className="relative px-3 py-2.5 text-right">
                     Distance
                     {renderResizeHandle("distance", "Distance")}
                   </th>
-                  <th className="relative px-3 py-3">
+                  <th className="relative px-3.5 py-2.5">
                     Name
                     {renderResizeHandle("name", "Name")}
                   </th>
-                  <th className="relative px-3 py-3">
+                  <th className="relative px-3.5 py-2.5">
                     Specialty
                     {renderResizeHandle("specialty", "Specialty")}
                   </th>
-                  <th className="relative px-3 py-3">
+                  <th className="relative px-3.5 py-2.5">
                     NPI
                     {renderResizeHandle("npi", "NPI")}
                   </th>
-                  <th className="relative px-3 py-3">
+                  <th className="relative px-3.5 py-2.5">
                     Street
                     {renderResizeHandle("street", "Street")}
                   </th>
-                  <th className="relative px-3 py-3">
+                  <th className="relative px-3.5 py-2.5">
                     City
                     {renderResizeHandle("city", "City")}
                   </th>
-                  <th className="relative px-3 py-3">
+                  <th className="relative px-3.5 py-2.5">
                     Phone
                     {renderResizeHandle("phone", "Phone")}
                   </th>
                   {visibleInsuranceColumns.map((column) => (
-                    <th key={column.key} className="relative px-3 py-3">
+                    <th key={column.key} className="relative px-3.5 py-2.5">
                       {column.label}
                       {renderResizeHandle(column.key, column.label)}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="text-[#16233a]">
+              <tbody className="text-[#42526e]">
                 {results.length === 0 ? (
                   <tr>
-                      <td
-                        colSpan={tableColumnCount}
-                      className="px-4 py-12 text-center text-sm font-semibold text-[#6b778c]"
-                    >
-                      Results will appear here after the provider search runs.
+                    <td colSpan={tableColumnCount} className="px-4 py-12 text-center">
+                      <div className="mx-auto flex max-w-sm flex-col items-center gap-2">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f2f4f7] text-[#7a869a]">
+                          <Search className="h-5 w-5" />
+                        </span>
+                        <p className="text-sm font-bold text-[#42526e]">Search for nearby providers</p>
+                        <p className="text-xs text-[#98a2b3]">Enter a street, city, ZIP code, carrier, or specialty above.</p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
                   results.map((provider, index) => (
                     <tr
                       key={`${provider.npi}-${index}`}
-                      className={`transition hover:bg-[#f7f8f9] ${
+                      className={`min-h-14 transition hover:bg-[#f7f8f9] ${
                         mapSelection === index ? "bg-[#edf6ff]" : "bg-white"
                       }`}
                     >
-                      <td className="px-2 py-2.5 text-center align-middle">
+                      <td className="px-3 py-3 text-center align-middle">
                         <button
                           type="button"
                           onClick={() => setMapSelection(index)}
-                          className="h-7 rounded-lg border border-[#b3d4ff] bg-[#deebff] px-2 text-xs font-bold text-[#0055cc] transition hover:bg-[#cce0ff]"
+                          className="h-8 rounded-md border border-[#b3d4ff] bg-[#deebff] px-2.5 text-xs font-bold text-[#0055cc] transition hover:bg-[#cce0ff]"
                         >
                           Map
                         </button>
                       </td>
-                      <td className="whitespace-nowrap px-2 py-2.5 text-right align-middle font-semibold text-[#172b4d]">
+                      <td className="whitespace-nowrap px-3 py-3 text-right align-middle font-semibold text-[#172b4d]">
                         {formatDistance(provider.distanceMiles)}
                       </td>
-                      <td className="break-words px-3 py-2.5 align-middle font-semibold text-[#172b4d]">
+                      <td className="break-words px-3.5 py-3 align-middle font-semibold text-[#172b4d]">
                         {provider.name || "-"}
                       </td>
-                      <td className="break-words px-3 py-2.5 align-middle font-medium text-[#42526e]">
+                      <td className="break-words px-3.5 py-3 align-middle font-medium text-[#42526e]">
                         {provider.specialty || "-"}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 align-middle font-medium text-[#42526e]">
+                      <td className="whitespace-nowrap px-3.5 py-3 align-middle font-medium text-[#42526e]">
                         {provider.npi}
                       </td>
-                      <td className="break-words px-3 py-2.5 align-middle font-medium text-[#42526e]">
+                      <td className="break-words px-3.5 py-3 align-middle font-medium text-[#42526e]">
                         {provider.street || "-"}
                       </td>
-                      <td className="break-words px-3 py-2.5 align-middle font-medium text-[#42526e]">
+                      <td className="break-words px-3.5 py-3 align-middle font-medium text-[#42526e]">
                         {provider.city || "-"}
                       </td>
-                      <td className="break-words px-3 py-2.5 align-middle font-medium text-[#42526e]">
+                      <td className="break-words px-3.5 py-3 align-middle font-medium text-[#42526e]">
                         {provider.phone || "-"}
                       </td>
                       {visibleInsuranceColumns.map((column) => (
                         <td
                           key={column.key}
-                          className="px-3 py-2.5 align-middle"
+                          className="px-3.5 py-3 align-middle"
                         >
                           <div className="flex min-w-0 flex-wrap gap-1">
                             {splitPlans(provider[column.key]).length === 0 ? (
@@ -684,6 +712,7 @@ function SuggestionInput({
           autoCorrect="off"
           spellCheck={false}
           value={value}
+          placeholder={label}
           onChange={(event) => {
             updateValue(event.target.value);
             setIsOpen(true);
@@ -765,7 +794,7 @@ function SuggestionInput({
                   aria-selected={isSelected}
                   onMouseEnter={() => setActiveIndex(index)}
                   onClick={() => selectOption(option)}
-                    className={`flex min-h-9 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition ${
+                  className={`flex min-h-9 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition ${
                     isSelected
                       ? "bg-[#edf6ff] font-semibold text-[#245a94]"
                       : isActive

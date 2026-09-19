@@ -12,7 +12,8 @@ import { authConfig } from "@/auth.config";
  * Nó chỉ chặn người CHƯA ĐĂNG NHẬP. Quyền theo từng màn vẫn do
  * `requirePermission` / `requireAnyPermission` trong page và route gác.
  */
-export const { auth: proxy } = NextAuth(authConfig);
+const { auth } = NextAuth(authConfig);
+export const proxy = auth;
 
 export const config = {
   matcher: [

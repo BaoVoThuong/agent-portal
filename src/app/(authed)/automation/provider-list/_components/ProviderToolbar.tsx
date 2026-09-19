@@ -21,8 +21,8 @@ const FILTER_SELECT_BUTTON_CLASS =
  */
 const ADDRESS_OPTIONS = [
   { value: "", label: "All" },
-  { value: "valid", label: "Valid Address" },
-  { value: "invalid", label: "Invalid Address" },
+  { value: "valid", label: "Valid" },
+  { value: "invalid", label: "Invalid" },
 ];
 
 function toOptions(values: readonly string[]) {
@@ -109,9 +109,9 @@ export function ProviderToolbar({
 
       {view === "list" ? (
         <div className="flex min-w-0 items-center gap-2">
-          {/* Một hàng duy nhất: chật thì cuộn ngang chứ không xuống hàng, để
-              chiều cao thanh lọc không nhảy khi thu hẹp cửa sổ. */}
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+          {/* Một hàng duy nhất: các ô được thu gọn để thanh lọc không nhảy
+              chiều cao và không làm rơi Address xuống dòng. */}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <TaskSelect
               multi
               searchable
@@ -176,7 +176,7 @@ export function ProviderToolbar({
               value={filters.address}
               options={ADDRESS_OPTIONS}
               placeholder="Address"
-              className="w-[11rem] shrink-0"
+              className="w-[7.5rem] shrink-0"
               buttonClassName={FILTER_SELECT_BUTTON_CLASS}
               onChange={(value) =>
                 onFilters({ ...filters, address: value as ProviderFilters["address"] })
