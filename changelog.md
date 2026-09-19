@@ -6,6 +6,54 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Enrollment: Import Excel cho ACA / Medicare / Medicaid
+
+Export đã có sẵn; nay thêm **cột `ID` đứng đầu file** để vòng Xuất → sửa trong
+Excel → Nhập lại thành CẬP NHẬT thay vì tạo thêm bản ghi trùng.
+
+**Import khớp cột theo tên, không có bước map** — cùng luật với Provider List.
+Khác chỗ khó hơn: bảng này lưu **id** cho Stage/Carrier/Payment… và **email**
+cho Agent/Caller/Responsible, trong khi file xuất ra ghi **nhãn** và **tên
+người**. Nên đọc file xong còn phải dịch ngược, và **dịch không ra thì BỎ DÒNG**
+chứ không ghi null đè lên giá trị đang đúng — gõ sai chính tả một nhãn mà xoá
+mất Stage của hồ sơ là hỏng dữ liệu một cách im lặng.
+
+Kiểm trên file xuất thật của ACA: **18/18 tiêu đề khớp, 34/34 dòng đọc lại
+được, 0 dòng bị bỏ**, nhãn đã dịch đúng về id và tên người về email.
+
+**Tên trùng nhau thì bỏ dòng, không chọn bừa.** Gán nhầm hồ sơ cho đồng nghiệp
+trùng tên là lỗi không ai phát hiện cho tới khi có người đi hỏi vì sao mình có
+hồ sơ lạ.
+
+**Cột không nhận giá trị từ file:** `Key` (số hiệu do database sinh), `QC` (chỉ
+tick được ở stage có `triggers_qc`, nhập từ file chỉ tạo một loạt lỗi khó hiểu)
+và nhóm Created/Last edited (lịch sử, một file Excel không được viết lại).
+
+**Cột tuỳ chỉnh ép về đúng kiểu.** Cột `number` nhận số chứ không nhận chuỗi —
+bỏ bước này là API trả "Invalid custom value", đúng lỗi gặp khi thử nhập thật
+lần đầu. Dropdown/multiselect tuỳ chỉnh cũng dịch nhãn sang id lựa chọn.
+
+Ngày nhận cả ba kiểu Excel trả về: chuỗi ISO, chuỗi kiểu Mỹ, và **số sê-ri**
+(`46118`). API chỉ nhận `YYYY-MM-DD` nên phải quy về trước khi gửi.
+
+Hai khác biệt CÓ Ý so với tạo/sửa từng hồ sơ trên màn hình:
+
+- **Chỉ manager nhập được.** Sửa hàng loạt là thao tác cấp quản trị, và kiểm
+  phạm vi theo từng agent cho vài trăm dòng thì vừa chậm vừa dễ lọt.
+- **Không bắn thông báo cho từng dòng.** Một file 300 dòng mà mỗi dòng gửi một
+  thông báo "hồ sơ mới được giao" là làm ngập hộp thông báo của cả đội vì một
+  lần nạp dữ liệu. Cuối lượt phát MỘT tín hiệu realtime để bảng đang mở tự nạp
+  lại.
+
+Dòng thêm mới không khai Stage thì rơi về stage đầu quy trình, giống hệt màn
+hình tạo hồ sơ — để null thì hồ sơ vừa nhập không xuất hiện ở cột stage nào.
+
+Mọi luật kiểm tra vẫn là luật cũ: `assertEnrollmentOptionSet`,
+`parseEnrollmentDate`, `validateCustomValues`, `findMissingRequiredFieldsFromContext`,
+`validateEnrollmentOwnership`, `sanitizeEnrollmentPatchForProgram`. Trần an
+toàn 1.000 dòng, thấp hơn Provider List vì mỗi dòng ở đây tốn nhiều lượt kiểm
+hơn hẳn.
+
 ## 2026-09-19 — Provider List: Export/Import Excel, khớp cột theo tên nên không có bước map
 
 **Export** (`POST /api/automation/provider-list/export`) xuất `.xlsx` đúng những

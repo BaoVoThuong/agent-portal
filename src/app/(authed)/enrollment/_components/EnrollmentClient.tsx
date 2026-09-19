@@ -24,6 +24,7 @@ import {
   Plus,
   Search,
   Settings2,
+  Upload,
   UserPlus,
   X,
 } from "lucide-react";
@@ -115,6 +116,7 @@ import {
 } from "@/lib/enrollment/column-visibility";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName, personLabel } from "@/lib/tasks/people";
+import { EnrollmentImportDialog } from "./EnrollmentImportDialog";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import {
   resolveLayout,
@@ -693,6 +695,7 @@ export function EnrollmentClient({
 }) {
   const [records, setRecords] = useState(initialRecords);
   const [options, setOptions] = useState(initialOptions);
+  const [importOpen, setImportOpen] = useState(false);
   const [view, setView] = useState<"list" | "overview">("list");
   // Keep the client-side view fail-closed as well as the API. Enrollment
   // overview is manager-only, matching the CS board's hidden Overview tab.
@@ -1719,6 +1722,18 @@ export function EnrollmentClient({
               {canExport ? (
                 <EnrollmentExportMenu onExport={exportVisibleRecords} />
               ) : null}
+              {/* Cùng điều kiện với API: nhập hàng loạt là thao tác cấp quản
+                  trị, nên nút chỉ hiện với manager. */}
+              {canManageOptions ? (
+                <button
+                  type="button"
+                  onClick={() => setImportOpen(true)}
+                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
+                >
+                  <Upload className="h-4 w-4" />
+                  Import
+                </button>
+              ) : null}
               {canCreateRecords ? (
                 <button
                   type="button"
@@ -1731,6 +1746,21 @@ export function EnrollmentClient({
               ) : null}
             </div>
           </header>
+
+          <EnrollmentImportDialog
+            key={importOpen ? "enrollment-import-open" : "enrollment-import-closed"}
+            open={importOpen}
+            program={program}
+            // TableColumn thật, không phải EnrollmentColumn của màn hình:
+            // tiêu đề file xuất ra lấy từ `fetchTableColumns(program)` ở server,
+            // nên bên nhập phải khớp đúng bộ nhãn đó.
+            columns={layoutTableColumns}
+            options={options}
+            columnOptions={tableColumnOptions}
+            people={people}
+            onClose={() => setImportOpen(false)}
+            onImported={() => void refetch()}
+          />
 
           <EnrollmentToolbar
             program={program}

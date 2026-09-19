@@ -25,6 +25,7 @@ import { formatCustomValue } from "@/lib/table-config/values";
 import type { TableColumn } from "@/lib/table-config/types";
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
 import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
+import { ENROLLMENT_IMPORT_ID_HEADER } from "@/lib/enrollment/import";
 
 export const dynamic = "force-dynamic";
 
@@ -137,7 +138,12 @@ async function exportEnrollment({
         names: personByEmail,
       })
   );
-  const buffer = writeXlsx(matrix.header, matrix.rows);
+  // Cột ID đứng đầu: đó là thứ làm cho vòng Xuất → sửa trong Excel → Nhập lại
+  // thành CẬP NHẬT thay vì tạo thêm một bản ghi trùng. Xem `lib/enrollment/import`.
+  const buffer = writeXlsx(
+    [ENROLLMENT_IMPORT_ID_HEADER, ...matrix.header],
+    matrix.rows.map((row, index) => [exportRecords[index].id, ...row])
+  );
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type":
