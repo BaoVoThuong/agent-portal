@@ -12,6 +12,7 @@ import {
   type ProviderRow,
 } from "@/lib/providers/types";
 import { isProviderPlanField, parsePlanCell } from "@/lib/providers/plans";
+import { isProviderAddressUsable } from "@/lib/providers/address";
 import {
   isProviderSpecialtyField,
   parseSpecialtyCell,
@@ -180,7 +181,12 @@ export function ProviderTable({
           </div>
 
           <ul>
-            {providers.map((provider) => (
+            {providers.map((provider) => {
+              // Cùng lối cảnh báo với dòng task quá hạn bên CS Task: hồng cam
+              // nhạt, không phải đỏ gắt — phải đọc được là "cần chú ý" khi liếc
+              // qua cả bảng, mà chữ đen trên nền vẫn rõ.
+              const addressUsable = isProviderAddressUsable(provider);
+              return (
               <li
                 key={provider.id}
                 role="button"
@@ -193,7 +199,11 @@ export function ProviderTable({
                     onOpenProvider(provider);
                   }
                 }}
-                className="group flex min-h-11 cursor-pointer items-stretch border-b border-[#ebecf0] bg-white outline-none transition hover:bg-[#f7f8f9] focus-visible:bg-[#e9f2ff]"
+                className={`group flex min-h-11 cursor-pointer items-stretch border-b border-[#ebecf0] outline-none transition focus-visible:bg-[#e9f2ff] ${
+                  addressUsable
+                    ? "bg-white hover:bg-[#f7f8f9]"
+                    : "bg-[#fdecef] hover:bg-[#fbdde3]"
+                }`}
               >
                 {columns.map((column) => {
                   const pinned = pinnedOffsetByKey.has(column.key);
@@ -206,7 +216,11 @@ export function ProviderTable({
                       }}
                       className={`flex min-w-0 shrink-0 items-center px-3 py-2.5 ${
                         pinned
-                          ? "sticky z-10 border-r border-[#ebecf0] bg-white group-hover:bg-[#f7f8f9] group-focus-visible:bg-[#e9f2ff]"
+                          ? `sticky z-10 border-r border-[#ebecf0] group-focus-visible:bg-[#e9f2ff] ${
+                              addressUsable
+                                ? "bg-white group-hover:bg-[#f7f8f9]"
+                                : "bg-[#fdecef] group-hover:bg-[#fbdde3]"
+                            }`
                           : ""
                       }`}
                     >
@@ -221,7 +235,8 @@ export function ProviderTable({
                   );
                 })}
               </li>
-            ))}
+              );
+            })}
             {hasMore ? <li ref={endSentinelRef} aria-hidden="true" className="h-2" /> : null}
           </ul>
         </div>

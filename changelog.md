@@ -6,6 +6,24 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-19 — Provider List: tô nền cảnh báo cho địa chỉ không dùng được
+
+Dòng nào có địa chỉ Provider Finder không tra cứu được thì nền chuyển hồng cam
+nhạt (`#fdecef`, hover `#fbdde3`) — dùng đúng màu và đúng lối của dòng task quá
+hạn bên CS Task, để hai bảng nói cùng một ngôn ngữ cảnh báo.
+
+`isProviderAddressUsable` trả false khi: không có `street`; `street` không chứa
+chữ số nào ("Baptist's Locations", "Locations"); hoặc ZIP bị che ("78xxx").
+Thiếu ZIP thì VẪN tính là dùng được — phố + thành phố là đủ để tìm.
+
+Ô ghim cũng phải đổi nền theo: chúng tự đặt `bg-white` để che nội dung cuộn bên
+dưới, không sửa thì cột Doctor/Facility trắng trong khi phần còn lại của dòng đã
+đỏ.
+
+Hiện có 23/458 dòng sẽ sáng: 7 chuỗi nhà thuốc (HEB, Kroger, Costco, Walgreen,
+Walmart, CVS, Randalls — cố ý không có địa chỉ cụ thể) và 16 mục tổng hệ thống
+bệnh viện. Cả hai nhóm đều đúng nghĩa "không dùng được trong Finder".
+
 ## 2026-09-19 — Dọn mã chết: bán kính và providerLocationOptions
 
 Ô nhập bán kính đã bị gỡ khỏi giao diện, nên toàn bộ phần xử lý phía sau thành
