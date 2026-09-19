@@ -95,6 +95,7 @@ export function ProviderToolbar({
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#44546f]" />
             <input
+              autoComplete="off"
               value={query}
               onChange={(event) => onQuery(event.target.value)}
               placeholder="Search doctor, clinic, NPI, phone, city, ZIP…"

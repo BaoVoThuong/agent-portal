@@ -479,7 +479,12 @@ function ProviderEditField({
     return (
       <label className="block min-w-0">
         {label}
-        <select className={INPUT_CLASS} value={typeof value === "string" ? value : ""} onChange={(event) => onChange(event.target.value)}>
+        <select
+          autoComplete="off"
+          className={INPUT_CLASS}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(event.target.value)}
+        >
           <option value="">Choose {column.label.toLowerCase()}</option>
           {options.map((option) => (
             <option key={option.id} value={option.id}>{option.label}</option>
@@ -496,6 +501,7 @@ function ProviderEditField({
       {label}
       {isLongText ? (
         <textarea
+          autoComplete="new-password"
           className={TEXTAREA_CLASS}
           value={stringValue}
           onChange={(event) => onChange(event.target.value)}
@@ -504,6 +510,7 @@ function ProviderEditField({
       ) : (
         <div className="flex items-center gap-2">
           <input
+            autoComplete="new-password"
             className={INPUT_CLASS}
             type={column.type === "number" ? "number" : column.type === "date" ? "date" : column.type === "link" ? "url" : "text"}
             value={stringValue}
@@ -637,6 +644,7 @@ function MultiSelectField({
               <Search className="h-4 w-4 text-[#98a2b3]" />
               <input
                 autoFocus
+                autoComplete="off"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search values..."
