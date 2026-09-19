@@ -62,7 +62,7 @@ const menuData: MenuItem[] = [
         permission: PERMISSIONS.AUTOMATION_PC_STATEMENT,
       },
       {
-        // Provider Finder không còn mục riêng: nó đã là tab "Find nearby" bên
+        // Provider Finder không còn mục riêng: nó đã là tab "Finder Tool" bên
         // trong Provider List, dùng chung một bộ dữ liệu và một bộ lọc. Để hai
         // mục cạnh nhau chỉ khiến người dùng phải đoán xem nên bấm cái nào.
         href: "/automation/provider-list",

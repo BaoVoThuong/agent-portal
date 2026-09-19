@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
  * Trang Provider Finder riêng đã bị ẩn.
  *
  * Tính năng KHÔNG bị xoá: `ProviderFinderClient` trong cùng thư mục vẫn là thứ
- * dựng nên tab "Find nearby" của Provider List, và `ProviderListClient` import
+ * dựng nên tab "Finder Tool" của Provider List, và `ProviderListClient` import
  * thẳng component đó. Chỉ có đường dẫn riêng này là không còn lối vào.
  *
  * Chuyển hướng thay vì xoá file: người đã bookmark `/automation/provider-finder`

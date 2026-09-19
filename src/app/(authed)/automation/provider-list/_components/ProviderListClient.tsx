@@ -33,7 +33,7 @@ import ProviderFinderClient from "../../provider-finder/ProviderFinderClient";
 
 const VIEWS = [
   { key: "list" as const, label: "List" },
-  { key: "finder" as const, label: "Find nearby" },
+  { key: "finder" as const, label: "Finder Tool" },
 ];
 
 /** Dựng dần: 889 dòng × hơn chục cột là quá nhiều nút DOM cho một lần vẽ. */

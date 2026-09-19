@@ -176,7 +176,7 @@ export function ProviderToolbar({
               value={filters.address}
               options={ADDRESS_OPTIONS}
               placeholder="Address"
-              className="w-[9.25rem] shrink-0"
+              className="w-[11rem] shrink-0"
               buttonClassName={FILTER_SELECT_BUTTON_CLASS}
               onChange={(value) =>
                 onFilters({ ...filters, address: value as ProviderFilters["address"] })
