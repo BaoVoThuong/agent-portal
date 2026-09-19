@@ -19,12 +19,15 @@ import {
 } from "@/lib/providers/types";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
+// Bám đúng TaskDetailDrawer (CUSTOM_FIELD_INPUT_CLASS + LABEL_CLASS) để hai
+// modal của cùng một sản phẩm không trông như hai sản phẩm: viền 2px #dfe1e6,
+// rê chuột đổi sang #c1c7d0, focus chỉ đổi màu viền chứ KHÔNG bật vòng sáng.
 const INPUT_CLASS =
-  "h-9 w-full rounded-lg border border-[#d8dee7] bg-white px-3 text-sm font-semibold text-[#172b4d] shadow-none outline-none transition placeholder:text-[#98a2b3] focus:border-[#0c66e4] focus:ring-4 focus:ring-[#deebff]";
+  "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
 // `h-9` của INPUT_CLASS là chiều cao CỐ ĐỊNH, phải ghi đè bằng `!h-auto` thì
 // textarea mới co giãn được. min-h-16 đủ cho 2 dòng; kéo tay nếu cần thêm.
 const TEXTAREA_CLASS = `${INPUT_CLASS} !h-auto min-h-16 resize-y py-2`;
-const LABEL_CLASS = "mb-1.5 block text-[10px] font-bold uppercase tracking-[0.08em] text-[#667085]";
+const LABEL_CLASS = "mb-1 block text-xs font-bold uppercase tracking-wide text-[#6b778c]";
 
 function isPlanColumn(key: string): boolean {
   return key === "obamacare" || key === "medicare";
@@ -403,10 +406,10 @@ function ProviderEditField({
           aria-label={toggleLabel}
           title={toggleLabel}
           onClick={() => onChange(!checked)}
-          className={`flex h-9 w-full items-center justify-center rounded-lg border transition focus:outline-none focus:ring-4 focus:ring-[#deebff] ${
+          className={`flex h-9 w-full items-center justify-center rounded-lg border-2 transition focus:outline-none focus:border-[#0c66e4] ${
             checked
               ? "border-[#b7e4d0] bg-[#f0fbf5]"
-              : "border-[#d8dee7] bg-white hover:border-[#b8c4d4]"
+              : "border-[#dfe1e6] bg-white hover:border-[#c1c7d0]"
           }`}
         >
           <span
@@ -443,7 +446,7 @@ function ProviderEditField({
 
   if (column.type === "checkbox") {
     return (
-      <label className="flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#344054]">
+      <label className="flex h-9 items-center gap-2 rounded-lg border-2 border-[#dfe1e6] bg-white px-2 text-sm font-semibold text-[#172b4d]">
         <input
           type="checkbox"
           checked={value === true}
@@ -573,8 +576,8 @@ function MultiSelectField({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className={`flex min-h-9 w-full items-center justify-between gap-3 rounded-lg border bg-white px-3 py-1.5 text-left shadow-none outline-none transition focus:ring-4 focus:ring-[#deebff] ${
-          open ? "border-[#0c66e4]" : "border-[#d8dee7] hover:border-[#b8c4d4]"
+        className={`flex min-h-9 w-full items-center justify-between gap-3 rounded-lg border-2 bg-white px-2 py-1.5 text-left outline-none transition ${
+          open ? "border-[#0c66e4]" : "border-[#dfe1e6] hover:border-[#c1c7d0]"
         }`}
       >
         <span className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -611,7 +614,7 @@ function MultiSelectField({
       </div>
 
       {open ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+28px)] z-50 overflow-hidden rounded-xl border border-[#d8dee7] bg-white shadow-[0_14px_36px_rgba(9,30,66,0.18)]">
+        <div className="absolute left-0 right-0 top-[calc(100%+28px)] z-50 overflow-hidden rounded-xl border border-[#dfe1e6] bg-white shadow-[0_14px_36px_rgba(9,30,66,0.18)]">
           <div className="border-b border-[#edf0f4] p-2">
             <div className="flex h-9 items-center gap-2 rounded-lg bg-[#f7f9fc] px-2.5">
               <Search className="h-4 w-4 text-[#98a2b3]" />
