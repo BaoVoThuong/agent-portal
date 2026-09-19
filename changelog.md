@@ -48,6 +48,15 @@ Hai khác biệt CÓ Ý so với tạo/sửa từng hồ sơ trên màn hình:
 Dòng thêm mới không khai Stage thì rơi về stage đầu quy trình, giống hệt màn
 hình tạo hồ sơ — để null thì hồ sơ vừa nhập không xuất hiện ở cột stage nào.
 
+**File mẫu dựng từ CẤU HÌNH CỘT THẬT**, không cắm cứng như bên Provider List:
+mỗi chương trình một bộ cột khác nhau và admin còn thêm/đổi cột tuỳ chỉnh trong
+/config, nên cắm cứng là file mẫu sai ngay lần admin sửa cột đầu tiên. Dòng ví
+dụ lấy NHÃN thật của lựa chọn đầu tiên chứ không lấy id — người dùng gõ
+"1-Need quote", không ai gõ uuid. Thực tế sinh ra: ACA 19 cột, Medicare 8,
+Medicaid 9, mỗi bộ đúng nhãn riêng của chương trình đó.
+
+File mẫu không có cột `ID` (để THÊM mới); muốn sửa thì Export, file đó có sẵn ID.
+
 Mọi luật kiểm tra vẫn là luật cũ: `assertEnrollmentOptionSet`,
 `parseEnrollmentDate`, `validateCustomValues`, `findMissingRequiredFieldsFromContext`,
 `validateEnrollmentOwnership`, `sanitizeEnrollmentPatchForProgram`. Trần an

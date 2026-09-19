@@ -3,11 +3,12 @@
 import { useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { AlertTriangle, FileSpreadsheet, X } from "lucide-react";
+import { AlertTriangle, Download, FileSpreadsheet, X } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import type { EnrollmentOption, EnrollmentProgram } from "@/lib/enrollment/types";
 import {
   buildEnrollmentImportContext,
+  buildEnrollmentTemplate,
   enrollmentImportPayload,
   matchEnrollmentHeaders,
   parseEnrollmentImportRows,
@@ -87,6 +88,18 @@ export function EnrollmentImportDialog({
     setError(null);
     setResult(null);
     if (inputRef.current) inputRef.current.value = "";
+  }
+
+  function downloadTemplate() {
+    // Dựng từ cấu hình cột THẬT của chương trình đang mở: mỗi chương trình một
+    // bộ cột, và admin còn thêm cột tuỳ chỉnh trong /config.
+    const { header, example } = buildEnrollmentTemplate(columns, options, columnOptions, {
+      personName: people[0]?.name?.trim() || people[0]?.email,
+    });
+    const sheet = XLSX.utils.aoa_to_sheet([header, example]);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, "Data");
+    XLSX.writeFile(book, `enrollment-${program}-template.xlsx`);
   }
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
@@ -207,12 +220,22 @@ export function EnrollmentImportDialog({
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <div className="space-y-5">
             <section className={SECTION_CLASS}>
-              <h3 className={SECTION_TITLE_CLASS}>
-                1. Choose a file
-                <span className="text-[#bf2600]" title="Required">
-                  {" *"}
-                </span>
-              </h3>
+              <div className="flex items-start justify-between gap-3">
+                <h3 className={SECTION_TITLE_CLASS}>
+                  1. Choose a file
+                  <span className="text-[#bf2600]" title="Required">
+                    {" *"}
+                  </span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={downloadTemplate}
+                  className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-[#0c66e4] transition hover:underline"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download template
+                </button>
+              </div>
 
               <input
                 ref={inputRef}

@@ -462,3 +462,56 @@ export function buildEnrollmentImportContext(
 
   return { optionIdByLabel, emailByPerson, ambiguousPeople, customOptionIdByLabel };
 }
+
+/**
+ * Bộ tiêu đề và một dòng ví dụ cho file mẫu.
+ *
+ * Dựng từ CẤU HÌNH CỘT THẬT chứ không cắm cứng như bên Provider List: mỗi
+ * chương trình một bộ cột khác nhau, và admin còn thêm/đổi cột tuỳ chỉnh trong
+ * /config. Cắm cứng là file mẫu sai ngay lần admin sửa cột đầu tiên.
+ *
+ * Dòng ví dụ lấy NHÃN thật của lựa chọn đầu tiên, không lấy id: người dùng gõ
+ * "5-Ready to Enroll" chứ không ai gõ uuid.
+ *
+ * Không có cột `ID` — file mẫu là để THÊM hồ sơ mới. Muốn sửa hồ sơ có sẵn thì
+ * bấm Export, file xuất ra luôn mang sẵn ID.
+ */
+export function buildEnrollmentTemplate(
+  columns: readonly TableColumn[],
+  options: readonly { id: string; set_key: string; label: string; archived_at: string | null }[],
+  columnOptions: readonly { id: string; column_id: string; label: string; archived_at: string | null }[],
+  sample: { personName?: string; today?: string } = {}
+): { header: string[]; example: string[] } {
+  const importable = columns.filter(
+    (column) => !column.archived_at && !MANAGED_KEYS.has(column.key)
+  );
+  const today = sample.today ?? new Date().toISOString().slice(0, 10);
+  const person = sample.personName ?? "name@company.com";
+
+  const firstOptionLabel = (columnKey: string): string => {
+    const setKey = ENROLLMENT_SET_BY_COLUMN[columnKey];
+    if (!setKey) return "";
+    return (
+      options.find((option) => option.set_key === setKey && !option.archived_at)?.label ?? ""
+    );
+  };
+  const firstCustomLabel = (columnId: string): string =>
+    columnOptions.find((option) => option.column_id === columnId && !option.archived_at)
+      ?.label ?? "";
+
+  const example = importable.map((column) => {
+    if (OPTION_COLUMNS.has(column.key)) return firstOptionLabel(column.key);
+    if (PERSON_COLUMNS.has(column.key) || column.type === "person") return person;
+    if (column.type === "date") return today;
+    if (column.type === "checkbox") return "Yes";
+    if (column.type === "number") return "1";
+    if (column.type === "dropdown" || column.type === "multiselect") {
+      return firstCustomLabel(column.id);
+    }
+    if (column.key === "client") return "Nguyen Van A";
+    if (column.type === "link" || column.key === "fub") return "https://example.com/1";
+    return "";
+  });
+
+  return { header: importable.map((column) => column.label), example };
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ENROLLMENT_IMPORT_ID_HEADER,
   buildEnrollmentImportContext,
+  buildEnrollmentTemplate,
   ENROLLMENT_IMPORT_MANAGED_KEYS,
   enrollmentImportPayload,
   matchEnrollmentHeaders,
@@ -366,5 +367,85 @@ describe("cột tuỳ chỉnh ép về đúng kiểu", () => {
     );
     expect(parsed.rows).toHaveLength(0);
     expect(parsed.skipped[0].reason).toContain("Source");
+  });
+});
+
+describe("buildEnrollmentTemplate", () => {
+  const COLS = [
+    column("key", "Key"),
+    column("client", "Client Name"),
+    column("agent", "Agent", "person"),
+    column("stage", "Stage", "dropdown"),
+    column("due", "Due Date", "date"),
+    column("fub", "FUB Link", "link"),
+    column("qc", "QC", "checkbox"),
+    column("createdAt", "Created time", "date"),
+    { ...column("household", "Household number", "number"), is_system: false } as TableColumn,
+    { ...column("source", "Source", "dropdown"), is_system: false } as TableColumn,
+  ];
+  const OPTIONS = [
+    { id: "s1", set_key: "stage", label: "1-Need quote", archived_at: null },
+    { id: "s2", set_key: "stage", label: "5-Ready to Enroll", archived_at: null },
+  ];
+  const COLUMN_OPTIONS = [
+    { id: "o1", column_id: "col-source", label: "Facebook", archived_at: null },
+  ];
+
+  function build() {
+    return buildEnrollmentTemplate(COLS, OPTIONS, COLUMN_OPTIONS, {
+      personName: "Khang Nguyen",
+      today: "2026-09-19",
+    });
+  }
+
+  // Không có ID: file mẫu để THÊM mới. Sửa thì Export, file đó mang sẵn ID.
+  it("bỏ cột ID và những cột hệ thống tự quản", () => {
+    const { header } = build();
+    expect(header).not.toContain("ID");
+    expect(header).not.toContain("Key");
+    expect(header).not.toContain("QC");
+    expect(header).not.toContain("Created time");
+  });
+
+  it("tiêu đề đúng bằng nhãn cột, để nhập lại khỏi phải map", () => {
+    const { header } = build();
+    expect(header).toEqual([
+      "Client Name",
+      "Agent",
+      "Stage",
+      "Due Date",
+      "FUB Link",
+      "Household number",
+      "Source",
+    ]);
+  });
+
+  // Người dùng gõ nhãn, không ai gõ uuid.
+  it("ví dụ dùng NHÃN của lựa chọn, không dùng id", () => {
+    const { header, example } = build();
+    expect(example[header.indexOf("Stage")]).toBe("1-Need quote");
+    expect(example[header.indexOf("Source")]).toBe("Facebook");
+  });
+
+  it("ví dụ cho ô người, ngày và số đúng định dạng bộ đọc nhận", () => {
+    const { header, example } = build();
+    expect(example[header.indexOf("Agent")]).toBe("Khang Nguyen");
+    expect(example[header.indexOf("Due Date")]).toBe("2026-09-19");
+    expect(example[header.indexOf("Household number")]).toBe("1");
+  });
+
+  // Sinh từ cấu hình thật nên admin đổi nhãn là file mẫu đổi theo.
+  it("bám theo cấu hình cột chứ không cắm cứng", () => {
+    const renamed = COLS.map((c) =>
+      c.key === "client" ? ({ ...c, label: "Ten khach" } as TableColumn) : c
+    );
+    const { header } = buildEnrollmentTemplate(renamed, OPTIONS, COLUMN_OPTIONS);
+    expect(header).toContain("Ten khach");
+    expect(header).not.toContain("Client Name");
+  });
+
+  it("dòng ví dụ dài đúng bằng số tiêu đề", () => {
+    const { header, example } = build();
+    expect(example).toHaveLength(header.length);
   });
 });
