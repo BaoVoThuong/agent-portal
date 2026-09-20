@@ -706,6 +706,56 @@ export function LeadsClient({
     }
   }, [sourceId, activeAlert, updateLead]);
 
+  const archiveLead = useCallback(async function archiveLead(id: string) {
+    const before = leadsRef.current.find((lead) => lead.id === id);
+    if (!before) return;
+    const beforeIndex = leadsRef.current.findIndex((lead) => lead.id === id);
+
+    // Remove it immediately, like Task Board, so an archived lead cannot be
+    // edited again while the request is in flight.
+    setLeads((current) => current.filter((lead) => lead.id !== id));
+    setSelected((current) => {
+      if (!current.has(id)) return current;
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    setSelectedLead(null);
+    setTotal((current) => Math.max(0, current - 1));
+
+    try {
+      const response = await fetch(`/api/leads/${id}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "x-lead-client-source": sourceId,
+        },
+        body: JSON.stringify({ expected_updated_at: before.updated_at }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          response.status === 409
+            ? "This lead changed elsewhere. Refreshing the row."
+            : payload?.error ?? "Could not archive the lead.",
+        );
+      }
+      setEditError(null);
+    } catch (error) {
+      setLeads((current) => {
+        if (current.some((lead) => lead.id === id)) return current;
+        const restored = [...current];
+        restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
+        return restored;
+      });
+      setTotal((current) => current + 1);
+      setEditError(
+        error instanceof Error ? error.message : "Could not archive the lead.",
+      );
+      void reloadRef.current();
+    }
+  }, [sourceId]);
+
   /** Reassigning one lead from its cell, through the route that keeps history. */
   const assignLead = useCallback(async function assignLead(
     id: string,
@@ -1354,6 +1404,7 @@ export function LeadsClient({
           onClose={() => setSelectedLead(null)}
           onPatchLead={patchLead}
           onAssignLead={assignLead}
+          onArchive={() => (selectedLead ? archiveLead(selectedLead.id) : Promise.resolve())}
           onLeadUpdated={updateLead}
         />
       )}

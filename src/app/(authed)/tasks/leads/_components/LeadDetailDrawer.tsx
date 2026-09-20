@@ -122,6 +122,7 @@ type LeadDetailDrawerProps = {
   onClose: () => void;
   onPatchLead: (id: string, patch: Record<string, unknown>) => Promise<void>;
   onAssignLead: (id: string, email: string | null) => Promise<void>;
+  onArchive: () => Promise<void>;
   onLeadUpdated: (lead: LeadRow, interaction?: LeadInteraction) => void;
 };
 
@@ -172,6 +173,7 @@ export function LeadDetailDrawer({
   onClose,
   onPatchLead,
   onAssignLead,
+  onArchive,
   onLeadUpdated,
 }: LeadDetailDrawerProps) {
   const [interactions, setInteractions] = useState<LeadInteraction[]>([]);
@@ -184,6 +186,7 @@ export function LeadDetailDrawer({
     leadId: string;
     message: string;
   } | null>(null);
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
 
   // Phụ thuộc theo ID chứ không theo cả object lead: sửa status ngay trong
   // drawer tạo ra một object lead mới, và bản cũ tải lại toàn bộ lịch sử chỉ vì
@@ -708,6 +711,18 @@ export function LeadDetailDrawer({
                   </div>
                 </section>
               ) : null}
+
+              {canEdit ? (
+                <div className="mt-1 flex justify-end border-t border-[#dfe1e6] pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingArchive(true)}
+                    className="inline-flex h-8 items-center rounded px-2 text-sm font-semibold text-[#bf2600] transition hover:bg-[#ffebe6]"
+                  >
+                    Archive lead
+                  </button>
+                </div>
+              ) : null}
             </main>
 
             <aside className="flex min-h-[28rem] min-w-0 flex-col border-t border-[#dfe1e6] bg-white p-4 xl:min-h-0 xl:overflow-hidden xl:border-l xl:border-t-0">
@@ -760,6 +775,49 @@ export function LeadDetailDrawer({
           </div>
         </div>
       </div>
+
+      {confirmingArchive ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-[#091e42]/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Archive lead"
+          onClick={() => setConfirmingArchive(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-[#172b4d]">Archive lead?</h2>
+            <p className="mt-2 text-sm leading-6 text-[#5e6c84]">
+              Archives{" "}
+              <span className="font-semibold text-[#172b4d]">
+                {currentLead.full_name || "this lead"}
+              </span>{" "}
+              from active leads while keeping its comments and interaction history.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmingArchive(false)}
+                className="rounded px-3 py-2 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingArchive(false);
+                  void onArchive();
+                }}
+                className="rounded bg-[#ca3521] px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#ae2a19]"
+              >
+                Archive lead
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

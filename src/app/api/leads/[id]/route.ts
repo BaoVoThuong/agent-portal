@@ -250,3 +250,80 @@ export async function PATCH(request: Request, { params }: Ctx) {
   });
   return NextResponse.json({ lead: withEventName(data) });
 }
+
+/**
+ * Archive a lead without deleting its comments, interactions, or audit data.
+ * The active lead queries already exclude `archived_at`, so this is the same
+ * soft-archive contract used by the task board.
+ */
+export async function DELETE(request: Request, { params }: Ctx) {
+  const { id } = await params;
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!UUID_RE.test(id)) {
+    return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
+  }
+
+  const actor = buildLeadActor(session.user.permissions, email, {
+    isAdmin: isLeadViewAdmin(session.user),
+  });
+  const supabase = getSupabaseAdmin();
+  const { data: current, error: currentError } = await supabase
+    .from("leads")
+    .select("id,assigned_to_email,updated_at")
+    .eq("id", id)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (currentError) {
+    return NextResponse.json({ error: currentError.message }, { status: 500 });
+  }
+  if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const lead = current as Pick<LeadRow, "assigned_to_email" | "updated_at">;
+  const isOwnerOrAssistant = actor.isManager
+    ? false
+    : await isLeadOwnerOrAssistant(lead.assigned_to_email, email);
+  if (!resolveLeadCapabilities(actor, lead, { isOwnerOrAssistant }).canEdit) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const body = await request.json().catch(() => null);
+  const expectedUpdatedAt =
+    typeof body?.expected_updated_at === "string" && body.expected_updated_at.trim() !== ""
+      ? body.expected_updated_at.trim()
+      : "";
+  if (!expectedUpdatedAt) {
+    return NextResponse.json(
+      { error: "expected_updated_at is required." },
+      { status: 400 },
+    );
+  }
+
+  const archivedAt = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("leads")
+    .update({
+      archived_at: archivedAt,
+      updated_at: archivedAt,
+      updated_by_email: email,
+    })
+    .eq("id", id)
+    .is("archived_at", null)
+    .eq("updated_at", expectedUpdatedAt)
+    .select("id,archived_at")
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) {
+    return NextResponse.json(
+      { error: "Lead was updated by someone else. Refresh and try again." },
+      { status: 409 },
+    );
+  }
+
+  const sourceId = readLeadMutationSourceId(request);
+  after(async () => {
+    await broadcastLeadsChanged(sourceId, [id]);
+  });
+  return NextResponse.json({ lead: data });
+}
