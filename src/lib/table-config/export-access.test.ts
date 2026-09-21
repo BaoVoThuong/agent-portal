@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { canActorExport } from "./export-access";
+import { canActorExport, canActorImport } from "./export-access";
 
 describe("canActorExport", () => {
   it("allows a task.export holder", () => {
@@ -14,5 +14,24 @@ describe("canActorExport", () => {
   it("denies empty and undefined permission sets", () => {
     expect(canActorExport([])).toBe(false);
     expect(canActorExport(undefined)).toBe(false);
+  });
+});
+
+describe("canActorImport", () => {
+  it("đòi đúng quyền task.import", () => {
+    expect(canActorImport(["task.import"])).toBe(true);
+    expect(canActorImport([])).toBe(false);
+    expect(canActorImport(undefined)).toBe(false);
+  });
+
+  // Export chỉ ĐỌC, Import GHI ĐÈ hàng loạt. Suy quyền này từ quyền kia là cho
+  // người chỉ được phép kéo dữ liệu ra cái quyền sửa hàng trăm dòng một lượt.
+  it("KHÔNG suy ra từ Export, và ngược lại", () => {
+    expect(canActorImport(["task.export"])).toBe(false);
+    expect(canActorExport(["task.import"])).toBe(false);
+  });
+
+  it("quyền quản lý task cũng không tự cho quyền nhập", () => {
+    expect(canActorImport(["task.manage", "task.work"])).toBe(false);
   });
 });

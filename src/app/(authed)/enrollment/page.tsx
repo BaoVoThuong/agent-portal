@@ -19,7 +19,10 @@ import {
   fetchTableColumnOptions,
   fetchTableColumns,
 } from "@/lib/table-config/queries";
-import { canActorExport } from "@/lib/table-config/export-access";
+import {
+  canActorExport,
+  canActorImport,
+} from "@/lib/table-config/export-access";
 import {
   isRecordInScope,
   resolveEnrollmentScope,
@@ -121,6 +124,7 @@ export default async function EnrollmentPage({
       myAssistantAgents={myAssistantAgents}
       defaultToOwnAssignments={defaultToOwnAssignments}
       canManageOptions={canManageEnrollmentOptions(actor)}
+      canImport={canActorImport(session.user.permissions)}
       canExport={canExport}
     />
   );

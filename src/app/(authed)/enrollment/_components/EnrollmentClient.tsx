@@ -678,6 +678,7 @@ export function EnrollmentClient({
   defaultToOwnAssignments,
   canManageOptions,
   canExport,
+  canImport,
 }: {
   program: EnrollmentProgram;
   initialRecords: EnrollmentRecordWithStats[];
@@ -692,6 +693,8 @@ export function EnrollmentClient({
   defaultToOwnAssignments: boolean;
   canManageOptions: boolean;
   canExport: boolean;
+  /** Quyền RIÊNG, không suy ra từ canExport: Import ghi đè hàng loạt. */
+  canImport: boolean;
 }) {
   const [records, setRecords] = useState(initialRecords);
   const [options, setOptions] = useState(initialOptions);
@@ -1722,9 +1725,9 @@ export function EnrollmentClient({
               {canExport ? (
                 <EnrollmentExportMenu onExport={exportVisibleRecords} />
               ) : null}
-              {/* Cùng điều kiện với API: nhập hàng loạt là thao tác cấp quản
-                  trị, nên nút chỉ hiện với manager. */}
-              {canManageOptions ? (
+              {/* Cùng điều kiện với API: quyền task.import riêng, không suy ra
+                  từ Export (chỉ đọc) cũng không từ vai trò quản lý. */}
+              {canImport ? (
                 <button
                   type="button"
                   onClick={() => setImportOpen(true)}

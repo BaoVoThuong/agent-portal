@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import {
+  canActorExport,
+  canActorImport,
+} from "@/lib/table-config/export-access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
@@ -45,6 +49,10 @@ export default async function ProviderListPage() {
       columnOptions={config.options}
       // Tên chứ không phải email: cột Verified by đang chứa "Ngan Nguyen",
       // "Zoe Nguyen" — chen một địa chỉ email vào là cột đó có hai kiểu dữ liệu.
+      // Cùng điều kiện với API. Hai quyền TÁCH RIÊNG: Export chỉ đọc, Import
+      // ghi đè hàng loạt — cho quyền kéo ra không có nghĩa là cho quyền đẩy vào.
+      canExport={canActorExport(session.user.permissions)}
+      canImport={canActorImport(session.user.permissions)}
       viewerName={personLabel(
         session.user.email ?? "",
         session.user.name ? new Map([[session.user.email ?? "", session.user.name]]) : undefined,

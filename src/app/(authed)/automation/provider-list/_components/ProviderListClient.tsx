@@ -46,6 +46,8 @@ export function ProviderListClient({
   columns,
   columnOptions,
   viewerName,
+  canExport,
+  canImport,
 }: {
   initialProviders: ProviderRow[];
   loadError: string | null;
@@ -53,6 +55,9 @@ export function ProviderListClient({
   columnOptions: TableColumnOption[];
   /** Tên người đang đăng nhập, để form điền sẵn Verified by khi đánh dấu đã soát. */
   viewerName: string;
+  /** Hai quyền tách riêng: Export chỉ đọc, Import ghi đè hàng loạt. */
+  canExport: boolean;
+  canImport: boolean;
 }) {
   const [providers, setProviders] = useState<ProviderRow[]>(initialProviders);
   const [query, setQuery] = useState("");
@@ -293,32 +298,34 @@ export function ProviderListClient({
             <div className="flex items-center gap-2">
               {/* Nút này chỉ có nghĩa với bảng; tab tìm theo địa chỉ không thêm
                   dòng. Nút chọn cột đã xuống cuối hàng lọc bên dưới. */}
+              {view === "list" && canExport ? (
+                <button
+                  type="button"
+                  onClick={() => void exportRows()}
+                  disabled={exporting || rows.length === 0}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:text-[#98a2b3]"
+                >
+                  <Download className="h-4 w-4" />
+                  {exporting ? "Exporting…" : "Export"}
+                </button>
+              ) : null}
+              {view === "list" && canImport ? (
+                <button
+                  type="button"
+                  onClick={() => setImportOpen(true)}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
+                >
+                  <Upload className="h-4 w-4" /> Import
+                </button>
+              ) : null}
               {view === "list" ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void exportRows()}
-                    disabled={exporting || rows.length === 0}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:text-[#98a2b3]"
-                  >
-                    <Download className="h-4 w-4" />
-                    {exporting ? "Exporting…" : "Export"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setImportOpen(true)}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
-                  >
-                    <Upload className="h-4 w-4" /> Import
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAddOpen(true)}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-[0_2px_5px_rgba(9,30,66,0.16)] transition hover:bg-[#0055cc]"
-                  >
-                    <Plus className="h-4 w-4" /> Add address
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => setAddOpen(true)}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-[0_2px_5px_rgba(9,30,66,0.16)] transition hover:bg-[#0055cc]"
+                >
+                  <Plus className="h-4 w-4" /> Add address
+                </button>
               ) : null}
             </div>
           </header>

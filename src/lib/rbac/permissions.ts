@@ -17,6 +17,7 @@ export const PERMISSIONS = {
   TASK_MANAGE: "task.manage",
   TASK_WORK: "task.work",
   TASK_EXPORT: "task.export",
+  TASK_IMPORT: "task.import",
   LEAD_MANAGE: "lead.manage",
   LEAD_WORK: "lead.work",
 } as const;
@@ -179,8 +180,17 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupKey: "tasks",
     groupLabel: "Tasks",
     description:
-      "Export task and enrollment tables to Excel. Required on its own — a manager role alone does not grant export.",
+      "Export task, enrollment and provider tables to Excel. Required on its own — a manager role alone does not grant export.",
     sortOrder: 300,
+  },
+  {
+    key: PERMISSIONS.TASK_IMPORT,
+    label: "Tasks - Import",
+    groupKey: "tasks",
+    groupLabel: "Tasks",
+    description:
+      "Import enrollment and provider tables from Excel. Tách khỏi Export vì nó GHI đè dữ liệu hàng loạt, còn Export chỉ đọc — cho quyền đọc không có nghĩa là cho quyền ghi. Required on its own, same as Export.",
+    sortOrder: 350,
   },
   {
     key: PERMISSIONS.LEAD_MANAGE,

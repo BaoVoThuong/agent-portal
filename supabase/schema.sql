@@ -179,7 +179,8 @@ values
   ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100),
   ('task.manage', 'Tasks - Manage', 'Create, assign and manage all tasks, and see the backlog.', 'tasks', 'Tasks', 100),
   ('task.work', 'Tasks - Work', 'Work on tasks assigned to you.', 'tasks', 'Tasks', 200),
-  ('task.export', 'Tasks - Export', 'Export task and enrollment tables to Excel. Required on its own — a manager role alone does not grant export.', 'tasks', 'Tasks', 300),
+  ('task.export', 'Tasks - Export', 'Export task, enrollment and provider tables to Excel. Required on its own — a manager role alone does not grant export.', 'tasks', 'Tasks', 300),
+  ('task.import', 'Tasks - Import', 'Import enrollment and provider tables from Excel. Separate from Export because it OVERWRITES rows in bulk — read access is not write access. Required on its own.', 'tasks', 'Tasks', 350),
   ('lead.manage', 'Manage Leads', 'Import leads, assign them, and see every agent''s queue.', 'leads', 'Lead Management', 100),
   ('lead.work', 'Work Leads', 'See and log interactions on leads assigned to you.', 'leads', 'Lead Management', 200)
 on conflict (key) do update set
@@ -235,6 +236,7 @@ where key not in (
   'task.manage',
   'task.work',
   'task.export',
+  'task.import',
   'lead.manage',
   'lead.work'
 );

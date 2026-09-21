@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
+import { canActorImport } from "@/lib/table-config/export-access";
 import { parseEnrollmentDate } from "@/lib/enrollment/dates";
 import {
   assertEnrollmentOptionSet,
@@ -86,8 +87,9 @@ function cleanText(value: unknown): string | null {
  *
  * Hai khác biệt CÓ Ý so với việc tạo/sửa từng hồ sơ trên màn hình:
  *
- * 1. **Chỉ manager mới nhập được.** Sửa hàng loạt là thao tác cấp quản trị, và
- *    kiểm phạm vi theo từng agent cho vài trăm dòng thì vừa chậm vừa dễ lọt.
+ * 1. **Đòi quyền `task.import` riêng.** Không suy ra từ `task.export` (chỉ đọc)
+ *    cũng không suy ra từ vai trò quản lý: đây là đường GHI ĐÈ hàng loạt, một
+ *    file sai sửa hàng trăm dòng trong một lượt.
  * 2. **Không bắn thông báo cho từng dòng.** Nhập một file 300 dòng mà mỗi dòng
  *    gửi một thông báo "hồ sơ mới được giao" là làm ngập hộp thông báo của cả
  *    đội vì một lần nạp dữ liệu. Cuối lượt phát MỘT tín hiệu realtime để các
@@ -98,9 +100,9 @@ export async function POST(request: Request) {
   if (!actorResult.ok) {
     return NextResponse.json({ error: actorResult.error }, { status: actorResult.status });
   }
-  if (!actorResult.actor.isManager) {
+  if (!canActorImport(actorResult.permissions)) {
     return NextResponse.json(
-      { error: "Only managers can import enrollment records." },
+      { error: "You do not have permission to import." },
       { status: 403 }
     );
   }

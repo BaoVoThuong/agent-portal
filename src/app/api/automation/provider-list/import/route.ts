@@ -35,7 +35,13 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+  // Xem bảng là một chuyện; nhập cả bảng lại là chuyện khác. Đòi THÊM
+  // quyền task.import chứ không thay thế: người không được vào Provider
+  // List thì vẫn không được đụng tới dữ liệu của nó.
+  if (
+    !can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER) ||
+    !can(session.user.permissions, PERMISSIONS.TASK_IMPORT)
+  ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

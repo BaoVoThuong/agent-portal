@@ -6,6 +6,36 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-21 — Quyền `task.import` tách riêng khỏi `task.export`
+
+**Quyền mới `task.import`.** Export chỉ ĐỌC; Import GHI ĐÈ hàng loạt — một file
+sai sửa hàng trăm dòng trong một lượt. Cho người ta quyền kéo dữ liệu ra không
+có nghĩa là cho quyền đẩy dữ liệu vào, nên hai thứ này là hai quyền, không suy
+ra từ nhau và cũng không suy ra từ vai trò quản lý. Có test khoá lại cả hai
+chiều.
+
+**Lỗ đang có trước thay đổi này:** Export và Import của Provider List chỉ gác
+bằng `automation.provider_finder` — tức ai vào được màn hình đó là kéo được cả
+bảng ra file và ghi đè được toàn bộ. Nay đòi THÊM `task.export` / `task.import`
+(thêm chứ không thay: người không được vào Provider List thì vẫn không được
+đụng dữ liệu của nó).
+
+**Enrollment Import** đổi từ `actor.isManager` sang `task.import`. Đây vừa là
+siết vừa là nới: admin không tự động có quyền nhập nữa, nhưng người không phải
+admin có thể được cấp quyền này mà không phải cho luôn cả quyền quản lý.
+
+Nút Export/Import trên màn hình gác cùng điều kiện với API.
+
+**Rollout bắt buộc chạy TRƯỚC khi deploy code:**
+`supabase/rollouts/2026-09-21-task-import-permission.sql`. `role_permissions.permission_key`
+có khoá ngoại tới `permissions(key)`, nên thiếu dòng quyền thì màn Role Manager
+lưu quyền sẽ hỏng với lỗi khoá ngoại. Rollout cấp sẵn quyền cho vai trò Admin,
+vì schema dựng Admin bằng `cross join permissions` — không cấp thì chính admin
+cũng không thấy nút Import.
+
+Mô tả `task.export` cập nhật cho đúng: nay phủ cả bảng Provider chứ không chỉ
+task và enrollment.
+
 ## 2026-09-19 — Enrollment: Import Excel cho ACA / Medicare / Medicaid
 
 Export đã có sẵn; nay thêm **cột `ID` đứng đầu file** để vòng Xuất → sửa trong
