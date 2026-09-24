@@ -1770,11 +1770,7 @@ export function TaskBoardClient({
     return operation;
   }
 
-  async function assignOverviewTask(
-    taskId: string,
-    email: string,
-    expectedUpdatedAt: string | null
-  ) {
+  async function assignOverviewTask(taskId: string, email: string) {
     if (!overviewSnapshot) return;
     const before = overviewSnapshot;
     setAssigningOverviewTaskId(taskId);
@@ -1786,7 +1782,7 @@ export function TaskBoardClient({
       const response = await fetch(`/api/tasks/${taskId}/assign`, {
         method: "POST",
         headers: taskMutationHeaders,
-        body: JSON.stringify({ email, expectedUpdatedAt }),
+        body: JSON.stringify({ email }),
       });
       const data = (await response.json().catch(() => null)) as
         | { error?: string; task?: TaskRow | null }

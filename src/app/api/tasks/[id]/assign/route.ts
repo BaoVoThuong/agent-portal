@@ -46,8 +46,6 @@ export async function POST(request: Request, { params }: Ctx) {
   const { id } = await params;
   const body = await request.json().catch(() => null);
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-  const expectedUpdatedAt =
-    typeof body?.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : null;
   if (!email) return NextResponse.json({ error: "email is required." }, { status: 400 });
   if (!(await isEligibleTaskAssigneeEmail(email))) {
     return NextResponse.json(
@@ -60,7 +58,26 @@ export async function POST(request: Request, { params }: Ctx) {
   const { error: assignError } = await supabase.rpc("assign_unassigned_task", {
     p_task_id: id,
     p_cs_email: email,
-    p_expected_updated_at: expectedUpdatedAt,
+    // CỐ Ý truyền null: bỏ so sánh `updated_at` cho riêng đường nhận task.
+    //
+    // RPC kiểm timestamp TRƯỚC ba điều kiện thật của việc nhận (còn `backlog`,
+    // chưa có `assignee_email`, chưa có dòng `task_assignees`), và cả hai cùng
+    // ném `ASSIGN_CONFLICT`. Hệ quả: một task đang thật sự nhận được vẫn bị từ
+    // chối chỉ vì ảnh chụp Overview cũ — mà `updated_at` bị đổi bởi những việc
+    // chẳng liên quan gì tới quyền nhận, như ai đó vừa bình luận.
+    //
+    // Đã đo trên production: một task backlog chưa ai nhận có `updated_at` mới
+    // hơn `created_at` đúng 54 giây, và gọi RPC với timestamp cũ trả về
+    // ASSIGN_CONFLICT. Người dùng bấm Assign lần đầu thấy trượt, bấm lại thì
+    // được — vì ảnh chụp đã kịp làm mới.
+    //
+    // Bỏ nó KHÔNG mất an toàn: RPC vẫn `select … for update` rồi kiểm ba điều
+    // kiện kia trong cùng transaction. Đã đo: task đã có người nhận thì gọi với
+    // `p_expected_updated_at = null` vẫn trả ASSIGN_CONFLICT.
+    //
+    // Truyền null thay vì sửa RPC để khỏi phải chạy rollout, và để những người
+    // gọi sau này vẫn dùng được kiểm tra đó nếu họ thật sự cần.
+    p_expected_updated_at: null,
     p_actor_email: actorEmail,
   });
   if (assignError) {

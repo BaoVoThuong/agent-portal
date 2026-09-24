@@ -975,7 +975,7 @@ function UnassignedTaskRow({
   assigningTaskId: string | null;
   rows: CsOverviewRow[];
   onSelectTask: (id: string | null) => void;
-  onAssign: (taskId: string, email: string, expectedUpdatedAt: string | null) => void;
+  onAssign: (taskId: string, email: string) => void;
 }) {
   return (
     <div>
@@ -1008,7 +1008,7 @@ function UnassignedTaskRow({
         <RecommendationPanel
           task={selectedTask}
           rows={rows}
-          onAssign={(email) => onAssign(task.id, email, task.updatedAt)}
+          onAssign={(email) => onAssign(task.id, email)}
           assigningEmail={assigningTaskId === task.id ? "pending" : null}
         />
       ) : null}
@@ -1035,7 +1035,7 @@ export function CSWorkloadOverview({
   notice: string | null;
   onRefresh: () => void;
   onOpenTask: (id: string) => void;
-  onAssign: (taskId: string, email: string, expectedUpdatedAt: string | null) => void;
+  onAssign: (taskId: string, email: string) => void;
   onQueueMemberChange: (email: string, enabled: boolean) => Promise<void>;
   assigningTaskId: string | null;
   selectedTaskId: string | null;
