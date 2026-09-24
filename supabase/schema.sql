@@ -5685,6 +5685,47 @@ create table if not exists enrollment_activity (
   created_at timestamptz not null default now()
 );
 
+-- `create table if not exists` ở trên KHÔNG đụng tới bảng đã tồn tại, nên thêm
+-- một giá trị vào danh sách trên cũng không sửa được constraint trên database
+-- đang chạy. Đó đúng là cách `comment_edited` / `comment_deleted` lọt ra
+-- production mà constraint vẫn là bản cũ, làm hỏng việc sửa/xoá bình luận. Khối
+-- này khiến schema tự hội tụ, giống hệt `task_activity_type_check`.
+do $$
+begin
+  if exists (
+    select 1
+    from pg_constraint
+    where conname = 'enrollment_activity_type_check'
+      and conrelid = 'public.enrollment_activity'::regclass
+  ) then
+    alter table public.enrollment_activity
+      drop constraint enrollment_activity_type_check;
+  end if;
+
+  alter table public.enrollment_activity
+    add constraint enrollment_activity_type_check
+    check (
+      type in (
+        'created',
+        'edited',
+        'field_changed',
+        'stage_changed',
+        'people_changed',
+        'comment_added',
+        'attachment_added',
+        'qc_needed',
+        'qc_reviewed',
+        'qc_review_cleared',
+        'reopened',
+        'archived',
+        'due_soon',
+        'went_overdue',
+        'comment_edited',
+        'comment_deleted'
+      )
+    ) not valid;
+end $$;
+
 create index if not exists enrollment_activity_record_idx
   on enrollment_activity (record_id, created_at desc);
 

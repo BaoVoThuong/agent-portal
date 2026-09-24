@@ -6,6 +6,35 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-24 — Sửa lỗi không sửa/xoá được bình luận trên hồ sơ Enrollment
+
+**Triệu chứng:** bấm Save khi sửa bình luận thì hiện lỗi Postgres thô
+`new row for relation "enrollment_activity" violates check constraint
+"enrollment_activity_type_check"` và bình luận không được lưu. Xoá bình luận
+cũng hỏng y hệt, chỉ là chưa ai thử.
+
+**Nguyên nhân:** hai RPC `edit_enrollment_comment` và `delete_enrollment_comment`
+ghi hoạt động kiểu `comment_edited` / `comment_deleted`. `schema.sql` CÓ khai hai
+giá trị đó, nhưng bảng được tạo bằng `create table if not exists` — câu đó không
+đụng tới bảng đã tồn tại, nên constraint trên production vẫn là bản cũ. Code đi
+trước, constraint ở lại phía sau, và không có gì báo cho ai biết.
+
+**Sửa:** rollout `2026-09-22-fix-enrollment-activity-comment-types.sql` (đã chạy),
+cộng một khối tự-sửa constraint trong `schema.sql` để lần sau thêm loại hoạt động
+mới thì schema tự hội tụ — đúng cách `task_activity` và `task_notifications` đã
+làm từ trước, và cũng là lý do hai bảng đó không dính.
+
+**Đã rà toàn bộ database** xem còn chỗ nào lệch tương tự không: 16 check
+constraint kiểu danh-sách-giá-trị trên 67 bảng, **chỉ đúng một chỗ lệch là chỗ
+này**. Ghi lại ở `docs/db-constraint-audit-2026-09-22.md`, kèm hai việc đáng
+theo dõi: 12 constraint khác chưa có khối tự sửa nên đi được đúng con đường này,
+và hai bảng `import_request` / `import_request_row` rỗng mà không dòng code nào
+nhắc tới.
+
+Cũng ghi lại một khe hở: `scripts/check-schema-drift.mjs` dò bảng, cột, RPC và
+quyền nhưng KHÔNG dò check constraint — đó chính là đường để lỗi này ra
+production mà không ai chặn được.
+
 ## 2026-09-21 — Quyền `task.import` tách riêng khỏi `task.export`
 
 **Quyền mới `task.import`.** Export chỉ ĐỌC; Import GHI ĐÈ hàng loạt — một file
