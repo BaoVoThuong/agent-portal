@@ -47,6 +47,7 @@ import {
   refreshEnrollmentDetail,
   setCachedEnrollmentDetail,
 } from "@/lib/enrollment/detail-cache";
+import { resolveEnrollmentYearFilterValue } from "@/lib/enrollment/year-filter";
 import {
   ENROLLMENT_MUTATION_SOURCE_HEADER,
   enrollmentReactionTopic,
@@ -479,30 +480,29 @@ function yearColumnFor(columns: readonly EnrollmentColumn[]): EnrollmentColumn |
   );
 }
 
-function normalizeYearFilterValue(value: unknown): string | null {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  const text = String(value).trim();
-  if (!text) return null;
-  return /^\d{4}(?:\.0+)?$/.test(text) ? String(Number(text)) : text;
-}
-
 function enrollmentYearFilterValue(
   record: EnrollmentRecordWithStats,
-  yearColumnKey: string | null
+  yearColumn: EnrollmentColumn | null,
+  optionLabelById: ReadonlyMap<string, string>
 ): string | null {
-  if (!yearColumnKey) return null;
-  return normalizeYearFilterValue(record.custom_values?.[yearColumnKey]);
+  const configColumn = yearColumn?.configColumn;
+  if (!configColumn) return null;
+  return resolveEnrollmentYearFilterValue(
+    record.custom_values?.[configColumn.key],
+    configColumn.type,
+    optionLabelById
+  );
 }
 
 function enrollmentYearOptions(
   records: readonly EnrollmentRecordWithStats[],
-  yearColumnKey: string | null
+  yearColumn: EnrollmentColumn | null,
+  optionLabelById: ReadonlyMap<string, string>
 ): { value: string; label: string }[] {
-  if (!yearColumnKey) return [];
+  if (!yearColumn) return [];
   const values = new Set<string>();
   for (const record of records) {
-    const value = enrollmentYearFilterValue(record, yearColumnKey);
+    const value = enrollmentYearFilterValue(record, yearColumn, optionLabelById);
     if (value) values.add(value);
   }
   return [...values]
@@ -515,6 +515,18 @@ function enrollmentYearOptions(
       return a.localeCompare(b);
     })
     .map((value) => ({ value, label: value }));
+}
+
+function optionLabelsForColumn(
+  options: readonly TableColumnOption[],
+  columnId: string | undefined
+): ReadonlyMap<string, string> {
+  if (!columnId) return new Map();
+  return new Map(
+    options
+      .filter((option) => option.column_id === columnId)
+      .map((option) => [option.id, option.label])
+  );
 }
 
 function customColumnWidth(column: Pick<TableColumn, "type" | "key" | "label">): number {
@@ -770,8 +782,11 @@ export function EnrollmentClient({
   // overview is manager-only, matching the CS board's hidden Overview tab.
   const visibleView = canManageOptions ? view : "list";
   const filtersStorageKey = enrollmentFiltersStorageKey(program);
-  const initialYearColumnKey =
-    yearColumnFor(enrollmentColumnsForProgram(program, tableColumns))?.key ?? null;
+  const initialYearColumn = yearColumnFor(enrollmentColumnsForProgram(program, tableColumns));
+  const initialYearOptionLabels = optionLabelsForColumn(
+    tableColumnOptions,
+    initialYearColumn?.configColumn?.id
+  );
   const [filters, setFilters] = useState<Filters>(() =>
     defaultToOwnAssignments
       ? { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
@@ -791,7 +806,7 @@ export function EnrollmentClient({
           optionIds: new Set(initialOptions.map((option) => option.id)),
           emails: new Set(people.map((person) => normalizeEnrollmentEmail(person.email))),
           years: new Set(
-            enrollmentYearOptions(initialRecords, initialYearColumnKey).map(
+            enrollmentYearOptions(initialRecords, initialYearColumn, initialYearOptionLabels).map(
               (option) => option.value
             )
           ),
@@ -901,9 +916,13 @@ export function EnrollmentClient({
   );
   const yearColumn = useMemo(() => yearColumnFor(columns), [columns]);
   const yearColumnKey = yearColumn?.key ?? null;
+  const yearOptionLabels = useMemo(
+    () => optionLabelsForColumn(tableColumnOptions, yearColumn?.configColumn?.id),
+    [tableColumnOptions, yearColumn]
+  );
   const yearOptions = useMemo(
-    () => enrollmentYearOptions(records, yearColumnKey),
-    [records, yearColumnKey]
+    () => enrollmentYearOptions(records, yearColumn, yearOptionLabels),
+    [records, yearColumn, yearOptionLabels]
   );
   // Label source for surfaces that don't get the per-user-filtered list —
   // built from `columns` (already resolves live label/position/Medicare
@@ -1144,12 +1163,12 @@ export function EnrollmentClient({
   const rankedRecords = useMemo(
     () =>
       sortRecords(
-        filterRecords(records, filters, optionsById, currentEmail, yearColumnKey),
+        filterRecords(records, filters, optionsById, currentEmail, yearColumn, yearOptionLabels),
         sort,
         optionsById,
         peopleByEmail
       ),
-    [records, filters, optionsById, peopleByEmail, sort, currentEmail, yearColumnKey]
+    [records, filters, optionsById, peopleByEmail, sort, currentEmail, yearColumn, yearOptionLabels]
   );
 
   // Hold the order steady while the user works. sortRecords tiebreaks on
@@ -5579,7 +5598,8 @@ function filterRecords(
   filters: Filters,
   optionsById: Map<string, EnrollmentOption>,
   currentEmail: string,
-  yearColumnKey: string | null
+  yearColumn: EnrollmentColumn | null,
+  yearOptionLabels: ReadonlyMap<string, string>
 ) {
   const query = filters.query.trim().toLowerCase();
   const normalizedCurrentEmail = normalizeEnrollmentEmail(currentEmail);
@@ -5597,7 +5617,7 @@ function filterRecords(
     }
     if (
       filters.year.length > 0 &&
-      !filters.year.includes(enrollmentYearFilterValue(record, yearColumnKey) ?? "")
+      !filters.year.includes(enrollmentYearFilterValue(record, yearColumn, yearOptionLabels) ?? "")
     ) {
       return false;
     }
