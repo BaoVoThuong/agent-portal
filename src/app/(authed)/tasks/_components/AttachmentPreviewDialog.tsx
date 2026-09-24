@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileText, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 import { toAttachmentDownloadUrl } from "@/lib/tasks/attachment-download";
+import {
+  clampPanOffset,
+  rotatedScaledBounds,
+  zoomAtPoint,
+  type PanOffset,
+  type Size,
+} from "@/lib/tasks/preview-pan";
 
 export type AttachmentPreview = {
   url: string;
@@ -25,8 +32,10 @@ const INLINE_PREVIEW_MIMES = new Set([
   "text/plain",
 ]);
 const PREVIEW_ZOOM_MIN = 0.5;
-const PREVIEW_ZOOM_MAX = 3;
+const PREVIEW_ZOOM_MAX = 6;
 const PREVIEW_ZOOM_STEP = 0.25;
+/** Kéo dưới ngưỡng này thì coi là một cú bấm, không phải kéo. */
+const PREVIEW_DRAG_SLOP = 4;
 /** Ảnh chụp bằng điện thoại hay bị nằm ngang; bốn nấc 90° là đủ để dựng lại. */
 const PREVIEW_ROTATION_STEP = 90;
 
@@ -55,6 +64,15 @@ export function AttachmentPreviewDialog({
   const [previewStatus, setPreviewStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [previewZoom, setPreviewZoom] = useState(1);
   const [previewRotation, setPreviewRotation] = useState(0);
+  const [previewOffset, setPreviewOffset] = useState<PanOffset>({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  // Kích thước LÚC CHƯA phóng của ảnh, và của khung. Để trong state chứ không
+  // đọc DOM lúc render: đọc ref khi render vừa sai luật React vừa không đáng
+  // tin — lần render đầu ref còn null, và đổi cỡ cửa sổ thì không ai vẽ lại.
+  const [baseSize, setBaseSize] = useState<Size | null>(null);
+  const [viewportSize, setViewportSize] = useState<Size>({ width: 0, height: 0 });
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; from: PanOffset; moved: boolean } | null>(null);
   const previewCloseRef = useRef<HTMLButtonElement | null>(null);
   const previewDialogRef = useRef<HTMLDivElement | null>(null);
   const previewTriggerRef = useRef<HTMLElement | null>(null);
@@ -77,8 +95,65 @@ export function AttachmentPreviewDialog({
     setLastPreviewUrl(previewUrl);
     setPreviewZoom(1);
     setPreviewRotation(0);
+    setPreviewOffset({ x: 0, y: 0 });
+    setBaseSize(null);
     setPreviewStatus("loading");
   }
+
+  /** Hộp bao hiện tại của ảnh; null khi ảnh chưa tải xong nên chưa đo được. */
+  const boundsFor = useCallback(
+    (scale: number, rotation: number) =>
+      baseSize ? rotatedScaledBounds(baseSize, rotation, scale) : null,
+    [baseSize],
+  );
+
+  /** Đổi mức phóng và kéo lại offset cho hợp lệ trong một nhịp. */
+  const applyZoom = useCallback(
+    (nextZoomRaw: number, pointer?: PanOffset) => {
+      const nextZoom = Math.min(PREVIEW_ZOOM_MAX, Math.max(PREVIEW_ZOOM_MIN, nextZoomRaw));
+      setPreviewZoom((currentZoom) => {
+        setPreviewOffset((currentOffset) => {
+          const moved = pointer
+            ? zoomAtPoint(currentOffset, pointer, currentZoom, nextZoom)
+            : {
+                x: (currentOffset.x * nextZoom) / currentZoom,
+                y: (currentOffset.y * nextZoom) / currentZoom,
+              };
+          const bounds = boundsFor(nextZoom, previewRotation);
+          return bounds ? clampPanOffset(moved, bounds, viewportSize) : { x: 0, y: 0 };
+        });
+        return nextZoom;
+      });
+    },
+    [boundsFor, previewRotation, viewportSize],
+  );
+
+  const resetView = useCallback(() => {
+    setPreviewZoom(1);
+    setPreviewRotation(0);
+    setPreviewOffset({ x: 0, y: 0 });
+  }, []);
+
+  /** Ảnh có tràn khung không — không tràn thì không có gì để kéo. */
+  const currentBounds = boundsFor(previewZoom, previewRotation);
+  const pannable = Boolean(
+    currentBounds &&
+      (currentBounds.width > viewportSize.width + 1 ||
+        currentBounds.height > viewportSize.height + 1),
+  );
+
+  // Đổi cỡ cửa sổ làm khung rộng/hẹp đi, tức phần tràn cũng đổi. Không theo dõi
+  // thì giới hạn kéo giữ nguyên theo cỡ khung lúc mở, và ảnh kẹt lệch một bên.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!preview || !viewport) return;
+    const measure = () =>
+      setViewportSize({ width: viewport.clientWidth, height: viewport.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [preview]);
 
   useEffect(() => {
     if (!preview) return;
@@ -93,27 +168,43 @@ export function AttachmentPreviewDialog({
       }
       if (event.key === "+" || event.key === "=") {
         event.preventDefault();
-        setPreviewZoom((current) =>
-          Math.min(PREVIEW_ZOOM_MAX, current + PREVIEW_ZOOM_STEP),
-        );
+        applyZoom(previewZoom + PREVIEW_ZOOM_STEP);
         return;
       }
       if (event.key === "-") {
         event.preventDefault();
-        setPreviewZoom((current) =>
-          Math.max(PREVIEW_ZOOM_MIN, current - PREVIEW_ZOOM_STEP),
-        );
+        applyZoom(previewZoom - PREVIEW_ZOOM_STEP);
         return;
       }
       if (event.key === "0") {
         event.preventDefault();
-        setPreviewZoom(1);
-        setPreviewRotation(0);
+        resetView();
+        return;
+      }
+      // Kéo bằng bàn phím. Ảnh nằm trong một <button> nên nó nhận được focus;
+      // không có nhánh này thì người dùng bàn phím phóng to được mà không xem
+      // được phần bị tràn ra ngoài khung.
+      const PAN_KEYS: Record<string, PanOffset> = {
+        ArrowLeft: { x: 1, y: 0 },
+        ArrowRight: { x: -1, y: 0 },
+        ArrowUp: { x: 0, y: 1 },
+        ArrowDown: { x: 0, y: -1 },
+      };
+      const direction = PAN_KEYS[event.key];
+      if (direction) {
+        event.preventDefault();
+        const step = event.shiftKey ? 120 : 40;
+        setPreviewOffset((current) => {
+          const next = { x: current.x + direction.x * step, y: current.y + direction.y * step };
+          const bounds = boundsFor(previewZoom, previewRotation);
+          return bounds ? clampPanOffset(next, bounds, viewportSize) : current;
+        });
         return;
       }
       if (event.key === "r" || event.key === "R") {
         event.preventDefault();
         setPreviewRotation((current) => (current + PREVIEW_ROTATION_STEP) % 360);
+        setPreviewOffset({ x: 0, y: 0 });
         return;
       }
       if (event.key !== "Tab") return;
@@ -145,7 +236,7 @@ export function AttachmentPreviewDialog({
       document.removeEventListener("keydown", onKeyDown);
       window.requestAnimationFrame(() => previewTriggerRef.current?.focus());
     };
-  }, [onClose, preview]);
+  }, [applyZoom, boundsFor, onClose, preview, previewRotation, previewZoom, resetView, viewportSize]);
 
   if (!preview) return null;
 
@@ -184,7 +275,19 @@ export function AttachmentPreviewDialog({
           </button>
         </div>
 
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[#f7f8f9] p-3">
+        {/* Ảnh dùng khung riêng: `overflow-hidden` + kéo bằng transform.
+            Bản cũ để `overflow-auto` và trông chờ thanh cuộn, nhưng
+            `transform: scale()` KHÔNG làm phần tử chiếm thêm chỗ, nên khung
+            cuộn không thấy có gì tràn và thanh cuộn không bao giờ hiện —
+            phóng to xong là không đi đâu được. Tệ hơn: `items-center` trên
+            một khung cuộn thì phần tràn ở mép TRÁI/TRÊN nằm ngoài vùng cuộn
+            được, nên kể cả có thanh cuộn cũng không với tới được nửa bên trái. */}
+        <div
+          ref={viewportRef}
+          className={`flex min-h-0 flex-1 items-center justify-center bg-[#f7f8f9] p-3 ${
+            previewIsImage ? "overflow-hidden" : "overflow-auto"
+          }`}
+        >
           {previewIsImage ? (
             <>
               {previewStatus === "loading" ? (
@@ -200,26 +303,102 @@ export function AttachmentPreviewDialog({
               ) : null}
               <button
                 type="button"
-                onClick={() =>
-                  setPreviewZoom((current) =>
-                    current >= PREVIEW_ZOOM_MAX
-                      ? 1
-                      : Math.min(PREVIEW_ZOOM_MAX, current + 0.5),
-                  )
-                }
+                onPointerDown={(event) => {
+                  if (event.button !== 0 || previewStatus !== "loaded") return;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  dragRef.current = {
+                    x: event.clientX,
+                    y: event.clientY,
+                    from: previewOffset,
+                    moved: false,
+                  };
+                }}
+                onPointerMove={(event) => {
+                  const drag = dragRef.current;
+                  if (!drag) return;
+                  const dx = event.clientX - drag.x;
+                  const dy = event.clientY - drag.y;
+                  if (!drag.moved && Math.hypot(dx, dy) < PREVIEW_DRAG_SLOP) return;
+                  if (!drag.moved) {
+                    drag.moved = true;
+                    setDragging(true);
+                  }
+                  const next = { x: drag.from.x + dx, y: drag.from.y + dy };
+                  setPreviewOffset(
+                    currentBounds ? clampPanOffset(next, currentBounds, viewportSize) : next,
+                  );
+                }}
+                onPointerUp={(event) => {
+                  const drag = dragRef.current;
+                  dragRef.current = null;
+                  setDragging(false);
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  }
+                  // Kéo thì KHÔNG phóng. Không có nhánh này thì mỗi lần kéo
+                  // xong ảnh lại nhảy thêm một nấc zoom.
+                  if (drag?.moved) return;
+                  if (previewStatus !== "loaded") return;
+                  if (previewZoom >= PREVIEW_ZOOM_MAX) {
+                    resetView();
+                    return;
+                  }
+                  const viewport = viewportRef.current;
+                  const pointer = viewport
+                    ? (() => {
+                        const rect = viewport.getBoundingClientRect();
+                        return {
+                          x: event.clientX - (rect.left + rect.width / 2),
+                          y: event.clientY - (rect.top + rect.height / 2),
+                        };
+                      })()
+                    : undefined;
+                  applyZoom(previewZoom + 0.5, pointer);
+                }}
+                onPointerCancel={() => {
+                  dragRef.current = null;
+                  setDragging(false);
+                }}
+                onWheel={(event) => {
+                  if (previewStatus !== "loaded") return;
+                  const viewport = viewportRef.current;
+                  if (!viewport) return;
+                  const rect = viewport.getBoundingClientRect();
+                  applyZoom(previewZoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15), {
+                    x: event.clientX - (rect.left + rect.width / 2),
+                    y: event.clientY - (rect.top + rect.height / 2),
+                  });
+                }}
                 disabled={previewStatus !== "loaded"}
                 aria-label={previewZoom >= PREVIEW_ZOOM_MAX ? "Reset image zoom" : "Zoom in image"}
-                className={`border-0 bg-transparent p-0 outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[#85b8ff] disabled:pointer-events-none ${previewZoom >= PREVIEW_ZOOM_MAX ? "cursor-zoom-out" : "cursor-zoom-in"}`}
+                // `touch-none` để trên máy cảm ứng ngón tay kéo ảnh chứ không
+                // cuộn trang phía sau.
+                className={`touch-none select-none border-0 bg-transparent p-0 outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[#85b8ff] disabled:pointer-events-none ${
+                  dragging
+                    ? "cursor-grabbing"
+                    : pannable
+                      ? "cursor-grab"
+                      : previewZoom >= PREVIEW_ZOOM_MAX
+                        ? "cursor-zoom-out"
+                        : "cursor-zoom-in"
+                }`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={preview.url}
                   alt={preview.fileName}
-                  onLoad={() => setPreviewStatus("loaded")}
+                  onLoad={(event) => {
+                    const image = event.currentTarget;
+                    setBaseSize({ width: image.offsetWidth, height: image.offsetHeight });
+                    setPreviewStatus("loaded");
+                  }}
                   onError={() => setPreviewStatus("error")}
-                  className={`object-contain transition-transform duration-150 ${previewStatus === "loaded" ? "" : "hidden"}`}
+                  draggable={false}
+                  className={`object-contain ${dragging ? "" : "transition-transform duration-150"} ${previewStatus === "loaded" ? "" : "hidden"}`}
                   style={{
-                    transform: `rotate(${previewRotation}deg) scale(${previewZoom})`,
+                    // `translate` đứng TRƯỚC `scale`: dịch chuyển tính bằng pixel
+                    // trên màn hình, không bị nhân lên theo mức phóng.
+                    transform: `translate(${previewOffset.x}px, ${previewOffset.y}px) rotate(${previewRotation}deg) scale(${previewZoom})`,
                     transformOrigin: "center center",
                     // Khung vuông, GIỮ NGUYÊN ở cả bốn góc xoay.
                     //
@@ -262,7 +441,7 @@ export function AttachmentPreviewDialog({
             <div className="flex items-center gap-1 rounded border border-[#dfe1e6] bg-[#fafbfc] p-1" aria-label="Image zoom controls">
               <button
                 type="button"
-                onClick={() => setPreviewZoom((current) => Math.max(PREVIEW_ZOOM_MIN, current - PREVIEW_ZOOM_STEP))}
+                onClick={() => applyZoom(previewZoom - PREVIEW_ZOOM_STEP)}
                 disabled={previewZoom <= PREVIEW_ZOOM_MIN}
                 aria-label="Zoom out"
                 title="Zoom out"
@@ -272,10 +451,7 @@ export function AttachmentPreviewDialog({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setPreviewZoom(1);
-                  setPreviewRotation(0);
-                }}
+                onClick={resetView}
                 aria-label="Reset image zoom and rotation"
                 title="Reset zoom and rotation (0)"
                 className="min-w-14 rounded px-2 py-1.5 text-xs font-semibold text-[#44546f] transition hover:bg-[#e9f2ff] hover:text-[#0c66e4]"
@@ -284,7 +460,7 @@ export function AttachmentPreviewDialog({
               </button>
               <button
                 type="button"
-                onClick={() => setPreviewZoom((current) => Math.min(PREVIEW_ZOOM_MAX, current + PREVIEW_ZOOM_STEP))}
+                onClick={() => applyZoom(previewZoom + PREVIEW_ZOOM_STEP)}
                 disabled={previewZoom >= PREVIEW_ZOOM_MAX}
                 aria-label="Zoom in"
                 title="Zoom in"
@@ -298,7 +474,12 @@ export function AttachmentPreviewDialog({
               <button
                 type="button"
                 onClick={() =>
-                  setPreviewRotation((current) => (current + PREVIEW_ROTATION_STEP) % 360)
+                  {
+                    setPreviewRotation((current) => (current + PREVIEW_ROTATION_STEP) % 360);
+                    // Giữ nguyên offset sau khi xoay là phần đang xem nhảy sang
+                    // một chỗ khác hẳn, vì hai trục vừa đổi chỗ cho nhau.
+                    setPreviewOffset({ x: 0, y: 0 });
+                  }
                 }
                 disabled={previewStatus !== "loaded"}
                 aria-label="Rotate image 90 degrees clockwise"

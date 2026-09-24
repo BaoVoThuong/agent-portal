@@ -6,6 +6,37 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-24 — Sửa cơ chế phóng to / kéo ảnh trong ô xem trước tệp đính kèm
+
+Phóng to xong thì không kéo ảnh sang trái phải được. **Ba nguyên nhân chồng
+nhau**, sửa một cái không đủ:
+
+1. `transform: scale()` **không làm phần tử chiếm thêm chỗ**, nên khung
+   `overflow-auto` không thấy có gì tràn và thanh cuộn không bao giờ hiện.
+2. Kể cả có thanh cuộn: `items-center` trên một khung cuộn thì phần tràn ở mép
+   TRÁI/TRÊN nằm ngoài vùng cuộn được — không với tới được nửa bên trái.
+3. Không hề có cơ chế kéo. Ảnh nằm trong một `<button>` chỉ biết phóng to.
+
+**Sửa:** khung chuyển sang `overflow-hidden`, ảnh kéo bằng `translate` với
+pointer events. Kéo dưới 4px vẫn tính là một cú bấm để nút phóng-khi-bấm không
+mất; kéo quá thì không phóng nữa, nếu không mỗi lần kéo xong ảnh lại nhảy thêm
+một nấc.
+
+Thêm: lăn chuột để phóng **quanh vị trí con trỏ** (chỗ đang xem đứng yên thay vì
+trôi đi sau mỗi nấc), phím mũi tên để kéo bằng bàn phím, và giới hạn kéo để
+không lôi được ảnh ra khỏi khung. Mức phóng tối đa 3x → 6x vì 3x không đủ đọc
+chữ trên ảnh chụp màn hình.
+
+Toán kéo/phóng tách sang `src/lib/tasks/preview-pan.ts` để test được — sai ở đó
+thì người dùng lôi ảnh ra khỏi khung rồi không biết đường lấy lại, một lỗi rất
+khó thấy khi chỉ đọc JSX. Hai bài test đầu tiên bắt được hai lỗi thật: `-0` lọt
+ra từ `Math.max`, và khung chưa đo được (rộng 0) thì công thức cho phép kéo đi
+đâu cũng được.
+
+Kích thước ảnh và khung để trong state, không đọc ref lúc render: vừa sai luật
+React vừa không đáng tin — lần render đầu ref còn null, và đổi cỡ cửa sổ thì
+không ai vẽ lại. Cỡ khung theo dõi bằng `ResizeObserver`.
+
 ## 2026-09-24 — Sửa lỗi không sửa/xoá được bình luận trên hồ sơ Enrollment
 
 **Triệu chứng:** bấm Save khi sửa bình luận thì hiện lỗi Postgres thô

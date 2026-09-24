@@ -1644,7 +1644,7 @@ function CommentItem({
     triggerRef: reactTriggerRef,
     menuRef: reactMenuRef,
     menuStyle: reactMenuStyle,
-  } = useAnchoredMenu({ estimatedHeight: 420, placement: "above-right" });
+  } = useAnchoredMenu({ estimatedHeight: 360, placement: "above-right" });
   const canReply = Boolean(onReply && !c.optimistic);
   const canEdit = c.author_email === currentEmail && !c.optimistic && !c.failed;
   const canDelete =
@@ -2380,7 +2380,7 @@ function Composer({
     triggerRef: emojiTriggerRef,
     menuRef: emojiMenuRef,
     menuStyle: emojiMenuStyle,
-  } = useAnchoredMenu({ estimatedHeight: 420, placement: "above-right" });
+  } = useAnchoredMenu({ estimatedHeight: 360, placement: "above-right" });
 
   // Apply a programmatic caret position after a mention insert.
   useEffect(() => {

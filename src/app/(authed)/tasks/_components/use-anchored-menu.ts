@@ -57,13 +57,20 @@ export function useAnchoredMenu({
         const left = canOpenRight
           ? { left: rect.right + 8 }
           : { right: Math.max(8, window.innerWidth - rect.left + 8) };
+        const viewportPadding = 8;
+        const menuMaxHeight = Math.min(
+          maxHeight,
+          Math.max(0, window.innerHeight - viewportPadding * 2)
+        );
+        const preferredTop = rect.top - menuMaxHeight - 12;
+        const maxTop = window.innerHeight - menuMaxHeight - viewportPadding;
         setMenuStyle({
           position: "fixed",
           minWidth: rect.width,
-          maxHeight,
+          maxHeight: menuMaxHeight,
           ...left,
-          // Keep the compose textarea visible below the picker, like Slack.
-          bottom: window.innerHeight - rect.top + 72,
+          // Keep the picker above its trigger while clamping it to the viewport.
+          top: Math.max(viewportPadding, Math.min(preferredTop, maxTop)),
         });
         setIsOpen(true);
         return;
