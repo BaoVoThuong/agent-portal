@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 /**
- * Địa chỉ cũ. Event Leads đã chuyển vào nhóm Task Management ở `/tasks/leads`.
+ * Địa chỉ cũ. Lead Management đã chuyển vào nhóm Task Management ở `/tasks/leads`.
  *
  * Giữ chuyển hướng chứ không xoá: người ta đã lưu link, và Overview sinh liên
  * kết sâu dạng `?alert=stale`. Một link chết ở đây là một người bấm vào rồi

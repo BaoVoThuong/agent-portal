@@ -31,7 +31,7 @@ const medicareEnrollment: Item = { href: "/enrollment?program=medicare", activeP
 const items = [leads, tableConfig, tasks, acaEnrollment, medicareEnrollment];
 
 describe("sidebar active item", () => {
-  it("marks Event Leads active on the list itself", () => {
+  it("marks Lead Management active on the list itself", () => {
     expect(activeItem("/tasks/leads", items, leads)).toBe(true);
     expect(activeItem("/tasks/leads", items, tableConfig)).toBe(false);
   });
@@ -47,7 +47,7 @@ describe("sidebar active item", () => {
   // The bug: an active entry renders as a plain <span>, so a parent that also
   // matched the nested route went unclickable and the sidebar lost the only
   // way back to the list.
-  it("leaves Event Leads clickable while on the config route", () => {
+  it("leaves Lead Management clickable while on the config route", () => {
     expect(activeItem("/config", items, leads)).toBe(false);
     expect(activeItem("/config", items, tableConfig)).toBe(true);
   });

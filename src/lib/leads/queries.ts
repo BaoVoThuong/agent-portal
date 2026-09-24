@@ -41,7 +41,7 @@ export type LeadListParams = {
 };
 
 export type LeadListFilter = {
-  /** null = every product. Event Leads is one list; product is a filter. */
+  /** null = every product. Lead Management is one list; product is a filter. */
   product: LeadProduct | null;
   /**
    * Emails the rows may be assigned to. null = no owner restriction, which is

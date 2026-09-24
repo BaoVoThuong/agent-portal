@@ -68,7 +68,7 @@ describe("buildLeadListFilter", () => {
       .toBe(LEAD_PAGE_SIZE);
   });
 
-  // Superseded by the "product filter" block below: Event Leads is one list,
+  // Superseded by the "product filter" block below: Lead Management is one list,
   // so an unrecognised product means "no filter", not a default product.
   it("treats an unknown product as no filter", () => {
     expect(buildLeadListFilter(manager, { product: "banana" }).product).toBeNull();
@@ -83,7 +83,7 @@ describe("buildLeadListFilter", () => {
 describe("product filter", () => {
   const manager = buildLeadActor(["lead.manage"], "mgr@x.com");
 
-  // Event Leads is one list. A missing product means "all of them", not a
+  // Lead Management is one list. A missing product means "all of them", not a
   // default — reading it as "pc" made the merged screen show nothing at all,
   // because every lead in the pilot data was Health.
   it("means every product when none is given", () => {

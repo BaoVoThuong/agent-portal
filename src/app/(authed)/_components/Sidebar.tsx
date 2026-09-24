@@ -100,7 +100,7 @@ const menuData: MenuItem[] = [
   },
   {
     title: "Task Management",
-    // Nới sang cả quyền lead: Event Leads nay nằm trong nhóm này, và hai tài
+    // Nới sang cả quyền lead: Lead Management nay nằm trong nhóm này, và hai tài
     // khoản trên production CHỈ có quyền lead. Giữ nguyên điều kiện cũ là hai
     // người đó mất luôn màn hình họ dùng hằng ngày — mất IM LẶNG, vì menu chỉ
     // đơn giản không hiện ra.
@@ -139,13 +139,13 @@ const menuData: MenuItem[] = [
       },
       {
         href: "/tasks/leads",
-        label: "Event Leads",
+        label: "Lead Management",
         activePath: "/tasks/leads",
         anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
       },
       {
         // MỘT mục cho cả bốn bảng. Người chỉ có quyền lead vào đây vẫn chỉ thấy
-        // bảng Event Leads — xem configScopesFor ở lib/table-config.
+        // bảng Lead Management — xem configScopesFor ở lib/table-config.
         href: "/config",
         label: "Table Configuration",
         anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.LEAD_MANAGE],

@@ -173,7 +173,7 @@ export default async function ConfigPage() {
       needsLeadData ? fetchLeadVocabulary(supabase) : undefined
     ),
     // Ngưỡng cảnh báo lead — chuyển từ /settings sang đây 2026-09-11. Chỉ nạp
-    // khi người này thực sự thấy bảng Event Leads.
+    // khi người này thực sự thấy bảng Lead Management.
     loadOptional("Lead alert settings", async () => {
       if (!needsLeadData) return [] as LeadAlertSettings[];
       const result = await supabase

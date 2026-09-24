@@ -87,7 +87,7 @@ export function ProviderListClient({
   const layoutSaveSequenceRef = useRef(0);
 
   // Cài đặt bảng theo từng người, dùng chung API user_table_layout với Task
-  // List và Event Leads. `hidden_default` của admin vẫn thắng; đây chỉ là lựa
+  // List và Lead Management. `hidden_default` của admin vẫn thắng; đây chỉ là lựa
   // chọn riêng về những cột còn lại.
   useEffect(() => {
     if (layoutHydratedRef.current) return;

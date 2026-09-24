@@ -12,7 +12,7 @@ import type { LeadAlertSettings, LeadProduct } from "@/lib/leads/types";
  * sách áp cho cả công ty, nên nằm cạnh các cấu hình toàn cục khác thì đúng chỗ
  * hơn và dễ tìm hơn.
  *
- * Chỉ hiện ở bảng Event Leads; API vẫn tự gác quyền `lead.manage`.
+ * Chỉ hiện ở bảng Lead Management; API vẫn tự gác quyền `lead.manage`.
  */
 
 type AlertField = "no_contact_hours" | "stale_days" | "max_attempts";

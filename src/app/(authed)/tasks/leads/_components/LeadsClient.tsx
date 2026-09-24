@@ -252,7 +252,7 @@ export function LeadsClient({
    * Bản trước gọi `router.replace` mỗi lần đổi tab, tức Next chạy lại toàn bộ
    * server component: `fetchAllLeads` (kéo về mọi lead kèm lịch sử tương tác
    * cho từng dòng) cộng bốn truy vấn nữa — chỉ để đổi một tab.
-   * Task board đổi tab bằng `useState` nên tức thì; đây là lý do Event Leads
+   * Task board đổi tab bằng `useState` nên tức thì; đây là lý do Lead Management
    * giật còn màn kia thì không.
    *
    * URL vẫn được cập nhật bằng `history.pushState` để link chia sẻ được và nút
@@ -1054,7 +1054,7 @@ export function LeadsClient({
           <header className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
-                Event Leads
+                Lead Management
               </h1>
               <p className="mt-1 text-sm font-medium text-[#6b778c]">
                 {total.toLocaleString()} active leads

@@ -176,6 +176,7 @@ type SortDir = "asc" | "desc";
 
 type Filters = {
   query: string;
+  year: string[];
   stage: string[];
   agent: string[];
   caller: string[];
@@ -228,10 +229,15 @@ function enrollmentFiltersStorageKey(program: EnrollmentProgram): string {
  */
 function reviveEnrollmentFilters(
   raw: Record<string, unknown>,
-  valid: { optionIds: ReadonlySet<string>; emails: ReadonlySet<string> }
+  valid: {
+    optionIds: ReadonlySet<string>;
+    emails: ReadonlySet<string>;
+    years: ReadonlySet<string>;
+  }
 ): Filters {
   return {
     query: "",
+    year: keepKnownStrings(raw.year, valid.years),
     stage: keepKnownStrings(raw.stage, valid.optionIds),
     carrier: keepKnownStrings(raw.carrier, valid.optionIds),
     agent: keepKnownStrings(raw.agent, valid.emails),
@@ -248,6 +254,7 @@ function reviveEnrollmentFilters(
 
 const DEFAULT_FILTERS: Filters = {
   query: "",
+  year: [],
   stage: [],
   agent: [],
   caller: [],
@@ -452,8 +459,67 @@ function programColumnLabel(
  * để hai danh sách trông cùng một hệ: date 120, phần còn lại 180. Checkbox lấy
  * 96 theo cột QC/Consent của chính bảng enrollment.
  */
-function customColumnWidth(type: TableColumn["type"]): number {
-  switch (type) {
+function isYearTableColumn(column: Pick<TableColumn, "key" | "label">): boolean {
+  const tokens = `${column.key} ${column.label}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/);
+  return tokens.includes("year");
+}
+
+function yearColumnFor(columns: readonly EnrollmentColumn[]): EnrollmentColumn | null {
+  return (
+    columns.find(
+      (column) =>
+        column.configColumn &&
+        !column.configColumn.is_system &&
+        isYearTableColumn(column.configColumn)
+    ) ?? null
+  );
+}
+
+function normalizeYearFilterValue(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  const text = String(value).trim();
+  if (!text) return null;
+  return /^\d{4}(?:\.0+)?$/.test(text) ? String(Number(text)) : text;
+}
+
+function enrollmentYearFilterValue(
+  record: EnrollmentRecordWithStats,
+  yearColumnKey: string | null
+): string | null {
+  if (!yearColumnKey) return null;
+  return normalizeYearFilterValue(record.custom_values?.[yearColumnKey]);
+}
+
+function enrollmentYearOptions(
+  records: readonly EnrollmentRecordWithStats[],
+  yearColumnKey: string | null
+): { value: string; label: string }[] {
+  if (!yearColumnKey) return [];
+  const values = new Set<string>();
+  for (const record of records) {
+    const value = enrollmentYearFilterValue(record, yearColumnKey);
+    if (value) values.add(value);
+  }
+  return [...values]
+    .sort((a, b) => {
+      const numericA = Number(a);
+      const numericB = Number(b);
+      if (Number.isFinite(numericA) && Number.isFinite(numericB)) {
+        return numericB - numericA;
+      }
+      return a.localeCompare(b);
+    })
+    .map((value) => ({ value, label: value }));
+}
+
+function customColumnWidth(column: Pick<TableColumn, "type" | "key" | "label">): number {
+  if (isYearTableColumn(column)) return 84;
+  switch (column.type) {
     case "checkbox":
       return 96;
     case "date":
@@ -507,7 +573,7 @@ function enrollmentColumnsForProgram(
       next.push({
         key,
         label: configured.label,
-        width: customColumnWidth(configured.type),
+        width: customColumnWidth(configured),
         sticky: configured.pinned,
         align: configured.type === "checkbox" ? "center" : undefined,
         configColumn: configured,
@@ -704,6 +770,8 @@ export function EnrollmentClient({
   // overview is manager-only, matching the CS board's hidden Overview tab.
   const visibleView = canManageOptions ? view : "list";
   const filtersStorageKey = enrollmentFiltersStorageKey(program);
+  const initialYearColumnKey =
+    yearColumnFor(enrollmentColumnsForProgram(program, tableColumns))?.key ?? null;
   const [filters, setFilters] = useState<Filters>(() =>
     defaultToOwnAssignments
       ? { ...DEFAULT_FILTERS, responsible: [currentEmail], mineOnly: true }
@@ -722,6 +790,11 @@ export function EnrollmentClient({
         reviveEnrollmentFilters(raw, {
           optionIds: new Set(initialOptions.map((option) => option.id)),
           emails: new Set(people.map((person) => normalizeEnrollmentEmail(person.email))),
+          years: new Set(
+            enrollmentYearOptions(initialRecords, initialYearColumnKey).map(
+              (option) => option.value
+            )
+          ),
         })
     );
     // Đây là ca ngoại lệ hợp lệ của react-hooks/set-state-in-effect: đồng bộ
@@ -825,6 +898,12 @@ export function EnrollmentClient({
   const columns = useMemo(
     () => enrollmentColumnsForProgram(program, layoutTableColumns),
     [program, layoutTableColumns]
+  );
+  const yearColumn = useMemo(() => yearColumnFor(columns), [columns]);
+  const yearColumnKey = yearColumn?.key ?? null;
+  const yearOptions = useMemo(
+    () => enrollmentYearOptions(records, yearColumnKey),
+    [records, yearColumnKey]
   );
   // Label source for surfaces that don't get the per-user-filtered list —
   // built from `columns` (already resolves live label/position/Medicare
@@ -1065,12 +1144,12 @@ export function EnrollmentClient({
   const rankedRecords = useMemo(
     () =>
       sortRecords(
-        filterRecords(records, filters, optionsById, currentEmail),
+        filterRecords(records, filters, optionsById, currentEmail, yearColumnKey),
         sort,
         optionsById,
         peopleByEmail
       ),
-    [records, filters, optionsById, peopleByEmail, sort, currentEmail]
+    [records, filters, optionsById, peopleByEmail, sort, currentEmail, yearColumnKey]
   );
 
   // Hold the order steady while the user works. sortRecords tiebreaks on
@@ -1775,6 +1854,8 @@ export function EnrollmentClient({
             people={people}
             agents={agents}
             optionsBySet={optionsBySet}
+            yearColumnKey={yearColumnKey}
+            yearOptions={yearOptions}
             columns={columns}
             hiddenColumnKeys={hiddenColumnKeys}
             onToggleColumn={toggleColumn}
@@ -1961,6 +2042,8 @@ function EnrollmentToolbar({
   people,
   agents,
   optionsBySet,
+  yearColumnKey,
+  yearOptions,
   columns,
   hiddenColumnKeys,
   onToggleColumn,
@@ -1978,6 +2061,8 @@ function EnrollmentToolbar({
   people: EnrollmentPerson[];
   agents: TaskAgent[];
   optionsBySet: EnrollmentOptionsBySet;
+  yearColumnKey: string | null;
+  yearOptions: { value: string; label: string }[];
   columns: EnrollmentColumn[];
   hiddenColumnKeys: Set<EnrollmentColumnKey>;
   onToggleColumn: (key: EnrollmentColumnKey) => void;
@@ -1991,6 +2076,7 @@ function EnrollmentToolbar({
   const columnByKey = new Map(columns.map((column) => [column.key, column]));
   const hasActiveFilters =
     filters.query.trim() !== "" ||
+    filters.year.length > 0 ||
     filters.stage.length > 0 ||
     filters.agent.length > 0 ||
     filters.caller.length > 0 ||
@@ -2058,6 +2144,24 @@ function EnrollmentToolbar({
 
       {view === "list" ? (
       <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
+        {yearColumnKey ? (
+          <TaskSelect
+            label="Year"
+            multi
+            searchable
+            values={filters.year}
+            options={[{ value: "", label: "All Years" }, ...yearOptions]}
+            placeholder="Year"
+            allValue=""
+            summaryLabel="years"
+            className="w-max min-w-[7.25rem]"
+            buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+            onValuesChange={(year) =>
+              setFilters((current) => ({ ...current, year }))
+            }
+          />
+        ) : null}
+
         <TaskSelect
           label={columnByKey.get("stage")?.label ?? "Stage"}
           multi
@@ -5474,7 +5578,8 @@ function filterRecords(
   records: EnrollmentRecordWithStats[],
   filters: Filters,
   optionsById: Map<string, EnrollmentOption>,
-  currentEmail: string
+  currentEmail: string,
+  yearColumnKey: string | null
 ) {
   const query = filters.query.trim().toLowerCase();
   const normalizedCurrentEmail = normalizeEnrollmentEmail(currentEmail);
@@ -5488,6 +5593,12 @@ function filterRecords(
       !isEnrollmentFieldApplicable(record.program, "caller_email") ||
       Boolean(record.caller_email);
     if (filters.unowned && hasCaller && record.responsible_enroll_email) {
+      return false;
+    }
+    if (
+      filters.year.length > 0 &&
+      !filters.year.includes(enrollmentYearFilterValue(record, yearColumnKey) ?? "")
+    ) {
       return false;
     }
     if (filters.stage.length > 0 && !filters.stage.includes(record.stage_id ?? "")) return false;

@@ -23,7 +23,7 @@ export function toggleHiddenProviderListColumn(
 /**
  * Cột nào lên bảng.
  *
- * Khác Task List và Event Leads: ở đây `hidden_default` chỉ là **giá trị khởi
+ * Khác Task List và Lead Management: ở đây `hidden_default` chỉ là **giá trị khởi
  * đầu**, không phải bản án. Bảng provider có nhiều cột thưa dữ liệu nên mặc định
  * ẩn (Other plans 0/889 dòng, Verified by 1%, nhóm siêu dữ liệu); nếu người dùng
  * không tự bật lại được thì họ phải nhờ admin vào `/config` cho một việc thuần

@@ -30,7 +30,7 @@ export function configScopesFor(input: {
   const scopes: TableScope[] = [];
   if (input.isTaskAdmin) scopes.push(...TASK_SCOPES);
   if (input.isLeadManager) scopes.push(...LEAD_SCOPES);
-  // Provider List đứng CUỐI: thêm vào giữa sẽ đẩy vị trí của Event Leads trong
+  // Provider List đứng CUỐI: thêm vào giữa sẽ đẩy vị trí của Lead Management trong
   // dropdown, mà người dùng bấm theo trí nhớ vị trí.
   if (input.isProviderManager) scopes.push(...PROVIDER_SCOPES);
   return scopes;

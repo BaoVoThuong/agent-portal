@@ -6,7 +6,7 @@ import type { TableColumn } from "@/lib/table-config/types";
 import { PROVIDER_LIST_LOCKED_COLUMN_KEYS } from "@/lib/providers/list-columns";
 import { useAnchoredMenu } from "../../../tasks/_components/use-anchored-menu";
 
-/** Bộ chọn cột theo từng người, giống hệt Task List và Event Leads. */
+/** Bộ chọn cột theo từng người, giống hệt Task List và Lead Management. */
 export function ProviderTableSettingsButton({
   columns,
   hiddenColumnKeys,
@@ -17,7 +17,7 @@ export function ProviderTableSettingsButton({
   onToggleColumn: (key: string) => void;
 }) {
   const { isOpen, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu();
-  // Khác Task List và Event Leads: ở đây `hidden_default` KHÔNG bị loại khỏi
+  // Khác Task List và Lead Management: ở đây `hidden_default` KHÔNG bị loại khỏi
   // menu. Bảng provider có những cột thưa dữ liệu nên mặc định ẩn (Other plans,
   // Verified by, ngày xác minh, nhóm siêu dữ liệu) — nếu menu cũng không bật
   // lại được thì người cần tới chúng bế tắc, phải nhờ admin vào /config. Cột

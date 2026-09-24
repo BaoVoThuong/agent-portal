@@ -133,7 +133,7 @@ const SCOPE_LABEL: Record<TableScope, string> = {
   aca: "Health ACA Enrollment",
   medicare: "Health Medicare Enrollment",
   medicaid: "Health Medicaid Enrollment",
-  lead: "Event Leads",
+  lead: "Lead Management",
   provider: "Provider List",
 };
 
@@ -256,7 +256,7 @@ export function ConfigClient({
   const tabs = tabsForScope(scope);
   const columnsReady = columnsReadyByScope[scope];
   // Đổi sang một bảng không có tab đang mở thì kéo về tab đầu tiên. Không có
-  // bước này thì chọn Event Leads khi đang đứng ở tab SLA cho ra màn hình
+  // bước này thì chọn Lead Management khi đang đứng ở tab SLA cho ra màn hình
   // trắng: không tab nào active mà cũng không section nào render.
   //
   // Chỉnh state ngay trong render là mẫu chính thức của React cho "state phụ
