@@ -29,11 +29,27 @@ export function rotatedScaledBounds(base: Size, rotation: number, scale: number)
 }
 
 /**
- * Giới hạn độ kéo để ảnh không bị lôi ra ngoài khung.
+ * Bao nhiêu pixel ảnh luôn phải còn nằm trong khung.
  *
- * Kéo được đúng bằng nửa phần tràn ở mỗi phía — quá mức đó là bắt đầu lòi nền
- * trống ra. Chiều nào ảnh vẫn lọt trong khung thì ghim về giữa, vì chiều đó
- * không có gì để xem thêm.
+ * Đây là thứ DUY NHẤT còn chặn việc kéo. Không có nó thì kéo mạnh một cái là
+ * ảnh ra khỏi khung hoàn toàn, màn hình trống trơn và người dùng không biết
+ * đường lấy lại.
+ */
+const KEEP_VISIBLE_PX = 80;
+
+/**
+ * Giới hạn độ kéo.
+ *
+ * Bản đầu chỉ cho kéo đúng bằng nửa phần tràn — tức mép ảnh không bao giờ đi
+ * quá mép khung. Về lý thì "không lòi nền xám", nhưng dùng thật thì **chật**:
+ * ở 150% mỗi bên chỉ nhúc nhích được hơn trăm pixel, và không thể đưa một góc
+ * ảnh vào giữa khung để nhìn cho rõ.
+ *
+ * Nay cho kéo gần như tự do: đặt được góc nào của ảnh vào bất kỳ chỗ nào trong
+ * khung, miễn là còn chừa lại `KEEP_VISIBLE_PX` để ảnh không biến mất hẳn.
+ *
+ * Ảnh còn lọt trọn trong khung ở CẢ HAI chiều thì vẫn ghim giữa — lúc đó không
+ * có gì bị che, kéo đi chỉ làm nó lệch vô cớ.
  */
 export function clampPanOffset(offset: PanOffset, bounds: Size, viewport: Size): PanOffset {
   // Khung chưa được bố trí (mới mở modal, ảnh chưa tải xong) thì mọi giới hạn
@@ -41,8 +57,13 @@ export function clampPanOffset(offset: PanOffset, bounds: Size, viewport: Size):
   // đâu cũng được, tức ảnh bay khỏi màn hình ngay nhịp vẽ đầu tiên.
   if (viewport.width <= 0 || viewport.height <= 0) return { x: 0, y: 0 };
 
-  const limitX = Math.max(0, (bounds.width - viewport.width) / 2);
-  const limitY = Math.max(0, (bounds.height - viewport.height) / 2);
+  const fitsEntirely =
+    bounds.width <= viewport.width && bounds.height <= viewport.height;
+  if (fitsEntirely) return { x: 0, y: 0 };
+
+  // Kéo tối đa cho tới khi chỉ còn KEEP_VISIBLE_PX chồng lên khung.
+  const limitX = Math.max(0, bounds.width / 2 + viewport.width / 2 - KEEP_VISIBLE_PX);
+  const limitY = Math.max(0, bounds.height / 2 + viewport.height / 2 - KEEP_VISIBLE_PX);
   return {
     // Cộng 0 để -0 thành 0: `Math.max(-0, …)` trả -0, và một offset âm-không
     // lọt vào so sánh bằng ở nơi khác là bug rất khó nhìn ra.

@@ -72,6 +72,7 @@ export function AttachmentPreviewDialog({
   const [baseSize, setBaseSize] = useState<Size | null>(null);
   const [viewportSize, setViewportSize] = useState<Size>({ width: 0, height: 0 });
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; from: PanOffset; moved: boolean } | null>(null);
   const previewCloseRef = useRef<HTMLButtonElement | null>(null);
   const previewDialogRef = useRef<HTMLDivElement | null>(null);
@@ -128,6 +129,47 @@ export function AttachmentPreviewDialog({
     [boundsFor, previewRotation, viewportSize],
   );
 
+  /**
+   * Bắt đầu kéo ảnh.
+   *
+   * Gắn `pointermove`/`pointerup` lên `window` chứ không dựa vào
+   * `setPointerCapture` trên phần tử: kéo ra ngoài phần tử, ra ngoài cả cửa sổ,
+   * hay nhả chuột ở đâu cũng vẫn nhận được sự kiện. Bản trước bắt sự kiện trên
+   * chính thẻ ảnh nên chỉ cần con trỏ rời khỏi nó là mất dấu.
+   *
+   * Đặt trên KHUNG chứ không trên thẻ ảnh: ảnh cao thì hai bên còn dải nền xám,
+   * bấm vào đó rồi kéo là chuyện rất tự nhiên, mà bản trước không nhận.
+   */
+  const startDrag = (event: React.PointerEvent) => {
+    if (event.button !== 0 || previewStatus !== "loaded") return;
+    const drag = { x: event.clientX, y: event.clientY, from: previewOffset, moved: false };
+    dragRef.current = drag;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - drag.x;
+      const dy = moveEvent.clientY - drag.y;
+      // Dưới ngưỡng thì vẫn coi là một cú bấm, để nút phóng-khi-bấm không mất.
+      if (!drag.moved && Math.hypot(dx, dy) < PREVIEW_DRAG_SLOP) return;
+      if (!drag.moved) {
+        drag.moved = true;
+        setDragging(true);
+      }
+      const next = { x: drag.from.x + dx, y: drag.from.y + dy };
+      setPreviewOffset(
+        currentBounds ? clampPanOffset(next, currentBounds, viewportSize) : next,
+      );
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      setDragging(false);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  };
+
   const resetView = useCallback(() => {
     setPreviewZoom(1);
     setPreviewRotation(0);
@@ -141,17 +183,45 @@ export function AttachmentPreviewDialog({
       (currentBounds.width > viewportSize.width + 1 ||
         currentBounds.height > viewportSize.height + 1),
   );
+  // Một nguồn duy nhất cho con trỏ, dùng chung cho cả khung lẫn thẻ ảnh — hai
+  // nơi tự quyết là có lúc rê qua ranh giới thì con trỏ nhấp nháy đổi qua lại.
+  const imageCursor = dragging
+    ? "cursor-grabbing"
+    : pannable
+      ? "cursor-grab"
+      : previewZoom >= PREVIEW_ZOOM_MAX
+        ? "cursor-zoom-out"
+        : "cursor-zoom-in";
 
-  // Đổi cỡ cửa sổ làm khung rộng/hẹp đi, tức phần tràn cũng đổi. Không theo dõi
-  // thì giới hạn kéo giữ nguyên theo cỡ khung lúc mở, và ảnh kẹt lệch một bên.
+  // Đo ảnh và khung bằng ResizeObserver, KHÔNG đo trong `onLoad`.
+  //
+  // Đo trong onLoad là lỗi đã gặp: lúc sự kiện đó chạy, ảnh vẫn mang class
+  // `hidden` của lần render trước (trạng thái còn là "loading"), tức
+  // `display:none`, nên `offsetWidth` trả về 0. Hộp bao thành 0 → không bao giờ
+  // coi là tràn khung → không có bàn tay và không kéo được gì, dù zoom 150%.
+  //
+  // ResizeObserver đo đúng ba thời điểm cần: lúc ảnh hiện ra, lúc đổi cỡ cửa sổ
+  // (khung rộng hẹp đi thì phần tràn cũng đổi), và lúc ảnh khác được mở.
+  // `transform` không đổi ô chiếm chỗ nên số đo được luôn là cỡ CHƯA phóng —
+  // đúng thứ `rotatedScaledBounds` cần.
   useEffect(() => {
+    if (!preview) return;
     const viewport = viewportRef.current;
-    if (!preview || !viewport) return;
-    const measure = () =>
-      setViewportSize({ width: viewport.clientWidth, height: viewport.clientHeight });
+    const image = imageRef.current;
+    const measure = () => {
+      if (viewport) {
+        setViewportSize({ width: viewport.clientWidth, height: viewport.clientHeight });
+      }
+      // Bỏ qua số đo 0: ảnh đang ẩn hoặc chưa bố trí xong, ghi vào state chỉ để
+      // lại một hộp bao rỗng cho tới lần đo sau.
+      if (image && image.offsetWidth > 0 && image.offsetHeight > 0) {
+        setBaseSize({ width: image.offsetWidth, height: image.offsetHeight });
+      }
+    };
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(viewport);
+    if (viewport) observer.observe(viewport);
+    if (image) observer.observe(image);
     return () => observer.disconnect();
   }, [preview]);
 
@@ -284,8 +354,23 @@ export function AttachmentPreviewDialog({
             được, nên kể cả có thanh cuộn cũng không với tới được nửa bên trái. */}
         <div
           ref={viewportRef}
-          className={`flex min-h-0 flex-1 items-center justify-center bg-[#f7f8f9] p-3 ${
-            previewIsImage ? "overflow-hidden" : "overflow-auto"
+          onPointerDown={previewIsImage ? startDrag : undefined}
+          onWheel={
+            previewIsImage
+              ? (event) => {
+                  if (previewStatus !== "loaded") return;
+                  const viewport = viewportRef.current;
+                  if (!viewport) return;
+                  const rect = viewport.getBoundingClientRect();
+                  applyZoom(previewZoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15), {
+                    x: event.clientX - (rect.left + rect.width / 2),
+                    y: event.clientY - (rect.top + rect.height / 2),
+                  });
+                }
+              : undefined
+          }
+          className={`relative flex min-h-0 flex-1 items-center justify-center bg-[#f7f8f9] p-3 ${
+            previewIsImage ? `touch-none overflow-hidden ${imageCursor}` : "overflow-auto"
           }`}
         >
           {previewIsImage ? (
@@ -303,96 +388,38 @@ export function AttachmentPreviewDialog({
               ) : null}
               <button
                 type="button"
-                onPointerDown={(event) => {
-                  if (event.button !== 0 || previewStatus !== "loaded") return;
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  dragRef.current = {
-                    x: event.clientX,
-                    y: event.clientY,
-                    from: previewOffset,
-                    moved: false,
-                  };
-                }}
-                onPointerMove={(event) => {
-                  const drag = dragRef.current;
-                  if (!drag) return;
-                  const dx = event.clientX - drag.x;
-                  const dy = event.clientY - drag.y;
-                  if (!drag.moved && Math.hypot(dx, dy) < PREVIEW_DRAG_SLOP) return;
-                  if (!drag.moved) {
-                    drag.moved = true;
-                    setDragging(true);
-                  }
-                  const next = { x: drag.from.x + dx, y: drag.from.y + dy };
-                  setPreviewOffset(
-                    currentBounds ? clampPanOffset(next, currentBounds, viewportSize) : next,
-                  );
-                }}
-                onPointerUp={(event) => {
-                  const drag = dragRef.current;
-                  dragRef.current = null;
-                  setDragging(false);
-                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    event.currentTarget.releasePointerCapture(event.pointerId);
-                  }
-                  // Kéo thì KHÔNG phóng. Không có nhánh này thì mỗi lần kéo
-                  // xong ảnh lại nhảy thêm một nấc zoom.
-                  if (drag?.moved) return;
+                onClick={(event) => {
+                  // Vừa kéo xong thì KHÔNG phóng. `pointerup` chạy trước
+                  // `click`, nên cờ `moved` vẫn còn đọc được ở đây.
+                  if (dragRef.current?.moved) return;
                   if (previewStatus !== "loaded") return;
                   if (previewZoom >= PREVIEW_ZOOM_MAX) {
                     resetView();
                     return;
                   }
                   const viewport = viewportRef.current;
-                  const pointer = viewport
-                    ? (() => {
-                        const rect = viewport.getBoundingClientRect();
-                        return {
+                  const rect = viewport?.getBoundingClientRect();
+                  applyZoom(
+                    previewZoom + 0.5,
+                    rect
+                      ? {
                           x: event.clientX - (rect.left + rect.width / 2),
                           y: event.clientY - (rect.top + rect.height / 2),
-                        };
-                      })()
-                    : undefined;
-                  applyZoom(previewZoom + 0.5, pointer);
-                }}
-                onPointerCancel={() => {
-                  dragRef.current = null;
-                  setDragging(false);
-                }}
-                onWheel={(event) => {
-                  if (previewStatus !== "loaded") return;
-                  const viewport = viewportRef.current;
-                  if (!viewport) return;
-                  const rect = viewport.getBoundingClientRect();
-                  applyZoom(previewZoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15), {
-                    x: event.clientX - (rect.left + rect.width / 2),
-                    y: event.clientY - (rect.top + rect.height / 2),
-                  });
+                        }
+                      : undefined,
+                  );
                 }}
                 disabled={previewStatus !== "loaded"}
                 aria-label={previewZoom >= PREVIEW_ZOOM_MAX ? "Reset image zoom" : "Zoom in image"}
-                // `touch-none` để trên máy cảm ứng ngón tay kéo ảnh chứ không
-                // cuộn trang phía sau.
-                className={`touch-none select-none border-0 bg-transparent p-0 outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[#85b8ff] disabled:pointer-events-none ${
-                  dragging
-                    ? "cursor-grabbing"
-                    : pannable
-                      ? "cursor-grab"
-                      : previewZoom >= PREVIEW_ZOOM_MAX
-                        ? "cursor-zoom-out"
-                        : "cursor-zoom-in"
-                }`}
+                className={`border-0 bg-transparent p-0 outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[#85b8ff] disabled:pointer-events-none ${imageCursor}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={preview.url}
                   alt={preview.fileName}
-                  onLoad={(event) => {
-                    const image = event.currentTarget;
-                    setBaseSize({ width: image.offsetWidth, height: image.offsetHeight });
-                    setPreviewStatus("loaded");
-                  }}
+                  onLoad={() => setPreviewStatus("loaded")}
                   onError={() => setPreviewStatus("error")}
+                  ref={imageRef}
                   draggable={false}
                   className={`object-contain ${dragging ? "" : "transition-transform duration-150"} ${previewStatus === "loaded" ? "" : "hidden"}`}
                   style={{

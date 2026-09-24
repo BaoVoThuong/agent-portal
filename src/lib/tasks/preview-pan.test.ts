@@ -42,35 +42,46 @@ describe("rotatedScaledBounds", () => {
 describe("clampPanOffset", () => {
   const viewport = { width: 400, height: 300 };
 
-  // Ảnh còn nằm lọt trong khung thì không có gì để kéo. Cho kéo lúc này là để
-  // người dùng lôi ảnh ra khỏi màn hình rồi không biết đường lấy lại.
-  it("ảnh nhỏ hơn khung thì ghim về giữa", () => {
+  // Ảnh còn lọt trọn trong khung thì không có gì bị che. Cho kéo lúc này chỉ
+  // làm ảnh lệch vô cớ.
+  it("ảnh nhỏ hơn khung ở cả hai chiều thì ghim về giữa", () => {
     expect(
       clampPanOffset({ x: 120, y: -80 }, { width: 200, height: 150 }, viewport)
     ).toEqual({ x: 0, y: 0 });
   });
 
-  it("kéo trong phạm vi phần tràn thì giữ nguyên", () => {
-    // tràn ngang = (800-400)/2 = 200
-    expect(
-      clampPanOffset({ x: 150, y: 0 }, { width: 800, height: 300 }, viewport)
-    ).toEqual({ x: 150, y: 0 });
+  // Đây là thứ bản đầu làm sai: chỉ cho kéo bằng nửa phần tràn, tức ở 150% mỗi
+  // bên nhúc nhích được hơn trăm pixel rồi đứng. Người dùng báo "kéo được
+  // nhưng ít lắm, gần như không được".
+  it("cho kéo XA HƠN nhiều so với phần bị tràn", () => {
+    const bounds = { width: 800, height: 300 };
+    const overflowOnly = (800 - 400) / 2; // 200 — giới hạn của bản đầu
+    const moved = clampPanOffset({ x: 400, y: 0 }, bounds, viewport);
+    expect(moved.x).toBeGreaterThan(overflowOnly);
   });
 
-  it("kéo quá phần tràn thì chặn lại đúng mép", () => {
-    expect(
-      clampPanOffset({ x: 999, y: 0 }, { width: 800, height: 300 }, viewport)
-    ).toEqual({ x: 200, y: 0 });
-    expect(
-      clampPanOffset({ x: -999, y: 0 }, { width: 800, height: 300 }, viewport)
-    ).toEqual({ x: -200, y: 0 });
+  // Chừa lại 80px: đủ để ảnh không biến mất hẳn khỏi khung.
+  it("kéo hết cỡ vẫn còn 80px ảnh nằm trong khung", () => {
+    const bounds = { width: 800, height: 300 };
+    const moved = clampPanOffset({ x: 99999, y: 0 }, bounds, viewport);
+    // mép trái ảnh so với tâm khung
+    const imageLeft = moved.x - bounds.width / 2;
+    const frameRight = viewport.width / 2;
+    expect(frameRight - imageLeft).toBeCloseTo(80);
   });
 
-  it("hai trục chặn độc lập nhau", () => {
-    // tràn ngang 200, dọc 0 -> kéo dọc bao nhiêu cũng về 0
-    expect(
-      clampPanOffset({ x: 50, y: 90 }, { width: 800, height: 200 }, viewport)
-    ).toEqual({ x: 50, y: 0 });
+  it("chặn đối xứng hai phía", () => {
+    const bounds = { width: 800, height: 300 };
+    const right = clampPanOffset({ x: 99999, y: 0 }, bounds, viewport).x;
+    const left = clampPanOffset({ x: -99999, y: 0 }, bounds, viewport).x;
+    expect(left).toBe(-right);
+  });
+
+  // Ảnh rộng tràn ngang nhưng vừa khít chiều dọc: vẫn phải nhích dọc được, vì
+  // người dùng cần đưa góc ảnh vào giữa để nhìn.
+  it("tràn một chiều thì chiều kia cũng kéo được", () => {
+    const moved = clampPanOffset({ x: 0, y: 90 }, { width: 800, height: 200 }, viewport);
+    expect(moved.y).toBe(90);
   });
 
   it("khung chưa đo được thì không kéo", () => {
