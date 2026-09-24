@@ -6,6 +6,67 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-25 — Thông báo tới trễ khi realtime lỡ ping
+
+CS phản ánh nhận thông báo assign trễ 15–20 phút dù đang mở portal.
+
+**Đo trên production (14 ngày): backend không chậm.** Từ lúc hành động xảy ra
+tới lúc ghi dòng thông báo — `assigned` trung vị **0,84s**, `task_created` trung
+vị **1,22s**, không một ca nào chạm 60 giây. Toàn bộ độ trễ nằm ở khâu giao tới
+trình duyệt.
+
+**Vì sao đúng tầm 15–20 phút:** khi realtime lỡ ping, thứ kéo thông báo ra là
+lần nạp đầy đủ kế tiếp — thường do **thông báo kế tiếp** của chính người đó kích
+hoạt. Khoảng cách giữa hai thông báo liên tiếp của cùng một người: trung vị 1,8
+phút, p90 38 phút, **20% vượt 15 phút**.
+
+**Lỗ hổng:** vòng lặp nền chỉ gọi `loadSummary`, mà hàm đó chỉ đổi con số trên
+chuông — không dựng toast, không kêu chuông, không tạo popup. Chỉ `load()` mới
+làm. Nên số nhảy mà không có gì báo.
+
+**Sửa:** `mode=summary` trả thêm `latestAt` (thời điểm thông báo mới nhất trong
+cả ba bảng). Vòng lặp nền so mốc, mới hơn thì nạp đầy đủ.
+
+Ba quyết định thiết kế, đều do review của codex chỉ ra chỗ sai trong bản đầu:
+
+- **Mốc là THỜI ĐIỂM, không phải số chưa đọc.** `unread` là tổng của ba bảng và
+  lên xuống hai chiều: một cái mới tới (+1) đúng lúc một cái cũ được đọc ở tab
+  khác (−1) thì tổng không đổi và vòng lặp bỏ lỡ hẳn.
+- **Mốc chỉ tiến SAU khi nạp thành công.** `load()` nay trả `boolean`. Tiến mốc
+  trước là request hỏng một lần thì mọi lượt sau thấy mốc bằng nhau rồi thôi —
+  mất thông báo vĩnh viễn.
+- **Chặn chồng lượt summary.** Một lượt chậm trả về sau lượt mới hơn sẽ ghi đè
+  mốc bằng dữ liệu cũ.
+
+Đã cân nhắc và **bỏ** hai hướng từng định làm: hạ nhịp poll theo "im lặng quá 5
+phút" (im lặng với một CS đang rảnh là bình thường, không phải realtime chết), và
+thêm log khi broadcast hỏng (`sendBroadcastMessages` đã `console.error` sẵn, phủ
+cả enrollment lẫn time-off).
+
+Ba truy vấn `latestAt` chạy song song với bốn truy vấn đếm sẵn có nên không cộng
+dồn độ trễ: đo thật `counts ≈ 420ms` cho cả bảy.
+
+## 2026-09-25 — Nút Assign ở CS Workload Overview phải bấm hai lần
+
+Bấm Assign lần đầu trượt, bấm lại mới được.
+
+RPC `assign_unassigned_task` kiểm `updated_at` **trước** ba điều kiện thật của
+việc nhận (còn `backlog`, chưa có `assignee_email`, chưa có dòng
+`task_assignees`), và cả hai cùng ném `ASSIGN_CONFLICT`. Mà `updated_at` bị đổi
+bởi những việc chẳng liên quan tới quyền nhận — ai đó vừa bình luận là đủ.
+
+**Đo trên production:** một task `backlog` chưa ai nhận có `updated_at` mới hơn
+`created_at` đúng **54 giây**; gọi RPC với timestamp cũ trả `ASSIGN_CONFLICT`.
+Và task đã có người nhận thì gọi với `p_expected_updated_at = null` **vẫn** trả
+`ASSIGN_CONFLICT` — tức row lock cộng ba điều kiện kia mới là thứ bảo vệ thật.
+
+**Sửa:** route truyền `null` thay vì timestamp. Không sửa RPC nên **không cần
+rollout**, và người gọi sau vẫn dùng được kiểm tra đó nếu thật sự cần. Bỏ luôn
+`expectedUpdatedAt` khỏi client và thân request.
+
+Không đụng CAS của sửa bình luận và Enrollment — chúng ghi dữ liệu tổng quát
+hơn, cần đánh giá riêng.
+
 ## 2026-09-24 — Sửa cơ chế phóng to / kéo ảnh trong ô xem trước tệp đính kèm
 
 Phóng to xong thì không kéo ảnh sang trái phải được. **Ba nguyên nhân chồng
@@ -32,6 +93,14 @@ thì người dùng lôi ảnh ra khỏi khung rồi không biết đường l�
 khó thấy khi chỉ đọc JSX. Hai bài test đầu tiên bắt được hai lỗi thật: `-0` lọt
 ra từ `Math.max`, và khung chưa đo được (rộng 0) thì công thức cho phép kéo đi
 đâu cũng được.
+
+**Bổ sung 25/09:** hai lỗi còn sót. Một là đo kích thước ảnh ngay trong `onLoad`
+— lúc đó ảnh vẫn mang class `hidden` của lần render trước nên `offsetWidth` trả
+về 0, hộp bao thành 0, và không bao giờ coi là tràn khung: không có bàn tay,
+kéo hướng nào cũng vô hiệu, dù zoom 150%. Đã chuyển sang `ResizeObserver` gắn
+trên thẻ ảnh. Hai là giới hạn kéo quá chặt — chỉ cho kéo bằng nửa phần tràn nên
+không thể đưa một góc ảnh vào giữa khung; nay cho kéo gần như tự do, chỉ chừa
+lại 80px để ảnh không biến mất hẳn.
 
 Kích thước ảnh và khung để trong state, không đọc ref lúc render: vừa sai luật
 React vừa không đáng tin — lần render đầu ref còn null, và đổi cỡ cửa sổ thì

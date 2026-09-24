@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  hasNewerNotification,
+  newestNotificationAt,
+} from "@/lib/notifications/delivery-cursor";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -208,17 +212,27 @@ export function NotificationBell() {
   const pushSubscribedRef = useRef(false);
   const pingTimerRef = useRef<number | null>(null);
 
-  const load = useCallback(async () => {
+  // Mốc thời điểm của thông báo mới nhất đã được nạp đầy đủ. Dùng thời điểm
+  // chứ không dùng số chưa đọc: số đó là tổng của ba bảng và lên xuống hai
+  // chiều, nên một cái mới tới đúng lúc một cái cũ được đọc là tổng không đổi.
+  const cursorRef = useRef<string | null>(null);
+  const summaryInFlightRef = useRef(false);
+
+  const load = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch("/api/tasks/notifications", {
         cache: "no-store",
       });
-      if (!res.ok) return;
+      if (!res.ok) return false;
       const data = await res.json();
       const list = data.notifications as Notif[];
       setItems(list);
       setUnread(data.unread as number);
       setTopic((data.topic as string | null) ?? null);
+      // Mốc chỉ tiến ở ĐÂY, tức sau khi đã thật sự cầm được danh sách. Tiến mốc
+      // trước khi nạp là nếu request hỏng, những lượt sau thấy mốc đã bằng nhau
+      // rồi thôi — thông báo bị bỏ lỡ vĩnh viễn.
+      cursorRef.current = newestNotificationAt(list) ?? cursorRef.current;
 
       if (!initialized.current) {
         // First load: remember what already exists; don't pop toasts for old items.
@@ -232,7 +246,7 @@ export function NotificationBell() {
         ) {
           publishTaskDataInvalidation();
         }
-        return;
+        return true;
       }
 
       const unseen = list.filter((n) => !seenIds.current.has(n.id));
@@ -265,26 +279,46 @@ export function NotificationBell() {
       if (fresh.length > 0) {
         void alertFreshNotifications(fresh, pushSubscribedRef.current);
       }
+      return true;
     } catch {
       // Transient network error (HMR reload, offline, navigation abort) —
       // ignore; the next poll / realtime ping retries.
+      return false;
     }
   }, []);
 
   const loadSummary = useCallback(async () => {
+    // Chặn chồng lượt: một lượt chậm trả về sau lượt mới hơn sẽ ghi đè mốc bằng
+    // dữ liệu cũ, và lần sau lại tưởng có thông báo mới.
+    if (summaryInFlightRef.current) return;
+    summaryInFlightRef.current = true;
     try {
       const res = await fetch("/api/tasks/notifications?mode=summary", {
         cache: "no-store",
       });
       if (!res.ok) return;
       const data = await res.json();
-      setUnread(data.unread as number);
       setTopic((data.topic as string | null) ?? null);
+
+      const latestAt = (data.latestAt as string | null) ?? null;
+      // Đây là đường dự phòng DUY NHẤT khi realtime im tiếng. Không có nó, con
+      // số trên chuông nhảy mà không có gì dựng toast hay kêu chuông, nên người
+      // dùng chỉ biết lúc tự bấm vào chuông.
+      if (hasNewerNotification(cursorRef.current, latestAt)) {
+        await load();
+        return;
+      }
+      // Lần quan sát đầu tiên: đặt mốc mà KHÔNG nạp, để khỏi dựng toast cho
+      // những thông báo cũ người dùng đã đọc từ lâu.
+      if (cursorRef.current === null) cursorRef.current = latestAt;
+      setUnread(data.unread as number);
     } catch {
       // The full load/realtime signal remains the fallback for transient
       // failures; summary polling is only a badge freshness optimization.
+    } finally {
+      summaryInFlightRef.current = false;
     }
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     const pollMs = realtimeLive ? POLL_REALTIME_MS : POLL_FALLBACK_MS;

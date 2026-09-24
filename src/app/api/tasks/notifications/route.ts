@@ -1,3 +1,4 @@
+import { newestNotificationAt } from "@/lib/notifications/delivery-cursor";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -28,8 +29,13 @@ export async function GET(req: Request) {
   // the user opens the dropdown or a realtime signal arrives.
   if (mode === "summary") {
     const tCounts = performance.now();
-    const [unreadRes, enrollmentUnreadRes, timeOffUnreadRes, unreadAssignedRes] =
-      await Promise.all([
+    const [
+      unreadRes,
+      enrollmentUnreadRes,
+      timeOffUnreadRes,
+      unreadAssignedRes,
+      ...latestRes
+    ] = await Promise.all([
       supabase
         .from("task_notifications")
         .select("id", { count: "exact", head: true })
@@ -51,6 +57,24 @@ export async function GET(req: Request) {
         .eq("recipient_email", email)
         .eq("type", "assigned")
         .eq("is_read", false),
+      // Mốc phát hiện thông báo mới cho vòng lặp nền.
+      //
+      // Số chưa đọc KHÔNG dùng làm mốc được: nó là tổng của ba bảng và lên
+      // xuống hai chiều. Một thông báo mới tới (+1) đúng lúc người dùng đọc
+      // một cái cũ ở tab khác (−1) thì tổng không đổi, và vòng lặp kết luận
+      // "không có gì mới" rồi bỏ lỡ hẳn cái vừa tới.
+      //
+      // Mỗi truy vấn chỉ lấy MỘT dòng mới nhất, không đếm, nên đường polling
+      // vẫn rẻ.
+      ...["task_notifications", "enrollment_notifications", "time_off_notifications"].map(
+        (table) =>
+          supabase
+            .from(table)
+            .select("created_at")
+            .eq("recipient_email", email)
+            .order("created_at", { ascending: false })
+            .limit(1),
+      ),
     ]);
     timing.record("counts", performance.now() - tCounts);
 
@@ -89,12 +113,24 @@ export async function GET(req: Request) {
         ),
       ),
     ];
+    // Bảng enrollment/time-off có thể chưa tồn tại ở môi trường cũ — lỗi "thiếu
+    // bảng" đã được bỏ qua ở trên, nên ở đây cũng chỉ nhặt dữ liệu đọc được.
+    //
+    // So bằng `newestNotificationAt` chứ không sắp chuỗi: hai thời điểm viết ở
+    // hai múi giờ khác nhau thì thứ tự chữ cái không còn là thứ tự thời gian.
+    const latestAt = newestNotificationAt(
+      latestRes.flatMap(
+        (result) => (result.data ?? []) as { created_at?: string | null }[],
+      ),
+    );
+
     return respond({
       unread:
         (unreadRes.count ?? 0) +
         (enrollmentUnreadRes.count ?? 0) +
         (timeOffUnreadRes.count ?? 0),
       unreadAssignedTaskIds,
+      latestAt,
       topic: notifTopic(email),
     });
   }
