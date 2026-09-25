@@ -6,6 +6,20 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-26 — Khoá RLS cho các bảng tạo sau vòng protected_tables (S0)
+
+`time_off_*`, `push_subscriptions`, `notification_preferences`, `task_comment_edits`,
+`zipcode_lookup`, `provider_directory`, `sheet_sync_*` chưa từng được bật RLS: chúng tạo
+sau vòng `protected_tables` của `schema.sql` hoặc chỉ có trong rollout. Anon key nằm
+công khai trong trình duyệt, nên nếu grant mặc định của Supabase còn thì ai cũng gọi
+PostgREST đọc/ghi được. Rollout `2026-09-26-rls-lockdown.sql` bật RLS và thu quyền
+anon/authenticated. `schema.sql` thêm tên các bảng vào `protected_tables` và thêm một
+khối khoá `time_off_*` ngay trước sweep SECURITY DEFINER, vì các bảng này tạo sau vòng
+cũ. App không đổi hành vi vì server dùng service role. Không có bản đảo ngược — mở lại
+quyền là mở lại lỗ hổng.
+
+**Cần chạy tay trên production:** `supabase/rollouts/2026-09-26-rls-lockdown.sql`.
+
 ## 2026-09-25 — Thông báo tới trễ khi realtime lỡ ping
 
 CS phản ánh nhận thông báo assign trễ 15–20 phút dù đang mở portal.

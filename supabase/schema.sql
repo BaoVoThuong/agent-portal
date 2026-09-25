@@ -6257,7 +6257,23 @@ declare
     'enrollment_attachments',
     'enrollment_notifications',
     'enrollment_queue_members',
-    'enrollment_overview_settings'
+    'enrollment_overview_settings',
+    -- Thêm 2026-09-26 (S0). Các bảng chỉ có trong rollout sẽ được bỏ qua ở đây
+    -- (to_regclass null) và khoá bởi rollouts/2026-09-26-rls-lockdown.sql.
+    'time_off_policies',
+    'time_off_balances',
+    'time_off_balance_adjustments',
+    'time_off_balance_adjustment_batches',
+    'time_off_holidays',
+    'time_off_requests',
+    'time_off_monthly_accrual_rules',
+    'time_off_notifications',
+    'push_subscriptions',
+    'notification_preferences',
+    'task_comment_edits',
+    'zipcode_lookup',
+    'sheet_sync_runs',
+    'sheet_sync_staging'
   ];
 begin
   foreach table_name in array protected_tables loop
@@ -7254,6 +7270,27 @@ revoke all on function adjust_time_off_balance(uuid, text, integer, numeric, dat
   from public, anon, authenticated;
 grant execute on function adjust_time_off_balance(uuid, text, integer, numeric, date, text, uuid)
   to service_role;
+
+-- RLS cho các bảng tạo SAU vòng protected_tables ở trên (2026-09-26, S0).
+-- Vòng đó chạy trước khi time_off_* tồn tại nên bỏ qua chúng; bảng chỉ có
+-- trong rollout do rollouts/2026-09-26-rls-lockdown.sql khoá.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array[
+    'time_off_policies',
+    'time_off_balances',
+    'time_off_balance_adjustments',
+    'time_off_holidays',
+    'time_off_requests'
+  ] loop
+    if to_regclass('public.' || t) is not null then
+      execute format('alter table public.%I enable row level security', t);
+      execute format('revoke all on table public.%I from anon, authenticated', t);
+    end if;
+  end loop;
+end $$;
 
 -- SECURITY DEFINER ACL — must remain the LAST executable block in this file.
 -- ---------------------------------------------------------------------------
