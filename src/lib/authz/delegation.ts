@@ -1,0 +1,69 @@
+import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { ACTIONS, type Action } from "./catalog";
+import { encodeGrant, hasGrant, normalizeGrants } from "./grants";
+
+/**
+ * Trần uỷ quyền (audit S4, plan D10): người thao tác chỉ cấp / gán được những
+ * grant chính mình đang có. So trên GRANT HIỆU LỰC (đã gồm scope), không so tên
+ * role hay permission phẳng.
+ *
+ * Trả về các grant vượt trần — rỗng nghĩa là được phép.
+ */
+export function grantsBeyondCeiling(
+  actorGrants: readonly string[],
+  targetGrants: readonly string[]
+): string[] {
+  const actor = new Set(actorGrants);
+  return normalizeGrants(targetGrants).filter((grant) => !actor.has(grant));
+}
+
+/** Mọi grant hợp lệ theo catalog — dùng cho test và lưới Role Manager. */
+export function allCatalogGrants(): string[] {
+  return ACTIONS.flatMap((definition) =>
+    definition.scopes.map((scope) => encodeGrant({ action: definition.action, scope }))
+  );
+}
+
+/**
+ * Bản chiếu permission phẳng từ grant — ghi vào `role_permissions` khi role đã
+ * chuyển sang grant, để điều hướng và code chưa chuyển vẫn thấy quyền nhất quán
+ * (plan D3). Luật: permission cũ có mặt khi grant tương ứng có mặt.
+ */
+export function projectLegacyPermissions(grants: readonly string[]): string[] {
+  const any = (action: Action) => hasGrant(grants, action);
+  const all = (action: Action) => hasGrant(grants, action, "all");
+  const keys: string[] = [];
+  const add = (condition: boolean, key: string) => {
+    if (condition) keys.push(key);
+  };
+
+  add(any("registration.health.read"), PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH);
+  add(any("registration.pc.read"), PERMISSIONS.CUSTOMER_REGISTRATION_PC);
+  add(any("automation.health_statement.run"), PERMISSIONS.AUTOMATION_HEALTH_STATEMENT);
+  add(any("automation.pc_statement.run"), PERMISSIONS.AUTOMATION_PC_STATEMENT);
+  add(any("provider.read"), PERMISSIONS.AUTOMATION_PROVIDER_FINDER);
+  add(any("dashboard.health.agent.read"), PERMISSIONS.AGENT_DASHBOARD_HEALTH);
+  add(any("dashboard.pc.agent.read"), PERMISSIONS.AGENT_DASHBOARD_PC);
+  add(any("dashboard.health.company.read"), PERMISSIONS.COMPANY_DASHBOARD_HEALTH);
+  add(any("dashboard.pc.company.read"), PERMISSIONS.COMPANY_DASHBOARD_PC);
+  add(
+    all("registration.health.read") ||
+      all("registration.pc.read") ||
+      all("dashboard.health.agent.read") ||
+      all("dashboard.pc.agent.read"),
+    PERMISSIONS.COMPANY_VIEW_ALL
+  );
+  add(any("account.manage"), PERMISSIONS.ACCOUNT_MANAGER);
+  add(any("role.manage"), PERMISSIONS.ROLE_MANAGER);
+  add(any("timeoff.request"), PERMISSIONS.TIME_OFF_USER);
+  add(any("timeoff.manage"), PERMISSIONS.TIME_OFF_ADMIN);
+  add(any("settings.access"), PERMISSIONS.SETTINGS);
+  add(all("task.read"), PERMISSIONS.TASK_MANAGE);
+  add(any("task.read"), PERMISSIONS.TASK_WORK);
+  add(any("task.export") || any("enrollment.export") || any("provider.export"), PERMISSIONS.TASK_EXPORT);
+  add(any("enrollment.import") || any("provider.import"), PERMISSIONS.TASK_IMPORT);
+  add(all("lead.read"), PERMISSIONS.LEAD_MANAGE);
+  add(any("lead.read"), PERMISSIONS.LEAD_WORK);
+
+  return [...new Set(keys)].sort();
+}

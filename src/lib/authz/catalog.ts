@@ -27,6 +27,19 @@ export const UNSCOPED = "*" as const;
 
 export type GrantScope = Scope | typeof UNSCOPED;
 
+/** Nhãn hiển thị của scope trong Role Manager. */
+export const SCOPE_LABELS: Record<GrantScope, string> = {
+  own: "Own",
+  assigned: "Assigned to them",
+  reported: "Created by them",
+  participating: "Mentioned in",
+  agent_owned: "Their agent book",
+  assistant_for_agent: "Agents they assist",
+  shared_queue: "Shared queue",
+  all: "All",
+  "*": "Allowed",
+};
+
 export type ActionDefinition = {
   action: string;
   label: string;
@@ -51,76 +64,76 @@ const OWNER_SCOPES = ["agent_owned", "assistant_for_agent", "all"] as const sati
 
 export const ACTIONS = [
   // ---------------------------------------------------------------- Task
-  { action: "task.read", label: "Xem task", group: "Tasks", scopes: TASK_READ_SCOPES },
-  { action: "task.create", label: "Tạo task", group: "Tasks", scopes: OWNER_SCOPES },
+  { action: "task.read", label: "View tasks", group: "Tasks", scopes: TASK_READ_SCOPES },
+  { action: "task.create", label: "Create tasks", group: "Tasks", scopes: OWNER_SCOPES },
   {
     action: "task.content.update",
-    label: "Sửa nội dung task",
+    label: "Edit task content",
     group: "Tasks",
     scopes: ["reported", "agent_owned", "assistant_for_agent", "all"],
   },
-  { action: "task.due_date.update", label: "Dời Due Date", group: "Tasks", scopes: TASK_READ_SCOPES },
+  { action: "task.due_date.update", label: "Change due date", group: "Tasks", scopes: TASK_READ_SCOPES },
   {
     action: "task.status.update",
-    label: "Đổi trạng thái / reopen / mở khoá quá hạn",
+    label: "Change status / reopen / unlock overdue",
     group: "Tasks",
     scopes: ["assigned", "agent_owned", "assistant_for_agent", "all"],
   },
-  { action: "task.assign", label: "Giao việc", group: "Tasks", scopes: OWNER_SCOPES },
-  { action: "task.delete", label: "Xoá task", group: "Tasks", scopes: OWNER_SCOPES },
-  { action: "task.qc_review", label: "QC task", group: "Tasks", scopes: OWNER_SCOPES },
-  { action: "task.activity.read", label: "Xem lịch sử task", group: "Tasks", scopes: OWNER_SCOPES },
-  { action: "task.backlog.read", label: "Xem Backlog", group: "Tasks", scopes: [UNSCOPED] },
-  { action: "task.overview.read", label: "Xem Overview workload", group: "Tasks", scopes: [UNSCOPED] },
+  { action: "task.assign", label: "Assign tasks", group: "Tasks", scopes: OWNER_SCOPES },
+  { action: "task.delete", label: "Delete tasks", group: "Tasks", scopes: OWNER_SCOPES },
+  { action: "task.qc_review", label: "QC review tasks", group: "Tasks", scopes: OWNER_SCOPES },
+  { action: "task.activity.read", label: "View task activity", group: "Tasks", scopes: OWNER_SCOPES },
+  { action: "task.backlog.read", label: "View backlog", group: "Tasks", scopes: [UNSCOPED] },
+  { action: "task.overview.read", label: "View workload overview", group: "Tasks", scopes: [UNSCOPED] },
   {
     action: "task.config.manage",
-    label: "Cấu hình Task/Enrollment (category, SLA, nhắc việc, cột bảng)",
+    label: "Configure tasks & enrollment (categories, SLA, reminders, columns)",
     group: "Tasks",
     scopes: [UNSCOPED],
   },
-  { action: "task.export", label: "Export task", group: "Tasks", scopes: [UNSCOPED] },
+  { action: "task.export", label: "Export tasks", group: "Tasks", scopes: [UNSCOPED] },
 
   // ---------------------------------------------------------------- Enrollment
   {
     action: "enrollment.read",
-    label: "Xem hồ sơ Enrollment",
+    label: "View enrollment records",
     group: "Enrollment",
     scopes: ["assigned", "reported", "agent_owned", "assistant_for_agent", "shared_queue", "all"],
   },
-  { action: "enrollment.create", label: "Tạo hồ sơ", group: "Enrollment", scopes: OWNER_SCOPES },
+  { action: "enrollment.create", label: "Create records", group: "Enrollment", scopes: OWNER_SCOPES },
   {
     action: "enrollment.content.update",
-    label: "Sửa nội dung hồ sơ",
+    label: "Edit record content",
     group: "Enrollment",
     scopes: ["reported", "agent_owned", "assistant_for_agent", "all"],
   },
   {
     action: "enrollment.fields.update",
-    label: "Sửa trường hồ sơ",
+    label: "Edit record fields",
     group: "Enrollment",
     scopes: ["assigned", "reported", "agent_owned", "assistant_for_agent", "all"],
   },
   {
     action: "enrollment.stage.update",
-    label: "Đổi stage / reopen",
+    label: "Change stage / reopen",
     group: "Enrollment",
     scopes: ["assigned", "agent_owned", "assistant_for_agent", "all"],
   },
-  { action: "enrollment.qc_review", label: "QC hồ sơ", group: "Enrollment", scopes: OWNER_SCOPES },
-  { action: "enrollment.people.assign", label: "Giao người phụ trách", group: "Enrollment", scopes: OWNER_SCOPES },
-  { action: "enrollment.archive", label: "Lưu trữ hồ sơ", group: "Enrollment", scopes: OWNER_SCOPES },
+  { action: "enrollment.qc_review", label: "QC review records", group: "Enrollment", scopes: OWNER_SCOPES },
+  { action: "enrollment.people.assign", label: "Assign caller / responsible", group: "Enrollment", scopes: OWNER_SCOPES },
+  { action: "enrollment.archive", label: "Archive records", group: "Enrollment", scopes: OWNER_SCOPES },
   {
     action: "enrollment.agent.transfer",
-    label: "Chuyển hồ sơ sang agent khác",
+    label: "Move record to another agent",
     group: "Enrollment",
     scopes: ["reported", "agent_owned", "assistant_for_agent", "all"],
   },
-  { action: "enrollment.options.manage", label: "Quản lý danh sách lựa chọn", group: "Enrollment", scopes: [UNSCOPED] },
-  { action: "enrollment.overview.read", label: "Xem Overview Enrollment", group: "Enrollment", scopes: [UNSCOPED] },
-  { action: "enrollment.export", label: "Export hồ sơ", group: "Enrollment", scopes: [UNSCOPED] },
+  { action: "enrollment.options.manage", label: "Manage option lists", group: "Enrollment", scopes: [UNSCOPED] },
+  { action: "enrollment.overview.read", label: "View enrollment overview", group: "Enrollment", scopes: [UNSCOPED] },
+  { action: "enrollment.export", label: "Export records", group: "Enrollment", scopes: [UNSCOPED] },
   {
     action: "enrollment.import",
-    label: "Import hồ sơ (ghi đè hàng loạt)",
+    label: "Import records (bulk overwrite)",
     group: "Enrollment",
     scopes: [UNSCOPED],
     sensitive: true,
@@ -129,78 +142,78 @@ export const ACTIONS = [
   // ---------------------------------------------------------------- Lead
   {
     action: "lead.read",
-    label: "Xem lead",
+    label: "View leads",
     group: "Lead Management",
     scopes: ["assigned", "assistant_for_agent", "all"],
   },
   {
     action: "lead.update",
-    label: "Sửa lead",
+    label: "Edit leads",
     group: "Lead Management",
     scopes: ["assigned", "assistant_for_agent", "all"],
   },
   {
     action: "lead.interaction.log",
-    label: "Ghi tương tác",
+    label: "Log interactions",
     group: "Lead Management",
     scopes: ["assigned", "assistant_for_agent", "all"],
   },
-  { action: "lead.create", label: "Tạo lead", group: "Lead Management", scopes: [UNSCOPED] },
-  { action: "lead.assign", label: "Giao / chia lead", group: "Lead Management", scopes: [UNSCOPED] },
-  { action: "lead.import", label: "Import lead", group: "Lead Management", scopes: [UNSCOPED] },
-  { action: "lead.settings.manage", label: "Cài đặt lead, sự kiện, từ vựng", group: "Lead Management", scopes: [UNSCOPED] },
-  { action: "lead.overview.read", label: "Xem Overview lead", group: "Lead Management", scopes: [UNSCOPED] },
-  { action: "lead.config.manage", label: "Cấu hình cột bảng lead", group: "Lead Management", scopes: [UNSCOPED] },
+  { action: "lead.create", label: "Create leads", group: "Lead Management", scopes: [UNSCOPED] },
+  { action: "lead.assign", label: "Assign / distribute leads", group: "Lead Management", scopes: [UNSCOPED] },
+  { action: "lead.import", label: "Import leads", group: "Lead Management", scopes: [UNSCOPED] },
+  { action: "lead.settings.manage", label: "Lead settings, events, vocabulary", group: "Lead Management", scopes: [UNSCOPED] },
+  { action: "lead.overview.read", label: "View lead overview", group: "Lead Management", scopes: [UNSCOPED] },
+  { action: "lead.config.manage", label: "Configure lead columns", group: "Lead Management", scopes: [UNSCOPED] },
 
   // ---------------------------------------------------------------- Registration
-  { action: "registration.health.read", label: "Xem Health Registration", group: "Customer Registration", scopes: ["own", "all"] },
-  { action: "registration.health.create", label: "Nhập Health Registration", group: "Customer Registration", scopes: [UNSCOPED] },
-  { action: "registration.health.update", label: "Sửa/xoá Health Registration", group: "Customer Registration", scopes: ["own", "all"] },
-  { action: "registration.pc.read", label: "Xem P&C Registration", group: "Customer Registration", scopes: ["own", "all"] },
-  { action: "registration.pc.create", label: "Nhập P&C Registration", group: "Customer Registration", scopes: [UNSCOPED] },
-  { action: "registration.pc.update", label: "Sửa/xoá P&C Registration", group: "Customer Registration", scopes: ["own", "all"] },
+  { action: "registration.health.read", label: "View Health registrations", group: "Customer Registration", scopes: ["own", "all"] },
+  { action: "registration.health.create", label: "Enter Health registrations", group: "Customer Registration", scopes: [UNSCOPED] },
+  { action: "registration.health.update", label: "Edit / delete Health registrations", group: "Customer Registration", scopes: ["own", "all"] },
+  { action: "registration.pc.read", label: "View P&C registrations", group: "Customer Registration", scopes: ["own", "all"] },
+  { action: "registration.pc.create", label: "Enter P&C registrations", group: "Customer Registration", scopes: [UNSCOPED] },
+  { action: "registration.pc.update", label: "Edit / delete P&C registrations", group: "Customer Registration", scopes: ["own", "all"] },
 
   // ---------------------------------------------------------------- Dashboard
-  { action: "dashboard.health.agent.read", label: "Agent Dashboard Health", group: "Dashboard", scopes: ["own", "all"] },
-  { action: "dashboard.pc.agent.read", label: "Agent Dashboard P&C", group: "Dashboard", scopes: ["own", "all"] },
-  { action: "dashboard.health.company.read", label: "Company Dashboard Health", group: "Dashboard", scopes: [UNSCOPED] },
-  { action: "dashboard.pc.company.read", label: "Company Dashboard P&C", group: "Dashboard", scopes: [UNSCOPED] },
-  { action: "dashboard.agent.defaults.manage", label: "Sửa mặc định Agent Dashboard", group: "Dashboard", scopes: [UNSCOPED] },
-  { action: "dashboard.health.company.defaults.manage", label: "Sửa mặc định Company Health", group: "Dashboard", scopes: [UNSCOPED] },
-  { action: "dashboard.pc.company.defaults.manage", label: "Sửa mặc định Company P&C", group: "Dashboard", scopes: [UNSCOPED] },
+  { action: "dashboard.health.agent.read", label: "Agent dashboard — Health", group: "Dashboard", scopes: ["own", "all"] },
+  { action: "dashboard.pc.agent.read", label: "Agent dashboard — P&C", group: "Dashboard", scopes: ["own", "all"] },
+  { action: "dashboard.health.company.read", label: "Company dashboard — Health", group: "Dashboard", scopes: [UNSCOPED] },
+  { action: "dashboard.pc.company.read", label: "Company dashboard — P&C", group: "Dashboard", scopes: [UNSCOPED] },
+  { action: "dashboard.agent.defaults.manage", label: "Edit agent dashboard defaults", group: "Dashboard", scopes: [UNSCOPED] },
+  { action: "dashboard.health.company.defaults.manage", label: "Edit company Health defaults", group: "Dashboard", scopes: [UNSCOPED] },
+  { action: "dashboard.pc.company.defaults.manage", label: "Edit company P&C defaults", group: "Dashboard", scopes: [UNSCOPED] },
 
   // ---------------------------------------------------------------- Automation / Provider
   { action: "automation.health_statement.run", label: "Health Statement", group: "Automation", scopes: [UNSCOPED] },
   { action: "automation.pc_statement.run", label: "P&C Statement", group: "Automation", scopes: [UNSCOPED] },
-  { action: "provider.read", label: "Xem Provider List / Finder", group: "Automation", scopes: [UNSCOPED] },
-  { action: "provider.update", label: "Sửa Provider List và cột bảng", group: "Automation", scopes: [UNSCOPED] },
+  { action: "provider.read", label: "Use Provider List / Finder", group: "Automation", scopes: [UNSCOPED] },
+  { action: "provider.update", label: "Edit Provider List and columns", group: "Automation", scopes: [UNSCOPED] },
   { action: "provider.export", label: "Export Provider List", group: "Automation", scopes: [UNSCOPED] },
   { action: "provider.import", label: "Import Provider List", group: "Automation", scopes: [UNSCOPED], sensitive: true },
 
   // ---------------------------------------------------------------- Time off
-  { action: "timeoff.request", label: "Xin nghỉ phép", group: "Time Off", scopes: [UNSCOPED] },
-  { action: "timeoff.manage", label: "Duyệt nghỉ, quản số dư, ngày nghỉ công ty", group: "Time Off", scopes: [UNSCOPED], sensitive: true },
+  { action: "timeoff.request", label: "Request time off", group: "Time Off", scopes: [UNSCOPED] },
+  { action: "timeoff.manage", label: "Approve time off, manage balances and company days off", group: "Time Off", scopes: [UNSCOPED], sensitive: true },
 
   // ---------------------------------------------------------------- Org
-  { action: "org.agent_roster.manage", label: "Quản danh sách Agent", group: "Organization", scopes: [UNSCOPED], sensitive: true },
-  { action: "org.assistant_delegation.manage", label: "Quản Assistant của Agent", group: "Organization", scopes: [UNSCOPED], sensitive: true },
+  { action: "org.agent_roster.manage", label: "Manage agent roster", group: "Organization", scopes: [UNSCOPED], sensitive: true },
+  { action: "org.assistant_delegation.manage", label: "Manage agent assistants", group: "Organization", scopes: [UNSCOPED], sensitive: true },
 
   // ---------------------------------------------------------------- Management
   { action: "account.manage", label: "Account Manager", group: "Management", scopes: [UNSCOPED], sensitive: true },
   { action: "role.manage", label: "Role Manager", group: "Management", scopes: [UNSCOPED], sensitive: true },
-  { action: "settings.access", label: "Settings cá nhân", group: "Settings", scopes: [UNSCOPED] },
+  { action: "settings.access", label: "Personal settings", group: "Settings", scopes: [UNSCOPED] },
 
   // ---------------------------------------------------------------- Notifications (nhóm giám sát)
-  { action: "notify.task.created", label: "Nhận thông báo task mới", group: "Notifications", scopes: [UNSCOPED] },
+  { action: "notify.task.created", label: "Notify: new task created", group: "Notifications", scopes: [UNSCOPED] },
   {
     action: "notify.task.escalation",
-    label: "Nhận leo thang task (backlog khẩn, quá SLA/Due Date, mở khoá quá hạn)",
+    label: "Notify: task escalations (urgent backlog, SLA / due date, overdue unlock)",
     group: "Notifications",
     scopes: [UNSCOPED],
   },
-  { action: "notify.enrollment.qc", label: "Nhận thông báo QC hồ sơ", group: "Notifications", scopes: [UNSCOPED] },
-  { action: "notify.enrollment.escalation", label: "Nhận leo thang hồ sơ quá hạn", group: "Notifications", scopes: [UNSCOPED] },
-  { action: "notify.timeoff.submitted", label: "Nhận đơn nghỉ mới", group: "Notifications", scopes: [UNSCOPED] },
+  { action: "notify.enrollment.qc", label: "Notify: enrollment QC needed", group: "Notifications", scopes: [UNSCOPED] },
+  { action: "notify.enrollment.escalation", label: "Notify: overdue enrollment", group: "Notifications", scopes: [UNSCOPED] },
+  { action: "notify.timeoff.submitted", label: "Notify: new time-off request", group: "Notifications", scopes: [UNSCOPED] },
 ] as const satisfies readonly ActionDefinition[];
 
 export type Action = (typeof ACTIONS)[number]["action"];

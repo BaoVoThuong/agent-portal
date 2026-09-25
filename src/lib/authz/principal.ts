@@ -2,7 +2,8 @@ import { cache } from "react";
 import { getSession } from "@/lib/auth/session";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { deriveCompatGrants } from "./compat";
-import { normalizeGrants } from "./grants";
+import { encodeGrant, normalizeGrants } from "./grants";
+import type { GrantScope } from "./catalog";
 
 /**
  * Principal = "ai đang gọi" theo mô hình mới: account id, role, và GRANT hiệu lực.
@@ -18,6 +19,8 @@ export type RoleDefinition = {
   id: string;
   name: string;
   isActive: boolean;
+  /** Định danh bất biến của role hệ thống (`super_admin`, `default_new_account`). */
+  systemKey?: string | null;
   /** Permission phẳng cũ (role_permissions). */
   permissions: string[];
   /** Grant tường minh (role_grants) — null khi role chưa chuyển sang grant. */
@@ -37,33 +40,82 @@ export type Principal = {
 
 export const ROLE_CACHE_TTL_MS = 30_000;
 
-type RoleRow = {
+export type RoleRow = {
   id: string;
   name: string;
   is_active: boolean;
+  system_key?: string | null;
+  grants_managed?: boolean | null;
   role_permissions: { permission_key: string }[] | null;
+  role_grants?: { action: string; scope: string }[] | null;
 };
+
+const ROLE_SELECT =
+  "id,name,is_active,system_key,grants_managed,role_permissions(permission_key),role_grants(action,scope)";
+/** Trước rollout Phase C: chưa có cột/ bảng grant. */
+const ROLE_SELECT_LEGACY = "id,name,is_active,role_permissions(permission_key)";
+
+function isMissingGrantSchema(message: string | undefined): boolean {
+  return /role_grants|grants_managed|system_key/.test(message ?? "");
+}
+
+export function roleDefinitionFromRow(row: RoleRow): RoleDefinition {
+  return {
+    id: row.id,
+    name: row.name,
+    isActive: row.is_active,
+    systemKey: row.system_key ?? null,
+    permissions: (row.role_permissions ?? []).map((item) => item.permission_key),
+    grants: row.grants_managed
+      ? normalizeGrants(
+          (row.role_grants ?? []).map((item) =>
+            encodeGrant({ action: item.action, scope: item.scope as GrantScope })
+          )
+        )
+      : null,
+  };
+}
+
+/**
+ * Đọc định nghĩa role. Chịu được việc rollout Phase C chưa chạy (chưa có
+ * `role_grants`/`system_key`): khi đó mọi role đều suy tương thích như cũ.
+ */
+export async function fetchRoleRows(
+  filter: { ids?: readonly string[] } = {}
+): Promise<RoleRow[]> {
+  const run = (select: string) => {
+    const query = getSupabaseAdmin().from("roles").select(select);
+    return filter.ids ? query.in("id", [...filter.ids]) : query;
+  };
+  const first = await run(ROLE_SELECT);
+  if (!first.error) return (first.data ?? []) as unknown as RoleRow[];
+  if (!isMissingGrantSchema(first.error.message)) throw new Error(first.error.message);
+  const fallback = await run(ROLE_SELECT_LEGACY);
+  if (fallback.error) throw new Error(fallback.error.message);
+  return (fallback.data ?? []) as unknown as RoleRow[];
+}
 
 export async function fetchRoleDefinitions(
   roleIds: readonly string[]
 ): Promise<Map<string, RoleDefinition>> {
   const result = new Map<string, RoleDefinition>();
   if (roleIds.length === 0) return result;
-  const { data, error } = await getSupabaseAdmin()
-    .from("roles")
-    .select("id,name,is_active,role_permissions(permission_key)")
-    .in("id", [...roleIds]);
-  if (error) throw new Error(error.message);
-  for (const row of (data ?? []) as unknown as RoleRow[]) {
-    result.set(row.id, {
-      id: row.id,
-      name: row.name,
-      isActive: row.is_active,
-      permissions: (row.role_permissions ?? []).map((item) => item.permission_key),
-      grants: null,
-    });
+  for (const row of await fetchRoleRows({ ids: roleIds })) {
+    result.set(row.id, roleDefinitionFromRow(row));
   }
   return result;
+}
+
+/**
+ * Grant hiệu lực của MỘT role, dùng cho trần uỷ quyền và hiển thị trong Role
+ * Manager. Role hệ thống super_admin được suy như legacy admin (đúng với các
+ * account đang giữ nó).
+ */
+export function effectiveRoleGrants(role: RoleDefinition): string[] {
+  return grantsForRoles(
+    [{ ...role, isActive: true }],
+    role.systemKey === "super_admin" ? "admin" : "agent"
+  );
 }
 
 const roleCache = new Map<string, { role: RoleDefinition | null; expiresAt: number }>();
