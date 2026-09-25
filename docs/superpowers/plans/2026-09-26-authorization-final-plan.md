@@ -2337,7 +2337,7 @@ git commit -m "fix(enrollment): import chỉ dành cho task admin"
 
 ### Task A9: Registry gác route ba mức (cổng tĩnh)
 
-**Context:** 104 route gác bằng 7 cơ chế khác nhau; người thêm route mới phải tự đoán. Test này đọc mã nguồn mọi `route.ts` dưới `src/app/api` và ghi lại dấu hiệu gác ở ba mức (D16):
+**Context:** 112 route gác bằng 7 cơ chế khác nhau; người thêm route mới phải tự đoán. Test này đọc mã nguồn mọi `route.ts` dưới `src/app/api` và ghi lại dấu hiệu gác ở ba mức (D16):
 - **Xác thực:** biết ai đang gọi.
 - **Quyền hành động:** được làm loại việc này.
 - **Scope object:** đúng bản ghi / đúng response.

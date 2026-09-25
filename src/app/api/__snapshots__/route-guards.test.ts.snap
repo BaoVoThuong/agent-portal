@@ -1,0 +1,1244 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`registry gác route > bản đồ cổng khớp snapshot — route mới hoặc cổng bị gỡ phải được review 1`] = `
+[
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "admin/permissions/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "admin/roles/[id]/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "admin/roles/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "admin/task-reminder-settings/route.ts",
+  },
+  {
+    "action": [
+      "canAccessBoard(",
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "admin/task-sla-rules/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "admin/users/[id]/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "admin/users/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+      "canAny(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "ai/dashboard-chat/route.ts",
+  },
+  {
+    "action": [],
+    "authn": [],
+    "object": [],
+    "route": "auth/[...nextauth]/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/health-statement/report-preview/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/health-statement/run/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/pc-statement/payment-preview/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/pc-statement/policy-preview/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/pc-statement/report-preview/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/pc-statement/review/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/pc-statement/run/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/provider-finder/search/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/provider-list/[id]/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/provider-list/export/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/provider-list/import/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "automation/provider-list/route.ts",
+  },
+  {
+    "action": [
+      "loadConfigAdmin(",
+    ],
+    "authn": [
+      "loadConfigAdmin(",
+    ],
+    "object": [],
+    "route": "config/agents/route.ts",
+  },
+  {
+    "action": [
+      "loadConfigAdmin(",
+    ],
+    "authn": [
+      "loadConfigAdmin(",
+    ],
+    "object": [],
+    "route": "config/assistants/route.ts",
+  },
+  {
+    "action": [
+      "loadConfigAdminForScope(",
+    ],
+    "authn": [
+      "loadConfigAdminForScope(",
+    ],
+    "object": [],
+    "route": "config/columns/[id]/options/[optionId]/route.ts",
+  },
+  {
+    "action": [
+      "loadConfigAdminForScope(",
+    ],
+    "authn": [
+      "loadConfigAdminForScope(",
+    ],
+    "object": [],
+    "route": "config/columns/[id]/options/[optionId]/usage/route.ts",
+  },
+  {
+    "action": [
+      "loadConfigAdminForScope(",
+      "loadConfigActorForScope(",
+    ],
+    "authn": [
+      "loadConfigAdminForScope(",
+      "loadConfigActorForScope(",
+    ],
+    "object": [],
+    "route": "config/columns/[id]/options/route.ts",
+  },
+  {
+    "action": [
+      "loadConfigAdminForScope(",
+    ],
+    "authn": [
+      "loadConfigAdminForScope(",
+    ],
+    "object": [],
+    "route": "config/columns/[id]/route.ts",
+  },
+  {
+    "action": [
+      "loadConfigAdminForScope(",
+    ],
+    "authn": [
+      "loadConfigAdminForScope(",
+    ],
+    "object": [],
+    "route": "config/columns/reorder/route.ts",
+  },
+  {
+    "action": [
+      "loadConfigAdminForScope(",
+      "loadConfigActorForScope(",
+    ],
+    "authn": [
+      "loadConfigAdminForScope(",
+      "loadConfigActorForScope(",
+    ],
+    "object": [],
+    "route": "config/columns/route.ts",
+  },
+  {
+    "action": [
+      "loadConfigActorForScope(",
+    ],
+    "authn": [
+      "loadConfigActorForScope(",
+    ],
+    "object": [],
+    "route": "config/layout/route.ts",
+  },
+  {
+    "action": [
+      "checkCronAuthorization(",
+    ],
+    "authn": [
+      "checkCronAuthorization(",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "cron/check-enrollment-due/route.ts",
+  },
+  {
+    "action": [
+      "checkCronAuthorization(",
+    ],
+    "authn": [
+      "checkCronAuthorization(",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "cron/check-overdue/route.ts",
+  },
+  {
+    "action": [
+      "checkCronAuthorization(",
+    ],
+    "authn": [
+      "checkCronAuthorization(",
+    ],
+    "object": [],
+    "route": "cron/sync-data/route.ts",
+  },
+  {
+    "action": [
+      "checkCronAuthorization(",
+    ],
+    "authn": [
+      "checkCronAuthorization(",
+    ],
+    "object": [],
+    "route": "cron/time-off-monthly-accrual/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "dashboard-filter-defaults/route.ts",
+  },
+  {
+    "action": [
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "loadScopedEnrollmentRecord(",
+    ],
+    "route": "enrollment/[id]/activity/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "loadScopedEnrollmentRecord(",
+    ],
+    "route": "enrollment/[id]/attachments/[aid]/route.ts",
+  },
+  {
+    "action": [
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "loadScopedEnrollmentRecord(",
+      "recipient_email",
+    ],
+    "route": "enrollment/[id]/attachments/route.ts",
+  },
+  {
+    "action": [
+      "authorizeEnrollmentReactionAccess(",
+    ],
+    "authn": [
+      "authorizeEnrollmentReactionAccess(",
+    ],
+    "object": [
+      "authorizeEnrollmentReactionAccess(",
+    ],
+    "route": "enrollment/[id]/comment-reactions/route.ts",
+  },
+  {
+    "action": [
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "loadScopedEnrollmentRecord(",
+    ],
+    "route": "enrollment/[id]/comments/[cid]/edits/route.ts",
+  },
+  {
+    "action": [
+      "authorizeEnrollmentReactionAccess(",
+    ],
+    "authn": [
+      "authorizeEnrollmentReactionAccess(",
+    ],
+    "object": [
+      "recipient_email",
+      "authorizeEnrollmentReactionAccess(",
+    ],
+    "route": "enrollment/[id]/comments/[cid]/reactions/route.ts",
+  },
+  {
+    "action": [
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "loadScopedEnrollmentRecord(",
+      "recipient_email",
+    ],
+    "route": "enrollment/[id]/comments/[cid]/route.ts",
+  },
+  {
+    "action": [
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "loadScopedEnrollmentRecord(",
+      "recipient_email",
+    ],
+    "route": "enrollment/[id]/comments/route.ts",
+  },
+  {
+    "action": [
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "loadScopedEnrollmentRecord(",
+    ],
+    "route": "enrollment/[id]/detail/route.ts",
+  },
+  {
+    "action": [
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "loadScopedEnrollmentRecord(",
+      "recipient_email",
+    ],
+    "route": "enrollment/[id]/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [],
+    "route": "enrollment/aca-overview/queue-members/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [],
+    "route": "enrollment/aca-overview/route.ts",
+  },
+  {
+    "action": [
+      "canActorExport(",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "resolveEnrollmentScope(",
+    ],
+    "route": "enrollment/export/route.ts",
+  },
+  {
+    "action": [
+      "canActorImportEnrollment(",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [],
+    "route": "enrollment/import/route.ts",
+  },
+  {
+    "action": [
+      "canManageEnrollmentOptions(",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [],
+    "route": "enrollment/option-sets/[id]/route.ts",
+  },
+  {
+    "action": [
+      "canManageEnrollmentOptions(",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [],
+    "route": "enrollment/option-sets/[id]/usage/route.ts",
+  },
+  {
+    "action": [
+      "canManageEnrollmentOptions(",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [],
+    "route": "enrollment/option-sets/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "resolveEnrollmentScope(",
+    ],
+    "route": "enrollment/overview/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "resolveEnrollmentScope(",
+      "recipient_email",
+    ],
+    "route": "enrollment/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "canManageEntry(",
+    ],
+    "route": "entries/[id]/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "buildVisibleEntriesFilter(",
+    ],
+    "route": "entries/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "resolveLeadCapabilities(",
+    ],
+    "route": "leads/[id]/comments/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "resolveLeadCapabilities(",
+    ],
+    "route": "leads/[id]/interactions/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "resolveLeadCapabilities(",
+    ],
+    "route": "leads/[id]/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/assign/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/assignment-roster/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+      "canWorkLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/assignment-weights/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/distribute/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+      "canWorkLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/events/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/import/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/import/suggest-mapping/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/overview/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+      "canWorkLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "resolveLeadOwnerEmails(",
+    ],
+    "route": "leads/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+      "canWorkLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/settings/route.ts",
+  },
+  {
+    "action": [
+      "canManageLeads(",
+      "canWorkLeads(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "leads/vocabulary/route.ts",
+  },
+  {
+    "action": [],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "notifications/push/subscribe/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "canManagePcEntry(",
+    ],
+    "route": "pc-entries/[id]/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "buildVisibleEntriesFilter(",
+    ],
+    "route": "pc-entries/route.ts",
+  },
+  {
+    "action": [],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "settings/avatar/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "settings/password/route.ts",
+  },
+  {
+    "action": [
+      "can(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "settings/profile/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "canViewTask(",
+    ],
+    "route": "tasks/[id]/activity/route.ts",
+  },
+  {
+    "action": [
+      "canAssign(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "tasks/[id]/assign/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "tasks/[id]/assignees/[email]/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "tasks/[id]/assignees/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "canViewTask(",
+    ],
+    "route": "tasks/[id]/attachments/[aid]/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "canViewTask(",
+      "recipient_email",
+    ],
+    "route": "tasks/[id]/attachments/route.ts",
+  },
+  {
+    "action": [
+      "authorizeTaskReactionAccess(",
+    ],
+    "authn": [
+      "authorizeTaskReactionAccess(",
+    ],
+    "object": [
+      "authorizeTaskReactionAccess(",
+    ],
+    "route": "tasks/[id]/comment-reactions/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "canViewTask(",
+    ],
+    "route": "tasks/[id]/comments/[cid]/edits/route.ts",
+  },
+  {
+    "action": [
+      "authorizeTaskReactionAccess(",
+    ],
+    "authn": [
+      "authorizeTaskReactionAccess(",
+    ],
+    "object": [
+      "recipient_email",
+      "authorizeTaskReactionAccess(",
+    ],
+    "route": "tasks/[id]/comments/[cid]/reactions/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "canViewTask(",
+      "recipient_email",
+    ],
+    "route": "tasks/[id]/comments/[cid]/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "canViewTask(",
+      "recipient_email",
+    ],
+    "route": "tasks/[id]/comments/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "canViewTask(",
+    ],
+    "route": "tasks/[id]/detail/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "tasks/[id]/overdue-unlock/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "tasks/[id]/reopen/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "resolveTaskCapabilities(",
+      "recipient_email",
+    ],
+    "route": "tasks/[id]/route.ts",
+  },
+  {
+    "action": [
+      "canAssign(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "tasks/assignees/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "tasks/assignment-queue/route.ts",
+  },
+  {
+    "action": [
+      "canManageCategories(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "tasks/categories/[id]/route.ts",
+  },
+  {
+    "action": [
+      "canAccessBoard(",
+      "canManageCategories(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "tasks/categories/route.ts",
+  },
+  {
+    "action": [
+      "canActorExport(",
+      "loadEnrollmentActor(",
+    ],
+    "authn": [
+      "loadEnrollmentActor(",
+    ],
+    "object": [
+      "fetchTasksForActor(",
+    ],
+    "route": "tasks/export/route.ts",
+  },
+  {
+    "action": [
+      "canAccessBoard(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "tasks/members/route.ts",
+  },
+  {
+    "action": [],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "tasks/notifications/read/route.ts",
+  },
+  {
+    "action": [],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "recipient_email",
+    ],
+    "route": "tasks/notifications/route.ts",
+  },
+  {
+    "action": [
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "tasks/overview/route.ts",
+  },
+  {
+    "action": [
+      "canAccessBoard(",
+      ".isManager",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [
+      "fetchTasksForActor(",
+    ],
+    "route": "tasks/route.ts",
+  },
+  {
+    "action": [
+      "canAccessBoard(",
+    ],
+    "authn": [
+      "auth()",
+    ],
+    "object": [],
+    "route": "tasks/search/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [],
+    "route": "time-off/accruals/apply/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [],
+    "route": "time-off/accruals/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [],
+    "route": "time-off/balances/adjustments/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [],
+    "route": "time-off/balances/bulk/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [],
+    "route": "time-off/balances/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [
+      "requester_id",
+    ],
+    "route": "time-off/calendar/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [],
+    "route": "time-off/holidays/[id]/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [],
+    "route": "time-off/holidays/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [
+      "requester_id",
+    ],
+    "route": "time-off/requests/[id]/route.ts",
+  },
+  {
+    "action": [
+      "getTimeOffActor(",
+    ],
+    "authn": [
+      "getTimeOffActor(",
+    ],
+    "object": [
+      "recipient_email",
+      "requester_id",
+    ],
+    "route": "time-off/route.ts",
+  },
+]
+`;

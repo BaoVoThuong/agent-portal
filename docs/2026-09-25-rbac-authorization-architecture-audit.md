@@ -1,7 +1,7 @@
 # Authorization Architecture Audit & Migration Plan
 
 **Ngày:** 2026-09-25 · **Loại:** audit read-only + thiết kế — **không sửa một dòng code nào**.
-**Phạm vi:** toàn bộ `agent-portal` (694 file TS/TSX, 104 API route, `supabase/schema.sql`, rollouts).
+**Phạm vi:** toàn bộ `agent-portal` (694 file TS/TSX, 112 API route, `supabase/schema.sql`, rollouts).
 **Nền:** bản kiểm kê `docs/2026-09-04-rbac-role-access-inventory.md` (có snapshot production 43 account ngày 04/09). Tài liệu này **không** chép lại bảng account ở đó; nó đi sâu vào *vì sao* quyền rẽ nhánh, thiết kế đích và lộ trình. Snapshot production **không** được đọc lại lần này — mọi con số về người dùng lấy từ bản 04/09 và được đánh dấu *(snapshot 04/09)*.
 
 Thay đổi liên quan quyền kể từ 04/09 (đã đọc diff): `task.import` tách khỏi `task.export` (`4967e97`), middleware dùng cấu hình nhẹ (`0196d14`), agent thôi nhận thông báo tự động (`ef67497`), scope `provider` vào table-config (`13b410e`), time-off chọn người nhận (`d997176`).
@@ -218,7 +218,7 @@ Mọi chỗ còn lại trong §3.1 là authorization smell.
 
 ### 4.1 Bảy cơ chế gác API **[code]**
 
-`requirePermission`/`can()` trực tiếp · `buildTaskActor+isTaskViewAdmin` · `loadEnrollmentActor` · `buildLeadActor+isLeadViewAdmin` · `getTimeOffActor` · `loadConfigAdmin*` · `CRON_SECRET`. Đã rà 104 route: không route nào *hoàn toàn* không gác (khớp kết luận 04/09 §13.8), nhưng người thêm route mới phải tự đoán dùng cơ chế nào, và mã lỗi 401/403 lẫn lộn (vd `api/admin/roles/route.ts` trả 401 cho người đã đăng nhập nhưng thiếu quyền).
+`requirePermission`/`can()` trực tiếp · `buildTaskActor+isTaskViewAdmin` · `loadEnrollmentActor` · `buildLeadActor+isLeadViewAdmin` · `getTimeOffActor` · `loadConfigAdmin*` · `CRON_SECRET`. Đã rà 112 route: không route nào *hoàn toàn* không gác (khớp kết luận 04/09 §13.8), nhưng người thêm route mới phải tự đoán dùng cơ chế nào, và mã lỗi 401/403 lẫn lộn (vd `api/admin/roles/route.ts` trả 401 cho người đã đăng nhập nhưng thiếu quyền).
 
 "Có gác" phải tách thành ba mức (C2): **xác thực** principal, **quyền thực hiện** action, và **scope của đúng object/response**. `/api/tasks/overview` (S8) và `PATCH /api/admin/roles/[id]` (S18) đều có một kiểm tra nào đó mà vẫn thủng; chuông chỉ kiểm email. Registry tĩnh (Task A9) chỉ phát hiện route thiếu khai báo, không thay được test gọi API trực tiếp.
 
@@ -684,7 +684,7 @@ Dòng có `rls_enabled = false` **và** có quyền bảng chỉ chứng minh ro
 - **Cron:** gác bằng `checkCronAuthorization` (`src/lib/cron-auth.ts`), chạy service role là đúng vai; người nhận vẫn phải lọc (S11).
 - **Realtime:** phần lớn chỉ là ping không nội dung, topic thông báo cá nhân băm HMAC (`tasks/realtime.ts:19-61`). **Ngoại lệ:** topic Lead công khai mang tới 25 UUID lead (S23).
 - **SECURITY DEFINER:** sweep + assert ở cuối `schema.sql` chỉ đúng cho hàm có mặt khi `schema.sql` chạy; hàm tạo trong rollout sau đó phải kiểm `pg_proc`/`has_function_privilege` trên DB live (A0 Step 3; CI A10).
-- **IDOR:** các đường đã đọc (time off kiểm `requester_id`; enrollment trả 404 qua `loadScopedEnrollmentRecord`, `enrollment/scope.ts:149-172`) đều có kiểm. Nhưng audit **chưa** chứng minh từng route trong 104 route đều loại trừ IDOR — việc đó là cổng test API ở plan final.
+- **IDOR:** các đường đã đọc (time off kiểm `requester_id`; enrollment trả 404 qua `loadScopedEnrollmentRecord`, `enrollment/scope.ts:149-172`) đều có kiểm. Nhưng audit **chưa** chứng minh từng route trong 112 route đều loại trừ IDOR — việc đó là cổng test API ở plan final.
 - **Account switching:** không có tính năng này.
 
 ---
@@ -783,7 +783,7 @@ Bản Codex mạnh ở **thiết kế đích và kỷ luật triển khai**: pri
 - Registration dùng cột `agent_email` (`schema.sql:363, 387`); không có cột `submitted_by_email`.
 - Sidebar hiện `/config` khi có `task.manage` **hoặc** `lead.manage` (`Sidebar.tsx:149-151`), không chỉ khi có `task.manage`.
 - Rollout `task.export` chỉ cấp cho role `Admin`; tên `Task Admin`/`Admin Health Task` chỉ xuất hiện trong câu kiểm (`rollouts/2026-08-09-task-export-permission.sql`). Rollout time-off cấp `timeoff.user` cho **mọi** role active, không phải cấp theo tên.
-- "112 file dưới `src/app/api`" là đếm cả file không phải route; số route handler thực tế là 104.
+- ~~"112 file dưới `src/app/api` là đếm cả file không phải route"~~ — **bản 2 sai, Codex đúng**: `find src/app/api -name route.ts` = 112 route handler (bản kiểm kê 04/09 đếm 104; từ đó đã thêm route). Phát hiện khi viết registry gác route (Task A9).
 
 ---
 
