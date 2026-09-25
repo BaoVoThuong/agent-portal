@@ -2676,3 +2676,21 @@ git commit -m "ci(db): cổng persistence kiểm RLS và EXECUTE trên Postgres 
 - **Nhất quán kiểu:**
   - `UserAccess.lookupFailed` (A4) được `getUserAccessByEmails` (A5) dùng qua `flattenAccess`.
   - `filterEnrollmentRecipientsWithAccess` / `filterTaskRecipientsWithAccess` / `fetchScopeAgentName` / `isRosterAgent` / `canActorImportEnrollment` / `revokePushSubscriptions` / `filterActiveAccounts` / `applyRefreshedAccess` có cùng tên và chữ ký ở phần Interfaces, code và test.
+
+---
+
+# Phần III — Ghi chú thực thi
+
+## Phase B (nhánh `feat/authz-phase-b`)
+
+Đã làm: lõi `src/lib/authz/` (`catalog.ts`, `grants.ts`, `compat.ts`, `principal.ts`, `versions.ts`); phiên gắn `accountId`; `portal_account.access_version` + `bump_account_access_version` / `bump_role_members_access_version` (rollout `2026-09-27-authz-phase-b.sql`); Account/Role Manager tăng version; đổi nhãn Export/Import (D15).
+
+Lệch so với spec, có lý do:
+
+| Spec | Thực tế | Vì sao |
+|---|---|---|
+| D2/D3: trigger trên `role_permissions` sinh `role_grants` tương thích | Không có trigger. Grant tương thích suy **trong TypeScript** (`deriveCompatGrants`) mỗi request, từ định nghĩa role. Role có hàng `role_grants` (Phase C) thì dùng hàng đó | Logic ánh xạ nằm một chỗ và test được bằng unit test đối chiếu với hàm cũ; không có PL/pgSQL chạy mù trên production. Vẫn đạt mục tiêu của C6/C17: Role Manager cũ ghi `role_permissions` không xoá được gì của `role_grants` |
+| D5: grant trong JWT nếu ≤ budget | **Không** đi trong JWT | Đo được 3.940 byte cho Admin trước mã hoá (test "lý do của D5"). JWT chỉ mang `roleIds`; `getPrincipal()` suy grant qua cache định nghĩa role 30 giây |
+| D11: tăng version mọi thành viên khi sửa role | Có, cộng thêm: cache định nghĩa role TTL 30 giây | Hai cơ chế cùng cho SLA ≤ 30 giây |
+| Shadow evaluation runtime ở 3 route thí điểm | Thay bằng **tương đương ở test**: mỗi persona được đối chiếu hàm mới với hàm cũ (`compat.test.ts`, và các test policy ở Phase D) + script decision diff offline (Phase D) | 43 account; shadow runtime nhân đôi truy vấn quan hệ trên mọi request, trong khi auth từng là điểm nóng CPU. Test-time equivalence bắt cùng loại lệch mà không tốn CPU production |
+| Kiểm SQL trên CI | Kiểm thêm tại máy bằng PGlite (Postgres WASM) chạy đúng chuỗi của cổng A10 | Máy không có `psql`/Docker; chuỗi A10 + rollout B chạy sạch và cổng xác nhận bắt lỗi khi bỏ rollout khoá |
