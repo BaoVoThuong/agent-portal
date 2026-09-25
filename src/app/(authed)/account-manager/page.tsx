@@ -2,16 +2,13 @@ import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import type { AccountUser } from "@/lib/domain/account.types";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { grantsBeyondCeiling } from "@/lib/authz/delegation";
+import { requirePageGrant } from "@/lib/authz/page-guards";
 import {
   fetchRolesWithPermissions,
+  SYSTEM_ROLE_KEYS,
   type RoleOption,
 } from "@/lib/rbac/role-management";
-import { requirePermission } from "@/lib/rbac/server";
-import {
-  getDefaultSystemRoleName,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
 import AccountManagerClient from "./AccountManagerClient";
 
 export const dynamic = "force-dynamic";
@@ -21,15 +18,19 @@ type UserRoleRow = {
   role_id: string;
 };
 
+export type AssignableRoleOption = RoleOption & {
+  /** Nằm trong trần uỷ quyền của người đang dùng (S4). */
+  assignable: boolean;
+};
+
 export type ManagedAccountUser = AccountUser & {
   role_ids: string[];
-  roles: RoleOption[];
+  roles: AssignableRoleOption[];
 };
 
 export default async function AccountManagerPage() {
-  const session = await requirePermission(PERMISSIONS.ACCOUNT_MANAGER);
-
-  if (!session.user.email) {
+  const principal = await requirePageGrant("account.manage");
+  if (!principal.email) {
     redirect("/");
   }
 
@@ -51,12 +52,14 @@ export default async function AccountManagerPage() {
     throw new Error(userRolesResponse.error.message);
   }
 
-  const availableRoles: RoleOption[] = roles.map((role) => ({
+  const availableRoles: AssignableRoleOption[] = roles.map((role) => ({
     id: role.id,
     name: role.name,
     description: role.description,
     is_system: role.is_system,
     is_active: role.is_active,
+    system_key: role.system_key ?? null,
+    assignable: grantsBeyondCeiling(principal.grants, role.grants).length === 0,
   }));
   const rolesById = new Map(availableRoles.map((role) => [role.id, role]));
   const roleIdsByUserId = new Map<string, string[]>();
@@ -69,20 +72,11 @@ export default async function AccountManagerPage() {
 
   const users = ((data ?? []) as AccountUser[]).map<ManagedAccountUser>(
     (user) => {
-      const directRoleIds = [...(roleIdsByUserId.get(user.id) ?? [])]
-        .sort((firstRoleId, secondRoleId) => {
-          const firstRole = rolesById.get(firstRoleId);
-          const secondRole = rolesById.get(secondRoleId);
-
-          if (firstRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) return -1;
-          if (secondRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) return 1;
-
-          return (firstRole?.name ?? "").localeCompare(secondRole?.name ?? "");
-        })
-        .slice(0, 1);
-      const fallbackRole = availableRoles.find((role) =>
-        role.name === getDefaultSystemRoleName(user.role)
-      );
+      // Một account một role (unique index user_roles_one_role_per_user_idx).
+      const directRoleIds = [...(roleIdsByUserId.get(user.id) ?? [])].slice(0, 1);
+      const fallbackKey =
+        user.role === "admin" ? SYSTEM_ROLE_KEYS.SUPER_ADMIN : SYSTEM_ROLE_KEYS.DEFAULT_NEW_ACCOUNT;
+      const fallbackRole = availableRoles.find((role) => role.system_key === fallbackKey);
       const roleIds =
         directRoleIds.length > 0
           ? directRoleIds
@@ -95,15 +89,15 @@ export default async function AccountManagerPage() {
         role_ids: roleIds,
         roles: roleIds
           .map((roleId) => rolesById.get(roleId))
-          .filter((role): role is RoleOption => Boolean(role)),
+          .filter((role): role is AssignableRoleOption => Boolean(role)),
       };
     }
   );
 
   return (
     <AccountManagerClient
-      currentUserEmail={session.user.email ?? ""}
-      currentUserPermissions={session.user.permissions ?? []}
+      currentUserEmail={principal.email}
+      currentUserPermissions={principal.permissions}
       initialUsers={users}
       availableRoles={availableRoles}
     />

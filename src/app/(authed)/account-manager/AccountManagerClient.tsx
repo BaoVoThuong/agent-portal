@@ -6,12 +6,7 @@ import { Toast } from "../_shared/Toast";
 import type { AccountUser } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import type { RoleOption } from "@/lib/rbac/role-management";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  getDefaultSystemRoleName,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import type { AssignableRoleOption as RoleOption } from "./page";
 import { useBodyScrollLock } from "./../_shared/useBodyScrollLock";
 
 type AccountManagerClientProps = {
@@ -48,12 +43,8 @@ const emptyForm: FormState = {
   roleIds: [],
 };
 
-function isAdminRole(role: Pick<RoleOption, "name">) {
-
-  return (
-    role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-    role.name === LEGACY_SUPER_ADMIN_ROLE_NAME
-  );
+function isAdminRole(role: Pick<RoleOption, "system_key">) {
+  return role.system_key === "super_admin";
 }
 
 export default function AccountManagerClient({
@@ -97,7 +88,7 @@ export default function AccountManagerClient({
   const canAssignRoles = canManageAccounts;
   const defaultRoleIds = useMemo(() => {
     const agentRole = availableRoles.find(
-      (role) => role.name === SYSTEM_ROLE_NAMES.AGENT
+      (role) => role.system_key === "default_new_account"
     );
     return agentRole ? [agentRole.id] : [];
   }, [availableRoles]);
@@ -910,10 +901,12 @@ function RoleBadges({ user }: { user: ManagedAccountUser }) {
       : [
           {
             id: user.role,
-            name: getDefaultSystemRoleName(user.role),
+            name: user.role === "admin" ? "Admin" : "Agent",
             description: null,
             is_system: true,
             is_active: true,
+            system_key: user.role === "admin" ? "super_admin" : "default_new_account",
+            assignable: false,
           },
         ];
 
@@ -1027,19 +1020,32 @@ function RoleDropdownList({
             return (
               <label
                 key={role.id}
-                className="flex cursor-pointer items-start gap-3 px-3 py-2.5 text-sm transition hover:bg-[#f4f7fb]"
+                title={
+                  role.assignable
+                    ? undefined
+                    : "This role grants permissions you do not hold."
+                }
+                className={`flex items-start gap-3 px-3 py-2.5 text-sm transition ${
+                  role.assignable ? "cursor-pointer hover:bg-[#f4f7fb]" : "cursor-not-allowed opacity-50"
+                }`}
               >
                 <input
                   className="mt-0.5 h-4 w-4 rounded border-[#b8c2d3] text-[#1b5d9e] focus:ring-[#1b5d9e]"
                   type="radio"
                   name={radioGroupName}
                   checked={selected}
+                  disabled={!role.assignable}
                   onChange={() => selectRole(role.id)}
                 />
                 <span className="min-w-0">
                   <span className="block font-semibold text-[#16233a]">
                     {role.name}
                   </span>
+                  {!role.assignable && (
+                    <span className="block text-xs text-[#667085]">
+                      Beyond your permissions
+                    </span>
+                  )}
                 </span>
               </label>
             );

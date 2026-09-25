@@ -6,6 +6,32 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-28 — Role Manager cấp quyền theo phạm vi; không ai cấp được quyền mình không có (authz Phase C)
+
+- **Grant có phạm vi trong Role Manager:** mỗi role lưu grant `action:scope` (bảng
+  `role_grants`), ví dụ "đọc task: được giao / hàng chờ chung / tất cả". Lưu role thì
+  server tự ghi lại bản permission phẳng cũ (`role_permissions`) cho phần code chưa chuyển.
+  Role chưa sửa lần nào vẫn chạy theo permission cũ như trước.
+- **Trần uỷ quyền (S3, S4):** chỉ cấp / gán được grant mình đang giữ; không sửa được role
+  mình đang giữ; không quản được account có quyền cao hơn mình. Đổi tên role để "biến"
+  thành task admin cũng bị trần chặn. API trả 403 kèm danh sách grant vượt trần.
+- **Role hệ thống nhận diện bằng `roles.system_key`** (`super_admin`,
+  `default_new_account`) thay cho tên role. Không tạo / đổi tên được role thành "Admin" /
+  "Super Admin"; role hệ thống không xoá được.
+- **Ghi role / account qua RPC nguyên tử** (`upsert_role_atomic`, `delete_role_atomic`,
+  `assign_account_access_atomic`, `delete_account_atomic`): khoá chung, luôn còn ít nhất
+  một admin khôi phục đang active, tăng `access_version`, ghi `access_audit` trong cùng
+  transaction (S19). Xoá role còn người giữ → 409.
+- **`access_audit`** ghi thêm việc thêm/bớt agent roster và delegation assistant.
+- **Seed trong `schema.sql` hết ghi đè (S10):** chạy lại schema không xoá permission của
+  Admin/Agent, không seed lại Agent nếu role đã có permission, và chỉ xoá các permission
+  cũ nằm trong danh sách tường minh.
+- **Account tạo qua Google mà gán role mặc định lỗi thì bị xoá và đăng nhập thất bại**,
+  thay vì để lại account không có role.
+
+**Cần chạy tay trên production (sau rollout Phase B):**
+`supabase/rollouts/2026-09-28-authz-phase-c.sql`.
+
 ## 2026-09-27 — Phiên gắn với account id; đổi quyền có hiệu lực trong ≤ 30 giây (authz Phase B)
 
 - **Phiên gắn với `portal_account.id`**, không còn với email: khi làm mới quyền, phiên tra
