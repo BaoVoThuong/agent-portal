@@ -16,18 +16,22 @@ import type { UserAccess } from "@/lib/rbac/access";
 export function applyRefreshedAccess(
   token: JWT,
   access: UserAccess,
-  now: number
+  now: number,
+  accessVersion: number | null = null
 ): JWT | null {
   if (access.lookupFailed) {
-    return { ...token, role: "agent", roles: [], permissions: [] };
+    return { ...token, role: "agent", roles: [], roleIds: [], permissions: [] };
   }
   if (!access.isActive) return null;
   return {
     ...token,
+    accountId: access.userId,
     role: access.legacyRole,
     roles: access.roles,
+    roleIds: access.roleIds,
     permissions: access.permissions,
     agentId: access.agentId,
+    accessVersion: accessVersion ?? token.accessVersion ?? 0,
     rbacRefreshedAt: now,
   };
 }

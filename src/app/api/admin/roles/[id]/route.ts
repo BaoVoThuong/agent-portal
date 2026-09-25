@@ -11,6 +11,7 @@ import {
   fetchRolesWithPermissions,
   replaceRolePermissions,
 } from "@/lib/rbac/role-management";
+import { bumpAccessVersion, bumpRoleMembersAccessVersion } from "@/lib/authz/versions";
 import {
   LEGACY_SUPER_ADMIN_ROLE_NAME,
   SYSTEM_ROLE_NAMES,
@@ -112,6 +113,12 @@ export async function PATCH(req: Request, context: RouteContext) {
       await replaceRolePermissions(id, permissionKeys);
     }
 
+    // Tên role (task-admin), trạng thái hay permission đổi đều đổi quyền của
+    // thành viên: tăng version để phiên của họ làm mới ngay (≤ 30 giây).
+    if (Object.keys(updates).length > 1 || permissionKeys) {
+      await bumpRoleMembersAccessVersion(id);
+    }
+
     const roles = await fetchRolesWithPermissions();
     return NextResponse.json({
       role: roles.find((item) => item.id === id),
@@ -144,11 +151,20 @@ export async function DELETE(_req: Request, context: RouteContext) {
     }
 
     const supabase = getSupabaseAdmin();
+    // Lấy thành viên TRƯỚC khi xoá: user_roles bị xoá theo cascade.
+    const { data: members } = await supabase
+      .from("user_roles")
+      .select("user_id")
+      .eq("role_id", id);
     const { error } = await supabase.from("roles").delete().eq("id", id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    await bumpAccessVersion(
+      ((members ?? []) as { user_id: string }[]).map((member) => member.user_id)
+    );
 
     return NextResponse.json({ ok: true, roles: await fetchRolesWithPermissions() });
   } catch (err) {

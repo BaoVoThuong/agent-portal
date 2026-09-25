@@ -6,6 +6,7 @@ const base: UserAccess = {
   userId: "u1",
   legacyRole: "agent",
   roles: ["Task CS"],
+  roleIds: ["r-cs"],
   permissions: ["task.work"],
   isActive: true,
   agentId: "EPS1",
@@ -19,12 +20,21 @@ const token = {
 };
 
 describe("applyRefreshedAccess", () => {
-  it("account active: ghi quyền mới và đánh dấu thời điểm làm mới", () => {
-    expect(applyRefreshedAccess(token, base, 500)).toMatchObject({
+  it("account active: ghi quyền mới, account id, role id, version và thời điểm làm mới", () => {
+    expect(applyRefreshedAccess(token, base, 500, 7)).toMatchObject({
+      accountId: "u1",
       roles: ["Task CS"],
+      roleIds: ["r-cs"],
       permissions: ["task.work"],
       agentId: "EPS1",
+      accessVersion: 7,
       rbacRefreshedAt: 500,
+    });
+  });
+
+  it("không đọc được version: giữ version cũ trong token", () => {
+    expect(applyRefreshedAccess({ ...token, accessVersion: 3 }, base, 500, null)).toMatchObject({
+      accessVersion: 3,
     });
   });
 
@@ -44,6 +54,6 @@ describe("applyRefreshedAccess", () => {
       { ...base, isActive: false, lookupFailed: true },
       500
     );
-    expect(result).toMatchObject({ roles: [], permissions: [], rbacRefreshedAt: 1 });
+    expect(result).toMatchObject({ roles: [], roleIds: [], permissions: [], rbacRefreshedAt: 1 });
   });
 });

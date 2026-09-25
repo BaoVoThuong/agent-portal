@@ -20,6 +20,7 @@ function access(overrides: Partial<UserAccess> = {}): UserAccess {
     userId: "u",
     legacyRole: "agent",
     roles: ["Task CS"],
+    roleIds: ["r-cs"],
     permissions: ["task.work"],
     isActive: true,
     agentId: null,

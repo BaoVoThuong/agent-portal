@@ -176,7 +176,7 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   },
   {
     key: PERMISSIONS.TASK_EXPORT,
-    label: "Tasks - Export",
+    label: "Export (Task, Enrollment, Provider)",
     groupKey: "tasks",
     groupLabel: "Tasks",
     description:
@@ -185,7 +185,7 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   },
   {
     key: PERMISSIONS.TASK_IMPORT,
-    label: "Tasks - Import",
+    label: "Import (Enrollment, Provider)",
     groupKey: "tasks",
     groupLabel: "Tasks",
     description:

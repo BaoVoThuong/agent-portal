@@ -1,0 +1,152 @@
+import { cache } from "react";
+import { getSession } from "@/lib/auth/session";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { deriveCompatGrants } from "./compat";
+import { normalizeGrants } from "./grants";
+
+/**
+ * Principal = "ai đang gọi" theo mô hình mới: account id, role, và GRANT hiệu lực.
+ *
+ * Grant KHÔNG đi trong JWT (quá lớn — xem test "lý do của D5" trong
+ * compat.test.ts). JWT chỉ mang `roleIds`; mỗi request suy grant từ ĐỊNH NGHĨA
+ * role, lấy qua cache 30 giây mỗi instance. Cache chứa định nghĩa role dùng
+ * chung, không chứa dữ liệu người dùng. Sửa role thì tối đa 30 giây sau mọi
+ * thành viên thấy quyền mới.
+ */
+
+export type RoleDefinition = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  /** Permission phẳng cũ (role_permissions). */
+  permissions: string[];
+  /** Grant tường minh (role_grants) — null khi role chưa chuyển sang grant. */
+  grants: string[] | null;
+};
+
+export type Principal = {
+  accountId: string | null;
+  email: string;
+  legacyRole: string;
+  roleIds: string[];
+  roles: string[];
+  /** Permission phẳng cũ — chỉ còn cho điều hướng/code chưa chuyển. */
+  permissions: string[];
+  grants: string[];
+};
+
+export const ROLE_CACHE_TTL_MS = 30_000;
+
+type RoleRow = {
+  id: string;
+  name: string;
+  is_active: boolean;
+  role_permissions: { permission_key: string }[] | null;
+};
+
+export async function fetchRoleDefinitions(
+  roleIds: readonly string[]
+): Promise<Map<string, RoleDefinition>> {
+  const result = new Map<string, RoleDefinition>();
+  if (roleIds.length === 0) return result;
+  const { data, error } = await getSupabaseAdmin()
+    .from("roles")
+    .select("id,name,is_active,role_permissions(permission_key)")
+    .in("id", [...roleIds]);
+  if (error) throw new Error(error.message);
+  for (const row of (data ?? []) as unknown as RoleRow[]) {
+    result.set(row.id, {
+      id: row.id,
+      name: row.name,
+      isActive: row.is_active,
+      permissions: (row.role_permissions ?? []).map((item) => item.permission_key),
+      grants: null,
+    });
+  }
+  return result;
+}
+
+const roleCache = new Map<string, { role: RoleDefinition | null; expiresAt: number }>();
+
+/** Định nghĩa role qua cache; role không còn tồn tại được nhớ là `null`. */
+export async function loadRoleDefinitions(
+  roleIds: readonly string[],
+  now = Date.now(),
+  fetcher: (roleIds: readonly string[]) => Promise<Map<string, RoleDefinition>> = fetchRoleDefinitions
+): Promise<RoleDefinition[]> {
+  const unique = [...new Set(roleIds.filter(Boolean))];
+  const missing = unique.filter((id) => {
+    const cached = roleCache.get(id);
+    return !cached || cached.expiresAt <= now;
+  });
+  if (missing.length > 0) {
+    const fetched = await fetcher(missing);
+    for (const id of missing) {
+      roleCache.set(id, { role: fetched.get(id) ?? null, expiresAt: now + ROLE_CACHE_TTL_MS });
+    }
+  }
+  return unique
+    .map((id) => roleCache.get(id)?.role ?? null)
+    .filter((role): role is RoleDefinition => role !== null);
+}
+
+/** Chỉ dùng trong test. */
+export function clearRoleCache(): void {
+  roleCache.clear();
+}
+
+/**
+ * Grant hiệu lực = hợp của mọi role ĐANG hoạt động. Role đã có grant tường minh
+ * dùng grant đó; role chưa chuyển thì suy tương thích từ permission + tên role.
+ * Legacy admin (cột `portal_account.role`) còn mang vài quyền theo tài khoản chứ
+ * không theo role (lead override, thông báo leo thang) — suy thêm một lần.
+ */
+export function grantsForRoles(
+  roles: readonly RoleDefinition[],
+  legacyRole: string | null | undefined
+): string[] {
+  const all: string[] = [];
+  for (const role of roles) {
+    if (!role.isActive) continue;
+    all.push(
+      ...(role.grants ??
+        deriveCompatGrants({ permissions: role.permissions, roles: [role.name], legacyRole }))
+    );
+  }
+  if (legacyRole === "admin") {
+    all.push(...deriveCompatGrants({ permissions: [], roles: [], legacyRole }));
+  }
+  return normalizeGrants(all);
+}
+
+type SessionUserLike = {
+  email?: string | null;
+  accountId?: string | null;
+  role?: string | null;
+  roles?: string[];
+  roleIds?: string[];
+  permissions?: string[];
+};
+
+export async function principalFromSessionUser(user: SessionUserLike): Promise<Principal | null> {
+  const email = user.email?.trim();
+  if (!email) return null;
+  const roleIds = user.roleIds ?? [];
+  const roles = await loadRoleDefinitions(roleIds);
+  return {
+    accountId: user.accountId ?? null,
+    email,
+    legacyRole: user.role ?? "agent",
+    roleIds,
+    roles: user.roles ?? [],
+    permissions: user.permissions ?? [],
+    grants: grantsForRoles(roles, user.role),
+  };
+}
+
+/** Principal của request hiện tại (một lần mỗi request). */
+export const getPrincipal = cache(async (): Promise<Principal | null> => {
+  const session = await getSession();
+  if (!session?.user) return null;
+  return principalFromSessionUser(session.user);
+});

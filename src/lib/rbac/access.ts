@@ -8,6 +8,7 @@ import {
 
 export type AccessRow = {
   id: string;
+  email?: string | null;
   role: string | null;
   is_active: boolean | null;
   agent_id: string | null;
@@ -20,6 +21,8 @@ export type UserAccess = {
   userId: string | null;
   legacyRole: UserRole;
   roles: string[];
+  /** Id của các role ĐANG hoạt động — nguồn để suy grant (authz/principal.ts). */
+  roleIds: string[];
   permissions: string[];
   isActive: boolean;
   agentId: string | null;
@@ -27,10 +30,26 @@ export type UserAccess = {
   lookupFailed: boolean;
 };
 
+const ACCESS_SELECT =
+  "id,email,role,is_active,agent_id,user_roles(roles(id,name,is_active,role_permissions(permission_key)))";
+
+function missingAccess(lookupFailed: boolean): UserAccess {
+  return {
+    userId: null,
+    legacyRole: "agent",
+    roles: [],
+    roleIds: [],
+    permissions: [],
+    isActive: false,
+    agentId: null,
+    lookupFailed,
+  };
+}
+
 export function flattenAccess(row: AccessRow): UserAccess {
   const legacyRole: UserRole = row.role === "admin" ? "admin" : "agent";
   if (row.is_active === false) {
-    return { userId: row.id, legacyRole, roles: [], permissions: [], isActive: false, agentId: row.agent_id ?? null, lookupFailed: false };
+    return { userId: row.id, legacyRole, roles: [], roleIds: [], permissions: [], isActive: false, agentId: row.agent_id ?? null, lookupFailed: false };
   }
   const activeRoles = (row.user_roles ?? [])
     .map((ur) => ur.roles)
@@ -49,6 +68,7 @@ export function flattenAccess(row: AccessRow): UserAccess {
     legacyRole:
       legacyRole === "admin" ? "admin" : getLegacyRoleFromRoleNames(roleNames),
     roles: roleNames,
+    roleIds: activeRoles.map((r) => r.id),
     permissions,
     isActive: true,
     agentId: row.agent_id ?? null,
@@ -56,23 +76,39 @@ export function flattenAccess(row: AccessRow): UserAccess {
   };
 }
 
-export async function getUserAccessByEmail(email: string): Promise<UserAccess> {
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from(PORTAL_ACCOUNT_TABLE)
-    .select(
-      "id,role,is_active,agent_id,user_roles(roles(id,name,is_active,role_permissions(permission_key)))"
-    )
-    .eq("email", email)
-    .maybeSingle();
+/**
+ * Quyền hiện tại của một account.
+ *
+ * Có `accountId` thì tra theo id (bất biến) và đòi email trong phiên phải khớp
+ * email hiện tại của account; lệch nghĩa là email đã đổi/tái dùng, và phiên cũ
+ * không được nhận quyền của account đang giữ email đó (audit S20). Không có id
+ * (phiên cũ, lần đầu đăng nhập Google) thì tra theo email.
+ */
+export async function getUserAccess(identity: {
+  accountId?: string | null;
+  email: string;
+}): Promise<UserAccess> {
+  const base = getSupabaseAdmin().from(PORTAL_ACCOUNT_TABLE).select(ACCESS_SELECT);
+  const { data, error } = await (identity.accountId
+    ? base.eq("id", identity.accountId)
+    : base.eq("email", identity.email)
+  ).maybeSingle();
 
-  if (error) {
-    return { userId: null, legacyRole: "agent", roles: [], permissions: [], isActive: false, agentId: null, lookupFailed: true };
+  if (error) return missingAccess(true);
+  if (!data) return missingAccess(false);
+
+  const row = data as unknown as AccessRow;
+  if (
+    identity.accountId &&
+    (row.email ?? "").trim().toLowerCase() !== identity.email.trim().toLowerCase()
+  ) {
+    return missingAccess(false);
   }
-  if (!data) {
-    return { userId: null, legacyRole: "agent", roles: [], permissions: [], isActive: false, agentId: null, lookupFailed: false };
-  }
-  return flattenAccess(data as unknown as AccessRow);
+  return flattenAccess(row);
+}
+
+export async function getUserAccessByEmail(email: string): Promise<UserAccess> {
+  return getUserAccess({ email });
 }
 
 /**
@@ -89,9 +125,7 @@ export async function getUserAccessByEmails(
 
   const { data, error } = await getSupabaseAdmin()
     .from(PORTAL_ACCOUNT_TABLE)
-    .select(
-      "id,email,role,is_active,agent_id,user_roles(roles(id,name,is_active,role_permissions(permission_key)))"
-    )
+    .select(ACCESS_SELECT)
     .in("email", unique);
   if (error) throw new Error(error.message);
 

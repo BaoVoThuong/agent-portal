@@ -8,8 +8,15 @@ import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import type { UserRole } from "@/lib/domain/account.types";
 import {
   assignDefaultRoleToUser,
+  getUserAccess,
   getUserAccessByEmail,
 } from "@/lib/rbac/access";
+import {
+  fetchAccessVersion,
+  getCachedAccessVersion,
+  isAccessVersionStale,
+  rememberAccessVersion,
+} from "@/lib/authz/versions";
 import { applyRefreshedAccess } from "@/lib/auth/token-access";
 import {
   getClientIp,
@@ -88,6 +95,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           agentId: user.agent_id ?? null,
           role: access.legacyRole,
           roles: access.roles,
+          roleIds: access.roleIds,
           permissions: access.permissions,
         };
       },
@@ -149,6 +157,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.permissions = user.permissions;
       }
 
+      if (user?.roleIds) {
+        token.roleIds = user.roleIds;
+      }
+
       if (user && "agentId" in user) {
         token.agentId = user.agentId ?? null;
       }
@@ -159,17 +171,37 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const accessProvidedAtSignIn = Boolean(
         user && Array.isArray(user.roles) && Array.isArray(user.permissions),
       );
-      if (accessProvidedAtSignIn) {
+      if (accessProvidedAtSignIn && user?.id) {
+        token.accountId = user.id;
+        const lookup = await fetchAccessVersion(user.id);
+        rememberAccessVersion(user.id, lookup);
+        token.accessVersion = lookup.status === "ok" ? lookup.version : 0;
         token.rbacRefreshedAt = Date.now();
       }
       const lastRbacRefresh = Number(token.rbacRefreshedAt ?? 0);
-      const shouldRefreshRbac =
+      let shouldRefreshRbac =
         !accessProvidedAtSignIn &&
         Date.now() - lastRbacRefresh >= RBAC_REFRESH_TTL_MS;
 
+      // Admin vừa khoá / đổi role / đổi định nghĩa role → access_version tăng →
+      // làm mới quyền ngay (≤ 30 giây nhờ cache version), không đợi TTL 5 phút.
+      if (!shouldRefreshRbac && !accessProvidedAtSignIn && typeof token.accountId === "string") {
+        const lookup = await getCachedAccessVersion(token.accountId);
+        shouldRefreshRbac = isAccessVersionStale(token.accessVersion, lookup);
+      }
+
       if (token.email && shouldRefreshRbac) {
-        const access = await getUserAccessByEmail(token.email);
-        return applyRefreshedAccess(token, access, Date.now());
+        const access = await getUserAccess({
+          accountId: typeof token.accountId === "string" ? token.accountId : null,
+          email: token.email,
+        });
+        let accessVersion: number | null = null;
+        if (access.userId) {
+          const lookup = await fetchAccessVersion(access.userId);
+          rememberAccessVersion(access.userId, lookup);
+          accessVersion = lookup.status === "ok" ? lookup.version : null;
+        }
+        return applyRefreshedAccess(token, access, Date.now(), accessVersion);
       }
 
       return token;
@@ -178,6 +210,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (session.user) {
         session.user.role = (token.role ?? "agent") as UserRole;
         session.user.roles = Array.isArray(token.roles) ? token.roles : [];
+        session.user.roleIds = Array.isArray(token.roleIds) ? token.roleIds : [];
+        session.user.accountId = typeof token.accountId === "string" ? token.accountId : null;
         session.user.permissions = Array.isArray(token.permissions)
           ? token.permissions
           : [];

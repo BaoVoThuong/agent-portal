@@ -6,6 +6,25 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-27 — Phiên gắn với account id; đổi quyền có hiệu lực trong ≤ 30 giây (authz Phase B)
+
+- **Phiên gắn với `portal_account.id`**, không còn với email: khi làm mới quyền, phiên tra
+  account theo id và đòi email khớp. Email bị đổi rồi tái dùng cho account khác thì phiên
+  cũ kết thúc thay vì nhận quyền của account mới (S20).
+- **`portal_account.access_version`** (rollout `2026-09-27-authz-phase-b.sql`): Account
+  Manager tăng version khi đổi role / trạng thái / email; Role Manager tăng version của
+  mọi thành viên khi sửa hoặc xoá role. Phiên so version qua cache 30 giây, nên thu hồi
+  quyền có hiệu lực trong ≤ 30 giây thay vì tới 5 phút (S9). Code chịu được việc cột chưa
+  có: khi đó giữ TTL 5 phút như cũ.
+- **Lõi `src/lib/authz/`**: danh mục action/scope, grant `action:scope`, và grant tương
+  thích suy từ permission + tên role cũ — mọi quyết định giữ nguyên (có test đối chiếu với
+  các hàm cũ). Grant KHÔNG đi trong JWT (đo được 3.940 byte cho Admin, vượt budget cookie):
+  JWT mang `roleIds`, server suy grant mỗi request từ cache định nghĩa role 30 giây.
+- Nhãn permission `task.export` / `task.import` đổi thành "Export (Task, Enrollment,
+  Provider)" / "Import (Enrollment, Provider)" — chúng dùng chéo domain (C9).
+
+**Cần chạy tay trên production:** `supabase/rollouts/2026-09-27-authz-phase-b.sql`.
+
 ## 2026-09-26 — Import Enrollment chỉ dành cho task admin (S6)
 
 Import ghi thẳng theo ID, bỏ qua scope, capability từng dòng và activity log. Trước đây

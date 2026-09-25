@@ -6,6 +6,7 @@ import type { UserRole } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { assignDefaultRoleToUser } from "@/lib/rbac/access";
 import { revokePushSubscriptions } from "@/lib/notifications/push-server";
+import { bumpAccessVersion } from "@/lib/authz/versions";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   hasActiveSuperAdminOtherThan,
@@ -453,6 +454,17 @@ export async function PATCH(req: Request, context: RouteContext) {
     if (!selectedRoleIds && updates.role) {
       await supabase.from("user_roles").delete().eq("user_id", id);
       await assignDefaultRoleToUser(id, updates.role);
+    }
+
+    // Role, trạng thái hay email đổi → phiên của người này làm mới quyền ngay
+    // (≤ 30 giây) thay vì đợi TTL 5 phút.
+    if (
+      selectedRoleIds ||
+      updates.role !== undefined ||
+      updates.is_active !== undefined ||
+      updates.email !== undefined
+    ) {
+      await bumpAccessVersion([id]);
     }
 
     if (updates.is_active === false) {

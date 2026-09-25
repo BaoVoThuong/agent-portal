@@ -33,6 +33,11 @@ add column if not exists created_at timestamptz not null default now();
 alter table portal_account
 add column if not exists agent_id text;
 
+-- Tăng khi quyền của account đổi (role, trạng thái, email) hoặc khi định nghĩa
+-- role của họ đổi; phiên so version để làm mới quyền ngay (authz Phase B).
+alter table portal_account
+add column if not exists access_version integer not null default 0;
+
 -- agent_id là duy nhất khi có giá trị (account cũ có thể null).
 create unique index if not exists portal_account_agent_id_key
   on portal_account (agent_id)
@@ -128,6 +133,33 @@ begin
 end;
 $$;
 
+create or replace function bump_account_access_version(p_account_ids uuid[])
+returns void
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  update portal_account
+  set access_version = access_version + 1
+  where id = any(coalesce(p_account_ids, array[]::uuid[]));
+$$;
+
+create or replace function bump_role_members_access_version(p_role_id uuid)
+returns void
+language sql
+security definer
+set search_path = public, pg_temp
+as $$
+  update portal_account
+  set access_version = access_version + 1
+  where id in (select user_id from user_roles where role_id = p_role_id);
+$$;
+
+revoke all on function bump_account_access_version(uuid[]) from public, anon, authenticated;
+grant execute on function bump_account_access_version(uuid[]) to service_role;
+revoke all on function bump_role_members_access_version(uuid) from public, anon, authenticated;
+grant execute on function bump_role_members_access_version(uuid) to service_role;
+
 create or replace function replace_user_roles(
   target_user_id uuid,
   role_ids uuid[]
@@ -179,8 +211,8 @@ values
   ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100),
   ('task.manage', 'Tasks - Manage', 'Create, assign and manage all tasks, and see the backlog.', 'tasks', 'Tasks', 100),
   ('task.work', 'Tasks - Work', 'Work on tasks assigned to you.', 'tasks', 'Tasks', 200),
-  ('task.export', 'Tasks - Export', 'Export task, enrollment and provider tables to Excel. Required on its own — a manager role alone does not grant export.', 'tasks', 'Tasks', 300),
-  ('task.import', 'Tasks - Import', 'Import enrollment and provider tables from Excel. Separate from Export because it OVERWRITES rows in bulk — read access is not write access. Required on its own.', 'tasks', 'Tasks', 350),
+  ('task.export', 'Export (Task, Enrollment, Provider)', 'Export task, enrollment and provider tables to Excel. Required on its own — a manager role alone does not grant export.', 'tasks', 'Tasks', 300),
+  ('task.import', 'Import (Enrollment, Provider)', 'Import enrollment and provider tables from Excel. Not a task import — there is none. Enrollment import additionally requires a task admin role. Separate from Export because it OVERWRITES rows in bulk. Required on its own.', 'tasks', 'Tasks', 350),
   ('lead.manage', 'Manage Leads', 'Import leads, assign them, and see every agent''s queue.', 'leads', 'Lead Management', 100),
   ('lead.work', 'Work Leads', 'See and log interactions on leads assigned to you.', 'leads', 'Lead Management', 200)
 on conflict (key) do update set
