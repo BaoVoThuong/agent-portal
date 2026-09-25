@@ -2694,3 +2694,26 @@ Lệch so với spec, có lý do:
 | D11: tăng version mọi thành viên khi sửa role | Có, cộng thêm: cache định nghĩa role TTL 30 giây | Hai cơ chế cùng cho SLA ≤ 30 giây |
 | Shadow evaluation runtime ở 3 route thí điểm | Thay bằng **tương đương ở test**: mỗi persona được đối chiếu hàm mới với hàm cũ (`compat.test.ts`, và các test policy ở Phase D) + script decision diff offline (Phase D) | 43 account; shadow runtime nhân đôi truy vấn quan hệ trên mọi request, trong khi auth từng là điểm nóng CPU. Test-time equivalence bắt cùng loại lệch mà không tốn CPU production |
 | Kiểm SQL trên CI | Kiểm thêm tại máy bằng PGlite (Postgres WASM) chạy đúng chuỗi của cổng A10 | Máy không có `psql`/Docker; chuỗi A10 + rollout B chạy sạch và cổng xác nhận bắt lỗi khi bỏ rollout khoá |
+
+## Phase C (nhánh `feat/authz-phase-c`)
+
+Đã làm:
+
+- **SQL** (rollout `2026-09-28-authz-phase-c.sql`, cùng khối trong `schema.sql`): `roles.system_key` (backfill `Admin` → `super_admin`, `Agent` → `default_new_account`), `roles.grants_managed`, `role_grants`, `access_audit` (RLS bật, revoke anon/authenticated); RPC `upsert_role_atomic`, `delete_role_atomic`, `assign_account_access_atomic`, `delete_account_atomic`, `assert_recovery_admin_exists`.
+- **TS:** `src/lib/authz/delegation.ts` (`grantsBeyondCeiling`, `projectLegacyPermissions`), `guards.ts` (`requireApiGrant` — 401/403), `page-guards.ts` (`requirePageGrant`), `audit.ts` (audit roster/delegation); `/api/admin/{roles,permissions,users}` ghi qua RPC; Role Manager dạng lưới action × scope; Account Manager khoá role vượt trần.
+- **Seed `schema.sql` (S10):** hết ghi đè quyền Admin/Agent; xoá key cũ theo danh sách tường minh.
+- **Cổng CI:** áp thêm rollout B, C (chứng minh idempotent) và `supabase/checks/ci-authz-rpc.sql` (tên dành riêng, trùng tên, role bảo vệ, tăng version, xoá role còn người, admin khôi phục cuối + rollback, audit).
+
+Lệch so với spec, có lý do:
+
+| Spec | Thực tế | Vì sao |
+|---|---|---|
+| C.2: 5 RPC (`save_role_grants_atomic`, `assign_user_role_atomic`, `set_account_active_atomic`, `change_account_email_atomic`, `delete_role_atomic`) | 4 RPC: role/trạng thái gộp vào `assign_account_access_atomic`; thêm `delete_account_atomic`. Đổi email vẫn là `update` + `bumpAccessVersion` ở app; thu hồi push ở app sau RPC | Role và trạng thái cùng chịu bất biến admin khôi phục nên chung khoá + transaction. Đổi email không đụng bất biến nào; `push_subscriptions` chỉ có trong rollout (S28) nên RPC trong `schema.sql` không tham chiếu được |
+| C.2: trần uỷ quyền D10 nằm **trong** RPC | Trần kiểm ở route TS (`grantsBeyondCeiling`) ngay trước RPC; bất biến admin khôi phục nằm trong RPC | Grant của role chưa chuyển được suy trong TS (`deriveCompatGrants`, Phase B) — SQL không biết grant tương thích. Khe TOCTOU giữa kiểm và RPC ≤ độ trễ đổi quyền vốn có (30 s). Chuyển trần vào SQL khi mọi role đã `grants_managed` (Phase H) |
+| C.1: DB cấm sửa/xoá role có `system_key` ngoài migration | `upsert_role_atomic` chặn sửa `super_admin`; `delete_role_atomic` chặn xoá mọi role có `system_key`. Không có trigger chặn `update` trực tiếp | Mọi đường ghi của app đi qua RPC; trigger sẽ chặn luôn migration hợp lệ |
+| C.3: flag chọn UI cũ/mới (D13) | Không có flag; UI mới thay hẳn | UI cũ ghi permission phẳng, không biểu diễn được scope; API mới vẫn nhận `permissionKeys` cũ (`readRequestedGrants`) nên client cũ đang mở vẫn lưu được |
+| C.5: `schema.sql` full-state (gộp 8 bảng chỉ có trong rollout) | **Hoãn.** Chỉ làm phần seed (S10) | Gộp bảng rollout vào file mà chủ repo chạy lại trên production kéo theo cả phần chuyển dữ liệu trong rollout. Làm riêng, có review, sau Phase D. CI vẫn áp các rollout đó theo tên |
+| C.5: seed insert-only sinh từ catalog | Seed vẫn viết tay, nhưng insert-only (`on conflict do update` chỉ `is_system`) | Sinh SQL từ TS cần bước build mới; lợi ích nhỏ khi catalog còn đổi trong Phase D |
+| C.6: kiểm "leo quyền" trên CI DB | Leo quyền kiểm bằng test route (`admin/roles/[id]/route.test.ts`, `admin/users/[id]/route.test.ts`) vì trần nằm ở TS | Theo dòng trên |
+
+**Chạy tay trên production (sau rollout Phase B):** `supabase/rollouts/2026-09-28-authz-phase-c.sql`.
