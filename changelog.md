@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-26 — /api/tasks/overview đòi task.manage (S8)
+
+API Overview chỉ kiểm tên role (`isTaskViewAdmin`), trong khi client chỉ hiện Overview
+cho `actor.isManager` (`task.manage` VÀ vai trò task-admin). Nay API dùng đúng luật
+của client.
+
 ## 2026-09-26 — PATCH /api/admin/roles/[id] gác quyền vô điều kiện (S18)
 
 Quyền `management.role_manager` trước đây chỉ được kiểm trong từng nhánh field, nên
