@@ -1,53 +1,25 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-export async function PATCH(req: Request) {
+/**
+ * Tên hiển thị KHÔNG còn tự sửa được (2026-09-26, S1).
+ *
+ * Tên là khoá phạm vi của Registration / Agent Dashboard / AI chat
+ * (`fetchScopeAgentName`). Cho tự sửa là cho tự chọn xem dữ liệu hoa hồng của
+ * ai. Chỉ Account Manager đổi tên, cho tới khi có bảng ánh xạ định danh.
+ * Giữ route để client cũ nhận 403 rõ ràng thay vì 404.
+ */
+export async function PATCH() {
   const session = await auth();
-  const email = session?.user?.email;
-
-  if (!email || !can(session?.user?.permissions, PERMISSIONS.SETTINGS)) {
+  if (!session?.user?.email || !can(session.user.permissions, PERMISSIONS.SETTINGS)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const body = await req.json().catch(() => null);
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-
-  if (!name) {
-    return NextResponse.json(
-      { error: "Display name is required." },
-      { status: 400 }
-    );
-  }
-  if (name.length > 120) {
-    return NextResponse.json(
-      { error: "Display name must be 120 characters or less." },
-      { status: 400 }
-    );
-  }
-
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from(PORTAL_ACCOUNT_TABLE)
-    .update({ name })
-    .eq("email", email)
-    .select("email,name,agent_id")
-    .maybeSingle();
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Account not found." }, { status: 404 });
-
-  const row = data as { email: string; name: string | null; agent_id: string | null };
-  return NextResponse.json({
-    profile: {
-      email: row.email,
-      name: row.name ?? "",
-      agentId: row.agent_id ?? null,
-    },
-  });
+  return NextResponse.json(
+    { error: "Display name is managed by an administrator in Account Manager." },
+    { status: 403 }
+  );
 }

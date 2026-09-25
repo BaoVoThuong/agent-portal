@@ -29,7 +29,8 @@ export default function SettingsClient({
   vapidPublicKey,
 }: SettingsClientProps) {
   const router = useRouter();
-  const [displayName, setDisplayName] = useState(profile.name);
+  // Tên hiển thị chỉ Account Manager đổi được (S1) — ở đây chỉ để hiển thị.
+  const [displayName] = useState(profile.name);
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -40,41 +41,9 @@ export default function SettingsClient({
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingPassword, setIsSavingPassword] = useState(false);
-  const [profileMessage, setProfileMessage] = useState<string | null>(null);
-  const [profileError, setProfileError] = useState<string | null>(null);
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-
-  async function handleProfileSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSavingProfile(true);
-    setProfileError(null);
-    setProfileMessage(null);
-
-    try {
-      const response = await fetch("/api/settings/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: displayName }),
-      });
-      const payload = await response.json();
-
-      if (!response.ok) {
-        setProfileError(payload.error ?? "Unable to update account information.");
-        return;
-      }
-
-      setDisplayName(payload.profile?.name ?? displayName.trim());
-      setProfileMessage("Account information updated.");
-      router.refresh();
-    } catch {
-      setProfileError("Unable to update account information. Please try again.");
-    } finally {
-      setIsSavingProfile(false);
-    }
-  }
 
   async function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -177,7 +146,7 @@ export default function SettingsClient({
         <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
           <form
             className="rounded-lg border border-[#d8dee7] bg-white"
-            onSubmit={handleProfileSubmit}
+            onSubmit={(event) => event.preventDefault()}
           >
             <div className="border-b border-[#e6eaf0] px-6 py-5">
               <h2 className="text-base font-semibold text-[#172b4d]">
@@ -256,12 +225,14 @@ export default function SettingsClient({
                       className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-[#172b4d] outline-none"
                       type="text"
                       value={displayName}
-                      onChange={(event) => setDisplayName(event.target.value)}
-                      maxLength={120}
-                      required
+                      readOnly
+                      aria-readonly="true"
                     />
                   </div>
                 </label>
+                <p className="text-xs text-[#6b778c]">
+                  Display name is managed by an administrator in Account Manager.
+                </p>
 
                 <div className="rounded-lg border border-[#e6eaf0] bg-[#f7f8fa]">
                   <div className="grid gap-2 border-b border-[#e6eaf0] px-4 py-3 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-center">
@@ -285,29 +256,9 @@ export default function SettingsClient({
                   </div>
                 </div>
 
-                {profileError && (
-                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-                    {profileError}
-                  </div>
-                )}
-                {profileMessage && (
-                  <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
-                    <CheckCircle2 className="h-4 w-4" />
-                    {profileMessage}
-                  </div>
-                )}
               </div>
             </div>
 
-            <div className="flex justify-end border-t border-[#e6eaf0] px-6 py-4">
-              <button
-                type="submit"
-                className="rounded-md bg-[#0c66e4] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0958c7] disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isSavingProfile}
-              >
-                {isSavingProfile ? "Saving..." : "Save Changes"}
-              </button>
-            </div>
           </form>
 
           <form

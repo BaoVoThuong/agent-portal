@@ -4,6 +4,7 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { buildVisibleEntriesFilter } from "@/lib/agent-name";
+import { fetchScopeAgentName } from "@/lib/agent-identity";
 import EntryGrid from "./customer-registration/health/EntryGrid";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +27,7 @@ export default async function Home() {
 
   if (!canViewAll) {
     // Show entries the user submitted OR entries entered on their behalf.
-    query = query.or(buildVisibleEntriesFilter(email, session.user.name));
+    query = query.or(buildVisibleEntriesFilter(email, await fetchScopeAgentName(email)));
   }
 
   const { data } = await query;

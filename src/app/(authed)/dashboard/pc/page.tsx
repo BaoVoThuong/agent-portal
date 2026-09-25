@@ -1,4 +1,5 @@
 import { can } from "@/lib/rbac/client";
+import { fetchScopeAgentName } from "@/lib/agent-identity";
 import {
   DASHBOARD_FILTER_KEYS,
   fetchDashboardMonthDefault,
@@ -72,7 +73,7 @@ export default async function PcDashboardPage({
     params,
     defaultReportMonthRange
   );
-  const agentName = normalizeAgentName(session.user.name ?? "");
+  const agentName = await fetchScopeAgentName(session.user.email);
   const scopedAgentName = canViewAllAgents ? null : agentName;
   const expiredPolicyWindow = getExpiredPolicyWindow();
   const rows = scopedAgentName || canViewAllAgents
@@ -383,10 +384,6 @@ function parseMonthDateParam(value: string | string[] | undefined) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(rawValue)) return rawValue;
 
   return null;
-}
-
-function normalizeAgentName(value: string) {
-  return value.trim().replace(/\s+/g, " ").toUpperCase();
 }
 
 function cleanGroupLabel(value: string | null) {

@@ -6,6 +6,7 @@ import type { PcEntryInput, PcEntry } from "@/lib/domain/pc-entry.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildVisibleEntriesFilter, normalizeAgentName } from "@/lib/agent-name";
+import { fetchScopeAgentName } from "@/lib/agent-identity";
 
 const REQUIRED_PC_FIELDS = [
   "agency",
@@ -41,7 +42,7 @@ export async function GET() {
     .order("created_at", { ascending: false });
 
   if (!canViewAll) {
-    query = query.or(buildVisibleEntriesFilter(email, session.user.name));
+    query = query.or(buildVisibleEntriesFilter(email, await fetchScopeAgentName(email)));
   }
 
   const { data, error } = await query;

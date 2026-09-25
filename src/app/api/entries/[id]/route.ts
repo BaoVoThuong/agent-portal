@@ -5,6 +5,7 @@ import { updateEntryInSheet, deleteEntryFromSheet } from "@/lib/sheets";
 import type { EntryInput, Entry } from "@/lib/domain/entry.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { fetchScopeAgentName } from "@/lib/agent-identity";
 import { normalizeAgentName } from "@/lib/agent-name";
 
 function sanitizeRow(row: Partial<EntryInput>): EntryInput | null {
@@ -90,7 +91,7 @@ export async function PATCH(
 
   if (
     !existing ||
-    (!canManageAll && !canManageEntry(existing, email, session.user.name))
+    (!canManageAll && !canManageEntry(existing, email, await fetchScopeAgentName(email)))
   ) {
     return NextResponse.json({ error: "Not found or forbidden" }, { status: 403 });
   }
@@ -152,7 +153,7 @@ export async function DELETE(
 
   if (
     !existing ||
-    (!canManageAll && !canManageEntry(existing, email, session.user.name))
+    (!canManageAll && !canManageEntry(existing, email, await fetchScopeAgentName(email)))
   ) {
     return NextResponse.json({ error: "Not found or forbidden" }, { status: 403 });
   }

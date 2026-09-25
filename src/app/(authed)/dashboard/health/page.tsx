@@ -1,4 +1,5 @@
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { fetchScopeAgentName } from "@/lib/agent-identity";
 import { can } from "@/lib/rbac/client";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -63,7 +64,7 @@ export default async function DashboardPage({
   );
   const chartLevel = parseChartLevel(params.chartLevel);
   const canViewAll = can(session.user.permissions, PERMISSIONS.COMPANY_VIEW_ALL);
-  const agentName = normalizeAgentName(session.user.name ?? "");
+  const agentName = await fetchScopeAgentName(session.user.email);
   const selectedCarriers = parseCarrierParams(params.carrier);
   const selectedPrimaryMemberId = parseRawParam(params.primaryMemberId);
   const canLoadDashboard = canViewAll || Boolean(agentName);
@@ -160,10 +161,6 @@ async function fetchHealthMartRows(
       return rows;
     }
   }
-}
-
-function normalizeAgentName(value: string) {
-  return value.trim().replace(/\s+/g, " ").toUpperCase();
 }
 
 function parseReportMonthRange(

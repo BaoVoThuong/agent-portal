@@ -6,6 +6,18 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-26 — Phạm vi hoa hồng đọc tên từ DB; người dùng thôi tự đổi tên (giảm nhẹ S1)
+
+Registration, Agent Dashboard và AI chat lọc theo tên hiển thị trong phiên. Tên đó là
+tên lúc đăng nhập (không làm mới), với Google là tên hồ sơ Google, và người dùng tự sửa
+được trong Settings — đổi tên thành tên agent khác là xem/sửa/xoá được dữ liệu hoa hồng
+của họ. Nay mọi chỗ lọc (trang Health/P&C Registration, `/api/entries*`,
+`/api/pc-entries*`, Agent Dashboard Health/P&C, AI dashboard chat) đọc `portal_account.name`
+tươi theo email (`fetchScopeAgentName`), và `PATCH /api/settings/profile` trả 403: chỉ
+Account Manager đổi tên; ô tên trong Settings chỉ đọc. Cột `agent_name` khi nhập entry
+vẫn là nhãn hiển thị, không dùng để lọc. Giảm nhẹ tạm thời — sửa gốc là bảng ánh xạ định
+danh (Phase D). Trước khi deploy: đảm bảo không còn hai account active trùng tên.
+
 ## 2026-09-26 — Thông báo chỉ tới người mở được bản ghi (S15, S27)
 
 @mention trong Enrollment nhận bất kỳ account active nào, và người từng bình luận vẫn

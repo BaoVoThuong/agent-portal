@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { can, canAny } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { normalizeAgentName } from "@/lib/agent-name";
+import { fetchScopeAgentName } from "@/lib/agent-identity";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { generatePcQuery, type ChatHistoryTurn } from "@/lib/ai/pc-agent";
 import {
@@ -143,7 +144,7 @@ export async function POST(request: Request) {
   const seesEveryone = (scope === "company" && canViewCompany) || canViewAll;
   const scopedAgent = seesEveryone
     ? null
-    : normalizeAgentName(session.user.name ?? "");
+    : await fetchScopeAgentName(session.user.email);
 
   try {
     if (context === "pc") {

@@ -5,6 +5,7 @@ import { updatePcEntryInSheet, deletePcEntryFromSheet } from "@/lib/sheets";
 import type { PcEntryInput, PcEntry } from "@/lib/domain/pc-entry.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { fetchScopeAgentName } from "@/lib/agent-identity";
 import { normalizeAgentName } from "@/lib/agent-name";
 
 const REQUIRED_PC_FIELDS = [
@@ -96,7 +97,7 @@ export async function PATCH(
 
   if (
     !existing ||
-    (!canManageAll && !canManagePcEntry(existing, email, session.user.name))
+    (!canManageAll && !canManagePcEntry(existing, email, await fetchScopeAgentName(email)))
   ) {
     return NextResponse.json({ error: "Not found or forbidden" }, { status: 403 });
   }
@@ -155,7 +156,7 @@ export async function DELETE(
 
   if (
     !existing ||
-    (!canManageAll && !canManagePcEntry(existing, email, session.user.name))
+    (!canManageAll && !canManagePcEntry(existing, email, await fetchScopeAgentName(email)))
   ) {
     return NextResponse.json({ error: "Not found or forbidden" }, { status: 403 });
   }
