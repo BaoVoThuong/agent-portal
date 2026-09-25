@@ -112,6 +112,38 @@ async function deleteSubscriptions(endpoints: string[]): Promise<void> {
 }
 
 /**
+ * Chỉ giữ người nhận có account CÒN hoạt động.
+ *
+ * Đọc cả danh sách account active (vài chục dòng) rồi lọc trong bộ nhớ để so
+ * không phân biệt hoa thường. Lỗi truy vấn → không gửi cho ai: thà thiếu một
+ * push (chuông vẫn còn) còn hơn đẩy tên khách hàng tới điện thoại của người đã
+ * nghỉ việc (S17).
+ */
+export async function filterActiveAccounts(emails: readonly string[]): Promise<string[]> {
+  if (emails.length === 0) return [];
+  const { data, error } = await getSupabaseAdmin()
+    .from("portal_account")
+    .select("email")
+    .eq("is_active", true);
+  if (error) return [];
+  const active = new Set(
+    ((data ?? []) as { email: string }[]).map((row) => normalizeEmail(row.email))
+  );
+  return emails.filter((email) => active.has(normalizeEmail(email)));
+}
+
+/** Xoá mọi máy đã đăng ký push của một người — gọi khi khoá hoặc xoá account. */
+export async function revokePushSubscriptions(email: string): Promise<void> {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return;
+  const { error } = await getSupabaseAdmin()
+    .from("push_subscriptions")
+    .delete()
+    .eq("recipient_email", normalized);
+  if (error) throw new Error(error.message);
+}
+
+/**
  * Gửi một thông báo tới mọi máy của những người này.
  *
  * KHÔNG BAO GIỜ ném lỗi: người gọi đang nằm trong luồng ghi thông báo, và một
@@ -126,7 +158,8 @@ export async function sendPushToEmails(
     if (!ensureVapid()) return result;
 
     const unique = [...new Set(emails.map(normalizeEmail).filter(Boolean))];
-    const allowed = await filterByPreference(unique);
+    const active = await filterActiveAccounts(unique);
+    const allowed = await filterByPreference(active);
     if (allowed.length === 0) return result;
 
     const { data, error } = await getSupabaseAdmin()

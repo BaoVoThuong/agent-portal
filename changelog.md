@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-26 — Account bị khoá mất phiên và thôi nhận push (S17)
+
+Trước đây khoá account chỉ rút permission khi làm mới quyền; phiên vẫn sống với email
+nên chuông thông báo, đăng ký push và avatar vẫn chạy tới khi cookie hết hạn (30 ngày).
+Nay callback `jwt` trả `null` (Auth.js kết thúc phiên) khi account bị khoá hoặc đã xoá
+(`applyRefreshedAccess`). Lỗi truy vấn thì giữ phiên, rút quyền và thử lại ở request
+sau — không đăng xuất cả công ty vì một sự cố DB; `UserAccess` có thêm `lookupFailed`
+để phân biệt hai trường hợp. Push chỉ gửi cho account active; khoá/xoá account thì xoá
+`push_subscriptions` của người đó.
+
 ## 2026-09-26 — /api/tasks/overview đòi task.manage (S8)
 
 API Overview chỉ kiểm tên role (`isTaskViewAdmin`), trong khi client chỉ hiện Overview

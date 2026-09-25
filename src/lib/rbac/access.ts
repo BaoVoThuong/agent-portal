@@ -23,12 +23,14 @@ export type UserAccess = {
   permissions: string[];
   isActive: boolean;
   agentId: string | null;
+  /** true khi truy vấn quyền LỖI — khác với "không có account". */
+  lookupFailed: boolean;
 };
 
 export function flattenAccess(row: AccessRow): UserAccess {
   const legacyRole: UserRole = row.role === "admin" ? "admin" : "agent";
   if (row.is_active === false) {
-    return { userId: row.id, legacyRole, roles: [], permissions: [], isActive: false, agentId: row.agent_id ?? null };
+    return { userId: row.id, legacyRole, roles: [], permissions: [], isActive: false, agentId: row.agent_id ?? null, lookupFailed: false };
   }
   const activeRoles = (row.user_roles ?? [])
     .map((ur) => ur.roles)
@@ -50,6 +52,7 @@ export function flattenAccess(row: AccessRow): UserAccess {
     permissions,
     isActive: true,
     agentId: row.agent_id ?? null,
+    lookupFailed: false,
   };
 }
 
@@ -63,8 +66,11 @@ export async function getUserAccessByEmail(email: string): Promise<UserAccess> {
     .eq("email", email)
     .maybeSingle();
 
-  if (error || !data) {
-    return { userId: null, legacyRole: "agent", roles: [], permissions: [], isActive: false, agentId: null };
+  if (error) {
+    return { userId: null, legacyRole: "agent", roles: [], permissions: [], isActive: false, agentId: null, lookupFailed: true };
+  }
+  if (!data) {
+    return { userId: null, legacyRole: "agent", roles: [], permissions: [], isActive: false, agentId: null, lookupFailed: false };
   }
   return flattenAccess(data as unknown as AccessRow);
 }

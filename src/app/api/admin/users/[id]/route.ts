@@ -5,6 +5,7 @@ import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import type { UserRole } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { assignDefaultRoleToUser } from "@/lib/rbac/access";
+import { revokePushSubscriptions } from "@/lib/notifications/push-server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   hasActiveSuperAdminOtherThan,
@@ -454,6 +455,18 @@ export async function PATCH(req: Request, context: RouteContext) {
       await assignDefaultRoleToUser(id, updates.role);
     }
 
+    if (updates.is_active === false) {
+      // Khoá account thì máy của người đó thôi nhận push ngay, không đợi
+      // subscription tự hết hạn. Lỗi ở đây không làm hỏng việc khoá: phiên đã
+      // bị chặn ở lần làm mới quyền kế tiếp và push đã lọc account active.
+      await revokePushSubscriptions(targetUser.email).catch((revokeError) => {
+        console.error("[account-manager:update] push revoke failed", {
+          userId: id,
+          error: revokeError instanceof Error ? revokeError.message : String(revokeError),
+        });
+      });
+    }
+
     return NextResponse.json({ user: data });
   } catch (error) {
     console.error("[account-manager:update] failed", {
@@ -551,6 +564,13 @@ export async function DELETE(_req: Request, context: RouteContext) {
     if (deleteError) {
       return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
+
+    await revokePushSubscriptions(targetUser.email).catch((revokeError) => {
+      console.error("[account-manager:delete] push revoke failed", {
+        userId: id,
+        error: revokeError instanceof Error ? revokeError.message : String(revokeError),
+      });
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

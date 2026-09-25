@@ -10,6 +10,7 @@ import {
   assignDefaultRoleToUser,
   getUserAccessByEmail,
 } from "@/lib/rbac/access";
+import { applyRefreshedAccess } from "@/lib/auth/token-access";
 import {
   getClientIp,
   isLoginRateLimited,
@@ -168,17 +169,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       if (token.email && shouldRefreshRbac) {
         const access = await getUserAccessByEmail(token.email);
-        if (access.isActive) {
-          token.role = access.legacyRole;
-          token.roles = access.roles;
-          token.permissions = access.permissions;
-        } else {
-          token.role = "agent";
-          token.roles = [];
-          token.permissions = [];
-        }
-        token.agentId = access.agentId;
-        token.rbacRefreshedAt = Date.now();
+        return applyRefreshedAccess(token, access, Date.now());
       }
 
       return token;
