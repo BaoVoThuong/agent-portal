@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-26 — Import Enrollment chỉ dành cho task admin (S6)
+
+Import ghi thẳng theo ID, bỏ qua scope, capability từng dòng và activity log. Trước đây
+chỉ cần `task.import`; nay cần thêm vai trò task manager (`canActorImportEnrollment`),
+cả ở API lẫn nút Import trên trang Enrollment. Hôm nay chỉ role Admin có `task.import`
+nên không ai mất quyền — thay đổi này chặn việc cấp `task.import` cho người thường thành
+cửa hậu. Import theo scope + audit từng dòng để lại Phase D (Q11). Provider import không
+đổi.
+
 ## 2026-09-26 — Agent của task phải thuộc roster (S5)
 
 `POST /api/tasks` coi người gọi là agent owner khi `agent_email` bằng chính email của

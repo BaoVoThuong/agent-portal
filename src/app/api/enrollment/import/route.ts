@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
-import { canActorImport } from "@/lib/table-config/export-access";
+import { canActorImportEnrollment } from "@/lib/table-config/export-access";
 import { parseEnrollmentDate } from "@/lib/enrollment/dates";
 import {
   assertEnrollmentOptionSet,
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
   if (!actorResult.ok) {
     return NextResponse.json({ error: actorResult.error }, { status: actorResult.status });
   }
-  if (!canActorImport(actorResult.permissions)) {
+  if (!canActorImportEnrollment(actorResult.permissions, actorResult.actor)) {
     return NextResponse.json(
       { error: "You do not have permission to import." },
       { status: 403 }

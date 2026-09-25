@@ -21,7 +21,7 @@ import {
 } from "@/lib/table-config/queries";
 import {
   canActorExport,
-  canActorImport,
+  canActorImportEnrollment,
 } from "@/lib/table-config/export-access";
 import {
   isRecordInScope,
@@ -124,7 +124,7 @@ export default async function EnrollmentPage({
       myAssistantAgents={myAssistantAgents}
       defaultToOwnAssignments={defaultToOwnAssignments}
       canManageOptions={canManageEnrollmentOptions(actor)}
-      canImport={canActorImport(session.user.permissions)}
+      canImport={canActorImportEnrollment(session.user.permissions, actor)}
       canExport={canExport}
     />
   );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { canActorExport, canActorImport } from "./export-access";
+import { canActorExport, canActorImport, canActorImportEnrollment } from "./export-access";
 
 describe("canActorExport", () => {
   it("allows a task.export holder", () => {
@@ -33,5 +33,21 @@ describe("canActorImport", () => {
 
   it("quyền quản lý task cũng không tự cho quyền nhập", () => {
     expect(canActorImport(["task.manage", "task.work"])).toBe(false);
+  });
+});
+
+describe("canActorImportEnrollment", () => {
+  it("đòi CẢ task.import lẫn task manager", () => {
+    expect(canActorImportEnrollment(["task.import"], { isManager: true })).toBe(true);
+  });
+
+  // Import ghi thẳng theo ID, bỏ qua scope/capability/activity log — cấp
+  // task.import cho người thường không được biến thành cửa hậu sửa mọi hồ sơ.
+  it("người thường có task.import vẫn bị từ chối", () => {
+    expect(canActorImportEnrollment(["task.import", "task.work"], { isManager: false })).toBe(false);
+  });
+
+  it("manager thiếu task.import bị từ chối", () => {
+    expect(canActorImportEnrollment(["task.manage"], { isManager: true })).toBe(false);
   });
 });
