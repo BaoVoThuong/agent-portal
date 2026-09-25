@@ -1,10 +1,16 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import { normalizeExclusivePermissionKeys } from "@/lib/rbac/permissions";
 import {
   LEGACY_SUPER_ADMIN_ROLE_NAME,
   SYSTEM_ROLE_NAMES,
 } from "@/lib/rbac/system-roles";
+import {
+  effectiveRoleGrants,
+  fetchRoleDefinitions,
+  grantsForRoles,
+  roleDefinitionFromRow,
+  type RoleRow,
+} from "@/lib/authz/principal";
 
 export type PermissionRecord = {
   key: string;
@@ -21,39 +27,43 @@ export type RoleRecord = {
   description: string | null;
   is_system: boolean;
   is_active: boolean;
+  /** Định danh bất biến của role hệ thống; `undefined` khi rollout Phase C chưa chạy. */
+  system_key?: string | null;
+  /** Role đã chuyển sang grant tường minh (Role Manager dạng lưới). */
+  grants_managed: boolean;
   created_at: string;
   updated_at: string;
   user_count: number;
+  /** Bản chiếu permission phẳng (hoặc permission gốc nếu role chưa chuyển). */
   permissions: PermissionRecord[];
-};
-
-type RoleRow = Omit<RoleRecord, "user_count" | "permissions">;
-
-type RolePermissionRow = {
-  role_id: string;
-  permission_key: string;
-};
-
-type UserRoleRow = {
-  user_id: string;
-  role_id: string;
-  created_at: string | null;
-};
-
-type UserRoleWithUserRow = {
-  user_id: string;
-  portal_account: { is_active: boolean | null } | null;
-};
-
-type LegacyAdminRow = {
-  id: string;
-  user_roles: { role_id: string }[] | null;
+  /** Grant HIỆU LỰC — tường minh hoặc suy tương thích. */
+  grants: string[];
 };
 
 export type RoleOption = Pick<
   RoleRecord,
-  "id" | "name" | "description" | "is_system" | "is_active"
+  "id" | "name" | "description" | "is_system" | "is_active" | "system_key"
 >;
+
+export const SYSTEM_ROLE_KEYS = {
+  SUPER_ADMIN: "super_admin",
+  DEFAULT_NEW_ACCOUNT: "default_new_account",
+} as const;
+
+/**
+ * Role admin khôi phục. Sau rollout Phase C chỉ nhìn `system_key`; trước đó
+ * (cột chưa có → `undefined`) mới rơi về so tên như cũ.
+ */
+export function isSuperAdminRole(role: { name: string; system_key?: string | null }): boolean {
+  if (role.system_key !== undefined) return role.system_key === SYSTEM_ROLE_KEYS.SUPER_ADMIN;
+  return role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN || role.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
+}
+
+/** Role hệ thống (có system_key) không xoá được. */
+export function isSystemRole(role: { name: string; system_key?: string | null }): boolean {
+  if (role.system_key !== undefined) return role.system_key !== null;
+  return isSuperAdminRole(role) || role.name === SYSTEM_ROLE_NAMES.AGENT;
+}
 
 export async function fetchPermissions() {
   const supabase = getSupabaseAdmin();
@@ -68,241 +78,152 @@ export async function fetchPermissions() {
   return (data ?? []) as unknown as PermissionRecord[];
 }
 
-export async function fetchRolesWithPermissions() {
-  const supabase = getSupabaseAdmin();
-  const [rolesResponse, permissions, rolePermissionsResponse, userRolesResponse] =
-    await Promise.all([
-      supabase
-        .from("roles")
-        .select("id,name,description,is_system,is_active,created_at,updated_at")
-        .order("is_system", { ascending: false })
-        .order("name", { ascending: true }),
-      fetchPermissions(),
-      supabase.from("role_permissions").select("role_id,permission_key"),
-      supabase
-        .from("user_roles")
-        .select("user_id,role_id,created_at, portal_account!inner(is_active)")
-        .eq("portal_account.is_active", true),
-    ]);
+type RoleListRow = RoleRow & {
+  description: string | null;
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+};
 
-  if (rolesResponse.error) throw new Error(rolesResponse.error.message);
-  if (rolePermissionsResponse.error) {
-    throw new Error(rolePermissionsResponse.error.message);
+const ROLE_LIST_SELECT =
+  "id,name,description,is_system,is_active,created_at,updated_at,system_key,grants_managed,role_permissions(permission_key),role_grants(action,scope)";
+const ROLE_LIST_SELECT_LEGACY =
+  "id,name,description,is_system,is_active,created_at,updated_at,role_permissions(permission_key)";
+
+async function fetchRoleListRows(): Promise<RoleListRow[]> {
+  const supabase = getSupabaseAdmin();
+  const first = await supabase.from("roles").select(ROLE_LIST_SELECT);
+  if (!first.error) return (first.data ?? []) as unknown as RoleListRow[];
+  if (!/role_grants|grants_managed|system_key/.test(first.error.message)) {
+    throw new Error(first.error.message);
   }
+  const fallback = await supabase.from("roles").select(ROLE_LIST_SELECT_LEGACY);
+  if (fallback.error) throw new Error(fallback.error.message);
+  return (fallback.data ?? []) as unknown as RoleListRow[];
+}
+
+export async function fetchRolesWithPermissions(): Promise<RoleRecord[]> {
+  const supabase = getSupabaseAdmin();
+  const [rows, permissions, userRolesResponse] = await Promise.all([
+    fetchRoleListRows(),
+    fetchPermissions(),
+    supabase
+      .from("user_roles")
+      .select("user_id,role_id, portal_account!inner(is_active)")
+      .eq("portal_account.is_active", true),
+  ]);
   if (userRolesResponse.error) throw new Error(userRolesResponse.error.message);
 
-  const roles = (rolesResponse.data ?? []) as unknown as RoleRow[];
-  const roleById = new Map(roles.map((role) => [role.id, role]));
-  const permissionByKey = new Map(
-    permissions.map((permission) => [permission.key, permission])
-  );
-  const permissionKeysByRoleId = new Map<string, string[]>();
-  for (const row of (rolePermissionsResponse.data ??
-    []) as unknown as RolePermissionRow[]) {
-    const current = permissionKeysByRoleId.get(row.role_id) ?? [];
-    current.push(row.permission_key);
-    permissionKeysByRoleId.set(row.role_id, current);
-  }
-
-  const selectedRoleByUserId = new Map<string, UserRoleRow>();
-  for (const row of (userRolesResponse.data ?? []) as unknown as UserRoleRow[]) {
-    const current = selectedRoleByUserId.get(row.user_id);
-
-    if (!current || compareUserRolePriority(row, current, roleById) < 0) {
-      selectedRoleByUserId.set(row.user_id, row);
-    }
-  }
-
+  const permissionByKey = new Map(permissions.map((permission) => [permission.key, permission]));
   const userCountByRoleId = new Map<string, number>();
-  for (const row of selectedRoleByUserId.values()) {
-    userCountByRoleId.set(
-      row.role_id,
-      (userCountByRoleId.get(row.role_id) ?? 0) + 1
-    );
+  for (const row of (userRolesResponse.data ?? []) as unknown as { role_id: string }[]) {
+    userCountByRoleId.set(row.role_id, (userCountByRoleId.get(row.role_id) ?? 0) + 1);
   }
 
-  return roles
-    .map((role) => ({
-      ...role,
-      user_count: userCountByRoleId.get(role.id) ?? 0,
-      permissions: normalizeExclusivePermissionKeys(
-        permissionKeysByRoleId.get(role.id) ?? []
-      )
-        .map((key) => permissionByKey.get(key))
-        .filter((permission): permission is PermissionRecord => Boolean(permission))
-        .sort(
-          (a, b) =>
-            a.group_key.localeCompare(b.group_key) ||
-            a.sort_order - b.sort_order ||
-            a.label.localeCompare(b.label)
-        ),
-    }))
-    .sort((firstRole, secondRole) => {
-      const firstIsAdmin =
-        firstRole.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-        firstRole.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
-      const secondIsAdmin =
-        secondRole.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-        secondRole.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
-
-      if (firstIsAdmin !== secondIsAdmin) return firstIsAdmin ? -1 : 1;
-      if (firstRole.is_system !== secondRole.is_system) {
-        return firstRole.is_system ? -1 : 1;
-      }
-
-      return firstRole.name.localeCompare(secondRole.name);
+  return rows
+    .map((row): RoleRecord => {
+      const definition = roleDefinitionFromRow(row);
+      return {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        is_system: row.is_system,
+        is_active: row.is_active,
+        ...("system_key" in row ? { system_key: row.system_key ?? null } : {}),
+        grants_managed: Boolean(row.grants_managed),
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        user_count: userCountByRoleId.get(row.id) ?? 0,
+        permissions: normalizeExclusivePermissionKeys(definition.permissions)
+          .map((key) => permissionByKey.get(key))
+          .filter((permission): permission is PermissionRecord => Boolean(permission))
+          .sort(
+            (a, b) =>
+              a.group_key.localeCompare(b.group_key) ||
+              a.sort_order - b.sort_order ||
+              a.label.localeCompare(b.label)
+          ),
+        grants: effectiveRoleGrants(definition),
+      };
+    })
+    .sort((first, second) => {
+      const firstAdmin = isSuperAdminRole(first);
+      const secondAdmin = isSuperAdminRole(second);
+      if (firstAdmin !== secondAdmin) return firstAdmin ? -1 : 1;
+      if (first.is_system !== second.is_system) return first.is_system ? -1 : 1;
+      return first.name.localeCompare(second.name);
     });
 }
 
-function compareUserRolePriority(
-  firstRow: UserRoleRow,
-  secondRow: UserRoleRow,
-  roleById: Map<string, RoleRow>
-) {
-  const firstRole = roleById.get(firstRow.role_id);
-  const secondRole = roleById.get(secondRow.role_id);
-  const firstIsAdmin =
-    firstRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-    firstRole?.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
-  const secondIsAdmin =
-    secondRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-    secondRole?.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
-
-  if (firstIsAdmin !== secondIsAdmin) return firstIsAdmin ? -1 : 1;
-
-  const firstCreatedAt = firstRow.created_at ?? "";
-  const secondCreatedAt = secondRow.created_at ?? "";
-  if (firstCreatedAt !== secondCreatedAt) {
-    return firstCreatedAt.localeCompare(secondCreatedAt);
-  }
-
-  return (firstRole?.name ?? "").localeCompare(secondRole?.name ?? "");
+/** Định nghĩa một role (kèm grant), đọc tươi — null nếu không tồn tại. */
+export async function fetchRoleDefinition(roleId: string) {
+  return (await fetchRoleDefinitions([roleId])).get(roleId) ?? null;
 }
 
-export async function replaceRolePermissions(
-  roleId: string,
-  permissionKeys: string[]
-) {
+/** Id của role hệ thống theo system_key (rơi về tên khi rollout chưa chạy). */
+export async function fetchSystemRoleId(
+  key: (typeof SYSTEM_ROLE_KEYS)[keyof typeof SYSTEM_ROLE_KEYS]
+): Promise<string | null> {
   const supabase = getSupabaseAdmin();
-  const uniquePermissionKeys = [...new Set(permissionKeys)];
-
-  const { error } = await supabase.rpc("replace_role_permissions", {
-    target_role_id: roleId,
-    permission_keys: uniquePermissionKeys,
-  });
-
-  if (error) throw new Error(error.message);
+  const byKey = await supabase.from("roles").select("id").eq("system_key", key).maybeSingle();
+  if (!byKey.error) return (byKey.data as { id: string } | null)?.id ?? null;
+  const name = key === SYSTEM_ROLE_KEYS.SUPER_ADMIN ? SYSTEM_ROLE_NAMES.SUPER_ADMIN : SYSTEM_ROLE_NAMES.AGENT;
+  const byName = await supabase.from("roles").select("id").eq("name", name).maybeSingle();
+  if (byName.error) throw new Error(byName.error.message);
+  return (byName.data as { id: string } | null)?.id ?? null;
 }
 
-export async function fetchRoleById(roleId: string) {
+/**
+ * Grant hiệu lực của một account — để Account Manager áp trần uỷ quyền lên
+ * người bị sửa (không quản được người có quyền cao hơn mình).
+ */
+export async function fetchAccountAccess(accountId: string): Promise<{
+  roleIds: string[];
+  grants: string[];
+  holdsSuperAdmin: boolean;
+}> {
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("roles")
-    .select("id,name,description,is_system,is_active,created_at,updated_at")
-    .eq("id", roleId)
-    .single();
-
-  if (error) throw new Error(error.message);
-  return data as unknown as RoleRow;
-}
-
-export async function countUsersForRole(roleId: string) {
-  const supabase = getSupabaseAdmin();
-  const { count, error } = await supabase
-    .from("user_roles")
-    .select("role_id", { count: "exact", head: true })
-    .eq("role_id", roleId);
-
-  if (error) throw new Error(error.message);
-  return count ?? 0;
-}
-
-export async function fetchActiveRolesByIds(roleIds: string[]) {
-  const uniqueRoleIds = [...new Set(roleIds)];
-  if (uniqueRoleIds.length === 0) return [];
-
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("roles")
-    .select("id,name,description,is_system,is_active,created_at,updated_at")
-    .in("id", uniqueRoleIds)
-    .eq("is_active", true);
-
-  if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as RoleRow[];
-}
-
-export async function replaceUserRoles(userId: string, roleIds: string[]) {
-  const supabase = getSupabaseAdmin();
-  const selectedRoleId = roleIds[0];
-
-  const { error } = await supabase.rpc("replace_user_roles", {
-    target_user_id: userId,
-    role_ids: selectedRoleId ? [selectedRoleId] : [],
-  });
-
-  if (error) throw new Error(error.message);
-}
-
-export async function countActiveUsersForRoleName(
-  roleName: string,
-  excludeUserId?: string
-) {
-  const supabase = getSupabaseAdmin();
-  const { data: role, error: roleError } = await supabase
-    .from("roles")
-    .select("id")
-    .eq("name", roleName)
-    .maybeSingle();
-
-  if (roleError) throw new Error(roleError.message);
-  if (!role) return 0;
-
-  let query = supabase
-    .from("user_roles")
-    .select("user_id, portal_account!inner(is_active)")
-    .eq("role_id", (role as { id: string }).id)
-    .eq("portal_account.is_active", true);
-
-  if (excludeUserId) {
-    query = query.neq("user_id", excludeUserId);
-  }
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-
-  return ((data ?? []) as unknown as UserRoleWithUserRow[]).filter(
-    (row) => row.portal_account?.is_active !== false
-  ).length;
-}
-
-export async function countActiveLegacyAdminUsers(excludeUserId?: string) {
-  const supabase = getSupabaseAdmin();
-  let query = supabase
-    .from(PORTAL_ACCOUNT_TABLE)
-    .select("id,user_roles(role_id)")
-    .eq("role", "admin")
-    .eq("is_active", true);
-
-  if (excludeUserId) {
-    query = query.neq("id", excludeUserId);
-  }
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-
-  return ((data ?? []) as unknown as LegacyAdminRow[]).filter(
-    (row) => (row.user_roles ?? []).length === 0
-  ).length;
-}
-
-export async function hasActiveSuperAdminOtherThan(userId: string) {
-  const [activeAdminUsers, activeLegacySuperAdminUsers, activeLegacyAdmins] =
+  const [{ data: account, error: accountError }, { data: userRoles, error: rolesError }] =
     await Promise.all([
-      countActiveUsersForRoleName(SYSTEM_ROLE_NAMES.SUPER_ADMIN, userId),
-      countActiveUsersForRoleName(LEGACY_SUPER_ADMIN_ROLE_NAME, userId),
-      countActiveLegacyAdminUsers(userId),
+      supabase.from("portal_account").select("role").eq("id", accountId).maybeSingle(),
+      supabase.from("user_roles").select("role_id").eq("user_id", accountId),
     ]);
+  if (accountError) throw new Error(accountError.message);
+  if (rolesError) throw new Error(rolesError.message);
+  const roleIds = ((userRoles ?? []) as { role_id: string }[]).map((row) => row.role_id);
+  const roles = [...(await fetchRoleDefinitions(roleIds)).values()];
+  const legacyRole = (account as { role?: string } | null)?.role ?? "agent";
+  return {
+    roleIds,
+    grants: grantsForRoles(roles, legacyRole),
+    holdsSuperAdmin: roles.some(
+      (role) => role.isActive && isSuperAdminRole({ name: role.name, system_key: role.systemKey })
+    ),
+  };
+}
 
-  return activeAdminUsers + activeLegacySuperAdminUsers + activeLegacyAdmins > 0;
+/** Lỗi nghiệp vụ từ các RPC Phase C → HTTP. */
+export function mapAuthzRpcError(message: string | undefined): { status: number; error: string } | null {
+  switch (message) {
+    case "ROLE_NAME_REQUIRED":
+      return { status: 400, error: "Role name is required." };
+    case "ROLE_NAME_RESERVED":
+      return { status: 400, error: "This role name is reserved for the system Admin role." };
+    case "ROLE_NAME_TAKEN":
+      return { status: 409, error: "A role with this name already exists." };
+    case "ROLE_NOT_FOUND":
+      return { status: 404, error: "Role not found." };
+    case "ROLE_PROTECTED":
+      return { status: 400, error: "System roles cannot be edited or deleted." };
+    case "ROLE_HAS_MEMBERS":
+      return { status: 409, error: "This role is still assigned to accounts. Move them to another role first." };
+    case "ROLE_INACTIVE":
+      return { status: 400, error: "Select an active role." };
+    case "ACCOUNT_NOT_FOUND":
+      return { status: 404, error: "User not found." };
+    case "LAST_RECOVERY_ADMIN":
+      return { status: 400, error: "At least one active Admin account is required." };
+    default:
+      return null;
+  }
 }

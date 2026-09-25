@@ -20,6 +20,8 @@ const API_ROOT = join(process.cwd(), "src/app/api");
 // thêm dấu hiệu vào đúng mức, đừng nới luật bên dưới.
 const AUTHN = [
   "auth()",
+  "requireApiPrincipal(",
+  "requireApiGrant(",
   "getTimeOffActor(",
   "loadEnrollmentActor(",
   "loadConfigAdmin(",
@@ -31,6 +33,7 @@ const AUTHN = [
 ] as const;
 
 const ACTION = [
+  "requireApiGrant(",
   "can(",
   "canAny(",
   "canAccessBoard(",

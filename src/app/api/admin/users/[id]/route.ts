@@ -1,26 +1,20 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
-import type { UserRole } from "@/lib/domain/account.types";
-import { can } from "@/lib/rbac/client";
-import { assignDefaultRoleToUser } from "@/lib/rbac/access";
 import { revokePushSubscriptions } from "@/lib/notifications/push-server";
 import { bumpAccessVersion } from "@/lib/authz/versions";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { grantsBeyondCeiling } from "@/lib/authz/delegation";
+import { forbidden, requireApiGrant } from "@/lib/authz/guards";
+import { effectiveRoleGrants } from "@/lib/authz/principal";
 import {
-  hasActiveSuperAdminOtherThan,
-  fetchActiveRolesByIds,
-  replaceUserRoles,
+  fetchAccountAccess,
+  fetchRoleDefinition,
+  fetchSystemRoleId,
+  isSuperAdminRole,
+  mapAuthzRpcError,
+  SYSTEM_ROLE_KEYS,
 } from "@/lib/rbac/role-management";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  getLegacyRoleFromRoleNames,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
 import bcrypt from "bcryptjs";
-
-const roles: UserRole[] = ["admin", "agent"];
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -185,33 +179,23 @@ async function findEmailReference(
   return null;
 }
 
+const ACCOUNT_COLUMNS = "id,email,name,agent_id,role,is_active,created_at";
+
+function rpcFailure(message: string | undefined) {
+  const mapped = mapAuthzRpcError(message);
+  if (mapped) return NextResponse.json({ error: mapped.error }, { status: mapped.status });
+  return NextResponse.json({ error: message ?? "Unable to update account." }, { status: 500 });
+}
+
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    const session = await auth();
-
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const guard = await requireApiGrant("account.manage");
+    if (!guard.ok) return guard.response;
+    const { principal } = guard;
 
     const { id } = await context.params;
     const { email, name, role, roleIds, is_active, password, agentId } =
       await req.json();
-    const selectedRoleIds = Array.isArray(roleIds)
-      ? roleIds.filter((item): item is string => typeof item === "string")
-      : null;
-
-    if (
-      (email !== undefined ||
-        name !== undefined ||
-        role !== undefined ||
-        roleIds !== undefined ||
-        is_active !== undefined ||
-        password !== undefined ||
-        agentId !== undefined) &&
-      !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
-    ) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const supabase = getSupabaseAdmin();
 
@@ -226,29 +210,18 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const isSelf =
-      targetUser.email.toLowerCase() === session.user.email.toLowerCase();
-    const { data: targetUserRoles, error: targetRolesError } = await supabase
-      .from("user_roles")
-      .select("roles(name)")
-      .eq("user_id", id);
+      targetUser.email.toLowerCase() === principal.email.toLowerCase();
 
-    if (targetRolesError) {
-      return NextResponse.json({ error: targetRolesError.message }, { status: 500 });
+    // Không quản được người có quyền cao hơn mình (trần uỷ quyền, S4).
+    const targetAccess = await fetchAccountAccess(id);
+    if (!isSelf && grantsBeyondCeiling(principal.grants, targetAccess.grants).length > 0) {
+      return forbidden("You cannot manage an account with permissions you do not hold.");
     }
 
-    const targetHasSuperAdmin =
-      targetUser.role === "admin" ||
-      ((targetUserRoles ?? []) as unknown as Array<{ roles: { name: string } | null }>).some(
-        (row) =>
-          row.roles?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-          row.roles?.name === LEGACY_SUPER_ADMIN_ROLE_NAME
-      );
     const updates: {
       email?: string;
       name?: string | null;
       agent_id?: string;
-      role?: UserRole;
-      is_active?: boolean;
       password_hash?: string;
     } = {};
 
@@ -340,51 +313,60 @@ export async function PATCH(req: Request, context: RouteContext) {
       updates.agent_id = normalizedAgentId;
     }
 
-    if (role !== undefined) {
-      if (!roles.includes(role)) {
-        return NextResponse.json({ error: "Invalid role." }, { status: 400 });
-      }
-
-      if (isSelf && role !== "admin") {
-        return NextResponse.json(
-          { error: "You cannot remove your own admin role." },
-          { status: 400 }
-        );
-      }
-
-      updates.role = role;
-    }
-
+    // Role mới: `roleIds` (Account Manager hiện tại) hoặc `role` legacy
+    // ("admin" | "agent") từ client cũ → role hệ thống theo system_key.
+    let nextRoleId: string | null = null;
     if (roleIds !== undefined) {
-      if (!selectedRoleIds || selectedRoleIds.length !== 1) {
+      const selectedRoleIds = Array.isArray(roleIds)
+        ? roleIds.filter((item): item is string => typeof item === "string")
+        : [];
+      if (selectedRoleIds.length !== 1) {
         return NextResponse.json(
           { error: "Select exactly one active role." },
           { status: 400 }
         );
       }
+      nextRoleId = selectedRoleIds[0];
+    } else if (role !== undefined) {
+      if (role !== "admin" && role !== "agent") {
+        return NextResponse.json({ error: "Invalid role." }, { status: 400 });
+      }
+      nextRoleId = await fetchSystemRoleId(
+        role === "admin" ? SYSTEM_ROLE_KEYS.SUPER_ADMIN : SYSTEM_ROLE_KEYS.DEFAULT_NEW_ACCOUNT
+      );
+      if (!nextRoleId) {
+        return NextResponse.json({ error: "Invalid role." }, { status: 400 });
+      }
+    }
 
-      const selectedRoles = await fetchActiveRolesByIds(selectedRoleIds);
-      if (selectedRoles.length !== selectedRoleIds.length) {
+    if (nextRoleId) {
+      const nextRole = await fetchRoleDefinition(nextRoleId);
+      if (!nextRole || !nextRole.isActive) {
         return NextResponse.json(
           { error: "One or more selected roles are invalid or disabled." },
           { status: 400 }
         );
       }
-
-      const nextLegacyRole = getLegacyRoleFromRoleNames(
-        selectedRoles.map((item) => item.name)
-      );
-
-      if (isSelf && nextLegacyRole !== "admin") {
+      if (
+        isSelf &&
+        targetAccess.holdsSuperAdmin &&
+        !isSuperAdminRole({ name: nextRole.name, system_key: nextRole.systemKey })
+      ) {
         return NextResponse.json(
           { error: "You cannot remove your own admin role." },
           { status: 400 }
         );
       }
-
-      updates.role = nextLegacyRole;
+      const beyond = grantsBeyondCeiling(principal.grants, effectiveRoleGrants(nextRole));
+      if (beyond.length > 0) {
+        return NextResponse.json(
+          { error: "You cannot assign a role with permissions you do not hold.", grants: beyond },
+          { status: 403 }
+        );
+      }
     }
 
+    let nextActive: boolean | null = null;
     if (is_active !== undefined) {
       if (typeof is_active !== "boolean") {
         return NextResponse.json(
@@ -400,22 +382,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         );
       }
 
-      updates.is_active = is_active;
-    }
-
-    const willRemoveSuperAdmin =
-      targetHasSuperAdmin &&
-      ((updates.role !== undefined && updates.role !== "admin") ||
-        updates.is_active === false);
-
-    if (
-      willRemoveSuperAdmin &&
-      !(await hasActiveSuperAdminOtherThan(id))
-    ) {
-      return NextResponse.json(
-        { error: "At least one active Admin account is required." },
-        { status: 400 }
-      );
+      nextActive = is_active;
     }
 
     if (password !== undefined) {
@@ -429,45 +396,52 @@ export async function PATCH(req: Request, context: RouteContext) {
       updates.password_hash = await bcrypt.hash(password, 10);
     }
 
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && !nextRoleId && nextActive === null) {
       return NextResponse.json(
         { error: "No account changes provided." },
         { status: 400 }
       );
     }
 
-    if (selectedRoleIds) {
-      await replaceUserRoles(id, selectedRoleIds);
+    // Role và trạng thái đi qua RPC nguyên tử: khoá chung, bất biến "còn ≥ 1
+    // admin khôi phục", cột legacy, tăng access_version và audit trong CÙNG
+    // transaction (S19, C18).
+    if (nextRoleId || nextActive !== null) {
+      const { error: rpcError } = await supabase.rpc("assign_account_access_atomic", {
+        p_account_id: id,
+        p_role_id: nextRoleId,
+        p_is_active: nextActive,
+        p_actor_account_id: principal.accountId,
+        p_actor_email: principal.email,
+      });
+      if (rpcError) return rpcFailure(rpcError.message);
     }
 
-    const { data, error } = await supabase
-      .from(PORTAL_ACCOUNT_TABLE)
-      .update(updates)
-      .eq("id", id)
-      .select("id,email,name,agent_id,role,is_active,created_at")
-      .single();
+    const { data, error } =
+      Object.keys(updates).length > 0
+        ? await supabase
+            .from(PORTAL_ACCOUNT_TABLE)
+            .update(updates)
+            .eq("id", id)
+            .select(ACCOUNT_COLUMNS)
+            .single()
+        : await supabase
+            .from(PORTAL_ACCOUNT_TABLE)
+            .select(ACCOUNT_COLUMNS)
+            .eq("id", id)
+            .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    if (!selectedRoleIds && updates.role) {
-      await supabase.from("user_roles").delete().eq("user_id", id);
-      await assignDefaultRoleToUser(id, updates.role);
-    }
-
-    // Role, trạng thái hay email đổi → phiên của người này làm mới quyền ngay
-    // (≤ 30 giây) thay vì đợi TTL 5 phút.
-    if (
-      selectedRoleIds ||
-      updates.role !== undefined ||
-      updates.is_active !== undefined ||
-      updates.email !== undefined
-    ) {
+    // Đổi email → phiên của người này làm mới quyền ngay (role/trạng thái đã
+    // được RPC tăng version).
+    if (updates.email !== undefined) {
       await bumpAccessVersion([id]);
     }
 
-    if (updates.is_active === false) {
+    if (nextActive === false) {
       // Khoá account thì máy của người đó thôi nhận push ngay, không đợi
       // subscription tự hết hạn. Lỗi ở đây không làm hỏng việc khoá: phiên đã
       // bị chặn ở lần làm mới quyền kế tiếp và push đã lọc account active.
@@ -497,21 +471,16 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    const session = await auth();
-
-    if (
-      !session?.user?.email ||
-      !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
-    ) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const guard = await requireApiGrant("account.manage");
+    if (!guard.ok) return guard.response;
+    const { principal } = guard;
 
     const { id } = await context.params;
     const supabase = getSupabaseAdmin();
 
     const { data: targetUser, error: targetError } = await supabase
       .from(PORTAL_ACCOUNT_TABLE)
-      .select("id,email,role")
+      .select("id,email")
       .eq("id", id)
       .single();
 
@@ -519,40 +488,16 @@ export async function DELETE(_req: Request, context: RouteContext) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
 
-    if (targetUser.email.toLowerCase() === session.user.email.toLowerCase()) {
+    if (targetUser.email.toLowerCase() === principal.email.toLowerCase()) {
       return NextResponse.json(
         { error: "You cannot delete your own account." },
         { status: 400 }
       );
     }
 
-    const { data: targetUserRoles, error: targetRolesError } = await supabase
-      .from("user_roles")
-      .select("roles(name)")
-      .eq("user_id", id);
-
-    if (targetRolesError) {
-      return NextResponse.json(
-        { error: targetRolesError.message },
-        { status: 500 }
-      );
-    }
-
-    const targetHasSuperAdmin =
-      targetUser.role === "admin" ||
-      ((targetUserRoles ?? []) as unknown as Array<{
-        roles: { name: string } | null;
-      }>).some(
-        (row) =>
-          row.roles?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-          row.roles?.name === LEGACY_SUPER_ADMIN_ROLE_NAME
-      );
-
-    if (targetHasSuperAdmin && !(await hasActiveSuperAdminOtherThan(id))) {
-      return NextResponse.json(
-        { error: "At least one active Admin account is required." },
-        { status: 400 }
-      );
+    const targetAccess = await fetchAccountAccess(id);
+    if (grantsBeyondCeiling(principal.grants, targetAccess.grants).length > 0) {
+      return forbidden("You cannot manage an account with permissions you do not hold.");
     }
 
     const reference = await findEmailReference(supabase, targetUser.email);
@@ -567,15 +512,13 @@ export async function DELETE(_req: Request, context: RouteContext) {
       );
     }
 
-    // user_roles xóa theo cascade (FK on delete cascade).
-    const { error: deleteError } = await supabase
-      .from(PORTAL_ACCOUNT_TABLE)
-      .delete()
-      .eq("id", id);
-
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
-    }
+    // Xoá + bất biến admin khôi phục trong một transaction có khoá.
+    const { error: deleteError } = await supabase.rpc("delete_account_atomic", {
+      p_account_id: id,
+      p_actor_account_id: principal.accountId,
+      p_actor_email: principal.email,
+    });
+    if (deleteError) return rpcFailure(deleteError.message);
 
     await revokePushSubscriptions(targetUser.email).catch((revokeError) => {
       console.error("[account-manager:delete] push revoke failed", {

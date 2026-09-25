@@ -4,6 +4,7 @@ import { fetchTaskAgentCandidates, fetchTaskAgents } from "@/lib/tasks/assignees
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 import { mapAssistantMembershipError } from "@/lib/tasks/membership-mutation";
+import { recordAccessAudit } from "@/lib/authz/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,12 @@ export async function POST(request: Request) {
     );
   }
 
+  // Uỷ quyền assistant = cấp quyền chủ trên sổ khách của agent: ghi audit.
+  await recordAccessAudit({
+    event: "org.assistant_delegation.add",
+    targetType: "assistant_delegation",
+    targetId: `${agent_email}>${cs_email}`,
+  });
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
 }
@@ -105,6 +112,11 @@ export async function DELETE(request: Request) {
     .eq("is_assistant", true);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  await recordAccessAudit({
+    event: "org.assistant_delegation.remove",
+    targetType: "assistant_delegation",
+    targetId: `${agent_email}>${cs_email}`,
+  });
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
 }

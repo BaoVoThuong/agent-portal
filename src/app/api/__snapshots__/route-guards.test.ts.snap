@@ -4,30 +4,30 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
 [
   {
     "action": [
-      "can(",
+      "requireApiGrant(",
     ],
     "authn": [
-      "auth()",
+      "requireApiGrant(",
     ],
     "object": [],
     "route": "admin/permissions/route.ts",
   },
   {
     "action": [
-      "can(",
+      "requireApiGrant(",
     ],
     "authn": [
-      "auth()",
+      "requireApiGrant(",
     ],
     "object": [],
     "route": "admin/roles/[id]/route.ts",
   },
   {
     "action": [
-      "can(",
+      "requireApiGrant(",
     ],
     "authn": [
-      "auth()",
+      "requireApiGrant(",
     ],
     "object": [],
     "route": "admin/roles/route.ts",
@@ -55,10 +55,10 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "requireApiGrant(",
     ],
     "authn": [
-      "auth()",
+      "requireApiGrant(",
     ],
     "object": [
       "recipient_email",
@@ -67,10 +67,10 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "requireApiGrant(",
     ],
     "authn": [
-      "auth()",
+      "requireApiGrant(",
     ],
     "object": [],
     "route": "admin/users/route.ts",

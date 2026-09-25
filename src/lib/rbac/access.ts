@@ -135,23 +135,35 @@ export async function getUserAccessByEmails(
   return result;
 }
 
+/**
+ * Gán role mặc định cho account vừa tự tạo (đăng nhập Google lần đầu). Tìm role
+ * theo `system_key` (rơi về tên khi rollout Phase C chưa chạy) và KHÔNG nuốt lỗi
+ * nữa: trước đây lỗi ở đây để lại account không có role mà không ai biết (S19).
+ */
 export async function assignDefaultRoleToUser(
   userId: string,
   legacyRole: UserRole
 ) {
   const supabase = getSupabaseAdmin();
-  const roleName = getDefaultSystemRoleName(legacyRole);
-  const { data: role, error: roleError } = await supabase
-    .from("roles")
-    .select("id")
-    .eq("name", roleName)
-    .maybeSingle();
+  const systemKey = legacyRole === "admin" ? "super_admin" : "default_new_account";
+  const byKey = await supabase.from("roles").select("id").eq("system_key", systemKey).maybeSingle();
+  let roleId = byKey.error ? null : (byKey.data as { id: string } | null)?.id ?? null;
+  if (byKey.error) {
+    const byName = await supabase
+      .from("roles")
+      .select("id")
+      .eq("name", getDefaultSystemRoleName(legacyRole))
+      .maybeSingle();
+    if (byName.error) throw new Error(byName.error.message);
+    roleId = (byName.data as { id: string } | null)?.id ?? null;
+  }
+  if (!roleId) throw new Error(`Default role "${systemKey}" not found.`);
 
-  if (roleError || !role) return;
-
-  await supabase.from("user_roles").delete().eq("user_id", userId);
-  await supabase.from("user_roles").insert({
+  const { error: deleteError } = await supabase.from("user_roles").delete().eq("user_id", userId);
+  if (deleteError) throw new Error(deleteError.message);
+  const { error: insertError } = await supabase.from("user_roles").insert({
     user_id: userId,
-    role_id: (role as { id: string }).id,
+    role_id: roleId,
   });
+  if (insertError) throw new Error(insertError.message);
 }

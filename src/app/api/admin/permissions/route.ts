@@ -1,15 +1,10 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { requireApiGrant } from "@/lib/authz/guards";
 import { fetchPermissions } from "@/lib/rbac/role-management";
 
 export async function GET() {
-  const session = await auth();
-
-  if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const guard = await requireApiGrant("role.manage");
+  if (!guard.ok) return guard.response;
 
   try {
     const permissions = await fetchPermissions();

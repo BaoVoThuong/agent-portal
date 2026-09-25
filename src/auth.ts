@@ -133,7 +133,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             .single();
 
           if (createdUser?.id) {
-            await assignDefaultRoleToUser(createdUser.id, "agent");
+            try {
+              await assignDefaultRoleToUser(createdUser.id, "agent");
+            } catch (error) {
+              // Không để lại account không có role (S19): bỏ account vừa tạo và
+              // từ chối đăng nhập lần này.
+              console.error("[auth] default role assignment failed", {
+                error: error instanceof Error ? error.message : String(error),
+              });
+              await supabase.from(PORTAL_ACCOUNT_TABLE).delete().eq("id", createdUser.id);
+              return false;
+            }
           }
 
           return true;

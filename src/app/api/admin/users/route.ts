@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
-import type { UserRole } from "@/lib/domain/account.types";
-import { can } from "@/lib/rbac/client";
-import { assignDefaultRoleToUser } from "@/lib/rbac/access";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { grantsBeyondCeiling } from "@/lib/authz/delegation";
+import { requireApiGrant } from "@/lib/authz/guards";
+import { effectiveRoleGrants } from "@/lib/authz/principal";
 import {
-  fetchActiveRolesByIds,
-  replaceUserRoles,
+  fetchRoleDefinition,
+  fetchSystemRoleId,
+  isSuperAdminRole,
+  mapAuthzRpcError,
+  SYSTEM_ROLE_KEYS,
 } from "@/lib/rbac/role-management";
-import { getLegacyRoleFromRoleNames } from "@/lib/rbac/system-roles";
 import { parseCreateUserInput } from "@/lib/admin/user-input";
 import bcrypt from "bcryptjs";
 
@@ -18,13 +18,9 @@ export async function POST(req: Request) {
   let createdUserId: string | null = null;
 
   try {
-    const session = await auth();
-
-    if (
-      !can(session?.user?.permissions, PERMISSIONS.ACCOUNT_MANAGER)
-    ) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const guard = await requireApiGrant("account.manage");
+    if (!guard.ok) return guard.response;
+    const { principal } = guard;
 
     const parsed = parseCreateUserInput(await req.json());
     if (!parsed.ok) {
@@ -36,12 +32,12 @@ export async function POST(req: Request) {
       password,
       name,
       agentId: normalizedAgentId,
-      legacyRoleFallback: selectedRole,
+      legacyRoleFallback,
       roleIds: selectedRoleIds,
     } = parsed.value;
 
     console.info("[account-manager:create] request", {
-      actor: session?.user?.email ?? null,
+      actor: principal.email,
       email: normalizedEmail,
       roleIds: selectedRoleIds,
     });
@@ -73,29 +69,30 @@ export async function POST(req: Request) {
       );
     }
 
-    const selectedRoles = selectedRoleIds.length
-      ? await fetchActiveRolesByIds(selectedRoleIds)
-      : [];
-
-    if (selectedRoleIds.length > 0 && selectedRoles.length === 0) {
-      return NextResponse.json(
-        { error: "Select at least one active role." },
-        { status: 400 }
-      );
-    }
-
-    if (selectedRoles.length !== selectedRoleIds.length) {
+    // Không chọn role thì dùng role hệ thống theo system_key (không theo tên).
+    const roleId =
+      selectedRoleIds[0] ??
+      (await fetchSystemRoleId(
+        legacyRoleFallback === "admin"
+          ? SYSTEM_ROLE_KEYS.SUPER_ADMIN
+          : SYSTEM_ROLE_KEYS.DEFAULT_NEW_ACCOUNT
+      ));
+    const role = roleId ? await fetchRoleDefinition(roleId) : null;
+    if (!role || !role.isActive) {
       return NextResponse.json(
         { error: "One or more selected roles are invalid or disabled." },
         { status: 400 }
       );
     }
 
-    const selectedRoleNames = selectedRoles.map((item) => item.name);
-    const legacyRole: UserRole =
-      selectedRoleIds.length > 0
-        ? getLegacyRoleFromRoleNames(selectedRoleNames)
-        : selectedRole;
+    // Trần uỷ quyền (S4): không tạo được account mang quyền mình không có.
+    const beyond = grantsBeyondCeiling(principal.grants, effectiveRoleGrants(role));
+    if (beyond.length > 0) {
+      return NextResponse.json(
+        { error: "You cannot assign a role with permissions you do not hold.", grants: beyond },
+        { status: 403 }
+      );
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const { data, error } = await supabase
@@ -106,7 +103,9 @@ export async function POST(req: Request) {
           name,
           agent_id: normalizedAgentId,
           password_hash: hashedPassword,
-          role: legacyRole,
+          role: isSuperAdminRole({ name: role.name, system_key: role.systemKey })
+            ? "admin"
+            : "agent",
           is_active: true,
         },
       ])
@@ -121,20 +120,29 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    if (data?.id) {
-      createdUserId = data.id;
-      if (selectedRoleIds.length > 0) {
-        await replaceUserRoles(data.id, selectedRoleIds);
-      } else {
-        await assignDefaultRoleToUser(data.id, selectedRole);
-      }
+    createdUserId = data.id;
+    const { error: assignError } = await supabase.rpc("assign_account_access_atomic", {
+      p_account_id: data.id,
+      p_role_id: role.id,
+      p_is_active: null,
+      p_actor_account_id: principal.accountId,
+      p_actor_email: principal.email,
+    });
+    if (assignError) {
+      // Không để lại account không có role (S19): lỗi thì bỏ account vừa tạo.
+      await supabase.from(PORTAL_ACCOUNT_TABLE).delete().eq("id", data.id);
+      createdUserId = null;
+      const mapped = mapAuthzRpcError(assignError.message);
+      return NextResponse.json(
+        { error: mapped?.error ?? assignError.message },
+        { status: mapped?.status ?? 500 }
+      );
     }
 
     console.info("[account-manager:create] success", {
       email: normalizedEmail,
       userId: data.id,
-      roleIds: selectedRoleIds,
-      legacyRole,
+      roleId: role.id,
     });
 
     return NextResponse.json({ user: data }, { status: 201 });

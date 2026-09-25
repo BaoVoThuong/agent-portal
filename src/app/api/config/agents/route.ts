@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
+import { recordAccessAudit } from "@/lib/authz/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,8 @@ export async function POST(request: Request) {
     .upsert({ email }, { onConflict: "email", ignoreDuplicates: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Vào roster là đổi phạm vi dữ liệu của người đó: ghi audit.
+  await recordAccessAudit({ event: "org.agent_roster.add", targetType: "agent_roster", targetId: email });
   await broadcastTableConfigChanged();
   const row = account as { email: string; name: string | null };
   return NextResponse.json({ agent: { email: row.email, name: row.name } });
@@ -66,6 +69,8 @@ export async function DELETE(request: Request) {
     p_email: email,
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await recordAccessAudit({ event: "org.agent_roster.remove", targetType: "agent_roster", targetId: email });
 
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });

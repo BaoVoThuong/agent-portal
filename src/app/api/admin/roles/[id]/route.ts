@@ -1,21 +1,15 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { deriveCompatGrants } from "@/lib/authz/compat";
+import { grantsBeyondCeiling, projectLegacyPermissions } from "@/lib/authz/delegation";
+import { forbidden, requireApiGrant } from "@/lib/authz/guards";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { can } from "@/lib/rbac/client";
 import {
-  normalizeExclusivePermissionKeys,
-  PERMISSIONS,
-} from "@/lib/rbac/permissions";
-import {
-  fetchRoleById,
+  fetchRoleDefinition,
   fetchRolesWithPermissions,
-  replaceRolePermissions,
+  isSuperAdminRole,
+  mapAuthzRpcError,
 } from "@/lib/rbac/role-management";
-import { bumpAccessVersion, bumpRoleMembersAccessVersion } from "@/lib/authz/versions";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { grantsForRpc, readRequestedGrants } from "../role-input";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -25,105 +19,95 @@ type RolePatchPayload = {
   name?: unknown;
   description?: unknown;
   is_active?: unknown;
+  grants?: unknown;
   permissionKeys?: unknown;
 };
 
-function parsePermissionKeys(value: unknown) {
-  if (!Array.isArray(value)) return null;
-  return normalizeExclusivePermissionKeys(
-    value.filter((item): item is string => typeof item === "string")
-  );
-}
-
-function isProtectedRole(role: { name: string }) {
-  return (
-    role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-    role.name === LEGACY_SUPER_ADMIN_ROLE_NAME
-  );
+function rpcFailure(message: string | undefined) {
+  const mapped = mapAuthzRpcError(message);
+  if (mapped) return NextResponse.json({ error: mapped.error }, { status: mapped.status });
+  return NextResponse.json({ error: message ?? "Unable to save role." }, { status: 500 });
 }
 
 export async function PATCH(req: Request, context: RouteContext) {
-  const session = await auth();
-
-  // Gác VÔ ĐIỀU KIỆN trước mọi tra cứu. Trước đây quyền chỉ được kiểm trong
-  // từng nhánh field, nên một PATCH body rỗng lọt qua hết các nhánh và trả về
-  // toàn bộ danh mục role + permission cho bất kỳ ai đã đăng nhập (S18).
-  if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // Gác VÔ ĐIỀU KIỆN trước mọi tra cứu (S18): body rỗng từng trả về toàn bộ
+  // danh mục role cho bất kỳ ai đã đăng nhập.
+  const guard = await requireApiGrant("role.manage");
+  if (!guard.ok) return guard.response;
+  const { principal } = guard;
 
   try {
     const { id } = await context.params;
     const payload = (await req.json()) as RolePatchPayload;
-    const permissionKeys = parsePermissionKeys(payload.permissionKeys);
-    const updates: {
-      name?: string;
-      description?: string | null;
-      is_active?: boolean;
-      updated_at: string;
-    } = {
-      updated_at: new Date().toISOString(),
-    };
 
-    if (payload.name !== undefined) {
-      const nextName = typeof payload.name === "string" ? payload.name.trim() : "";
-      if (!nextName) {
-        return NextResponse.json(
-          { error: "Role name is required." },
-          { status: 400 }
-        );
-      }
-      updates.name = nextName;
+    // Không tự nâng quyền qua role mình đang giữ (S4).
+    if (principal.roleIds.includes(id)) {
+      return forbidden("You cannot edit a role you hold.");
     }
 
-    if (payload.description !== undefined) {
-      updates.description =
-        typeof payload.description === "string" && payload.description.trim()
+    const supabase = getSupabaseAdmin();
+    const [current, { data: row, error: rowError }] = await Promise.all([
+      fetchRoleDefinition(id),
+      supabase.from("roles").select("name,description,is_active").eq("id", id).maybeSingle(),
+    ]);
+    if (rowError) return NextResponse.json({ error: rowError.message }, { status: 500 });
+    if (!current || !row) {
+      return NextResponse.json({ error: "Role not found." }, { status: 404 });
+    }
+    if (isSuperAdminRole({ name: current.name, system_key: current.systemKey })) {
+      return NextResponse.json({ error: "Admin cannot be edited." }, { status: 400 });
+    }
+
+    const currentRow = row as { name: string; description: string | null; is_active: boolean };
+    const name =
+      payload.name === undefined
+        ? currentRow.name
+        : typeof payload.name === "string"
+          ? payload.name.trim()
+          : "";
+    if (!name) {
+      return NextResponse.json({ error: "Role name is required." }, { status: 400 });
+    }
+    const description =
+      payload.description === undefined
+        ? currentRow.description
+        : typeof payload.description === "string" && payload.description.trim()
           ? payload.description.trim()
           : null;
+    if (payload.is_active !== undefined && typeof payload.is_active !== "boolean") {
+      return NextResponse.json({ error: "Invalid role status." }, { status: 400 });
     }
+    const isActive = payload.is_active ?? currentRow.is_active;
+    const grants = readRequestedGrants(payload, name);
 
-    if (payload.is_active !== undefined) {
-      if (typeof payload.is_active !== "boolean") {
-        return NextResponse.json(
-          { error: "Invalid role status." },
-          { status: 400 }
-        );
-      }
-      updates.is_active = payload.is_active;
-    }
-
-    const role = await fetchRoleById(id);
-    if (isProtectedRole(role) && (Object.keys(updates).length > 1 || permissionKeys !== null)) {
+    // Grant hiệu lực SAU khi sửa — gồm cả trường hợp chỉ đổi tên một role chưa
+    // chuyển (tên task-admin đổi quyền). Phải nằm trong trần của người sửa.
+    const effectiveAfter =
+      grants ??
+      current.grants ??
+      deriveCompatGrants({ permissions: current.permissions, roles: [name], legacyRole: "agent" });
+    const beyond = grantsBeyondCeiling(principal.grants, effectiveAfter);
+    if (beyond.length > 0) {
       return NextResponse.json(
-        { error: "Admin cannot be edited." },
-        { status: 400 }
+        { error: "You cannot grant permissions you do not hold.", grants: beyond },
+        { status: 403 }
       );
     }
 
-    if (Object.keys(updates).length > 1) {
-      const supabase = getSupabaseAdmin();
-      const { error } = await supabase.from("roles").update(updates).eq("id", id);
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-    }
-
-    if (permissionKeys) {
-      await replaceRolePermissions(id, permissionKeys);
-    }
-
-    // Tên role (task-admin), trạng thái hay permission đổi đều đổi quyền của
-    // thành viên: tăng version để phiên của họ làm mới ngay (≤ 30 giây).
-    if (Object.keys(updates).length > 1 || permissionKeys) {
-      await bumpRoleMembersAccessVersion(id);
-    }
+    const { error } = await supabase.rpc("upsert_role_atomic", {
+      p_role_id: id,
+      p_name: name,
+      p_description: description,
+      p_is_active: isActive,
+      p_grants: grants ? grantsForRpc(grants) : null,
+      p_legacy_keys: grants ? projectLegacyPermissions(grants) : null,
+      p_actor_account_id: principal.accountId,
+      p_actor_email: principal.email,
+    });
+    if (error) return rpcFailure(error.message);
 
     const roles = await fetchRolesWithPermissions();
-    return NextResponse.json({
-      role: roles.find((item) => item.id === id),
-      roles,
-    });
+    return NextResponse.json({ role: roles.find((item) => item.id === id), roles });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unable to update role." },
@@ -133,38 +117,18 @@ export async function PATCH(req: Request, context: RouteContext) {
 }
 
 export async function DELETE(_req: Request, context: RouteContext) {
-  const session = await auth();
-
-  if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const guard = await requireApiGrant("role.manage");
+  if (!guard.ok) return guard.response;
+  const { principal } = guard;
 
   try {
     const { id } = await context.params;
-    const role = await fetchRoleById(id);
-
-    if (isProtectedRole(role)) {
-      return NextResponse.json(
-        { error: "Admin cannot be deleted." },
-        { status: 400 }
-      );
-    }
-
-    const supabase = getSupabaseAdmin();
-    // Lấy thành viên TRƯỚC khi xoá: user_roles bị xoá theo cascade.
-    const { data: members } = await supabase
-      .from("user_roles")
-      .select("user_id")
-      .eq("role_id", id);
-    const { error } = await supabase.from("roles").delete().eq("id", id);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    await bumpAccessVersion(
-      ((members ?? []) as { user_id: string }[]).map((member) => member.user_id)
-    );
+    const { error } = await getSupabaseAdmin().rpc("delete_role_atomic", {
+      p_role_id: id,
+      p_actor_account_id: principal.accountId,
+      p_actor_email: principal.email,
+    });
+    if (error) return rpcFailure(error.message);
 
     return NextResponse.json({ ok: true, roles: await fetchRolesWithPermissions() });
   } catch (err) {
