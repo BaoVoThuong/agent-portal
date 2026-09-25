@@ -10,8 +10,10 @@ import {
 } from "@/lib/tasks/access";
 import {
   attachAssigneesToTasks,
+  fetchSelectedAgentEmails,
   findIneligibleTaskAssigneeEmail,
 } from "@/lib/tasks/assignees";
+import { isRosterAgent } from "@/lib/tasks/roster";
 import {
   fetchTasksForActor,
   TaskListTruncatedError,
@@ -145,6 +147,13 @@ export async function POST(request: Request) {
       : null;
   if (!agentEmail) {
     return NextResponse.json({ error: "Agent is required." }, { status: 400 });
+  }
+  // Agent phải có tên trong roster (`task_agents`) — Enrollment đã kiểm điều này
+  // từ lâu (enrollment/ownership.ts), Task thì chưa. Thiếu kiểm, CS gửi thẳng
+  // `agent_email` = chính mình sẽ được coi là agent owner của task đó
+  // (isAgentOwnerOrAssistant(self, self) = true) rồi tự assign/xoá/QC (S5).
+  if (!isRosterAgent(agentEmail, await fetchSelectedAgentEmails())) {
+    return NextResponse.json({ error: "Agent must be a registered agent." }, { status: 400 });
   }
   let hasAgentScope = false;
   if (!actor.isManager) {

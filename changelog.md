@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-26 — Agent của task phải thuộc roster (S5)
+
+`POST /api/tasks` coi người gọi là agent owner khi `agent_email` bằng chính email của
+họ, mà không kiểm người đó có trong `task_agents` — nên CS thường gọi thẳng API là tạo
+được task rồi tự assign/xoá/QC; reporter cũng tự đổi agent thành mình. Nay tạo task và
+đổi Agent đều đòi `agent_email` thuộc roster (`isRosterAgent`), như Enrollment. PATCH
+chỉ kiểm khi Agent thật sự đổi, nên task cũ có agent ngoài roster vẫn sửa được các
+trường khác. UI chỉ đưa ra agent trong roster nên người dùng hợp lệ không bị ảnh hưởng.
+
 ## 2026-09-26 — Phạm vi hoa hồng đọc tên từ DB; người dùng thôi tự đổi tên (giảm nhẹ S1)
 
 Registration, Agent Dashboard và AI chat lọc theo tên hiển thị trong phiên. Tên đó là

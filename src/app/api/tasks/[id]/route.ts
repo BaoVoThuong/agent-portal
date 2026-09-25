@@ -33,10 +33,12 @@ import {
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
   attachAssigneesToTasks,
+  fetchSelectedAgentEmails,
   fetchTaskAssigneeEmails,
   isEligibleTaskAssigneeEmail,
   isTaskAssignee,
 } from "@/lib/tasks/assignees";
+import { isRosterAgent } from "@/lib/tasks/roster";
 import {
   findMissingRequiredFieldsFromContext,
   missingRequiredFieldsMessage,
@@ -340,6 +342,17 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const capabilityError = patchCapabilityError(bodyRecord, capabilities);
   if (capabilityError) {
     return NextResponse.json({ error: capabilityError }, { status: 403 });
+  }
+  // Chỉ kiểm khi Agent ĐỔI sang giá trị khác: task cũ có agent ngoài roster vẫn
+  // sửa được các trường khác. Chặn reporter tự đặt mình làm agent rồi tự QC (S5).
+  const requestedAgent = bodyRecord.agent_email;
+  if (
+    typeof requestedAgent === "string" &&
+    requestedAgent.trim() !== "" &&
+    requestedAgent.trim().toLowerCase() !== (r.task.agent_email ?? "").trim().toLowerCase() &&
+    !isRosterAgent(requestedAgent, await fetchSelectedAgentEmails())
+  ) {
+    return NextResponse.json({ error: "Agent must be a registered agent." }, { status: 400 });
   }
 
   const customValuesPresent = bodyRecord.custom_values !== undefined;
