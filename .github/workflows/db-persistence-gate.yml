@@ -1,0 +1,64 @@
+name: DB persistence gate
+
+# Dựng Postgres dùng một lần, áp schema.sql + các rollout tạo bảng mà schema.sql
+# còn thiếu, rồi khẳng định: không bảng public nào mở cho anon/authenticated mà
+# chưa bật RLS, và không hàm SECURITY DEFINER nào còn EXECUTE cho hai role đó.
+# Xem Task A10 trong docs/superpowers/plans/2026-09-26-authorization-final-plan.md.
+
+on:
+  pull_request:
+    paths:
+      - "supabase/**"
+      - ".github/workflows/db-persistence-gate.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  rls:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap Supabase roles
+        run: psql -v ON_ERROR_STOP=1 -f supabase/checks/ci-bootstrap.sql
+
+      - name: Apply schema.sql
+        run: psql -v ON_ERROR_STOP=1 -f supabase/schema.sql
+
+      # schema.sql chưa phải full-state: các bảng dưới đây chỉ có trong rollout
+      # (gộp vào schema.sql ở Phase C — audit S28). Thứ tự = thứ tự tên file.
+      - name: Apply rollout-only tables and the RLS lockdown
+        run: |
+          for f in \
+            2026-08-18-install-sheet-sync-staging.sql \
+            2026-09-04-time-off-monthly-accruals.sql \
+            2026-09-10-web-push.sql \
+            2026-09-12-time-off-manager-notifications.sql \
+            2026-09-17-provider-directory-temp.sql \
+            2026-09-26-rls-lockdown.sql
+          do
+            echo "== $f"
+            psql -v ON_ERROR_STOP=1 -f "supabase/rollouts/$f"
+          done
+
+      - name: Assert RLS and EXECUTE lockdown
+        run: psql -v ON_ERROR_STOP=1 -f supabase/checks/ci-rls-assert.sql
