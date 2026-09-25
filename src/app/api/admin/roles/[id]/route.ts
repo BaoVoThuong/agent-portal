@@ -44,6 +44,13 @@ function isProtectedRole(role: { name: string }) {
 export async function PATCH(req: Request, context: RouteContext) {
   const session = await auth();
 
+  // Gác VÔ ĐIỀU KIỆN trước mọi tra cứu. Trước đây quyền chỉ được kiểm trong
+  // từng nhánh field, nên một PATCH body rỗng lọt qua hết các nhánh và trả về
+  // toàn bộ danh mục role + permission cho bất kỳ ai đã đăng nhập (S18).
+  if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { id } = await context.params;
     const payload = (await req.json()) as RolePatchPayload;
@@ -58,9 +65,6 @@ export async function PATCH(req: Request, context: RouteContext) {
     };
 
     if (payload.name !== undefined) {
-      if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
       const nextName = typeof payload.name === "string" ? payload.name.trim() : "";
       if (!nextName) {
         return NextResponse.json(
@@ -72,9 +76,6 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     if (payload.description !== undefined) {
-      if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
       updates.description =
         typeof payload.description === "string" && payload.description.trim()
           ? payload.description.trim()
@@ -82,9 +83,6 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     if (payload.is_active !== undefined) {
-      if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
       if (typeof payload.is_active !== "boolean") {
         return NextResponse.json(
           { error: "Invalid role status." },
@@ -92,13 +90,6 @@ export async function PATCH(req: Request, context: RouteContext) {
         );
       }
       updates.is_active = payload.is_active;
-    }
-
-    if (
-      permissionKeys &&
-      !can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)
-    ) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const role = await fetchRoleById(id);

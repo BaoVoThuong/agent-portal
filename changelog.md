@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-26 — PATCH /api/admin/roles/[id] gác quyền vô điều kiện (S18)
+
+Quyền `management.role_manager` trước đây chỉ được kiểm trong từng nhánh field, nên
+PATCH body rỗng trả về toàn bộ danh mục role + permission + số người cho bất kỳ ai
+đã đăng nhập. Nay có một cổng ở đầu handler; các cổng lặp trong từng nhánh bị bỏ.
+
 ## 2026-09-26 — Khoá RLS cho các bảng tạo sau vòng protected_tables (S0)
 
 `time_off_*`, `push_subscriptions`, `notification_preferences`, `task_comment_edits`,
