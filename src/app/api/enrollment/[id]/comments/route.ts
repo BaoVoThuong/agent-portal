@@ -12,6 +12,7 @@ import {
 } from "@/lib/enrollment/realtime";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import { parseMentions } from "@/lib/tasks/mentions";
+import { filterEnrollmentRecipientsWithAccess } from "@/lib/enrollment/recipient-access";
 import type { EnrollmentRecord } from "@/lib/enrollment/types";
 
 export const dynamic = "force-dynamic";
@@ -132,19 +133,32 @@ export async function POST(request: Request, { params }: Ctx) {
         ((peopleRes.data ?? []) as { email: string }[]).map((person) => person.email)
       );
       const mentions = parseMentions(text).filter((email) => activeEmails.has(email));
-      const mentionSet = new Set(mentions);
       const threadWatchers = ((authorsRes.data ?? []) as { author_email: string }[]).map(
         (row) => row.author_email
       );
+      // Chỉ báo cho người MỞ ĐƯỢC hồ sơ này (S15): @ một người không có quyền,
+      // hay một người từng bình luận nay đã ra khỏi scope, không còn nhận tên khách.
+      const reachable = new Set(
+        await filterEnrollmentRecipientsWithAccess(loaded.record, [
+          ...mentions,
+          ...threadWatchers,
+          loaded.record.caller_email,
+          loaded.record.responsible_enroll_email,
+        ])
+      );
+      const canReach = (email: string | null | undefined) =>
+        Boolean(email && reachable.has(email.trim().toLowerCase()));
+      const reachableMentions = mentions.filter(canReach);
+      const mentionSet = new Set(reachableMentions);
       const baseRecipients = uniqueEnrollmentNotificationRecipients(
         [
           loaded.record.caller_email,
           loaded.record.responsible_enroll_email,
           ...threadWatchers,
-        ],
-        [loaded.actor.email, ...mentions]
+        ].filter(canReach),
+        [loaded.actor.email, ...reachableMentions]
       );
-      const mentionRecipients = uniqueEnrollmentNotificationRecipients(mentions, [
+      const mentionRecipients = uniqueEnrollmentNotificationRecipients(reachableMentions, [
         loaded.actor.email,
       ]);
 

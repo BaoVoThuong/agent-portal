@@ -75,6 +75,32 @@ export async function getUserAccessByEmail(email: string): Promise<UserAccess> {
   return flattenAccess(data as unknown as AccessRow);
 }
 
+/**
+ * Quyền của nhiều account trong MỘT truy vấn — dùng khi lọc người nhận thông
+ * báo. Khoá của Map là email chữ thường. Ném lỗi khi truy vấn lỗi để nơi gọi
+ * fail-closed (không gửi) thay vì gửi mò.
+ */
+export async function getUserAccessByEmails(
+  emails: readonly string[]
+): Promise<Map<string, UserAccess>> {
+  const unique = [...new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean))];
+  const result = new Map<string, UserAccess>();
+  if (unique.length === 0) return result;
+
+  const { data, error } = await getSupabaseAdmin()
+    .from(PORTAL_ACCOUNT_TABLE)
+    .select(
+      "id,email,role,is_active,agent_id,user_roles(roles(id,name,is_active,role_permissions(permission_key)))"
+    )
+    .in("email", unique);
+  if (error) throw new Error(error.message);
+
+  for (const row of (data ?? []) as unknown as (AccessRow & { email: string })[]) {
+    result.set(row.email.trim().toLowerCase(), flattenAccess(row));
+  }
+  return result;
+}
+
 export async function assignDefaultRoleToUser(
   userId: string,
   legacyRole: UserRole

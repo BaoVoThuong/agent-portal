@@ -9,6 +9,8 @@ import { removeTaskFile } from "@/lib/enrollment/storage";
 import { insertEnrollmentNotifications } from "@/lib/enrollment/notifications";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import { parseMentions } from "@/lib/tasks/mentions";
+import { filterEnrollmentRecipientsWithAccess } from "@/lib/enrollment/recipient-access";
+import type { EnrollmentRecord } from "@/lib/enrollment/types";
 
 export const dynamic = "force-dynamic";
 
@@ -76,9 +78,14 @@ export async function PATCH(request: Request, { params }: Ctx) {
       const newMentions = mentionsNow.filter(
         (email) => !mentionsBefore.some((previous) => previous.toLowerCase() === email.toLowerCase()),
       );
-      if (newMentions.length > 0) {
+      // Người được @ thêm khi sửa bình luận cũng phải mở được hồ sơ (S15).
+      const reachableNewMentions = await filterEnrollmentRecipientsWithAccess(
+        context.record,
+        newMentions,
+      );
+      if (reachableNewMentions.length > 0) {
         await insertEnrollmentNotifications(
-          newMentions.map((recipient) => ({
+          reachableNewMentions.map((recipient) => ({
             recipient_email: recipient,
             record_id: id,
             type: "mentioned" as const,
@@ -198,6 +205,7 @@ async function loadAuthorContext(id: string, cid: string) {
   return {
     supabase,
     email: actorResult.actor.email,
+    record: scoped.record as EnrollmentRecord,
     currentBody: commentRow.body,
     currentUpdatedAt: commentRow.updated_at,
   };

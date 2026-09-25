@@ -4,6 +4,7 @@ import {
   normalizeEmojiInput,
 } from "@/lib/tasks/emoji-search";
 import { authorizeEnrollmentReactionAccess } from "@/lib/enrollment/reaction-access";
+import { filterEnrollmentRecipientsWithAccess } from "@/lib/enrollment/recipient-access";
 import {
   insertEnrollmentNotifications,
   uniqueEnrollmentNotificationRecipients,
@@ -88,10 +89,24 @@ async function mutate(
           .eq("record_id", id)
           .maybeSingle();
         if (commentError) throw new Error(commentError.message);
-        const recipients = uniqueEnrollmentNotificationRecipients(
-          [comment?.author_email],
-          [access.email],
-        );
+        const { data: recordRow, error: recordError } = await access.supabase
+          .from("enrollment_records")
+          .select("agent_email,caller_email,responsible_enroll_email,created_by_email")
+          .eq("id", id)
+          .maybeSingle();
+        if (recordError) throw new Error(recordError.message);
+        // Tác giả bình luận có thể đã ra khỏi scope của hồ sơ từ lúc viết (S15).
+        const recipients = recordRow
+          ? await filterEnrollmentRecipientsWithAccess(
+              recordRow as {
+                agent_email: string | null;
+                caller_email: string | null;
+                responsible_enroll_email: string | null;
+                created_by_email: string;
+              },
+              uniqueEnrollmentNotificationRecipients([comment?.author_email], [access.email]),
+            )
+          : [];
         await insertEnrollmentNotifications(
           recipients.map((recipient) => ({
             recipient_email: recipient,

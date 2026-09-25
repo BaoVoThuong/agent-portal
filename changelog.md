@@ -6,6 +6,18 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-26 — Thông báo chỉ tới người mở được bản ghi (S15, S27)
+
+@mention trong Enrollment nhận bất kỳ account active nào, và người từng bình luận vẫn
+nhận dù đã ra khỏi scope — nên người không có quyền nhận tên khách hàng qua chuông/push.
+Nay mention, watcher, caller/responsible, reaction và mention mới khi sửa bình luận đều
+lọc qua đúng luật scope của trang Enrollment (`filterEnrollmentRecipientsWithAccess`).
+`task_created` lọc qua `canViewTask` (`filterTaskRecipientsWithAccess`): người giữ
+`task.manage` mà không xem được task không nhận tiêu đề. Chọn BỎ người không đủ quyền,
+không gửi bản rút gọn (Q21 — có thể đổi ở Phase F). Mention trong Task không đổi vì nó
+cố ý cấp quyền xem. Thêm `getUserAccessByEmails` để tra quyền nhiều người trong một truy
+vấn.
+
 ## 2026-09-26 — Account bị khoá mất phiên và thôi nhận push (S17)
 
 Trước đây khoá account chỉ rút permission khi làm mới quyền; phiên vẫn sống với email

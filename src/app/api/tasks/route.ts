@@ -32,6 +32,7 @@ import {
 } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { buildCreateTaskNotificationRows } from "@/lib/tasks/create-notifications";
+import { filterTaskRecipientsWithAccess } from "@/lib/tasks/recipient-access";
 import { isPriorityEnabledForCategory } from "@/lib/tasks/priority-availability";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
@@ -410,7 +411,13 @@ export async function POST(request: Request) {
             // Chỉ người có task.manage (đội chốt giữ nguyên nhóm này). Agent
             // của task không còn nhận `task_created`: 83 dòng trong 14 ngày,
             // đọc 1%.
-            const createdRecipients = await fetchTaskManagerEmails();
+            // Người giữ task.manage nhưng không xem được task này thì không nhận
+            // tiêu đề của nó (S27).
+            const createdRecipients = await filterTaskRecipientsWithAccess(
+              { agent_email: agentEmail, reporter_email: email },
+              assignedEmails,
+              await fetchTaskManagerEmails()
+            );
             // Một người chỉ nhận MỘT dòng, loại cụ thể hơn thắng: ai đã nhận
             // backlog_attention thì không nhận thêm task_created.
             const notificationRows = buildCreateTaskNotificationRows({
