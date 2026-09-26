@@ -1,5 +1,6 @@
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { ACTIONS, getActionDefinition, type Action } from "./catalog";
+import { deriveCompatGrants } from "./compat";
 import { decodeGrant, encodeGrant, hasGrant, normalizeGrants } from "./grants";
 
 /**
@@ -41,45 +42,38 @@ export function allCatalogGrants(): string[] {
 }
 
 /**
- * Bản chiếu permission phẳng từ grant — ghi vào `role_permissions` khi role đã
- * chuyển sang grant, để điều hướng và code chưa chuyển vẫn thấy quyền nhất quán
- * (plan D3). Luật: permission cũ có mặt khi grant tương ứng có mặt.
+ * Bản chiếu permission phẳng từ grant — ghi vào `role_permissions` khi lưu role.
+ * Từ Phase H không code nào đọc nó để phân quyền; nó chỉ còn để QUAY VỀ code cũ.
+ *
+ * Phải AN TOÀN (review C P1-01..03): chỉ chiếu tập key K mà luật cũ hiểu KHÔNG
+ * rộng hơn grant — `deriveCompatGrants(K, tên role) ⊆ grants`. Tham lam: thử key
+ * thường trước, key "khuếch đại" (company.view_all, task.manage, lead.manage) sau
+ * cùng, để key khuếch đại không chặn mất key thường.
  */
-export function projectLegacyPermissions(grants: readonly string[]): string[] {
-  const any = (action: Action) => hasGrant(grants, action);
-  const all = (action: Action) => hasGrant(grants, action, "all");
+const AMPLIFYING_KEYS: readonly string[] = [
+  PERMISSIONS.COMPANY_VIEW_ALL,
+  PERMISSIONS.TASK_MANAGE,
+  PERMISSIONS.LEAD_MANAGE,
+];
+
+export function projectLegacyPermissions(grants: readonly string[], roleName: string): string[] {
+  const held = new Set(normalizeGrants(grants));
+  const within = (keys: readonly string[]) =>
+    deriveCompatGrants({ permissions: keys, roles: [roleName], legacyRole: "agent" }).every((grant) =>
+      held.has(grant)
+    );
+  const allKeys = Object.values(PERMISSIONS) as string[];
+  const ordered = [
+    ...allKeys.filter((key) => !AMPLIFYING_KEYS.includes(key)),
+    ...AMPLIFYING_KEYS,
+  ];
   const keys: string[] = [];
-  const add = (condition: boolean, key: string) => {
-    if (condition) keys.push(key);
-  };
-
-  add(any("registration.health.read"), PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH);
-  add(any("registration.pc.read"), PERMISSIONS.CUSTOMER_REGISTRATION_PC);
-  add(any("automation.health_statement.run"), PERMISSIONS.AUTOMATION_HEALTH_STATEMENT);
-  add(any("automation.pc_statement.run"), PERMISSIONS.AUTOMATION_PC_STATEMENT);
-  add(any("provider.read"), PERMISSIONS.AUTOMATION_PROVIDER_FINDER);
-  add(any("dashboard.health.agent.read"), PERMISSIONS.AGENT_DASHBOARD_HEALTH);
-  add(any("dashboard.pc.agent.read"), PERMISSIONS.AGENT_DASHBOARD_PC);
-  add(any("dashboard.health.company.read"), PERMISSIONS.COMPANY_DASHBOARD_HEALTH);
-  add(any("dashboard.pc.company.read"), PERMISSIONS.COMPANY_DASHBOARD_PC);
-  add(
-    all("registration.health.read") ||
-      all("registration.pc.read") ||
-      all("dashboard.health.agent.read") ||
-      all("dashboard.pc.agent.read"),
-    PERMISSIONS.COMPANY_VIEW_ALL
-  );
-  add(any("account.manage"), PERMISSIONS.ACCOUNT_MANAGER);
-  add(any("role.manage"), PERMISSIONS.ROLE_MANAGER);
-  add(any("timeoff.request"), PERMISSIONS.TIME_OFF_USER);
-  add(any("timeoff.manage"), PERMISSIONS.TIME_OFF_ADMIN);
-  add(any("settings.access"), PERMISSIONS.SETTINGS);
-  add(all("task.read"), PERMISSIONS.TASK_MANAGE);
-  add(any("task.read"), PERMISSIONS.TASK_WORK);
-  add(any("task.export") || any("enrollment.export") || any("provider.export"), PERMISSIONS.TASK_EXPORT);
-  add(any("enrollment.import") || any("provider.import"), PERMISSIONS.TASK_IMPORT);
-  add(all("lead.read"), PERMISSIONS.LEAD_MANAGE);
-  add(any("lead.read"), PERMISSIONS.LEAD_WORK);
-
-  return [...new Set(keys)].sort();
+  for (const key of ordered) {
+    // Key không mở thêm grant nào (vd không có ánh xạ) thì bỏ.
+    if (deriveCompatGrants({ permissions: [key], roles: [roleName], legacyRole: "agent" }).length === 0) {
+      continue;
+    }
+    if (within([...keys, key])) keys.push(key);
+  }
+  return keys.sort();
 }

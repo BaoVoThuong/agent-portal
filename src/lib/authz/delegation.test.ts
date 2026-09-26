@@ -55,20 +55,35 @@ describe("projectLegacyPermissions", () => {
       roles: ["Task CS"],
       legacyRole: "agent",
     });
-    expect(projectLegacyPermissions(grants)).toEqual(
+    expect(projectLegacyPermissions(grants, "Task CS")).toEqual(
       [PERMISSIONS.SETTINGS, PERMISSIONS.TASK_WORK].sort()
     );
   });
 
-  it("task admin chiếu ra task.manage (và task.work vì đọc được task)", () => {
+  it("task admin chiếu ra task.manage — không thêm task.work (sẽ kéo vào hàng đợi CS)", () => {
     const grants = deriveCompatGrants({
       permissions: [PERMISSIONS.TASK_MANAGE],
       roles: ["Admin Health Task"],
       legacyRole: "agent",
     });
-    expect(projectLegacyPermissions(grants)).toEqual(
-      expect.arrayContaining([PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK])
-    );
+    expect(projectLegacyPermissions(grants, "Admin Health Task")).toEqual([PERMISSIONS.TASK_MANAGE]);
+  });
+
+  it("an toàn: luật cũ đọc bản chiếu KHÔNG rộng hơn grant (review C P1-01..03)", () => {
+    const cases: [string, string[]][] = [
+      ["Reader", ["registration.health.read:all"]],
+      ["Reader", ["provider.read:*"]],
+      ["Reader", ["lead.read:all"]],
+      ["Reader", ["task.read:assigned"]],
+      ["Task Admin", ["task.read:all"]],
+      ["Mixed", ["registration.health.read:all", "registration.pc.read:own"]],
+      ["Mixed", ["provider.read:*", "enrollment.import:*"]],
+    ];
+    for (const [name, grants] of cases) {
+      const projected = projectLegacyPermissions(grants, name);
+      const legacy = deriveCompatGrants({ permissions: projected, roles: [name], legacyRole: "agent" });
+      expect(legacy.filter((grant) => !grants.includes(grant)), `${name} ${grants}`).toEqual([]);
+    }
   });
 
   it("chiếu rồi suy ngược cho lại cùng grant với role worker thường", () => {
@@ -85,7 +100,7 @@ describe("projectLegacyPermissions", () => {
       legacyRole: "agent",
     });
     const roundTrip = deriveCompatGrants({
-      permissions: projectLegacyPermissions(original),
+      permissions: projectLegacyPermissions(original, "Health Agent"),
       roles: ["Health Agent"],
       legacyRole: "agent",
     });

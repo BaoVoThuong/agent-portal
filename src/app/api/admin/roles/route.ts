@@ -65,7 +65,7 @@ export async function POST(req: Request) {
       p_description: description,
       p_is_active: isActive,
       p_grants: grantsForRpc(grants),
-      p_legacy_keys: projectLegacyPermissions(grants),
+      p_legacy_keys: projectLegacyPermissions(grants, name),
       p_actor_account_id: principal.accountId,
       p_actor_email: principal.email,
     });

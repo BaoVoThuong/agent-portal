@@ -123,7 +123,8 @@ describe("PATCH /api/admin/roles/[id]", () => {
       expect.objectContaining({
         p_role_id: "r1",
         p_grants: [{ action: "task.read", scope: "assigned" }],
-        p_legacy_keys: ["task.work"],
+        // task.work theo luật cũ rộng hơn "chỉ xem task được giao" → không chiếu.
+        p_legacy_keys: [],
         p_actor_account_id: "actor",
       })
     );

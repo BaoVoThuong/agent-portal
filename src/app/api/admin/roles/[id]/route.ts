@@ -101,7 +101,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       p_description: description,
       p_is_active: isActive,
       p_grants: grants ? grantsForRpc(grants) : null,
-      p_legacy_keys: grants ? projectLegacyPermissions(grants) : null,
+      p_legacy_keys: grants ? projectLegacyPermissions(grants, name) : null,
       p_actor_account_id: principal.accountId,
       p_actor_email: principal.email,
     });
