@@ -41,20 +41,52 @@ begin
   end loop;
 end $$;
 
+-- Hậu kiểm NGAY TRONG transaction (review A P1-04): còn bảng public mở cho
+-- anon/authenticated mà chưa bật RLS thì RAISE → rollback toàn bộ, kèm tên bảng.
+do $$
+declare
+  leaked text;
+begin
+  select string_agg(c.relname, ', ' order by c.relname) into leaked
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public'
+    and c.relkind in ('r', 'p')
+    and not c.relrowsecurity
+    and (has_table_privilege('anon', c.oid, 'SELECT')
+      or has_table_privilege('anon', c.oid, 'INSERT')
+      or has_table_privilege('anon', c.oid, 'UPDATE')
+      or has_table_privilege('anon', c.oid, 'DELETE')
+      or has_table_privilege('authenticated', c.oid, 'SELECT')
+      or has_table_privilege('authenticated', c.oid, 'INSERT')
+      or has_table_privilege('authenticated', c.oid, 'UPDATE')
+      or has_table_privilege('authenticated', c.oid, 'DELETE'));
+  if leaked is not null then
+    raise exception 'Còn bảng public mở cho anon/authenticated mà chưa bật RLS: %. Thêm vào danh sách ở trên rồi chạy lại.', leaked;
+  end if;
+end $$;
+
 commit;
 
--- Kiểm chứng: phải trả 0 dòng.
-select c.relname
-from pg_class c
-join pg_namespace n on n.oid = c.relnamespace
-where n.nspname = 'public'
-  and c.relkind in ('r', 'p')
-  and not c.relrowsecurity
-  and (has_table_privilege('anon', c.oid, 'SELECT')
-    or has_table_privilege('anon', c.oid, 'INSERT')
-    or has_table_privilege('anon', c.oid, 'UPDATE')
-    or has_table_privilege('anon', c.oid, 'DELETE')
-    or has_table_privilege('authenticated', c.oid, 'SELECT')
-    or has_table_privilege('authenticated', c.oid, 'INSERT')
-    or has_table_privilege('authenticated', c.oid, 'UPDATE')
-    or has_table_privilege('authenticated', c.oid, 'DELETE'));
+-- Bảng trong danh sách mà CHƯA tồn tại (được bỏ qua ở trên). Bảng nào lẽ ra
+-- phải có (vd time_off_*) mà nằm đây nghĩa là rollout tạo nó chưa chạy.
+select t as missing_table
+from unnest(array[
+
+    'time_off_policies',
+    'time_off_balances',
+    'time_off_balance_adjustments',
+    'time_off_balance_adjustment_batches',
+    'time_off_holidays',
+    'time_off_requests',
+    'time_off_monthly_accrual_rules',
+    'time_off_notifications',
+    'push_subscriptions',
+    'notification_preferences',
+    'task_comment_edits',
+    'zipcode_lookup',
+    'provider_directory',
+    'sheet_sync_runs',
+    'sheet_sync_staging'
+]) as t
+where to_regclass('public.' || t) is null;
