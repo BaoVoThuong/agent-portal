@@ -18,8 +18,8 @@ import type { NextAuthConfig } from "next-auth";
  * Ở đây middleware chỉ làm đúng một việc: mở khoá JWT rồi trả lời "đã đăng nhập
  * hay chưa". Không tra cứu gì.
  *
- * Việc kiểm QUYỀN thật vẫn nằm nguyên chỗ cũ — `requirePermission` /
- * `requireAnyPermission` trong từng page và route. Middleware chưa bao giờ là
+ * Việc kiểm QUYỀN thật vẫn nằm nguyên chỗ cũ — `requirePageGrant` /
+ * `requirePageAnyGrant` và cổng grant trong từng page và route. Middleware chưa bao giờ là
  * nơi gác quyền, nó chỉ chặn người chưa đăng nhập.
  */
 export const authConfig = {

@@ -5,11 +5,11 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import styles from "./sidebar.module.css";
-import { can, canAny } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import type { NavKey } from "@/lib/authz/navigation";
 
 type SidebarProps = {
-  permissions?: string[];
+  /** Các mục mở được — server tính từ grant (`visibleNavKeys`). */
+  allowedNav: NavKey[];
 };
 
 type MenuItem = {
@@ -18,48 +18,39 @@ type MenuItem = {
   title?: string;
   activePath?: string;
   activeQuery?: Record<string, string>;
-  permission?: string;
-  anyPermission?: string[];
+  /** Mục lá: cổng hiển thị theo registry điều hướng. */
+  nav?: NavKey;
   children?: MenuItem[];
 };
 
 const menuData: MenuItem[] = [
   {
     title: "Customer Registration",
-    anyPermission: [
-      PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
-      PERMISSIONS.CUSTOMER_REGISTRATION_PC,
-    ],
     children: [
       {
         href: "/",
         label: "Health",
-        permission: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
+        nav: "registration.health",
       },
       {
         href: "/customer-registration/pc",
         label: "P&C",
-        permission: PERMISSIONS.CUSTOMER_REGISTRATION_PC,
+        nav: "registration.pc",
       },
     ],
   },
   {
     title: "Automation Tool",
-    anyPermission: [
-      PERMISSIONS.AUTOMATION_HEALTH_STATEMENT,
-      PERMISSIONS.AUTOMATION_PC_STATEMENT,
-      PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
-    ],
     children: [
       {
         href: "/automation/health-statement",
         label: "Health Statement",
-        permission: PERMISSIONS.AUTOMATION_HEALTH_STATEMENT,
+        nav: "automation.health_statement",
       },
       {
         href: "/automation/pc-statement",
         label: "P&C Statement",
-        permission: PERMISSIONS.AUTOMATION_PC_STATEMENT,
+        nav: "automation.pc_statement",
       },
       {
         // Provider Finder không còn mục riêng: nó đã là tab "Finder Tool" bên
@@ -67,118 +58,94 @@ const menuData: MenuItem[] = [
         // mục cạnh nhau chỉ khiến người dùng phải đoán xem nên bấm cái nào.
         href: "/automation/provider-list",
         label: "Provider List",
-        permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+        nav: "provider.list",
       },
     ],
   },
   {
     title: "Dashboard",
-    anyPermission: [
-      PERMISSIONS.AGENT_DASHBOARD_HEALTH,
-      PERMISSIONS.AGENT_DASHBOARD_PC,
-      PERMISSIONS.COMPANY_DASHBOARD_HEALTH,
-      PERMISSIONS.COMPANY_DASHBOARD_PC,
-    ],
     children: [
       {
         href: "/dashboard/health",
         label: "Health",
-        anyPermission: [
-          PERMISSIONS.AGENT_DASHBOARD_HEALTH,
-          PERMISSIONS.COMPANY_DASHBOARD_HEALTH,
-        ],
+        nav: "dashboard.health",
       },
       {
         href: "/dashboard/pc",
         label: "P&C",
-        anyPermission: [
-          PERMISSIONS.AGENT_DASHBOARD_PC,
-          PERMISSIONS.COMPANY_DASHBOARD_PC,
-        ],
+        nav: "dashboard.pc",
       },
     ],
   },
   {
     title: "Task Management",
-    // Nới sang cả quyền lead: Lead Management nay nằm trong nhóm này, và hai tài
-    // khoản trên production CHỈ có quyền lead. Giữ nguyên điều kiện cũ là hai
-    // người đó mất luôn màn hình họ dùng hằng ngày — mất IM LẶNG, vì menu chỉ
-    // đơn giản không hiện ra.
-    anyPermission: [
-      PERMISSIONS.TASK_MANAGE,
-      PERMISSIONS.TASK_WORK,
-      PERMISSIONS.LEAD_MANAGE,
-      PERMISSIONS.LEAD_WORK,
-    ],
+    // Nhóm hiện khi có ít nhất một mục con mở được (kể cả người chỉ có quyền lead).
     children: [
       {
         href: "/tasks",
         label: "Health Customer Service",
-        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+        nav: "tasks",
       },
       {
         href: "/enrollment?program=aca",
         label: "Health ACA Enrollment",
         activePath: "/enrollment",
         activeQuery: { program: "aca" },
-        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+        nav: "enrollment",
       },
       {
         href: "/enrollment?program=medicare",
         label: "Health Medicare Enrollment",
         activePath: "/enrollment",
         activeQuery: { program: "medicare" },
-        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+        nav: "enrollment",
       },
       {
         href: "/enrollment?program=medicaid",
         label: "Health Medicaid Enrollment",
         activePath: "/enrollment",
         activeQuery: { program: "medicaid" },
-        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+        nav: "enrollment",
       },
       {
         href: "/tasks/leads",
         label: "Lead Management",
         activePath: "/tasks/leads",
-        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
+        nav: "leads",
       },
       {
         // MỘT mục cho cả bốn bảng. Người chỉ có quyền lead vào đây vẫn chỉ thấy
         // bảng Lead Management — xem configScopesFor ở lib/table-config.
         href: "/config",
         label: "Table Configuration",
-        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.LEAD_MANAGE],
+        nav: "config",
       },
     ],
   },
   {
     href: "/time-off",
     label: "Time Off",
-    anyPermission: [PERMISSIONS.TIME_OFF_USER, PERMISSIONS.TIME_OFF_ADMIN],
+    nav: "timeoff",
   },
   {
     title: "Account Management",
-    anyPermission: [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.ROLE_MANAGER],
     children: [
       {
         href: "/account-manager",
         label: "Account Manager",
-        permission: PERMISSIONS.ACCOUNT_MANAGER,
+        nav: "account_manager",
       },
       {
         href: "/role-manager",
         label: "Role Manager",
-        permission: PERMISSIONS.ROLE_MANAGER,
+        nav: "role_manager",
       },
     ],
   },
 ];
 
-function hasItemAccess(item: MenuItem, permissions: string[]) {
-  if (item.permission) return can(permissions, item.permission);
-  if (item.anyPermission) return canAny(permissions, item.anyPermission);
-  return true;
+function hasItemAccess(item: MenuItem, allowed: ReadonlySet<NavKey>) {
+  return item.nav ? allowed.has(item.nav) : true;
 }
 
 /** The one sidebar group that owns the current route, if there is one. */
@@ -211,8 +178,9 @@ function groupForPath(pathname: string): string | null {
 }
 
 export default function Sidebar({
-  permissions = [],
+  allowedNav,
 }: SidebarProps) {
+  const allowed = new Set(allowedNav);
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [dropdownState, setDropdownState] = useState(() => ({
@@ -232,12 +200,12 @@ export default function Sidebar({
       if (!item.children) return item;
       return {
         ...item,
-        children: item.children.filter((child) => hasItemAccess(child, permissions)),
+        children: item.children.filter((child) => hasItemAccess(child, allowed)),
       };
     })
     .filter((item) => {
       if (item.children) return item.children.length > 0;
-      return hasItemAccess(item, permissions);
+      return hasItemAccess(item, allowed);
     });
 
   const toggleDropdown = (title: string) => {

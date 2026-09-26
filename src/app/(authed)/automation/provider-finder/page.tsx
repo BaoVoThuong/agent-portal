@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
  * vẫn tới đúng chỗ chứa tính năng đó, thay vì gặp 404 rồi đi hỏi.
  *
  * Không cần kiểm quyền ở đây — trang đích tự kiểm bằng
- * `requireAnyPermission([AUTOMATION_PROVIDER_FINDER])`.
+ * `requirePageAnyGrant(["provider.read"])`.
  */
 export default function ProviderFinderPage() {
   redirect("/automation/provider-list");

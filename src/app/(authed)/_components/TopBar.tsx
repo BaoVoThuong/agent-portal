@@ -11,10 +11,18 @@ type TopBarProps = {
   userName: string | null;
   userEmail: string;
   agentId: string | null;
-  canUseTasks: boolean;
+  /** Có ít nhất một nguồn thông báo (task, enrollment, time off). */
+  canUseNotifications: boolean;
+  canOpenSettings: boolean;
 };
 
-export default function TopBar({ userName, userEmail, agentId, canUseTasks }: TopBarProps) {
+export default function TopBar({
+  userName,
+  userEmail,
+  agentId,
+  canUseNotifications,
+  canOpenSettings,
+}: TopBarProps) {
   // Đọc từ cùng một danh bạ mà mọi avatar khác dùng, nên đổi ảnh ở Settings là
   // chỗ này đổi theo, không cần đường dữ liệu riêng.
   const ownAvatarUrl = useAvatarUrl(userEmail);
@@ -49,7 +57,7 @@ export default function TopBar({ userName, userEmail, agentId, canUseTasks }: To
         <div className={styles.userId}>ID: {agentId || "Not provided"}</div>
       </div>
 
-      {canUseTasks && (
+      {canUseNotifications && (
         <div className="mr-2">
           <NotificationBell />
         </div>
@@ -102,15 +110,17 @@ export default function TopBar({ userName, userEmail, agentId, canUseTasks }: To
               <span className={styles.dropdownLabel}>My Profile</span>
               <span className={styles.comingSoon}>Coming soon</span>
             </button>
-            <Link
-              href="/settings"
-              className={styles.dropdownItem}
-              role="menuitem"
-              onClick={() => setMenuOpen(false)}
-            >
-              <GearIcon />
-              <span className={styles.dropdownLabel}>Settings</span>
-            </Link>
+            {canOpenSettings && (
+              <Link
+                href="/settings"
+                className={styles.dropdownItem}
+                role="menuitem"
+                onClick={() => setMenuOpen(false)}
+              >
+                <GearIcon />
+                <span className={styles.dropdownLabel}>Settings</span>
+              </Link>
+            )}
             <div className={styles.dropdownDivider} />
             <button
               type="button"

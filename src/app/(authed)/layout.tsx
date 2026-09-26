@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
 import Sidebar from "./_components/Sidebar";
 import TopBar from "./_components/TopBar";
-import { canAny } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { getPrincipal } from "@/lib/authz/principal";
+import { canOpenNav, canUseNotifications, visibleNavKeys } from "@/lib/authz/navigation";
 import { fetchAvatarDirectory } from "@/lib/people/avatar-directory";
 import { AvatarProvider } from "@/lib/people/AvatarProvider";
 
@@ -23,6 +23,9 @@ export default async function AuthedLayout({
   if (!session?.user?.email) {
     redirect("/signin");
   }
+  // Cùng phiên (cache của request), grant qua cache định nghĩa role — không
+  // thêm lượt giải mã phiên hay truy vấn nào đáng kể.
+  const grants = (await getPrincipal())?.grants ?? [];
 
   return (
     // Fixed viewport frame: the whole app is exactly one screen tall and never
@@ -32,18 +35,14 @@ export default async function AuthedLayout({
     // own table body internally instead of pushing the page taller.
     <AvatarProvider entries={avatarEntries}>
     <div className="flex h-screen overflow-hidden bg-[#f7f9fc]">
-      <Sidebar
-        permissions={session.user.permissions ?? []}
-      />
+      <Sidebar allowedNav={visibleNavKeys(grants)} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <TopBar
           userName={session.user.name ?? null}
           userEmail={session.user.email}
           agentId={session.user.agentId ?? null}
-          canUseTasks={canAny(session.user.permissions, [
-            PERMISSIONS.TASK_MANAGE,
-            PERMISSIONS.TASK_WORK,
-          ])}
+          canUseNotifications={canUseNotifications(grants)}
+          canOpenSettings={canOpenNav(grants, "settings")}
         />
         {/* min-h-0 makes <main> a bounded flex child; overflow-y-auto lets
             ordinary (non-frame) pages scroll here while the shell stays put. */}

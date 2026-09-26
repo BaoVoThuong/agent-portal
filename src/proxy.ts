@@ -10,7 +10,7 @@ import { authConfig } from "@/auth.config";
  * mỗi khi token quá hạn.
  *
  * Nó chỉ chặn người CHƯA ĐĂNG NHẬP. Quyền theo từng màn vẫn do
- * `requirePermission` / `requireAnyPermission` trong page và route gác.
+ * `requirePageGrant` / `requirePageAnyGrant` và cổng grant trong từng route gác.
  */
 const { auth } = NextAuth(authConfig);
 export const proxy = auth;
