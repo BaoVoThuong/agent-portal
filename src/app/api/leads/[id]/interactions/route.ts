@@ -1,11 +1,12 @@
+import { holdsLeadScopeAll } from "@/lib/leads/access";
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +22,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = await leadActorForUser(session.user, email);
   const supabase = getSupabaseAdmin();
   const { data: lead, error: leadError } = await supabase
     .from("leads")
@@ -34,7 +33,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (leadError) return NextResponse.json({ error: leadError.message }, { status: 500 });
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const viewed = lead as Pick<LeadRow, "assigned_to_email">;
-  const canSeeAsAssistant = actor.isManager
+  const canSeeAsAssistant = holdsLeadScopeAll(actor, "lead.read")
     ? false
     : await isLeadOwnerOrAssistant(viewed.assigned_to_email, email);
   if (!resolveLeadCapabilities(actor, viewed, { isOwnerOrAssistant: canSeeAsAssistant }).canView) {
@@ -60,9 +59,7 @@ export async function POST(req: Request, { params }: Ctx) {
   }
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = await leadActorForUser(session.user, email);
   const supabase = getSupabaseAdmin();
   const { data: lead, error: leadError } = await supabase
     .from("leads")

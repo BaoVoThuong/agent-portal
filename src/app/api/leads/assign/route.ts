@@ -1,12 +1,14 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { canAssignLeads } from "@/lib/leads/access";
+import { grantsForAccess } from "@/lib/authz/principal";
 import { canBeAssignedLead } from "@/lib/leads/assign-target";
 import { validateAssignRequest } from "@/lib/leads/assign";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +23,8 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
-  if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const actor = await leadActorForUser(session.user, email);
+  if (!canAssignLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = validateAssignRequest(
     (await request.json().catch(() => null)) as Record<string, unknown> | null
@@ -33,7 +33,12 @@ export async function POST(request: Request) {
 
   if (parsed.toEmail) {
     const targetAccess = await getUserAccessByEmail(parsed.toEmail);
-    if (!canBeAssignedLead(targetAccess)) {
+    if (
+      !canBeAssignedLead({
+        isActive: targetAccess.isActive,
+        grants: await grantsForAccess(targetAccess),
+      })
+    ) {
       return NextResponse.json({ error: "That person cannot be assigned leads." }, { status: 400 });
     }
   }

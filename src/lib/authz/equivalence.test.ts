@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import * as enrollment from "@/lib/enrollment/policy";
+import * as lead from "@/lib/leads/access";
 import * as task from "@/lib/tasks/access";
 import { deriveCompatGrants } from "./compat";
 import * as legacyEnrollment from "./legacy/enrollment-access";
+import * as legacyLead from "./legacy/lead-access";
 import { PERSONAS } from "./legacy/personas";
 import * as legacyTask from "./legacy/task-access";
 
@@ -154,6 +156,49 @@ describe("Enrollment: policy theo grant ≡ quyết định cũ", () => {
           enrollment.resolveEnrollmentCapabilities(enrollmentActor, flags),
           JSON.stringify(flags)
         ).toEqual(legacyEnrollment.resolveEnrollmentCapabilities(legacyActor, flags));
+      }
+    });
+  }
+});
+
+describe("Lead: policy theo grant ≡ quyết định cũ", () => {
+  for (const [name, access] of Object.entries(PERSONAS)) {
+    const legacyActor = legacyLead.buildLeadActor(access.permissions, ME, {
+      isAdmin: legacyLead.isLeadViewAdmin({ role: access.legacyRole ?? null, roles: [...access.roles] }),
+    });
+    const actor = lead.leadActorFromGrants(ME, deriveCompatGrants(access));
+
+    it(`${name}: cổng module và từng lead`, () => {
+      const manages = legacyLead.canManageLeads(legacyActor);
+      expect(lead.canWorkLeads(actor)).toBe(legacyLead.canWorkLeads(legacyActor));
+      expect(lead.canCreateLeads(actor)).toBe(manages);
+      expect(lead.canAssignLeads(actor)).toBe(manages);
+      expect(lead.canImportLeads(actor)).toBe(manages);
+      expect(lead.canManageLeadSettings(actor)).toBe(manages);
+      expect(lead.canReadLeadOverview(actor)).toBe(manages);
+      expect(lead.canConfigureLeadColumns(actor)).toBe(manages);
+      expect(actor.isManager).toBe(legacyActor.isManager);
+      expect(actor.isWorker).toBe(legacyActor.isWorker);
+
+      // Chính mình được giao thì isOwnerOrAssistant luôn đúng; lead chưa giao
+      // thì không ai là owner/assistant.
+      for (const assigned of [ME, OTHER_AGENT, null]) {
+        for (const isOwnerOrAssistant of [false, true]) {
+          if (assigned === ME && !isOwnerOrAssistant) continue;
+          if (assigned === null && isOwnerOrAssistant) continue;
+          const row = { assigned_to_email: assigned };
+          const flags = { isOwnerOrAssistant };
+          const context = JSON.stringify({ assigned, isOwnerOrAssistant });
+          expect(lead.canViewLead(actor, row, flags), context).toBe(
+            legacyLead.canViewLead(legacyActor, row, flags)
+          );
+          expect(lead.canEditLead(actor, row, flags), context).toBe(
+            legacyLead.canEditLead(legacyActor, row, flags)
+          );
+          expect(lead.canLogInteraction(actor, row, flags), context).toBe(
+            legacyLead.canLogInteraction(legacyActor, row, flags)
+          );
+        }
       }
     });
   }

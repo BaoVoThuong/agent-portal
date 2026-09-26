@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLeadActor } from "./access";
+import { testLeadActor as buildLeadActor } from "@/lib/authz/test-actors";
 import { leadIsInScope, resolveLeadCapabilities } from "./capabilities";
 import { resolveLeadOwnerEmails } from "./membership";
 import type { LeadRow } from "./types";

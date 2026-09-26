@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { canImportLeads } from "@/lib/leads/access";
 import {
   autoAssignLeads,
   isAutoAssignEnabled,
@@ -22,6 +22,7 @@ import {
   fetchWriteValidationContext,
   TableConfigUnavailableError,
 } from "@/lib/table-config/write-context";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -68,10 +69,8 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
-  if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const actor = await leadActorForUser(session.user, email);
+  if (!canImportLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const form = await request.formData();
   const file = form.get("file");

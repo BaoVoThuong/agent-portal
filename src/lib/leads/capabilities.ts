@@ -1,10 +1,10 @@
 import {
   canEditLead,
   canLogInteraction,
-  canManageLeads,
   canViewLead,
   type LeadActor,
   type LeadMembershipFlags,
+  canAssignLeads,
 } from "./access";
 import type { LeadRow } from "./types";
 
@@ -30,7 +30,7 @@ export function resolveLeadCapabilities(
     canView: canViewLead(actor, lead, flags),
     canEdit: canEditLead(actor, lead, flags),
     canLog: canLogInteraction(actor, lead, flags),
-    canAssign: canManageLeads(actor),
+    canAssign: canAssignLeads(actor),
   };
 }
 

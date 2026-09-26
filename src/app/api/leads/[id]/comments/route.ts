@@ -1,10 +1,11 @@
+import { holdsLeadScopeAll } from "@/lib/leads/access";
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +20,7 @@ async function loadAccess(id: string) {
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = await leadActorForUser(session.user, email);
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
@@ -33,7 +32,7 @@ async function loadAccess(id: string) {
   if (!data) return { error: "Not found", status: 404 };
 
   const lead = data as Pick<LeadRow, "assigned_to_email">;
-  const isOwnerOrAssistant = actor.isManager
+  const isOwnerOrAssistant = holdsLeadScopeAll(actor, "lead.read")
     ? false
     : await isLeadOwnerOrAssistant(lead.assigned_to_email, email);
   const capabilities = resolveLeadCapabilities(actor, lead, {

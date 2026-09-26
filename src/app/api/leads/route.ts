@@ -1,15 +1,17 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { canWorkLeads, canCreateLeads } from "@/lib/leads/access";
 import { buildNewLeadRow, parseCreateLeadInput } from "@/lib/leads/create";
 import { fetchAllLeads, fetchDefaultLeadStatusId } from "@/lib/leads/queries";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { grantsForAccess } from "@/lib/authz/principal";
 import { canBeAssignedLead } from "@/lib/leads/assign-target";
 import { resolveEventByName } from "@/lib/leads/events";
 import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
 import { findMissingRequiredFields } from "@/lib/table-config/required";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -20,9 +22,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = await leadActorForUser(session.user, email);
   if (!canWorkLeads(actor)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -60,10 +60,8 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
-  if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const actor = await leadActorForUser(session.user, email);
+  if (!canCreateLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = parseCreateLeadInput(await request.json().catch(() => null));
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
@@ -146,7 +144,12 @@ export async function POST(request: Request) {
 
   if (input.assignedToEmail) {
     const targetAccess = await getUserAccessByEmail(input.assignedToEmail);
-    if (!canBeAssignedLead(targetAccess)) {
+    if (
+      !canBeAssignedLead({
+        isActive: targetAccess.isActive,
+        grants: await grantsForAccess(targetAccess),
+      })
+    ) {
       return NextResponse.json({ error: "That person cannot be assigned leads." }, { status: 400 });
     }
   }

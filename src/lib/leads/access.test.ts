@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { isLegacyAccountAdmin } from "@/lib/authz/compat";
+import { testLeadActor as buildLeadActor } from "@/lib/authz/test-actors";
 import {
-  buildLeadActor,
+  canAssignLeads as canManageLeads,
   canEditLead,
   canLogInteraction,
-  canManageLeads,
   canViewLead,
-  isLeadViewAdmin,
 } from "./access";
+
+// Luật "legacy admin quản lead" nay chỉ còn trong grant tương thích (compat.ts).
+const isLeadViewAdmin = (user: { role?: string; roles?: string[] }) =>
+  isLegacyAccountAdmin({ roles: user.roles ?? [], legacyRole: user.role });
 import type { LeadRow } from "./types";
 
 const manager = buildLeadActor(["lead.manage"], "mgr@x.com");

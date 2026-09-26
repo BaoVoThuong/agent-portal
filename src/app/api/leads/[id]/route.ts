@@ -1,6 +1,6 @@
+import { holdsLeadScopeAll } from "@/lib/leads/access";
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { resolveEventByName } from "@/lib/leads/events";
 import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
@@ -14,6 +14,7 @@ import {
   fetchWriteValidationContext,
   TableConfigUnavailableError,
 } from "@/lib/table-config/write-context";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -49,9 +50,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
   }
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = await leadActorForUser(session.user, email);
   const supabase = getSupabaseAdmin();
   const { data: current, error: currentError } = await supabase
     .from("leads")
@@ -65,7 +64,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const lead = current as Pick<LeadRow, "assigned_to_email">;
   // Only ask agent_members when the answer can still change.
-  const isOwnerOrAssistant = actor.isManager
+  const isOwnerOrAssistant = holdsLeadScopeAll(actor, "lead.update")
     ? false
     : await isLeadOwnerOrAssistant(lead.assigned_to_email, email);
   if (!resolveLeadCapabilities(actor, lead, { isOwnerOrAssistant }).canEdit) {
@@ -265,9 +264,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
   }
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = await leadActorForUser(session.user, email);
   const supabase = getSupabaseAdmin();
   const { data: current, error: currentError } = await supabase
     .from("leads")
@@ -281,7 +278,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const lead = current as Pick<LeadRow, "assigned_to_email" | "updated_at">;
-  const isOwnerOrAssistant = actor.isManager
+  const isOwnerOrAssistant = holdsLeadScopeAll(actor, "lead.update")
     ? false
     : await isLeadOwnerOrAssistant(lead.assigned_to_email, email);
   if (!resolveLeadCapabilities(actor, lead, { isOwnerOrAssistant }).canEdit) {

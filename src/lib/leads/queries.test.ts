@@ -1,7 +1,7 @@
 import { resolveLeadAlerts } from "./alerts";
 import type { LeadRow } from "./types";
 import { describe, expect, it } from "vitest";
-import { buildLeadActor } from "./access";
+import { testLeadActor as buildLeadActor } from "@/lib/authz/test-actors";
 import { buildLeadListFilter, LEAD_PAGE_SIZE } from "./queries";
 
 const manager = buildLeadActor(["lead.manage"], "mgr@x.com");

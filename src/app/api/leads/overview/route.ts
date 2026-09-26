@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { canReadLeadOverview } from "@/lib/leads/access";
 import { parseOverviewProduct, summarizeLeads } from "@/lib/leads/overview";
 import { fetchLeadAlertSettings } from "@/lib/leads/queries";
 import type { LeadProduct, LeadRow, LeadStatus } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -77,10 +78,8 @@ export async function GET(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
-  if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const actor = await leadActorForUser(session.user, email);
+  if (!canReadLeadOverview(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const product = parseOverviewProduct(new URL(request.url).searchParams.get("product"));
   const supabase = getSupabaseAdmin();

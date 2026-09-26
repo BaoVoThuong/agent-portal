@@ -1,24 +1,17 @@
-import { buildLeadActor, isLeadViewAdmin } from "./access";
+import { canWorkLeads, leadActorFromGrants } from "./access";
 
-/** The parts of UserAccess that decide whether a lead may be handed over. */
+/** Người nhận lead: account + grant hiệu lực (grantsForAccess). */
 export type LeadAssignTarget = {
   isActive: boolean;
-  permissions: readonly string[];
-  /** portal_account.role, flattened by getUserAccessByEmail. */
-  legacyRole: string;
-  roles: readonly string[];
+  grants: readonly string[];
 };
 
 /**
- * Who may receive a lead. Reads the admin flag exactly the way buildLeadActor
- * does everywhere else: without it an account-role admin could manage leads but
- * could not be assigned one, which is the state this function was written to
- * fix.
+ * Who may receive a lead: an active account that works leads. Reads the same
+ * grant as every lead route, so an account-role admin (who manages leads
+ * through the compatibility grant) can also be handed one.
  */
 export function canBeAssignedLead(target: LeadAssignTarget): boolean {
   if (!target.isActive) return false;
-  const actor = buildLeadActor(target.permissions, "", {
-    isAdmin: isLeadViewAdmin({ role: target.legacyRole, roles: target.roles }),
-  });
-  return actor.isWorker;
+  return canWorkLeads(leadActorFromGrants("", target.grants));
 }

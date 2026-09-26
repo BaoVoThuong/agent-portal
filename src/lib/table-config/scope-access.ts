@@ -16,7 +16,7 @@ const PROVIDER_SCOPES: readonly TableScope[] = ["provider"];
  *
  * Nhận CỜ ĐÃ TÍNH chứ không nhận danh sách quyền thô: `isTaskAdmin` đến từ
  * `loadConfigAdmin()` (đòi `task.manage` VÀ vai trò task-admin), `isLeadManager`
- * từ `canManageLeads()`. Tự suy ra ở đây là dựng một luật quyền thứ hai bên cạnh
+ * từ `canConfigureLeadColumns()`. Tự suy ra ở đây là dựng một luật quyền thứ hai bên cạnh
  * luật đang chạy, và hai luật thì sớm muộn cũng lệch.
  *
  * Thứ tự trả về cố định: danh sách bảng trong dropdown phải giống nhau giữa hai

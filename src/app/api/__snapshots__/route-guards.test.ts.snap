@@ -616,7 +616,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "holdsLeadScopeAll(",
     ],
     "authn": [
       "auth()",
@@ -628,7 +628,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "holdsLeadScopeAll(",
     ],
     "authn": [
       "auth()",
@@ -640,7 +640,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "holdsLeadScopeAll(",
     ],
     "authn": [
       "auth()",
@@ -652,7 +652,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
+      "canAssignLeads(",
     ],
     "authn": [
       "auth()",
@@ -662,7 +662,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
+      "canAssignLeads(",
     ],
     "authn": [
       "auth()",
@@ -672,8 +672,8 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
       "canWorkLeads(",
+      "canAssignLeads(",
     ],
     "authn": [
       "auth()",
@@ -683,7 +683,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
+      "canAssignLeads(",
     ],
     "authn": [
       "auth()",
@@ -693,8 +693,8 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
       "canWorkLeads(",
+      "canManageLeadSettings(",
     ],
     "authn": [
       "auth()",
@@ -704,7 +704,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
+      "canImportLeads(",
     ],
     "authn": [
       "auth()",
@@ -714,7 +714,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
+      "canImportLeads(",
     ],
     "authn": [
       "auth()",
@@ -724,7 +724,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
+      "canReadLeadOverview(",
     ],
     "authn": [
       "auth()",
@@ -734,8 +734,8 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
       "canWorkLeads(",
+      "canCreateLeads(",
     ],
     "authn": [
       "auth()",
@@ -747,8 +747,8 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
       "canWorkLeads(",
+      "canManageLeadSettings(",
     ],
     "authn": [
       "auth()",
@@ -758,8 +758,8 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canManageLeads(",
       "canWorkLeads(",
+      "canManageLeadSettings(",
     ],
     "authn": [
       "auth()",

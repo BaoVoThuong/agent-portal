@@ -4,15 +4,11 @@ import {
   loadEnrollmentActor,
   type EnrollmentActor,
 } from "@/lib/enrollment/access";
-import {
-  buildLeadActor,
-  canManageLeads,
-  canWorkLeads,
-  isLeadViewAdmin,
-} from "@/lib/leads/access";
+import { canWorkLeads, canConfigureLeadColumns } from "@/lib/leads/access";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import type { TableScope } from "./types";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export async function loadConfigActor() {
   return loadEnrollmentActor();
@@ -45,10 +41,8 @@ async function loadLeadConfigGate(need: "work" | "manage"): Promise<ScopeGateRes
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false, error: "Unauthorized", status: 401 };
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
-  const allowed = need === "manage" ? canManageLeads(actor) : canWorkLeads(actor);
+  const actor = await leadActorForUser(session.user, email);
+  const allowed = need === "manage" ? canConfigureLeadColumns(actor) : canWorkLeads(actor);
   if (!allowed) return { ok: false, error: "Forbidden", status: 403 };
   return { ok: true, actor: { email: actor.email } };
 }
@@ -57,7 +51,7 @@ async function loadLeadConfigGate(need: "work" | "manage"): Promise<ScopeGateRes
  * Ai được GHI cấu hình của scope này.
  *
  * Bảng Health giữ nguyên luật cũ (`loadConfigAdmin` — `task.manage` VÀ vai trò
- * task-admin). Bảng lead đi theo `canManageLeads`. Một cổng chung cho cả bốn là
+ * task-admin). Bảng lead đi theo `canConfigureLeadColumns` (`lead.config.manage`). Một cổng chung cho cả bốn là
  * hoặc nới quyền Health, hoặc chặn mất người quản lead: 12 handler dưới
  * `/api/config/*` đều gác bằng `loadConfigAdmin`, nên hai tài khoản trên
  * production chỉ có quyền lead **chưa bao giờ** sửa được cấu hình bảng lead —

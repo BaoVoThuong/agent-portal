@@ -1,10 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import {
-  buildLeadActor,
-  canManageLeads,
-  isLeadViewAdmin,
-} from "@/lib/leads/access";
+import { canAssignLeads } from "@/lib/leads/access";
 import {
   autoAssignLeads,
   groupLeadIdsByProduct,
@@ -15,6 +11,7 @@ import {
 } from "@/lib/leads/realtime";
 import { isLeadProduct, LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -63,10 +60,8 @@ export async function GET(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
-  if (!canManageLeads(actor)) {
+  const actor = await leadActorForUser(session.user, email);
+  if (!canAssignLeads(actor)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -88,10 +83,8 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
-  if (!canManageLeads(actor)) {
+  const actor = await leadActorForUser(session.user, email);
+  if (!canAssignLeads(actor)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

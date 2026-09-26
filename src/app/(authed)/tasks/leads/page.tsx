@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { fetchLeadAssignees } from "@/lib/leads/assignees";
 import {
   fetchAllLeads,
@@ -13,6 +12,8 @@ import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import { isLeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { LeadsClient } from "./_components/LeadsClient";
+import { canAssignLeads, canReadLeadOverview } from "@/lib/leads/access";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -31,11 +32,9 @@ export default async function LeadsPage({
     PERMISSIONS.LEAD_WORK,
   ]);
   const email = session.user.email ?? "";
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = await leadActorForUser(session.user, email);
   const view = Array.isArray(params.view) ? params.view[0] : params.view;
-  if (view === "overview" && !actor.isManager) redirect("/unauthorized");
+  if (view === "overview" && !canReadLeadOverview(actor)) redirect("/unauthorized");
   const supabase = getSupabaseAdmin();
 
   // Resolved once: a worker's queue is their own leads plus every agent they
@@ -56,7 +55,7 @@ export default async function LeadsPage({
     fetchLeadAlertSettings(supabase),
     // Only a manager can reassign, so only they need the roster. Loading it for
     // an agent would be one query nothing on their screen can use.
-    actor.isManager ? fetchLeadAssignees() : Promise.resolve([]),
+    canAssignLeads(actor) ? fetchLeadAssignees() : Promise.resolve([]),
   ]);
 
   return (

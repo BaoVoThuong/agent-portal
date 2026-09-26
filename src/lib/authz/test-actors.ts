@@ -1,4 +1,5 @@
 import { enrollmentActorFromGrants, type EnrollmentActor } from "@/lib/enrollment/policy";
+import { leadActorFromGrants, type LeadActor } from "@/lib/leads/access";
 import { taskActorFromGrants } from "@/lib/tasks/access";
 import type { TaskActor } from "@/lib/tasks/types";
 import { deriveCompatGrants } from "./compat";
@@ -35,4 +36,13 @@ export function testEnrollmentActor(
   opts?: { isAdmin?: boolean }
 ): EnrollmentActor {
   return enrollmentActorFromGrants(email, compatGrantsFor(permissions, { taskAdmin: opts?.isAdmin }));
+}
+
+/** Lead: `isAdmin` = legacy admin (quản lead không cần lead.manage — luật 3). */
+export function testLeadActor(
+  permissions: readonly string[],
+  email: string,
+  opts?: { isAdmin?: boolean }
+): LeadActor {
+  return leadActorFromGrants(email, compatGrantsFor(permissions, { accountAdmin: opts?.isAdmin }));
 }

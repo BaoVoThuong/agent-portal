@@ -7,7 +7,7 @@ import {
   fetchTaskAgents,
   fetchTaskAssignees,
 } from "@/lib/tasks/assignees";
-import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { canConfigureLeadColumns } from "@/lib/leads/access";
 import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { configScopesFor } from "@/lib/table-config/scope-access";
@@ -35,6 +35,7 @@ import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import type { LeadAlertSettings } from "@/lib/leads/types";
 import { emptyEnrollmentOptionData } from "./empty-option-data";
 import { ConfigClient, type ConfigSectionStatus } from "./_components/ConfigClient";
+import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -72,10 +73,8 @@ export default async function ConfigPage() {
   const [admin, session] = await Promise.all([loadConfigAdmin(), auth()]);
   const email = session?.user?.email ?? "";
   const isLeadManager = email
-    ? canManageLeads(
-        buildLeadActor(session!.user.permissions, email, {
-          isAdmin: isLeadViewAdmin(session!.user),
-        })
+    ? canConfigureLeadColumns(
+        await leadActorForUser(session!.user, email)
       )
     : false;
 

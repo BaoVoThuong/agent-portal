@@ -1,3 +1,4 @@
+import { hasGrant } from "@/lib/authz/grants";
 import {
   fetchAssistantAgentsForCs,
   isAgentOwnerOrAssistant,
@@ -22,10 +23,16 @@ import type { LeadActor } from "./access";
 export async function resolveLeadOwnerEmails(
   actor: LeadActor
 ): Promise<string[] | null> {
-  if (actor.isManager) return null;
-  const own = actor.email.trim().toLowerCase();
-  const assisted = await fetchAssistantAgentsForCs(actor.email);
-  return [...new Set([own, ...assisted.map((email) => email.trim().toLowerCase())])];
+  if (hasGrant(actor.grants, "lead.read", "all")) return null;
+  // Chỉ những scope `lead.read` được cấp: lead giao cho mình (`assigned`), lead
+  // của agent mình là assistant (`assistant_for_agent`).
+  const own = hasGrant(actor.grants, "lead.read", "assigned")
+    ? [actor.email.trim().toLowerCase()]
+    : [];
+  const assisted = hasGrant(actor.grants, "lead.read", "assistant_for_agent")
+    ? await fetchAssistantAgentsForCs(actor.email)
+    : [];
+  return [...new Set([...own, ...assisted.map((email) => email.trim().toLowerCase())])];
 }
 
 /**
