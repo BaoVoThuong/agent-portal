@@ -17,7 +17,7 @@ import {
   isAccessVersionStale,
   rememberAccessVersion,
 } from "@/lib/authz/versions";
-import { applyRefreshedAccess } from "@/lib/auth/token-access";
+import { applyRefreshedAccess, isUnboundLegacyToken } from "@/lib/auth/token-access";
 import {
   getClientIp,
   isLoginRateLimited,
@@ -155,6 +155,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return true;
     },
     async jwt({ token, user }) {
+      if (isUnboundLegacyToken(token, Boolean(user))) return null;
+
       if (user?.role) {
         token.role = user.role;
       }

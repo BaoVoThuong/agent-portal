@@ -35,3 +35,16 @@ export function applyRefreshedAccess(
     rbacRefreshedAt: now,
   };
 }
+
+/**
+ * Cookie phát hành TRƯỚC Phase B không mang `accountId`. Không gắn account cho
+ * nó bằng email: email có thể đã đổi rồi được cấp cho account khác, và cookie cũ
+ * sẽ nhận quyền của người đó (review Phase B, P1-01). Kết thúc phiên — người dùng
+ * đăng nhập lại đúng một lần.
+ *
+ * Lượt ĐĂNG NHẬP (`user` có mặt) thì khác: người dùng vừa xác thực, tra account
+ * theo email là đúng.
+ */
+export function isUnboundLegacyToken(token: JWT, signingIn: boolean): boolean {
+  return !signingIn && typeof token.accountId !== "string";
+}

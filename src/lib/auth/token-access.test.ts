@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UserAccess } from "@/lib/rbac/access";
-import { applyRefreshedAccess } from "./token-access";
+import { applyRefreshedAccess, isUnboundLegacyToken } from "./token-access";
 
 const base: UserAccess = {
   userId: "u1",
@@ -55,5 +55,16 @@ describe("applyRefreshedAccess", () => {
       500
     );
     expect(result).toMatchObject({ roles: [], roleIds: [], permissions: [], rbacRefreshedAt: 1 });
+  });
+});
+
+describe("isUnboundLegacyToken (review B P1-01)", () => {
+  it("cookie cũ không có accountId, không phải lượt đăng nhập: kết thúc phiên", () => {
+    expect(isUnboundLegacyToken({ email: "a@x.com" } as never, false)).toBe(true);
+  });
+
+  it("lượt đăng nhập, hoặc token đã gắn account: giữ", () => {
+    expect(isUnboundLegacyToken({ email: "a@x.com" } as never, true)).toBe(false);
+    expect(isUnboundLegacyToken({ email: "a@x.com", accountId: "u1" } as never, false)).toBe(false);
   });
 });
