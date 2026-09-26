@@ -2786,3 +2786,19 @@ Lệch so với spec:
 | G.3: roster lead thay seed theo tên `Health Agent` (Q17) | Không cần đổi code chạy | Seed đó là một lần trong rollout 2026-09-02 đã chạy; ai được giao lead đã theo grant từ Phase D (`canBeAssignedLead`, holders `lead.read`) |
 
 **Chạy tay trên production (sau rollout Phase C):** `supabase/rollouts/2026-09-30-authz-phase-g.sql`.
+
+## Phase H (nhánh `feat/authz-phase-h`)
+
+Đã làm: H1 principal chỉ đọc grant từ role (`SUPER_ADMIN_GRANTS` cho super_admin, `role_grants` cho role khác, không có gì cho role chưa chuyển); nhận diện admin bằng `system_key` ở mọi nơi; gỡ `rbac/system-roles.ts`; Role Manager API kiểm grant chặt. H2 `convert_role_to_grants_atomic` + `scripts/authz-migrate-role-grants.ts` (dry-run/apply). H3 cổng CI `no-role-name-checks.test.ts`.
+
+Lệch so với spec:
+
+| Spec | Thực tế | Vì sao |
+|---|---|---|
+| Xoá cột `portal_account.role` sau một release | Cột vẫn được GHI (RPC mirror theo system_key), không còn được ĐỌC để phân quyền | Giữ một release để quay về code cũ được |
+| Xoá key phẳng (`role_permissions`) | Vẫn ghi (bản chiếu khi lưu role; chuyển dữ liệu giữ nguyên), không còn đọc để phân quyền | Như trên; bản chiếu quá rộng (review C P1-01) không còn tác hại vì không ai đọc |
+| Xoá `compat/*` | `compat.ts` còn, chỉ cho script chuyển dữ liệu + test đối chiếu; cổng CI chặn dùng trong code chạy thật | Script cần suy đúng quyết định cũ khi chuyển |
+| Kiểm grant trong RPC (PEP, trần uỷ quyền trong SQL) | Chưa làm | Có thể làm sau khi dữ liệu đã chuyển (grant nằm hết trong DB) |
+| Multi-role (Q6), tenant (Q18) | Không làm | Chưa có quyết định |
+
+**Chạy tay trên production, đúng thứ tự:** `supabase/rollouts/2026-10-01-authz-phase-h.sql` → `scripts/authz-migrate-role-grants.ts` (dry-run, rồi `--apply`) → deploy.

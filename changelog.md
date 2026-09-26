@@ -6,6 +6,30 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-01 — Quyền chỉ còn là grant của role; gỡ tên role và cột legacy khỏi quyết định (authz Phase H)
+
+- **Grant chỉ đến từ định nghĩa role.** Role hệ thống Admin (`system_key =
+  super_admin`) mang mọi quyền trong catalog (định nghĩa bằng code, trừ việc nhận
+  task từ hàng đợi CS). Mọi role khác mang đúng grant lưu trong Role Manager. Không
+  còn suy quyền từ permission phẳng, TÊN role ("Task Admin", "Admin Health Task"…)
+  hay cột `portal_account.role`.
+- **Role chưa chuyển sang grant thì thành viên KHÔNG có quyền nào** (và ghi log
+  lỗi). Vì vậy phải chuyển dữ liệu trước khi deploy — xem bên dưới.
+- Account không có role hiện "No role" trong Account Manager (trước đây đoán theo
+  cột legacy). Role mặc định bị tắt thì đăng nhập Google lần đầu báo lỗi thay vì
+  tạo account không quyền.
+- Role Manager API từ chối grant không có trong catalog (400 kèm danh sách) thay vì
+  lặng lẽ bỏ; tab Role Manager cũ (gửi `permissionKeys`) được yêu cầu tải lại.
+- Cổng CI chặn mọi so sánh tên role / cột legacy trong code chạy thật và trong hàm
+  SQL.
+
+**Thứ tự triển khai BẮT BUỘC trên production:**
+1. Chạy các rollout authz còn thiếu, rồi `supabase/rollouts/2026-10-01-authz-phase-h.sql`.
+2. `scripts/authz-migrate-role-grants.ts` (dry-run) — kỳ vọng 0 account đổi quyết
+   định; sửa role các account được liệt kê.
+3. Chạy lại với `--apply`.
+4. Rồi mới deploy code Phase H.
+
 ## 2026-09-30 — Hàng đợi CS và roster/uỷ quyền không còn dựa vào tên role (authz Phase G)
 
 - **Ai nhận việc từ hàng đợi CS** (bảng workload, nút giao việc ở Overview) nay là
