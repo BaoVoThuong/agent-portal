@@ -5,6 +5,8 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifTopic } from "@/lib/tasks/realtime";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { RouteTiming } from "@/lib/server-timing";
+import { principalFromSessionUser } from "@/lib/authz/principal";
+import { entityRefKey, visibleNotificationEntities } from "@/lib/notifications/read-access";
 
 export const dynamic = "force-dynamic";
 
@@ -303,6 +305,13 @@ export async function GET(req: Request) {
         .filter((id): id is string => Boolean(id))
     ),
   ];
+  // Kiểm lại quyền xem LÚC ĐỌC, song song với lượt làm giàu nội dung.
+  const visibilityPromise = principalFromSessionUser(session.user).then((principal) =>
+    visibleNotificationEntities(
+      { email, accountId: principal?.accountId ?? null, grants: principal?.grants ?? [] },
+      base
+    )
+  );
   const tEnrich = performance.now();
   const [
     titlesRes,
@@ -402,7 +411,24 @@ export async function GET(req: Request) {
     ].map((c) => [c.id, c.body] as const)
   );
 
-  const notifications = base.map((n) => ({
+  const visible = await timing.measure("visibility", () => visibilityPromise);
+  const notifications = base.map((n) => {
+    if (visible.has(entityRefKey(n))) return enrich(n);
+    // Mất quyền xem bản ghi (hoặc không kiểm được): giữ dòng để số chưa đọc và
+    // "đánh dấu đã đọc" vẫn đúng, nhưng bỏ mọi nội dung của bản ghi.
+    return {
+      ...n,
+      detail: null,
+      redacted: true as const,
+      entity_display_number: null,
+      entity_program: n.entity_type === "enrollment" ? ("aca" as const) : undefined,
+      task_title: null,
+      actor_name: nameByEmail.get(n.actor_email) ?? null,
+      comment_body: null,
+    };
+  });
+  function enrich(n: (typeof base)[number]) {
+    return {
     ...n,
     entity_display_number:
       n.entity_type === "enrollment"
@@ -422,7 +448,8 @@ export async function GET(req: Request) {
           : titleById.get(n.entity_id) ?? null,
     actor_name: nameByEmail.get(n.actor_email) ?? null,
     comment_body: n.comment_id ? commentById.get(n.comment_id) ?? null : null,
-  }));
+    };
+  }
   const unread =
     typeof unreadRes.count === "number" ||
     typeof enrollmentUnreadRes.count === "number" ||

@@ -54,7 +54,11 @@ type Notif = {
   detail: string | null;
   is_read: boolean;
   created_at: string;
+  /** Server rút gọn: người xem không còn quyền mở bản ghi này. */
+  redacted?: boolean;
 };
+
+const REDACTED_TEXT = "You no longer have access to this item.";
 
 // Polling is only a safety net. Realtime delivers new-notification signals
 // immediately, so an active socket can use a much longer interval and hidden
@@ -142,6 +146,7 @@ function notificationHeading(n: Notif): string {
 }
 
 function nativeNotificationBody(n: Notif): string {
+  if (n.redacted) return REDACTED_TEXT;
   return [
     n.task_title
       ? `${entityLabel(n)}: ${n.task_title}`
@@ -498,6 +503,11 @@ export function NotificationBell() {
     setOpen(false);
     dismissToast(n.id);
     if (!n.is_read) void markRead([n.id]);
+    if (n.redacted) {
+      // Không mở bản ghi mình không còn quyền xem — trang đích cũng sẽ từ chối.
+      event?.preventDefault();
+      return;
+    }
     if (entityKind(n) === "task" && pathname === "/tasks") {
       event?.preventDefault();
       dispatchOpenTask(entityId(n));
@@ -626,6 +636,9 @@ function NotifContent({ n }: { n: Notif }) {
           </>
         )}
       </p>
+      {n.redacted && (
+        <p className="mt-0.5 text-xs italic leading-5 text-slate-400">{REDACTED_TEXT}</p>
+      )}
       {n.task_title && (
         <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500" title={n.task_title}>
           <span className="font-semibold text-slate-600">{entityLabel(n)}:</span>{" "}
