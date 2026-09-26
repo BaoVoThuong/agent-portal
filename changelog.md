@@ -6,6 +6,23 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-29 — Thông báo chỉ tới người xem được bản ghi, chuông kiểm lại lúc đọc (authz Phase F)
+
+- **Mọi thông báo Task và Enrollment** (comment, giao việc, backlog cần chú ý,
+  quá hạn, QC, reaction, file đính kèm, cron…) nay được lọc ở MỘT chỗ trước khi ghi
+  và push: người nhận phải xem được task / mở được hồ sơ đó ngay lúc gửi. Ví dụ đã
+  sửa: account legacy admin không có quyền task không còn nhận tiêu đề task qua
+  "backlog cần chú ý". Ngoại lệ: thông báo "bạn bị bỏ giao". Không xác định được
+  quyền (lỗi DB) thì KHÔNG gửi và ghi log.
+- **Chuông kiểm lại quyền lúc đọc:** thông báo cũ về bản ghi người xem không còn
+  quyền (bị bỏ giao, rời roster, đổi role) vẫn đếm là chưa đọc nhưng không còn hiện
+  tiêu đề, bình luận hay chi tiết — chỉ "You no longer have access to this item" —
+  và không mở được.
+- Push giữ nguyên nội dung như cũ (Q8 chưa quyết định có bỏ tên khách khỏi màn hình
+  khoá hay không).
+- `scripts/authz-notification-replay.ts` (read-only): xem luật mới sẽ bỏ những
+  thông báo nào trong 14 ngày gần nhất.
+
 ## 2026-09-29 — Menu, trang đích và nút trên giao diện đi theo grant (authz Phase E)
 
 - **Một registry điều hướng** (`src/lib/authz/navigation.ts`) cho Sidebar, trang

@@ -2756,3 +2756,18 @@ Lệch so với spec:
 |---|---|---|
 | E.2: danh bạ người tối thiểu (Q19) | Chưa đổi `fetchAvatarDirectory` (mọi account active, gửi cho mọi người) | Q19 chưa trả lời; `/config` đã chỉ nạp dữ liệu task khi người xem quản bảng task (`needsTaskData`) |
 | E.4: capability hai mức cho mọi màn | Làm cho Task, Lead, Enrollment, dashboard default; Registration grid vẫn cho sửa theo hàng người xem thấy (API kiểm `registration.*.update` theo scope) | Grant tương thích cấp read và update cùng scope; chỉ lệch với role tuỳ chỉnh cấp read:all mà update:own — nút hiện nhưng API từ chối |
+
+## Phase F (nhánh `feat/authz-phase-f`)
+
+Đã làm: F1 `src/lib/notifications/audience.ts` (ai xem được, tính theo lô) + lọc tại `insertNotifications` / `insertEnrollmentNotifications`; F2 chuông kiểm lại lúc đọc (`read-access.ts`), dòng mất quyền bị rút gọn; F3 `scripts/authz-notification-replay.ts` (read-only).
+
+Lệch so với spec:
+
+| Spec | Thực tế | Vì sao |
+|---|---|---|
+| F.1: `recipients.ts` chọn ứng viên theo quan hệ + grant `notify.*` | Producer vẫn tự chọn ứng viên; lọc `canReceive` gom về hai hàm ghi | Hai hàm ghi là điểm nghẽn mọi producer đi qua; đổi cách chọn ứng viên của ~29 call site là đổi hành vi sản phẩm từng loại thông báo |
+| F.1: payload class full/minimal theo người (D17) | Một payload như cũ | Q8 chưa trả lời; người nhận đã được lọc trước khi push nên không có ai nhận nội dung ngoài quyền |
+| F.2: ẩn hay rút gọn (Q16) | Rút gọn | Giữ số chưa đọc và "đánh dấu đã đọc" nhất quán; không lộ nội dung |
+| F.4: replay theo lịch sử | Replay dùng quyền/quan hệ HIỆN TẠI | Không có lịch sử quan hệ theo thời gian; kết quả là danh sách cần duyệt |
+| F.5: outbox bền | Chưa làm | Tuỳ chọn trong spec |
+| Time Off | Không lọc lúc ghi (người nhận là người xin nghỉ / người duyệt theo grant); có kiểm lúc đọc | Người nhận đã đúng theo cấu trúc |
