@@ -209,3 +209,11 @@ export function deriveCompatGrants(access: LegacyAccess): string[] {
 
   return normalizeGrants(out);
 }
+
+/**
+ * Grant tương thích của MỘT role, không phụ thuộc account (legacyRole = agent) —
+ * thứ `scripts/authz-migrate-role-grants.ts` ghi vào `role_grants` (Phase H).
+ */
+export function compatGrantsForRole(role: { name: string; permissions: readonly string[] }): string[] {
+  return deriveCompatGrants({ permissions: role.permissions, roles: [role.name], legacyRole: "agent" });
+}

@@ -99,6 +99,18 @@ begin
   end if;
   v_failed := false; begin perform add_task_agent_atomic('ghost@x.com', null, null); exception when others then v_failed := sqlerrm = 'AGENT_ACCOUNT_INELIGIBLE'; end;
   if not v_failed then raise exception 'account không tồn tại không vào roster được'; end if;
+
+  -- Chuyển role sang grant (Phase H): role Agent chuyển được đúng một lần; super_admin bỏ qua.
+  if not convert_role_to_grants_atomic(v_agent_role, '[{"action":"task.read","scope":"assigned"}]'::jsonb, 'migration') then
+    raise exception 'chuyển role Agent thất bại';
+  end if;
+  if convert_role_to_grants_atomic(v_agent_role, '[]'::jsonb, 'migration') then
+    raise exception 'chuyển lần hai phải là no-op';
+  end if;
+  if convert_role_to_grants_atomic(v_admin_role, '[]'::jsonb, 'migration') then
+    raise exception 'super_admin không được chuyển';
+  end if;
+  if not (select grants_managed from roles where id = v_agent_role) then raise exception 'grants_managed chưa bật'; end if;
 end $$;
 
 select 'authz rpc gate: ok' as result;
