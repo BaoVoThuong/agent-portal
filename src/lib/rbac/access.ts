@@ -1,19 +1,22 @@
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import type { UserRole } from "@/lib/domain/account.types";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  getDefaultSystemRoleName,
-  getLegacyRoleFromRoleNames,
-} from "@/lib/rbac/system-roles";
 
 export type AccessRow = {
   id: string;
   email?: string | null;
-  role: string | null;
   is_active: boolean | null;
   agent_id: string | null;
   user_roles:
-    | { roles: { id: string; name: string; is_active: boolean; role_permissions: { permission_key: string }[] } | null }[]
+    | {
+        roles: {
+          id: string;
+          name: string;
+          is_active: boolean;
+          system_key?: string | null;
+          role_permissions: { permission_key: string }[];
+        } | null;
+      }[]
     | null;
 };
 
@@ -31,7 +34,7 @@ export type UserAccess = {
 };
 
 const ACCESS_SELECT =
-  "id,email,role,is_active,agent_id,user_roles(roles(id,name,is_active,role_permissions(permission_key)))";
+  "id,email,is_active,agent_id,user_roles(roles(id,name,is_active,system_key,role_permissions(permission_key)))";
 
 function missingAccess(lookupFailed: boolean): UserAccess {
   return {
@@ -47,27 +50,22 @@ function missingAccess(lookupFailed: boolean): UserAccess {
 }
 
 export function flattenAccess(row: AccessRow): UserAccess {
-  const legacyRole: UserRole = row.role === "admin" ? "admin" : "agent";
   if (row.is_active === false) {
-    return { userId: row.id, legacyRole, roles: [], roleIds: [], permissions: [], isActive: false, agentId: row.agent_id ?? null, lookupFailed: false };
+    return { userId: row.id, legacyRole: "agent", roles: [], roleIds: [], permissions: [], isActive: false, agentId: row.agent_id ?? null, lookupFailed: false };
   }
   const activeRoles = (row.user_roles ?? [])
     .map((ur) => ur.roles)
     .filter((r): r is NonNullable<typeof r> => Boolean(r) && r!.is_active);
-  const roleNames = activeRoles.map((r) => r.name);
   const permissions = [
     ...new Set(activeRoles.flatMap((r) => r.role_permissions.map((p) => p.permission_key))),
   ];
   return {
     userId: row.id,
-    // Either source may say admin. portal_account.role is normally a mirror of
-    // the RBAC roles — /api/admin/users writes it from getLegacyRoleFromRoleNames
-    // — so today the two always agree. Computing legacyRole from row.role on the
-    // line above and then discarding it here was a trap: a row edited straight
-    // in the database would silently not count as admin anywhere.
-    legacyRole:
-      legacyRole === "admin" ? "admin" : getLegacyRoleFromRoleNames(roleNames),
-    roles: roleNames,
+    // Chỉ còn là nhãn trong JWT/UI, suy từ `system_key` — không đọc cột
+    // `portal_account.role`, không so tên role (Phase H). Quyết định quyền đọc
+    // grant (authz/principal.ts).
+    legacyRole: activeRoles.some((r) => r.system_key === "super_admin") ? "admin" : "agent",
+    roles: activeRoles.map((r) => r.name),
     roleIds: activeRoles.map((r) => r.id),
     permissions,
     isActive: true,
@@ -137,7 +135,7 @@ export async function getUserAccessByEmails(
 
 /**
  * Gán role mặc định cho account vừa tự tạo (đăng nhập Google lần đầu). Tìm role
- * theo `system_key` (rơi về tên khi rollout Phase C chưa chạy) và KHÔNG nuốt lỗi
+ * theo `system_key` và KHÔNG nuốt lỗi
  * nữa: trước đây lỗi ở đây để lại account không có role mà không ai biết (S19).
  */
 export async function assignDefaultRoleToUser(
@@ -146,18 +144,19 @@ export async function assignDefaultRoleToUser(
 ) {
   const supabase = getSupabaseAdmin();
   const systemKey = legacyRole === "admin" ? "super_admin" : "default_new_account";
-  const byKey = await supabase.from("roles").select("id").eq("system_key", systemKey).maybeSingle();
-  let roleId = byKey.error ? null : (byKey.data as { id: string } | null)?.id ?? null;
-  if (byKey.error) {
-    const byName = await supabase
-      .from("roles")
-      .select("id")
-      .eq("name", getDefaultSystemRoleName(legacyRole))
-      .maybeSingle();
-    if (byName.error) throw new Error(byName.error.message);
-    roleId = (byName.data as { id: string } | null)?.id ?? null;
-  }
+  const { data: role, error: roleError } = await supabase
+    .from("roles")
+    .select("id,is_active")
+    .eq("system_key", systemKey)
+    .maybeSingle();
+  if (roleError) throw new Error(roleError.message);
+  const roleId = (role as { id: string; is_active: boolean } | null)?.id ?? null;
   if (!roleId) throw new Error(`Default role "${systemKey}" not found.`);
+  // Role mặc định bị tắt thì account mới không có quyền nào — báo lỗi để đăng
+  // nhập thất bại rõ ràng thay vì tạo account rỗng (review C P2-01).
+  if (!(role as { is_active: boolean }).is_active) {
+    throw new Error(`Default role "${systemKey}" is disabled.`);
+  }
 
   const { error: deleteError } = await supabase.from("user_roles").delete().eq("user_id", userId);
   if (deleteError) throw new Error(deleteError.message);

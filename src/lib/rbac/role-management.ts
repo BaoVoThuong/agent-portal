@@ -1,10 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { normalizeExclusivePermissionKeys } from "@/lib/rbac/permissions";
 import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
-import {
   effectiveRoleGrants,
   fetchRoleDefinitions,
   grantsForRoles,
@@ -50,19 +46,14 @@ export const SYSTEM_ROLE_KEYS = {
   DEFAULT_NEW_ACCOUNT: "default_new_account",
 } as const;
 
-/**
- * Role admin khôi phục. Sau rollout Phase C chỉ nhìn `system_key`; trước đó
- * (cột chưa có → `undefined`) mới rơi về so tên như cũ.
- */
-export function isSuperAdminRole(role: { name: string; system_key?: string | null }): boolean {
-  if (role.system_key !== undefined) return role.system_key === SYSTEM_ROLE_KEYS.SUPER_ADMIN;
-  return role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN || role.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
+/** Role admin khôi phục: nhận diện bằng `system_key`, không bằng tên. */
+export function isSuperAdminRole(role: { name?: string; system_key?: string | null }): boolean {
+  return role.system_key === SYSTEM_ROLE_KEYS.SUPER_ADMIN;
 }
 
 /** Role hệ thống (có system_key) không xoá được. */
-export function isSystemRole(role: { name: string; system_key?: string | null }): boolean {
-  if (role.system_key !== undefined) return role.system_key !== null;
-  return isSuperAdminRole(role) || role.name === SYSTEM_ROLE_NAMES.AGENT;
+export function isSystemRole(role: { name?: string; system_key?: string | null }): boolean {
+  return Boolean(role.system_key);
 }
 
 export async function fetchPermissions() {
@@ -160,17 +151,17 @@ export async function fetchRoleDefinition(roleId: string) {
   return (await fetchRoleDefinitions([roleId])).get(roleId) ?? null;
 }
 
-/** Id của role hệ thống theo system_key (rơi về tên khi rollout chưa chạy). */
+/** Id của role hệ thống theo system_key. */
 export async function fetchSystemRoleId(
   key: (typeof SYSTEM_ROLE_KEYS)[keyof typeof SYSTEM_ROLE_KEYS]
 ): Promise<string | null> {
-  const supabase = getSupabaseAdmin();
-  const byKey = await supabase.from("roles").select("id").eq("system_key", key).maybeSingle();
-  if (!byKey.error) return (byKey.data as { id: string } | null)?.id ?? null;
-  const name = key === SYSTEM_ROLE_KEYS.SUPER_ADMIN ? SYSTEM_ROLE_NAMES.SUPER_ADMIN : SYSTEM_ROLE_NAMES.AGENT;
-  const byName = await supabase.from("roles").select("id").eq("name", name).maybeSingle();
-  if (byName.error) throw new Error(byName.error.message);
-  return (byName.data as { id: string } | null)?.id ?? null;
+  const { data, error } = await getSupabaseAdmin()
+    .from("roles")
+    .select("id")
+    .eq("system_key", key)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { id: string } | null)?.id ?? null;
 }
 
 /**
@@ -182,20 +173,16 @@ export async function fetchAccountAccess(accountId: string): Promise<{
   grants: string[];
   holdsSuperAdmin: boolean;
 }> {
-  const supabase = getSupabaseAdmin();
-  const [{ data: account, error: accountError }, { data: userRoles, error: rolesError }] =
-    await Promise.all([
-      supabase.from("portal_account").select("role").eq("id", accountId).maybeSingle(),
-      supabase.from("user_roles").select("role_id").eq("user_id", accountId),
-    ]);
-  if (accountError) throw new Error(accountError.message);
+  const { data: userRoles, error: rolesError } = await getSupabaseAdmin()
+    .from("user_roles")
+    .select("role_id")
+    .eq("user_id", accountId);
   if (rolesError) throw new Error(rolesError.message);
   const roleIds = ((userRoles ?? []) as { role_id: string }[]).map((row) => row.role_id);
   const roles = [...(await fetchRoleDefinitions(roleIds)).values()];
-  const legacyRole = (account as { role?: string } | null)?.role ?? "agent";
   return {
     roleIds,
-    grants: grantsForRoles(roles, legacyRole),
+    grants: grantsForRoles(roles),
     holdsSuperAdmin: roles.some(
       (role) => role.isActive && isSuperAdminRole({ name: role.name, system_key: role.systemKey })
     ),

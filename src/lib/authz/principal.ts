@@ -1,8 +1,7 @@
 import { cache } from "react";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { deriveCompatGrants } from "./compat";
+import { ACTIONS, type GrantScope } from "./catalog";
 import { encodeGrant, normalizeGrants } from "./grants";
-import type { GrantScope } from "./catalog";
 
 /**
  * Principal = "ai đang gọi" theo mô hình mới: account id, role, và GRANT hiệu lực.
@@ -12,6 +11,11 @@ import type { GrantScope } from "./catalog";
  * role, lấy qua cache 30 giây mỗi instance. Cache chứa định nghĩa role dùng
  * chung, không chứa dữ liệu người dùng. Sửa role thì tối đa 30 giây sau mọi
  * thành viên thấy quyền mới.
+ *
+ * Phase H: grant CHỈ đến từ định nghĩa role — role hệ thống `super_admin` mang
+ * `SUPER_ADMIN_GRANTS` (code), role khác mang `role_grants`. Không còn suy từ
+ * permission phẳng, tên role hay cột `portal_account.role` lúc chạy; phần đó
+ * (`compat.ts`) chỉ còn cho script chuyển dữ liệu và test đối chiếu.
  */
 
 export type RoleDefinition = {
@@ -29,7 +33,6 @@ export type RoleDefinition = {
 export type Principal = {
   accountId: string | null;
   email: string;
-  legacyRole: string;
   roleIds: string[];
   roles: string[];
   /** Permission phẳng cũ — chỉ còn cho điều hướng/code chưa chuyển. */
@@ -51,12 +54,6 @@ export type RoleRow = {
 
 const ROLE_SELECT =
   "id,name,is_active,system_key,grants_managed,role_permissions(permission_key),role_grants(action,scope)";
-/** Trước rollout Phase C: chưa có cột/ bảng grant. */
-const ROLE_SELECT_LEGACY = "id,name,is_active,role_permissions(permission_key)";
-
-function isMissingGrantSchema(message: string | undefined): boolean {
-  return /role_grants|grants_managed|system_key/.test(message ?? "");
-}
 
 export function roleDefinitionFromRow(row: RoleRow): RoleDefinition {
   return {
@@ -76,22 +73,16 @@ export function roleDefinitionFromRow(row: RoleRow): RoleDefinition {
 }
 
 /**
- * Đọc định nghĩa role. Chịu được việc rollout Phase C chưa chạy (chưa có
- * `role_grants`/`system_key`): khi đó mọi role đều suy tương thích như cũ.
+ * Đọc định nghĩa role. Cần rollout Phase C (`role_grants`, `system_key`); lỗi
+ * thì ném — không có đường "đọc thiếu cột rồi suy tương thích" (review C P2-06).
  */
 export async function fetchRoleRows(
   filter: { ids?: readonly string[] } = {}
 ): Promise<RoleRow[]> {
-  const run = (select: string) => {
-    const query = getSupabaseAdmin().from("roles").select(select);
-    return filter.ids ? query.in("id", [...filter.ids]) : query;
-  };
-  const first = await run(ROLE_SELECT);
-  if (!first.error) return (first.data ?? []) as unknown as RoleRow[];
-  if (!isMissingGrantSchema(first.error.message)) throw new Error(first.error.message);
-  const fallback = await run(ROLE_SELECT_LEGACY);
-  if (fallback.error) throw new Error(fallback.error.message);
-  return (fallback.data ?? []) as unknown as RoleRow[];
+  const query = getSupabaseAdmin().from("roles").select(ROLE_SELECT);
+  const { data, error } = filter.ids ? await query.in("id", [...filter.ids]) : await query;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as unknown as RoleRow[];
 }
 
 export async function fetchRoleDefinitions(
@@ -106,14 +97,34 @@ export async function fetchRoleDefinitions(
 }
 
 /**
- * Grant hiệu lực của MỘT role, dùng cho trần uỷ quyền và hiển thị trong Role
- * Manager. Role hệ thống super_admin được suy như legacy admin (đúng với các
- * account đang giữ nó).
+ * Role hệ thống `super_admin`: MỌI grant trong catalog, trừ grant "thành viên"
+ * (`delegatedBy` — admin không nằm trong hàng đợi CS). Định nghĩa bằng code để
+ * admin khôi phục không bao giờ phụ thuộc dữ liệu grant của chính nó.
+ */
+export const SUPER_ADMIN_GRANTS: readonly string[] = normalizeGrants(
+  ACTIONS.filter((definition) => !("delegatedBy" in definition)).flatMap((definition) =>
+    definition.scopes.map((scope) => encodeGrant({ action: definition.action, scope }))
+  )
+);
+
+/**
+ * Grant của MỘT role (bỏ qua trạng thái hoạt động): dùng cho trần uỷ quyền và
+ * Role Manager. Role chưa chuyển sang grant → không có grant nào.
  */
 export function effectiveRoleGrants(role: RoleDefinition): string[] {
-  return grantsForRoles(
-    [{ ...role, isActive: true }],
-    role.systemKey === "super_admin" ? "admin" : "agent"
+  if (role.systemKey === "super_admin") return [...SUPER_ADMIN_GRANTS];
+  return role.grants ? [...role.grants] : [];
+}
+
+const warnedUnconverted = new Set<string>();
+
+function warnUnconvertedRole(role: RoleDefinition): void {
+  if (warnedUnconverted.has(role.id)) return;
+  warnedUnconverted.add(role.id);
+  console.error(
+    "[authz] role chưa chuyển sang grant — thành viên không có quyền nào từ role này. " +
+      "Chạy scripts/authz-migrate-role-grants.ts --apply.",
+    { roleId: role.id, roleName: role.name }
   );
 }
 
@@ -146,26 +157,13 @@ export function clearRoleCache(): void {
   roleCache.clear();
 }
 
-/**
- * Grant hiệu lực = hợp của mọi role ĐANG hoạt động. Role đã có grant tường minh
- * dùng grant đó; role chưa chuyển thì suy tương thích từ permission + tên role.
- * Legacy admin (cột `portal_account.role`) còn mang vài quyền theo tài khoản chứ
- * không theo role (lead override, thông báo leo thang) — suy thêm một lần.
- */
-export function grantsForRoles(
-  roles: readonly RoleDefinition[],
-  legacyRole: string | null | undefined
-): string[] {
+/** Grant hiệu lực = hợp grant của mọi role ĐANG hoạt động. Fail-closed. */
+export function grantsForRoles(roles: readonly RoleDefinition[]): string[] {
   const all: string[] = [];
   for (const role of roles) {
     if (!role.isActive) continue;
-    all.push(
-      ...(role.grants ??
-        deriveCompatGrants({ permissions: role.permissions, roles: [role.name], legacyRole }))
-    );
-  }
-  if (legacyRole === "admin") {
-    all.push(...deriveCompatGrants({ permissions: [], roles: [], legacyRole }));
+    if (role.systemKey !== "super_admin" && role.grants === null) warnUnconvertedRole(role);
+    all.push(...effectiveRoleGrants(role));
   }
   return normalizeGrants(all);
 }
@@ -186,20 +184,12 @@ export async function principalFromSessionUser(user: SessionUserLike): Promise<P
   return {
     accountId: user.accountId ?? null,
     email,
-    legacyRole: user.role ?? "agent",
     roleIds,
     roles: user.roles ?? [],
     permissions: user.permissions ?? [],
-    // Phiên tạo trước Phase B chưa mang `roleIds`: suy tương thích từ permission
-    // + tên role có sẵn trong JWT (đúng dữ liệu các hàm cũ đọc) cho tới lần làm
-    // mới quyền kế tiếp — jwt callback làm mới ngay những phiên này.
-    grants: user.roleIds
-      ? grantsForRoles(await loadRoleDefinitions(roleIds), user.role)
-      : deriveCompatGrants({
-          permissions: user.permissions ?? [],
-          roles: user.roles ?? [],
-          legacyRole: user.role,
-        }),
+    // Phiên chưa mang `roleIds` được jwt callback làm mới ngay trong cùng lượt
+    // `auth()`; tới đây vẫn thiếu thì không có grant (fail-closed).
+    grants: grantsForRoles(await loadRoleDefinitions(roleIds)),
   };
 }
 
@@ -209,11 +199,10 @@ export async function principalFromSessionUser(user: SessionUserLike): Promise<P
  */
 export async function grantsForAccess(access: {
   isActive: boolean;
-  legacyRole: string | null | undefined;
   roleIds: readonly string[];
 }): Promise<string[]> {
   if (!access.isActive) return [];
-  return grantsForRoles(await loadRoleDefinitions(access.roleIds), access.legacyRole);
+  return grantsForRoles(await loadRoleDefinitions(access.roleIds));
 }
 
 /**

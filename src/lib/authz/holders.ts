@@ -14,7 +14,7 @@ import { grantsForRoles, loadRoleDefinitions } from "./principal";
  * và mỗi bản lọc role tắt theo cách riêng.
  *
  * Ở đây grant được suy ĐÚNG như phiên đăng nhập (`grantsForRoles`): chỉ role
- * đang hoạt động, account đang hoạt động, cộng quyền theo cột legacy admin.
+ * đang hoạt động, account đang hoạt động.
  */
 export type GrantHolder = {
   id: string;
@@ -26,14 +26,13 @@ type AccountRow = {
   id: string;
   email: string;
   name: string | null;
-  role: string | null;
   user_roles: { role_id: string }[] | null;
 };
 
 export async function fetchGrantHolders(action: Action, scope?: GrantScope): Promise<GrantHolder[]> {
   const { data, error } = await getSupabaseAdmin()
     .from("portal_account")
-    .select("id,email,name,role,user_roles(role_id)")
+    .select("id,email,name,user_roles(role_id)")
     .eq("is_active", true);
   if (error) throw new Error(error.message);
 
@@ -51,7 +50,7 @@ export async function fetchGrantHolders(action: Action, scope?: GrantScope): Pro
     const accountRoles = (account.user_roles ?? [])
       .map((row) => roleById.get(row.role_id))
       .filter((role) => role !== undefined);
-    if (hasGrant(grantsForRoles(accountRoles, account.role), action, scope)) {
+    if (hasGrant(grantsForRoles(accountRoles), action, scope)) {
       holders.push({ id: account.id, email, name: account.name });
     }
   }

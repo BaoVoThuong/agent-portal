@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { deriveCompatGrants } from "@/lib/authz/compat";
 import { grantsBeyondCeiling, projectLegacyPermissions } from "@/lib/authz/delegation";
 import { forbidden, requireApiGrant } from "@/lib/authz/guards";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -9,6 +8,7 @@ import {
   isSuperAdminRole,
   mapAuthzRpcError,
 } from "@/lib/rbac/role-management";
+import { effectiveRoleGrants } from "@/lib/authz/principal";
 import { grantsForRpc, readRequestedGrants } from "../role-input";
 
 type RouteContext = {
@@ -78,14 +78,15 @@ export async function PATCH(req: Request, context: RouteContext) {
       return NextResponse.json({ error: "Invalid role status." }, { status: 400 });
     }
     const isActive = payload.is_active ?? currentRow.is_active;
-    const grants = readRequestedGrants(payload, name);
+    const requested = readRequestedGrants(payload);
+    if (!requested.ok) {
+      return NextResponse.json({ error: requested.error, invalid: requested.invalid }, { status: 400 });
+    }
+    const grants = requested.grants;
 
-    // Grant hiệu lực SAU khi sửa — gồm cả trường hợp chỉ đổi tên một role chưa
-    // chuyển (tên task-admin đổi quyền). Phải nằm trong trần của người sửa.
-    const effectiveAfter =
-      grants ??
-      current.grants ??
-      deriveCompatGrants({ permissions: current.permissions, roles: [name], legacyRole: "agent" });
+    // Grant hiệu lực SAU khi sửa. Phải nằm trong trần của người sửa. (Từ Phase H
+    // tên role không còn mang quyền, nên đổi tên không đổi grant.)
+    const effectiveAfter = grants ?? effectiveRoleGrants(current);
     const beyond = grantsBeyondCeiling(principal.grants, effectiveAfter);
     if (beyond.length > 0) {
       return NextResponse.json(

@@ -105,8 +105,7 @@ export async function fetchTaskOverview(
       grantsForRoles(
         (roleIdsByUser.get(account.id) ?? [])
           .map((roleId) => roleById.get(roleId))
-          .filter((role) => role !== undefined),
-        account.role
+          .filter((role) => role !== undefined)
       ),
     ])
   );
@@ -157,11 +156,10 @@ export async function fetchTaskOverview(
     const rotation = rotationByEmail.get(email);
     const grants = grantsByUser.get(account.id) ?? [];
     const queueMember = hasGrant(grants, "task.queue.member");
-    // Nhãn "Admin": legacy admin, hoặc người xem mọi task mà không ở hàng đợi CS.
-    // Không bao giờ loại một thành viên hàng đợi khỏi bảng workload — tập đó do
-    // grant task.queue.member quyết định (cùng luật với assign_unassigned_task).
-    const isAdmin =
-      account.role === "admin" || (!queueMember && hasGrant(grants, "task.read", "all"));
+    // Nhãn "Admin": người xem mọi task mà không ở hàng đợi CS. Không bao giờ loại
+    // một thành viên hàng đợi khỏi bảng workload — tập đó do grant
+    // task.queue.member quyết định (cùng luật với assign_unassigned_task).
+    const isAdmin = !queueMember && hasGrant(grants, "task.read", "all");
     const assistantAgents = assistantAgentsByEmail.get(email) ?? [];
     return {
       email,

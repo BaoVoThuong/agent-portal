@@ -20,27 +20,32 @@ const taskCs = {
   grants: null,
 };
 
-describe("grantsForRoles", () => {
-  it("role chưa chuyển: suy tương thích từ permission + tên role", () => {
-    const grants = grantsForRoles([taskCs], "agent");
-    expect(hasGrant(grants, "task.read", "shared_queue")).toBe(true);
-    expect(hasGrant(grants, "task.read", "all")).toBe(false);
+describe("grantsForRoles (Phase H: chỉ từ định nghĩa role)", () => {
+  it("role chưa chuyển sang grant: KHÔNG có grant nào (fail-closed)", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(grantsForRoles([taskCs])).toEqual([]);
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
   });
 
   it("role đã có grant tường minh: dùng đúng grant đó, bỏ qua permission cũ", () => {
-    const grants = grantsForRoles([{ ...taskCs, grants: ["task.read:assigned"] }], "agent");
+    const grants = grantsForRoles([{ ...taskCs, grants: ["task.read:assigned"] }]);
     expect(grants).toEqual(["task.read:assigned"]);
   });
 
   it("role tắt không cấp gì", () => {
-    expect(grantsForRoles([{ ...taskCs, isActive: false }], "agent")).toEqual([]);
+    expect(grantsForRoles([{ ...taskCs, grants: ["task.read:assigned"], isActive: false }])).toEqual([]);
   });
 
-  it("legacy admin không role vẫn nhận quyền theo tài khoản (lead, leo thang)", () => {
-    const grants = grantsForRoles([], "admin");
-    expect(hasGrant(grants, "lead.read", "all")).toBe(true);
+  it("super_admin: mọi grant từ code, không phụ thuộc permission hay tên", () => {
+    const grants = grantsForRoles([
+      { id: "a", name: "Tên gì cũng được", isActive: true, systemKey: "super_admin", permissions: [], grants: null },
+    ]);
+    expect(hasGrant(grants, "role.manage")).toBe(true);
+    expect(hasGrant(grants, "task.read", "all")).toBe(true);
     expect(hasGrant(grants, "notify.task.escalation")).toBe(true);
-    expect(hasGrant(grants, "task.read")).toBe(false);
+    // Admin không ở hàng đợi CS.
+    expect(hasGrant(grants, "task.queue.member")).toBe(false);
   });
 });
 

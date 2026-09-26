@@ -19,10 +19,17 @@ vi.mock("./principal", async (importOriginal) => ({
 const { fetchGrantHolderEmails } = await import("./holders");
 
 const ROLES: RoleDefinition[] = [
-  { id: "cs", name: "Task CS", isActive: true, permissions: ["task.work"], grants: null },
-  { id: "old", name: "Retired", isActive: false, permissions: ["task.work"], grants: null },
+  { id: "cs", name: "Task CS", isActive: true, permissions: [], grants: ["task.read:shared_queue", "task.read:assigned"] },
+  { id: "old", name: "Retired", isActive: false, permissions: [], grants: ["task.read:assigned"] },
   { id: "scoped", name: "Reader", isActive: true, permissions: [], grants: ["task.read:assigned"] },
-  { id: "timeoff", name: "Time Off Admin", isActive: true, permissions: ["timeoff.admin"], grants: null },
+  {
+    id: "timeoff",
+    name: "Time Off Admin",
+    isActive: true,
+    permissions: [],
+    grants: ["notify.timeoff.submitted:*", "timeoff.manage:*"],
+  },
+  { id: "admin", name: "Admin", isActive: true, systemKey: "super_admin", permissions: [], grants: null },
 ];
 
 function account(id: string, roleIds: string[], role = "agent") {
@@ -38,23 +45,29 @@ describe("fetchGrantHolderEmails", () => {
         account("b", ["old"]),
         account("c", ["scoped"]),
         account("d", ["timeoff"]),
-        account("boss", [], "admin"),
+        account("boss", ["admin"]),
       ],
       error: null,
     });
   });
 
-  it("suy grant như phiên đăng nhập: bỏ role tắt, nhận grant tường minh", async () => {
-    await expect(fetchGrantHolderEmails("task.read")).resolves.toEqual(["a@x.com", "c@x.com"]);
+  it("suy grant như phiên đăng nhập: bỏ role tắt, nhận grant tường minh, admin từ system_key", async () => {
+    await expect(fetchGrantHolderEmails("task.read")).resolves.toEqual(["a@x.com", "c@x.com", "boss@x.com"]);
   });
 
   it("theo scope khi được hỏi", async () => {
-    await expect(fetchGrantHolderEmails("task.read", "shared_queue")).resolves.toEqual(["a@x.com"]);
+    await expect(fetchGrantHolderEmails("task.read", "shared_queue")).resolves.toEqual([
+      "a@x.com",
+      "boss@x.com",
+    ]);
   });
 
-  it("legacy admin (cột) nhận thông báo leo thang, không cần role", async () => {
+  it("super_admin nhận thông báo leo thang; người duyệt nghỉ nhận đơn mới", async () => {
     await expect(fetchGrantHolderEmails("notify.task.escalation")).resolves.toEqual(["boss@x.com"]);
-    await expect(fetchGrantHolderEmails("notify.timeoff.submitted")).resolves.toEqual(["d@x.com"]);
+    await expect(fetchGrantHolderEmails("notify.timeoff.submitted")).resolves.toEqual([
+      "d@x.com",
+      "boss@x.com",
+    ]);
   });
 
   it("lỗi đọc account thì ném, không trả danh sách rỗng giả", async () => {

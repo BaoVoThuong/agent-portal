@@ -13,7 +13,10 @@ const { getPrincipalMock, roleManagement, rpcMock, roleRow } = vi.hoisted(() => 
   roleRow: { value: { name: "Task CS", description: null, is_active: true } as unknown },
 }));
 
-vi.mock("@/lib/authz/principal", () => ({ getPrincipal: getPrincipalMock }));
+vi.mock("@/lib/authz/principal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/authz/principal")>()),
+  getPrincipal: getPrincipalMock,
+}));
 vi.mock("@/lib/rbac/role-management", () => roleManagement);
 vi.mock("@/lib/supabase", () => ({
   getSupabaseAdmin: () => ({
@@ -85,7 +88,7 @@ describe("PATCH /api/admin/roles/[id]", () => {
     expect(rpcMock).not.toHaveBeenCalled();
   });
 
-  it("đổi tên role chưa chuyển thành tên task-admin cũng bị trần chặn (S3)", async () => {
+  it("Phase H: tên role không mang quyền — đổi thành \"Task Admin\" không đổi grant", async () => {
     getPrincipalMock.mockResolvedValue(ROLE_MANAGER);
     roleManagement.fetchRoleDefinition.mockResolvedValue({
       id: "r1",
@@ -93,10 +96,21 @@ describe("PATCH /api/admin/roles/[id]", () => {
       isActive: true,
       systemKey: null,
       permissions: ["task.manage"],
-      grants: null,
+      grants: ["task.read:assigned"],
     });
     const response = await patch({ name: "Task Admin" });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
+    expect(rpcMock).toHaveBeenCalledWith(
+      "upsert_role_atomic",
+      expect.objectContaining({ p_name: "Task Admin", p_grants: null })
+    );
+  });
+
+  it("grant không có trong catalog: 400, không lưu (review C P2-03)", async () => {
+    getPrincipalMock.mockResolvedValue(ROLE_MANAGER);
+    const response = await patch({ grants: ["task.read:assigned", "task.read:typo"] });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ invalid: ["task.read:typo"] });
     expect(rpcMock).not.toHaveBeenCalled();
   });
 

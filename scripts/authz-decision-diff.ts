@@ -55,7 +55,8 @@ async function run(): Promise<Report[]> {
       roles: activeRoles.map((role) => role.name),
       legacyRole: account.role,
     };
-    const grants = grantsForRoles(accountRoles, account.role);
+    // Mô hình mới (sau Phase H): chỉ grant từ định nghĩa role.
+    const grants = grantsForRoles(accountRoles);
     reports.push({
       email: account.email,
       roles: activeRoles.map((role) => role.name),

@@ -128,7 +128,6 @@ export default function AccountManagerClient({
         user.name,
         user.email,
         user.agent_id,
-        user.role,
         ...user.roles.map((role) => role.name),
       ];
 
@@ -961,20 +960,10 @@ async function readJsonResponse(response: Response) {
 }
 
 function RoleBadges({ user }: { user: ManagedAccountUser }) {
-  const roles =
-    user.roles.length > 0
-      ? user.roles
-      : [
-          {
-            id: user.role,
-            name: user.role === "admin" ? "Admin" : "Agent",
-            description: null,
-            is_system: true,
-            is_active: true,
-            system_key: user.role === "admin" ? "super_admin" : "default_new_account",
-            assignable: false,
-          },
-        ];
+  if (user.roles.length === 0) {
+    return <span className="text-xs text-[#98a2b3]">No role</span>;
+  }
+  const roles = user.roles;
 
   return (
     <div className="flex flex-wrap gap-1.5">

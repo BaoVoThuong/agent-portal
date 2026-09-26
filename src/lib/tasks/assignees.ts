@@ -5,10 +5,6 @@ import {
   mapWithConcurrency,
 } from "@/lib/pagination/concurrency";
 import { cache } from "react";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type TaskPersonRole = {
@@ -33,9 +29,8 @@ type AccountRoleRow = {
   id: string;
   email: string;
   name: string | null;
-  role: string | null;
   user_roles?: Array<{
-    roles: { name: string; is_active: boolean } | null;
+    roles: { name: string; is_active: boolean; system_key?: string | null } | null;
   }> | null;
 };
 
@@ -68,7 +63,7 @@ export const fetchTaskAssignees = cache(async (): Promise<TaskAssignee[]> => {
 
   const { data: accounts, error: accErr } = await supabase
     .from("portal_account")
-    .select("id,email,name,is_active,role,user_roles(roles(name,is_active))")
+    .select("id,email,name,is_active,user_roles(roles(name,is_active,system_key))")
     .in("id", userIds)
     .eq("is_active", true);
   if (accErr) throw new Error(accErr.message);
@@ -110,7 +105,7 @@ export async function fetchTaskAgents(): Promise<TaskAgent[]> {
 
   const { data: accounts, error } = await supabase
     .from("portal_account")
-    .select("id,email,name,is_active,role,user_roles(roles(name,is_active))")
+    .select("id,email,name,is_active,user_roles(roles(name,is_active,system_key))")
     .in("email", emails)
     .eq("is_active", true);
   if (error) throw new Error(error.message);
@@ -121,7 +116,7 @@ export async function fetchTaskAgents(): Promise<TaskAgent[]> {
 export async function fetchTaskAgentCandidates(): Promise<TaskAgent[]> {
   const { data: accounts, error } = await getSupabaseAdmin()
     .from("portal_account")
-    .select("id,email,name,is_active,role,user_roles(roles(name,is_active))")
+    .select("id,email,name,is_active,user_roles(roles(name,is_active,system_key))")
     .eq("is_active", true);
   if (error) throw new Error(error.message);
 
@@ -191,17 +186,10 @@ async function enrichTaskPeopleRoles(rows: AccountRoleRow[]): Promise<TaskAssign
   );
 }
 
+// Nhãn "Admin" trong danh bạ task: account giữ role hệ thống super_admin.
 function isAdminAccount(account: AccountRoleRow): boolean {
-  const activeRoleNames = (account.user_roles ?? [])
-    .map((row) => row.roles)
-    .filter((role): role is { name: string; is_active: boolean } =>
-      Boolean(role?.is_active)
-    )
-    .map((role) => role.name);
-  return (
-    account.role === "admin" ||
-    activeRoleNames.includes(SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
-    activeRoleNames.includes(LEGACY_SUPER_ADMIN_ROLE_NAME)
+  return (account.user_roles ?? []).some(
+    (row) => Boolean(row.roles?.is_active) && row.roles?.system_key === "super_admin"
   );
 }
 

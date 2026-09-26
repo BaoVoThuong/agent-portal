@@ -10,10 +10,7 @@
  */
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { LEGACY_SUPER_ADMIN_ROLE_NAME, SYSTEM_ROLE_NAMES } from "../compat";
 import type { TaskRow, TaskStatus } from "@/lib/tasks/types";
 
 /** Actor cũ: hai cờ boolean, không có grant. */

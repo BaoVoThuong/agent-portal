@@ -10,7 +10,7 @@ vi.mock("@/lib/supabase", () => ({
 }));
 vi.mock("@/lib/auth/session", () => ({ getSession: vi.fn() }));
 
-const { grantsForRoles } = await import("./principal");
+const { grantsForRoles, SUPER_ADMIN_GRANTS } = await import("./principal");
 
 describe("grantsBeyondCeiling", () => {
   it("được cấp đúng thứ mình có", () => {
@@ -30,22 +30,21 @@ describe("grantsBeyondCeiling", () => {
 
 describe("Admin (role hệ thống) cấp được MỌI grant trong catalog", () => {
   // Nếu test này fail sau khi thêm action mới, Admin sẽ không cấp được action
-  // đó cho ai (trần uỷ quyền): thêm ánh xạ vào deriveCompatGrants, hoặc
-  // `delegatedBy` nếu đó là grant "thành viên" admin không tự giữ.
+  // đó cho ai (trần uỷ quyền): action "thành viên" cần `delegatedBy`.
   it("không grant nào nằm ngoài tầm Admin", () => {
-    const adminGrants = grantsForRoles(
-      [
-        {
-          id: "admin",
-          name: "Admin",
-          isActive: true,
-          permissions: Object.values(PERMISSIONS),
-          grants: null,
-        },
-      ],
-      "admin"
-    );
+    const adminGrants = grantsForRoles([
+      { id: "admin", name: "Admin", isActive: true, systemKey: "super_admin", permissions: [], grants: null },
+    ]);
     expect(grantsBeyondCeiling(adminGrants, allCatalogGrants())).toEqual([]);
+  });
+
+  it("SUPER_ADMIN_GRANTS trùng grant tương thích của Admin cũ (không ai đổi quyền)", () => {
+    const legacyAdmin = deriveCompatGrants({
+      permissions: Object.values(PERMISSIONS),
+      roles: ["Admin"],
+      legacyRole: "admin",
+    });
+    expect([...SUPER_ADMIN_GRANTS]).toEqual(legacyAdmin);
   });
 });
 

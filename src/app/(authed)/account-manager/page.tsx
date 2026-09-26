@@ -6,7 +6,6 @@ import { grantsBeyondCeiling } from "@/lib/authz/delegation";
 import { requirePageGrant } from "@/lib/authz/page-guards";
 import {
   fetchRolesWithPermissions,
-  SYSTEM_ROLE_KEYS,
   type RoleOption,
 } from "@/lib/rbac/role-management";
 import AccountManagerClient from "./AccountManagerClient";
@@ -81,16 +80,8 @@ export default async function AccountManagerPage() {
   const users = ((data ?? []) as AccountUser[]).map<ManagedAccountUser>(
     (user) => {
       // Một account một role (unique index user_roles_one_role_per_user_idx).
-      const directRoleIds = [...(roleIdsByUserId.get(user.id) ?? [])].slice(0, 1);
-      const fallbackKey =
-        user.role === "admin" ? SYSTEM_ROLE_KEYS.SUPER_ADMIN : SYSTEM_ROLE_KEYS.DEFAULT_NEW_ACCOUNT;
-      const fallbackRole = availableRoles.find((role) => role.system_key === fallbackKey);
-      const roleIds =
-        directRoleIds.length > 0
-          ? directRoleIds
-          : fallbackRole
-            ? [fallbackRole.id]
-            : [];
+      // Không có role thì hiện là không có role — không đoán theo cột legacy.
+      const roleIds = [...(roleIdsByUserId.get(user.id) ?? [])].slice(0, 1);
 
       return {
         ...user,

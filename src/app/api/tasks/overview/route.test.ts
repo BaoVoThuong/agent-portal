@@ -8,6 +8,45 @@ const { authMock, fetchTaskOverviewMock } = vi.hoisted(() => ({
 
 vi.mock("@/auth", () => ({ auth: authMock }));
 vi.mock("@/lib/tasks/overview-data", () => ({ fetchTaskOverview: fetchTaskOverviewMock }));
+// Role của persona đã chuyển sang grant bằng scripts/authz-migrate-role-grants.ts:
+// grant = grant tương thích của permission + tên role cũ.
+vi.mock("@/lib/authz/principal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/authz/principal")>();
+  const { deriveCompatGrants } = await import("@/lib/authz/compat");
+  return {
+    ...actual,
+    principalFromSessionUser: async (user: {
+      email?: string | null;
+      role?: string | null;
+      roles?: string[];
+      permissions?: string[];
+    }) =>
+      user?.email
+        ? {
+            accountId: null,
+            email: user.email,
+            roleIds: [],
+            roles: user.roles ?? [],
+            permissions: user.permissions ?? [],
+            grants: deriveCompatGrants({
+              permissions: user.permissions ?? [],
+              roles: user.roles ?? [],
+              legacyRole: user.role,
+            }),
+          }
+        : null,
+    grantsForSession: async (session: {
+      user?: { email?: string | null; role?: string | null; roles?: string[]; permissions?: string[] } | null;
+    } | null) =>
+      session?.user?.email
+        ? deriveCompatGrants({
+            permissions: session.user.permissions ?? [],
+            roles: session.user.roles ?? [],
+            legacyRole: session.user.role,
+          })
+        : [],
+  };
+});
 
 const { GET } = await import("./route");
 

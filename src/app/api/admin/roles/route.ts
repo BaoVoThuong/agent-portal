@@ -44,7 +44,11 @@ export async function POST(req: Request) {
         ? payload.description.trim()
         : null;
     const isActive = typeof payload.is_active === "boolean" ? payload.is_active : true;
-    const grants = readRequestedGrants(payload, name) ?? [];
+    const requested = readRequestedGrants(payload);
+    if (!requested.ok) {
+      return NextResponse.json({ error: requested.error, invalid: requested.invalid }, { status: 400 });
+    }
+    const grants = requested.grants ?? [];
 
     // Trần uỷ quyền (S4): chỉ cấp được grant chính mình đang có.
     const beyond = grantsBeyondCeiling(principal.grants, grants);

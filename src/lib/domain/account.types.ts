@@ -1,6 +1,6 @@
 // Domain types cho tài khoản người dùng portal.
 // UserRole là model role "legacy" (admin/agent) đang tồn tại song song với RBAC.
-// Xem ghi chú migration shim trong @/lib/rbac/system-roles.
+// Cột `role` chỉ còn được GHI (bản sao theo system_key) — không code nào đọc nó để phân quyền (Phase H).
 export type UserRole = "admin" | "agent";
 
 export type AccountUser = {

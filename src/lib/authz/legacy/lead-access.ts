@@ -10,10 +10,7 @@
  */
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { LEGACY_SUPER_ADMIN_ROLE_NAME, SYSTEM_ROLE_NAMES } from "../compat";
 import type { LeadRow } from "@/lib/leads/types";
 
 export type LeadActor = {

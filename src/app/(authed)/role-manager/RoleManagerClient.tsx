@@ -52,10 +52,8 @@ function toForm(role: RoleRecord): RoleFormState {
   };
 }
 
-function isProtectedRole(role: Pick<RoleRecord, "system_key" | "name">) {
-  return role.system_key !== undefined
-    ? role.system_key === "super_admin"
-    : role.name === "Admin" || role.name === "Super Admin";
+function isProtectedRole(role: Pick<RoleRecord, "system_key">) {
+  return role.system_key === "super_admin";
 }
 
 /** Tóm tắt grant theo nhóm cho thẻ role: "Tasks · 13". */
@@ -264,7 +262,7 @@ export default function RoleManagerClient({
     }
   }
 
-  const formLocked = Boolean(form?.id) && Boolean(form && isProtectedRole({ name: form.name, system_key: roles.find((role) => role.id === form.id)?.system_key }));
+  const formLocked = Boolean(form?.id) && Boolean(form && isProtectedRole({ system_key: roles.find((role) => role.id === form.id)?.system_key }));
 
   return (
     <div className="px-8 py-8">

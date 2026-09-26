@@ -1,8 +1,14 @@
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+/**
+ * Tên role hệ thống TRƯỚC `system_key` — chỉ còn trong luật tương thích (chuyển
+ * dữ liệu, test đối chiếu). Không dùng trong code chạy thật (cổng CI chặn).
+ */
+export const SYSTEM_ROLE_NAMES = {
+  SUPER_ADMIN: "Admin",
+  AGENT: "Agent",
+} as const;
+
+export const LEGACY_SUPER_ADMIN_ROLE_NAME = "Super Admin";
 import type { Action, GrantScope } from "./catalog";
 import { encodeGrant, normalizeGrants } from "./grants";
 
