@@ -4048,6 +4048,144 @@ $$;
 revoke all on function delete_task_agent_atomic(text) from public, anon, authenticated;
 grant execute on function delete_task_agent_atomic(text) to service_role;
 
+-- Roster agent và uỷ quyền assistant quyết định phạm vi dữ liệu của người khác:
+-- mỗi thay đổi ghi access_audit trong CÙNG transaction (authz Phase G, review C
+-- P2-05). Các hàm cũ (create_agent_membership_atomic, delete_task_agent_atomic)
+-- giữ nguyên và được gọi bên trong.
+create or replace function add_task_agent_atomic(
+  p_email text,
+  p_actor_account_id uuid,
+  p_actor_email text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  normalized_email text := nullif(lower(btrim(p_email)), '');
+  inserted boolean;
+begin
+  if normalized_email is null then
+    raise exception using message = 'AGENT_EMAIL_REQUIRED';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('task-agent|' || normalized_email, 0));
+  if not exists (
+    select 1 from portal_account
+    where lower(btrim(email)) = normalized_email and is_active
+  ) then
+    raise exception using message = 'AGENT_ACCOUNT_INELIGIBLE';
+  end if;
+  insert into task_agents (email) values (normalized_email)
+  on conflict (email) do nothing;
+  inserted := found;
+  if inserted then
+    insert into access_audit (actor_account_id, actor_email, event, target_type, target_id, before, after)
+    values (p_actor_account_id, p_actor_email, 'org.agent_roster.add', 'agent_roster', normalized_email,
+            null, jsonb_build_object('email', normalized_email));
+  end if;
+  return inserted;
+end;
+$$;
+
+create or replace function remove_task_agent_atomic(
+  p_email text,
+  p_actor_account_id uuid,
+  p_actor_email text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  normalized_email text := nullif(lower(btrim(p_email)), '');
+  assistants jsonb;
+  removed boolean;
+begin
+  if normalized_email is null then
+    raise exception using message = 'AGENT_EMAIL_REQUIRED';
+  end if;
+  select coalesce(jsonb_agg(lower(btrim(cs_email)) order by cs_email), '[]'::jsonb)
+    into assistants
+  from agent_members
+  where lower(btrim(agent_email)) = normalized_email and is_assistant;
+  removed := delete_task_agent_atomic(normalized_email);
+  if removed then
+    insert into access_audit (actor_account_id, actor_email, event, target_type, target_id, before, after)
+    values (p_actor_account_id, p_actor_email, 'org.agent_roster.remove', 'agent_roster', normalized_email,
+            jsonb_build_object('email', normalized_email, 'assistants', assistants), null);
+  end if;
+  return removed;
+end;
+$$;
+
+create or replace function add_assistant_delegation_atomic(
+  p_agent_email text,
+  p_cs_email text,
+  p_actor_account_id uuid,
+  p_actor_email text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  membership jsonb;
+begin
+  membership := create_agent_membership_atomic(p_agent_email, p_cs_email);
+  insert into access_audit (actor_account_id, actor_email, event, target_type, target_id, before, after)
+  values (p_actor_account_id, p_actor_email, 'org.assistant_delegation.add', 'assistant_delegation',
+          (membership ->> 'agent_email') || '>' || (membership ->> 'cs_email'), null, membership);
+  return membership;
+end;
+$$;
+
+create or replace function remove_assistant_delegation_atomic(
+  p_agent_email text,
+  p_cs_email text,
+  p_actor_account_id uuid,
+  p_actor_email text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  normalized_agent text := nullif(lower(btrim(p_agent_email)), '');
+  normalized_assistant text := nullif(lower(btrim(p_cs_email)), '');
+  removed boolean;
+begin
+  if normalized_agent is null or normalized_assistant is null then
+    raise exception using message = 'ASSISTANT_EMAIL_REQUIRED';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('assistant-memberships', 0));
+  delete from agent_members
+  where lower(btrim(agent_email)) = normalized_agent
+    and lower(btrim(cs_email)) = normalized_assistant
+    and is_assistant;
+  removed := found;
+  if removed then
+    insert into access_audit (actor_account_id, actor_email, event, target_type, target_id, before, after)
+    values (p_actor_account_id, p_actor_email, 'org.assistant_delegation.remove', 'assistant_delegation',
+            normalized_agent || '>' || normalized_assistant,
+            jsonb_build_object('agent_email', normalized_agent, 'cs_email', normalized_assistant), null);
+  end if;
+  return removed;
+end;
+$$;
+
+revoke all on function add_task_agent_atomic(text, uuid, text) from public, anon, authenticated;
+grant execute on function add_task_agent_atomic(text, uuid, text) to service_role;
+revoke all on function remove_task_agent_atomic(text, uuid, text) from public, anon, authenticated;
+grant execute on function remove_task_agent_atomic(text, uuid, text) to service_role;
+revoke all on function add_assistant_delegation_atomic(text, text, uuid, text) from public, anon, authenticated;
+grant execute on function add_assistant_delegation_atomic(text, text, uuid, text) to service_role;
+revoke all on function remove_assistant_delegation_atomic(text, text, uuid, text) from public, anon, authenticated;
+grant execute on function remove_assistant_delegation_atomic(text, text, uuid, text) to service_role;
+
 -- Atomic admin claim used by the CS workload overview. The task row lock is the
 -- concurrency boundary: only one manager can turn a backlog task into a todo
 -- assignment, while the legacy assignee column and the junction remain mirrored.
@@ -4068,21 +4206,16 @@ declare
   now_iso timestamptz := now();
   rotation_minutes integer;
 begin
+  -- Ai được nhận việc từ hàng đợi là GRANT `task.queue.member` — route
+  -- /api/tasks/[id]/assign kiểm trước khi gọi (authz Phase G). Ở đây chỉ còn
+  -- các điều kiện quan hệ: account active, không phải agent roster, không là
+  -- assistant, không bị tắt trong hàng đợi. Không còn đọc tên role hay cột
+  -- portal_account.role.
   if not exists (
     select 1
     from portal_account account
     where lower(trim(account.email)) = normalized_cs_email
       and account.is_active
-      and account.role <> 'admin'
-      and exists (
-        select 1
-        from user_roles ur
-        join role_permissions rp on rp.role_id = ur.role_id
-        join roles r on r.id = ur.role_id
-        where ur.user_id = account.id
-          and rp.permission_key = 'task.work'
-          and r.is_active
-      )
       and not exists (
         select 1 from task_agents ta
         where lower(trim(ta.email)) = normalized_cs_email
@@ -4096,14 +4229,6 @@ begin
         select 1 from task_assignment_queue_members queue_member
         where lower(trim(queue_member.email)) = normalized_cs_email
           and not queue_member.is_enabled
-      )
-      and not exists (
-        select 1
-        from user_roles ur
-        join roles r on r.id = ur.role_id
-        where ur.user_id = account.id
-          and r.is_active
-          and r.name in ('Admin', 'Super Admin')
       )
   ) then
     raise exception 'INVALID_CS';

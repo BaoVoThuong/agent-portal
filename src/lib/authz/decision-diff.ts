@@ -202,6 +202,12 @@ export function diffDecisions(access: LegacyAccess, grants: readonly string[]): 
     ["account.manage", has(PERMISSIONS.ACCOUNT_MANAGER), hasGrant(grants, "account.manage")],
     ["role.manage", has(PERMISSIONS.ROLE_MANAGER), hasGrant(grants, "role.manage")],
     ["org.roster", legacyTaskActor.isManager, hasGrant(grants, "org.agent_roster.manage")],
+    // Cũ: SQL assign_unassigned_task + overview-data — task.work, không phải admin.
+    [
+      "task.queue_member",
+      has(PERMISSIONS.TASK_WORK) && !isLegacyAccountAdmin(access),
+      hasGrant(grants, "task.queue.member"),
+    ],
     ["org.delegation", legacyTaskActor.isManager, hasGrant(grants, "org.assistant_delegation.manage")],
     // Người nhận: task_created = mọi người giữ task.manage; leo thang/QC = cột legacy admin.
     ["notify.task_created", has(PERMISSIONS.TASK_MANAGE), hasGrant(grants, "notify.task.created")],
@@ -211,8 +217,6 @@ export function diffDecisions(access: LegacyAccess, grants: readonly string[]): 
     ["lead.assignable", legacyLeadActor.isWorker, lead.canWorkLeads(leadActor)],
   ];
   for (const [decision, legacy, next] of simple) check(decision, legacy, next);
-  // Giữ tham chiếu để quy tắc "admin tài khoản quản lead" không bị xoá nhầm.
-  void isLegacyAccountAdmin;
 
   return out;
 }

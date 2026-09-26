@@ -1,5 +1,6 @@
 "use client";
 
+import { canDelegateGrant } from "@/lib/authz/delegation";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Toast } from "../_shared/Toast";
@@ -93,7 +94,6 @@ export default function RoleManagerClient({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const ceiling = useMemo(() => new Set(currentUserGrants), [currentUserGrants]);
   const ownRoleIds = useMemo(() => new Set(currentUserRoleIds), [currentUserRoleIds]);
 
   const filteredRoles = useMemo(() => {
@@ -142,7 +142,7 @@ export default function RoleManagerClient({
       id: null,
       name: `${role.name} Copy`,
       // Bản sao chỉ giữ những grant mình được phép cấp.
-      grants: role.grants.filter((grant) => ceiling.has(grant)),
+      grants: role.grants.filter((grant) => canDelegateGrant(currentUserGrants, grant)),
     });
   }
 
@@ -161,7 +161,7 @@ export default function RoleManagerClient({
       .flatMap((definition) =>
         definition.scopes.map((scope) => encodeGrant({ action: definition.action, scope }))
       )
-      .filter((grant) => ceiling.has(grant));
+      .filter((grant) => canDelegateGrant(currentUserGrants, grant));
     setForm((current) => {
       if (!current) return current;
       const next = checked
@@ -489,7 +489,7 @@ export default function RoleManagerClient({
                   const groupGrants = group.actions.flatMap((definition) =>
                     definition.scopes.map((scope) => encodeGrant({ action: definition.action, scope }))
                   );
-                  const grantable = groupGrants.filter((grant) => ceiling.has(grant));
+                  const grantable = groupGrants.filter((grant) => canDelegateGrant(currentUserGrants, grant));
                   const selectedCount = groupGrants.filter((grant) => form.grants.includes(grant)).length;
                   const allSelected = grantable.length > 0 && grantable.every((grant) => form.grants.includes(grant));
 
@@ -523,7 +523,7 @@ export default function RoleManagerClient({
                             <div className="flex flex-wrap gap-2">
                               {definition.scopes.map((scope) => {
                                 const grant = encodeGrant({ action: definition.action, scope });
-                                const allowed = ceiling.has(grant);
+                                const allowed = canDelegateGrant(currentUserGrants, grant);
                                 return (
                                   <label
                                     key={grant}

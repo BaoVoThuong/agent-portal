@@ -1,6 +1,6 @@
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { ACTIONS, type Action } from "./catalog";
-import { encodeGrant, hasGrant, normalizeGrants } from "./grants";
+import { ACTIONS, getActionDefinition, type Action } from "./catalog";
+import { decodeGrant, encodeGrant, hasGrant, normalizeGrants } from "./grants";
 
 /**
  * Trần uỷ quyền (audit S4, plan D10): người thao tác chỉ cấp / gán được những
@@ -13,8 +13,20 @@ export function grantsBeyondCeiling(
   actorGrants: readonly string[],
   targetGrants: readonly string[]
 ): string[] {
-  const actor = new Set(actorGrants);
-  return normalizeGrants(targetGrants).filter((grant) => !actor.has(grant));
+  return normalizeGrants(targetGrants).filter((grant) => !canDelegateGrant(actorGrants, grant));
+}
+
+/**
+ * Người này cấp được `grant` cho người khác: đang giữ đúng grant đó, hoặc giữ
+ * action quản lý của một grant "thành viên" (`delegatedBy` trong catalog — vd
+ * quản cấu hình task thì xếp được người vào hàng đợi CS dù bản thân không ở đó).
+ * Dùng chung cho API và lưới Role Manager.
+ */
+export function canDelegateGrant(actorGrants: readonly string[], grant: string): boolean {
+  if (actorGrants.includes(grant)) return true;
+  const decoded = decodeGrant(grant);
+  const manager = decoded ? getActionDefinition(decoded.action)?.delegatedBy : undefined;
+  return Boolean(manager && hasGrant(actorGrants, manager as Action));
 }
 
 /** Mọi grant hợp lệ theo catalog — dùng cho test và lưới Role Manager. */

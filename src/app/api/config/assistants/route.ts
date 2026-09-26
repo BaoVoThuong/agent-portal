@@ -4,7 +4,6 @@ import { fetchTaskAgentCandidates, fetchTaskAgents } from "@/lib/tasks/assignees
 import { loadOrgManager } from "@/lib/table-config/access";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 import { mapAssistantMembershipError } from "@/lib/tasks/membership-mutation";
-import { recordAccessAudit } from "@/lib/authz/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -64,9 +63,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const { error } = await getSupabaseAdmin().rpc("create_agent_membership_atomic", {
+  // Uỷ quyền assistant = cấp quyền chủ trên sổ khách của agent: RPC ghi audit
+  // cùng transaction.
+  const { error } = await getSupabaseAdmin().rpc("add_assistant_delegation_atomic", {
     p_agent_email: agent_email,
     p_cs_email: cs_email,
+    p_actor_account_id: admin.principal.accountId,
+    p_actor_email: admin.principal.email,
   });
   if (error) {
     const mapped = mapAssistantMembershipError(error);
@@ -76,12 +79,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Uỷ quyền assistant = cấp quyền chủ trên sổ khách của agent: ghi audit.
-  await recordAccessAudit({
-    event: "org.assistant_delegation.add",
-    targetType: "assistant_delegation",
-    targetId: `${agent_email}>${cs_email}`,
-  });
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
 }
@@ -104,19 +101,14 @@ export async function DELETE(request: Request) {
     );
   }
 
-  const { error } = await getSupabaseAdmin()
-    .from("agent_members")
-    .delete()
-    .eq("agent_email", agent_email)
-    .eq("cs_email", cs_email)
-    .eq("is_assistant", true);
+  const { error } = await getSupabaseAdmin().rpc("remove_assistant_delegation_atomic", {
+    p_agent_email: agent_email,
+    p_cs_email: cs_email,
+    p_actor_account_id: admin.principal.accountId,
+    p_actor_email: admin.principal.email,
+  });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  await recordAccessAudit({
-    event: "org.assistant_delegation.remove",
-    targetType: "assistant_delegation",
-    targetId: `${agent_email}>${cs_email}`,
-  });
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
 }

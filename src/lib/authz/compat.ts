@@ -21,6 +21,7 @@ import { encodeGrant, normalizeGrants } from "./grants";
  *   2. `shared_queue` được cấp cho mọi người có quyền task; việc TẮT nó khi người
  *      đó có roster/delegation nằm ở policy (`sharedQueueSuppressed`), không ở đây.
  *   3. Legacy admin quản lead không cần `lead.manage`.
+ *   4. Hàng đợi CS (`task.queue.member`) = `task.work` và không phải admin.
  */
 
 export type LegacyAccess = {
@@ -101,6 +102,12 @@ export function deriveCompatGrants(access: LegacyAccess): string[] {
     add("enrollment.overview.read", ["*"]);
     add("org.agent_roster.manage", ["*"]);
     add("org.assistant_delegation.manage", ["*"]);
+  }
+  // Hàng đợi giao việc CS (assign_unassigned_task, bảng workload): người giữ
+  // task.work mà KHÔNG phải admin (cột legacy hoặc role tên Admin/Super Admin) —
+  // đúng bộ lọc cũ trong SQL và overview-data.ts (luật tương thích 4).
+  if (has(PERMISSIONS.TASK_WORK) && !isLegacyAccountAdmin(access)) {
+    add("task.queue.member", ["*"]);
   }
   if (has(PERMISSIONS.TASK_EXPORT)) {
     add("task.export", ["*"]);

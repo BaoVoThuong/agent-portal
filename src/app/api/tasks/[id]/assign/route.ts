@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForAccess } from "@/lib/authz/principal";
+import { getUserAccessByEmail } from "@/lib/rbac/access";
 import { canAssign } from "@/lib/tasks/access";
 import {
   attachAssigneesToTasks,
@@ -50,6 +53,18 @@ export async function POST(request: Request, { params }: Ctx) {
     return NextResponse.json(
       { error: `Assignee is not eligible: ${email}` },
       { status: 400 }
+    );
+  }
+  // Nhận việc từ hàng đợi CS là grant riêng (Phase G). RPC chỉ còn kiểm quan hệ
+  // (roster, assistant, tắt trong hàng đợi) — route này là nơi kiểm grant.
+  const target = await getUserAccessByEmail(email);
+  if (
+    target.lookupFailed ||
+    !hasGrant(await grantsForAccess(target), "task.queue.member")
+  ) {
+    return NextResponse.json(
+      { error: "This person does not take tasks from the CS queue." },
+      { status: 409 }
     );
   }
 

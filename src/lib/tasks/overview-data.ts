@@ -1,4 +1,6 @@
 import { businessDateKey } from "./business-date";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForRoles, loadRoleDefinitions } from "@/lib/authz/principal";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTaskAssigneeRowsForTaskIds } from "./assignees";
 import { resolveReminderSettings } from "./reminder-settings";
@@ -29,16 +31,11 @@ export async function fetchTaskOverview(
 ): Promise<OverviewSnapshot> {
   const supabase = getSupabaseAdmin();
   const recentDoneSince = new Date(now.getTime() - 7 * 24 * 3600_000).toISOString();
-  const [accountsResult, rolesResult, rolePermissionsResult, userRolesResult, agentsResult, membersResult, rotationResult, queueMemberResult, categoryResult, activeTaskResult, recentDoneResult, rulesResult, reminderResult] =
+  const [accountsResult, userRolesResult, agentsResult, membersResult, rotationResult, queueMemberResult, categoryResult, activeTaskResult, recentDoneResult, rulesResult, reminderResult] =
     await Promise.all([
       supabase
         .from("portal_account")
         .select("id,email,name,is_active,role"),
-      supabase.from("roles").select("id,name,is_active"),
-      supabase
-        .from("role_permissions")
-        .select("role_id,permission_key")
-        .in("permission_key", ["task.work", "task.manage"]),
       supabase.from("user_roles").select("user_id,role_id"),
       supabase.from("task_agents").select("email"),
       supabase.from("agent_members").select("agent_email,cs_email,is_assistant"),
@@ -65,8 +62,6 @@ export async function fetchTaskOverview(
 
   const firstError = [
     accountsResult.error,
-    rolesResult.error,
-    rolePermissionsResult.error,
     userRolesResult.error,
     agentsResult.error,
     membersResult.error,
@@ -87,47 +82,33 @@ export async function fetchTaskOverview(
     is_active: boolean;
     role: string;
   }>;
-  const roles = (rolesResult.data ?? []) as Array<{
-    id: string;
-    name: string;
-    is_active: boolean;
-  }>;
-  const rolePermissions = (rolePermissionsResult.data ?? []) as Array<{
-    role_id: string;
-    permission_key: string;
-  }>;
   const userRoles = (userRolesResult.data ?? []) as Array<{
     user_id: string;
     role_id: string;
   }>;
 
-  const activeRoleIds = new Set(
-    roles.filter((role) => role.is_active).map((role) => role.id)
+  // Grant của từng account, suy đúng như phiên đăng nhập (role đang hoạt động +
+  // cột legacy). Thay cho bộ lọc cũ đọc permission `task.work` và TÊN role
+  // "Admin"/"Super Admin" (Phase G).
+  const roleIdsByUser = new Map<string, string[]>();
+  for (const row of userRoles) {
+    roleIdsByUser.set(row.user_id, [...(roleIdsByUser.get(row.user_id) ?? []), row.role_id]);
+  }
+  const roleById = new Map(
+    (await loadRoleDefinitions([...new Set(userRoles.map((row) => row.role_id))])).map(
+      (role) => [role.id, role]
+    )
   );
-  const workRoleIds = new Set(
-    rolePermissions
-      .filter(
-        (row) => row.permission_key === "task.work" && activeRoleIds.has(row.role_id)
-      )
-      .map((row) => row.role_id)
-  );
-  const activeAdminRoleIds = new Set(
-    roles
-      .filter(
-        (role) =>
-          role.is_active && (role.name === "Admin" || role.name === "Super Admin")
-      )
-      .map((role) => role.id)
-  );
-  const workUserIds = new Set(
-    userRoles
-      .filter((row) => workRoleIds.has(row.role_id))
-      .map((row) => row.user_id)
-  );
-  const adminUserIds = new Set(
-    userRoles
-      .filter((row) => activeAdminRoleIds.has(row.role_id))
-      .map((row) => row.user_id)
+  const grantsByUser = new Map(
+    accounts.map((account) => [
+      account.id,
+      grantsForRoles(
+        (roleIdsByUser.get(account.id) ?? [])
+          .map((roleId) => roleById.get(roleId))
+          .filter((role) => role !== undefined),
+        account.role
+      ),
+    ])
   );
   const rotationByEmail = new Map(
     ((rotationResult.data ?? []) as Array<{
@@ -174,7 +155,13 @@ export async function fetchTaskOverview(
   const normalizedAccounts: OverviewAccount[] = accounts.map((account) => {
     const email = normalizeEmail(account.email);
     const rotation = rotationByEmail.get(email);
-    const isAdmin = account.role === "admin" || adminUserIds.has(account.id);
+    const grants = grantsByUser.get(account.id) ?? [];
+    const queueMember = hasGrant(grants, "task.queue.member");
+    // Nhãn "Admin": legacy admin, hoặc người xem mọi task mà không ở hàng đợi CS.
+    // Không bao giờ loại một thành viên hàng đợi khỏi bảng workload — tập đó do
+    // grant task.queue.member quyết định (cùng luật với assign_unassigned_task).
+    const isAdmin =
+      account.role === "admin" || (!queueMember && hasGrant(grants, "task.read", "all"));
     const assistantAgents = assistantAgentsByEmail.get(email) ?? [];
     return {
       email,
@@ -186,7 +173,8 @@ export async function fetchTaskOverview(
         nameByEmail,
       }),
       isActive: account.is_active,
-      canWork: workUserIds.has(account.id),
+      // Nhận việc từ hàng đợi CS chung — cùng grant với assign_unassigned_task.
+      canWork: queueMember,
       isAdmin,
       isAssistant: assistantAgents.length > 0,
       queueDueAt: rotation?.queueDueAt ?? null,

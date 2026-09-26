@@ -81,6 +81,24 @@ begin
   if (select count(*) from access_audit where event = 'account.commission_name') <> 2 then
     raise exception 'thiếu audit tên hoa hồng';
   end if;
+
+  -- Roster / uỷ quyền (Phase G): ghi audit cùng transaction.
+  if not add_task_agent_atomic('cs1@x.com', null, 'admin1@x.com') then raise exception 'thêm roster thất bại'; end if;
+  if add_task_agent_atomic('cs1@x.com', null, 'admin1@x.com') then raise exception 'thêm roster lần hai phải là no-op'; end if;
+  perform add_assistant_delegation_atomic('cs1@x.com', 'admin1@x.com', null, 'admin1@x.com');
+  if not remove_assistant_delegation_atomic('cs1@x.com', 'admin1@x.com', null, 'admin1@x.com') then
+    raise exception 'bỏ uỷ quyền thất bại';
+  end if;
+  perform add_assistant_delegation_atomic('cs1@x.com', 'admin1@x.com', null, 'admin1@x.com');
+  if not remove_task_agent_atomic('cs1@x.com', null, 'admin1@x.com') then raise exception 'bỏ roster thất bại'; end if;
+  if exists (select 1 from agent_members where agent_email = 'cs1@x.com') then
+    raise exception 'bỏ roster phải xoá uỷ quyền của agent';
+  end if;
+  if (select count(*) from access_audit where event like 'org.%') <> 5 then
+    raise exception 'thiếu audit roster/uỷ quyền: %', (select count(*) from access_audit where event like 'org.%');
+  end if;
+  v_failed := false; begin perform add_task_agent_atomic('ghost@x.com', null, null); exception when others then v_failed := sqlerrm = 'AGENT_ACCOUNT_INELIGIBLE'; end;
+  if not v_failed then raise exception 'account không tồn tại không vào roster được'; end if;
 end $$;
 
 select 'authz rpc gate: ok' as result;

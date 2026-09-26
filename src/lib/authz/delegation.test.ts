@@ -28,9 +28,10 @@ describe("grantsBeyondCeiling", () => {
   });
 });
 
-describe("Admin (role hệ thống) nắm MỌI grant trong catalog", () => {
+describe("Admin (role hệ thống) cấp được MỌI grant trong catalog", () => {
   // Nếu test này fail sau khi thêm action mới, Admin sẽ không cấp được action
-  // đó cho ai (trần uỷ quyền): thêm ánh xạ vào deriveCompatGrants.
+  // đó cho ai (trần uỷ quyền): thêm ánh xạ vào deriveCompatGrants, hoặc
+  // `delegatedBy` nếu đó là grant "thành viên" admin không tự giữ.
   it("không grant nào nằm ngoài tầm Admin", () => {
     const adminGrants = grantsForRoles(
       [
@@ -90,5 +91,14 @@ describe("projectLegacyPermissions", () => {
       legacyRole: "agent",
     });
     expect(roundTrip).toEqual(original);
+  });
+});
+
+describe("canDelegateGrant", () => {
+  it("grant thành viên: người quản lý cấp được dù không giữ", () => {
+    expect(grantsBeyondCeiling(["task.config.manage:*"], ["task.queue.member:*"])).toEqual([]);
+    expect(grantsBeyondCeiling(["task.read:assigned"], ["task.queue.member:*"])).toEqual([
+      "task.queue.member:*",
+    ]);
   });
 });

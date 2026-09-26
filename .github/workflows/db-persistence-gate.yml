@@ -59,7 +59,8 @@ jobs:
             2026-09-26-rls-lockdown.sql \
             2026-09-27-authz-phase-b.sql \
             2026-09-28-authz-phase-c.sql \
-            2026-09-29-authz-phase-d.sql
+            2026-09-29-authz-phase-d.sql \
+            2026-09-30-authz-phase-g.sql
           do
             echo "== $f"
             psql -v ON_ERROR_STOP=1 -f "supabase/rollouts/$f"

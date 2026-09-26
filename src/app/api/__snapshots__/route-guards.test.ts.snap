@@ -843,6 +843,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
+      "hasGrant(",
       "canAssign(",
     ],
     "authn": [

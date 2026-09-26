@@ -48,6 +48,12 @@ export type ActionDefinition = {
   scopes: readonly GrantScope[];
   /** Quyền quản trị nhạy cảm: chỉ người đang giữ nó mới cấp được cho người khác. */
   sensitive?: boolean;
+  /**
+   * Grant "thành viên" mà người QUẢN LÝ không tự giữ (vd admin không nằm trong
+   * hàng đợi CS) nhưng vẫn phải cấp được: ai giữ action này thì cấp được grant
+   * này dù không giữ nó (trần uỷ quyền, delegation.ts).
+   */
+  delegatedBy?: string;
   description?: string;
 };
 
@@ -84,6 +90,13 @@ export const ACTIONS = [
   { action: "task.qc_review", label: "QC review tasks", group: "Tasks", scopes: OWNER_SCOPES },
   { action: "task.activity.read", label: "View task activity", group: "Tasks", scopes: OWNER_SCOPES },
   { action: "task.backlog.read", label: "View backlog", group: "Tasks", scopes: [UNSCOPED] },
+  {
+    action: "task.queue.member",
+    label: "Receive tasks from the shared CS queue",
+    group: "Tasks",
+    scopes: [UNSCOPED],
+    delegatedBy: "task.config.manage",
+  },
   { action: "task.overview.read", label: "View workload overview", group: "Tasks", scopes: [UNSCOPED] },
   {
     action: "task.config.manage",

@@ -6,7 +6,7 @@ import {
 } from "@/lib/enrollment/access";
 import { canWorkLeads, canConfigureLeadColumns } from "@/lib/leads/access";
 import { hasGrant } from "@/lib/authz/grants";
-import { grantsForSession } from "@/lib/authz/principal";
+import { getPrincipal, grantsForSession, type Principal } from "@/lib/authz/principal";
 import type { TableScope } from "./types";
 import { leadActorForUser } from "@/lib/leads/actor";
 
@@ -22,15 +22,15 @@ export async function loadConfigActor() {
 export async function loadOrgManager(
   action: "org.agent_roster.manage" | "org.assistant_delegation.manage"
 ): Promise<
-  | { ok: true; actor: EnrollmentActor }
+  | { ok: true; principal: Principal }
   | { ok: false; error: "Unauthorized" | "Forbidden"; status: 401 | 403 }
 > {
-  const actorResult = await loadEnrollmentActor();
-  if (!actorResult.ok) return actorResult;
-  if (!hasGrant(actorResult.actor.grants, action)) {
+  const principal = await getPrincipal();
+  if (!principal) return { ok: false, error: "Unauthorized", status: 401 };
+  if (!hasGrant(principal.grants, action)) {
     return { ok: false, error: "Forbidden", status: 403 };
   }
-  return actorResult;
+  return { ok: true, principal };
 }
 
 export async function loadConfigAdmin(): Promise<
