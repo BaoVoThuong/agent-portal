@@ -106,7 +106,7 @@ export function isHitVisible(
 
   return canViewTask(
     actor,
-    { assignee_email: effectiveAssigneeEmail },
+    { assignee_email: effectiveAssigneeEmail, agent_email: meta.agent_email },
     {
       isAssignee:
         assignees.includes(actor.email) ||
@@ -284,7 +284,7 @@ async function collectVisibleHits<Row, Hit>(params: {
             assignedIds: new Set(),
             participantIds: new Set(),
             assigneeByTask: new Map(),
-            // Only reachable for a manager, who short-circuits in canViewTask.
+            // Only reachable with task.read:all, which short-circuits canViewTask.
             seesAllTasks: false,
           }
         )

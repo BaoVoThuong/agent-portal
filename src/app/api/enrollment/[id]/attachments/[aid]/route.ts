@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadEnrollmentActor } from "@/lib/enrollment/access";
+import { loadEnrollmentActor, holdsEnrollmentScopeAll } from "@/lib/enrollment/access";
 import { removeTaskFile } from "@/lib/enrollment/storage";
 import {
   broadcastEnrollmentRoom,
@@ -43,7 +43,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  if (!actorResult.actor.isManager && attachmentRow.uploaded_by !== actorResult.actor.email) {
+  if (!holdsEnrollmentScopeAll(actorResult.actor, "enrollment.content.update") && attachmentRow.uploaded_by !== actorResult.actor.email) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

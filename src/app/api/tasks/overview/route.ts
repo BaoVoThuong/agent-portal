@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/auth";
-import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
 import { fetchTaskOverview } from "@/lib/tasks/overview-data";
+import { canReadTaskOverview } from "@/lib/tasks/access";
+import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -10,13 +11,11 @@ export async function GET(request: NextRequest) {
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  // Cùng luật với Overview trên client (actor.isManager = task.manage VÀ vai trò
+  // Grant `task.overview.read` (grant tương thích: task.manage VÀ vai trò
   // task-admin). Trước đây API chỉ hỏi tên role, nên role tên "Task Admin" không
   // có task.manage vẫn đọc được workload của mọi người (S8).
-  const actor = buildTaskActor(session.user.permissions, session.user.email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
-  if (!actor.isManager) {
+  const actor = await taskActorForUser(session.user, session.user.email);
+  if (!canReadTaskOverview(actor)) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 

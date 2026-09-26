@@ -1,194 +1,69 @@
 // The ONLY place task-board permission/scope decisions are made. Pure functions
-// (no I/O) so they are fully unit-tested. The company-queue rule that plain-CS
-// see every task is a `seesAllTasks` flag here rather than a separate branch in
-// each route: it used to live only in actorSeesAllTasks()/fetchTasksForActor(),
-// and two of the four read paths (direct GET, search) forgot to apply it. API routes enforce these decisions,
-// and the client uses the same resolver to render matching controls. Identity
-// is by email (no account id in session).
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+// (no I/O) so they are fully unit-tested. API routes enforce these decisions,
+// and the client uses the same resolver to render matching controls.
+//
+// Mọi quyết định đọc GRANT của actor (`action:scope`, audit 2026-09-25 §9) qua
+// `scopeMatches`: có grant ở `all`, hoặc ở một scope mà quan hệ tương ứng đúng
+// với task này. Role chưa chuyển sang grant nhận grant tương thích
+// (`authz/compat.ts`), nên quyết định giữ nguyên như trước — xem test đối chiếu
+// với bản đóng băng `authz/legacy/task-access.ts`.
+//
+// The company-queue rule that plain-CS see every task is the `shared_queue`
+// scope, fed by the `seesAllTasks` flag (resolveTaskQueueScope). Identity is by
+// email.
+import type { Action } from "@/lib/authz/catalog";
+import { hasGrant, scopeMatches, type RelationFacts } from "@/lib/authz/grants";
 import type { TaskActor, TaskRow, TaskStatus } from "./types";
 
-const TASK_ADMIN_ROLE_NAMES = new Set([
-  "Admin Health Task",
-  "Task Admin",
-]);
-
-// Task admin = full Admin/Super Admin, legacy admin, or a task-admin RBAC role.
-// Still deliberately NOT the same as holding task.manage alone: an
-// agent/assistant can keep manage-like task permissions without getting the
-// admin-wide queue/dashboard view unless their role is explicitly listed here.
-export function isTaskViewAdmin(user: {
-  role?: string | null;
-  roles?: readonly string[];
-}): boolean {
-  const roles = user.roles ?? [];
-  return (
-    user.role === "admin" ||
-    roles.includes(SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
-    roles.includes(LEGACY_SUPER_ADMIN_ROLE_NAME) ||
-    roles.some((role) => TASK_ADMIN_ROLE_NAMES.has(role))
-  );
-}
-
-export function buildTaskActor(
-  permissions: readonly string[] | undefined,
-  email: string,
-  opts?: { isAdmin?: boolean }
-): TaskActor {
-  const hasManage = can(permissions, PERMISSIONS.TASK_MANAGE);
+export function taskActorFromGrants(email: string, grants: readonly string[]): TaskActor {
   return {
     email,
-    // Admin view requires BOTH the manage permission and the admin role.
-    isManager: hasManage && Boolean(opts?.isAdmin),
-    // A demoted agent/assistant (manage but not admin) keeps board access.
-    isWorker: can(permissions, PERMISSIONS.TASK_WORK) || hasManage,
+    grants,
+    isManager: hasGrant(grants, "task.read", "all"),
+    isWorker: hasGrant(grants, "task.read"),
   };
 }
 
-export function canAccessBoard(actor: TaskActor): boolean {
-  return actor.isManager || actor.isWorker;
+/** Có `action` ở scope `all` — dùng để bỏ qua các truy vấn quan hệ không cần. */
+export function holdsTaskScopeAll(actor: TaskActor, action: Action): boolean {
+  return hasGrant(actor.grants, action, "all");
 }
 
-// Backlog (unassigned work) is a manager-only view.
-export function canSeeBacklog(actor: TaskActor): boolean {
-  return actor.isManager;
-}
-
-export function canCreateTask(actor: TaskActor): boolean {
-  return actor.isManager;
-}
-
-export function canCreateTaskWithScope(
-  actor: TaskActor,
-  hasAgentScope = false
-): boolean {
-  return actor.isManager || (actor.isWorker && hasAgentScope);
-}
-
-export function canAssign(actor: TaskActor): boolean {
-  return actor.isManager;
-}
-
-export function canManageCategories(actor: TaskActor): boolean {
-  return actor.isManager;
-}
-
-// Manager: any task. Worker: task access comes from resolved flags.
-// `flags` covers additional ways a worker may gain view access:
-//   isAssignee    – caller already resolved assignment externally
-//   isAgentMember – worker assists the task's agent account
-//   isAgentOwner  – worker is the task's customer agent / final QC owner
-//   isParticipant – worker was @mentioned / added as a participant
-//   isReporter    – worker created/reported the task
-//   seesAllTasks  – plain-CS company-wide queue (actorSeesAllTasks). Widens
-//                   READ access only; every mutation helper below keeps reading
-//                   its own specific flags, so the queue never grants edits.
-export function canViewTask(
-  actor: TaskActor,
-  task: Pick<TaskRow, "assignee_email">,
-  flags: {
-    isAssignee?: boolean;
-    isAgentMember?: boolean;
-    isAgentOwner?: boolean;
-    isParticipant?: boolean;
-    isReporter?: boolean;
-    seesAllTasks?: boolean;
-  } = {}
-): boolean {
-  void task;
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return (
-    Boolean(flags.seesAllTasks) ||
-    Boolean(flags.isAssignee) ||
-    Boolean(flags.isAgentMember) ||
-    Boolean(flags.isAgentOwner) ||
-    Boolean(flags.isParticipant) ||
-    Boolean(flags.isReporter)
-  );
-}
-
-export function canReviewDoneTask(
-  actor: TaskActor,
-  flags: { isAgentOwner?: boolean } = {}
-): boolean {
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return Boolean(flags.isAgentOwner);
-}
-
-// Assign/reassign: manager or the task's agent owner (agent themself, or a
-// promoted Assistant — see isAgentOwnerOrAssistant) only. CS assignees are a
-// company pool, so Agent Groups does not restrict who can be assigned.
-export function canAssignToTask(actor: TaskActor, isAgentOwner: boolean): boolean {
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return isAgentOwner;
-}
-
-// Content edit (title/description/priority/category/agent/fub_link, plus
-// task-level attachment uploads): manager, the task's agent owner, or the
-// person who reported (created) the task.
-export function canMutateTask(
-  actor: TaskActor,
-  task: Pick<TaskRow, "assignee_email">,
-  flags: { isAgentOwner?: boolean; isReporter?: boolean } = {}
-): boolean {
-  void task;
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return Boolean(flags.isAgentOwner) || Boolean(flags.isReporter);
-}
+const TASK_RELATION_ACTIONS: readonly Action[] = [
+  "task.read",
+  "task.content.update",
+  "task.due_date.update",
+  "task.status.update",
+  "task.assign",
+  "task.delete",
+  "task.qc_review",
+  "task.activity.read",
+];
 
 /**
- * Sửa Due Date: ai xem được task thì dời được hạn.
- *
- * Trước 2026-09-04 đây là quyền HẸP NHẤT trên task — chỉ agent của task,
- * assistant của agent đó, và admin — với lý do hạn chót là cam kết vận hành của
- * agent. Người dùng chốt lại: mở rộng cho tất cả những ai xem được task, gồm cả
- * người mở task, người được giao, và CS thường thấy task qua hàng đợi
- * company-wide (`seesAllTasks`).
- *
- * Vì vậy hàm này giờ chỉ là `canViewTask`. Giữ tên riêng thay vì xoá đi và dùng
- * thẳng `canView`: chỗ gác trong route và các ô nhập trên UI vẫn nói rõ chúng
- * đang hỏi về Due Date, nên nếu sau này quyền lại tách ra thì chỉ sửa ở đây.
+ * Có scope `all` cho MỌI action theo quan hệ, nên mọi capability đều đúng mà
+ * không cần tra quan hệ nào. Chỉ dùng cho đường tắt tính capability; role chỉ
+ * có một phần `all` phải đi đường tra quan hệ đầy đủ.
  */
-export function canEditTaskDueDate(
-  actor: TaskActor,
-  task: Pick<TaskRow, "assignee_email">,
-  flags: TaskMembershipFlags = {}
-): boolean {
-  return canViewTask(actor, task, flags);
+export function holdsAllTaskScopes(actor: TaskActor): boolean {
+  return TASK_RELATION_ACTIONS.every((action) => holdsTaskScopeAll(actor, action));
 }
 
-// Status transitions (kanban move, position), overdue-unlock, and reopening
-// a Done/Cancel task: manager, the agent owner/Assistant, or whoever is
-// actually assigned the work.
-export function canChangeTaskStatus(
-  actor: TaskActor,
-  task: Pick<TaskRow, "assignee_email">,
-  flags: {
-    isAssignee?: boolean;
-    isAgentOwner?: boolean;
-  } = {}
-): boolean {
-  void task;
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return Boolean(flags.isAssignee) || Boolean(flags.isAgentOwner);
+function sameEmail(a: string | null | undefined, b: string | null | undefined): boolean {
+  const left = a?.trim().toLowerCase() ?? "";
+  return left !== "" && left === (b?.trim().toLowerCase() ?? "");
 }
 
-export function canDeleteTask(actor: TaskActor, isAgentOwner = false): boolean {
-  if (actor.isManager) return true;
-  if (!actor.isWorker) return false;
-  return isAgentOwner;
-}
-
+// Extra ways a worker relates to one task, resolved by the caller:
+//   isAssignee    – caller already resolved assignment externally
+//   isAgentMember – worker is a promoted Assistant of the task's agent
+//   isAgentOwner  – worker is the task's agent, OR an Assistant of that agent
+//                   (isAgentOwnerOrAssistant)
+//   isParticipant – worker was @mentioned / added as a participant
+//   isReporter    – worker created/reported the task
+//   seesAllTasks  – plain-CS company-wide queue (resolveTaskQueueScope). Only
+//                   actions granted at `shared_queue` read it (view, due date),
+//                   so the queue never grants other edits.
 export type TaskMembershipFlags = {
   isAssignee?: boolean;
   isAgentOwner?: boolean;
@@ -197,6 +72,163 @@ export type TaskMembershipFlags = {
   isParticipant?: boolean;
   seesAllTasks?: boolean;
 };
+
+/**
+ * `agent_email` tách `isAgentOwner` thành hai scope: chính agent
+ * (`agent_owned`) hay assistant của agent (`assistant_for_agent`). Người gọi
+ * không truyền `agent_email` thì coi như cả hai — grant tương thích luôn có đủ
+ * hai scope nên quyết định cũ không đổi.
+ */
+export type TaskRef = Pick<TaskRow, "assignee_email"> & { agent_email?: string | null };
+
+export function taskRelationFacts(
+  actor: TaskActor,
+  task: TaskRef,
+  flags: TaskMembershipFlags = {}
+): RelationFacts {
+  const knowsAgent = task.agent_email !== undefined;
+  const isAgentSelf = knowsAgent ? sameEmail(task.agent_email, actor.email) : true;
+  const isAssistantOfAgent = knowsAgent ? !isAgentSelf : true;
+  const owner = Boolean(flags.isAgentOwner);
+  return {
+    assigned: Boolean(flags.isAssignee),
+    reported: Boolean(flags.isReporter),
+    participating: Boolean(flags.isParticipant),
+    agent_owned: owner && isAgentSelf,
+    assistant_for_agent: (owner && isAssistantOfAgent) || Boolean(flags.isAgentMember),
+    shared_queue: Boolean(flags.seesAllTasks),
+  };
+}
+
+function ownerFacts(isAgentOwner: boolean): RelationFacts {
+  return { agent_owned: isAgentOwner, assistant_for_agent: isAgentOwner };
+}
+
+export function canAccessBoard(actor: TaskActor): boolean {
+  return hasGrant(actor.grants, "task.read");
+}
+
+// Backlog (unassigned work).
+export function canSeeBacklog(actor: TaskActor): boolean {
+  return hasGrant(actor.grants, "task.backlog.read");
+}
+
+/** Tạo task cho bất kỳ agent nào. */
+export function canCreateTask(actor: TaskActor): boolean {
+  return hasGrant(actor.grants, "task.create", "all");
+}
+
+/** Tạo task: mọi agent, hoặc agent mình là chính agent / assistant. */
+export function canCreateTaskWithScope(
+  actor: TaskActor,
+  hasAgentScope = false
+): boolean {
+  return scopeMatches(actor.grants, "task.create", ownerFacts(hasAgentScope));
+}
+
+/** Giao task bất kỳ (hàng đợi, bulk). Giao trên một task cụ thể: canAssignToTask. */
+export function canAssign(actor: TaskActor): boolean {
+  return hasGrant(actor.grants, "task.assign", "all");
+}
+
+/** Category, SLA, nhắc việc, hàng đợi giao tự động. */
+export function canManageTaskConfig(actor: TaskActor): boolean {
+  return hasGrant(actor.grants, "task.config.manage");
+}
+
+export function canManageCategories(actor: TaskActor): boolean {
+  return canManageTaskConfig(actor);
+}
+
+/** Overview workload của mọi người. */
+export function canReadTaskOverview(actor: TaskActor): boolean {
+  return hasGrant(actor.grants, "task.overview.read");
+}
+
+export function canViewTask(
+  actor: TaskActor,
+  task: TaskRef,
+  flags: TaskMembershipFlags = {}
+): boolean {
+  return scopeMatches(actor.grants, "task.read", taskRelationFacts(actor, task, flags));
+}
+
+export function canReviewDoneTask(
+  actor: TaskActor,
+  flags: { isAgentOwner?: boolean } = {}
+): boolean {
+  return scopeMatches(actor.grants, "task.qc_review", ownerFacts(Boolean(flags.isAgentOwner)));
+}
+
+// Assign/reassign on one task. CS assignees are a company pool, so Agent Groups
+// does not restrict who can be assigned.
+export function canAssignToTask(actor: TaskActor, isAgentOwner: boolean): boolean {
+  return scopeMatches(actor.grants, "task.assign", ownerFacts(isAgentOwner));
+}
+
+// Content edit (title/description/priority/category/agent/fub_link, plus
+// task-level attachment uploads).
+export function canMutateTask(
+  actor: TaskActor,
+  task: TaskRef,
+  flags: { isAgentOwner?: boolean; isReporter?: boolean } = {}
+): boolean {
+  return scopeMatches(
+    actor.grants,
+    "task.content.update",
+    taskRelationFacts(actor, task, {
+      isAgentOwner: flags.isAgentOwner,
+      isReporter: flags.isReporter,
+    })
+  );
+}
+
+/**
+ * Sửa Due Date. Từ 2026-09-04 ai xem được task thì dời được hạn (grant tương
+ * thích cấp `task.due_date.update` ở đúng các scope của `task.read`). Giữ action
+ * riêng: chỗ gác trong route và ô nhập trên UI vẫn nói rõ chúng hỏi về Due Date,
+ * nên nếu quyền tách ra thì chỉ đổi grant của role.
+ */
+export function canEditTaskDueDate(
+  actor: TaskActor,
+  task: TaskRef,
+  flags: TaskMembershipFlags = {}
+): boolean {
+  return scopeMatches(
+    actor.grants,
+    "task.due_date.update",
+    taskRelationFacts(actor, task, flags)
+  );
+}
+
+// Status transitions (kanban move, position), overdue-unlock, and reopening
+// a Done/Cancel task.
+export function canChangeTaskStatus(
+  actor: TaskActor,
+  task: TaskRef,
+  flags: {
+    isAssignee?: boolean;
+    isAgentOwner?: boolean;
+  } = {}
+): boolean {
+  return scopeMatches(
+    actor.grants,
+    "task.status.update",
+    taskRelationFacts(actor, task, {
+      isAssignee: flags.isAssignee,
+      isAgentOwner: flags.isAgentOwner,
+    })
+  );
+}
+
+export function canDeleteTask(actor: TaskActor, isAgentOwner = false): boolean {
+  return scopeMatches(actor.grants, "task.delete", ownerFacts(isAgentOwner));
+}
+
+/** Xem activity log của task. */
+export function canReadTaskActivity(actor: TaskActor, isAgentOwner: boolean): boolean {
+  return scopeMatches(actor.grants, "task.activity.read", ownerFacts(isAgentOwner));
+}
 
 export type TaskCapabilities = {
   canView: boolean;
@@ -213,17 +245,16 @@ export type TaskCapabilities = {
 // same resolved membership flags, so capabilities cannot drift between layers.
 export function resolveTaskCapabilities(
   actor: TaskActor,
-  task: Pick<TaskRow, "assignee_email">,
+  task: TaskRef,
   flags: TaskMembershipFlags = {}
 ): TaskCapabilities {
-  const canView = canViewTask(actor, task, flags);
   const changeStatus = canChangeTaskStatus(actor, task, {
     isAssignee: flags.isAssignee,
     isAgentOwner: flags.isAgentOwner,
   });
 
   return {
-    canView,
+    canView: canViewTask(actor, task, flags),
     canEditContent: canMutateTask(actor, task, {
       isAgentOwner: flags.isAgentOwner,
       isReporter: flags.isReporter,
@@ -249,10 +280,8 @@ export type CreateAssignmentResult =
   | { ok: false; error: string };
 
 // Enforces the core invariants at creation time:
-//  - A manager, or a worker with agent-scope (owner/Assistant) for the task's
-//    agent, gets free choice from the company CS pool, or backlog — same as a
-//    manager.
-//  - A plain worker cannot create tasks.
+//  - Whoever may create the task (canCreateTaskWithScope) gets free choice from
+//    the company CS pool, or backlog.
 //  - A backlog task must have no assignee; assigning forces status -> 'todo'.
 //  - A non-backlog task must have an assignee.
 export function resolveCreateAssignment(
@@ -260,13 +289,10 @@ export function resolveCreateAssignment(
   input: CreateAssignmentInput,
   opts?: { hasAgentScope?: boolean }
 ): CreateAssignmentResult {
-  const elevated = actor.isManager || Boolean(opts?.hasAgentScope);
-
-  if (!elevated) {
+  if (!canCreateTaskWithScope(actor, Boolean(opts?.hasAgentScope))) {
     return { ok: false, error: "Not allowed to create tasks." };
   }
 
-  // Manager, or agent owner/Assistant creating for their own agent: free choice.
   const assignee = input.assignee_email?.trim() || null;
   if (assignee === null) {
     // Unassigned -> must be backlog.

@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canAssignToTask } from "@/lib/tasks/access";
+import { canAssignToTask, holdsTaskScopeAll } from "@/lib/tasks/access";
 import {
   attachAssigneesToTasks,
   fetchTaskAssigneeEmails,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/tasks/realtime";
 import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
 import type { TaskRow } from "@/lib/tasks/types";
+import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +30,7 @@ async function loadContext(id: string) {
   const actorEmail = session?.user?.email;
   if (!actorEmail) return { error: "Unauthorized" as const, status: 401 };
 
-  const actor = buildTaskActor(session.user.permissions, actorEmail, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, actorEmail);
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")
@@ -42,7 +41,7 @@ async function loadContext(id: string) {
   if (!data) return { error: "Not found", status: 404 };
 
   const task = data as unknown as TaskRow;
-  const isAgentOwner = actor.isManager
+  const isAgentOwner = holdsTaskScopeAll(actor, "task.assign")
     ? false
     : await isAgentOwnerOrAssistant(task.agent_email, actor.email);
   if (!canAssignToTask(actor, isAgentOwner)) {

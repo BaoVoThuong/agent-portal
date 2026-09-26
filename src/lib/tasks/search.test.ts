@@ -4,7 +4,7 @@ import {
   isHitVisible,
   type VisibilityScope,
 } from "@/lib/tasks/search";
-import { buildTaskActor } from "@/lib/tasks/access";
+import { testTaskActor as buildTaskActor } from "@/lib/authz/test-actors";
 
 describe("buildSnippet", () => {
   it("windows around the first match and reports the span", () => {

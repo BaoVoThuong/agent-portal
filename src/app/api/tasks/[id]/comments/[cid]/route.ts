@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
+import { canViewTask } from "@/lib/tasks/access";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { fetchTaskAssignees } from "@/lib/tasks/assignees";
 import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
@@ -16,13 +16,15 @@ import {
 } from "@/lib/tasks/realtime";
 import { removeTaskFile } from "@/lib/tasks/storage";
 import type { TaskRow } from "@/lib/tasks/types";
+import { taskActorForUser } from "@/lib/tasks/actor";
+import type { TaskActor } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string; cid: string }> };
 
 async function canViewResolved(
-  actor: ReturnType<typeof buildTaskActor>,
+  actor: TaskActor,
   task: Pick<TaskRow, "assignee_email" | "agent_email" | "reporter_email">,
   taskId: string
 ): Promise<boolean> {
@@ -50,9 +52,7 @@ async function loadAuthorContext(id: string, cid: string) {
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
 
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, email);
   const supabase = getSupabaseAdmin();
 
   // 2. Load comment (id, author_email, task_id)

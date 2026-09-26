@@ -1,5 +1,6 @@
+import { grantsForAccess } from "@/lib/authz/principal";
 import { getUserAccessByEmails } from "@/lib/rbac/access";
-import { buildTaskActor, canAccessBoard, isTaskViewAdmin } from "@/lib/tasks/access";
+import { canAccessEnrollment, enrollmentActorFromGrants } from "./policy";
 import { isRecordInScope, resolveEnrollmentScope } from "./scope";
 import type { EnrollmentRecordWithStats } from "./types";
 
@@ -33,10 +34,8 @@ export async function filterEnrollmentRecipientsWithAccess(
     unique.map(async (email) => {
       const access = accessByEmail.get(email);
       if (!access || !access.isActive) return false;
-      const actor = buildTaskActor(access.permissions, email, {
-        isAdmin: isTaskViewAdmin({ role: access.legacyRole, roles: access.roles }),
-      });
-      if (!canAccessBoard(actor)) return false;
+      const actor = enrollmentActorFromGrants(email, await grantsForAccess(access));
+      if (!canAccessEnrollment(actor)) return false;
       const scope = await resolveEnrollmentScope(actor);
       return isRecordInScope(scope, record);
     })

@@ -75,7 +75,10 @@ import {
   optionLabel,
 } from "@/lib/enrollment/helpers";
 import { buildEnrollmentSearchHaystack } from "@/lib/enrollment/filtering";
-import { resolveEnrollmentCapabilities } from "@/lib/enrollment/access";
+import {
+  enrollmentActorFromGrants,
+  resolveEnrollmentCapabilities,
+} from "@/lib/enrollment/policy";
 import {
   compareEnrollmentOptionText,
   emptyEnrollmentOptionsBySet,
@@ -717,14 +720,14 @@ function resolveEnrollmentRecordCapabilitiesClient(
     | "created_by_email"
   >,
   currentEmail: string,
-  isManager: boolean,
+  grants: readonly string[],
   agentScopeEmails: readonly string[]
 ) {
   const normalizedActor = normalizeEnrollmentEmail(currentEmail);
   const normalizedAgent = normalizeEnrollmentEmail(record.agent_email);
   const coveredAgents = new Set(agentScopeEmails.map(normalizeEnrollmentEmail));
   return resolveEnrollmentCapabilities(
-    { email: currentEmail, isManager, isWorker: true },
+    enrollmentActorFromGrants(currentEmail, grants),
     {
       isAgentOwner: Boolean(normalizedAgent && coveredAgents.has(normalizedAgent)),
       isCaller:
@@ -755,6 +758,7 @@ export function EnrollmentClient({
   myAssistantAgents,
   defaultToOwnAssignments,
   canManageOptions,
+  grants,
   canExport,
   canImport,
 }: {
@@ -770,6 +774,8 @@ export function EnrollmentClient({
   myAssistantAgents: string[];
   defaultToOwnAssignments: boolean;
   canManageOptions: boolean;
+  /** Grant `enrollment.*` của người xem — client tính capability bằng cùng resolver với server. */
+  grants: readonly string[];
   canExport: boolean;
   /** Quyền RIÊNG, không suy ra từ canExport: Import ghi đè hàng loạt. */
   canImport: boolean;
@@ -1913,7 +1919,7 @@ export function EnrollmentClient({
               optionsBySet={optionsBySet}
               tableColumnOptions={tableColumnOptions}
               currentEmail={currentEmail}
-              isManager={canManageOptions}
+              grants={grants}
               agentScopeEmails={ownedAgentEmails}
               sort={sort}
               onSort={(key) =>
@@ -1949,7 +1955,7 @@ export function EnrollmentClient({
           currentEmail={currentEmail}
           mutationSourceId={liveSourceId}
           highlightCommentId={openCommentId}
-          isManager={canManageOptions}
+          grants={grants}
           agentScopeEmails={ownedAgentEmails}
           onClose={closeRecord}
           onPatch={(patch) => patchRecord(openRecord.id, patch)}
@@ -2397,7 +2403,7 @@ function EnrollmentTable({
   optionsBySet,
   tableColumnOptions,
   currentEmail,
-  isManager,
+  grants,
   agentScopeEmails,
   sort,
   onSort,
@@ -2412,7 +2418,7 @@ function EnrollmentTable({
   optionsBySet: EnrollmentOptionsBySet;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
-  isManager: boolean;
+  grants: readonly string[];
   agentScopeEmails: readonly string[];
   sort: { key: SortKey; dir: SortDir };
   onSort: (key: SortKey) => void;
@@ -2480,7 +2486,7 @@ function EnrollmentTable({
                   optionsBySet={optionsBySet}
                   tableColumnOptions={tableColumnOptions}
                   currentEmail={currentEmail}
-                  isManager={isManager}
+                  grants={grants}
                   agentScopeEmails={agentScopeEmails}
                   onOpen={onOpen}
                   onPatch={onPatch}
@@ -2503,7 +2509,7 @@ function EnrollmentRowItem({
   optionsBySet,
   tableColumnOptions,
   currentEmail,
-  isManager,
+  grants,
   agentScopeEmails,
   onOpen,
   onPatch,
@@ -2516,7 +2522,7 @@ function EnrollmentRowItem({
   optionsBySet: EnrollmentOptionsBySet;
   tableColumnOptions: TableColumnOption[];
   currentEmail: string;
-  isManager: boolean;
+  grants: readonly string[];
   agentScopeEmails: readonly string[];
   onOpen: (id: string) => void;
   onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
@@ -2542,7 +2548,7 @@ function EnrollmentRowItem({
   const capabilities = resolveEnrollmentRecordCapabilitiesClient(
     record,
     currentEmail,
-    isManager,
+    grants,
     agentScopeEmails
   );
 
@@ -3563,7 +3569,7 @@ function EnrollmentDrawer({
   currentEmail,
   mutationSourceId,
   highlightCommentId,
-  isManager,
+  grants,
   agentScopeEmails,
   onClose,
   onPatch,
@@ -3585,7 +3591,7 @@ function EnrollmentDrawer({
   currentEmail: string;
   mutationSourceId: string;
   highlightCommentId?: string | null;
-  isManager: boolean;
+  grants: readonly string[];
   agentScopeEmails: readonly string[];
   onClose: () => void;
   onPatch: (patch: Record<string, unknown>) => Promise<void>;
@@ -3636,7 +3642,7 @@ function EnrollmentDrawer({
   const capabilities = resolveEnrollmentRecordCapabilitiesClient(
     record,
     currentEmail,
-    isManager,
+    grants,
     agentScopeEmails
   );
   // Medicare's real data has no Payment/Consent/Platform/AC concepts and a

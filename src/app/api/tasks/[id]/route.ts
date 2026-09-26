@@ -3,11 +3,11 @@ import { TASK_DUE_DATE_KEY } from "@/lib/tasks/due-date";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
-  buildTaskActor,
-  isTaskViewAdmin,
   canDeleteTask,
   resolveTaskCapabilities,
   type TaskCapabilities,
+  holdsAllTaskScopes,
+  holdsTaskScopeAll,
 } from "@/lib/tasks/access";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import { isPriorityEnabledForCategory } from "@/lib/tasks/priority-availability";
@@ -58,6 +58,8 @@ import {
   isTaskCategoryId,
   mapTaskCategoryMutationError,
 } from "@/lib/tasks/category-mutation";
+import { taskActorForUser } from "@/lib/tasks/actor";
+import type { TaskActor } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
 
@@ -131,7 +133,7 @@ function patchCapabilityError(
 }
 
 async function resolveTaskAccess(
-  actor: ReturnType<typeof buildTaskActor>,
+  actor: TaskActor,
   task: Pick<TaskRow, "assignee_email" | "agent_email" | "reporter_email">,
   taskId: string
 ): Promise<{
@@ -143,7 +145,7 @@ async function resolveTaskAccess(
   isReporter: boolean;
   seesAllTasks: boolean;
 }> {
-  if (actor.isManager) {
+  if (holdsAllTaskScopes(actor)) {
     const capabilities = resolveTaskCapabilities(actor, task, {});
     return {
       canView: capabilities.canView,
@@ -193,9 +195,7 @@ async function loadActorAndTask(id: string) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, email);
 
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
@@ -692,7 +692,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
   const { id } = await params;
   const r = await loadActorAndTask(id);
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  const isAgentOwner = r.actor.isManager
+  const isAgentOwner = holdsTaskScopeAll(r.actor, "task.delete")
     ? false
     : await isAgentOwnerOrAssistant(r.task.agent_email, r.actor.email);
   if (!canDeleteTask(r.actor, isAgentOwner))

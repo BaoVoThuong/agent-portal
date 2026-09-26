@@ -41,7 +41,7 @@ import {
   SLA_CONFIG_TOPIC,
   TABLE_CONFIG_TOPIC,
 } from "@/lib/table-config/realtime-topics";
-import { resolveTaskCapabilities } from "@/lib/tasks/access";
+import { resolveTaskCapabilities, taskActorFromGrants } from "@/lib/tasks/access";
 import { ChevronDown, Download, Loader2, Plus } from "lucide-react";
 import {
   TASK_PRIORITIES,
@@ -145,6 +145,7 @@ export function TaskBoardClient({
   isManager,
   seesAllTasks,
   currentEmail,
+  grants,
   assignees,
   agents,
   agentCandidates,
@@ -168,6 +169,8 @@ export function TaskBoardClient({
   /** CS thường nhìn hàng đợi company-wide — cùng cờ server dùng cho quyền xem. */
   seesAllTasks: boolean;
   currentEmail: string;
+  /** Grant `task.*` của người xem — client tính capability bằng cùng resolver với server. */
+  grants: readonly string[];
   assignees: TaskAssignee[];
   agents: TaskAgent[];
   agentCandidates: TaskAgent[];
@@ -1416,10 +1419,15 @@ export function TaskBoardClient({
     );
   }
 
+  const viewer = useMemo(
+    () => taskActorFromGrants(currentEmail, grants),
+    [currentEmail, grants]
+  );
+
   function capabilitiesFor(task: TaskRow) {
     return resolveTaskCapabilities(
-      { email: currentEmail, isManager, isWorker: true },
-      { assignee_email: task.assignees[0] ?? task.assignee_email },
+      viewer,
+      { assignee_email: task.assignees[0] ?? task.assignee_email, agent_email: task.agent_email },
       {
         isAssignee: task.assignees.includes(currentEmail),
         isAgentOwner: isAgentOwnerOrAssistantOf(task.agent_email),
@@ -2176,7 +2184,7 @@ export function TaskBoardClient({
           categories={categories}
           assignees={assignees}
           agents={agents}
-          isManager={isManager}
+          grants={grants}
           seesAllTasks={seesAllTasks}
           myAssistantAgents={myAssistantAgents}
           agentMembersByAgent={agentMembersByAgent}

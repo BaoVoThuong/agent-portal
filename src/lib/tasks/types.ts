@@ -109,10 +109,15 @@ export type TaskSlaRule = {
   updated_at?: string | null;
 };
 
-// Derived from the session; the only source of truth for permissions.
+// Dựng từ grant của principal (`taskActorFromGrants`). Mọi quyết định đọc
+// `grants`; hai cờ boolean chỉ là tóm tắt cho đường truy vấn và UI.
 export type TaskActor = {
   email: string;
+  /** Grant hiệu lực `action:scope` — nguồn duy nhất của quyết định. */
+  grants: readonly string[];
+  /** `task.read:all`: xem mọi task. */
   isManager: boolean;
+  /** `task.read` ở bất kỳ scope nào: vào được board. */
   isWorker: boolean;
 };
 

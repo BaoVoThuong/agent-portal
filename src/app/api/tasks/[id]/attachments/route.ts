@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canViewTask, canMutateTask } from "@/lib/tasks/access";
+import { canViewTask, canMutateTask } from "@/lib/tasks/access";
 import { fetchTaskAssigneeEmails, isTaskAssignee } from "@/lib/tasks/assignees";
 import {
   buildStoragePath,
@@ -34,6 +34,8 @@ import {
   validateAttachmentFile,
 } from "@/lib/tasks/attachments";
 import { checkOperationLimits } from "@/lib/tasks/attachment-limits";
+import { taskActorForUser } from "@/lib/tasks/actor";
+import type { TaskActor } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +45,7 @@ const UUID_RE =
 
 // View access including agent membership and participants.
 async function canViewResolved(
-  actor: ReturnType<typeof buildTaskActor>,
+  actor: TaskActor,
   task: Pick<TaskRow, "assignee_email" | "agent_email" | "reporter_email">,
   taskId: string
 ): Promise<boolean> {
@@ -70,9 +72,7 @@ async function loadActorAndTask(id: string) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, email);
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("tasks")

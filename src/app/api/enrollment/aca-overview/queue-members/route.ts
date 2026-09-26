@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadEnrollmentActor } from "@/lib/enrollment/access";
+import { loadEnrollmentActor, canManageEnrollmentOptions } from "@/lib/enrollment/access";
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import { parseEnrollmentProgram } from "@/lib/enrollment/types";
 export const dynamic = "force-dynamic";
 export async function PATCH(request: Request) {
   const actor = await loadEnrollmentActor();
   if (!actor.ok) return NextResponse.json({ error: actor.error }, { status: actor.status });
-  if (!actor.actor.isManager) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!canManageEnrollmentOptions(actor.actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const body = await request.json().catch(() => null);
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   const program = typeof body?.program === "string" ? parseEnrollmentProgram(body.program) : "aca";

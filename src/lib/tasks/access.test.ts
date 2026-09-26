@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { isLegacyTaskAdminRole } from "@/lib/authz/compat";
+import { testTaskActor as buildTaskActor } from "@/lib/authz/test-actors";
 import {
-  buildTaskActor,
-  isTaskViewAdmin,
   canAccessBoard,
   canSeeBacklog,
   canCreateTask,
@@ -52,6 +52,10 @@ describe("buildTaskActor", () => {
     expect(a.isWorker).toBe(true);
   });
 });
+
+// Luật tên role task-admin nay chỉ còn trong grant tương thích (compat.ts).
+const isTaskViewAdmin = (user: { role?: string; roles?: string[] }) =>
+  isLegacyTaskAdminRole({ roles: user.roles ?? [], legacyRole: user.role });
 
 describe("isTaskViewAdmin", () => {
   it("true for legacy admin role or admin/task-admin RBAC roles", () => {

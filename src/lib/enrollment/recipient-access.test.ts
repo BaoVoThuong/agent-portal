@@ -12,6 +12,16 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 vi.mock("@/lib/rbac/access", () => ({ getUserAccessByEmails: accessMock }));
+vi.mock("@/lib/authz/principal", async () => {
+  const { deriveCompatGrants } = await import("@/lib/authz/compat");
+  // Role chưa chuyển: grant = grant tương thích từ permission + tên role.
+  return {
+    grantsForAccess: async (a: UserAccess) =>
+      a.isActive
+        ? deriveCompatGrants({ permissions: a.permissions, roles: a.roles, legacyRole: a.legacyRole })
+        : [],
+  };
+});
 vi.mock("./scope", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./scope")>();
   return { ...actual, resolveEnrollmentScope: resolveScopeMock };

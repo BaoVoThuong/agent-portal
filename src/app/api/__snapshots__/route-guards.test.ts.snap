@@ -34,7 +34,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canManageTaskConfig(",
     ],
     "authn": [
       "auth()",
@@ -45,7 +45,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   {
     "action": [
       "canAccessBoard(",
-      ".isManager",
+      "canManageTaskConfig(",
     ],
     "authn": [
       "auth()",
@@ -374,7 +374,6 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
       "loadEnrollmentActor(",
     ],
     "authn": [
@@ -488,7 +487,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canManageEnrollmentOptions(",
       "loadEnrollmentActor(",
     ],
     "authn": [
@@ -499,7 +498,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canReadEnrollmentOverview(",
       "loadEnrollmentActor(",
     ],
     "authn": [
@@ -567,7 +566,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canReadEnrollmentOverview(",
       "loadEnrollmentActor(",
     ],
     "authn": [
@@ -580,7 +579,6 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
       "loadEnrollmentActor(",
     ],
     "authn": [
@@ -833,6 +831,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
+      "canReadTaskActivity(",
       ".isManager",
     ],
     "authn": [
@@ -857,7 +856,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canAssignToTask(",
     ],
     "authn": [
       "auth()",
@@ -869,7 +868,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canAssignToTask(",
     ],
     "authn": [
       "auth()",
@@ -969,7 +968,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canReadTaskActivity(",
     ],
     "authn": [
       "auth()",
@@ -981,7 +980,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canChangeTaskStatus(",
     ],
     "authn": [
       "auth()",
@@ -993,7 +992,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canChangeTaskStatus(",
     ],
     "authn": [
       "auth()",
@@ -1005,7 +1004,8 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canDeleteTask(",
+      "resolveTaskCapabilities(",
     ],
     "authn": [
       "auth()",
@@ -1028,7 +1028,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canManageTaskConfig(",
     ],
     "authn": [
       "auth()",
@@ -1102,7 +1102,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      ".isManager",
+      "canReadTaskOverview(",
     ],
     "authn": [
       "auth()",
@@ -1113,7 +1113,6 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   {
     "action": [
       "canAccessBoard(",
-      ".isManager",
     ],
     "authn": [
       "auth()",

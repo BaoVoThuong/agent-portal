@@ -184,7 +184,6 @@ export async function principalFromSessionUser(user: SessionUserLike): Promise<P
   const email = user.email?.trim();
   if (!email) return null;
   const roleIds = user.roleIds ?? [];
-  const roles = await loadRoleDefinitions(roleIds);
   return {
     accountId: user.accountId ?? null,
     email,
@@ -192,8 +191,30 @@ export async function principalFromSessionUser(user: SessionUserLike): Promise<P
     roleIds,
     roles: user.roles ?? [],
     permissions: user.permissions ?? [],
-    grants: grantsForRoles(roles, user.role),
+    // Phiên tạo trước Phase B chưa mang `roleIds`: suy tương thích từ permission
+    // + tên role có sẵn trong JWT (đúng dữ liệu các hàm cũ đọc) cho tới lần làm
+    // mới quyền kế tiếp — jwt callback làm mới ngay những phiên này.
+    grants: user.roleIds
+      ? grantsForRoles(await loadRoleDefinitions(roleIds), user.role)
+      : deriveCompatGrants({
+          permissions: user.permissions ?? [],
+          roles: user.roles ?? [],
+          legacyRole: user.role,
+        }),
   };
+}
+
+/**
+ * Grant của MỘT account khác (người nhận thông báo, người được giao lead), từ
+ * kết quả `getUserAccess*`. Account không active thì không có grant nào.
+ */
+export async function grantsForAccess(access: {
+  isActive: boolean;
+  legacyRole: string | null | undefined;
+  roleIds: readonly string[];
+}): Promise<string[]> {
+  if (!access.isActive) return [];
+  return grantsForRoles(await loadRoleDefinitions(access.roleIds), access.legacyRole);
 }
 
 /** Principal của request hiện tại (một lần mỗi request). */

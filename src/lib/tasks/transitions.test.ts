@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveTaskPatch } from "@/lib/tasks/transitions";
-import { buildTaskActor } from "@/lib/tasks/access";
+import { testTaskActor as buildTaskActor } from "@/lib/authz/test-actors";
 import { hasBeenParked, isSlaActiveInProgress } from "@/lib/tasks/sla";
 
 const manager = buildTaskActor(["task.manage"], "mgr@x.com", { isAdmin: true });

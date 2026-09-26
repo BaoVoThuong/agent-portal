@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canChangeTaskStatus } from "@/lib/tasks/access";
+import { canChangeTaskStatus, holdsTaskScopeAll } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import {
   fetchAdminEmails,
@@ -21,6 +21,7 @@ import {
   readTaskMutationSourceId,
 } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
+import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -41,9 +42,7 @@ export async function POST(req: Request, { params }: Ctx) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, email);
 
   const body = await req.json().catch(() => null);
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
@@ -68,8 +67,9 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const task = data as unknown as TaskRow;
 
-  const isAssignee = actor.isManager ? false : await isTaskAssignee(id, actor.email, supabase);
-  const isAgentOwner = actor.isManager
+  const skipRelations = holdsTaskScopeAll(actor, "task.status.update");
+  const isAssignee = skipRelations ? false : await isTaskAssignee(id, actor.email, supabase);
+  const isAgentOwner = skipRelations
     ? false
     : await isAgentOwnerOrAssistant(task.agent_email, actor.email);
   if (!canChangeTaskStatus(actor, task, { isAssignee, isAgentOwner })) {

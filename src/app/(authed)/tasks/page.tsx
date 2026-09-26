@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import {
   fetchTaskAgentCandidates,
@@ -19,6 +18,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import { canActorExport } from "@/lib/table-config/export-access";
 import type { TaskCategory } from "@/lib/tasks/types";
+import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +32,7 @@ export default async function TasksPage() {
     PERMISSIONS.TASK_WORK,
   ]);
   const email = session.user.email ?? "";
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, email);
 
   // Wave 1 — every independent fetch in parallel (was ~7 sequential awaits).
   const [
@@ -86,7 +84,7 @@ export default async function TasksPage() {
   ];
   const agentMembersByAgent = await fetchCsForAgents(agentEmailsForMembers);
   const boardTitle = getTaskBoardTitle({
-    isAdmin: isTaskViewAdmin(session.user),
+    isAdmin: actor.isManager,
     isTaskAgent: agents.some((agent) => agent.email === email),
     isAssistant: myAssistantAgents.length > 0,
   });
@@ -101,6 +99,7 @@ export default async function TasksPage() {
       isManager={actor.isManager}
       seesAllTasks={seesAllTasks}
       currentEmail={email}
+      grants={actor.grants.filter((grant) => grant.startsWith("task."))}
       assignees={assignees}
       agents={agents}
       agentCandidates={agentCandidates}

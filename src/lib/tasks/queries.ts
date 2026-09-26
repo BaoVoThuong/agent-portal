@@ -1,3 +1,5 @@
+import type { GrantScope } from "@/lib/authz/catalog";
+import { grantedScopes } from "@/lib/authz/grants";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   LIST_ENRICH_CONCURRENCY,
@@ -133,16 +135,21 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
       participantIds: string[];
     }
     | null = null;
-  // Manager and plain-CS see the shared company queue. Agent/assistant users
-  // keep the narrower agent-scope view.
+  // `task.read:all` and plain-CS (`shared_queue`) see the shared company
+  // queue. Agent/assistant users keep the narrower agent-scope view.
   let seeAll = actor.isManager;
   if (!actor.isManager) {
     const scope = await resolveTaskQueueScope(actor);
     seeAll = scope.seesAllTasks;
     if (!seeAll) {
+      const readScopes = grantedScopes(actor.grants, "task.read");
       const [assignedIds, participantIds] = await Promise.all([
-        fetchAssignedTaskIdsForEmail(actor.email, supabase),
-        fetchParticipantTaskIds(actor.email),
+        readScopes.includes("assigned")
+          ? fetchAssignedTaskIdsForEmail(actor.email, supabase)
+          : Promise.resolve<string[]>([]),
+        readScopes.includes("participating")
+          ? fetchParticipantTaskIds(actor.email)
+          : Promise.resolve<string[]>([]),
       ]);
       workerScope = {
         agents: scope.agentEmails,
@@ -156,7 +163,9 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
   // Một chỗ dựng mệnh đề phạm vi cho cả truy vấn chính lẫn nhánh legacy. Trước
   // đây nó được viết hai lần — inline ở đây và trong buildWorkerTaskOrs — nên
   // hai bản có thể trôi lệch nhau mà không ai thấy.
-  const scopedOrs = seeAll ? null : buildWorkerTaskOrs(actor.email, workerScope);
+  const scopedOrs = seeAll
+    ? null
+    : buildWorkerTaskOrs(actor.email, workerScope, grantedScopes(actor.grants, "task.read"));
   if (scopedOrs && scopedOrs.length > 0) {
     const bytes = Buffer.byteLength(scopedOrs.join(","), "utf8");
     if (bytes > SCOPE_FILTER_MAX_BYTES) {
@@ -245,7 +254,7 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
     }))
     .filter((task) => {
       const effectiveAssigneeEmail = task.assignees[0] ?? task.assignee_email;
-      return canViewTask(actor, { assignee_email: effectiveAssigneeEmail }, {
+      return canViewTask(actor, { assignee_email: effectiveAssigneeEmail, agent_email: task.agent_email }, {
         isAssignee:
           task.assignees.includes(actor.email) ||
           task.assignee_email === actor.email,
@@ -472,7 +481,14 @@ function countRowsByTask(rows: Array<{ task_id: string }>): Map<string, number> 
   return counts;
 }
 
-function buildWorkerTaskOrs(
+/**
+ * Mệnh đề phạm vi SQL, chỉ gồm các scope `task.read` người này được cấp — để
+ * đếm, phân trang và cắt trần chạy trên đúng tập họ được xem (§I.3):
+ * `assigned` → assignee; `agent_owned` → agent_email = tôi; `reported` →
+ * reporter; `assistant_for_agent` → agent tôi được uỷ quyền; `participating` →
+ * task có tôi là participant. `canViewTask` vẫn lọc lại ở Node.
+ */
+export function buildWorkerTaskOrs(
   email: string,
   workerScope:
     | {
@@ -481,16 +497,17 @@ function buildWorkerTaskOrs(
         assignedIds: string[];
         participantIds: string[];
       }
-    | null
+    | null,
+  readScopes: readonly GrantScope[]
 ): string[] {
   const quotedEmail = quotePostgrestFilterValue(email);
   const ors: string[] = [
-    `assignee_email.eq.${quotedEmail}`,
-    `agent_email.eq.${quotedEmail}`,
-    `reporter_email.eq.${quotedEmail}`,
+    ...(readScopes.includes("assigned") ? [`assignee_email.eq.${quotedEmail}`] : []),
+    ...(readScopes.includes("agent_owned") ? [`agent_email.eq.${quotedEmail}`] : []),
+    ...(readScopes.includes("reported") ? [`reporter_email.eq.${quotedEmail}`] : []),
   ];
   if (!workerScope) return ors;
-  if (workerScope.agents.length > 0) {
+  if (readScopes.includes("assistant_for_agent") && workerScope.agents.length > 0) {
     ors.push(
       `agent_email.in.(${workerScope.agents.map(quotePostgrestFilterValue).join(",")})`
     );

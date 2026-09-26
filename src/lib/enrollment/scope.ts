@@ -3,12 +3,41 @@ import {
   fetchAgentsForCs,
   fetchAssistantAgentsForCs,
 } from "@/lib/tasks/membership";
+import { grantedScopes, hasGrant } from "@/lib/authz/grants";
 import type { EnrollmentActor } from "./access";
 import type { EnrollmentRecordWithStats } from "./types";
 
+/** Cột nhận diện người xem trên hồ sơ, theo scope: reported / assigned. */
+export type EnrollmentViewerColumn =
+  | "created_by_email"
+  | "caller_email"
+  | "responsible_enroll_email";
+
+const ALL_VIEWER_COLUMNS: readonly EnrollmentViewerColumn[] = [
+  "created_by_email",
+  "caller_email",
+  "responsible_enroll_email",
+];
+
 export type EnrollmentScope =
   | { seeAll: true }
-  | { seeAll: false; agentEmails: string[]; viewerEmail: string };
+  | {
+      seeAll: false;
+      agentEmails: string[];
+      viewerEmail: string;
+      /** Thiếu = cả ba cột (hình dạng cũ). */
+      viewerColumns?: readonly EnrollmentViewerColumn[];
+    };
+
+function viewerColumnsFor(actor: EnrollmentActor): EnrollmentViewerColumn[] {
+  const scopes = grantedScopes(actor.grants, "enrollment.read");
+  return [
+    ...(scopes.includes("reported") ? (["created_by_email"] as const) : []),
+    ...(scopes.includes("assigned")
+      ? (["caller_email", "responsible_enroll_email"] as const)
+      : []),
+  ];
+}
 
 type ScopeableQuery = {
   eq: (column: string, value: unknown) => unknown;
@@ -29,20 +58,26 @@ function quoteFilterValue(value: string): string {
 }
 
 /**
- * Managers and plain workers see the shared queue. Agents and promoted
- * assistants are restricted to records owned by agents they cover, plus
- * records where they are the creator, caller, or responsible enrollment
- * owner.
+ * Phạm vi đọc Enrollment, theo grant `enrollment.read`:
+ *   - `all` → mọi hồ sơ;
+ *   - `shared_queue` → mọi hồ sơ, NHƯNG chỉ khi người này không phải agent
+ *     roster cũng không là assistant (compat D7: agent/assistant bị thu về hồ
+ *     sơ của agent mình);
+ *   - còn lại: hồ sơ của chính mình (`agent_owned`), của agent mình là
+ *     assistant (`assistant_for_agent`), và hồ sơ mình tạo (`reported`) / gọi
+ *     hoặc phụ trách (`assigned`).
  */
 export async function resolveEnrollmentScope(
   actor: EnrollmentActor
 ): Promise<EnrollmentScope> {
-  if (actor.isManager) return { seeAll: true };
+  if (hasGrant(actor.grants, "enrollment.read", "all")) return { seeAll: true };
+  const normalizedActor = normalize(actor.email);
   if (!actor.isWorker) {
     return {
       seeAll: false,
       agentEmails: [],
-      viewerEmail: normalize(actor.email),
+      viewerEmail: normalizedActor,
+      viewerColumns: [],
     };
   }
 
@@ -50,24 +85,29 @@ export async function resolveEnrollmentScope(
     fetchSelectedAgentEmails(),
     fetchAssistantAgentsForCs(actor.email),
   ]);
-  const normalizedActor = normalize(actor.email);
   const isAgent = [...selectedAgentEmails].some(
     (email) => normalize(email) === normalizedActor
   );
   const isAssistant = assistantAgents.length > 0;
-  if (!isAgent && !isAssistant) return { seeAll: true };
+  if (
+    !isAgent &&
+    !isAssistant &&
+    hasGrant(actor.grants, "enrollment.read", "shared_queue")
+  ) {
+    return { seeAll: true };
+  }
 
-  const covered = await fetchAgentsForCs(actor.email);
+  const covered = hasGrant(actor.grants, "enrollment.read", "assistant_for_agent")
+    ? [...assistantAgents, ...(await fetchAgentsForCs(actor.email))]
+    : [];
+  const ownsOwn = isAgent && hasGrant(actor.grants, "enrollment.read", "agent_owned");
   return {
     seeAll: false,
     viewerEmail: normalizedActor,
+    viewerColumns: viewerColumnsFor(actor),
     agentEmails: [
       ...new Set(
-        [
-          ...(isAgent ? [actor.email] : []),
-          ...assistantAgents,
-          ...covered,
-        ]
+        [...(ownsOwn ? [actor.email] : []), ...covered]
           .map(normalize)
           .filter(Boolean)
       ),
@@ -88,13 +128,10 @@ export function isRecordInScope(
 ): boolean {
   if (scope.seeAll) return true;
   const viewerEmail = normalize(scope.viewerEmail);
+  const columns = scope.viewerColumns ?? ALL_VIEWER_COLUMNS;
   if (
     viewerEmail &&
-    [
-      record.created_by_email,
-      record.caller_email,
-      record.responsible_enroll_email,
-    ].some((email) => normalize(email) === viewerEmail)
+    columns.some((column) => normalize(record[column]) === viewerEmail)
   ) {
     return true;
   }
@@ -128,11 +165,9 @@ export function applyEnrollmentScope<TQuery>(
   const viewerEmail = normalize(scope.viewerEmail);
   if (viewerEmail) {
     const quotedViewer = quoteFilterValue(viewerEmail);
-    filters.push(
-      `created_by_email.eq.${quotedViewer}`,
-      `caller_email.eq.${quotedViewer}`,
-      `responsible_enroll_email.eq.${quotedViewer}`
-    );
+    for (const column of scope.viewerColumns ?? ALL_VIEWER_COLUMNS) {
+      filters.push(`${column}.eq.${quotedViewer}`);
+    }
   }
   if (filters.length === 0) {
     return scopeable.eq("id", NO_SCOPE_RECORD_ID) as TQuery;

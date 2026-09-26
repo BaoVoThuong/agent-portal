@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
 import {
   isReminderSettingKey,
   isReminderSettingValueInBounds,
   resolveReminderSettings,
   type ReminderSettingKey,
 } from "@/lib/tasks/reminder-settings";
+import { canManageTaskConfig } from "@/lib/tasks/access";
+import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -57,10 +58,8 @@ async function requireManager(): Promise<
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
-  if (!actor.isManager) {
+  const actor = await taskActorForUser(session.user, email);
+  if (!canManageTaskConfig(actor)) {
     return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 403 }) };
   }
   return { ok: true };

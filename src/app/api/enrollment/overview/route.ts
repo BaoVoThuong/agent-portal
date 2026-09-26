@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadEnrollmentActor } from "@/lib/enrollment/access";
+import { loadEnrollmentActor, canReadEnrollmentOverview } from "@/lib/enrollment/access";
 import { fetchEnrollmentOverview } from "@/lib/enrollment/overview-data";
 import { parseEnrollmentProgram } from "@/lib/enrollment/types";
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   if (!actorResult.ok) {
     return NextResponse.json({ error: actorResult.error }, { status: actorResult.status });
   }
-  if (!actorResult.actor.isManager) {
+  if (!canReadEnrollmentOverview(actorResult.actor)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

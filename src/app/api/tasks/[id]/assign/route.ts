@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canAssign, isTaskViewAdmin } from "@/lib/tasks/access";
+import { canAssign } from "@/lib/tasks/access";
 import {
   attachAssigneesToTasks,
   isEligibleTaskAssigneeEmail,
@@ -15,6 +15,7 @@ import {
 import { TASK_COLUMNS } from "@/lib/tasks/queries";
 import type { TaskRow } from "@/lib/tasks/types";
 import { settleSideEffects } from "@/lib/tasks/mutation-result";
+import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +37,7 @@ export async function POST(request: Request, { params }: Ctx) {
   // security-definer RPC that only validates the assignee, never p_actor_email,
   // so this route is the sole gate. Resolve the actor the same way the sibling
   // /assignees route does.
-  const actor = buildTaskActor(session.user.permissions, actorEmail, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, actorEmail);
   if (!canAssign(actor)) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testTaskActor } from "@/lib/authz/test-actors";
 import { groupAssistantMembers } from "./membership";
 
 describe("groupAssistantMembers", () => {
@@ -52,11 +53,7 @@ describe("membership lookups fail closed", () => {
   it("does not hand the company queue to an actor whose lookup failed", async () => {
     const mod = await loadWith({ message: "statement timeout" });
     await expect(
-      mod.actorSeesAllTasks({
-        email: "assistant@x.com",
-        isManager: false,
-        isWorker: true,
-      })
+      mod.actorSeesAllTasks(testTaskActor(["task.work"], "assistant@x.com"))
     ).rejects.toThrow("statement timeout");
   });
 

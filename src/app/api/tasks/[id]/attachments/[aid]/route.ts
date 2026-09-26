@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
+import { canViewTask, holdsTaskScopeAll } from "@/lib/tasks/access";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
 import { isTaskParticipant } from "@/lib/tasks/participants";
@@ -13,13 +13,15 @@ import {
   readTaskMutationSourceId,
 } from "@/lib/tasks/realtime";
 import type { TaskRow } from "@/lib/tasks/types";
+import { taskActorForUser } from "@/lib/tasks/actor";
+import type { TaskActor } from "@/lib/tasks/types";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string; aid: string }> };
 
 async function canViewResolved(
-  actor: ReturnType<typeof buildTaskActor>,
+  actor: TaskActor,
   task: Pick<TaskRow, "assignee_email" | "agent_email" | "reporter_email">,
   taskId: string
 ): Promise<boolean> {
@@ -46,9 +48,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, email);
 
   const supabase = getSupabaseAdmin();
   const { data: task } = await supabase
@@ -81,7 +81,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Uploader or manager only.
-  if (!actor.isManager && attachment.uploaded_by !== email)
+  if (!holdsTaskScopeAll(actor, "task.content.update") && attachment.uploaded_by !== email)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { data: deleted, error } = await supabase

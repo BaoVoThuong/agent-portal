@@ -4,24 +4,14 @@ import {
   resolveEnrollmentCapabilities,
   type EnrollmentActor,
 } from "./access";
+import { testEnrollmentActor } from "@/lib/authz/test-actors";
 
 vi.mock("@/auth", () => ({ auth: vi.fn() }));
+vi.mock("@/lib/supabase", () => ({ getSupabaseAdmin: vi.fn() }));
 
-const manager: EnrollmentActor = {
-  email: "m@x.com",
-  isManager: true,
-  isWorker: true,
-};
-const worker: EnrollmentActor = {
-  email: "w@x.com",
-  isManager: false,
-  isWorker: true,
-};
-const outsider: EnrollmentActor = {
-  email: "o@x.com",
-  isManager: false,
-  isWorker: false,
-};
+const manager: EnrollmentActor = testEnrollmentActor(["task.manage"], "m@x.com", { isAdmin: true });
+const worker: EnrollmentActor = testEnrollmentActor(["task.work"], "w@x.com");
+const outsider: EnrollmentActor = testEnrollmentActor([], "o@x.com");
 
 describe("resolveEnrollmentCapabilities", () => {
   it("grants every capability to a manager", () => {

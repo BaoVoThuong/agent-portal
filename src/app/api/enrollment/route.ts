@@ -1,9 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  canCreateEnrollmentWithScope,
-  loadEnrollmentActor,
-} from "@/lib/enrollment/access";
+import { canCreateEnrollmentWithScope, loadEnrollmentActor, holdsEnrollmentScopeAll } from "@/lib/enrollment/access";
 import {
   fetchEnrollmentRecords,
   EnrollmentListTruncatedError,
@@ -210,7 +207,7 @@ export async function POST(request: Request) {
   }
 
   const requestedAgentEmail = patch.agent_email as string | null;
-  const hasRequestedAgentScope = actorResult.actor.isManager
+  const hasRequestedAgentScope = holdsEnrollmentScopeAll(actorResult.actor, "enrollment.create")
     ? false
     : await isAgentOwnerOrAssistant(
         requestedAgentEmail,

@@ -1,5 +1,6 @@
+import { grantsForAccess } from "@/lib/authz/principal";
 import { getUserAccessByEmails } from "@/lib/rbac/access";
-import { buildTaskActor, canViewTask, isTaskViewAdmin } from "./access";
+import { canViewTask, taskActorFromGrants } from "./access";
 import { isAgentOwnerOrAssistant, resolveTaskQueueScope } from "./membership";
 
 function normalize(email: string | null | undefined): string {
@@ -32,9 +33,7 @@ export async function filterTaskRecipientsWithAccess(
     unique.map(async (email) => {
       const access = accessByEmail.get(email);
       if (!access || !access.isActive) return false;
-      const actor = buildTaskActor(access.permissions, email, {
-        isAdmin: isTaskViewAdmin({ role: access.legacyRole, roles: access.roles }),
-      });
+      const actor = taskActorFromGrants(email, await grantsForAccess(access));
       if (actor.isManager) return true;
       if (!actor.isWorker) return false;
       const [isAgentOwner, scope] = await Promise.all([

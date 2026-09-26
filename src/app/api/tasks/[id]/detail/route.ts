@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
+import { canViewTask, holdsAllTaskScopes, canReadTaskActivity } from "@/lib/tasks/access";
 import { loadTaskDetail } from "@/lib/tasks/detail";
 import {
   actorSeesAllTasks,
@@ -17,6 +17,7 @@ import {
   COMMENT_PAGE_SIZE,
   COMMENT_REFRESH_MAX,
 } from "@/lib/collaboration/comment-pagination";
+import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -67,9 +68,7 @@ export async function GET(req: Request, { params }: Ctx) {
     const email = session?.user?.email;
     if (!email) return respond({ error: "Unauthorized" }, 401);
 
-    const actor = buildTaskActor(session.user.permissions, email, {
-      isAdmin: isTaskViewAdmin(session.user),
-    });
+    const actor = await taskActorForUser(session.user, email);
     const supabase = getSupabaseAdmin();
     const { data: task, error } = await timing.measure("task", async () =>
       supabase
@@ -126,7 +125,7 @@ export async function GET(req: Request, { params }: Ctx) {
       };
     };
 
-    if (actor.isManager) {
+    if (holdsAllTaskScopes(actor)) {
       return respond(await loadDetailAndMetadata(true));
     }
 
@@ -161,8 +160,9 @@ export async function GET(req: Request, { params }: Ctx) {
     ) {
       return respond({ error: "Unauthorized" }, 403);
     }
-    const detail = await loadDetailAndMetadata(isAgentOwner);
-    return respond(isAgentOwner ? detail : { ...detail, activity: [] });
+    const includeActivity = canReadTaskActivity(actor, isAgentOwner);
+    const detail = await loadDetailAndMetadata(includeActivity);
+    return respond(includeActivity ? detail : { ...detail, activity: [] });
   } catch (detailError) {
     return respond(
       {

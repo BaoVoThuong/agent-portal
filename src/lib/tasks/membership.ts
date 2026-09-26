@@ -1,3 +1,4 @@
+import { hasGrant } from "@/lib/authz/grants";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { fetchSelectedAgentEmails } from "./assignees";
@@ -95,11 +96,16 @@ export type TaskQueueScope = {
 // round trip to agent_members. The two public helpers above intentionally keep
 // their historical error semantics for callers that only need one fact; queue
 // authorization must use this fail-closed combined resolver instead.
+//
+// Grant: `task.read:all` thấy hết; `task.read:shared_queue` thấy hàng đợi chung
+// CHỈ KHI người này không phải agent roster cũng không là assistant (compat D7 —
+// agent/assistant bị thu về task của agent mình).
 export async function resolveTaskQueueScope(
   actor: TaskActor,
 ): Promise<TaskQueueScope> {
-  if (actor.isManager || !actor.isWorker) {
-    return { agentEmails: [], assistantAgentEmails: [], seesAllTasks: actor.isManager };
+  const readsAll = hasGrant(actor.grants, "task.read", "all");
+  if (readsAll || !actor.isWorker) {
+    return { agentEmails: [], assistantAgentEmails: [], seesAllTasks: readsAll };
   }
 
   const [selectedAgentEmails, assistantAgentEmails] = await Promise.all([
@@ -111,7 +117,9 @@ export async function resolveTaskQueueScope(
     agentEmails: assistantAgentEmails,
     assistantAgentEmails,
     seesAllTasks:
-      !selectedAgentEmails.has(actor.email) && assistantAgentEmails.length === 0,
+      hasGrant(actor.grants, "task.read", "shared_queue") &&
+      !selectedAgentEmails.has(actor.email) &&
+      assistantAgentEmails.length === 0,
   };
 }
 

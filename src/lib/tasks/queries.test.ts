@@ -1,4 +1,5 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
+import { testTaskActor } from "@/lib/authz/test-actors";
 import {
   assertTaskListComplete,
   fetchTaskListMetadata,
@@ -133,7 +134,7 @@ describe("quotePostgrestFilterValue", () => {
 const row = (id: string) => ({ id, custom_values: {}, assignees: [] });
 
 describe("fetchTasksForActor keyset paging", () => {
-  const manager = { email: "mgr@x.com", isManager: true, isWorker: true };
+  const manager = testTaskActor(["task.manage"], "mgr@x.com", { isAdmin: true });
 
   it("asks for an exact count on the FIRST page only", async () => {
     // Xin count ở mọi trang là chạy lại COUNT(*) trên toàn bộ tập đã lọc cho
@@ -196,11 +197,7 @@ describe("fetchTasksForActor keyset paging", () => {
         { data: [row("b")], error: null },
       ],
     });
-    await fetchTasksForActor({
-      email: "cs@x.com",
-      isManager: false,
-      isWorker: true,
-    } as never);
+    await fetchTasksForActor(testTaskActor(["task.work"], "cs@x.com"));
     expect(orCalls.length).toBeGreaterThanOrEqual(2);
     expect(new Set(orCalls).size).toBe(1);
     expect(orCalls[0]).toContain("cs@x.com");
@@ -232,11 +229,7 @@ describe("fetchTasksForActor view scope", () => {
       assistantAgents: [],
     });
 
-    await fetchTasksForActor({
-      email: "cs@example.com",
-      isManager: false,
-      isWorker: true,
-    });
+    await fetchTasksForActor(testTaskActor(["task.work"], "cs@example.com"));
 
     expect(orCalls).toEqual([]);
   });
@@ -247,11 +240,7 @@ describe("fetchTasksForActor view scope", () => {
       assistantAgents: [],
     });
 
-    await fetchTasksForActor({
-      email: "agent@example.com",
-      isManager: false,
-      isWorker: true,
-    });
+    await fetchTasksForActor(testTaskActor(["task.work"], "agent@example.com"));
 
     expect(orCalls.length).toBeGreaterThan(0);
     expect(orCalls[0]).toContain('reporter_email.eq."agent@example.com"');
@@ -263,11 +252,7 @@ describe("fetchTasksForActor view scope", () => {
       assistantAgents: ["agent@example.com"],
     });
 
-    await fetchTasksForActor({
-      email: "assistant@example.com",
-      isManager: false,
-      isWorker: true,
-    });
+    await fetchTasksForActor(testTaskActor(["task.work"], "assistant@example.com"));
 
     expect(orCalls.length).toBeGreaterThan(0);
   });

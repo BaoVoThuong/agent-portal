@@ -1,11 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import {
-  buildTaskActor,
-  isTaskViewAdmin,
-} from "@/lib/tasks/access";
-import { canManageEnrollmentOptions } from "@/lib/enrollment/access";
+import { canManageEnrollmentOptions, enrollmentActorForUser } from "@/lib/enrollment/access";
 import {
   fetchEnrollmentRecordById,
   fetchEnrollmentPeople,
@@ -47,9 +43,7 @@ export default async function EnrollmentPage({
     PERMISSIONS.TASK_WORK,
   ]);
   const email = session.user.email ?? "";
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await enrollmentActorForUser(session.user, email);
   // Scope is only needed by the records query. Start it together with the
   // independent page data so Enrollment does not serialize permission lookup
   // before loading people, options, columns, and agents. The task board uses
@@ -124,6 +118,7 @@ export default async function EnrollmentPage({
       myAssistantAgents={myAssistantAgents}
       defaultToOwnAssignments={defaultToOwnAssignments}
       canManageOptions={canManageEnrollmentOptions(actor)}
+      grants={actor.grants.filter((grant) => grant.startsWith("enrollment."))}
       canImport={canActorImportEnrollment(session.user.permissions, actor)}
       canExport={canExport}
     />

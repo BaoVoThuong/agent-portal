@@ -191,7 +191,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const lastRbacRefresh = Number(token.rbacRefreshedAt ?? 0);
       let shouldRefreshRbac =
         !accessProvidedAtSignIn &&
-        Date.now() - lastRbacRefresh >= RBAC_REFRESH_TTL_MS;
+        (Date.now() - lastRbacRefresh >= RBAC_REFRESH_TTL_MS ||
+          // Phiên tạo trước Phase B chưa có roleIds — grant suy từ roleIds.
+          !Array.isArray(token.roleIds));
 
       // Admin vừa khoá / đổi role / đổi định nghĩa role → access_version tăng →
       // làm mới quyền ngay (≤ 30 giây nhờ cache version), không đợi TTL 5 phút.
@@ -220,7 +222,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (session.user) {
         session.user.role = (token.role ?? "agent") as UserRole;
         session.user.roles = Array.isArray(token.roles) ? token.roles : [];
-        session.user.roleIds = Array.isArray(token.roleIds) ? token.roleIds : [];
+        // undefined (không phải []) cho phiên cũ: principal biết phải suy tương thích.
+        session.user.roleIds = Array.isArray(token.roleIds) ? token.roleIds : undefined;
         session.user.accountId = typeof token.accountId === "string" ? token.accountId : null;
         session.user.permissions = Array.isArray(token.permissions)
           ? token.permissions

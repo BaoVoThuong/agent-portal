@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import { useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskSlaRule } from "@/lib/tasks/types";
-import { resolveTaskCapabilities } from "@/lib/tasks/access";
+import { resolveTaskCapabilities, taskActorFromGrants } from "@/lib/tasks/access";
 import {
   rankTasksForManager,
   rankTasks,
@@ -33,7 +33,7 @@ export function TaskListView({
   categories,
   assignees,
   agents,
-  isManager,
+  grants,
   seesAllTasks,
   myAssistantAgents,
   agentMembersByAgent,
@@ -58,7 +58,7 @@ export function TaskListView({
   categories: TaskCategory[];
   assignees: TaskAssignee[];
   agents: TaskAgent[];
-  isManager: boolean;
+  grants: readonly string[];
   /** CS thường nhìn hàng đợi company-wide — cùng cờ server dùng cho quyền xem. */
   seesAllTasks: boolean;
   myAssistantAgents: string[];
@@ -89,8 +89,8 @@ export function TaskListView({
   }
   function capabilitiesFor(task: TaskRow) {
     return resolveTaskCapabilities(
-      { email: currentEmail, isManager, isWorker: true },
-      { assignee_email: task.assignees[0] ?? task.assignee_email },
+      taskActorFromGrants(currentEmail, grants),
+      { assignee_email: task.assignees[0] ?? task.assignee_email, agent_email: task.agent_email },
       {
         isAssignee: task.assignees.includes(currentEmail),
         isAgentOwner: isAgentOwnerOrAssistantOf(task.agent_email),

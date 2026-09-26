@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadEnrollmentActor } from "@/lib/enrollment/access";
+import { loadEnrollmentActor, canReadEnrollmentOverview } from "@/lib/enrollment/access";
 import { fetchAcaOverviewSnapshot } from "@/lib/enrollment/aca-overview-data";
 import { parseEnrollmentProgram } from "@/lib/enrollment/types";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const actorResult = await loadEnrollmentActor();
   if (!actorResult.ok) return NextResponse.json({ error: actorResult.error }, { status: actorResult.status });
-  if (!actorResult.actor.isManager) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!canReadEnrollmentOverview(actorResult.actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const url = new URL(request.url);
   const requestedProgram = url.searchParams.get("program");
   const program = requestedProgram === null ? "aca" : parseEnrollmentProgram(requestedProgram);

@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
-  buildTaskActor,
-  isTaskViewAdmin,
   canAccessBoard,
   canCreateTaskWithScope,
   resolveCreateAssignment,
+  canCreateTask,
 } from "@/lib/tasks/access";
 import {
   attachAssigneesToTasks,
@@ -58,6 +57,7 @@ import {
   mapTaskCategoryMutationError,
 } from "@/lib/tasks/category-mutation";
 import { RouteTiming } from "@/lib/server-timing";
+import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -75,9 +75,7 @@ export async function GET() {
     const session = await timing.measure("auth", async () => auth());
     const email = session?.user?.email;
     if (!email) return respond({ error: "Unauthorized" }, 401);
-    const actor = buildTaskActor(session.user.permissions, email, {
-      isAdmin: isTaskViewAdmin(session.user),
-    });
+    const actor = await taskActorForUser(session.user, email);
     if (!canAccessBoard(actor)) {
       return respond({ error: "Unauthorized" }, 401);
     }
@@ -126,9 +124,7 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, email);
   if (!canAccessBoard(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -156,7 +152,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Agent must be a registered agent." }, { status: 400 });
   }
   let hasAgentScope = false;
-  if (!actor.isManager) {
+  if (!canCreateTask(actor)) {
     hasAgentScope = await isAgentOwnerOrAssistant(agentEmail, email);
     const allowedAgents = await fetchAgentsForCs(email);
     if (!allowedAgents.includes(agentEmail) && !hasAgentScope) {
@@ -196,7 +192,7 @@ export async function POST(request: Request) {
   );
   if (!assignment.ok)
     return NextResponse.json({ error: assignment.error }, { status: 400 });
-  const elevated = actor.isManager || hasAgentScope;
+  const elevated = canCreateTask(actor) || hasAgentScope;
   const assignedEmails = elevated ? requestedAssignees : [email];
   const ineligibleAssignee = await findIneligibleTaskAssigneeEmail(assignedEmails);
   if (ineligibleAssignee) {

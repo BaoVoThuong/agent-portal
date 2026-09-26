@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canManageCategories } from "@/lib/tasks/access";
+import { canManageCategories } from "@/lib/tasks/access";
 import { broadcastTaskCategoriesChanged } from "@/lib/tasks/realtime";
 import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
 import { parseConfiguredColor } from "@/lib/table-config/value-colors";
+import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,7 @@ async function requireManager() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = await taskActorForUser(session.user, email);
   if (!canManageCategories(actor)) return { error: "Unauthorized" as const, status: 401 };
   return { supabase: getSupabaseAdmin() };
 }
