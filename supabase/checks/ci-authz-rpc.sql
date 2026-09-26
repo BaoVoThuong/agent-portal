@@ -55,6 +55,8 @@ begin
   if not v_failed then raise exception 'xoá role còn người phải bị chặn'; end if;
   v_failed := false; begin perform delete_role_atomic(v_agent_role, null, null); exception when others then v_failed := sqlerrm = 'ROLE_PROTECTED'; end;
   if not v_failed then raise exception 'role mặc định phải được bảo vệ khỏi xoá'; end if;
+  v_failed := false; begin perform upsert_role_atomic(v_agent_role, 'Agent', null, false, null, null, null, null); exception when others then v_failed := sqlerrm = 'ROLE_SYSTEM_MUST_STAY_ACTIVE'; end;
+  if not v_failed then raise exception 'role hệ thống không được tắt'; end if;
 
   -- Admin khôi phục: khoá admin2 được (còn admin1), khoá admin1 thì chặn
   perform assign_account_access_atomic('00000000-0000-0000-0000-0000000000a2', null, false, null, null);

@@ -27,6 +27,20 @@ update roles set system_key = 'default_new_account'
 where name = 'Agent' and system_key is null
   and not exists (select 1 from roles where system_key = 'default_new_account');
 
+-- Backfill theo TÊN chỉ đúng khi production còn đúng hai tên này (review C
+-- P2-02). Thiếu role nào thì DỪNG rollout (rollback cả transaction): gắn
+-- system_key bằng tay theo id role đúng rồi chạy lại, ví dụ
+--   update roles set system_key = 'super_admin' where id = '<id role admin>';
+do $$
+begin
+  if not exists (select 1 from roles where system_key = 'super_admin' and is_active) then
+    raise exception 'Không tìm thấy role admin khôi phục (system_key = super_admin, đang hoạt động). Gắn system_key theo id rồi chạy lại.';
+  end if;
+  if not exists (select 1 from roles where system_key = 'default_new_account' and is_active) then
+    raise exception 'Không tìm thấy role mặc định cho account mới (system_key = default_new_account, đang hoạt động). Gắn system_key theo id rồi chạy lại.';
+  end if;
+end $$;
+
 create table if not exists role_grants (
   role_id uuid not null references roles(id) on delete cascade,
   action text not null,
@@ -112,6 +126,11 @@ begin
     end if;
     if v_role.system_key = 'super_admin' then
       raise exception using message = 'ROLE_PROTECTED';
+    end if;
+    -- Role hệ thống không tắt được: tắt role mặc định là mọi account Google mới
+    -- nhận một role không quyền (review C P2-01).
+    if v_role.system_key is not null and p_is_active is false then
+      raise exception using message = 'ROLE_SYSTEM_MUST_STAY_ACTIVE';
     end if;
     if exists (select 1 from roles where lower(name) = lower(v_name) and id <> v_role_id) then
       raise exception using message = 'ROLE_NAME_TAKEN';

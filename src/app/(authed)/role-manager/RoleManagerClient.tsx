@@ -380,7 +380,8 @@ export default function RoleManagerClient({
                   >
                     Duplicate
                   </button>
-                  {!protectedRole && !ownRole && (
+                  {/* Role hệ thống không tắt được (server cũng từ chối). */}
+                  {!role.system_key && !protectedRole && !ownRole && (
                     <button
                       type="button"
                       disabled={isBusy}
@@ -463,7 +464,10 @@ export default function RoleManagerClient({
                   <input
                     type="checkbox"
                     checked={form.is_active}
-                    disabled={formLocked}
+                    disabled={
+                      formLocked ||
+                      Boolean(form.id && roles.find((role) => role.id === form.id)?.system_key)
+                    }
                     onChange={(event) =>
                       setForm((current) => (current ? { ...current, is_active: event.target.checked } : current))
                     }

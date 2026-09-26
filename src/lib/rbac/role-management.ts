@@ -204,6 +204,8 @@ export function mapAuthzRpcError(message: string | undefined): { status: number;
       return { status: 400, error: "System roles cannot be edited or deleted." };
     case "ROLE_HAS_MEMBERS":
       return { status: 409, error: "This role is still assigned to accounts. Move them to another role first." };
+    case "ROLE_SYSTEM_MUST_STAY_ACTIVE":
+      return { status: 400, error: "System roles cannot be disabled." };
     case "ROLE_INACTIVE":
       return { status: 400, error: "Select an active role." };
     case "ACCOUNT_NOT_FOUND":

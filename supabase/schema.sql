@@ -479,6 +479,11 @@ begin
     if v_role.system_key = 'super_admin' then
       raise exception using message = 'ROLE_PROTECTED';
     end if;
+    -- Role hệ thống không tắt được: tắt role mặc định là mọi account Google mới
+    -- nhận một role không quyền (review C P2-01).
+    if v_role.system_key is not null and p_is_active is false then
+      raise exception using message = 'ROLE_SYSTEM_MUST_STAY_ACTIVE';
+    end if;
     if exists (select 1 from roles where lower(name) = lower(v_name) and id <> v_role_id) then
       raise exception using message = 'ROLE_NAME_TAKEN';
     end if;
