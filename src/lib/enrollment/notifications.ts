@@ -11,10 +11,37 @@ export type EnrollmentNotificationInsertInput = {
   detail?: string | null;
 };
 
+/**
+ * Chỉ giữ dòng mà người nhận MỞ ĐƯỢC hồ sơ (Phase F, D17) — một chỗ cho mọi
+ * producer (comment, QC, quá hạn, cron…). Fail-closed: không xác định được quyền
+ * thì không gửi (ghi log). Xem keepTaskViewers ở lib/tasks/notifications.ts.
+ */
+async function keepEnrollmentViewers(
+  rows: EnrollmentNotificationInsertInput[]
+): Promise<EnrollmentNotificationInsertInput[]> {
+  try {
+    const { audienceKey, enrollmentViewersAmong } = await import(
+      "@/lib/notifications/audience"
+    );
+    const allowed = await enrollmentViewersAmong(
+      rows.map((row) => ({ entityId: row.record_id, email: row.recipient_email }))
+    );
+    return rows.filter((row) => allowed.has(audienceKey(row.record_id, row.recipient_email)));
+  } catch (error) {
+    console.error("[notifications] enrollment recipient access check failed; dropping rows", {
+      rows: rows.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
 export async function insertEnrollmentNotifications(
   rows: EnrollmentNotificationInsertInput[]
 ): Promise<void> {
-  const uniqueRows = uniqueEnrollmentNotificationRows(rows);
+  const deduped = uniqueEnrollmentNotificationRows(rows);
+  if (deduped.length === 0) return;
+  const uniqueRows = await keepEnrollmentViewers(deduped);
   if (uniqueRows.length === 0) return;
 
   const { error } = await getSupabaseAdmin().from("enrollment_notifications").insert(

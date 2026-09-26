@@ -57,8 +57,17 @@ function quoteFilterValue(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+/** Quan hệ tổ chức của người xem, đọc từ task_agents / agent_members. */
+export type EnrollmentMembership = {
+  /** Người xem nằm trong roster agent. */
+  isAgent: boolean;
+  /** Agent mà người xem là assistant. */
+  assistantAgents: readonly string[];
+};
+
 /**
- * Phạm vi đọc Enrollment, theo grant `enrollment.read`:
+ * Phạm vi đọc Enrollment, theo grant `enrollment.read` — phần THUẦN, để tính
+ * theo lô cho nhiều người (lọc người nhận thông báo):
  *   - `all` → mọi hồ sơ;
  *   - `shared_queue` → mọi hồ sơ, NHƯNG chỉ khi người này không phải agent
  *     roster cũng không là assistant (compat D7: agent/assistant bị thu về hồ
@@ -67,9 +76,10 @@ function quoteFilterValue(value: string): string {
  *     assistant (`assistant_for_agent`), và hồ sơ mình tạo (`reported`) / gọi
  *     hoặc phụ trách (`assigned`).
  */
-export async function resolveEnrollmentScope(
-  actor: EnrollmentActor
-): Promise<EnrollmentScope> {
+export function enrollmentScopeFor(
+  actor: EnrollmentActor,
+  membership: EnrollmentMembership
+): EnrollmentScope {
   if (hasGrant(actor.grants, "enrollment.read", "all")) return { seeAll: true };
   const normalizedActor = normalize(actor.email);
   if (!actor.isWorker) {
@@ -80,39 +90,47 @@ export async function resolveEnrollmentScope(
       viewerColumns: [],
     };
   }
-
-  const [selectedAgentEmails, assistantAgents] = await Promise.all([
-    fetchSelectedAgentEmails(),
-    fetchAssistantAgentsForCs(actor.email),
-  ]);
-  const isAgent = [...selectedAgentEmails].some(
-    (email) => normalize(email) === normalizedActor
-  );
-  const isAssistant = assistantAgents.length > 0;
+  const isAssistant = membership.assistantAgents.length > 0;
   if (
-    !isAgent &&
+    !membership.isAgent &&
     !isAssistant &&
     hasGrant(actor.grants, "enrollment.read", "shared_queue")
   ) {
     return { seeAll: true };
   }
-
   const covered = hasGrant(actor.grants, "enrollment.read", "assistant_for_agent")
-    ? [...assistantAgents, ...(await fetchAgentsForCs(actor.email))]
+    ? membership.assistantAgents
     : [];
-  const ownsOwn = isAgent && hasGrant(actor.grants, "enrollment.read", "agent_owned");
+  const ownsOwn =
+    membership.isAgent && hasGrant(actor.grants, "enrollment.read", "agent_owned");
   return {
     seeAll: false,
     viewerEmail: normalizedActor,
     viewerColumns: viewerColumnsFor(actor),
     agentEmails: [
       ...new Set(
-        [...(ownsOwn ? [actor.email] : []), ...covered]
-          .map(normalize)
-          .filter(Boolean)
+        [...(ownsOwn ? [actor.email] : []), ...covered].map(normalize).filter(Boolean)
       ),
     ],
   };
+}
+
+export async function resolveEnrollmentScope(
+  actor: EnrollmentActor
+): Promise<EnrollmentScope> {
+  if (hasGrant(actor.grants, "enrollment.read", "all") || !actor.isWorker) {
+    return enrollmentScopeFor(actor, { isAgent: false, assistantAgents: [] });
+  }
+  const [selectedAgentEmails, assistantAgents, covered] = await Promise.all([
+    fetchSelectedAgentEmails(),
+    fetchAssistantAgentsForCs(actor.email),
+    fetchAgentsForCs(actor.email),
+  ]);
+  const normalizedActor = normalize(actor.email);
+  return enrollmentScopeFor(actor, {
+    isAgent: [...selectedAgentEmails].some((email) => normalize(email) === normalizedActor),
+    assistantAgents: [...new Set([...assistantAgents, ...covered])],
+  });
 }
 
 /** Fail closed: a null-agent record is visible only via direct assignment. */

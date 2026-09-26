@@ -86,9 +86,50 @@ export function resolveCommentRecipients(
   return out;
 }
 
-export async function insertNotifications(
+/**
+ * Loại thông báo gửi được cho người VỪA mất quan hệ với task: "bạn không còn được
+ * giao task này" — họ đã thấy task tới giây trước, và đây là tin họ cần.
+ */
+const NOTIFY_WITHOUT_VIEW: ReadonlySet<TaskNotificationType> = new Set(["unassigned"]);
+
+/**
+ * Chỉ giữ dòng mà người nhận XEM ĐƯỢC task (Phase F, D17) — một chỗ cho mọi
+ * producer: comment, giao việc, backlog, cron quá hạn, QC… Trước đây mỗi
+ * producer tự chọn người nhận và chỉ vài đường có lọc (A5), nên ví dụ admin
+ * không có quyền task vẫn nhận tiêu đề task qua backlog_attention (review A,
+ * P1-03).
+ *
+ * Fail-closed: không xác định được quyền thì KHÔNG gửi dòng nào (ghi log).
+ */
+async function keepTaskViewers(
   rows: NotificationInsertInput[]
+): Promise<NotificationInsertInput[]> {
+  const checked = rows.filter((row) => !NOTIFY_WITHOUT_VIEW.has(row.type));
+  if (checked.length === 0) return rows;
+  try {
+    const { audienceKey, taskViewersAmong } = await import("@/lib/notifications/audience");
+    const allowed = await taskViewersAmong(
+      checked.map((row) => ({ entityId: row.task_id, email: row.recipient_email }))
+    );
+    return rows.filter(
+      (row) =>
+        NOTIFY_WITHOUT_VIEW.has(row.type) ||
+        allowed.has(audienceKey(row.task_id, row.recipient_email))
+    );
+  } catch (error) {
+    console.error("[notifications] recipient access check failed; dropping checked rows", {
+      rows: checked.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return rows.filter((row) => NOTIFY_WITHOUT_VIEW.has(row.type));
+  }
+}
+
+export async function insertNotifications(
+  input: NotificationInsertInput[]
 ): Promise<boolean> {
+  if (input.length === 0) return true;
+  const rows = await keepTaskViewers(input);
   if (rows.length === 0) return true;
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.from("task_notifications").insert(
