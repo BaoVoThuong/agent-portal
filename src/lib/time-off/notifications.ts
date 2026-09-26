@@ -1,6 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { fetchEmailsWithPermission } from "@/lib/rbac/permission-holders";
+import { fetchGrantHolderEmails } from "@/lib/authz/holders";
 import { broadcastNotif } from "@/lib/tasks/realtime";
 
 /**
@@ -65,7 +64,7 @@ export async function resolveTimeOffRecipients(opts: {
   requesterEmail: string;
   managerEmail: string | null;
 }): Promise<string[]> {
-  const approvers = await fetchEmailsWithPermission(PERMISSIONS.TIME_OFF_ADMIN);
+  const approvers = await fetchGrantHolderEmails("notify.timeoff.submitted");
   const requester = normalizeEmail(opts.requesterEmail);
   return [
     ...new Set(

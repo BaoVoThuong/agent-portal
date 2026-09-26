@@ -1,5 +1,4 @@
 import { cache } from "react";
-import { getSession } from "@/lib/auth/session";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { deriveCompatGrants } from "./compat";
 import { encodeGrant, normalizeGrants } from "./grants";
@@ -230,6 +229,9 @@ export async function grantsForSession(
 
 /** Principal của request hiện tại (một lần mỗi request). */
 export const getPrincipal = cache(async (): Promise<Principal | null> => {
+  // Import động: module này còn được lib thuần (holders, recipient-access) dùng
+  // để suy grant; import tĩnh `@/auth` kéo cả next-auth vào những chỗ đó.
+  const { getSession } = await import("@/lib/auth/session");
   const session = await getSession();
   if (!session?.user) return null;
   return principalFromSessionUser(session.user);

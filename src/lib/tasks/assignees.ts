@@ -1,10 +1,10 @@
+import { fetchGrantHolders } from "@/lib/authz/holders";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   LIST_ENRICH_CONCURRENCY,
   mapWithConcurrency,
 } from "@/lib/pagination/concurrency";
 import { cache } from "react";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   LEGACY_SUPER_ADMIN_ROLE_NAME,
   SYSTEM_ROLE_NAMES,
@@ -58,27 +58,12 @@ const fetchAssistantMemberRows = cache(
   }
 );
 
-// Active accounts whose role grants task.work or task.manage. Used by the
-// assignee picker (manager only).
+// Active accounts that can open the task board (`task.read` at any scope,
+// via an active role). Used by the assignee picker and mention lists.
 export const fetchTaskAssignees = cache(async (): Promise<TaskAssignee[]> => {
   const supabase = getSupabaseAdmin();
 
-  const { data: rp, error: rpErr } = await supabase
-    .from("role_permissions")
-    .select("role_id")
-    .in("permission_key", [PERMISSIONS.TASK_WORK, PERMISSIONS.TASK_MANAGE]);
-  if (rpErr) throw new Error(rpErr.message);
-
-  const roleIds = [...new Set((rp ?? []).map((r) => (r as { role_id: string }).role_id))];
-  if (roleIds.length === 0) return [];
-
-  const { data: ur, error: urErr } = await supabase
-    .from("user_roles")
-    .select("user_id")
-    .in("role_id", roleIds);
-  if (urErr) throw new Error(urErr.message);
-
-  const userIds = [...new Set((ur ?? []).map((r) => (r as { user_id: string }).user_id))];
+  const userIds = (await fetchGrantHolders("task.read")).map((holder) => holder.id);
   if (userIds.length === 0) return [];
 
   const { data: accounts, error: accErr } = await supabase

@@ -168,7 +168,7 @@ export async function GET(request: Request) {
       const recipients = uniqueEnrollmentNotificationRecipients([
         record.caller_email,
         record.responsible_enroll_email,
-        ...(await fetchAdminEmails()),
+        ...(await fetchAdminEmails("notify.enrollment.escalation")),
       ]);
       await insertEnrollmentNotifications(
         recipients.map((recipient) => ({

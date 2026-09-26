@@ -338,7 +338,7 @@ export async function POST(request: Request) {
       (async () => {
         let adminEmails: string[] = [];
         try {
-          adminEmails = await fetchAdminEmails();
+          adminEmails = await fetchAdminEmails("notify.enrollment.qc");
         } catch (error) {
           throw new Error(
             `Enrollment QC recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`

@@ -1,6 +1,6 @@
 import { hasGrant } from "@/lib/authz/grants";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { fetchGrantHolderEmails } from "@/lib/authz/holders";
 import { fetchSelectedAgentEmails } from "./assignees";
 import type { TaskActor } from "./types";
 
@@ -189,76 +189,34 @@ export async function fetchAgentAssistantEmails(
   ];
 }
 
-// All admin accounts — recipients for oversight notifications (e.g. an overdue
-// resolved with a reason). Role lives on portal_account.
-export async function fetchAdminEmails(): Promise<string[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("portal_account")
-    .select("email")
-    .eq("role", "admin")
-    .eq("is_active", true);
-  if (error) return [];
-  return [
-    ...new Set((data ?? []).map((row) => (row as { email: string }).email)),
-  ];
+/**
+ * Người nhận thông báo GIÁM SÁT (task quá hạn/leo thang, Enrollment cần QC hay
+ * QC bị bỏ quên): người nắm grant `notify.*` tương ứng. Grant tương thích cấp cả
+ * ba cho legacy admin (`portal_account.role = admin`) — đúng tập cũ.
+ *
+ * Lỗi đọc trả về mảng rỗng như bản cũ: thà thiếu một lời nhắc còn hơn ném lỗi
+ * giữa luồng ghi thông báo, vốn chạy sau khi thao tác đã commit.
+ */
+export async function fetchAdminEmails(
+  action:
+    | "notify.task.escalation"
+    | "notify.enrollment.qc"
+    | "notify.enrollment.escalation" = "notify.task.escalation"
+): Promise<string[]> {
+  try {
+    return await fetchGrantHolderEmails(action);
+  } catch {
+    return [];
+  }
 }
 
 /**
- * Every active account that currently holds `task.manage`, through an active
- * RBAC role. This deliberately does not rely on `portal_account.role = admin`:
- * task-management access is permission-based, and a dedicated Task Admin role
- * may not use the legacy admin label.
+ * Người nhận `task_created`: ai nắm `notify.task.created` (grant tương thích:
+ * mọi account giữ `task.manage` qua role đang hoạt động). Recipient-access lọc
+ * tiếp theo quyền xem task.
  */
 export async function fetchTaskManagerEmails(): Promise<string[]> {
-  const supabase = getSupabaseAdmin();
-  const { data: permissionRows, error: permissionError } = await supabase
-    .from("role_permissions")
-    .select("role_id")
-    .eq("permission_key", PERMISSIONS.TASK_MANAGE);
-  if (permissionError) throw new Error(permissionError.message);
-
-  const roleIds = [
-    ...new Set((permissionRows ?? []).map((row) => (row as { role_id: string }).role_id)),
-  ];
-  if (roleIds.length === 0) return [];
-
-  const { data: activeRoleRows, error: activeRoleError } = await supabase
-    .from("roles")
-    .select("id")
-    .in("id", roleIds)
-    .eq("is_active", true);
-  if (activeRoleError) throw new Error(activeRoleError.message);
-
-  const activeRoleIds = [
-    ...new Set((activeRoleRows ?? []).map((row) => (row as { id: string }).id)),
-  ];
-  if (activeRoleIds.length === 0) return [];
-
-  const { data: userRoleRows, error: userRoleError } = await supabase
-    .from("user_roles")
-    .select("user_id")
-    .in("role_id", activeRoleIds);
-  if (userRoleError) throw new Error(userRoleError.message);
-
-  const userIds = [
-    ...new Set((userRoleRows ?? []).map((row) => (row as { user_id: string }).user_id)),
-  ];
-  if (userIds.length === 0) return [];
-
-  const { data: accounts, error: accountError } = await supabase
-    .from("portal_account")
-    .select("email")
-    .in("id", userIds)
-    .eq("is_active", true);
-  if (accountError) throw new Error(accountError.message);
-
-  return [
-    ...new Set(
-      (accounts ?? [])
-        .map((row) => (row as { email: string }).email.trim())
-        .filter(Boolean),
-    ),
-  ];
+  return fetchGrantHolderEmails("notify.task.created");
 }
 
 // A "see-all" task viewer: managers plus plain-CS (the company-wide queue).

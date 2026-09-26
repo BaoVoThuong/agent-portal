@@ -524,7 +524,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     } else if (toStage?.triggers_qc) {
       let adminEmails: string[] = [];
       try {
-        adminEmails = await fetchAdminEmails();
+        adminEmails = await fetchAdminEmails("notify.enrollment.qc");
       } catch (error) {
         mutationWarnings.push(
           `Enrollment QC recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
