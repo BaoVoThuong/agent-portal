@@ -35,14 +35,22 @@ export default async function AccountManagerPage() {
   }
 
   const supabase = getSupabaseAdmin();
-  const [{ data, error }, roles, userRolesResponse] = await Promise.all([
+  const [{ data, error }, roles, userRolesResponse, commissionResponse] = await Promise.all([
     supabase
     .from(PORTAL_ACCOUNT_TABLE)
     .select("id,email,name,agent_id,role,is_active,created_at")
       .order("created_at", { ascending: false }),
     fetchRolesWithPermissions(),
     supabase.from("user_roles").select("user_id,role_id"),
+    supabase.from("agent_commission_names").select("account_id,agent_name"),
   ]);
+  // Bảng chưa có (rollout Phase D chưa chạy) thì ẩn ô tên hoa hồng.
+  const commissionNamesAvailable = !commissionResponse.error;
+  const commissionNameById = new Map(
+    ((commissionResponse.data ?? []) as { account_id: string; agent_name: string }[]).map(
+      (row) => [row.account_id, row.agent_name]
+    )
+  );
 
   if (error) {
     throw new Error(error.message);
@@ -86,6 +94,7 @@ export default async function AccountManagerPage() {
 
       return {
         ...user,
+        commission_name: commissionNameById.get(user.id) ?? null,
         role_ids: roleIds,
         roles: roleIds
           .map((roleId) => rolesById.get(roleId))
@@ -97,9 +106,10 @@ export default async function AccountManagerPage() {
   return (
     <AccountManagerClient
       currentUserEmail={principal.email}
-      currentUserPermissions={principal.permissions}
+      currentUserGrants={principal.grants}
       initialUsers={users}
       availableRoles={availableRoles}
+      commissionNamesAvailable={commissionNamesAvailable}
     />
   );
 }

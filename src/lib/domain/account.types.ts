@@ -8,6 +8,11 @@ export type AccountUser = {
   email: string;
   name: string | null;
   agent_id: string | null;
+  /**
+   * Tên agent trong dữ liệu hoa hồng — khoá phạm vi Registration / Dashboard /
+   * AI (agent_commission_names). Tách khỏi `name` (tên hiển thị).
+   */
+  commission_name?: string | null;
   role: UserRole;
   is_active: boolean;
   created_at: string;

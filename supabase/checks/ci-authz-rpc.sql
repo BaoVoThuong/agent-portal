@@ -67,6 +67,20 @@ begin
   if not v_failed then raise exception 'xoá admin cuối phải bị chặn'; end if;
 
   if (select count(*) from access_audit) < 4 then raise exception 'thiếu audit'; end if;
+
+  -- Định danh hoa hồng (Phase D): chuẩn hoá, duy nhất, xoá bằng null, có audit.
+  if set_commission_name_atomic('00000000-0000-0000-0000-0000000000c1', '  jane   doe ', null, 'admin1@x.com') <> 'JANE DOE' then
+    raise exception 'tên hoa hồng không được chuẩn hoá';
+  end if;
+  v_failed := false; begin perform set_commission_name_atomic('00000000-0000-0000-0000-0000000000a1', 'Jane Doe', null, null); exception when others then v_failed := sqlerrm = 'COMMISSION_NAME_TAKEN'; end;
+  if not v_failed then raise exception 'tên hoa hồng trùng phải bị chặn'; end if;
+  perform set_commission_name_atomic('00000000-0000-0000-0000-0000000000c1', null, null, null);
+  if exists (select 1 from agent_commission_names where account_id = '00000000-0000-0000-0000-0000000000c1') then
+    raise exception 'null phải xoá tên hoa hồng';
+  end if;
+  if (select count(*) from access_audit where event = 'account.commission_name') <> 2 then
+    raise exception 'thiếu audit tên hoa hồng';
+  end if;
 end $$;
 
 select 'authz rpc gate: ok' as result;

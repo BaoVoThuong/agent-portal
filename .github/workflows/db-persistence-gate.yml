@@ -46,7 +46,7 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/schema.sql
 
       # schema.sql chưa phải full-state: 5 rollout đầu tạo bảng chỉ có trong
-      # rollout (audit S28, chưa gộp). Hai rollout authz cuối đã có trong
+      # rollout (audit S28, chưa gộp). Các rollout authz cuối đã có trong
       # schema.sql — chạy lại để chứng minh chúng idempotent. Thứ tự = tên file.
       - name: Apply rollout-only tables and the RLS lockdown
         run: |
@@ -58,7 +58,8 @@ jobs:
             2026-09-17-provider-directory-temp.sql \
             2026-09-26-rls-lockdown.sql \
             2026-09-27-authz-phase-b.sql \
-            2026-09-28-authz-phase-c.sql
+            2026-09-28-authz-phase-c.sql \
+            2026-09-29-authz-phase-d.sql
           do
             echo "== $f"
             psql -v ON_ERROR_STOP=1 -f "supabase/rollouts/$f"

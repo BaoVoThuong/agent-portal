@@ -194,8 +194,15 @@ export async function PATCH(req: Request, context: RouteContext) {
     const { principal } = guard;
 
     const { id } = await context.params;
-    const { email, name, role, roleIds, is_active, password, agentId } =
+    const { email, name, role, roleIds, is_active, password, agentId, commissionName } =
       await req.json();
+    if (
+      commissionName !== undefined &&
+      commissionName !== null &&
+      typeof commissionName !== "string"
+    ) {
+      return NextResponse.json({ error: "Invalid commission name." }, { status: 400 });
+    }
 
     const supabase = getSupabaseAdmin();
 
@@ -396,7 +403,12 @@ export async function PATCH(req: Request, context: RouteContext) {
       updates.password_hash = await bcrypt.hash(password, 10);
     }
 
-    if (Object.keys(updates).length === 0 && !nextRoleId && nextActive === null) {
+    if (
+      Object.keys(updates).length === 0 &&
+      !nextRoleId &&
+      nextActive === null &&
+      commissionName === undefined
+    ) {
       return NextResponse.json(
         { error: "No account changes provided." },
         { status: 400 }
@@ -433,6 +445,19 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Tên hoa hồng quyết định dữ liệu Registration/Dashboard/AI người này thấy:
+    // RPC chuẩn hoá, kiểm trùng dưới khoá và ghi audit cùng transaction (S1).
+    // Không cần tăng access_version — phạm vi đọc tươi mỗi request.
+    if (commissionName !== undefined) {
+      const { error: commissionError } = await supabase.rpc("set_commission_name_atomic", {
+        p_account_id: id,
+        p_agent_name: commissionName,
+        p_actor_account_id: principal.accountId,
+        p_actor_email: principal.email,
+      });
+      if (commissionError) return rpcFailure(commissionError.message);
     }
 
     // Đổi email → phiên của người này làm mới quyền ngay (role/trạng thái đã

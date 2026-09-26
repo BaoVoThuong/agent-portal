@@ -675,6 +675,78 @@ grant execute on function assign_account_access_atomic(uuid, uuid, boolean, uuid
 revoke all on function delete_account_atomic(uuid, uuid, text) from public, anon, authenticated;
 grant execute on function delete_account_atomic(uuid, uuid, text) to service_role;
 
+-- ---------------------------------------------------------------------------
+-- Authz Phase D: định danh hoa hồng tách khỏi tên hiển thị (sửa gốc S1)
+-- (xem rollouts/2026-09-29-authz-phase-d.sql để biết lý do từng phần).
+-- ---------------------------------------------------------------------------
+create table if not exists agent_commission_names (
+  account_id uuid primary key references portal_account(id) on delete cascade,
+  agent_name text not null,
+  updated_at timestamptz not null default now(),
+  updated_by_email text,
+  constraint agent_commission_names_normalized check (
+    agent_name <> '' and agent_name = upper(regexp_replace(btrim(agent_name), '\s+', ' ', 'g'))
+  )
+);
+
+create unique index if not exists agent_commission_names_name_idx
+  on agent_commission_names (agent_name);
+
+alter table agent_commission_names enable row level security;
+revoke all on table agent_commission_names from anon, authenticated;
+
+create or replace function set_commission_name_atomic(
+  p_account_id uuid,
+  p_agent_name text,
+  p_actor_account_id uuid,
+  p_actor_email text
+)
+returns text
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_name text := nullif(upper(regexp_replace(btrim(coalesce(p_agent_name, '')), '\s+', ' ', 'g')), '');
+  v_before text;
+begin
+  perform 1 from portal_account where id = p_account_id for update;
+  if not found then
+    raise exception using message = 'ACCOUNT_NOT_FOUND';
+  end if;
+
+  select agent_name into v_before from agent_commission_names where account_id = p_account_id;
+  if v_before is not distinct from v_name then
+    return v_name;
+  end if;
+
+  if v_name is null then
+    delete from agent_commission_names where account_id = p_account_id;
+  else
+    if exists (
+      select 1 from agent_commission_names
+      where agent_name = v_name and account_id <> p_account_id
+    ) then
+      raise exception using message = 'COMMISSION_NAME_TAKEN';
+    end if;
+    insert into agent_commission_names (account_id, agent_name, updated_at, updated_by_email)
+    values (p_account_id, v_name, now(), p_actor_email)
+    on conflict (account_id) do update
+      set agent_name = excluded.agent_name,
+          updated_at = excluded.updated_at,
+          updated_by_email = excluded.updated_by_email;
+  end if;
+
+  insert into access_audit (actor_account_id, actor_email, event, target_type, target_id, before, after)
+  values (p_actor_account_id, p_actor_email, 'account.commission_name', 'account', p_account_id::text,
+          jsonb_build_object('agent_name', v_before), jsonb_build_object('agent_name', v_name));
+  return v_name;
+end;
+$$;
+
+revoke all on function set_commission_name_atomic(uuid, text, uuid, text) from public, anon, authenticated;
+grant execute on function set_commission_name_atomic(uuid, text, uuid, text) to service_role;
+
 do $$
 begin
   if to_regclass('public.entries') is not null

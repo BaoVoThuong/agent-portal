@@ -12,6 +12,7 @@ import {
   SYSTEM_ROLE_KEYS,
 } from "@/lib/rbac/role-management";
 import { parseCreateUserInput } from "@/lib/admin/user-input";
+import { normalizeAgentName } from "@/lib/agent-name";
 import bcrypt from "bcryptjs";
 
 export async function POST(req: Request) {
@@ -32,6 +33,7 @@ export async function POST(req: Request) {
       password,
       name,
       agentId: normalizedAgentId,
+      commissionName,
       legacyRoleFallback,
       roleIds: selectedRoleIds,
     } = parsed.value;
@@ -67,6 +69,22 @@ export async function POST(req: Request) {
         { error: "This Agent ID is already in use." },
         { status: 409 }
       );
+    }
+
+    // Tên hoa hồng là khoá phạm vi dữ liệu: trùng là hai account thấy dữ liệu của
+    // nhau (S1). Kiểm trước khi tạo; RPC kiểm lại dưới khoá.
+    if (commissionName) {
+      const { data: takenName } = await supabase
+        .from("agent_commission_names")
+        .select("account_id")
+        .eq("agent_name", normalizeAgentName(commissionName))
+        .maybeSingle();
+      if (takenName) {
+        return NextResponse.json(
+          { error: "Another account already uses this commission name." },
+          { status: 409 }
+        );
+      }
     }
 
     // Không chọn role thì dùng role hệ thống theo system_key (không theo tên).
@@ -137,6 +155,24 @@ export async function POST(req: Request) {
         { error: mapped?.error ?? assignError.message },
         { status: mapped?.status ?? 500 }
       );
+    }
+
+    if (commissionName) {
+      const { error: commissionError } = await supabase.rpc("set_commission_name_atomic", {
+        p_account_id: data.id,
+        p_agent_name: commissionName,
+        p_actor_account_id: principal.accountId,
+        p_actor_email: principal.email,
+      });
+      if (commissionError) {
+        await supabase.from(PORTAL_ACCOUNT_TABLE).delete().eq("id", data.id);
+        createdUserId = null;
+        const mapped = mapAuthzRpcError(commissionError.message);
+        return NextResponse.json(
+          { error: mapped?.error ?? commissionError.message },
+          { status: mapped?.status ?? 500 }
+        );
+      }
     }
 
     console.info("[account-manager:create] success", {

@@ -8,7 +8,11 @@ const { getPrincipalMock, roleManagement, rpcMock, revokeMock } = vi.hoisted(() 
     fetchSystemRoleId: vi.fn(),
     isSuperAdminRole: (role: { system_key?: string | null }) => role.system_key === "super_admin",
     mapAuthzRpcError: (message: string | undefined) =>
-      message === "LAST_RECOVERY_ADMIN" ? { status: 409, error: "last admin" } : null,
+      message === "LAST_RECOVERY_ADMIN"
+        ? { status: 409, error: "last admin" }
+        : message === "COMMISSION_NAME_TAKEN"
+          ? { status: 409, error: "taken" }
+          : null,
     SYSTEM_ROLE_KEYS: { SUPER_ADMIN: "super_admin", DEFAULT_NEW_ACCOUNT: "default_new_account" },
   },
   rpcMock: vi.fn(),
@@ -106,6 +110,41 @@ describe("PATCH /api/admin/users/[id]", () => {
     rpcMock.mockResolvedValue({ data: null, error: { message: "LAST_RECOVERY_ADMIN" } });
     expect((await patch({ is_active: false })).status).toBe(409);
     expect(revokeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH tên hoa hồng (S1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getPrincipalMock.mockResolvedValue(ACCOUNT_MANAGER);
+    roleManagement.fetchAccountAccess.mockResolvedValue({
+      roleIds: ["worker"],
+      grants: ["task.read:assigned"],
+      holdsSuperAdmin: false,
+    });
+  });
+
+  it("đi qua RPC nguyên tử có audit, không đụng role/trạng thái", async () => {
+    rpcMock.mockResolvedValue({ data: "ANN LEE", error: null });
+    const response = await patch({ commissionName: "Ann Lee" });
+    expect(response.status).toBe(200);
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rpcMock).toHaveBeenCalledWith("set_commission_name_atomic", {
+      p_account_id: "u2",
+      p_agent_name: "Ann Lee",
+      p_actor_account_id: "actor",
+      p_actor_email: "manager@x.com",
+    });
+  });
+
+  it("tên đã có người dùng: 409", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: "COMMISSION_NAME_TAKEN" } });
+    expect((await patch({ commissionName: "Ann Lee" })).status).toBe(409);
+  });
+
+  it("sai kiểu: 400, không gọi RPC", async () => {
+    expect((await patch({ commissionName: 42 })).status).toBe(400);
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 });
 

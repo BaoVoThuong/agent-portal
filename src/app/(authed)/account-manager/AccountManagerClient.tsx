@@ -4,16 +4,17 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Toast } from "../_shared/Toast";
 import type { AccountUser } from "@/lib/domain/account.types";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
 import type { AssignableRoleOption as RoleOption } from "./page";
 import { useBodyScrollLock } from "./../_shared/useBodyScrollLock";
 
 type AccountManagerClientProps = {
   currentUserEmail: string;
-  currentUserPermissions: string[];
+  currentUserGrants: string[];
   initialUsers: ManagedAccountUser[];
   availableRoles: RoleOption[];
+  /** Bảng agent_commission_names đã có (rollout Phase D). */
+  commissionNamesAvailable: boolean;
 };
 
 type ManagedAccountUser = AccountUser & {
@@ -25,6 +26,7 @@ type FormState = {
   email: string;
   name: string;
   agentId: string;
+  commissionName: string;
   password: string;
   roleIds: string[];
 };
@@ -33,12 +35,21 @@ type EditAccountFormState = {
   email: string;
   name: string;
   agentId: string;
+  commissionName: string;
+};
+
+const emptyEditForm: EditAccountFormState = {
+  email: "",
+  name: "",
+  agentId: "",
+  commissionName: "",
 };
 
 const emptyForm: FormState = {
   email: "",
   name: "",
   agentId: "",
+  commissionName: "",
   password: "",
   roleIds: [],
 };
@@ -49,9 +60,10 @@ function isAdminRole(role: Pick<RoleOption, "system_key">) {
 
 export default function AccountManagerClient({
   currentUserEmail,
-  currentUserPermissions,
+  currentUserGrants,
   initialUsers,
   availableRoles,
+  commissionNamesAvailable,
 }: AccountManagerClientProps) {
   const router = useRouter();
   const actionMenuRef = useRef<HTMLTableCellElement | null>(null);
@@ -59,11 +71,7 @@ export default function AccountManagerClient({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [actionUserId, setActionUserId] = useState<string | null>(null);
   const [editUser, setEditUser] = useState<ManagedAccountUser | null>(null);
-  const [editForm, setEditForm] = useState<EditAccountFormState>({
-    email: "",
-    name: "",
-    agentId: "",
-  });
+  const [editForm, setEditForm] = useState<EditAccountFormState>(emptyEditForm);
   const [deleteUser, setDeleteUser] = useState<ManagedAccountUser | null>(null);
   const [roleUser, setRoleUser] = useState<ManagedAccountUser | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
@@ -78,10 +86,7 @@ export default function AccountManagerClient({
   const [accountSearch, setAccountSearch] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const canManageAccounts = can(
-    currentUserPermissions,
-    PERMISSIONS.ACCOUNT_MANAGER
-  );
+  const canManageAccounts = hasGrant(currentUserGrants, "account.manage");
   const canCreate = canManageAccounts;
   const canEdit = canManageAccounts;
   const canResetPassword = canManageAccounts;
@@ -180,6 +185,9 @@ export default function AccountManagerClient({
           email: form.email.trim(),
           name: form.name.trim() || null,
           agentId: form.agentId.trim(),
+          ...(commissionNamesAvailable
+            ? { commissionName: form.commissionName.trim() || null }
+            : {}),
           password: form.password,
           roleIds: form.roleIds,
         }),
@@ -208,6 +216,7 @@ export default function AccountManagerClient({
       email?: string;
       name?: string | null;
       agentId?: string;
+      commissionName?: string | null;
       password?: string;
       roleIds?: string[];
     }
@@ -255,6 +264,7 @@ export default function AccountManagerClient({
       email: user.email,
       name: user.name ?? "",
       agentId: user.agent_id ?? "",
+      commissionName: user.commission_name ?? "",
     });
   }
 
@@ -266,11 +276,15 @@ export default function AccountManagerClient({
       email: editForm.email.trim(),
       name: editForm.name.trim() || null,
       agentId: editForm.agentId.trim(),
+      ...(commissionNamesAvailable &&
+      editForm.commissionName.trim() !== (editUser.commission_name ?? "")
+        ? { commissionName: editForm.commissionName.trim() || null }
+        : {}),
     });
 
     if (updated) {
       setEditUser(null);
-      setEditForm({ email: "", name: "", agentId: "" });
+      setEditForm(emptyEditForm);
     }
   }
 
@@ -408,6 +422,11 @@ export default function AccountManagerClient({
                       <div className="mt-0.5 truncate text-xs text-[#98a2b3]">
                         ID: {user.agent_id || "—"}
                       </div>
+                      {commissionNamesAvailable && (
+                        <div className="mt-0.5 truncate text-xs text-[#98a2b3]">
+                          Commission: {user.commission_name || "—"}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-4">
                       <RoleBadges user={user} />
@@ -567,6 +586,29 @@ export default function AccountManagerClient({
                   required
                 />
               </label>
+              {commissionNamesAvailable && (
+                <label className="block">
+                  <span className="text-sm font-medium text-[#344054]">
+                    Commission name
+                  </span>
+                  <input
+                    className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
+                    type="text"
+                    value={form.commissionName}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        commissionName: event.target.value,
+                      }))
+                    }
+                  />
+                  <span className="mt-1 block text-xs text-[#667085]">
+                    Agent name exactly as it appears in commission data. It decides which
+                    registration and dashboard records this account sees. Leave empty to
+                    show only records the account submitted.
+                  </span>
+                </label>
+              )}
               <label className="block">
                 <span className="text-sm font-medium text-[#344054]">
                   Temporary password
@@ -687,6 +729,29 @@ export default function AccountManagerClient({
                   required
                 />
               </label>
+              {commissionNamesAvailable && (
+                <label className="block">
+                  <span className="text-sm font-medium text-[#344054]">
+                    Commission name
+                  </span>
+                  <input
+                    className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
+                    type="text"
+                    value={editForm.commissionName}
+                    onChange={(event) =>
+                      setEditForm((current) => ({
+                        ...current,
+                        commissionName: event.target.value,
+                      }))
+                    }
+                  />
+                  <span className="mt-1 block text-xs text-[#667085]">
+                    Agent name exactly as it appears in commission data. It decides which
+                    registration and dashboard records this account sees. Leave empty to
+                    show only records the account submitted.
+                  </span>
+                </label>
+              )}
 	            </div>
 	            <div className="mt-6 flex justify-end gap-3">
 	              <button
@@ -694,7 +759,7 @@ export default function AccountManagerClient({
 	                type="button"
 	                onClick={() => {
 	                  setEditUser(null);
-	                  setEditForm({ email: "", name: "", agentId: "" });
+	                  setEditForm(emptyEditForm);
 	                }}
 	              >
 	                Cancel
@@ -708,7 +773,8 @@ export default function AccountManagerClient({
                   (editForm.email.trim().toLowerCase() ===
                     editUser.email.toLowerCase() &&
                     editForm.name.trim() === (editUser.name ?? "") &&
-                    editForm.agentId.trim() === (editUser.agent_id ?? ""))
+                    editForm.agentId.trim() === (editUser.agent_id ?? "") &&
+                    editForm.commissionName.trim() === (editUser.commission_name ?? ""))
                 }
 	              >
 	                {busyUserId === editUser.id ? "Saving..." : "Save"}

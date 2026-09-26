@@ -223,6 +223,8 @@ export function mapAuthzRpcError(message: string | undefined): { status: number;
       return { status: 404, error: "User not found." };
     case "LAST_RECOVERY_ADMIN":
       return { status: 400, error: "At least one active Admin account is required." };
+    case "COMMISSION_NAME_TAKEN":
+      return { status: 409, error: "Another account already uses this commission name." };
     default:
       return null;
   }

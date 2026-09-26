@@ -8,6 +8,11 @@ export type CreateUserInput = {
   password: string;
   name: string | null;
   agentId: string;
+  /**
+   * Tên hoa hồng (khoá phạm vi dữ liệu). `undefined` = không đặt; server chuẩn
+   * hoá và kiểm trùng trong RPC.
+   */
+  commissionName?: string;
   legacyRoleFallback: UserRole;
   roleIds: string[];
 };
@@ -28,6 +33,7 @@ export function parseCreateUserInput(body: unknown): ParseResult<CreateUserInput
     role,
     roleIds,
     agentId,
+    commissionName,
   } = (body ?? {}) as Record<string, unknown>;
 
   const normalizedEmail =
@@ -71,6 +77,9 @@ export function parseCreateUserInput(body: unknown): ParseResult<CreateUserInput
       password,
       name: typeof name === "string" && name.trim() ? name.trim() : null,
       agentId: normalizedAgentId,
+      ...(typeof commissionName === "string" && commissionName.trim()
+        ? { commissionName: commissionName.trim() }
+        : {}),
       legacyRoleFallback,
       roleIds: selectedRoleIds,
     },
